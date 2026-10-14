@@ -1,10 +1,19 @@
-"""D30 owner-approved, tree-scoped exact sends. No model verdict is authority for these grants."""
+"""D30 standing permission: tree-scoped, exact sends, stated in the plan and correctable by the owner. No model verdict
+is authority for these grants; code matches a call against a scope's concrete bounds only.
+
+A scope covers a send-class call: one whose own kind is a send, or a generic input (a click, typing, an app's control)
+the worker declared to send (W2, ferb/policy/rules.py `declare`), never one declared or described as a payment, an
+account-security change or a permanent delete. Its tool, identity, site, account and recipients must equal the
+scope's (sites and accounts compared case-insensitively, without a leading "www." or "@"; a public post has no
+recipients); its content must equal the scope's text, unless the scope's content is None (any body: a campaign whose
+posts are composed later). A click carries no text, so a scope naming the exact text never covers one: FERB asks."""
 import json
 from typing import Any
 from ferb.core.types import Target
 from ferb.orchestrator.plans import SendScope
 from ferb.policy import provenance
 from ferb.policy.confirm import SEND_CLASS
+from ferb.policy.rules import GENERIC_INPUT
 from ferb.store.db import Database
 
 SCHEDULE_GRANT = "schedule:"     # a schedule's runs hold its recorded scopes under `schedule:<schedule id>`
@@ -18,6 +27,15 @@ def owner_named(scope: SendScope, owner_text: str) -> bool:
     return bool(values) and all("owner_words" in found for found in values.values())
 
 
+def _site(value: str | None) -> str:
+    host = str(value or "").strip().lower().rstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
+def _who(value: str | None) -> str:
+    return " ".join(str(value or "").casefold().split()).removeprefix("@")
+
+
 class StandingPermissions:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -27,18 +45,28 @@ class StandingPermissions:
             self.db.conn.execute('INSERT OR REPLACE INTO standing_permissions VALUES(?,?,?,?,1)',
                 (task_id + ':' + str(index), task_id, scope.model_dump_json(), approval_id))
 
+    @staticmethod
+    def sends(spec: Any) -> bool:
+        """Whether a call is a send a scope may cover: its own kind is a send (and nothing it declares is another
+        kind), or it is a generic input declared to send. Never with an amount or a contact the agent noted."""
+        if spec.target.amount is not None or spec.target.contact is not None:
+            return False
+        if spec.kind in SEND_CLASS:
+            return not spec.declared or spec.declared in SEND_CLASS
+        return spec.kind in GENERIC_INPUT and spec.declared in SEND_CLASS
+
     def covers(self, task_id: str, capability: str, identity: str, spec: Any) -> bool:
-        if spec.kind not in SEND_CLASS or spec.target.amount is not None or not spec.content:
+        if not self.sends(spec):
             return False
-        if spec.declared and spec.declared not in SEND_CLASS:
-            return False
+        recipients = sorted(_who(r) for r in spec.target.recipients)
         for row in self.db.conn.execute('SELECT scope FROM standing_permissions WHERE task_id=? AND active=1', (task_id,)):
             scope = json.loads(row[0])
             if (scope['capability'] == capability and scope['identity'] == identity and
-                scope['account'] == spec.target.account and scope['site'] == spec.target.site and
-                sorted(scope['recipients']) == sorted(spec.target.recipients) and
-                (scope['content'] is None or scope['content'] == spec.content) and bool(scope['recipients'] or scope['site']) and
-                spec.target.contact is None):
+                _who(scope['account']) == _who(spec.target.account) and
+                _site(scope['site']) == _site(spec.target.site) and
+                sorted(_who(r) for r in scope['recipients']) == recipients and
+                (scope['content'] is None or (bool(spec.content) and scope['content'] == spec.content)) and
+                bool(scope['recipients'] or scope['site'])):
                 return True
         return False
 

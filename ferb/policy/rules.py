@@ -1,14 +1,16 @@
 """Own action metadata and stable ledger hashes. Must not classify request/UI text or authorize effects."""
 
+import dataclasses
 import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
-from ferb.core.types import Identity, Target
+from ferb.core.types import ActionSpec, Identity, Target
 
 
-# Agent-declared annotations; these do not grant authority or infer meaning from control labels.
-EFFECTS = ("navigate", "edit", "send", "pay", "destroy")
+# Agent-declared annotations; these do not grant authority or infer meaning from control labels. On a generic input
+# (GENERIC_INPUT) a consequential effect is checked as its kind (`declare`): it can only add a question.
+EFFECTS = ("navigate", "edit", "send", "pay", "destroy", "account_security")
 # The agent's own notes on a call (why, an effect, a declared purpose, who it says a call/send is for): recorded,
 # never part of what the call is, so changing them can't make a repeat a new action (P19).
 ANNOTATIONS = ("why", "effect", "purpose", "contact")
@@ -24,6 +26,34 @@ class Kind:
     CALL = "call"                                         # starting a voice / video call
     CLICK = "click"                                       # a plain click on a page control (no floor word, no form)
     SNAPSHOT = "snapshot"                                 # a local disk snapshot, a recovery point (S1)
+
+
+# W2: input whose physical kind says nothing of what it does (a click, typing or a key, an app's control or menu item,
+# an app script). What it does is the agent's declared effect, which the gateway checks as that kind (`declare`).
+GENERIC_INPUT = frozenset({Kind.CLICK, Kind.FILL_FORM, Kind.MAC_INPUT, Kind.APPLESCRIPT})
+EFFECT_KINDS = {"send": Kind.SEND, "pay": Kind.PAY, "destroy": Kind.DELETE_PERMANENT,
+                "account_security": Kind.ACCOUNT_SECURITY}
+_KEPT_FIRST = {Kind.PAY: 0, Kind.ACCOUNT_SECURITY: 0, Kind.DELETE_PERMANENT: 1}   # one declared kind: the strongest
+
+
+def declare(spec: ActionSpec, effect: str, recipients: tuple[str, ...] = (), account: str | None = None,
+            amount: float | None = None) -> ActionSpec:
+    """W2: a generic input checked as the effect the agent declares for it (send, pay, destroy, account_security),
+    with the destination it declares added to its target: the account it posts, sends or pays from, a message's
+    recipients, a payment's amount. It only adds: the capability's own kind and target stay, an effect that names no
+    consequential kind or a call that isn't a generic input changes nothing, and when the capability already declared
+    a purpose (mac.click's send or call) the stronger kind is kept (a payment or account-security change, then a
+    permanent delete, then the capability's own). Code reads the declaration only, never the page's or app's words
+    (rule 6). It is the agent's note, never what the call is: P19 hashes the call as the capability described it."""
+    kind = EFFECT_KINDS.get(effect)
+    if kind is None or spec.kind not in GENERIC_INPUT:
+        return spec
+    declared = min((k for k in (spec.declared, kind) if k), key=lambda k: _KEPT_FIRST.get(k, 2))
+    t = spec.target
+    target = dataclasses.replace(
+        t, recipients=tuple(dict.fromkeys([*t.recipients, *(r.strip() for r in recipients if r.strip())])),
+        account=t.account or (account or "").strip() or None, amount=t.amount if t.amount is not None else amount)
+    return dataclasses.replace(spec, declared=declared, target=target)
 
 
 # Reversible kinds never get a ledger row: nothing of the owner's changes.

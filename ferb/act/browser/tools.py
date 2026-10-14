@@ -278,6 +278,7 @@ class BrowserProfiles(_Base):
 class BrowserDialog(_Base):
     verb = "dialog"
     on_screen = True
+    generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = "Inspect a pending JavaScript dialog in this exact tab; explicitly choose accept/dismiss only after reading its message and resolving authorization. Unexpected dialogs are never answered automatically."
     class Input(_Tab):
         decision: Literal["accept", "dismiss"] | None = None
@@ -520,6 +521,7 @@ class BrowserPoint(_Base):
 class BrowserAct(_Base):
     verb = "act"
     on_screen = True
+    generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
              "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
              "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "

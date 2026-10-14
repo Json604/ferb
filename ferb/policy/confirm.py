@@ -1,14 +1,16 @@
 """Owns the code floor (D23) and the sink rule (S4): when a consequential call needs the owner, decided from facts
 (the kind the capability derives, its targets' provenance, what the task tree has read, the known destinations).
-Must not judge intent or content: a declared purpose may add a need, never remove one (W2); `why` and `effect` are
-never read. "Already authorized" (D33): the target is in the owner's own words for this request or in an answer the
-owner gave (S3 `owner_words` / `owner_answer`), or a destination FERB already knows (SQ6); payments and
-account-security changes ask anyway (SQ1).
+Must not judge intent or content: a declared purpose may add a need, never remove one (W2); `why` is never read, and
+`effect` only as the kind the gateway declares from it for a generic input (ferb/policy/rules.py `declare`). "Already
+authorized" (D33): the target is in the owner's own words for this request or in an answer the owner gave (S3
+`owner_words` / `owner_answer`), or a destination FERB already knows (SQ6); payments and account-security changes ask
+anyway (SQ1).
 
 - The floor: a payment and an account-security change always ask, and their Yes covers one run; a permanent delete of
   a path the owner didn't name, and a send to a recipient the owner didn't name, ask once per task tree. A send whose
-  recipient FERB can't see (a click declared to send or call, with no contact) is a send to someone the owner didn't
-  name.
+  recipient FERB can't see (a click declared to send or call, with no contact or recipients: a post) is a send to
+  someone the owner didn't name, asked once per tree for its place and the account it declared it sends as, unless
+  the owner named that site (and that account, when one is declared) or FERB knows the site.
 - The sink rule (a): a send-class call to a place with no recipient (a post, a submit) asks when the tree has read the
   owner's own data and outside content and the owner hasn't named that place. With recipients, the floor's
   new-recipient question already covers it.
@@ -321,9 +323,10 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
 def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[str, list[str]], *,
            read_private: bool, read_external: bool, known: Known, outside_read: Iterable[str] = (),
            place: str | None = None, content: str | None = None) -> list[Need]:
-    """The needs of one call, in the order the owner reads them. `kind` is the physical kind; `declared` the
-    purpose-derived one (SEND / CALL), which only widens what is checked. `arg_sources` is provenance.arg_sources of
-    the target; `known(kind, value)` says whether a destination is known; `outside_read` is the outside content the
+    """The needs of one call, in the order the owner reads them. `kind` is the physical kind; `declared` the kind a
+    declared purpose or effect adds (SEND / CALL / PAY / ACCOUNT_SECURITY / DELETE_PERMANENT), which only widens what
+    is checked. `arg_sources` is provenance.arg_sources of the target; `known(kind, value)` says whether a destination
+    is known; `outside_read` is the outside content the
     tree read (origin labels), named in the sink question; `place` is where the call happens as the owner knows it
     (an app's name), else the target's site; `content` is what a send carries, sized in the bulk question. A permanent
     delete of a folder (S4(c)) needs the folder counted: the gateway adds it (`bulk_delete`)."""
@@ -338,8 +341,10 @@ def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[st
                               {"amount": shown_amount(target.amount), "site": where, "account": target.account or "",
                                "recipients": ", ".join(v for _, v in who)}, always=True))
     if Kind.DELETE_PERMANENT in kinds and not _owner(arg_sources.get("path", [])):
-        needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", target.path),
-                          {"path": target.path or "an item it doesn't name"}))
+        # a click declared to destroy names no path: its place keys and names it (one Yes per tree and place)
+        in_place = () if target.path or not where else (where,)
+        needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", target.path, *in_place),
+                          {"path": target.path or "an item it doesn't name", "place": "" if target.path else where}))
     sends = kinds & SEND_CLASS
     calls = Kind.CALL in kinds and not sends - {Kind.CALL}
     if sends:
@@ -350,9 +355,17 @@ def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[st
                               destinations=tuple(destination_of(v) for v in new)))
         elif not who and (kind not in SEND_CLASS or not target.site):
             # a send FERB can't see the recipient of: a click declared to send or call names no contact (its site is
-            # an app, never a destination to record), or a send-class call names neither recipient nor place
-            needs.append(Need("floor:new_recipient", key("floor:new_recipient", None, target.site),
-                              {"recipients": "", "verb": "calls" if calls else "sends to", "place": where}))
+            # an app or a page's host, never a destination to record), or a send-class call names neither recipient
+            # nor place. One Yes per tree covers that place, and the account the click declared it sends as. A page
+            # whose site the owner named (or FERB knows), from an account the owner named if one is declared, is
+            # already authorized (D33): a form the owner asked to submit, a post to the site they named.
+            named = (bool(target.site) and (_owner(arg_sources.get("site", [])) or known("host", target.site or ""))
+                     and (not target.account or _owner(arg_sources.get("account", []))))
+            account = (target.account,) if target.account else ()
+            if not named:
+                needs.append(Need("floor:new_recipient", key("floor:new_recipient", None, target.site, *account),
+                                  {"recipients": "", "verb": "calls" if calls else "sends to", "place": where,
+                                   "account": target.account or ""}))
         elif (not who and read_private and read_external
               and not _owner(arg_sources.get("site", [])) and not known("host", target.site or "")):
             needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
@@ -406,10 +419,12 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     if n.rule == "floor:account_security":
         return ("this changes account security (a password, sign-in or recovery setting)" +
                 (f" on {v['site']}" if v["site"] else "") + (f" for {v['account']}" if v["account"] else ""))
+    if n.rule == "floor:delete_permanent" and v.get("place"):
+        return f"this permanently deletes {v['path']} in {v['place']} (it can't be undone)"
     if n.rule == "floor:delete_permanent":
         return f"this permanently deletes {v['path']} (it skips the Trash)"
     if n.rule == "floor:new_recipient" and not v["recipients"]:
-        where = f" in {v['place']}" if v.get("place") else ""
+        where = (f" in {v['place']}" if v.get("place") else "") + (f" as {v['account']}" if v.get("account") else "")
         if v["verb"] == "calls":
             return f"this starts a call{where} with a contact it doesn't name"
         return f"this sends{where} to a contact it doesn't name"

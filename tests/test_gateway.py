@@ -53,7 +53,7 @@ def test_act_tools_offer_optional_effect_and_why_annotations(daemon: RunningDaem
     grant, _ = setup(daemon, {"browser:act", "fs:read"}, request("email alice@x.com"), [send])
     tools = {t["name"]: t for t in daemon.daemon.gateway.tools_for(grant)}
     assert tools["fake.send"]["input_schema"]["properties"]["effect"]["enum"] == \
-        ["navigate", "edit", "send", "pay", "destroy"]
+        ["navigate", "edit", "send", "pay", "destroy", "account_security"]   # account_security: L3, Task 18
     assert "why" in tools["fake.send"]["input_schema"]["properties"]
     assert "effect" not in tools["fs.read"]["input_schema"]["properties"]      # reading declares nothing
     r = call(daemon, grant, "fake.send", effect="harmless", why="x")

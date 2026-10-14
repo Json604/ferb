@@ -369,8 +369,9 @@ class Supervisor(WorkerRuns):
         self.recall: Callable[[str], Any] = lambda words: ""
         self.timers: Any = None                  # clock.timers.Timers
         # Durable scheduling callbacks supplied by the daemon.
-        self.on_schedule: Callable[[Any, str, str, set[str]], str] = \
-            lambda spec, own, rid, made: "Scheduling isn't available."
+        # on_schedule(spec, owner's words, request id, what the turn saw, what the request itself carried)
+        self.on_schedule: Callable[[Any, str, str, set[str], set[str]], str] = \
+            lambda spec, own, rid, made, asked: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         # whether a schedule's runs may still hold its recorded scope (D30); none without the daemon's schedules
@@ -579,6 +580,7 @@ class Supervisor(WorkerRuns):
             "standing_sends": [scope.model_dump() for scope in recorded_scopes]})
         session = ChatSession("schedule:" + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
+        self._env[request_id]["request_origins"] = self._schedule_request_origins(sched.id)   # S4 (L4)
         try:
             out = await self._decide(session, sched.request + note, request_id)
         except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
@@ -1016,7 +1018,8 @@ class Supervisor(WorkerRuns):
         # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
         # every line (clients may show those events only in passing).
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins))
+            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins,
+                                            self._scheduled_request_origins(request_id)))
             yield {"type": "timer", "text": changed[-1]}
         for ch in out.schedule_changes:
             changed.append(self.on_schedule_change(ch, typed))
@@ -1413,6 +1416,26 @@ class Supervisor(WorkerRuns):
             self.journal.db.conn.execute("DELETE FROM journal WHERE id = ? AND kind = ?", (ident, SUMMARY_KIND))
         return len(doomed)
 
+    def _scheduled_request_origins(self, request_id: str) -> set[str]:
+        """What a request a schedule is made from carries itself (S4's request origins, L4): the owner's message and
+        what it carried (pasted text, a clarify's earlier text), the context given to its planner whose stored origin
+        is outside content, and `inferred` (the planner wrote the scheduled request). FERB's own memory, history and
+        device facts are not outside content, whatever they inherited, so a scheduled run doesn't start as having
+        read outside content because the turn that made it saw FERB's own context. Its labels (MP2) stay the turn's."""
+        env = self._env.get(request_id, {})
+        read = [origins_.split(e["origin"]) for e in env.get("context_exposures", [])]
+        return ({origins_.INFERRED} | set(env.get("message_origin") or {origins_.external("unlabeled")}) |
+                {o for labels in read if origins_.stored_outside(labels) for o in labels})
+
+    def _schedule_request_origins(self, schedule_id: str) -> set[str]:
+        """A scheduled run's request origins for the sink rule (S4, L4), as recorded on its schedule.created row; a
+        row recorded without them (before L4) gives every label the turn saw (`_schedule_origins`): fail-closed."""
+        rows = self.journal.of_kind("schedule.created", "schedule_id", schedule_id)
+        recorded = [e.data.get("request_origins") for e in rows]
+        if rows and all(isinstance(r, list) and r for r in recorded):
+            return {str(o) for r in recorded if isinstance(r, list) for o in r}
+        return self._schedule_origins(schedule_id)
+
     def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
         if isinstance(remembered, tuple):
             return remembered[0], remembered[1]
@@ -1487,8 +1510,10 @@ class Supervisor(WorkerRuns):
             request = dataclasses.replace(request, payload=message or request.words)
             self.state.requests.record(request)
         # The request's own origins (the message, its pasted parts, what a clarify or retry carries), apart from the
-        # planner's blocks and memory: the sink rule's "outside content was read" counts these (S4, F5a).
-        asked = self._env.get(request_id, {}).get("message_origin") or {origins_.external("unlabeled")}
+        # planner's blocks and memory: the sink rule's "outside content was read" counts these (S4, F5a). A scheduled
+        # run's request carries what the message that made it carried, not everything that turn saw (L4).
+        turn = self._env.get(request_id, {})
+        asked = turn.get("request_origins") or turn.get("message_origin") or {origins_.external("unlabeled")}
         # The front window this request's planner and worker are given is outside content read, as a tool result's
         # would be: a screenshot of other people's messages counts, though it is the owner's data too (L12, S4).
         shown = {o for o in origins_.split(front.origin) if origins_.is_external(o)} if front is not None else set()

@@ -2082,9 +2082,11 @@ class Daemon:
 
     # ---------- schedules ----------
 
-    def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str]) -> str:
+    def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str],
+                         request_origins: set[str] | None = None) -> str:
         """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future.
-        `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2)."""
+        `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
+        `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4)."""
         from ferb.orchestrator.schedules import Rule, ScheduleError
         from ferb.policy.targets import Targets
         norm = " ".join(own_words.lower().split())
@@ -2111,7 +2113,9 @@ class Daemon:
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
                                                     "request_id": request_id, "standing_sends": scopes,
-                                                    "not_recorded": unnamed}, origin=origin_.join(origins))
+                                                    "not_recorded": unnamed}
+                               | ({"request_origins": sorted(request_origins)} if request_origins else {}),
+                               origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"

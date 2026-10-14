@@ -1,7 +1,9 @@
 """Own tool validation, execution locks and recording. Must not infer intent, targets or authorization.
 
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
-Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
+Optional why annotations never gate execution; an effect declared on a generic input (a click, typing, an app's
+control) is checked as its kind, with the destination declared beside it (W2: it can only add a question). OS and
+transport failures remain factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
 worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29). No image is withheld
 for what it shows or where it is from (L13, D29 clarified; owner: "Yes, no exceptions"): browser windows, tab captures,
@@ -13,8 +15,9 @@ P19: a consequential action identical to one in the same task tree whose outcome
 is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
 that exact action (owner.ask with retry_action). That answer allows one more attempt and nothing else does; the
 earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its normalized
-target (a file as the file it really writes, as the fs lock and S1 key it), content and validated arguments, without the agent's notes (why, effect, purpose, contact) or the kind
-derived from them (ferb/policy/rules.py payload_hash, hashed_args).
+target (a file as the file it really writes, as the fs lock and S1 key it), content and validated arguments, without
+the agent's notes (why, effect, destination, purpose, contact) or the kind and targets derived from them
+(ferb/policy/rules.py payload_hash, hashed_args, declare).
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
 no copy, no change. A trash keeps where the item came from and went. A local APFS snapshot before a permanent delete
 (and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a call.
@@ -41,7 +44,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ferb.act import aftercheck
 from ferb.act.fs import recovery
@@ -61,7 +64,7 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy import confirm, provenance
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
-from ferb.policy.rules import EFFECTS
+from ferb.policy.rules import EFFECTS, declare
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
@@ -194,6 +197,16 @@ class Covered:
     ids: list[str] = field(default_factory=list)      # the rows that decided it: its span's `confirmations`
     spent: list[str] = field(default_factory=list)    # Yes rows this call uses up once it has run (SQ1)
     refused: dict[str, Any] | None = None             # the reply when it must not run
+    standing: list[str] = field(default_factory=list)  # the rules a standing permission covered (D30): its `standing`
+
+
+class Destination(BaseModel):
+    """What a generic input declared to send, pay or change account security reaches, as the worker declares it
+    (W2, `rules.declare`): checked by the code floor and against standing permissions, never a permission itself."""
+    model_config = ConfigDict(extra="forbid")
+    recipients: list[str] = Field(default_factory=list)
+    account: str | None = None
+    amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
@@ -393,8 +406,9 @@ class Gateway:
 
     @staticmethod
     def _acts(cap: Any) -> bool:
-        """Tools with optional effect metadata describing their changes."""
-        return not getattr(cap, "reversible", True)
+        """Tools with optional effect metadata describing their changes: every acting tool, and every generic input
+        (a click, typing, an app's control: `generic_input`), whose declared effect FERB checks (W2)."""
+        return not getattr(cap, "reversible", True) or bool(getattr(cap, "generic_input", False))
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """Installed tools covered by the run token; identity and read provenance do not withdraw them. An
@@ -408,6 +422,8 @@ class Gateway:
             props = schema.setdefault("properties", {})
             if self._acts(cap):
                 props["effect"] = {"type": "string", "enum": list(EFFECTS), "description": EFFECT_HELP}
+            if getattr(cap, "generic_input", False) and "destination" not in props:
+                props["destination"] = DESTINATION_SCHEMA
             props["why"] = {"type": "string", "description": WHY_HELP}
             out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
@@ -611,8 +627,11 @@ class Gateway:
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
         effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate
+        # W2: what a generic input declared to send or pay reaches (the agent's note: checked, never a permission)
+        noted = arguments.pop("destination", None) if "destination" not in cap.Input.model_fields else None
         try:
             args = cap.Input.model_validate(arguments)
+            reaches = Destination.model_validate(noted or {})
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
         if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
@@ -645,11 +664,16 @@ class Gateway:
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
                                content=spec.content, effect=effect, why=why)
-        extra: dict[str, Any] = {"declared": spec.declared} if spec.declared else {}
-        consequential = spec.kind not in REVERSIBLE or spec.declared is not None   # a declared purpose only adds
+        # W2: a generic input is checked as the effect the worker declares, with what it declares it reaches; the
+        # call itself (P19's hash, the ledger, the run) stays as the capability described it
+        checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount)
+        extra: dict[str, Any] = {"declared": checked.declared} if checked.declared else {}
+        if noted is not None:
+            extra["destination"] = reaches.model_dump(exclude_defaults=True)
+        consequential = spec.kind not in REVERSIBLE or checked.declared is not None   # a declared purpose only adds
         if consequential:                                # where each target came from (S3), a fact
-            extra["arg_sources"] = self._arg_sources(spec, rec, grant)
-        blocked = self._send_blocked(spec)               # test mode: before FERB asks the owner anything
+            extra["arg_sources"] = self._arg_sources(checked, rec, grant)
+        blocked = self._send_blocked(checked)            # test mode: before FERB asks the owner anything
         ident = self._identity(cap, name, spec, action, args, real)
         if isinstance(ident, tuple) and (earlier := self._undelivered.pop((grant.task_id, *ident), None)):
             return self._earlier_result(grant, rec, name, arguments, spec, *earlier)
@@ -657,14 +681,16 @@ class Gateway:
         covered = Covered()
         if consequential and blocked is None and repeat is None:
             # D23 floor, S4: asked by code, before anything is held
-            covered = await self._confirmed(grant, rec, name, arguments, spec, why, extra["arg_sources"],
+            covered = await self._confirmed(grant, rec, name, arguments, checked, why, extra["arg_sources"],
                                             ident if isinstance(ident, tuple) else None)
         if consequential:
             extra["confirmations"] = covered.ids
+        if covered.standing and covered.refused is None:  # D30: runs inside a standing permission, logged as such
+            extra["standing"] = {"task": rec.tree_id or grant.task_id, "rules": covered.standing}
         claimed = Claimed(covered.spent)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                input={"tool": name, "args": arguments, "effect": effect, "kind": spec.kind,
-                                      "target": _target_dict(spec.target)}
+                                      "target": _target_dict(checked.target)}
                                | ({"why": why} if why else {}) | extra)
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
@@ -845,10 +871,7 @@ class Gateway:
                     standing = getattr(self, 'standing', None)
                     if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination', confirm.BULK) and
                         standing is not None and standing.covers(root, name, grant.identity.value, spec)):
-                        recorded = self.spans.start('standing.covered', task_id=grant.task_id,
-                            parent_id=rec.span_id, input={'tool': name, 'target': _target_dict(spec.target),
-                                                         'rule': need.rule, 'content': spec.content})
-                        self.spans.finish(recorded, output={'standing_task': root})
+                        out.standing.append(need.rule)   # D30: covered; the call's record says so (`standing`)
                         continue
                     if row is not None and row["granted"] and row["used"] and need.always:
                         approved = self._approved_retry_rows(grant, ident) if approved is None else approved
@@ -1811,7 +1834,18 @@ def _unfilled(state: str) -> Literal["denied", "superseded"]:
 CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)
 EARLIER_ATTEMPT = ("This identical action already ran to completion in an earlier call of this task whose result "
                    "didn't reach you; it was not done again. This is that attempt's result.")
-EFFECT_HELP = "Optional description of this action's effect for the activity log; it does not grant permission."
+EFFECT_HELP = ("Optional: the kind of change this action makes (send covers posts and form submissions). On a "
+               "click, typing or app input, send, pay, destroy or account_security is how FERB knows the action is "
+               "one, so FERB checks it like one; it never grants permission.")
+DESTINATION_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "description": ("With effect send, pay or account_security: what the action reaches, as the page or app shows "
+                    "it. recipients: the people a message or email goes to (none for a public post); account: the "
+                    "account it posts, sends or pays from, or whose security it changes; amount: what a payment "
+                    "pays. FERB checks these against the owner's words and any standing permission; they never "
+                    "grant permission."),
+    "properties": {"recipients": {"type": "array", "items": {"type": "string"}},
+                   "account": {"type": "string"}, "amount": {"type": "number", "minimum": 0}}}
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
 
