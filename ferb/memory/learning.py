@@ -53,6 +53,7 @@ class Learning:
     def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str]) -> None:
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
         self.embedder: Any = None
+        self.forgets = 0          # counts explicit forgets: a card read before one is read again before it's written
 
     def now(self) -> str:
         return self.clock.now().isoformat()
@@ -118,9 +119,15 @@ class Learning:
             return {label for row in retained for label in json.loads(row[0])}
         raise LearningRefused(f'source is missing: {ref}')
 
+    def labels(self, sources: Iterable[str]) -> set[str]:
+        """Every origin the sources hold (a missing or unknown source raises LearningRefused)."""
+        return {label for s in sorted(set(sources)) for label in self._source_origins(s)}
+
     def put(self, kind: str, key: str, body: dict[str, Any], sources: Iterable[str], *,
             origin_label: str = origin.INFERRED, made_by: str, batch: str | None = None,
-            state: str = 'candidate', owner: bool = False) -> dict[str, Any]:
+            state: str = 'candidate', owner: bool = False, labels: set[str] | None = None) -> dict[str, Any]:
+        """`labels`: the sources' origins when the caller already read them (`labels`), e.g. on a read connection off
+        the event loop; otherwise they are read here."""
         if kind == 'identity' and not owner:
             raise LearningRefused('only the owner can write identity')
         if origin_label == origin.OWNER and not owner:
@@ -128,7 +135,7 @@ class Learning:
         body = json.loads(self.redact(encoded(body)))
         key = self.redact(key)
         refs = sorted(set(sources))
-        labels = {label for s in refs for label in self._source_origins(s)}
+        labels = set(labels) if labels is not None else self.labels(refs)
         # An explicit owner statement is a new statement, still citing the old proposal as history.
         labels = {origin.OWNER} if owner else labels | origin.split(origin_label)
         inherited = origin.least_trusted(labels)
@@ -169,6 +176,19 @@ class Learning:
         return self.get(node_id)  # type: ignore[return-value]
 
     def capture_episode(self, task_id: str, apps: dict[str, str] | None = None) -> dict[str, Any] | None:
+        return self.write_episode(self.prepare_episode(task_id, apps))
+
+    def write_episode(self, prepared: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Write a card `prepare_episode` read: the only write of a capture."""
+        if prepared is None:
+            return None
+        return self.put('episode', prepared['task_id'], prepared['body'], prepared['sources'],
+                        made_by='code:evidence-card/1', origin_label=origin.FERB, state='active',
+                        labels=set(prepared['labels']))
+
+    def prepare_episode(self, task_id: str, apps: dict[str, str] | None = None) -> dict[str, Any] | None:
+        """Every read of an episode card: its body, its resolved lineage and its sources' origins, without writing. It
+        can run on a separate read-only connection in a worker thread (L28); `write_episode` writes the result."""
         ep = episodes.get(self.db, task_id)
         if ep is None:
             return None
@@ -237,8 +257,8 @@ class Learning:
                 body['actions'] = old['body'].get('actions', [])
             # Retained cards keep lineage even when their raw rows have reached retention.
             source_refs.update(old['sources'])
-        return self.put('episode', task_id, body, source_refs, made_by='code:evidence-card/1',
-                        origin_label=origin.FERB, state='active')
+        return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs),
+                'labels': sorted(self.labels(source_refs))}
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
         from ferb.memory.lineage import call_sources
@@ -445,6 +465,7 @@ class Learning:
         return found
 
     def forget(self, refs: Iterable[str]) -> list[str]:
+        self.forgets += 1
         requested = list(refs)
         versions = set(requested)
         logical = []

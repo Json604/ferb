@@ -25,6 +25,22 @@ OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for ar
 _RECORDED = "CASE WHEN kind != 'task' AND origin IS NULL AND output_json IS NOT NULL THEN ? ELSE origin END"
 
 
+def keep_ids(redact: Redact, data: dict[str, Any]) -> dict[str, Any]:
+    """`data` redacted, except that a single id token in an ID_FIELDS list is never altered by text redaction (L16): a
+    registered secret value can occur inside an id, and an altered ref breaks lineage. Redactor.id_ref still redacts a
+    ref that is itself a secret; any other redact sees every ref as text."""
+    out = redact({k: v for k, v in data.items() if k not in ID_FIELDS})
+    id_ref = getattr(redact, "id_ref", None)
+    for key in ID_FIELDS & data.keys():
+        refs = data[key]
+        if not isinstance(refs, (list, tuple)):
+            out[key] = redact({key: refs})[key]
+            continue
+        out[key] = [id_ref(ref) if callable(id_ref) and isinstance(ref, str) and ID_TOKEN.fullmatch(ref)
+                    else redact({key: ref})[key] for ref in refs]
+    return out
+
+
 def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
     """SQL and parameters selecting a task tree's spans. A range, not substr(): it can use the task_id index.
     "/" is the character right after "."."""
@@ -68,16 +84,7 @@ class SpanStore:
         return span
 
     def _redact_input(self, input: dict[str, Any]) -> dict[str, Any]:
-        out = self._redact({k: v for k, v in input.items() if k not in ID_FIELDS})
-        id_ref = getattr(self._redact, "id_ref", None)       # a Redactor; any other redact sees every ref as text
-        for key in ID_FIELDS & input.keys():
-            refs = input[key]
-            if not isinstance(refs, (list, tuple)):
-                out[key] = self._redact({key: refs})[key]
-                continue
-            out[key] = [id_ref(ref) if callable(id_ref) and isinstance(ref, str) and ID_TOKEN.fullmatch(ref)
-                        else self._redact({key: ref})[key] for ref in refs]
-        return out
+        return keep_ids(self._redact, input)
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,
                cost_usd: float | None = None, origin: str | None = None,

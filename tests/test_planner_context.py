@@ -247,16 +247,19 @@ def test_assembly_counts_each_block_once(monkeypatch):
 def test_the_recent_raw_trail_is_fetch_only_never_in_the_planner_prompt(daemon):
     """Owner decision 2026-10-14: today's matching activity stays in the prompt; the raw trail of the last minutes
     (measured at 119k-433k tokens on the owner's data) is never in it, even when it would fit. The planner is told a
-    task's worker can fetch it with trail.query."""
-    sv = daemon.daemon.supervisor
-    _situation_hooks(daemon)
-    sv.recent_activity = lambda: (json.dumps({"apps": [{"app": "Brave", "events": [{"data": {"title": "RECENT-RAW-PAGE"}}]}],
-                                              "source_refs": ["trail:recent"]}), "external:web")
+    task's worker can fetch it with trail.query. Real trail rows, through the daemon's own wiring."""
+    from ferb.sense.trail import Observation
+
+    async def seed():
+        trail = daemon.daemon.trail
+        trail.record(Observation("window", {"app": "Brave", "title": "ZEBRA-XYZZY crossing"}, {"actor": "owner"}))
+        trail.record(Observation("window", {"app": "Brave", "title": "kettle shopping list"}, {"actor": "owner"}))
+    daemon.run(seed())
     script = install(daemon, [sup("reply", "ok")])
-    chat(daemon, "what was I just doing?")
+    chat(daemon, "kettle shopping again?")             # (no word shared with the other row or its field names)
     request = _planner_requests(script)[-1]
-    assert "TODAY-ACTIVITY" in request.context and "RECENT-RAW-PAGE" not in request.context
-    assert "Layer 3 — recent activity" not in request.context
+    assert "kettle shopping list" in request.context.split("Layer 3 — today's activity", 1)[1]   # today's match: in
+    assert "ZEBRA-XYZZY" not in request.context                           # the last minutes' raw trail: fetch-only
     assert "raw activity of the last minutes" in request.system and "trail.query" in request.system
 
 
@@ -475,3 +478,65 @@ def test_a_failed_query_embedding_is_not_retried_on_the_loop(daemon):
     async def unavailable():
         return daemon.daemon.journal.of_kind("memory.embedding_unavailable")
     assert calls == ["tea shop"] and len(daemon.run(unavailable())) == 1
+
+
+BUSY_SECOND = """
+import json, time
+big = json.dumps(list(range(300000)))
+end = time.perf_counter() + 1.0
+while time.perf_counter() < end:                 # CPU-bound like the real resolution (long JSON decodes)
+    json.loads(big)
+"""
+
+
+def test_episode_capture_runs_off_the_loop_so_a_new_message_is_not_held(daemon, monkeypatch):
+    """The learning capture's reads (the lineage resolution: 1.3-1.6 s of CPU on the owner's data) run in a process of
+    their own: in a thread they would still hold the interpreter lock against the event loop. A message sent meanwhile
+    gets its acknowledgement and first line at once; the card is still written."""
+    import sys
+    import time
+    from ferb.cli.client import Client
+    from ferb.memory.learning import Learning
+    real = Learning.prepare_episode
+
+    def busy(self, task_id, apps=None):                                # if the reads ran in-process
+        exec(BUSY_SECOND, {})
+        return real(self, task_id, apps)
+    monkeypatch.setattr(Learning, "prepare_episode", busy)
+    daemon.daemon.card_reader = [sys.executable, "-c", BUSY_SECOND + "\nimport runpy, sys\nsys.argv[0] = 'card_reader'\n"
+                                 "runpy.run_module('ferb.memory.card_reader', run_name='__main__')"]
+    install(daemon, [sup("task", "Doing.", task("job")), sup("reply", "quick answer")], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    c = Client(daemon.sock, timeout=30)
+    sent, first = time.monotonic(), {}
+    try:
+        for ev in c.stream("chat.send", {"session_id": SESSION, "text": "a quick question"}):
+            first.setdefault(ev["type"], time.monotonic() - sent)
+            if ev["type"] == "reply":
+                break
+    finally:
+        c.close()
+    capturing = bool(daemon.daemon.supervisor._episode_jobs)
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=20)
+    assert capturing, first                                            # the answer came while the capture still ran
+    assert first["ack"] < 0.2 and first["reply"] < 0.5, first
+
+    async def card():
+        return [n for n in daemon.daemon.learning.items("episode")]
+    assert daemon.run(card())                                          # and the card was still written
+
+
+def test_reply_rows_keep_their_source_ids_intact(daemon):
+    """A registered secret value can occur inside an id; journal rows, like span inputs, never redact a single id token,
+    or an altered ref breaks lineage (production: 44 episode captures failed on 'unknown source m-8e95…[redacted]…')."""
+    sv = daemon.daemon.supervisor
+    node = "m-8e953d2b8ca8fa1fce4363854ff888cff4b8e7875d600c2682390412a8cf79"
+    daemon.call_soon(daemon.daemon._add_secret_value, "4363854ff888")
+    sv.memory_candidates = lambda words: [{'text': 'A remembered fact.', 'reference': 'memory.learned id=x',
+                                           'origin': 'private', 'source_refs': [node]}]
+    install(daemon, [sup("reply", "ok")])
+    chat(daemon, "hello")
+
+    async def reply():
+        return daemon.daemon.journal.of_kind("chat.reply")[-1].data["source_refs"]
+    assert node in daemon.run(reply())

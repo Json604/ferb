@@ -308,6 +308,7 @@ class Supervisor(WorkerRuns):
         self._plan_runs: dict[str, PlanExecutor] = {}
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
+        self._capture_lock = asyncio.Lock()
         self._chat_locks: dict[str, asyncio.Lock] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
@@ -315,7 +316,7 @@ class Supervisor(WorkerRuns):
         self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
         self.procedure_source: Callable[[str], dict[str, Any]] = lambda ident: {}
         self.identity_context: Callable[[], str] = lambda: ''
-        self.on_episode: Callable[[str], None] = lambda task_id: None
+        self.on_episode: Callable[[str], Any] = lambda task_id: None      # may return an awaitable
         self.procedure_outcome: Callable[[str, str], None] = lambda procedure_id, task_id: None
         self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
@@ -1479,13 +1480,16 @@ class Supervisor(WorkerRuns):
         a tracked job, awaited at shutdown (`finish_episodes`); a failure is journaled, never raised."""
         async def capture() -> None:
             await asyncio.sleep(0)                   # the outcome goes out first
-            try:
-                self.on_episode(tree_id)
-                if procedure_id:
-                    self.procedure_outcome(procedure_id, tree_id)
-            except Exception as exc:
-                self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
-                    'error': f'{type(exc).__name__}: {exc}'})
+            async with self._capture_lock:           # one capture at a time: two never race on the same cards
+                try:
+                    done = self.on_episode(tree_id)  # the daemon's capture reads in a worker thread (off the loop)
+                    if inspect.isawaitable(done):
+                        await done
+                    if procedure_id:
+                        self.procedure_outcome(procedure_id, tree_id)
+                except Exception as exc:
+                    self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
+                        'error': f'{type(exc).__name__}: {exc}'})
         job = asyncio.get_running_loop().create_task(capture())
         self._episode_jobs.add(job)
         job.add_done_callback(self._episode_jobs.discard)

@@ -254,6 +254,7 @@ class Daemon:
         self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
         self.schedules: Any = None                            # durable schedules
         self._runs: set[asyncio.Task[None]] = set()
+        self.card_reader = [sys.executable, "-m", "ferb.memory.card_reader"]   # reads episode cards off the loop (L28)
         self._held_task: asyncio.Task[None] | None = None
         # Timers
         self.timers: Any = None
@@ -1144,10 +1145,31 @@ class Daemon:
         profile = self._device_profile()
         return {a.bundle_id: a.version for a in profile.apps} if profile else {}
 
-    def _capture_learning_episode(self, task_id: str) -> None:
+    async def _capture_learning_episode(self, task_id: str) -> None:
+        """A task's episode card (L28). Its reads (the lineage resolution: 1.3-1.6 s of CPU on the owner's data) run in a
+        process of their own on a read-only connection (`ferb.memory.card_reader`): in a thread they would still hold
+        the interpreter lock against the event loop. Only the card's write is on the loop. A forget between the two
+        reads it again. Failures are journaled."""
+        from ferb.memory.learning import LearningRefused
         try:
-            if self.learning is not None:
-                self.learning.capture_episode(task_id, self._app_versions())
+            if self.learning is None or self.db is None:
+                return
+            apps = self._app_versions()
+            while True:
+                forgets = self.learning.forgets
+                proc = await asyncio.create_subprocess_exec(
+                    *self.card_reader, str(self.db.path), task_id, stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                out, _ = await proc.communicate(json.dumps(apps).encode())
+                try:
+                    answer = json.loads(out)
+                except ValueError:
+                    answer = {"error": f"the card reader exited {proc.returncode} without an answer"}
+                if "error" in answer:
+                    raise LearningRefused(str(answer["error"]))
+                if forgets == self.learning.forgets:
+                    break
+            self.learning.write_episode(answer["prepared"])
         except Exception as e:
             self._journal().append("memory.episode_failed", {"task_id": task_id, "error": self._redact_text(str(e))})
 
