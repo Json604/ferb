@@ -9,33 +9,59 @@
 <body>
 <main>
 <h1>FERB Privacy Policy</h1>
-<p class="muted">Last updated: 14 October 2026</p>
+<p class="muted">Last updated: 15 October 2026</p>
 
 <p>FERB is an open-source personal assistant for macOS. It is made of the FERB app, which runs on your Mac, and the
 FERB browser extension. This policy covers both.</p>
 
 <h2>What the extension does with your data</h2>
 <p>The extension connects only to the FERB app on the same Mac, through the browser's native messaging. It has no
-servers, sends no analytics and runs no code from the internet. It acts only in browser profiles you pair with FERB,
-and only on tabs a FERB task opened or took over. To carry out a task you asked for, it reads the task's pages
-(text, accessibility tree, URL and title, and screenshots of that tab) and performs clicks, typing, scrolling,
-uploads and downloads. It passes what it reads to the FERB app, and to nothing else.</p>
+servers, sends no analytics and runs no code from the internet. It works only in browser profiles you pair with FERB.
+In those profiles it does three things:</p>
+<ul>
+  <li><strong>Tasks.</strong> To carry out a task you asked for, it reads the pages of tabs a FERB task opened or took
+    over (text, accessibility tree, URL and title, and screenshots of that tab) and clicks, types, scrolls, uploads and
+    downloads there.</li>
+  <li><strong>Activity history.</strong> It tells the FERB app each time a tab finishes loading a page or becomes the
+    active tab: the page's address (with password, token and similar parameters removed) and its title. FERB keeps
+    these in its activity history on your Mac. Private (incognito) windows are never recorded.</li>
+  <li><strong>Hiding secrets in screenshots.</strong> When FERB takes a screenshot of a browser window (it does this
+    each time you send a message while that window is in front, and when a task looks at the window), the extension
+    runs its own bundled script in the tab you can see to find where password and one-time-code fields are, so FERB
+    can paint over them. It reads where those fields are, never what's in them.</li>
+</ul>
+<p>It passes what it reads to the FERB app, and to nothing else.</p>
 
 <h2>What the FERB app does with your data</h2>
 <ul>
-  <li><strong>Stored on your Mac.</strong> FERB keeps its records (tasks, what it did, memory) in a local database on
-    your Mac. Nothing is uploaded to a FERB server; there isn't one.</li>
-  <li><strong>Sent to the AI provider you connect.</strong> To understand and carry out a task, FERB sends the task's
-    context to the AI model service you set up in FERB (for example OpenAI or Anthropic), under that provider's own
-    terms. This can include page text, screenshots of the window you have in front when you send a message, and
-    transcripts of sound FERB listens to during a task. FERB's background triage model (which decides whether
-    something it observed on your Mac is worth telling you about) also runs at that provider and sees redacted
-    observations.</li>
-  <li><strong>Secrets are removed first.</strong> Before anything leaves your Mac, FERB removes known secret types
-    (passwords, one-time codes, API keys, tokens, card numbers). Passwords and one-time codes you give FERB are
-    filled into pages through a sealed path and are never shown to the AI model.</li>
+  <li><strong>Stored on your Mac.</strong> FERB keeps its records in a local database on your Mac: your tasks and
+    what it did, its memory, and the activity it notices (the apps and windows you use, tab addresses and titles, text
+    you type in ordinary fields, text you copy, and notifications). Typed and copied text is kept for 7 days, other
+    activity for 30 days. Nothing is uploaded to a FERB server; there isn't one.</li>
+  <li><strong>Sent to the AI provider you connect.</strong> FERB sends context to the AI model service you set up in
+    FERB (for example OpenAI through Codex, or Anthropic), under that provider's own terms: to carry out the tasks you
+    ask for, and also to decide whether something it noticed is worth telling you, to write your daily summary and to
+    organize its memory. This can include page text, a redacted screenshot of the window you have in front when you
+    send a message, transcripts of sound FERB listens to during a task, and the parts of your recent activity that
+    relate to your message.</li>
+  <li><strong>Optional triage service.</strong> If you add a Jev key, FERB also sends batches of redacted activity
+    (app and window names, tab addresses and titles, typed and copied text, notifications) to Jev, a triage service
+    run by typesafe.ai (api.typesafe.ai), which answers whether a moment may be worth telling you about. Without a Jev
+    key nothing is sent there. When Jev says yes, the decision and the message to you are made by your AI provider
+    (above).</li>
+  <li><strong>Speech stays on your Mac.</strong> Dictation in the FERB app, push-to-talk and the sound FERB listens to
+    during a task are turned into text by Apple's speech recognition on your Mac only. Where your Mac can't recognize
+    a language on-device, FERB says so instead of sending your voice anywhere. Recorded sound is deleted once it has
+    been turned into text.</li>
+  <li><strong>Secrets are removed first.</strong> Before anything is stored or leaves your Mac, FERB removes known
+    kinds of secrets: password fields (also while "show password" is on), one-time codes with a word like "code",
+    "OTP" or "verification" next to them, values written right after words like "password", "PIN", "API key" or
+    "token", recognizable API keys and tokens, and card numbers. It works by recognizing these patterns, so a secret
+    written some other way can get through. Passwords and one-time codes you give FERB are filled into pages through a
+    sealed path and are never shown to the AI model.</li>
   <li><strong>Not sold or shared.</strong> Your data is never sold, never used for advertising, never used to judge
-    creditworthiness, and never used for anything except the tasks you ask FERB to do.</li>
+    creditworthiness, and never used for anything except running FERB's features for you: your tasks, the things it
+    tells you about, your daily summary and its memory.</li>
 </ul>
 
 <h2>Your control</h2>

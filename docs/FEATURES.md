@@ -37,10 +37,10 @@ background** while the owner keeps working: it leaves the cursor, keyboard focus
 takes the foreground when the owner explicitly allows it. It **perceives what happens on the Mac all day** (apps,
 windows, tabs, typed text per field, clipboard, notifications, new software), keeps it locally, and tells the owner
 in chat when something matters. It **learns by doing**: every task becomes a permanent record, and repeated verified
-tasks become reusable procedures. It is **secure by design**: secrets never reach an AI model, the shell runs in a
-macOS sandbox whose only internet route is a recording proxy, FERB's own file changes are recoverable, every action
-is recorded, and code (never a model) asks the owner before money, account-security changes, permanent deletion and
-sends to new people. It **works with the AI subscription the owner already has**: the Codex CLI (ChatGPT sign-in) or
+tasks become reusable procedures. It is **secure by design**: known kinds of secrets are removed before anything
+reaches an AI model, the shell runs in a macOS sandbox whose only internet route is a recording proxy, FERB's own file
+changes are recoverable, every action is recorded, and code (never a model) asks the owner before money,
+account-security changes, permanent deletion and sends to new people, when the step declares that effect. It **works with the AI subscription the owner already has**: the Codex CLI (ChatGPT sign-in) or
 Claude (Claude Agent SDK), or per-token API keys for Anthropic, OpenAI or Google.
 
 Who it is for: Mac users who want a capable agent doing real work across their own apps and accounts (research,
@@ -184,8 +184,8 @@ over an owner-only Unix socket (`docs/RPC.md`).
   Uses Apple's speech recognition (on-device when the Mac supports it).
 - Status: **Shipped**; a microphone-route crash was fixed 2026-10-11. Live microphone/device-switch acceptance
   pending.
-- Limit: notch dictation falls back to Apple's server recognition where on-device isn't supported; the separate
-  push-to-talk app and hearing (3.5) are on-device only.
+- Limit: dictation is recognized on this Mac only, like push-to-talk and hearing (3.5): where on-device recognition
+  isn't available for the language, it says so instead of sending the voice to Apple's servers.
 
 #### Tasks view and per-task Stop
 - What: a list of running and recent tasks with exact per-task Stop, recent activity, results, artifacts and the full
@@ -363,9 +363,12 @@ All **Shipped** (`ferb --help`):
 #### Extension, pairing and profiles
 - What: FERB's MV3 extension (`extensions/chromium`, version 0.15.3, protocol 14) is FERB's hands in Chrome, Brave,
   Edge, Chromium and other Chromium browsers. It talks only to the FERB app through native messaging, only in paired
-  profiles, only on tabs a FERB task opened or claimed. It reads pages (text and accessibility tree), clicks, types,
-  scrolls, uploads, downloads, handles dialogs and takes tab screenshots. Arbitrary script evaluation is not allowed
-  (a fixed DevTools command allowlist).
+  profiles. On tabs a FERB task opened or claimed it reads pages (text and accessibility tree), clicks, types,
+  scrolls, uploads, downloads, handles dialogs and takes tab screenshots. In paired profiles it also reports every
+  page load and tab switch (URL with secret-looking parameters removed, and title; never incognito) for FERB's local
+  activity history, and, before FERB screenshots a browser window, finds where password and code fields are on the
+  visible tab (positions only) so they can be painted over. Arbitrary script evaluation is not allowed (a fixed
+  DevTools command allowlist; its one script-evaluation command is pinned to one bundled function, the page hook).
 - Profiles: FERB's own browser profile (FERB's own accounts, e.g. its Gmail/Discord) by default; the owner's personal
   profiles when the owner asks ("my scaler Gmail", "my current Brave tab"). The model picks from candidate profiles;
   no code guesses the account.
@@ -438,10 +441,11 @@ All **Shipped** (`ferb --help`):
   shell tools are switched off (never uncontained).
 - Status: **Shipped** (F5). Live security runs pending.
 
-#### Egress proxy: any site, every site recorded
+#### Egress proxy: any site, every site the shell reaches recorded
 - What: the shell's only way to the internet is FERB's proxy, which records host, port and bytes per command (never
   page, path or query). Programs that ignore proxy settings get no network.
-- Launch-week change: shell and browser reach any site **without asking**; code records every site (L2). Before, 65 of
+- Launch-week change: shell and browser reach any site **without asking**; code records every site the shell reaches
+  and every page a task's tabs load (L2, I6). Before, 65 of
   100 approvals in the owner's first 25 tasks were shell-network questions (one research task asked 46 times in 7
   minutes).
 - Status: **Landing this week — integrated, not live-tested (L2)**, with "Sites contacted" at the end of the full
@@ -629,8 +633,10 @@ is final for that step in the task.
 #### Secrets never reach models
 - Sealed path for passwords, codes and admin passwords (hidden input, filled directly; models see handles only).
 - Code redaction at capture for secret classes: private keys, API keys and tokens (OpenAI, Anthropic, GitHub, Slack,
-  AWS, Google), JWTs, bearer tokens, credential URL parameters and signed-URL signatures, one-time codes next to a
-  code label, Luhn-valid card numbers, password fields (including shown passwords), and exact known secret values.
+  AWS, Google), JWTs, bearer tokens, credential URL parameters and signed-URL signatures, one-time codes (4–8 digits
+  with a code word such as code, OTP, PIN, passcode or verification a few words before or after them, C1), values
+  written after a secret word (password, PIN, secret, API key, token, private key), Luhn-valid card numbers, password
+  fields (including shown passwords), and exact known secret values.
   Applied to text, streamed replies, logs, traces, screenshots and recordings.
 - Choice answers (a "1" picking SMS) are no longer treated as secrets: **integrated, not live-tested (L18)**.
 - Limit: redaction covers secret **classes**, not all private text (owner-accepted residual). Model processing is
@@ -722,7 +728,6 @@ is final for that step in the task.
 
 #### Uninstall
 - `ferb uninstall` removes the LaunchAgent; `ferb uninstall --purge` also deletes `~/.ferb`. **Shipped.**
-  (The privacy page says `ferb uninstall` deletes local data; strictly, `--purge` does.)
 
 ### 3.16 Observability
 
@@ -778,8 +783,9 @@ live-tested).
   messages; perception notices in chat when Jev flags activity (needs a Jev key; integrated, not live-tested).
 - **Reply to comments in scope.** Delegated conversations with an approved account/site/thread/topic scope and
   hand-over; live acceptance pending.
-- **Research and monitor.** Read pages, search, collect metrics from analytics pages, summarise threads; every site
-  contacted is recorded and listed under "Sites contacted" in the full answer (**integrated, not live-tested, L2**).
+- **Research and monitor.** Read pages, search, collect metrics from analytics pages, summarise threads; the sites a
+  task opened, the pages its tabs loaded (clicked results and redirects included) and every site its shell reached are
+  listed under "Sites contacted" in the full answer (**integrated, not live-tested, L2, I6**).
 - **Watch and hear media.** Play a video in a tab, confirm it is playing, listen and get a transcript (L26,
   integrated, not live-tested); record a tab as sampled video for evidence, with a transcript when asked.
 - **Audit everything.** `ferb trace`, `ferb timeline` and the daily security digest show what was posted where; the
@@ -859,8 +865,8 @@ Release and distribution
   store copy must be updated. Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load
   unpacked.
 - Apple silicon and Python 3.12 only. The app is about 666 MB (bundled Codex and Claude CLIs).
-- The privacy page says `ferb uninstall` deletes local data; strictly `ferb uninstall --purge` does. The privacy page
-  does not mention the optional Jev service, which receives redacted activity batches when the owner enables it.
+- The privacy page draft of 2026-10-15 (pending the owner's approval, not deployed) names the optional Jev service at
+  api.typesafe.ai, the extension's tab reports and secret-field lookup, local clipboard retention and on-device speech.
 
 Acceptance
 - F5–F10 owner live acceptance is pending; launch-week items are mostly not live-tested yet. Passing offline tests

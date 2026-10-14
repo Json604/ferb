@@ -336,8 +336,10 @@ still require fresh account/contact reads and a checker: their metadata alone ca
 Incoming text never changes the approved task. A lead is handed over with evidence and action receipts; an unknown
 send stays unknown until observed or its retry is explicitly approved.
 
-Ordinary activity can produce a sourced owner notice; it cannot create a task. When Jev (optional, `ferb setup --jev`)
-flags a moment, FERB considers it once per app, with your relevant memory, the recent chat, running tasks and the
+Ordinary activity can produce a sourced owner notice; it cannot create a task. Jev is an optional third-party triage
+service run by typesafe.ai (`api.typesafe.ai`): with a Jev key (`ferb setup --jev`), FERB sends it batches of redacted
+activity (app and window names, tab addresses and titles, typed and copied text, notifications); without one, nothing
+goes there. When Jev flags a moment, FERB considers it once per app, with your relevant memory, the recent chat, running tasks and the
 notices already told, and posts what happened and what it means in chat. A macOS banner is used only when no FERB
 client is showing notices. Posting a notice counts as telling it, so it isn't repeated. Notification triage remains in
 shadow pending measured owner acceptance. Chat can save an owner-quoted app/chat/topic mute; `ferb notifications`
@@ -377,8 +379,9 @@ start background jobs, and can't send Apple Events to other apps. Neither can an
 included.
 
 Its only way to the internet is FERB's egress proxy, which records each host, port and byte count per command (never
-the page, path or query). Shell and browser reach any site without asking; every site is recorded and listed in the
-answer. Output from a command that reached a site is labelled with that site. Programs that ignore the proxy settings
+the page, path or query). Shell and browser reach any site without asking. The full answer lists "Sites contacted":
+every site the shell reached, the addresses the task opened in its browser tabs, and the pages those tabs loaded
+(clicked links and redirects included); not the requests a page makes on its own, nor a native app's network use. Output from a command that reached a site is labelled with that site. Programs that ignore the proxy settings
 get no network, and `ssh` doesn't work. FERB's shell can't write any Trash folder: only FERB's own Trash tool and
 `ferb restore` move things in and out.
 
