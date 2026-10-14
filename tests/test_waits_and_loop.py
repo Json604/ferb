@@ -12,7 +12,7 @@ from ferb.cli.client import Client
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.plans import Plan, Step
-from ferb.runtimes.codex_exec import CodexRuntime
+from ferb.runtimes.codex_exec import MODEL, CodexRuntime
 from ferb.store.db import Database
 from tests.conftest import chat, done, install, outcome, sup, task
 from tests.support.runtime_fakes import Process
@@ -150,6 +150,9 @@ def _codex_behind_stub(monkeypatch, tmp_path, check):
     import ferb.runtimes.codex_stream as stream
     (tmp_path / 'codex-home').mkdir()
     (tmp_path / 'codex-home' / 'auth.json').write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
+    # the catalog Codex fetches for FERB's login: the adapter reads FERB's default model's window from it (L28)
+    (tmp_path / 'codex-home' / 'models_cache.json').write_text(json.dumps(
+        {'models': [{'slug': MODEL, 'context_window': 272000, 'effective_context_window_percent': 95}]}))
     servers: list[AppServer] = []
     real_spawn = asyncio.create_subprocess_exec
 
@@ -176,7 +179,7 @@ def _journal(daemon, kind):
 def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkeypatch, tmp_path, check):
     servers = _codex_behind_stub(monkeypatch, tmp_path, check)
     daemon.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: CodexRuntime(
-        Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path, output_schema=schema, model='test-model',
+        Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path, output_schema=schema, model=MODEL,
         timeout_s=0.5 if check == 'silent' else None)
     client = Client(daemon.sock, timeout=30)
     try:
@@ -270,7 +273,7 @@ def test_worker_whose_app_server_never_answers_the_account_check_ends_as_stalled
     def runtimes(role, *, mode, tool_names, schema):
         if role.startswith('worker:'):
             return CodexRuntime(Path('/fake/codex'), 'worker', tmp_path / 'work', tmp_path, shim_cmd=['/fake/shim'],
-                                tool_names=tool_names, output_schema=schema, model='test-model', timeout_s=None)
+                                tool_names=tool_names, output_schema=schema, model=MODEL, timeout_s=None)
         return scripted(role, mode=mode, tool_names=tool_names, schema=schema)
     s.make_runtime = runtimes
     turn: dict = {}
