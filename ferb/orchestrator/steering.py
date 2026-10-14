@@ -108,8 +108,14 @@ def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
 
 
 def grant_stated(supervisor: Any, tree: Any, restated: Restated) -> None:
-    """After the reply stating it has been sent: the revised scope, new or widened parts included, is granted under
-    its statement, only while the task still runs (D30)."""
+    """Once the reply stating it has been handed to the chat stream: the revised scope, new or widened parts included,
+    is granted under its statement, only while the task still runs and while that statement is still the task's latest
+    (a later correction's restatement replaces it, D30)."""
+    latest = supervisor.journal.db.conn.execute(
+        "SELECT id FROM journal WHERE kind='plan.stated' AND json_extract(data_json, '$.task_id')=? "
+        "ORDER BY seq DESC LIMIT 1", (tree.id,)).fetchone()
+    if latest is None or 'stated:' + latest[0] != restated.approval_id:
+        return
     if supervisor._tree_of.get(tree.id) is tree and not tree.stop and tree.accepting_updates:
         supervisor.standing.grant(tree.id, restated.scopes, restated.approval_id)
 
@@ -118,8 +124,9 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                 payload: str, spec: Any, source_ref: str, *, standing: Any,
                 supersedes: list[str]) -> tuple[dict[str, Any], Restated | None] | None:
     """Persist first, then steer every live member of the named tree. New members read the same request. `standing`
-    and `supersedes` are the planner's explicit decisions for this correction (L3, D30). The reply, and a widened
-    standing scope the caller grants (`grant_stated`) only after yielding that reply."""
+    and `supersedes` are the planner's explicit decisions for this correction (L3, D30). The reply, and its standing
+    scope restatement if any: the caller records the reply and, for a widened scope, grants it (`grant_stated`) only
+    after yielding that reply."""
     state = tree.steering
     async with state.lock:
         if not tree.accepting_updates:
@@ -193,4 +200,4 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         reply = {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}
         if stated is not None:           # D30: the revised standing scope is stated to the owner in this reply (D33)
             reply['text'] += '\n' + confirm.from_task_lines(stated.text)
-        return reply, (stated if stated is not None and stated.widened else None)
+        return reply, stated

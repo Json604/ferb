@@ -517,6 +517,11 @@ def test_a_widened_standing_scope_is_stated_in_the_reply_before_it_covers_anythi
     stated, ids = daemon.run(statement())
     grant_id, entry = ids.split("|")
     assert "new@x.com" in stated and stated in text and grant_id == "stated:" + entry
+
+    async def replies() -> list[str]:
+        return [json.loads(r[0])["text"] for r in daemon.daemon.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind='chat.reply'").fetchall()]
+    assert any(stated in r for r in daemon.run(replies()))                  # in the conversation record
     assert _finish(daemon, run) == [] and not run.results["new@x.com"]["is_error"]
 
 
@@ -794,46 +799,114 @@ def test_a_correction_racing_the_end_of_its_task_gets_a_plain_reply(daemon: Runn
 
 # ---------- unattended runs: no stated scope without an owner present (controller ruling, Task 18 finding) ----------
 
-def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope]) -> SimpleNamespace:
-    """A daily "post the launch story" schedule created from chat (with the scope that turn stated, if any); its run's
-    planner states the standing scope for new@x.com and its step posts there through the gateway."""
+def _remember(daemon: RunningDaemon, content: str) -> None:
+    """An owner-stated memory item (the owner's own words, kept)."""
+    def go() -> Any:
+        src = daemon.daemon._journal().append("memory.added", {"content": content}).id
+        return daemon.daemon.memory.propose("fact", "owner", "launch-list", content, "owner_stated",
+                                            [("journal", src)], 1.0)
+    from tests.support.schedules import run as on_loop
+    on_loop(daemon, go)
+
+
+def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope], *, plan_scopes: list[SendScope] | None,
+                        posts: tuple[str, ...] = ("new@x.com",),
+                        typed: str = "every day post the launch story to my launch list") -> SimpleNamespace:
+    """A daily "post the launch story" schedule created from chat, with the scopes that turn stated; its run's planner
+    returns a task (with a plan stating `plan_scopes`, or no plan when None) whose worker posts to each of `posts`."""
     from datetime import timedelta
     from tests.support.schedules import fire, mins, run as on_loop
     cap = FakeCap("probe.post", "post", {"probe"})
     daemon.daemon.registry.capabilities[cap.name] = cap
     created = json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
-                          "schedule": {"request": "post the launch story", "when": mins(timedelta(minutes=1)),
-                                       "repeat": "daily", "weekday": None, "every_minutes": None,
-                                       "quote": "every day post the launch story",
+                          "schedule": {"request": "post the launch story to my launch list",
+                                       "when": mins(timedelta(minutes=1)), "repeat": "daily", "weekday": None,
+                                       "every_minutes": None, "quote": "every day post the launch story",
                                        "targets": {"apps": [], "sites": [], "paths": [], "recipients": []},
                                        "standing_sends": [s.model_dump() for s in scope_at_creation]},
                           "schedule_changes": []})
     results: dict[str, Any] = {}
 
-    def step(token: str) -> str:
-        results["post"] = tool(daemon.sock, token, "probe.post", to="new@x.com", text="the launch story")
-        return done("Posted." if not results["post"]["is_error"] else "Not posted.")
+    def act(token: str) -> str:
+        for to in posts:
+            results[to] = tool(daemon.sock, token, "probe.post", to=to, text="the launch story")
+        return done("Posted.")
     spec = task("Post the launch story", "owner")
-    spec["plan"] = Plan(steps=[Step(id="post", kind="do", goal="Post the launch story")],
-                        standing_sends=[_scope("new@x.com")]).model_dump()
-    script = install(daemon, [created, sup("task", "Posting the launch story.", spec)],
-                     {"step.post": step, "worker": done("Checked.")})
-    confirmed = chat(daemon, "every day post the launch story", session="s1")
+    workers: dict[str, Any] = {"worker": done("Checked.")}
+    if plan_scopes is None:
+        workers["worker"] = [act, done("Checked.")]
+    else:
+        spec["plan"] = Plan(steps=[Step(id="post", kind="do", goal="Post the launch story")],
+                            standing_sends=plan_scopes).model_dump()
+        workers["step.post"] = act
+    script = install(daemon, [created, sup("task", "Posting the launch story.", spec)], workers)
+    confirmed = chat(daemon, typed, session="s1")
     fire(daemon, 120)
-    trees = on_loop(daemon, lambda: [tuple(r) for r in daemon.daemon.db.conn.execute(
-        "SELECT task_id, active FROM standing_permissions").fetchall()])
-    return SimpleNamespace(confirmed=confirmed, results=results, grants=trees, script=script)
+
+    def records() -> dict[str, Any]:
+        db = daemon.daemon.db.conn
+        created_row = db.execute("SELECT data_json FROM journal WHERE kind='schedule.created'").fetchone()
+        stated = db.execute("SELECT data_json FROM journal WHERE kind='plan.stated' ORDER BY seq DESC").fetchone()
+        return {"grants": [tuple(r) for r in db.execute("SELECT task_id, approval_id, active FROM standing_permissions")],
+                "created": json.loads(created_row[0]) if created_row else {},
+                "stated": json.loads(stated[0])["text"] if stated else ""}
+    return SimpleNamespace(confirmed=confirmed, results=results, script=script, **on_loop(daemon, records))
 
 
 def test_a_scheduled_run_cannot_grant_itself_a_scope_its_owner_turn_never_stated(daemon: RunningDaemon) -> None:
-    run = _scheduled_post_run(daemon, [])
-    assert run.results["post"]["is_error"]                                  # asked, nobody there: declined
-    assert "nobody is at chat" in json.dumps(run.results["post"]["content"])
+    run = _scheduled_post_run(daemon, [], plan_scopes=[_scope("new@x.com")])
+    assert run.results["new@x.com"]["is_error"]                             # asked, nobody there: declined
+    assert "nobody is at chat" in json.dumps(run.results["new@x.com"]["content"])
     assert run.grants == []                                                 # the stated scope was never granted
+    assert "new@x.com" in run.stated and "will ask" in run.stated           # the statement says it asks
 
 
-def test_a_scheduled_run_uses_the_scope_its_creating_owner_turn_stated(daemon: RunningDaemon) -> None:
-    run = _scheduled_post_run(daemon, [_scope("new@x.com")])
+def test_a_scheduled_run_without_a_plan_is_covered_by_the_scope_recorded_with_its_schedule(daemon: RunningDaemon) -> None:
+    _remember(daemon, "My launch list address is new@x.com")               # named by the owner, kept in memory
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None)
     assert "new@x.com" in _texts(run.confirmed)                             # stated when the schedule was made
-    assert not run.results["post"]["is_error"]                              # covered: no question, it ran
-    assert run.grants and all(active == 0 for _, active in run.grants)      # granted for the run, revoked after
+    assert not run.results["new@x.com"]["is_error"]                         # covered by code's grant: it ran
+    assert run.grants and all(active == 0 for _, _, active in run.grants)   # granted for the run, revoked after
+    assert all(approval.startswith("schedule:") for _, approval, _ in run.grants)
+    assert [s["recipients"] for s in run.created["standing_sends"]] == [["new@x.com"]]   # what the owner was shown
+    run_context = next(c for _, k, c, _ in reversed(run.script.contexts) if k == "supervisor")
+    assert "new@x.com" in run_context.split("Schedule facts", 1)[1]        # the run's planner sees it, as data
+
+
+def test_a_scheduled_runs_extra_stated_scope_is_not_granted(daemon: RunningDaemon) -> None:
+    _remember(daemon, "My launch list address is new@x.com")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=[_scope("new@x.com"), _scope("other@x.com")],
+                              posts=("new@x.com", "other@x.com"))
+    assert not run.results["new@x.com"]["is_error"]
+    assert run.results["other@x.com"]["is_error"]                           # not recorded: asked, declined
+    assert "other@x.com" in run.stated and "will ask" in run.stated
+
+
+def test_a_schedule_records_only_scopes_whose_destinations_the_owner_named(daemon: RunningDaemon) -> None:
+    run = _scheduled_post_run(daemon, [_scope("stranger@x.com")], plan_scopes=None, posts=("stranger@x.com",))
+    said = _texts(run.confirmed)
+    assert "stranger@x.com" in said and "weren't recorded" in said         # told which, and why
+    assert run.created.get("standing_sends", []) == []
+    assert run.results["stranger@x.com"]["is_error"]                        # nothing recorded: it asked, declined
+
+
+def test_a_stale_restatement_is_never_granted(daemon: RunningDaemon) -> None:
+    from ferb.core.types import ActionSpec, Target
+    from ferb.orchestrator.steering import grant_stated, restate_scope
+    run = _running_plan(daemon, [_scope("kept@x.com")], [])
+    supervisor = daemon.daemon.supervisor
+    tree = supervisor._tree_of[run.tree]
+
+    def covers(to: str) -> bool:
+        return supervisor.standing.covers(run.tree, "probe.post", "owner",
+                                          ActionSpec("post", Target(recipients=(to,)), "the update"))
+
+    async def go() -> tuple[bool, bool]:
+        first = restate_scope(supervisor, tree, [_scope("kept@x.com"), _scope("b@x.com")])
+        second = restate_scope(supervisor, tree, [_scope("kept@x.com"), _scope("c@x.com")])
+        grant_stated(supervisor, tree, first)                              # superseded by the second: nothing
+        stale = covers("b@x.com")
+        grant_stated(supervisor, tree, second)
+        return stale, covers("c@x.com")
+    assert daemon.run(go()) == (False, True)
+    _finish(daemon, run)

@@ -2098,26 +2098,49 @@ class Daemon:
             recorded = Targets.of(
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
                 t.recipients)
-            # D30: the standing scope stated now, with the owner here, is the only one the unattended runs may use
-            scopes = [self.redact(scope.model_dump()) for scope in getattr(spec, "standing_sends", [])]
+            # D30: the standing scope stated now, with the owner here, is the only one the unattended runs get; only a
+            # scope whose destinations the owner named (typed now, or owner-stated memory) is recorded (S3)
+            scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words)
             s = self.schedules.add(spec.request, own_words,
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}."
         t = self.timers.add("schedule", first, s.id)
         self.schedules.set_timer(s.id, t.id, first)
+        # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
-                                                    "request_id": request_id}, origin=origin_.join(origins))
+                                                    "request_id": request_id, "standing_sends": scopes,
+                                                    "not_recorded": unnamed}, origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
         said = f"🗓 Scheduled: {s.request} — {when}"
+        from ferb.orchestrator.plans import SendScope
+        from ferb.policy import confirm
         if scopes:
-            from ferb.orchestrator.plans import SendScope
-            from ferb.policy import confirm
             said += "\n" + confirm.from_task_lines("Each run will send these without asking each time:\n" + "\n".join(
                 "- " + SendScope.model_validate(scope).line() for scope in scopes))
+        if unnamed:
+            said += "\n" + confirm.from_task_lines(
+                "These weren't recorded, because their destination isn't in your own words, so each run will ask "
+                "(and, with nobody there, report them not done):\n" + "\n".join("- " + line for line in unnamed))
         return said
+
+    def _schedule_scopes(self, stated: list[Any], own_words: str) -> tuple[list[dict[str, Any]], list[str]]:
+        """The stated scopes a schedule records (redacted), and the lines of those it doesn't: a scope is recorded only
+        when its site, account and recipients appear in the owner's own words, typed in this turn or kept as
+        owner-stated memory (D30, S3)."""
+        from ferb.policy.standing import owner_named
+        remembered = [item.content for item in (self.memory.items() if self.memory is not None else [])
+                      if item.origin == "owner_stated"]
+        owner_text = "\n".join([own_words, *remembered])
+        recorded, unnamed = [], []
+        for scope in stated:
+            if owner_named(scope, owner_text):
+                recorded.append(self.redact(scope.model_dump()))
+            else:
+                unnamed.append(self.redact(scope.line()))
+        return recorded, unnamed
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())

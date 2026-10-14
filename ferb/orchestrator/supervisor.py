@@ -569,9 +569,12 @@ class Supervisor(WorkerRuns):
         """Decide an unattended run from its recorded request; report missing input when the owner is absent."""
         request_id = self.ids.new_id()
         self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
+        recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
             "rule": sched.rule.describe(), "late": late, "overdue_s": overdue_s,
-            "consecutive_failures": sched.failures})
+            "consecutive_failures": sched.failures,
+            # D30: the standing scope the owner was shown when making the schedule, in force for every run
+            "standing_sends": [scope.model_dump() for scope in recorded_scopes]})
         session = ChatSession("schedule:" + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         try:
@@ -589,10 +592,10 @@ class Supervisor(WorkerRuns):
         self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
         self.state.approvals.unattended.add(request_id)
         final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
-        recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
         async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
                                       origins=self._env.get(request_id, {}).get("turn_origins"),
-                                      unattended_scopes=recorded_scopes):
+                                      unattended_scopes=recorded_scopes,
+                                      start_grant=(recorded_scopes, "schedule:" + sched.id)):
             if ev.get("type") == "outcome":
                 final = ev
         return final
@@ -874,13 +877,16 @@ class Supervisor(WorkerRuns):
                                               out.task, 'journal:' + entry.id, standing=control.standing_sends,
                                               supersedes=control.supersedes)
                 if steered is not None:
-                    reply, widened = steered
+                    reply, restated = steered
+                    if restated is not None:     # D30: the stated scope is in the conversation record (next turns)
+                        self.journal.append('chat.reply', {'session_id': session.id, 'request_id': request_id,
+                                                           'text': reply['text']})
                     try:
                         yield reply
                     finally:
                         self._env.pop(request_id, None)
-                    if widened is not None:      # D30: a new or wider scope covers sends only once it was stated
-                        grant_stated(self, active, widened)
+                    if restated is not None and restated.widened:   # a new or wider scope covers sends only once stated
+                        grant_stated(self, active, restated)
                     return
             if control.action in ('steer', 'continue') and active is not None and not active.accepting_updates:
                 # Work already completed; let its normal finalization finish, without requesting cancellation.
@@ -1440,7 +1446,8 @@ class Supervisor(WorkerRuns):
     async def run_tree(self, spec: TaskSpec, text: str, request_id: str, message: str = "", *,
                        conversation_id: str | None = None, prior_task: str | None = None,
                        origins: set[str] | None = None, resume_id: str | None = None,
-                       unattended_scopes: list[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+                       unattended_scopes: list[Any] | None = None,
+                       start_grant: tuple[list[Any], str] | None = None) -> AsyncIterator[dict[str, Any]]:
         """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content."""
         tree_id = resume_id or self.ids.new_id()
         now = self.clock.now()
@@ -1451,6 +1458,8 @@ class Supervisor(WorkerRuns):
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], limit)
         tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes)
+        if start_grant is not None and start_grant[0]:   # D30: scopes stated to the owner earlier (a schedule's)
+            self.standing.grant(tree_id, start_grant[0], start_grant[1])
         tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
         front = self._env.get(request_id, {}).get("front_window")
         if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
@@ -1508,7 +1517,7 @@ class Supervisor(WorkerRuns):
             # reply corrects it (a steer)
             stated = ""
             if spec.plan and (spec.plan.big_job or spec.plan.standing_sends) and not self.plans.load(tree_id)['approved']:
-                stated = "\n" + self.gateway.redact(self._plan_statement(spec.plan))
+                stated = "\n" + self.gateway.redact(self._plan_statement(spec.plan, unattended_scopes))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
@@ -1681,19 +1690,28 @@ class Supervisor(WorkerRuns):
                             origin=origins_.OWNER)
         return {'status': 'done', 'summary': answer, 'answer': answer, 'approval_id': approval.id}
 
-    @staticmethod
-    def _plan_statement(plan: Plan) -> str:
+    def _safe_scopes(self, plan: Plan) -> list[SendScope]:
+        return [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
+
+    def _plan_statement(self, plan: Plan, allowed: list[Any] | None = None) -> str:
         """D24/D30 (L3): a big job's plan, its estimates and any standing scope as the plan line states them; a
         statement, never a question. Each step and scope is one line (the planner's text; D33 marks a line that reads
-        as FERB's)."""
+        as FERB's). With nobody present (`allowed`: the scopes an owner turn recorded), a stated scope outside them is
+        said to ask, never to send without asking."""
         def one(text: str) -> str:
             return " ".join(printable(text).split())
         lines = [PLAN_STATED, *(f"- {one(s.goal or s.question or s.kind)}" for s in plan.steps)]
         if plan.big_job:
             lines.append(f"Estimated time: {one(plan.time_estimate)}. Estimated cost: {one(plan.cost_estimate)}.")
-        if plan.standing_sends:
+        scopes = self._safe_scopes(plan)
+        granted = [s for s in scopes if allowed is None or s in allowed]
+        if granted:
             lines.append("For this task I'll send these without asking each time:")
-            lines += ["- " + one(s.line()) for s in plan.standing_sends]
+            lines += ["- " + one(s.line()) for s in granted]
+        if len(granted) < len(scopes):
+            lines.append("These weren't set up with you, so each will ask first (and, with nobody here, be reported "
+                         "not done):")
+            lines += ["- " + one(s.line()) for s in scopes if s not in granted]
         return "\n".join(lines)
 
     async def _execute_plan(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> Outcome:
@@ -1703,18 +1721,17 @@ class Supervisor(WorkerRuns):
         if (plan.big_job or plan.standing_sends) and not self.plans.load(tree.id)['approved']:
             # D24/D30 (L3): the plan line stated the plan and its standing scope; work starts at once and the owner
             # corrects by replying (a steer). Nothing waits for a Yes. The grant names the recorded statement.
-            safe_scopes = [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
-            # With nobody present (a scheduled or resumed run), only scopes an owner turn recorded are granted; any
-            # other stated scope is not: its sends ask, which an unattended run declines and reports.
+            safe_scopes = self._safe_scopes(plan)
+            # With nobody present (a scheduled or resumed run) nothing is granted here: the scopes an owner turn
+            # recorded are already in force (granted when the run started, or before the restart); any other stated
+            # scope is not, and its sends ask, which an unattended run declines and reports.
             allowed = tree.unattended_scopes
-            granted = safe_scopes if allowed is None else [s for s in safe_scopes if s in allowed]
-            stated = self.journal.append('plan.stated', {'task_id': tree.id,
-                                                         'text': self.gateway.redact(self._plan_statement(plan)),
-                                                         'not_granted': [s.line() for s in safe_scopes
-                                                                         if s not in granted]})
+            stated = self.journal.append('plan.stated', {
+                'task_id': tree.id, 'text': self.gateway.redact(self._plan_statement(plan, allowed)),
+                'not_granted': [s.line() for s in safe_scopes if allowed is not None and s not in allowed]})
             self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
-            if granted:
-                self.standing.grant(tree.id, granted, 'stated:' + stated.id)
+            if allowed is None and safe_scopes:
+                self.standing.grant(tree.id, safe_scopes, 'stated:' + stated.id)
         async def execute(step: Step, inputs: list[str], prior: dict[str, Any]) -> dict[str, Any]:
             if step.kind == 'ask':
                 return await self._plan_question(tree, step.question, step.options)

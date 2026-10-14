@@ -1,9 +1,19 @@
 """D30 owner-approved, tree-scoped exact sends. No model verdict is authority for these grants."""
 import json
 from typing import Any
+from ferb.core.types import Target
 from ferb.orchestrator.plans import SendScope
+from ferb.policy import provenance
 from ferb.policy.confirm import SEND_CLASS
 from ferb.store.db import Database
+
+
+def owner_named(scope: SendScope, owner_text: str) -> bool:
+    """Whether every destination of a scope (its site, account and recipients) appears in the owner's own words, by
+    the same provenance rules the code floor uses (S3): only such a scope may be recorded for unattended runs (D30)."""
+    values = provenance.arg_sources(Target(account=scope.account, site=scope.site, recipients=tuple(scope.recipients)),
+                                    owner_text, [])
+    return bool(values) and all("owner_words" in found for found in values.values())
 
 
 class StandingPermissions:
