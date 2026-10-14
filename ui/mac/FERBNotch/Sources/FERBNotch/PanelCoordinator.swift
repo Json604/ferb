@@ -73,6 +73,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     /// How often the window list is read while FERB is on screen. A menu that opens over the notch is uncovered
     /// within about a fifth of a second, before the pointer can reach its first item, and one window-list query
     /// five times a second costs far below a percent of one core. A responsiveness detail, not a behaviour cap.
+    /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
 
     override init() {
@@ -175,7 +176,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
             let cameBack = self.yieldController.ownerClicked(at: self.windowServerPoint(location))
             // The click went to another app: coming back must not take the focus the owner moved there.
             self.windowYield.ownerMovedElsewhere()
-            if cameBack { self.updatePointer() }
+            if cameBack {
+                // A click on the notch brought FERB back: focus the visible input, like hover and the shortcut.
+                self.updatePointer()
+                self.focusVisibleInput()
+            }
             guard self.model.expanded, !self.panel.frame.contains(location) else { return }
             self.model.dismissAutomatically()
         }) { eventMonitors.append(monitor) }
@@ -306,6 +311,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         guard geometry != nil else { return }
         let isOpening = model.bodyVisible && !presentedBodyVisible
         presentedBodyVisible = model.bodyVisible
+        // The owner opened or revealed FERB (background updates don't request focus): stay over the windows
+        // already there rather than stepping aside right after taking focus.
+        if isOpening && requestFocus { yieldController.ownerOpened() }
         let targetFrame = frame(for: model.panelSize)
         let targetSize = model.surfaceSize
         let shouldAnimate = animate && panel.isVisible
@@ -378,8 +386,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         guard geometry != nil, !screenFrame.isEmpty else { return nil }
         let height = primaryDisplayHeight
         func server(_ rect: CGRect) -> CGRect { NotchOverlap.windowServerRect(rect, primaryDisplayHeight: height) }
+        // FERB's drawn surface, not the panel window: its transparent margins pass clicks through.
         var occupied: [CGRect] = []
-        if model.expanded { occupied.append(frame(for: model.panelSize)) }
+        if model.expanded { occupied.append(frame(for: model.surfaceSize)) }
         // On a notched display the collapsed pill sits inside the camera housing, where nothing can be drawn.
         else if !model.hasHardwareNotch { occupied.append(cutoutFrame) }
         if model.showsTraceGlow { occupied.append(tracerPanel.frame) }
@@ -387,7 +396,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
                              width: screenFrame.width, height: menuBarHeight)
         return .init(occupied: occupied.map(server),
                      pinnedChat: model.isPinned && model.expanded ? server(frame(for: model.surfaceSize)) : nil,
-                     notch: server(cutoutFrame.insetBy(dx: 0, dy: -2)),
+                     // The cutout up to the physical top edge, not the band below it where menus begin.
+                     notch: server(CGRect(x: cutoutFrame.minX, y: cutoutFrame.minY, width: cutoutFrame.width,
+                                          height: cutoutFrame.height + 2)),
                      menuBar: server(menuBar), display: server(screenFrame))
     }
 
@@ -431,11 +442,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         beginInteraction()
         guard model.expanded else { return false }
         if model.isHeaderOnly { model.revealPinnedBody() }
-        else if model.bodyVisible, !model.isYielded {
-            panel.makeKey()
-            model.focusRequest = UUID()
-        }
+        else { focusVisibleInput() }
         return true
+    }
+
+    /// Hover, a click on the notch and the shortcut focus the visible text input; never while FERB still yields.
+    private func focusVisibleInput() {
+        if windowYield.focusInput(bodyVisible: model.bodyVisible) { model.focusRequest = UUID() }
     }
 
     private func beginInteraction() {
@@ -458,9 +471,17 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     private func updatePointer(revealPinnedHeader: Bool = false) {
-        // While FERB yields it is invisible and click-through: hover must not open, reveal, fold or dismiss it.
-        // Hovering the notch brings it back from an app under the pinned chat.
-        if model.isYielded, yieldController.pointerMoved(to: windowServerPoint(NSEvent.mouseLocation)) { return }
+        // While FERB yields it is ordered out: hover must not open, reveal, fold or dismiss it. Entering the notch
+        // brings it back, and like any hover that focuses the visible input.
+        var broughtBack = false
+        if model.isYielded {
+            switch yieldController.pointerMoved(to: windowServerPoint(NSEvent.mouseLocation)) {
+            case .hidden: return
+            case .broughtBack: broughtBack = true
+            case .visible: break
+            }
+        }
+        defer { if broughtBack { focusVisibleInput() } }
         let inside = pointerIsOverSurface
         if inside && revealPinnedHeader && model.isPinned {
             // Only real pointer motion reveals the tucked body. Tracking-area

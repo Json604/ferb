@@ -21,12 +21,11 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.stop()
     }
 
-    /// The same frames PanelCoordinator derives from the model: the panel window while expanded, and the drawn
-    /// surface for a pinned chat.
+    /// The same frames PanelCoordinator derives from the model: FERB's drawn surface while expanded (nothing while
+    /// collapsed on a notched display), which is also the pinned chat.
     private func layout() -> NotchYieldController.Layout {
         let surface = model.bodyVisible ? F.openSurface : F.headerSurface
-        let panel = model.bodyVisible ? F.openPanel : F.headerPanel
-        return .init(occupied: model.expanded ? [panel] : [],
+        return .init(occupied: model.expanded ? [surface] : [],
                      pinnedChat: model.isPinned && model.expanded ? surface : nil,
                      notch: F.notch, menuBar: F.menuBar, display: F.display)
     }
@@ -47,9 +46,9 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertEqual(model.yielding.reasons, [.activeAppUnderPinnedChat])
         XCTAssertEqual(controller.coveredApp, F.browser)
         // Moving over the (invisible) chat or the browser keeps FERB out of the way.
-        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 735, y: 200)))
-        XCTAssertTrue(controller.pointerMoved(to: browserPoint))
-        XCTAssertFalse(controller.pointerMoved(to: notchPoint))
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 735, y: 200)), .hidden)
+        XCTAssertEqual(controller.pointerMoved(to: browserPoint), .hidden)
+        XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
         XCTAssertFalse(model.isYielded)
         XCTAssertNil(controller.coveredApp)
         XCTAssertTrue(model.isPinned)
@@ -124,8 +123,8 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertFalse(controller.evaluate())
         XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
         // Moving through the menu or over the hidden chat doesn't bring FERB back.
-        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 900, y: 100)))
-        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 735, y: 200)))
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 900, y: 100)), .hidden)
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 735, y: 200)), .hidden)
         windows = [F.maximizedBrowser]
         XCTAssertTrue(controller.evaluate())
         XCTAssertFalse(model.isYielded)
@@ -137,7 +136,7 @@ final class NotchYieldControllerTests: XCTestCase {
         windows = [F.shareBar]
         controller.evaluate()
         XCTAssertTrue(model.isYielded)
-        XCTAssertFalse(controller.pointerMoved(to: notchPoint))
+        XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
         XCTAssertEqual(controller.overriddenOverlays, [F.shareBar.windowID])
         XCTAssertFalse(controller.evaluate())
         XCTAssertFalse(model.isYielded)
@@ -161,14 +160,98 @@ final class NotchYieldControllerTests: XCTestCase {
         XCTAssertTrue(model.isYielded)
     }
 
+    func testOpeningFERBOverAWindowThatIsAlreadyThereKeepsItShown() {
+        // Collapsed on a notched display nothing of FERB is drawn, so there is nothing to check yet.
+        windows = [F.shareBar]
+        controller.evaluate()
+        // The owner opens FERB (shortcut, menu, click or the opening hover); the coordinator reports it when the
+        // body opens in a presentation that asks for focus.
+        controller.ownerOpened()
+        model.expand()
+        XCTAssertFalse(controller.evaluate())
+        XCTAssertFalse(model.isYielded)
+        XCTAssertEqual(controller.overriddenOverlays, [F.shareBar.windowID])
+        // Only the windows found at that first check: a menu that opens afterwards still hides FERB.
+        windows = [F.shareBar, F.clipboardMenu]
+        controller.evaluate()
+        XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
+    }
+
+    func testRevealingThePinnedChatOverAWindowKeepsItShown() {
+        model.expand()
+        model.togglePin()
+        windows = [F.shareBar]
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        // Hovering the folded header reveals the body over the bar.
+        controller.ownerOpened()
+        model.revealPinnedBody()
+        XCTAssertFalse(controller.evaluate())
+        XCTAssertFalse(model.isYielded)
+    }
+
+    func testAnOverrideLastsWhileTheWindowIsOnScreenEvenWhenItNoLongerOverlapsFERB() {
+        pinOpenChat()
+        windows = [F.maximizedBrowser, F.shareBar]
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+        _ = controller.pointerMoved(to: notchPoint)
+        XCTAssertFalse(model.isYielded)
+        // The body folds away from the bar, then comes back over it (an arriving question, not a reach).
+        model.foldPinnedBody()
+        controller.evaluate()
+        model.announceAttention("test:override-survives-fold")
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        // Once the bar leaves the screen it is forgotten.
+        windows = [F.maximizedBrowser]
+        controller.evaluate()
+        XCTAssertTrue(controller.overriddenOverlays.isEmpty)
+    }
+
+    func testHoverOrAClickOnTheNotchOverridesAWindowThatCoversIt() {
+        model.expand()
+        windows = [F.window(810, layer: 25, 620, 0, 230, 60)]   // another notch app
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+        XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
+        windows = [F.window(811, layer: 27, 620, 0, 230, 60)]
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+        XCTAssertTrue(controller.ownerClicked(at: notchPoint))
+        XCTAssertFalse(model.isYielded)
+    }
+
+    func testHoveringAMenuThatCoversTheNotchDoesNotBringFERBBack() {
+        model.expand()
+        windows = [F.window(F.clipboardApp, layer: NotchOverlap.popUpMenuLayer, 640, 0, 200, 300)]
+        controller.evaluate()
+        XCTAssertEqual(controller.pointerMoved(to: notchPoint), .hidden)
+        XCTAssertFalse(controller.ownerClicked(at: notchPoint))
+        XCTAssertTrue(model.isYielded)
+    }
+
+    func testSystemInputWindowsOverFERBNeverHideIt() {
+        // An accent popup, emoji palette or input-method candidates opened from FERB's own composer belong to a
+        // system input process, not to FERB.
+        controller.bundleID = { $0 == 950 ? "com.apple.PressAndHold" : nil }
+        model.expand()
+        windows = [F.window(950, layer: NotchOverlap.popUpMenuLayer, 700, 300, 220, 40)]
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        windows.append(F.clipboardMenu)
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+    }
+
     func testOnlyEnteringTheNotchCountsNotAPointerAlreadyRestingThere() {
         model.expand()
         windows = [F.shareBar]
         controller.evaluate()
         controller.yieldBegan(pointer: notchPoint)
-        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 740, y: 12)))
-        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 735, y: 300)))
-        XCTAssertFalse(controller.pointerMoved(to: notchPoint))
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 740, y: 12)), .hidden)
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 735, y: 300)), .hidden)
+        XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
     }
 
     func testTheNotchDoesNotSummonFERBWhereAnotherAppsMenuReachesUnderIt() {
@@ -177,10 +260,10 @@ final class NotchYieldControllerTests: XCTestCase {
         windows = [menuUnderNotch]
         controller.evaluate()
         let onMenuEdge = CGPoint(x: 700, y: 33.5)
-        XCTAssertTrue(controller.pointerMoved(to: onMenuEdge))
+        XCTAssertEqual(controller.pointerMoved(to: onMenuEdge), .hidden)
         XCTAssertFalse(controller.ownerClicked(at: onMenuEdge))
         XCTAssertTrue(model.isYielded)
-        XCTAssertFalse(controller.pointerMoved(to: CGPoint(x: 700, y: 10)))
+        XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 700, y: 10)), .broughtBack)
     }
 
     func testTheShortcutOrAClickOnTheNotchOverridesAnotherAppsWindow() {

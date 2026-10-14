@@ -56,6 +56,15 @@ final class NotchWindowYield {
         keyBeforeYield = false
     }
 
+    /// The owner's hover, click on the notch or shortcut brought FERB back: focus the visible text input, as hover
+    /// and double-tap always do. Never while FERB yields: an ordered-out panel must not take keyboard focus.
+    /// Returns whether the panel took focus.
+    func focusInput(bodyVisible: Bool) -> Bool {
+        guard !isYielded, bodyVisible else { return false }
+        panel.makeKey()
+        return true
+    }
+
     /// Keeps the panel on screen after a presentation, Space change or wake, except while FERB yields.
     func showPanel() {
         if !isYielded { orderIn(panel) }

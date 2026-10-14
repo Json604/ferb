@@ -95,10 +95,26 @@ public struct ScreenWindow: Equatable, Sendable {
 public enum NotchOverlap {
     /// The Dock's own layer. The Dock is always on screen and is never one of the transient surfaces FERB yields to.
     public static let dockLayer = Int(CGWindowLevelForKey(.dockWindow))
+    /// The pop-up menu layer. Hovering or clicking the notch never brings FERB back over a menu there.
+    public static let popUpMenuLayer = Int(CGWindowLevelForKey(.popUpMenuWindow))
+    /// A UI detail: windows fainter than this (fading in or out, or kept nearly transparent by their app) can't
+    /// really be seen, so they neither hide FERB nor count as an app's window under the chat.
+    public static let minimumVisibleAlpha = 0.05
+
+    /// System text-input processes. Their windows (accent popup, emoji and symbols palette, input-method
+    /// candidates, the input-source switcher and cursor indicator) appear for whatever field has focus, often
+    /// FERB's own composer, so FERB never yields to them. Identified by bundle identifier, never by window title.
+    public static func isSystemInput(bundleID: String) -> Bool {
+        let exact: Set<String> = ["com.apple.PressAndHold", "com.apple.CharacterPaletteIM", "com.apple.TextInputSwitcher",
+                                  "com.apple.TextInputUI.xpc.CursorUIViewService", "com.apple.50onPaletteIM"]
+        return exact.contains(bundleID) || bundleID.hasPrefix("com.apple.inputmethod.")
+            || bundleID.hasPrefix("com.apple.JapaneseIM.")
+    }
 
     /// The menus, popovers and floating windows of other processes that lie over one of FERB's frames.
     ///
-    /// Counted: windows above the normal layer (layer > 0) that are visible (alpha > 0) and overlap a FERB frame.
+    /// Counted: windows above the normal layer (layer > 0) that are visible (`minimumVisibleAlpha`) and overlap a
+    /// FERB frame.
     /// Never counted, so FERB doesn't hide for good: FERB's own processes; anything that stays within the menu
     /// bar strip (the menu bar itself, status items, the privacy indicator); the Dock layer; and windows that cover
     /// the whole display below the menu bar (screen dimmers, the screenshot crosshair, Launchpad), which are
@@ -109,7 +125,7 @@ public enum NotchOverlap {
                                   height: max(0, display.maxY - menuBar.maxY))
         return windows.filter { window in
             guard !ownPIDs.contains(window.ownerPID), window.layer > 0, window.layer != dockLayer,
-                  window.alpha > 0, !window.bounds.isEmpty else { return false }
+                  window.alpha >= minimumVisibleAlpha, !window.bounds.isEmpty else { return false }
             if menuBar.insetBy(dx: -1, dy: -1).contains(window.bounds) { return false }
             if !belowMenuBar.isEmpty, window.bounds.insetBy(dx: -1, dy: -1).contains(belowMenuBar) { return false }
             return ferbFrames.contains { overlaps(window.bounds, $0) }
@@ -125,11 +141,13 @@ public enum NotchOverlap {
     /// Whether the app has a visible window on the normal layer under the pinned chat's visible surface.
     public static func appWindowUnderChat(in windows: [ScreenWindow], appPID: Int32, chat: CGRect) -> Bool {
         windows.contains { window in
-            window.ownerPID == appPID && window.layer == 0 && window.alpha > 0 && overlaps(window.bounds, chat)
+            window.ownerPID == appPID && window.layer == 0 && window.alpha >= minimumVisibleAlpha
+                && overlaps(window.bounds, chat)
         }
     }
 
-    /// The process that owns the frontmost visible window at a point, skipping FERB's own windows.
+    /// The process that owns the frontmost window at a point, skipping FERB's own windows. Any window that isn't
+    /// fully transparent can receive the click, however faint.
     public static func owner(at point: CGPoint, in windows: [ScreenWindow], ownPIDs: Set<Int32>) -> Int32? {
         windows.first { window in
             !ownPIDs.contains(window.ownerPID) && window.layer >= 0 && window.alpha > 0 && window.bounds.contains(point)

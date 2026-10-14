@@ -58,6 +58,25 @@ final class NotchOverlapTests: XCTestCase {
         XCTAssertTrue(NotchOverlap.foreignOverlay(in: [menu], ferbFrames: [tab], ownPIDs: [F.ferb], menuBar: menuBar, display: display))
     }
 
+    func testNearlyInvisibleWindowsDoNotCount() {
+        XCTAssertFalse(covers([F.window(F.clipboardApp, layer: 101, 850, 33, 260, 400, alpha: 0.03)]))
+        XCTAssertTrue(covers([F.window(F.clipboardApp, layer: 101, 850, 33, 260, 400, alpha: 0.05)]))
+        XCTAssertFalse(NotchOverlap.appWindowUnderChat(in: [F.window(F.browser, layer: 0, 0, 33, 1470, 923, alpha: 0.03)],
+                                                       appPID: F.browser, chat: F.openSurface))
+    }
+
+    func testSystemInputProcessesAreRecognisedByBundleIdentifier() {
+        for id in ["com.apple.PressAndHold", "com.apple.CharacterPaletteIM", "com.apple.TextInputSwitcher",
+                   "com.apple.TextInputUI.xpc.CursorUIViewService", "com.apple.50onPaletteIM",
+                   "com.apple.inputmethod.Kotoeri.RomajiTyping", "com.apple.inputmethod.SCIM"] {
+            XCTAssertTrue(NotchOverlap.isSystemInput(bundleID: id), id)
+        }
+        // The input menu's dropdown is an ordinary status menu the owner opened; look-alike ids don't count.
+        for id in ["com.apple.TextInputMenuAgent", "com.apple.controlcenter", "com.p0deje.Maccy", "com.apple.inputmethodx"] {
+            XCTAssertFalse(NotchOverlap.isSystemInput(bundleID: id), id)
+        }
+    }
+
     func testNothingOfFERBOnScreenNeverYields() {
         XCTAssertFalse(covers([F.clipboardMenu], frames: []))
     }

@@ -47,6 +47,17 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertFalse(panel.isKeyWindow)
     }
 
+    func testTheOwnerBringingFERBBackFocusesTheVisibleInputButNeverWhileYielded() {
+        yield.yield()
+        XCTAssertFalse(yield.focusInput(bodyVisible: true))
+        XCTAssertFalse(panel.isKeyWindow)
+        yield.comeBack(refocus: false)
+        XCTAssertFalse(yield.focusInput(bodyVisible: false))
+        XCTAssertFalse(panel.isKeyWindow)
+        XCTAssertTrue(yield.focusInput(bodyVisible: true))
+        XCTAssertTrue(panel.isKeyWindow)
+    }
+
     func testPresentationsDoNotBringAYieldedPanelBack() {
         yield.yield()
         yield.showPanel()

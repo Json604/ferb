@@ -1,6 +1,15 @@
-import Darwin
-import CoreGraphics
+import AppKit
 import NotchCore
+
+/// What a pointer move means while FERB may be yielding.
+enum YieldHover: Equatable {
+    /// FERB still yields: hover must not open, reveal, fold or dismiss anything.
+    case hidden
+    /// Entering the notch brought FERB back: handle the hover and focus the visible input, as hover always does.
+    case broughtBack
+    /// FERB wasn't yielding.
+    case visible
+}
 
 /// Decides when FERB's notch windows yield to another app. PanelCoordinator feeds it AppKit events and FERB's
 /// frames, and applies the result to its windows through `model.onYieldChange`. Everything here is in
@@ -15,7 +24,8 @@ final class NotchYieldController {
         var occupied: [CGRect]
         /// The pinned chat's drawn surface (header, plus the body when shown); nil unless the chat is pinned.
         var pinnedChat: CGRect?
-        /// The camera cutout with the hover tolerance. Hovering or clicking it brings FERB back.
+        /// The camera cutout, up to the physical top edge but not the band below it where menus begin. Entering or
+        /// clicking it brings FERB back.
         var notch: CGRect
         /// The menu bar strip of FERB's display.
         var menuBar: CGRect
@@ -26,14 +36,20 @@ final class NotchYieldController {
     let ownPIDs: Set<Int32>
     var windows: () -> [ScreenWindow]
     var layout: () -> Layout?
+    /// The bundle identifier of a process, to recognise system text-input windows.
+    var bundleID: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
     /// A window that un-minimizes or unhides when its app comes forward isn't on screen yet at activation.
     var activationRecheckDelay: Duration = .milliseconds(500)
     /// The app FERB is yielding to because one of its windows lies under the pinned chat.
     private(set) var coveredApp: Int32?
-    /// Other apps' windows over FERB that the owner chose to show FERB above (entering or clicking the notch, the
-    /// shortcut, the menu, dictation). They stop hiding FERB while they stay, so a window that never closes (a
-    /// screen-share bar, another notch app) can't keep it hidden; a window that newly overlaps FERB hides it again.
+    /// Other apps' windows the owner chose to show FERB above: those over it when they opened or revealed FERB
+    /// (shortcut, menu, click, hover), entered or clicked the notch, used the shortcut, or dictated. They stop hiding
+    /// FERB until they leave the screen, so a window that never closes (a screen-share bar, another notch app) can't
+    /// keep it hidden; a window that newly overlaps FERB hides it again.
     private(set) var overriddenOverlays = Set<UInt32>()
+    /// The owner just opened or revealed FERB: the windows found over it at the next check are overridden.
+    private var overrideAtNextCheck = false
+    private var systemInputPIDs: [Int32: Bool] = [:]
     /// The other apps' windows over FERB at the last poll.
     private var currentOverlays: [ScreenWindow] = []
     /// Whether the pointer was on the notch at the last look. Only entering the notch brings FERB back, so a pointer
@@ -75,10 +91,13 @@ final class NotchYieldController {
         let rows = windows()
         currentOverlays = NotchOverlap.foreignOverlays(in: rows, ferbFrames: layout.occupied, ownPIDs: ownPIDs,
                                                        menuBar: layout.menuBar, display: layout.display)
+            .filter { !isSystemInput($0.ownerPID) }
         let overlays = Set(currentOverlays.map(\.windowID))
-        overriddenOverlays.formIntersection(overlays)
-        // While the owner dictates FERB stays on screen, and stays over those windows afterwards.
-        if model.session.phase == .listening { overriddenOverlays.formUnion(overlays) }
+        // An override is forgotten only when its window leaves the screen, not when FERB folds away from it.
+        overriddenOverlays.formIntersection(rows.map(\.windowID))
+        // Opened or revealed by the owner, or dictating: FERB stays over the windows there now.
+        if overrideAtNextCheck || model.session.phase == .listening { overriddenOverlays.formUnion(overlays) }
+        overrideAtNextCheck = false
         if overlays.isSubset(of: overriddenOverlays) {
             model.endYield(.foreignOverlay)
         } else {
@@ -126,14 +145,22 @@ final class NotchYieldController {
         return false
     }
 
-    /// The pointer moved while FERB yields. Entering the notch (not on another app's menu reaching under it) brings
-    /// FERB back. Returns whether FERB still yields; if so, hover must not open, reveal, fold or dismiss anything.
-    func pointerMoved(to point: CGPoint) -> Bool {
-        guard let layout = layout() else { return model.isYielded }
+    /// The pointer moved while FERB may be yielding. Entering the notch (not on another app's menu over it) brings
+    /// FERB back from another app.
+    func pointerMoved(to point: CGPoint) -> YieldHover {
+        guard model.isYielded else { return .visible }
+        guard let layout = layout() else { return .hidden }
         let onNotch = isOnNotch(point, layout)
         defer { pointerOnNotch = onNotch }
         if onNotch, !pointerOnNotch, yieldsToAnotherApp { summon() }
-        return model.isYielded
+        return model.isYielded ? .hidden : .broughtBack
+    }
+
+    /// The owner opened or revealed FERB (a presentation that opens the body and asks for focus: shortcut, menu,
+    /// click, hover-open, pinned reveal). FERB stays over the windows found over it at the next check; the pointer
+    /// that opened it counts as entering the notch.
+    func ownerOpened() {
+        overrideAtNextCheck = true
     }
 
     /// The owner reached for FERB (the notch, its shortcut, menu or a control, or FERB coming forward): stop
@@ -151,10 +178,20 @@ final class NotchYieldController {
         return wasYielded && !model.isYielded
     }
 
-    /// On the notch itself, not on another app's menu that reaches under it.
+    /// On the notch, and not on another app's menu there. Any other window covering the notch (another notch app)
+    /// is overridden by hovering or clicking it.
     private func isOnNotch(_ point: CGPoint, _ layout: Layout) -> Bool {
         guard layout.notch.contains(point) else { return false }
-        return !(model.yielding.reasons.contains(.foreignOverlay) && currentOverlays.contains { $0.bounds.contains(point) })
+        return !(model.yielding.reasons.contains(.foreignOverlay) && currentOverlays.contains {
+            $0.layer == NotchOverlap.popUpMenuLayer && $0.bounds.contains(point)
+        })
+    }
+
+    private func isSystemInput(_ pid: Int32) -> Bool {
+        if let known = systemInputPIDs[pid] { return known }
+        let isInput = bundleID(pid).map(NotchOverlap.isSystemInput(bundleID:)) ?? false
+        systemInputPIDs[pid] = isInput
+        return isInput
     }
 
     func stop() {

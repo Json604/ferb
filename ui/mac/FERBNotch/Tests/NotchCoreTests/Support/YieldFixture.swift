@@ -6,7 +6,8 @@ import NotchCore
 enum YieldFixture {
     static let display = CGRect(x: 0, y: 0, width: 1470, height: 956)
     static let menuBar = CGRect(x: 0, y: 0, width: 1470, height: 33)
-    static let notch = CGRect(x: 646, y: -2, width: 179, height: 36)
+    /// The camera cutout up to (and past) the physical top edge, not the band below it where menus begin.
+    static let notch = CGRect(x: 646, y: -2, width: 179, height: 34)
     /// The panel window (surface plus its transparent margin) for a folded pinned header and for the open chat.
     static let headerPanel = CGRect(x: 547, y: 0, width: 376, height: 44)
     static let openPanel = CGRect(x: 547, y: 0, width: 376, height: 432)
