@@ -155,6 +155,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   (likewise `*.github.io`, `*.netlify.app`, `*.pages.dev`, …). The live Instagram reel case still opens.
 - `browser.media` reports a video as playing only once its time moves, not as soon as play() was called (which clears
   "paused" before anything plays); it also reports `paused`. A media that never starts never reads as playing.
+- The planner waits for your front window at most ScreenCaptureKit's own capture timeout (10 s), then answers
+  without it and says so; a hung or very large app in front no longer delays every message without bound.
 
 Licensed under Apache-2.0.
 

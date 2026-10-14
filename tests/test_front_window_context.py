@@ -5,6 +5,7 @@ the message; a redaction failure withholds only the image. Every runtime adapter
 (D32). Fakes only: no real window list, screenshot or model."""
 
 import asyncio
+import time
 import base64
 import json
 import os
@@ -843,3 +844,29 @@ async def test_claude_sdk_reports_exhausted_structured_output_retries_as_an_inva
     run = RunHandle("run-1", "claude", "t", {"client": Client(), "checked_auth": True})
     got = [ev async for ev in rt.events(run)]
     assert [ev.kind for ev in got if ev.kind in ("error", "final", "invalid_answer")] == ["invalid_answer"]
+
+
+# ---------- I4: the planner's wait on the front window is bounded ----------
+
+def test_a_capture_that_takes_too_long_never_holds_the_planner(daemon: RunningDaemon) -> None:
+    """A hung app in front (every AX call waits macOS's own timeout) or a huge page delayed every message without
+    bound. The planner waits at most ScreenCaptureKit's own capture timeout, then goes on, saying so."""
+    from ferb.act.mac import screenshot
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    assert supervisor.front_window_timeout_s == screenshot.TIMEOUT_S        # the existing constant, no new number
+    supervisor.front_window_timeout_s = 0.2                                # this test's clock only
+
+    async def hung(request_id: str, client_pid: int | None = None) -> Any:
+        await asyncio.sleep(30)
+    daemon.daemon.front_window = hung
+    script = install(daemon, [sup("reply", "Hello!")])
+    started = time.monotonic()
+    evs = chat(daemon, "hi")
+    assert time.monotonic() - started < 10
+    assert [e["text"] for e in evs if e["type"] == "reply"] == ["Hello!"]
+    request = planner_requests(script)[0]
+    block = next(p for p in request.parts if p.startswith("Layer 2 — the owner's front window"))
+    assert "couldn't be captured in time" in block and request.images == ()
+    [late] = journal(daemon, "screen.capture_timeout")
+    assert late.data["request_id"] and late.data["timeout_s"] == 0.2

@@ -1553,6 +1553,10 @@ protected FERB state (16.9).
   it may answer a screen question directly. The worker for that message gets the same picture as its start block
   (`gateway.initial_image_given`). Failures journal `screen.capture_failed`; a model that rejects the image is
   retried once without it (`screen.image_refused`), only for service or protocol errors.
+- The planner waits for the capture at most `Supervisor.front_window_timeout_s`, ScreenCaptureKit's own capture
+  timeout (`screenshot.TIMEOUT_S`, 10 s; no new number). Past it the capture is cancelled, `screen.capture_timeout`
+  is journaled and the block says the front window couldn't be captured in time (I4: a hung or huge front app
+  delayed every message without bound).
 - Residual: image tokens aren't counted in the context budget.
 
 **Redacted, not refused (L13).**

@@ -21,6 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
+from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
 from ferb.core.errors import Deferred
@@ -220,14 +221,17 @@ START_SCREENSHOT = ("Start-of-task screenshot — the owner's front window when 
 IMAGE_REFUSED = "the screenshot couldn't be given to the model"
 
 
+CAPTURE_LATE = "the front window couldn't be captured in time, so this message goes on without it"
+
+
 def front_window_block(front: Any, image: ModelImage | None, heading: str,
-                       withheld: str | None = None) -> tuple[ContextBlock, set[str]]:
+                       withheld: str | None = None, missing: str | None = None) -> tuple[ContextBlock, set[str]]:
     """L12: the window the owner had in front of them when they sent the message (ferb/sense/front_window.py), as
     labelled data with the window content's own origin (MP2), and whether its redacted screenshot is attached
-    (`withheld`: why it no longer is). None: nothing could be captured."""
+    (`withheld`: why it no longer is). None: nothing could be captured (`missing`: why, when known)."""
     if front is None:
-        return ContextBlock(heading + ": not available (nothing could be captured)", "front window at send",
-                            protected=True, origin=origins_.FERB), {origins_.FERB}
+        return ContextBlock(heading + f": not available ({missing or 'nothing could be captured'})",
+                            "front window at send", protected=True, origin=origins_.FERB), {origins_.FERB}
     facts = front.facts() | {"screenshot": f"attached to this request as an image (evidence {front.image_ref})"
                              if image is not None else "withheld: " + (withheld or front.withheld or "not captured")}
     made = origins_.split(front.origin) or {origins_.external("unlabeled")}
@@ -337,6 +341,8 @@ class Supervisor(WorkerRuns):
         self.disturbance_context: Callable[[str], str] = lambda task_id: ""
         self.disturbance: Any = None              # the desktop sentinel: cleanup is an on-screen FERB action (P26)
         self.browser_context: Callable[[str], str] = lambda task_id: ""
+        # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
+        self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
         self.relevant_source_refs: Callable[[str], list[str]] = lambda words: []
         self.relevant_context: Callable[[str], Any] = lambda words: ""   # text, or (text, origin)
         self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
@@ -777,7 +783,11 @@ class Supervisor(WorkerRuns):
         the image for the planner and for this request's worker. A failed capture is journaled by type and gives
         "not available": it never blocks the message."""
         try:
-            front = await screen
+            front = await asyncio.wait_for(screen, self.front_window_timeout_s)
+        except asyncio.TimeoutError:      # I4: a hung or huge front app never holds the plan; the capture is stopped
+            self.journal.append("screen.capture_timeout", {"request_id": request_id,
+                                                           "timeout_s": self.front_window_timeout_s})
+            return {"front_window": None, "front_image": None, "front_window_missing": CAPTURE_LATE}
         except Exception as e:
             self.journal.append("screen.capture_failed", {"request_id": request_id, "error": type(e).__name__})
             front = None
@@ -1192,7 +1202,7 @@ class Supervisor(WorkerRuns):
                               {origins_.PRIVATE}))
         if "front_window" in env:                         # L12: what the owner saw as they sent this message
             situation.append(front_window_block(env["front_window"], env.get("front_image"), FRONT_WINDOW,
-                                                env.get("image_withheld")))
+                                                env.get("image_withheld"), env.get("front_window_missing")))
         if "schedule_previous" in env:                    # a recurring run compares with the one before
             situation.append(self._previous_run_block(env["schedule_previous"]))
         images = (env["front_image"],) if env.get("front_image") is not None else ()
