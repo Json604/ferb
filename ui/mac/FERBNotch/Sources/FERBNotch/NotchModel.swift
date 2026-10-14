@@ -112,17 +112,25 @@ final class NotchModel: ObservableObject {
     private var pendingPinnedFold = false
     private var profileMenuOpen = false
     private(set) var filePickerOpen = false
-    /// True while the system file picker is up. The coordinator hides FERB's windows for that
-    /// duration: they live in an overlay space above every ordinary window, so the picker can't
-    /// be raised over them by window level and would otherwise be covered.
-    var onFilePickerChange: ((Bool) -> Void)?
+    /// Why FERB's windows are currently stepping aside for another surface (its own file picker, another app's
+    /// menu over the notch, an app the owner is working in under the pinned chat). They live in an overlay space
+    /// above every ordinary window, so nothing can be raised over them by window level.
+    private(set) var yielding = NotchYield()
+    /// Called when FERB starts (true) or stops (false) yielding; the coordinator makes its windows invisible and
+    /// click-through for that duration. Draft, attachments, pin and conversation are untouched.
+    var onYieldChange: ((Bool) -> Void)?
     private var heldVoiceSnapshot: (session: NotchSession, sources: Bool, history: Bool, activity: Bool, headerOnly: Bool)?
 
     var expanded: Bool { session.isExpanded }
     var bodyVisible: Bool { expanded && !isHeaderOnly }
+    var isYielded: Bool { yielding.isActive }
     var bodyWidth: CGFloat { max(360, handleWidth + 164) }
     var showsCompletionGlow: Bool { completionTraceVisible }
     var showsTraceGlow: Bool { attentionTraceVisible || showsCompletionGlow }
+    /// Whether the camera-edge light may show. It never takes a click, so while FERB yields it still shows for a
+    /// question or approval (whose sound plays as always): a question that arrives then is never hidden silently.
+    /// The completion glow yields with the rest of FERB.
+    var tracerLightShows: Bool { !isYielded || attentionTraceVisible }
     var composerHeight: CGFloat {
         let textWidth = bodyWidth - 152
         let measured = ((session.draft + "\u{200B}") as NSString).boundingRect(
@@ -147,6 +155,10 @@ final class NotchModel: ObservableObject {
         case .result: return 220
         case .stopped, .attention: return session.result == nil ? 116 : 220
         }
+    }
+    /// The drawn surface: header, plus the body when it shows. The panel adds a transparent margin around it.
+    var surfaceSize: CGSize {
+        CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
     }
     var panelSize: CGSize {
         if expanded { return CGSize(width: bodyWidth + 16, height: cutoutHeight + (bodyVisible ? bodyHeight : 0) + 12) }
@@ -178,6 +190,7 @@ final class NotchModel: ObservableObject {
         showingActivity = false
         showingTasks = false
         onPresentationChange?(!keyboard)
+        endYield(.activeAppUnderPinnedChat)
     }
 
     var blocksAutomaticDismissal: Bool { isPinned || profileMenuOpen || filePickerOpen || session.phase == .listening }
@@ -192,6 +205,18 @@ final class NotchModel: ObservableObject {
         if isPinned { foldPinnedBody() }
         else { revealPinnedBody() }
         onPinChange?(isPinned)
+        if !isPinned { endYield(.activeAppUnderPinnedChat) }
+    }
+
+    /// Starts yielding for a reason. Yielding to an app under the chat applies only to a pinned chat, and
+    /// another app's windows never hide FERB while the owner is dictating.
+    func beginYield(_ reason: NotchYieldReason) {
+        if reason == .activeAppUnderPinnedChat && !(isPinned && expanded) { return }
+        if yielding.begin(reason, listening: session.phase == .listening) { onYieldChange?(true) }
+    }
+
+    func endYield(_ reason: NotchYieldReason) {
+        if yielding.end(reason) { onYieldChange?(false) }
     }
 
     func cancelPinnedFold() {
@@ -281,6 +306,9 @@ final class NotchModel: ObservableObject {
         showingHistory = false
         showingActivity = false
         voiceIsHeld = held
+        // Dictation keeps FERB on screen: other apps' windows stop hiding it. Set after voiceIsHeld so coming back
+        // leaves the previous app's keyboard focus alone during the held chord.
+        if yielding.endWindowReasons() { onYieldChange?(false) }
         if let active = session.activeTaskID {
             workSessions[active] = session
             var composer = NotchSession()
@@ -393,7 +421,7 @@ final class NotchModel: ObservableObject {
     func setFilePickerOpen(_ open: Bool) {
         guard filePickerOpen != open else { return }
         filePickerOpen = open
-        onFilePickerChange?(open)
+        if open { beginYield(.filePicker) } else { endYield(.filePicker) }
     }
 
     func chooseFiles() {

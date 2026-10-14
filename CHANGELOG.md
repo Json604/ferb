@@ -32,6 +32,11 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 - Native follow-ups: standard paste/edit commands, no automatic panel reopening on background answers, and a Tasks
   view with individually scoped Stop, activity, results/artifacts and full-record inspection. These changes and
   direct steering were activated after the owner’s tasks completed; no running task was interrupted.
+- Notch yields to other apps: another app's menu, popover or floating window over the notch or chat (from the
+  window list, no titles read, polled only while FERB is on screen), FERB's file picker, or an app the owner brings
+  forward or clicks into under the pinned chat makes FERB invisible and click-through until it ends; hovering the
+  notch or the shortcut brings the pinned chat back. Dictation is never hidden; a question arriving meanwhile keeps
+  its sound and amber light.
 
 - Inject owner corrections into active workers without stopping/replacing the task. Codex workers now use isolated
   app-server steering; Claude and direct APIs retain the same run and apply queued updates before accepting a

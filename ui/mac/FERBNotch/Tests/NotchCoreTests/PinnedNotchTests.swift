@@ -1,5 +1,6 @@
 import XCTest
 @testable import FERBNotch
+import NotchCore
 
 @MainActor
 final class PinnedNotchTests: XCTestCase {
@@ -132,16 +133,18 @@ final class FilePickerVisibilityTests: XCTestCase {
         model.expand()
         model.session.draft = "Keep my draft"
         var changes: [Bool] = []
-        model.onFilePickerChange = { changes.append($0) }
+        model.onYieldChange = { changes.append($0) }
         model.setFilePickerOpen(true)
         model.setFilePickerOpen(true)
         XCTAssertTrue(model.filePickerOpen)
+        XCTAssertEqual(model.yielding.reasons, [.filePicker])
         XCTAssertTrue(model.blocksAutomaticDismissal)
         model.dismissAutomatically()
         XCTAssertTrue(model.expanded)
         model.setFilePickerOpen(false)
         XCTAssertEqual(changes, [true, false])
         XCTAssertFalse(model.filePickerOpen)
+        XCTAssertFalse(model.isYielded)
         XCTAssertEqual(model.session.draft, "Keep my draft")
     }
 }
