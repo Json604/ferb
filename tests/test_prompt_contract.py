@@ -121,3 +121,27 @@ def test_a_narrowing_message_steers_instead_of_stopping() -> None:
     stopped the hotspot-diagnosis task ("Stopped, as you asked.") instead of narrowing it to diagnosis only."""
     assert NARROWING_STEER in _words("supervisor.md")
     assert "Use stop only when the owner asks to stop," not in _words("supervisor.md")
+
+
+ANY_TIME = ("When the owner says any time is fine (\"anytime\", \"whenever\", \"doesn't matter\"), don't ask for a time: "
+            "use their stored preference for that phrase (memory key \"time:anytime\" and the like) if there is one, "
+            "else choose a sensible time from context (the event's own time if you know it, or a reasonable time for "
+            "that kind of reminder), and say in your reply which time you chose.")
+QUOTE_ONE = ("Quote the single message that asked for the reminder when it holds the whole request; when the owner "
+             "completed it over several of their messages (a time given after your question), quote each of those "
+             "messages exactly, separated by a blank line.")
+NO_SET_CLAIM = ("Never write that the reminder is set (\"I'll remind you on October 30 at 7 PM\", \"Reminder set for "
+                "…\"): FERB's own line says whether it was set, or why not.")
+
+
+def test_any_time_is_fine_picks_a_time_from_context_and_says_it() -> None:
+    """Owner live case 2026-10-15 03:36: "anytime" got the question asked again. No clock value is pinned here: the
+    owner doesn't want a hardcoded default."""
+    words = _words("supervisor.md")
+    assert ANY_TIME in words
+    assert not __import__("re").search(r"\b\d{1,2}:\d{2}\b", ANY_TIME)
+
+
+def test_a_reminder_quote_is_the_owners_message_and_the_reply_never_claims_it_was_set() -> None:
+    words = _words("supervisor.md")
+    assert QUOTE_ONE in words and NO_SET_CLAIM in words
