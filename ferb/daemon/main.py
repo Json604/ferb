@@ -3035,6 +3035,10 @@ class Daemon:
         allowed = params.get("allow_send", [])
         if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
             raise FerbError('allow_send must be a list of exact recipients or "SITE @ACCOUNT" entries for posts')
+        from ferb.daemon.gateway import allowlist_problem
+        problems = [p for p in (allowlist_problem(x) for x in allowed) if p]
+        if problems:
+            raise FerbError("; ".join(problems))
         next_allowlist = None if params.get("off") is True else set(allowed)
         record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ())}
         self.config.set('test_mode', 'state', record)  # one atomic config write before the running state changes

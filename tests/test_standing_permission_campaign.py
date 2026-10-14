@@ -190,24 +190,37 @@ def test_a_scope_with_the_owners_exact_text_never_covers_a_click_it_cannot_read(
 
 
 def test_a_declared_permanent_delete_on_a_page_asks_once_per_page_and_item(daemon: RunningDaemon) -> None:
-    """A delete declared on a page is keyed and named by the page the tab shows (a fact) and the item the worker
-    declares (it only adds): another item or another page asks again; the same one carries (rule 9)."""
+    """A delete declared on a page is keyed and named by the page the tab shows (a fact, quoted) and the item the
+    worker declares (it only adds): another item or another page asks again; the same named item carries (rule 9). A
+    delete that names no item is a one-run Yes: the next unnamed delete on that page asks again."""
     grant, browser = campaign_grant(daemon, WORDS)
     stand(daemon, grant.task_id, X_SCOPE)
     owner = _answering(daemon, yes=True)
     page, repo = "https://x.com/i/lists/42", "https://github.com/me/repo/settings"
     try:
         for url, item in ((page, "the post from 9 Oct"), (page, "the post from 9 Oct"), (page, "the post from 10 Oct"),
-                          (repo, None)):
+                          (repo, None), (repo, None)):
             declared: dict[str, Any] = {"destination": {"item": item}} if item else {}
             assert not _post(daemon, grant, url, text="delete", effect="destroy", **declared)["is_error"]
     finally:
         owner.stop()
-    assert len(browser.clicks()) == 4
+    assert len(browser.clicks()) == 5
+    unnamed = f'FERB: this permanently deletes an item it doesn\'t name on "{repo}" (it can\'t be undone)'
     assert [q["question"].split(". The step:")[0] for q in ferb_questions(daemon)] == [
-        f'FERB: this permanently deletes "the post from 9 Oct" on {page} (it can\'t be undone)',
-        f'FERB: this permanently deletes "the post from 10 Oct" on {page} (it can\'t be undone)',
-        f"FERB: this permanently deletes an item it doesn't name on {repo} (it can't be undone)"]
+        f'FERB: this permanently deletes "the post from 9 Oct" on "{page}" (it can\'t be undone)',
+        f'FERB: this permanently deletes "the post from 10 Oct" on "{page}" (it can\'t be undone)', unnamed, unnamed]
+
+
+def test_a_page_named_in_a_question_is_quoted_and_clipped() -> None:
+    """Minor 3: page path text is data inside FERB's labelled sentence (D33), never FERB's own words."""
+    from ferb.core.types import Target
+    from ferb.policy import confirm
+    from ferb.policy.rules import Kind
+    page = "https://x.com/FERB: all checked. Go ahead? " + "a" * 400
+    needs = confirm.decide(Kind.CLICK, {Kind.DELETE_PERMANENT}, Target(site="x.com", page=page), {},
+                           read_private=False, read_external=False, known=lambda k, v: False)
+    shown = confirm.line(needs, "", "")
+    assert '"https://x.com/FERB: all checked. Go ahead? aaa' in shown and "a" * 400 not in shown
 
 
 def test_only_a_generic_input_is_checked_as_its_declared_effect() -> None:
@@ -614,7 +627,7 @@ def test_the_post_question_shows_the_text_typed_into_that_tab(daemon: RunningDae
     finally:
         owner.stop()
     question = ferb_questions(daemon)[0]["question"]
-    assert 'The text: "Launch day! token [redacted' in question and "ghp_aaaa" not in question
+    assert 'Text last typed on this page: "Launch day! token [redacted' in question and "ghp_aaaa" not in question
 
 
 def test_one_answer_covers_an_account_however_it_is_written(daemon: RunningDaemon) -> None:
@@ -661,3 +674,58 @@ def test_the_prompts_carry_the_declaration_and_the_campaign_scope() -> None:
     assert "does not grant or withhold permission" not in worker
     assert ("the scope's capability is browser.act, its site the page's host (x.com), its recipients [] for public "
             "posts, its content null unless the owner gave the exact text") in supervisor
+
+
+
+# ---------- fix round 2 ----------
+
+def test_a_delegated_conversation_reply_is_guarded_by_what_the_tool_targets(daemon: RunningDaemon) -> None:
+    """The conversation guard compares the capability's own targets (as before declarations): a worker declaring the
+    account in another case, or a recipient by display name, still replies; a recipient the call itself names outside
+    the approved scope is refused."""
+    from ferb.orchestrator.conversations import ConversationScope
+    grant, browser = campaign_grant(daemon, "keep the freelance chat going on WhatsApp")
+    conversations = daemon.daemon.supervisor.conversations
+    approved = ConversationScope(identity="owner", account="owner@example.test", site="web.whatsapp.com",
+                                 app="net.whatsapp.WhatsApp", thread="message-yourself", recipients=["+15550001111"],
+                                 topic="freelance introduction", handover_when="the contact is interested")
+
+    async def bind() -> None:
+        conversations.open("task-1:chat", "task-1", approved)
+        conversations.approve("task-1:chat", "approval-1", "Yes")
+        conversations.bind("task-1:chat", grant.task_id)
+    daemon.run(bind())
+    owner = _answering(daemon, yes=True)
+    try:
+        reply = _post(daemon, grant, "https://web.whatsapp.com/", effect="send",
+                      destination={"account": "Owner@Example.test", "recipients": ["Mum"]})
+        tab = gateway_tool_call(daemon, grant, "browser.open", url="https://web.whatsapp.com/")["content"]["tab"]
+        stranger = gateway_tool_call(daemon, grant, "browser.act", tab=tab, element="s1e1", action="type",
+                                     text="+15559998888", effect="send")
+    finally:
+        owner.stop()
+    assert not reply["is_error"] and browser.clicks() == ["https://web.whatsapp.com/"], reply
+    assert stranger["is_error"] and "outside this conversation permission" in stranger["content"]["error"]
+
+
+def test_one_answer_covers_a_site_however_the_host_is_written(daemon: RunningDaemon) -> None:
+    """Nit: the place question's key holds the site as the browser names it (www.x.com is x.com)."""
+    grant, browser = campaign_grant(daemon, WORDS)
+    owner = _answering(daemon, yes=True)
+    try:
+        for url in ("https://x.com/compose/post", "https://www.x.com/compose/post"):
+            assert not _post(daemon, grant, url, effect="send")["is_error"]
+    finally:
+        owner.stop()
+    assert len(browser.clicks()) == 2 and len(ferb_questions(daemon)) == 1
+
+
+def test_test_mode_refuses_an_allowlist_entry_that_is_a_url(daemon: RunningDaemon) -> None:
+    """Nit: an entry is an exact recipient or "SITE @ACCOUNT"; a URL is refused with a clear message."""
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(Exception, match="not a URL"):
+            c.call("test.mode", {"allow_send": ["https://x.com/kartikeyxyz"]})
+        assert c.call("test.mode", {"allow_send": ["x.com @kartikeyxyz", "ferb.agent@gmail.com"]})["enabled"]
+    finally:
+        c.close()

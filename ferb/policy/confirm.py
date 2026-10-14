@@ -45,6 +45,8 @@ SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one 
 BULK = "sink:irreversible_bulk"
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
+QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
+                                          # this, like the task's reason; it decides nothing
 FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
 TASK_QUESTION = "Question from the task: "
 _BUNDLE_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+){2,}", re.I)   # an app's id (com.apple.MobileSMS): internal
@@ -78,6 +80,12 @@ def _owner(sources: list[str]) -> bool:
 def owner_named(sources: list[str]) -> bool:
     """Whether an argument appears in the owner's words or answers (provenance.arg_sources): already authorized."""
     return _owner(sources)
+
+
+def shown_quoted(text: str) -> str:
+    """A page or item from the task inside FERB's labelled sentence (D33): one line, clipped, quoted as data."""
+    one = " ".join(text.split())
+    return json.dumps(one if len(one) <= QUOTED_CHARS else one[:QUOTED_CHARS - 1] + "…", ensure_ascii=False)
 
 
 def sample(items: Iterable[str]) -> str:
@@ -363,11 +371,13 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
         if target.path:
             needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", target.path),
                               {"path": target.path}))
-        else:   # an input declared to destroy: the page its tab shows (a fact), else its place, and the declared item
+        else:   # an input declared to destroy: the page its tab shows (a fact), else its place, and the declared item;
+            # a declared one that names no item is a one-run Yes (SQ1): it never covers another unnamed delete there
             on = target.page or where
+            unnamed = kind != Kind.DELETE_PERMANENT and not target.item
             needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", None, on or None, target.item),
-                              {"path": json.dumps(target.item, ensure_ascii=False) if target.item else
-                               "an item it doesn't name", "place": on}))
+                              {"path": shown_quoted(target.item) if target.item else "an item it doesn't name",
+                               "place": (shown_quoted(on) if target.page else on)}, always=unnamed))
     sends = kinds & SEND_CLASS
     calls = Kind.CALL in kinds and not sends - {Kind.CALL}
     if sends:
@@ -386,7 +396,8 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
             site_named = bool(target.site) and _owner(arg_sources.get("site", []))
             if not (site_named and (not target.account or _owner(arg_sources.get("account", [])))):
                 account = (account_key(target.account),) if target.account else ()
-                needs.append(Need("floor:new_recipient", key("floor:new_recipient", None, target.site, *account),
+                needs.append(Need("floor:new_recipient", key("floor:new_recipient", None, site_key(target.site),
+                                                             *account),
                                   {"recipients": "", "verb": "calls" if calls else "sends to", "place": where,
                                    "account": target.account or ""}))
             if (target.page and target.site and read_private and read_external and not site_named
@@ -486,8 +497,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
 
 
 def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:
-    """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the text it
-    sends (`typed`: what the worker last typed into that page, display only, L3), the reason the task gave (quoted)
+    """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the text last
+    typed on that page (`typed`: what the worker typed there, likely what it sends; display only, L3), the reason the
+    task gave (quoted)
     and the question. The gateway collapses whitespace, strips control characters, maps the double quotes of the text
     and the reason to single ones and clips what goes in."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}   # a bulk delete already says the floor's words
@@ -495,7 +507,7 @@ def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:
     parts = "; ".join(_part(n, rules) for n in needs if n.rule not in said)
     text = "FERB: " + parts + (f". The step: {call}." if call else ".")
     if typed:
-        text += f' The text: "{typed}".'
+        text += f' Text last typed on this page: "{typed}".'
     if why:
         text += f' Reason given: "{why}".'
     return text + " Go ahead?"

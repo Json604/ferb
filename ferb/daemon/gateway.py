@@ -656,7 +656,10 @@ class Gateway:
         # the call itself (P19's hash, the ledger, the run) stays as the capability described it
         checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount, reaches.item)
         declared = declared_kinds(checked)
-        conversation_refusal = self.conversation_guard(grant, name, cap, checked)
+        # a delegated conversation is guarded by what the call itself targets (as the capability describes it), with
+        # every declared kind: the worker's declared account or recipient is its note, never compared to the scope
+        conversation_refusal = self.conversation_guard(grant, name, cap,
+                                                       dataclasses.replace(spec, effect_kind=checked.effect_kind))
         if conversation_refusal:
             self._refused(grant, rec, name, conversation_refusal)
             return reply({'error': conversation_refusal}, True, {origin.FERB})
@@ -1016,7 +1019,8 @@ class Gateway:
 
     def _typed_into(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> str:
         """The text this worker last typed into the page a send-declared input acts on (the same tool, the same tab),
-        so FERB's question shows the exact text it sends (L3). Display only: never part of a key or a decision."""
+        shown in FERB's question as what was last typed there: likely what it sends, not proof of it (L3). Display
+        only: never part of a key or a decision."""
         tab = arguments.get("tab")
         return self.spans.last_typed(grant.task_id, name, tab) if isinstance(tab, str) and tab else ""
 
@@ -1896,6 +1900,16 @@ _ENDED = {"done": "was reported done", "failed": "failed"}
 def _shown_args(args: dict[str, Any]) -> dict[str, str]:
     """The arguments a step line shows, each clipped to 100 characters (already redacted)."""
     return {k: lines.clip(args[k], 100) for k in lines.ARG_KEYS if args.get(k) not in (None, "")}
+
+
+def allowlist_problem(entry: str) -> str | None:
+    """Why a test-mode allowlist entry can't be used (rule 22), else None: an entry is an exact recipient, or
+    "SITE @ACCOUNT" (or "SITE") for a post, where SITE is a host like x.com, never a URL."""
+    site = entry.strip().partition(" ")[0]
+    if "://" in entry or "/" in site:
+        return (f'"{entry}" is a URL: an allowlist entry is an exact recipient, or "SITE @ACCOUNT" for a post, where '
+                f'SITE is a host like x.com, not a URL')
+    return None
 
 
 def _target_dict(t: Any) -> dict[str, Any]:

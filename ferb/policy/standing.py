@@ -50,7 +50,8 @@ class StandingPermissions:
         if not self.sends(spec):
             return False
         recipients = sorted(account_key(r) for r in spec.target.recipients)
-        for row in self.db.conn.execute('SELECT scope FROM standing_permissions WHERE task_id=? AND active=1', (task_id,)):
+        rows = self.db.conn.execute('SELECT scope FROM standing_permissions WHERE task_id=? AND active=1', (task_id,))
+        for row in rows:
             scope = json.loads(row[0])
             if (scope['capability'] == capability and scope['identity'] == identity and
                 account_key(scope['account']) == account_key(spec.target.account) and
