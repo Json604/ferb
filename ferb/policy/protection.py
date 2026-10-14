@@ -139,15 +139,18 @@ _VOLFS = Path("/.vol")                            # /.vol/<device>/<inode>/…: 
 _O_EVTONLY = getattr(os, "O_EVTONLY", 0x8000)     # open for a name only: no read access needed, no data touched
 
 
-def _opened_name(path: Path, folder: bool) -> Path | None:
-    """F_GETPATH of a folder or regular file, opened for its name only (no data read); None if it can't be opened."""
-    flags = _O_EVTONLY | os.O_NONBLOCK | os.O_CLOEXEC | (os.O_DIRECTORY if folder else 0)
+def _opened_name(path: Path, folder: bool, seen: os.stat_result) -> Path | None:
+    """F_GETPATH of a folder or regular file, opened for its name only (no data read) and never through a link
+    (O_NOFOLLOW): a file swapped for a link to a device since FERB looked at it is never opened. None if it can't be
+    opened, or if what opened isn't what FERB looked at (`seen`)."""
+    flags = _O_EVTONLY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW | (os.O_DIRECTORY if folder else 0)
     try:
         fd = os.open(path, flags)
     except (OSError, ValueError):
         return None
     try:
-        return opened_path(fd)
+        st = os.fstat(fd)
+        return opened_path(fd) if (st.st_dev, st.st_ino) == (seen.st_dev, seen.st_ino) else None
     except OSError:
         return None
     finally:
@@ -156,22 +159,26 @@ def _opened_name(path: Path, folder: bool) -> Path | None:
 
 def _kernel(path: Path) -> Path | None:
     """The path as the kernel names what it reaches, so another spelling of the same file is the spelling FERB's rules
-    use: F_GETPATH on the deepest part that exists, then the rest. Only a folder or a regular file is ever opened (for
-    its name only); a device node, FIFO, socket, or a file FERB can't open is named through its folder. None when
-    nothing along it can be named."""
+    use: every link followed by name first (realpath), then F_GETPATH on the deepest part that exists, then the rest.
+    Only a folder or a regular file is ever opened (for its name only, never through a link); a device node, FIFO,
+    socket, a file FERB can't open, or one swapped for a link meanwhile is named through its folder. None when nothing
+    along it can be named."""
     tail: list[str] = []
-    p = _absolute(path)
+    try:
+        p = Path(os.path.realpath(_absolute(path)))
+    except (OSError, ValueError):                     # ValueError: a NUL in the path, which no file can have
+        return None
     while True:
         try:
-            st = os.stat(p)
+            st = os.lstat(p)
         except (FileNotFoundError, NotADirectoryError, PermissionError):
             st = None
-        except (OSError, ValueError):                 # ValueError: a NUL in the path, which no file can have
+        except (OSError, ValueError):
             return None
         if st is not None and stat.S_ISDIR(st.st_mode):
-            named = _opened_name(p, folder=True)
+            named = _opened_name(p, True, st)
         elif st is not None and stat.S_ISREG(st.st_mode):
-            named = _opened_name(p, folder=False)
+            named = _opened_name(p, False, st)
         else:
             named = None
         if named is not None:

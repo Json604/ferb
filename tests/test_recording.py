@@ -1,6 +1,8 @@
 """Target recordings: real encoding/decoding, isolated driver routes, and lifecycle ownership."""
 import asyncio
+import errno
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -334,6 +336,9 @@ def test_an_output_folder_swapped_after_the_check_never_takes_frames_or_the_vide
         assert sorted(p.name for p in protected.iterdir()) == ['config.toml']
         assert (tmp_path / 'moved' / 'v.mp4').stat().st_size > 0 and (tmp_path / 'moved' / 'v.mp4.json').exists()
         assert not list((tmp_path / 'staging').iterdir())                    # staging cleaned up
+        landed = os.path.realpath(tmp_path / 'moved' / 'v.mp4')              # where the video really is, not the link
+        assert result[0]['path'] == landed and result[0]['receipt'] == landed + '.json', result
+        assert json.loads((tmp_path / 'moved' / 'v.mp4.json').read_text())['path'] == landed
     asyncio.run(check())
 
 
@@ -358,3 +363,60 @@ def test_the_daemon_stages_recording_frames_in_ferbs_own_folder(home):
     from ferb.daemon.main import Daemon
     d = Daemon(home)
     assert d.recordings.staging == home / 'run' / 'recordings'
+
+
+def _fds() -> set[int]:
+    return {int(f) for f in os.listdir('/dev/fd')}
+
+
+def test_a_start_that_fails_after_the_receipt_closes_the_receipt_and_removes_it(tmp_path, monkeypatch):
+    """Reviewer's round-3 reproduction (rec_leak.py): staging can't be made after the receipt was created; the start
+    fails, and neither the receipt's descriptor nor the receipt is left behind."""
+    from ferb.act import recording
+    monkeypatch.setattr(recording, 'executable', lambda name: '/usr/bin/true')
+    (tmp_path / 'staging').write_text('not a folder')
+    out = tmp_path / 'out'
+    out.mkdir()
+
+    async def check():
+        m = recording.RecordingManager(sanitize=lambda b: b, staging=tmp_path / 'staging')
+        async def capture(): return b'frame'
+        before = _fds()
+        with pytest.raises(OSError):
+            await m.start('task', {'tab': 1}, out / 'v.mp4', capture)
+        assert _fds() - before == set() and list(out.iterdir()) == [] and m.records == {}
+    asyncio.run(check())
+
+
+def test_publishing_across_volumes_closes_the_new_file_when_the_video_cant_be_read(tmp_path, monkeypatch):
+    from ferb.act import recording
+
+    def other_volume(*a, **k):
+        raise OSError(errno.EXDEV, os.strerror(errno.EXDEV))
+    monkeypatch.setattr(recording.os, 'link', other_volume)
+    out_dir = tmp_path / 'out'
+    out_dir.mkdir()
+    out = os.open(out_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        before = _fds()
+        with pytest.raises(FileNotFoundError):
+            recording._publish(tmp_path / 'missing.mp4', out, 'v.mp4')
+        assert _fds() - before == set() and list(out_dir.iterdir()) == []
+    finally:
+        os.close(out)
+
+
+def test_the_daemon_clears_staging_a_restart_left_behind(home):
+    """No recording survives a restart: frames staged by the last run are removed when the daemon starts."""
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    from tests.conftest import RunningDaemon
+    stale = home / 'run' / 'recordings' / 'rec-abc123'
+    stale.mkdir(parents=True)
+    (stale / '00000000.jpg').write_bytes(b'frame from the last run')
+    (stale / 'frames.txt').write_text('ffconcat version 1.0')
+    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds('id'), watch_owner_input=False)
+    try:
+        assert list((home / 'run' / 'recordings').iterdir()) == []
+    finally:
+        d.stop()

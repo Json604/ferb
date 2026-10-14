@@ -2,7 +2,7 @@
 trash, restore (never over a change the owner made since), fallback when clonefile is unavailable, the retention purge,
 `ferb restore`, and one local APFS snapshot per task tree before shell or delete work (best effort).
 
-Offline: the Trash is a folder in the test home (files.move_to_trash is replaced), and no real tmutil snapshot is ever
+Offline: the Trash is a folder beside the test home (tests.support.trash.use_trash), and no real tmutil snapshot is ever
 taken (the test daemon has no snapshot hook; local_snapshot's own tests replace subprocess.run)."""
 
 import asyncio
@@ -26,6 +26,7 @@ from ferb.core.types import ActionSpec, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
 from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 from tests.support.confirm import FerbAnswers
+from tests.support.trash import use_trash
 
 
 # ---------- helpers ----------
@@ -85,15 +86,11 @@ def _spans(daemon: RunningDaemon, name: str) -> list[dict[str, Any]]:
 
 @pytest.fixture
 def trash(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A Trash folder inside the test home: offline tests never touch the owner's real Trash."""
-    bin_ = daemon.daemon.home / ".Trash"
+    """A Trash folder beside the test's FERB home (never inside it: FsTrash puts nothing into FERB's own state, rule
+    10): offline tests never touch the owner's real Trash."""
+    bin_ = daemon.daemon.home.parent / ".Trash"
     bin_.mkdir(parents=True, exist_ok=True)
-
-    def move(p: Path) -> str | None:
-        where = bin_ / p.name
-        os.rename(p, where)
-        return str(where)
-    monkeypatch.setattr(files, "move_to_trash", move)
+    use_trash(monkeypatch, bin_)
     return bin_
 
 
@@ -752,6 +749,26 @@ def test_a_trash_restore_never_takes_out_a_different_item_with_the_same_name(dae
     with pytest.raises(recovery.NotRestorable, match="isn't the"):
         _restore(daemon, _recovery_rows(daemon)[-1]["id"])
     assert (trash / "same.txt").read_text() == "the owner's other file, trashed later" and not f.exists()
+
+
+def test_a_trash_that_moved_something_else_and_left_it_in_the_trash_is_recorded(daemon: RunningDaemon, trash: Path,
+                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """The item changed after FERB checked it and something new stands at its name, so FERB can't put back what moved:
+    the call fails, but where that item went is recorded, so `ferb restore` can get it back (S1, rule 10)."""
+    f = _ws(daemon) / "swapped.txt"
+    f.write_text("checked")
+
+    def swap() -> None:
+        f.unlink()
+        f.write_text("swapped in")
+    use_trash(monkeypatch, trash, before_move=swap, after_move=lambda: f.write_text("newest"))
+    out = gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    assert out["is_error"] and (trash / "swapped.txt").read_text() == "swapped in"
+    rec = _recovery_rows(daemon)[-1]
+    assert rec["kind"] == "trash" and rec["original"] == str(f.resolve()) and out["content"]["recoverable"] == rec["id"]
+    assert rec["saved_to"] == str(trash.resolve() / "swapped.txt") and rec["saved_ino"]
+    restored = _restore(daemon, rec["id"])
+    assert f.read_text() == "newest" and restored.read_text() == "swapped in"
 
 
 def test_a_trash_record_outside_a_real_trash_folder_is_refused(daemon: RunningDaemon, trash: Path) -> None:

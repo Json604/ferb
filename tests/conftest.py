@@ -28,6 +28,7 @@ from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.codex_exec import CodexRuntime
 from tests.support import egress
 from tests.support.confirm import FerbAnswers
+from tests.support.trash import no_real_trash
 
 pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
 
@@ -128,6 +129,14 @@ def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
         raise AssertionError("an offline test tried to start a real model runtime; mark it `real` or use a fake")
     monkeypatch.setattr(CodexRuntime, "start", refuse)
     monkeypatch.setattr(ClaudeRuntime, "start", refuse)
+
+
+@pytest.fixture(autouse=True)
+def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests never move anything into the owner's real Trash: FsTrash reaches it only through
+    tests.support.trash.use_trash."""
+    if not request.node.get_closest_marker("real"):
+        no_real_trash(monkeypatch)
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:

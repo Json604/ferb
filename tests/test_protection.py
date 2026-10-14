@@ -24,6 +24,7 @@ from ferb.policy.protection import (DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEF
 from ferb.policy.rules import Kind
 from ferb.trace.compose import walk
 from tests.conftest import RunningDaemon, gateway_setup, gateway_tool_call
+from tests.support.trash import use_trash
 
 
 def _tree(d: RunningDaemon, task_id: str) -> list[dict[str, Any]]:
@@ -732,20 +733,20 @@ def test_a_volfs_path_ferb_cant_map_is_refused(tmp_path: Path) -> None:
 
 
 def test_fs_trash_checks_the_folder_it_really_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The Trash takes a path: FsTrash checks the item's folder as macOS opened it (F_GETPATH), so the check sees
-    the kernel's own spelling, never an alias, before anything moves."""
-    import ferb.act.fs.files as files
+    """FsTrash checks the item's folder as macOS opened it (F_GETPATH), so the check sees the kernel's own spelling,
+    never an alias, before anything moves."""
     home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
     ws = ferb / "workspace"
     ws.mkdir(parents=True)
     (ferb / "config.toml").write_text("x")
     seen: list[Path] = []
-    trashed: list[Path] = []
 
     def closed(path: Path, access: str) -> str | None:
         seen.append(path)                                      # a check that only knows FERB's own spelling
         return "closed" if path in (Path(os.path.realpath(ferb)), Path(os.path.realpath(ferb)) / "config.toml") else None
-    monkeypatch.setattr(files, "move_to_trash", lambda p: trashed.append(p) or None)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    use_trash(monkeypatch, trash)
     ctx = ToolContext("t", "w", "r", Identity.OWNER, frozenset({"fs:write"}), "dev", None, str(ws), (), (),
                       path_closed=closed)
     folder = os.stat(ferb)
@@ -757,7 +758,8 @@ def test_fs_trash_checks_the_folder_it_really_opened(tmp_path: Path, monkeypatch
     for alias in (_aliases(ferb / "config.toml")[1], _aliases(ferb)[1]):         # an item by its own inode: its folder
         r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(alias)), ctx))     # can't be opened, so nothing moves
         assert r.is_error, (alias, r.content)
-    assert trashed == [] and any(p == Path(os.path.realpath(ferb)) / "config.toml" for p in seen)
+    assert list(trash.iterdir()) == [] and (ferb / "config.toml").exists()
+    assert any(p == Path(os.path.realpath(ferb)) / "config.toml" for p in seen)
 
 
 def test_a_path_with_a_nul_byte_is_checked_without_raising(tmp_path: Path) -> None:
@@ -771,34 +773,30 @@ def test_a_path_with_a_nul_byte_is_checked_without_raising(tmp_path: Path) -> No
 
 def test_fs_trash_moves_only_what_it_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """FsTrash checks the item in its folder as macOS opened the folder, and moves exactly that: if something else
-    stands at the name when macOS moves it (swapped after the check), FERB puts it back and refuses."""
+    stands at the name when it moves (swapped after the check), FERB puts it back and refuses."""
     import socket
-    import ferb.act.fs.files as files
     home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
     ws = ferb / "workspace"
     ws.mkdir(parents=True)
     trash = tmp_path / "Trash"
     trash.mkdir()
+    victim = ws / "notes.txt"
     swap = {"on": False}
 
-    def fake_trash(p: Path) -> str:
-        if swap["on"]:                                    # an attacker swaps the item just before macOS moves it
-            p.unlink()
-            p.write_text("something else")
-        dest = trash / p.name
-        p.rename(dest)
-        return str(dest)
-    monkeypatch.setattr(files, "move_to_trash", fake_trash)
+    def attacker() -> None:                               # swaps the item after FERB checked it
+        if swap["on"]:
+            victim.unlink()
+            victim.write_text("something else")
+    use_trash(monkeypatch, trash, before_move=attacker)
     ctx = _ctx(ws, Protection(home, ferb, [], [], []))
 
     def go(path: Path) -> ToolResult:
         return asyncio.run(FsTrash().run(FsTrash.Input(path=str(path)), ctx))
-    victim = ws / "notes.txt"
     victim.write_text("mine")
     swap["on"] = True
     r = go(victim)
     assert r.is_error and "changed" in r.content["error"]
-    assert victim.read_text() == "something else" and not (trash / "notes.txt").exists()   # put back where it was
+    assert victim.read_text() == "something else" and list(trash.iterdir()) == []   # put back where it was
     swap["on"] = False
     locked = ws / "locked.txt"
     locked.write_text("x")
@@ -812,9 +810,158 @@ def test_fs_trash_moves_only_what_it_checked(tmp_path: Path, monkeypatch: pytest
             r = go(item)
             assert not r.is_error, (item, r.content)
             assert (trash / item.name).exists() or (trash / item.name).is_socket()
+            assert r.content["trashed_to"] == os.path.realpath(trash / item.name)
     finally:
         server.close()
         (trash / "locked.txt").chmod(0o600)
+
+
+@pytest.mark.parametrize("protected, name", [("Library/LaunchAgents", "evil.plist"), ("", ".zshenv")])
+def test_fs_trash_never_puts_back_through_a_folder_swapped_for_a_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                                       protected: str, name: str) -> None:
+    """Reviewer's round-3 reproduction: the item is swapped after the check, and the folder becomes a link to a
+    never-write folder before FERB puts the item back. A put-back by path renamed the attacker's plist into
+    ~/Library/LaunchAgents (or wrote ~/.zshenv) while saying "nothing was moved". FERB moves only between the folders it
+    holds open, so the item goes back into the folder it came from, wherever that is now (rule 10)."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    target = home / protected
+    target.mkdir(parents=True, exist_ok=True)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    proj = ws / "proj"
+    proj.mkdir()
+    item = proj / name
+    item.write_text("checked item")
+    before = sorted(p.name for p in target.iterdir())
+
+    def swap_item() -> None:                              # after the check: what moves isn't what was checked
+        item.unlink()
+        item.write_text("attacker payload")
+
+    def swap_folder() -> None:                            # before the put-back: the folder becomes a link
+        proj.rename(ws / "proj-moved")
+        proj.symlink_to(target)
+    use_trash(monkeypatch, trash, before_move=swap_item, after_move=swap_folder)
+    ctx = _ctx(ws, Protection(home, ferb, [], DEFAULT_NEVER_WRITE, []))
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(item)), ctx))
+    assert sorted(p.name for p in target.iterdir()) == before, "nothing lands in the protected folder"
+    assert r.is_error and "changed" in r.content["error"] and "proj-moved" in r.content["error"], r.content
+    assert (ws / "proj-moved" / name).read_text() == "attacker payload" and list(trash.iterdir()) == []
+
+
+def test_fs_trash_moves_from_the_folder_it_checked_when_the_path_is_swapped(tmp_path: Path,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reviewer's round-3 reproduction: the folder becomes a link to FERB's home while the item moves, then is swapped
+    back. A move by path trashed ~/.ferb/config.toml and the put-back renamed it into the attacker's folder. FERB moves
+    the item out of the folder it checked and holds open, so FERB's own file never moves (rule 10)."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    (ferb / "config.toml").write_text("owner settings")
+    out = home / "Desktop" / "proj"
+    out.mkdir(parents=True)
+    (out / "config.toml").write_text("decoy")
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+
+    def swap_in() -> None:
+        out.rename(out.parent / "proj-moved")
+        out.symlink_to(ferb)
+
+    def swap_back() -> None:
+        out.unlink()
+        (out.parent / "proj-moved").rename(out)
+        (out / "config.toml").unlink(missing_ok=True)
+    use_trash(monkeypatch, trash, before_move=swap_in, after_move=swap_back)
+    ctx = _ctx(ws, Protection(home, ferb, [], [], []))
+    where = Path(os.path.realpath(out)) / "config.toml"
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(out / "config.toml")), ctx))
+    assert (ferb / "config.toml").read_text() == "owner settings"
+    assert (trash / "config.toml").read_text() == "decoy" and not (out / "config.toml").exists()
+    assert not r.is_error and r.content == {"path": str(where), "trashed_to": os.path.realpath(trash / "config.toml")}
+
+
+def test_fs_trash_leaves_a_changed_item_in_the_trash_when_it_cant_be_put_back(tmp_path: Path,
+                                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    """Something new stands at the name after the move, so the item can't go back without replacing it: it stays in
+    the Trash, and the result names both paths so the gateway records it (S1) and the owner can get it back."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    item = ws / "notes.txt"
+    item.write_text("mine")
+
+    def swap_item() -> None:
+        item.unlink()
+        item.write_text("other")
+    use_trash(monkeypatch, trash, before_move=swap_item, after_move=lambda: item.write_text("newest"))
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(item)), _ctx(ws, Protection(home, ferb, [], [], []))))
+    assert item.read_text() == "newest" and (trash / "notes.txt").read_text() == "other"
+    landed = os.path.realpath(trash / "notes.txt")
+    assert r.is_error and r.content["path"] == os.path.realpath(item) and r.content["trashed_to"] == landed
+    assert landed in r.content["error"] and "changed" in r.content["error"]
+
+
+def test_fs_trash_reports_where_the_item_went_even_when_it_cant_look_at_it(tmp_path: Path,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """Where the item went is known before anything that can fail after the move: emptied from the Trash at once, it
+    is still reported (and recorded), never lost to an exception."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    item = ws / "notes.txt"
+    item.write_text("mine")
+    use_trash(monkeypatch, trash, after_move=lambda: (trash / "notes.txt").unlink())
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(item)), _ctx(ws, Protection(home, ferb, [], [], []))))
+    assert r.is_error and r.content["trashed_to"] == os.path.realpath(trash / "notes.txt"), r.content
+    assert r.content["path"] == os.path.realpath(item) and "confirm" in r.content["error"]
+
+
+def test_fs_trash_never_replaces_what_is_already_in_the_trash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    (trash / "notes.txt").write_text("trashed last week")
+    item = ws / "notes.txt"
+    item.write_text("mine")
+    use_trash(monkeypatch, trash)
+    r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(item)), _ctx(ws, Protection(home, ferb, [], [], []))))
+    assert not r.is_error and (trash / "notes.txt").read_text() == "trashed last week"
+    landed = Path(r.content["trashed_to"])
+    assert landed.parent == Path(os.path.realpath(trash)) and landed.name != "notes.txt"
+    assert landed.read_text() == "mine" and landed.suffix == ".txt" and not item.exists()
+
+
+def test_fs_trash_refuses_a_trash_on_another_disk_or_in_a_protected_folder(tmp_path: Path,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Trash folder is checked as opened too: a link standing in for it, a folder that is really FERB's own state
+    (reached through a link above it), or a folder on another disk (a move there would be a copy) is refused before
+    anything moves."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    agents = home / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    item = home / "Desktop" / "notes.txt"
+    item.parent.mkdir()
+    item.write_text("mine")
+    ctx = _ctx(ws, Protection(home, ferb, [], DEFAULT_NEVER_WRITE, []))
+    link = tmp_path / "Trash"
+    link.symlink_to(agents)
+    (tmp_path / "up").symlink_to(home)
+    for bin_, why in ((link, "Trash"), (tmp_path / "up" / ".ferb", "ferb_state"), (Path("/dev"), "disk")):
+        use_trash(monkeypatch, bin_)
+        r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(item)), ctx))
+        assert r.is_error and why in r.content["error"], (bin_, r.content)
+        assert item.read_text() == "mine" and list(agents.iterdir()) == [] and not (ferb / "notes.txt").exists()
 
 
 def test_the_kernel_lookup_opens_only_folders_and_regular_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -842,6 +989,33 @@ def test_the_kernel_lookup_opens_only_folders_and_regular_files(tmp_path: Path, 
         assert p.fs_denied(Path(f"/.vol/{st.st_dev}/{st.st_ino}/secret"), "write") == "ferb_state"   # through its folder
     finally:
         locked.chmod(0o600)
+
+
+def test_the_kernel_lookup_never_follows_a_file_swapped_for_a_link_to_a_device(tmp_path: Path,
+                                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """A regular file swapped for a link to a device between the lookup's stat and its open is never opened through
+    the link (O_NOFOLLOW): the device is never opened, and the file is named through its folder."""
+    import stat as stat_
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    f = ws / "notes.txt"
+    f.write_text("x")
+    real_open = os.open
+    devices: list[str] = []
+
+    def swap_then_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if os.fsdecode(path) == str(f) and not f.is_symlink():
+            f.unlink()
+            f.symlink_to("/dev/null")                       # the swap, just before the lookup opens the file
+        fd = real_open(path, flags, *args, **kwargs)
+        if not stat_.S_ISDIR(os.fstat(fd).st_mode) and not stat_.S_ISREG(os.fstat(fd).st_mode):
+            devices.append(os.fsdecode(path))
+        return fd
+    monkeypatch.setattr(protection.os, "open", swap_then_open)
+    named = protection._kernel(f)
+    monkeypatch.undo()
+    assert devices == [] and f.is_symlink()
+    assert named == Path(os.path.realpath(ws)) / "notes.txt"
 
 
 def test_building_the_lists_never_opens_other_apps_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

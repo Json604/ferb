@@ -111,7 +111,7 @@ def _publish(video: Path, out: int, name: str) -> None:
             raise
     fd = os.open(name, _NEW, 0o644, dir_fd=out)
     try:
-        with open(video, 'rb') as src, os.fdopen(fd, 'wb') as dst:
+        with os.fdopen(fd, 'wb') as dst, open(video, 'rb') as src:     # the new file closes even if the video won't open
             shutil.copyfileobj(src, dst)
     except BaseException:
         os.unlink(name, dir_fd=out)
@@ -155,6 +155,25 @@ class RecordingManager:
         self.staging.mkdir(parents=True, exist_ok=True, mode=0o700)
         return self.staging
 
+    def sweep(self) -> None:
+        """At daemon start: no recording survives a restart, so the staging folders the last run left behind go (only
+        FERB's own `rec-*` folders, in its own staging folder; never through a link)."""
+        if self.staging is None or self.records:
+            return
+        try:
+            entries = list(os.scandir(self.staging))
+        except (FileNotFoundError, NotADirectoryError):
+            return
+        failed: OSError | None = None
+        for entry in entries:
+            if entry.name.startswith('rec-') and entry.is_dir(follow_symlinks=False):
+                try:
+                    shutil.rmtree(entry.path)
+                except OSError as e:                       # the others still go; the daemon journals the first
+                    failed = failed or e
+        if failed is not None:
+            raise failed
+
     def _get(self, rid: str, owner: str) -> _Recording:
         rec = self.records.get(rid)
         if rec is None:
@@ -164,8 +183,15 @@ class RecordingManager:
         return rec
 
     def _info(self, r: _Recording) -> dict[str, Any]:
-        return {'id': r.id, 'resource': 'recording', 'target': r.target, 'path': str(r.path),
-                'receipt': str(r.receipt), 'started_at': r.at, 'requested_fps': r.fps,
+        path, receipt = r.path, r.receipt
+        if r.out >= 0:                    # the checked folder, wherever it is now (it may have been moved since)
+            try:
+                where = opened_path(r.out)
+                path, receipt = where / r.path.name, where / r.receipt.name
+            except OSError:
+                pass
+        return {'id': r.id, 'resource': 'recording', 'target': r.target, 'path': str(path),
+                'receipt': str(receipt), 'started_at': r.at, 'requested_fps': r.fps,
                 'frames': len(r.times), 'first_frame_s': r.times[0] if r.times else None,
                 'last_frame_s': r.times[-1] if r.times else None,
                 'duration_s': max(0, (r.ended if r.ended is not None else self.now()) - r.started),
@@ -210,6 +236,7 @@ class RecordingManager:
             folder: Path | None = None
             receipt = False
             listening = None
+            receipt_fd = -1
             try:
                 if closed is not None:                     # the folder it writes into, as macOS opened it
                     where = opened_path(out)
@@ -235,9 +262,13 @@ class RecordingManager:
                 r.masking.update({note} - {''})
                 (folder/'00000000.jpg').write_bytes(first)
                 r.times.append(0.0)
-                with os.fdopen(receipt_fd, 'w') as stream:
+                stream = os.fdopen(receipt_fd, 'w')
+                receipt_fd = -1                            # the stream owns it now
+                with stream:
                     json.dump(self._info(r) | {'sample_times_s': r.times}, stream, indent=2)
             except BaseException:
+                if receipt_fd >= 0:
+                    os.close(receipt_fd)
                 if folder is not None:
                     shutil.rmtree(folder, ignore_errors=True)
                 if receipt:

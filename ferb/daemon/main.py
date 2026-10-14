@@ -313,6 +313,10 @@ class Daemon:
                 # Its permanent record (L1), from what it recorded before the restart. A failure never stops
                 # start-up: episodes.record notes it, or leaves it to retention when even the note fails.
                 episodes.record(self.spans, self.journal, tid, self.clock.now().isoformat())
+        try:
+            await asyncio.to_thread(self.recordings.sweep)  # frames a restart cut off belong to no recording now
+        except OSError as e:
+            self.journal.append("recordings.startup_failed", {"error": f"{type(e).__name__}: {e}"})
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
