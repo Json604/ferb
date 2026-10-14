@@ -29,7 +29,9 @@ disk image, or from source.
 
 In Privacy & Security, FERB appears as **FERB**: the background service (Accessibility, Screen Recording, Full Disk
 Access, Automation) is FERB's agent app inside FERB.app, and dictation's Microphone and Speech Recognition belong to
-FERB.app itself. Push-to-talk, when you turn it on, appears as **FERB Voice** until it merges into FERB.app.
+FERB.app itself. FERB's voice helper inside FERB.app appears as **FERB Voice** until it merges into FERB.app: setup
+asks once for its Speech Recognition, so FERB can turn an app's sound into text during a task (on this Mac only), and
+push-to-talk, when you turn it on, adds its Microphone.
 
 FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
 before it replaces one, from its menu too. After you replace FERB.app with a newer build, the next launch updates the
