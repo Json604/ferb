@@ -14,9 +14,10 @@ Protocol 14 adds `media` (L26): play/pause/mute/unmute/seek one video/audio elem
 content script, and each snapshot frame lists its media elements' state.
 
 Protocol 14 (L13) stops refusing captures of pages with secret fields: `screenshot` and `record_frame` return the
-picture with a `mask` (every secret field's rect, top-viewport CSS px) that the daemon paints over before anything else
-sees it, or `withheld` when the rects can't be known; `window_secrets` (was `window_password`) returns those rects for
-the active tab of a window a native capture shows. An older daemon would pass such a picture on unpainted, and a newer
+picture with a `mask`, the page's mask state before and after the capture (the top document's secret-field rects and
+its frame-host boxes, a host holding a secret painted whole, top-viewport CSS px), that the daemon paints over before
+anything else sees it, or `withheld` when they can't be known; `window_secrets` (was `window_password`) returns that
+mask state for the active tab of a window a native capture shows. An older daemon would pass such a picture on unpainted, and a newer
 one can't mask an older extension's, so neither side accepts the other."""
 
 import base64

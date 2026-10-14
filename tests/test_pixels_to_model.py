@@ -434,7 +434,11 @@ function frameWindow(opts) {
   const listeners = {};
   const g = {console, crypto: globalThis.crypto, innerWidth: opts.viewport[0], innerHeight: opts.viewport[1],
     visualViewport: opts.visual || null,
-    getComputedStyle: el => Object.assign({webkitBoxReflect: "none"}, el.style),   // as Chromium computes it
+    getComputedStyle: (el, pseudo) => {              // as Chromium computes it: getPropertyValue by CSS name
+      const s = Object.assign({"-webkit-box-reflect": "none", filter: "none"},
+                              pseudo ? (el.pseudo || {})[pseudo] : el.style);
+      return {getPropertyValue: name => name in s ? s[name] : ""};
+    },
     MutationObserver: class { observe() {} }, location: {origin: "https://example.test", href: "https://example.test/"},
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     chrome: {runtime: {sendMessage() {}}, dom: {openOrClosedShadowRoot: el => el.closedRoot || el.shadowRoot || null}},
@@ -541,9 +545,9 @@ console.log(JSON.stringify({rows, posted}));
 def _frames(*heard: Any, rects: Any = None) -> list[dict[str, Any]]:
     """Top-frame rows: frame elements E0, E1, ... at x = 0, 200, ... that heard these tokens, and their children."""
     top = {"documentId": "top", "own": None, "viewport": [0, 0, 1400, 800], "rects": [], "frames": [
-        {"id": f"E{i}", "heard": h, "rect": [200 * i, 0, 100, 100], "reflected": False} for i, h in enumerate(heard)]}
+        {"id": f"E{i}", "heard": h, "rect": [200 * i, 0, 100, 100], "redrawn": False} for i, h in enumerate(heard)]}
     kids = [{"documentId": doc, "own": own, "viewport": [0, 0, 100, 100], "frames": [],
-             "rects": [{"id": "f", "rect": r, "reflected": False}] if r else []} for doc, own, r in (rects or [])]
+             "rects": [{"id": "f", "rect": r, "redrawn": False}] if r else []} for doc, own, r in (rects or [])]
     return [{"frameId": i, "result": f} for i, f in enumerate([top] + kids)]
 
 
@@ -708,6 +712,32 @@ def test_every_look_waits_only_until_its_commands_deadline() -> None:
     assert len(out) == 5 and all(3000 < ms <= 4000 for ms in out), out
 
 
+def test_looks_at_one_tab_stay_one_at_a_time_when_a_waiting_look_gives_up() -> None:
+    """A holds the tab, B gives up waiting while A still runs, C must still wait for A: the chain stays serial."""
+    out = worker('''(async () => {
+      inject = async () => {};
+      const log = [];
+      let first = null;
+      chrome.scripting = {executeScript: async args => {
+        const round = args.args[0];
+        if (first === null) first = round;
+        const who = round === first ? "A" : "C";
+        const step = ["listenForFrames", "announceFrame", "captureState"].find(n => args.func.toString().includes(n));
+        log.push(who + ":" + step);
+        if (who === "A") await new Promise(resolve => setTimeout(resolve, 150));   // A takes a while, well in time
+        return step === "captureState" ? [{frameId: 0, result: {documentId: 'top', own: null,
+          viewport: [0, 0, 10, 10], rects: [], frames: []}}] : [];
+      }};
+      const now = Date.now();
+      const looks = [maskState(4, now + 5000), maskState(4, now + 50), maskState(4, now + 5000)];
+      const [a, b, c] = await Promise.all(looks);
+      return {log, a, b, c};
+    })()''')
+    assert out["log"] == ["A:listenForFrames", "A:announceFrame", "A:captureState",
+                          "C:listenForFrames", "C:announceFrame", "C:captureState"], out["log"]
+    assert "withheld" in out["b"] and "withheld" not in out["a"] and "withheld" not in out["c"]
+
+
 def test_a_message_without_a_source_is_nobodys_announcement() -> None:
     out = _content(r'''
 const page = frameWindow({viewport: [1000, 800], nodes: [el("IFRAME", [700, 100, 50, 50], {contentWindow: null})]});
@@ -813,41 +843,74 @@ topNodes.push(turned, el("INPUT", [37, 61, 141, 141], {type: "password", parentE
     assert "withheld" not in state and _painted(state) == [[37, 61, 141, 141], [400, 50, 120, 20]]
 
 
-REFLECT = '{webkitBoxReflect: "below 0px"}'
+COPIERS = {"reflect": '{"-webkit-box-reflect": "below 0px"}',
+           "svg-filter": '{filter: \'url("#shift")\'}'}       # an feOffset/feTile filter redraws content elsewhere
 
 
+@pytest.mark.parametrize("copier", sorted(COPIERS))
 @pytest.mark.parametrize("build, kid, withheld", [
-    # the secret-bearing frame's host, drawn through a shadow tree whose wrapper around the <slot> reflects
+    # the secret-bearing frame's host, drawn through a shadow tree whose wrapper around the <slot> copies it
     ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
-     f'topNodes.push(slotted(host, {REFLECT}, false), host);', None, True),
+     'topNodes.push(slotted(host, __STYLE__, false), host);', None, True),
     ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
-     f'topNodes.push(slotted(host, {REFLECT}, true), host);', None, True),
-    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+     'topNodes.push(slotted(host, __STYLE__, true), host);', None, True),
+    ('const box = el("DIV", [0, 0, 600, 600], {style: __STYLE__});'
      'const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy, parentElement: box});'
      'topNodes.push(box, host);', None, True),
-    # a host nothing is linked in (painted whole: it may hold anything), under a reflecting ancestor
-    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+    # a host nothing is linked in (painted whole: it may hold anything), under a copying ancestor
+    ('const box = el("DIV", [0, 0, 600, 600], {style: __STYLE__});'
      'topNodes.push(box, el("IFRAME", [700, 100, 50, 50], {contentWindow: null, parentElement: box}));', "", True),
-    # a top-document field: its reflecting ancestor, itself, or the host of the shadow tree it is in
-    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+    # a top-document field: its copying ancestor, itself, or the host of the shadow tree it is in
+    ('const box = el("DIV", [0, 0, 600, 600], {style: __STYLE__});'
      'topNodes.push(box, el("INPUT", [10, 20, 100, 30], {type: "password", parentElement: box}));', "", True),
-    (f'topNodes.push(el("INPUT", [10, 20, 100, 30], {{type: "password", style: {REFLECT}}}));', "", True),
+    ('topNodes.push(el("INPUT", [10, 20, 100, 30], {type: "password", style: __STYLE__}));', "", True),
     ('const field = el("INPUT", [10, 20, 100, 30], {type: "password", parentElement: null});'
-     f'const x = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}, shadowRoot: null}});'
+     'const x = el("DIV", [0, 0, 600, 600], {style: __STYLE__, shadowRoot: null});'
      'const root = {host: x, querySelectorAll: () => [field]}; field.getRootNode = () => root; x.closedRoot = root;'
      'topNodes.push(x);', "", True),
-    # nothing to hide is mirrored: a host whose frame shows no secret field, a reflecting box beside the field
-    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+    # a <details>' content box (::details-content) around a field, open or closed (CSS can show closed content)
+    ('const details = el("DETAILS", [0, 0, 600, 600], {open: true, pseudo: {"::details-content": __STYLE__}});'
+     'const summary = el("SUMMARY", [0, 0, 600, 20], {parentElement: details});'
+     'const field = el("INPUT", [10, 40, 100, 30], {type: "password", parentElement: details});'
+     'details.children = [summary, field]; topNodes.push(details, summary, field);', "", True),
+    ('const details = el("DETAILS", [0, 0, 600, 600], {open: false, pseudo: {"::details-content": __STYLE__}});'
+     'const field = el("INPUT", [10, 40, 100, 30], {type: "password", parentElement: details});'
+     'details.children = [field]; topNodes.push(details, field);', "", True),
+    # nothing to hide is copied: a host whose frame shows no secret field, a copying box beside the field, a field
+    # in the <summary>, which isn't in the content box
+    ('const box = el("DIV", [0, 0, 600, 600], {style: __STYLE__});'
      'const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy, parentElement: box});'
      'topNodes.push(box, host);', "", False),
-    (f'topNodes.push(el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}}),'
+    ('topNodes.push(el("DIV", [0, 0, 600, 600], {style: __STYLE__}),'
      'el("INPUT", [610, 20, 100, 30], {type: "password"}));', "", False),
+    ('const details = el("DETAILS", [0, 0, 600, 600], {open: true, pseudo: {"::details-content": __STYLE__}});'
+     'const summary = el("SUMMARY", [0, 0, 600, 20], {parentElement: details});'
+     'const field = el("INPUT", [10, 2, 100, 16], {type: "password", parentElement: summary});'
+     'details.children = [summary]; topNodes.push(details, summary, field);', "", False),
 ], ids=["slot-closed", "slot-open", "host-ancestor", "unlinked-host", "field-ancestor", "field-itself",
-        "field-in-shadow-tree", "clean-host", "beside-the-field"])
-def test_a_mirrored_secret_withholds_the_capture(build: str, kid: str | None, withheld: bool) -> None:
-    """-webkit-box-reflect draws a mirrored copy of an element and everything in it outside its box, where no mask
-    goes: a secret field or a host painted whole under one withholds the capture."""
+        "field-in-shadow-tree", "details-content", "details-content-closed", "clean-host", "beside-the-field",
+        "in-the-summary"])
+def test_a_secret_drawn_again_elsewhere_withholds_the_capture(build: str, kid: str | None, withheld: bool,
+                                                               copier: str) -> None:
+    """-webkit-box-reflect, or an SVG filter (feOffset/feTile with a user-space region), draws a copy of an element
+    and everything in it outside its box, where no mask goes: a secret field or a host painted whole under one
+    withholds the capture."""
+    build = build.replace("__STYLE__", COPIERS[copier])
     state = _mask_state(_scene(build) if kid is None else _scene(build, kid))
+    assert ("withheld" in state) is withheld, state
+
+
+@pytest.mark.parametrize("style, withheld", [
+    ('{filter: "drop-shadow(rgb(0, 0, 0) 4px 4px 8px)"}', False),   # plain filters: the accepted residual
+    ('{filter: "blur(2px)"}', False),
+    ('{"-webkit-box-reflect": null}', True),                         # an answer that isn't a string
+    ('{"-webkit-box-reflect": ""}', True),                           # or isn't one Chromium gives: unknown
+    ('{filter: null}', True),
+])
+def test_a_style_that_cant_be_read_counts_as_a_copy(style: str, withheld: bool) -> None:
+    state = _mask_state(_scene('const box = el("DIV", [0, 0, 600, 600], {style: __STYLE__});'
+                               'topNodes.push(box, el("INPUT", [10, 20, 100, 30], {type: "password",'
+                               ' parentElement: box}));'.replace("__STYLE__", style), ""))
     assert ("withheld" in state) is withheld, state
 
 

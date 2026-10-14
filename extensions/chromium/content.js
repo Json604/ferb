@@ -327,9 +327,9 @@
 
   // Frame links for capture masks (L13). Chromium can't name the frame inside a frame element (no
   // chrome.runtime.getFrameId), so each child frame announces itself: a fresh token for this round, posted to its
-  // parent (announceFrame). The parent hears it only as a real message (isTrusted: no page script can synthesize one)
-  // whose source is the window of one of its frame hosts, any element with a contentWindow (listenForFrames, then
-  // captureState). The background links a host to a frame only when it heard exactly one token, nothing else heard
+  // parent (announceFrame). The parent counts it only when the message's source, which the browser sets, is the window
+  // of one of its frame hosts (any element with a contentWindow: listenForFrames, then captureState); only code
+  // running in that frame can post from that window. Synthetic events (not isTrusted) are dropped as well. The background links a host to a frame only when it heard exactly one token, nothing else heard
   // that token, and exactly one frame owns it; it leaves a host unpainted only when that frame, and every frame in
   // it, is linked so and shows no secret field. Anything else paints the host whole. Only code running inside a child
   // frame can speak as that frame, so what a page forges (dropped, added or repeated messages) only adds black.
@@ -395,12 +395,22 @@
     const root = el.getRootNode ? el.getRootNode() : null;
     return (root && root.host) || null;
   }
-  // -webkit-box-reflect on the element or anything it is drawn inside draws a mirrored copy of it outside its box,
-  // where no mask goes.
-  function reflected(el) {
+  // Whether the element is drawn again outside its box, where no mask goes: -webkit-box-reflect (a mirrored copy) or
+  // an SVG filter (url(...): feOffset/feTile with a user-space region redraw content elsewhere at full fidelity) on
+  // it or anything it is drawn inside, including a <details>' content box (::details-content) around everything but
+  // its summary, open or not (CSS can show closed content). Plain filters (blur, drop-shadow) only smear or
+  // silhouette. Fails closed: a value that isn't a plain answer counts as a copy.
+  const styleValue = (cs, name) => { try { return cs.getPropertyValue(name); } catch (_) { return null; } };
+  const copies = (cs) => {
+    const reflect = styleValue(cs, "-webkit-box-reflect"), filter = styleValue(cs, "filter");
+    return reflect !== "none" || typeof filter !== "string" || filter.includes("url(");
+  };
+  function redrawn(el) {
     for (let a = el; a; a = drawnParent(a)) {
-      const v = getComputedStyle(a).webkitBoxReflect;
-      if (v && v !== "none") return true;
+      if (copies(getComputedStyle(a))) return true;
+      const p = a.parentElement;
+      if (p && p.tagName === "DETAILS" && a !== Array.from(p.children).find((c) => c.tagName === "SUMMARY")
+          && copies(getComputedStyle(p, "::details-content"))) return true;
     }
     return false;
   }
@@ -409,7 +419,7 @@
   // field isSecret marks (password and code fields, sealed fills), keyed so a field is known again after the capture,
   // and, after a split sealed fill, every editable field of this document; each frame host with the tokens it heard
   // this round and its box (getBoundingClientRect: every transform, zoom and motion path applied); whether a field or
-  // host is mirrored (reflected); this frame's own token; and the visual viewport (what a capture shows, pinch zoom
+  // host is drawn again elsewhere (redrawn); this frame's own token; and the visual viewport (what a capture shows, pinch zoom
   // included). Geometry only, never a value. A separate inventory: a capture never replaces the snapshot/point
   // bindings the worker acts with.
   function captureState(round) {
@@ -420,11 +430,11 @@
       if (isHost(el)) {
         const b = el.getBoundingClientRect();
         frames.push({id: stableId(hostIds, el), heard: state.tokens.get(el) || [], rect: [b.x, b.y, b.width, b.height],
-                     reflected: reflected(el)});
+                     redrawn: redrawn(el)});
       } else if (isSecret(el) || maskedEditable(el)) {
         const b = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
         if (b.width > 0 && b.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
-          rects.push({id: stableId(fieldIds, el), rect: [b.x, b.y, b.width, b.height], reflected: reflected(el)});
+          rects.push({id: stableId(fieldIds, el), rect: [b.x, b.y, b.width, b.height], redrawn: redrawn(el)});
       }
     });
     const vv = window.visualViewport;

@@ -383,15 +383,17 @@ async function inFrame(tabId, frameId, func, args) {
 // One look at a time per tab: a recording's frames (two looks each) and a worker's screenshot or a native capture
 // of the same tab can overlap, and their rounds must not interleave in the page. `deadline` is the command's own
 // (Date.now() + its _timeout_ms): a look holds its tab until it ends or its deadline passes, waits for its turn only
-// until its deadline, and is skipped (withheld, the page never touched) when that passes first.
+// until its deadline, and is skipped (withheld, the page never touched) when that passes first. A skipped look still
+// keeps its place, so the look after it waits for the one before it: the chain stays strictly serial.
 const maskLooks = new Map();                       // tabId -> the end of that tab's chain of looks
 function maskState(tabId, deadline) {
   let timer;
   const expired = new Promise(resolve => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now())); });
-  const turn = Promise.race([(maskLooks.get(tabId) || Promise.resolve()).then(() => true), expired.then(() => false)]);
+  const prev = maskLooks.get(tabId) || Promise.resolve();
+  const turn = Promise.race([prev.then(() => true), expired.then(() => false)]);
   const look = turn.then(mine => mine && Date.now() < deadline ? readMaskState(tabId)
     : {withheld: "this look at the page ran out of time waiting for its turn, so its secret fields can't be found"});
-  const done = Promise.race([look.catch(() => {}), expired]).then(() => clearTimeout(timer));
+  const done = Promise.all([prev, Promise.race([look.catch(() => {}), expired]).then(() => clearTimeout(timer))]);
   maskLooks.set(tabId, done);
   done.then(() => { if (maskLooks.get(tabId) === done) maskLooks.delete(tabId); });
   return look;
@@ -408,7 +410,8 @@ function maskState(tabId, deadline) {
 // missing, repeated or shared) is painted whole: its box, clipped to the viewport, already includes every transform
 // the browser applies, and a forged message only adds black. Withheld when a frame with secret fields is accounted
 // for by no host (it can't be covered: an <embed>, a host made mid-capture), when a top-document secret field or a
-// host painted whole is mirrored (-webkit-box-reflect draws the copy outside the mask), or the page can't be read.
+// host painted whole is drawn again elsewhere (redrawn: -webkit-box-reflect or an SVG filter puts the copy outside
+// the mask), or the page can't be read.
 // Items carry keys, so the daemon can tell what moved between the looks before and after a capture. Geometry only,
 // never page content.
 async function readMaskState(tabId) {
@@ -455,8 +458,9 @@ async function readMaskState(tabId) {
     return clean.get(f);
   };
   const shown = c => { const k = linked(c); return !!k && isClean(k); };
-  if (top.rects.some(r => r.reflected) || top.frames.some(c => c.reflected && !shown(c)))
-    return {withheld: "a secret field is mirrored on the page (-webkit-box-reflect), outside where it can be painted"};
+  if (top.rects.some(r => r.redrawn) || top.frames.some(c => c.redrawn && !shown(c)))
+    return {withheld: "a secret field is drawn again elsewhere on the page (a reflection or an SVG filter), outside "
+                      + "where it can be painted"};
   const items = [];
   for (const r of top.rects) {
     const m = cut(r.rect, top.viewport);

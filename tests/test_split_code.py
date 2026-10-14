@@ -26,7 +26,8 @@ let nodes=Array.from({length:6},()=>Object.assign(new HTMLInputElement(), {tagNa
  inputMode:'numeric',pattern:'',name:'',id:'',autocomplete:'',isConnected:true,ownerDocument:1,value:''}));
 let parent={querySelectorAll:()=>nodes, parentElement:null}; nodes.forEach(n=>n.parentElement=parent);
 let location={origin:'https://www.zomato.com'}, element=()=>({el:nodes[0]}), setValue=(n,v)=>n.value=v;
-const addEventListener=()=>{}, top={}, window={}, chrome={runtime:{}}, getComputedStyle=()=>({});
+const addEventListener=()=>{}, top={}, window={}, chrome={runtime:{}},
+ getComputedStyle=()=>({getPropertyValue:()=>'none'});
 let ids=0; const randomId=()=>'id'+(++ids);
 ''' + capture_text + group + describe + capture + act + fill + after
     ran = subprocess.run([_node(), '-e', script], capture_output=True, text=True, check=True)
