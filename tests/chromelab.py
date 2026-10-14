@@ -335,7 +335,8 @@ const ctx = vm.createContext({chrome, crypto: globalThis.crypto, btoa, atob, Tex
   setTimeout, clearTimeout, console, navigator: {}, structuredClone});
 ctx.importScripts = f => vm.runInContext(fs.readFileSync(path.join(process.argv[1], f), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(path.join(process.argv[1], "background.js"), "utf8").replace(/ensurePort\(\);\s*$/, ''), ctx);
-vm.runInContext(process.argv[2], ctx).then(x => { console.log(JSON.stringify(x)); process.exit(0); })
+// stdout to a pipe is asynchronous on macOS: exit only once the whole answer is written
+vm.runInContext(process.argv[2], ctx).then(x => process.stdout.write(JSON.stringify(x) + "\n", () => process.exit(0)))
  .catch(e => { console.error(e); process.exit(1); });
 '''
     result = subprocess.run([_node(), "-e", harness, str(EXT), script], capture_output=True, text=True, timeout=20)

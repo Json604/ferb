@@ -837,3 +837,10 @@ def test_an_orphaned_page_listener_never_eats_the_owners_click(mode: str) -> Non
         assert passed["blob:https://s.example/again"]["download"] in ("r.csv", "s.csv")
         assert len(out["passed"]) == 4                            # each taken click reached the browser once
     assert out["armedAnswer"] is False                            # the page hook behaves natively from then on
+
+
+def test_the_extension_harness_returns_a_large_answer_whole():
+    """Node writes to a pipe asynchronously on macOS: exiting right after console.log cut answers short (seen as
+    JSONDecodeError on ~500-byte answers under load; deterministic past the pipe buffer)."""
+    out = worker('(async () => ({x: "y".repeat(1 << 20)}))()')
+    assert out == {"x": "y" * (1 << 20)}
