@@ -12,10 +12,13 @@
 // The daemon starts the last two per use with `open -g -n -W --env FERB_HOME=…` (LaunchServices: FERB.app, not the
 // daemon, is the app macOS asks about). <out> is the daemon's empty answer file in $FERB_HOME/workspace/audio; deleting
 // it stops FERB.app. They never prompt and write nothing to stdout or any log.
+// FERB_HOME is taken only when unset or when it is the account's own ~/.ferb (home.swift); every mode checks it first.
 import AppKit
 import AVFoundation
 import CoreAudio
 import Speech
+
+_ = ferbHome                                          // a foreign FERB_HOME is refused before anything else (home.swift)
 
 // ---------- the daemon's socket (newline-delimited JSON-RPC) ----------
 
@@ -60,8 +63,7 @@ final class Conn {
 }
 
 func socketPath() -> String {
-    let home = ProcessInfo.processInfo.environment["FERB_HOME"] ?? (NSHomeDirectory() + "/.ferb")
-    return home + "/run/ferb.sock"
+    return ferbHome + "/run/ferb.sock"
 }
 
 func connectAsVoice() -> Conn? {
@@ -256,10 +258,10 @@ func answerFile(_ out: String) -> Int32? {
     return fd
 }
 
-// FERB's private audio folder: $FERB_HOME/workspace/audio (the daemon passes FERB_HOME with `open --env`).
+// FERB's private audio folder: $FERB_HOME/workspace/audio (the daemon passes FERB_HOME with `open --env`; home.swift
+// takes it only as the account's own ~/.ferb).
 func inAudioFolder(_ path: String) -> Bool {
-    let home = ProcessInfo.processInfo.environment["FERB_HOME"] ?? (NSHomeDirectory() + "/.ferb")
-    guard let folder = realpath(home + "/workspace/audio", nil) else { return false }
+    guard let folder = realpath(ferbHome + "/workspace/audio", nil) else { return false }
     defer { free(folder) }
     guard let parent = realpath((path as NSString).deletingLastPathComponent, nil) else { return false }
     defer { free(parent) }

@@ -54,7 +54,8 @@ class Transcript:
 
 def launch_args(app: Path, mode: str, *args: str, home: Path | None = None) -> list[str]:
     """FERB_HOME tells FERB.app which audio folder its answer and input files must be in: FERB's home, which is the
-    folder ~/.ferb/FERB.app sits in, but not the packaged FERB.app's nested voice helper's (L27)."""
+    folder ~/.ferb/FERB.app sits in, but not the packaged FERB.app's nested voice helper's (L27). FERB.app takes it only
+    as the account's own ~/.ferb (macapp/FERB/home.swift), so a daemon with another FERB_HOME gets no transcripts."""
     return ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={home or app.parent}", str(app), "--args", mode,
             *args]
 
