@@ -1389,12 +1389,31 @@ def test_cancelling_a_one_time_schedule_during_its_run_withdraws_the_runs_scope(
         _change_schedule(daemon, action, said)
     run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, repeat="none", before_posting=change)
     assert "(done; its last run is under way)" in facts[0]                 # so "cancel today's post" can name it
-    assert said and said[0].startswith({"cancel": "Cancelled", "pause": "Paused"}[action])
+    assert said and (said[0].startswith("Cancelled") if action == "cancel" else "no future runs" in said[0])
     assert "no active schedule" not in said[0]
     assert run.results["new@x.com"]["is_error"]                             # no longer covered: asked, declined
     revoked = _revocations(daemon)
     assert [r["approval_id"] for r in revoked] == [run.grants[0][1]]
     assert revoked[0]["reason"] == "schedule " + action
+
+
+@pytest.mark.parametrize("action", ["cancel", "pause"])
+def test_a_one_time_schedule_can_be_changed_while_its_last_runs_planner_decides(daemon: RunningDaemon,
+                                                                                action: str) -> None:
+    """Re-review of M9: from `_run_schedule` marking it done until its run's tree granted the scope, "cancel" got
+    "There's no active schedule…" and the scope was granted moments later."""
+    _remember(daemon, "My launch list address is new@x.com")
+    said: list[str] = []
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, repeat="none",
+                              while_planning=lambda: _change_schedule(daemon, action, said))
+    assert said and "no active schedule" not in said[0]
+    assert run.grants == []                                                 # the grant's re-check refused it
+    assert run.results["new@x.com"]["is_error"]                             # not covered: asked, nobody there
+    state = daemon.run(_on_loop(lambda: daemon.daemon.schedules.get(run.created["schedule_id"]).state))
+    if action == "cancel":
+        assert said[0].startswith("Cancelled") and state == "cancelled"
+    else:                                                                   # nothing left to pause: never "paused"
+        assert "no future runs" in said[0] and state == "done"
 
 
 def test_a_finished_one_time_schedule_still_has_nothing_to_cancel(daemon: RunningDaemon) -> None:

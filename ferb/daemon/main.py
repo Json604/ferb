@@ -246,6 +246,7 @@ class Daemon:
         self.front_window: Callable[[str, int | None], Awaitable[Any]] | None = (
             self._front_window if screen_at_send else None)
         self._tab_granted: set[str] = set()   # browsers whose front tab FERB may read: GRANTED, kept until a read fails
+        self._last_runs: set[str] = set()     # one-time schedules marked done whose last run is under way (M9)
         self.snapshots: recovery.Snapshots | None = None
         # Deletes FERB's own old snapshots in the async retention pass (None: macOS thinning only; tests)
         self.snapshot_deleter: Callable[[str], Awaitable[bool]] | None = (
@@ -2204,10 +2205,13 @@ class Daemon:
         return self._schedule_change(ch.id, ch.action)
 
     def _last_run_holds_scope(self, sid: str) -> bool:
-        """Whether a run still holds a schedule's recorded scope (`schedule:<id>`, D30): a one-time schedule's last
-        run does after `_run_schedule` marked it done (final review M9)."""
+        """Whether a one-time schedule's last run is still under way: from `_run_schedule` marking it done (its
+        planner turn included, before the run's tree is granted the scope) until the run ends, or while a run holds
+        the schedule's recorded scope (`schedule:<id>`, D30; a plan resumed after a restart) (final review M9)."""
         from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
         assert self.db is not None
+        if sid in self._last_runs:
+            return not self._paused_last_run(sid)
         standing = self.supervisor.standing if self.supervisor is not None else StandingPermissions(self.db)
         return standing.held(SCHEDULE_GRANT + sid)
 
@@ -2229,11 +2233,15 @@ class Daemon:
         if s is None or not self._changeable(sid, action):
             return f"There's no active schedule {sid}."
         if s.state == "done":            # its last run is under way: the cancel or pause withdraws that run's scope
-            self.schedules.set_state(sid, "cancelled" if action == "cancel" else "paused")
-            self._withdraw_schedule_scope(sid, action)
-            self._journal().append(f"schedule.{action}", {"schedule_id": sid})
-            return ({"cancel": "Cancelled", "pause": "Paused"}[action] + f": {s.request}. Its run already under way "
-                    "keeps going, but nothing it sends is covered any more: each send gets FERB's usual checks.")
+            if action == "cancel":
+                self.schedules.set_state(sid, "cancelled")
+            self._journal().append(f"schedule.{action}", {"schedule_id": sid})   # before the withdrawal: a grant
+            self._withdraw_schedule_scope(sid, action)                           # checks it from now on
+            covered = ("Its run already under way keeps going, but nothing it sends is covered any more: each send "
+                       "gets FERB's usual checks.")
+            if action == "pause":            # no future run to pause: it stays done, never "paused" for good
+                return f"{s.request} has no future runs, so there's nothing left to pause. {covered}"
+            return f"Cancelled: {s.request}. {covered}"
         if action == "cancel":
             self.schedules.set_state(sid, "cancelled")
             if s.timer_id:
@@ -2269,9 +2277,18 @@ class Daemon:
 
     def _schedule_live(self, sid: str) -> bool:
         """Whether a schedule's runs may still hold its recorded scope: it exists and wasn't cancelled or paused. A
-        done schedule counts: `_run_schedule` marks it done just before running its last occurrence (D30)."""
+        done schedule counts (`_run_schedule` marks it done just before running its last occurrence, D30) unless the
+        owner paused it during that run: a pause of a schedule with no future runs leaves it done (journaled)."""
         s = self.schedules.get(sid)
-        return s is not None and s.state in ("active", "done")
+        return s is not None and (s.state == "active" or s.state == "done" and not self._paused_last_run(sid))
+
+    def _paused_last_run(self, sid: str) -> bool:
+        """A `schedule.pause` journaled after the schedule's latest run started."""
+        assert self.db is not None
+        row = self.db.conn.execute(
+            "SELECT kind FROM journal WHERE kind IN ('schedule.run', 'schedule.pause') "
+            "AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1", (sid,)).fetchone()
+        return row is not None and row[0] == "schedule.pause"
 
     async def _run_schedule(self, sid: str, overdue_s: float) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""
@@ -2286,7 +2303,9 @@ class Daemon:
         else:
             self.schedules.set_timer(sid, None, None)
             self.schedules.set_state(sid, "done")
+            self._last_runs.add(sid)                 # changeable (cancel, pause) from now until its run ends (M9)
         if self.supervisor is None:
+            self._last_runs.discard(sid)
             return
         try:
             final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s)
@@ -2294,6 +2313,8 @@ class Daemon:
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
                      "answer": f"“{s.request}” didn't work this time; I'll try again at the next run."}
+        finally:
+            self._last_runs.discard(sid)
         # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
         # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
         status = final.get("status")

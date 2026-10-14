@@ -163,6 +163,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   instead of only "Stopped, as you asked.".
 - When the AI service can't be reached and the Mac has no network route at all, the reply says the Mac seems to be
   offline instead of "try again shortly". A login problem is never called offline.
+- A one-time schedule can be cancelled or paused from the moment its last run starts, its planning included (before,
+  "There's no active schedule…" for a moment, then the scope was granted); pausing it says it has no future runs
+  instead of leaving it "paused" for good.
 
 Licensed under Apache-2.0.
 
