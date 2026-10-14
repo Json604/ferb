@@ -132,6 +132,15 @@ def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
 
 
 @pytest.fixture(autouse=True)
+def network_route(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests see a Mac with a network route, whatever this machine's network is: a service failure's wording
+    depends on it (`ferb.sense.network.has_route`). Tests about an offline Mac set it themselves."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.sense.network as network
+        monkeypatch.setattr(network, "has_route", lambda: True)
+
+
+@pytest.fixture(autouse=True)
 def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline tests never move anything into the owner's real Trash: FsTrash reaches it only through
     tests.support.trash.use_trash."""

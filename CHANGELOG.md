@@ -161,6 +161,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   things, keep diagnosing, report) instead of stopping it; the planner stops only when your words ask only to stop.
 - A task you stop reports what its worker had found so far ("What I'd found before stopping (not checked): …")
   instead of only "Stopped, as you asked.".
+- When the AI service can't be reached and the Mac has no network route at all, the reply says the Mac seems to be
+  offline instead of "try again shortly". A login problem is never called offline.
 
 Licensed under Apache-2.0.
 

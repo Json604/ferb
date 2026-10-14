@@ -51,7 +51,7 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, service_problem
+from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, problem_of
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -615,7 +615,7 @@ class Supervisor(WorkerRuns):
             except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
                 self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,
                                                     "detail": str(e)})
-                answer = service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SCHEDULED_SORRY
+                answer = problem_of(e) if isinstance(e, ServiceError) else SCHEDULED_SORRY
                 return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
                         "goal": sched.request}
             if out.kind != "task" or out.task is None:
@@ -945,7 +945,7 @@ class Supervisor(WorkerRuns):
                                                 "detail": str(e)})
             self._env.pop(request_id, None)
             yield self._failure_reply(session_id, request_id,
-                                      service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SORRY)
+                                      problem_of(e) if isinstance(e, ServiceError) else SORRY)
             return
         authority_id = request_id
         turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw
@@ -2329,7 +2329,7 @@ class Supervisor(WorkerRuns):
                 if attempt_revision != len(tree.steering.messages) and not tree.stop:
                     continue
                 # The owner reads the problem in plain words; the details stay in the records (P27).
-                problem = (": " + service_problem(str(exc), exc.runtime) if isinstance(exc, ServiceError)
+                problem = (": " + problem_of(exc) if isinstance(exc, ServiceError)
                            else " (a problem on my side)")
                 if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
                     tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."

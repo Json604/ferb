@@ -1685,7 +1685,10 @@ protected FERB state (16.9).
 - **Choice answers (L18).** Only sealed inputs call `remember_hidden_secret`; a picked option (`Approval.option_for`) is
   never redacted; other words to a code-labelled question are hidden for that answer only (`Redactor.answer`).
 - **Codex account errors (L21).** Any account-check failure becomes `AccountError('account_unavailable')` and a named
-  reply for that request; scheduled runs name it too.
+  reply for that request; scheduled runs name it too. A failure reaching the service (`ServiceError.network`: an
+  account check that isn't a login problem, a dropped stream) while the Mac has no network route
+  (`sense/network.has_route`: a UDP connect asks the routing table for an IPv4 and an IPv6 route; nothing is sent)
+  says the Mac seems to be offline instead of "try again shortly" (`worker.problem_of`).
 - **Waits (L22).** `PlanExecutor` re-checks the wall clock at most every `POLL_S` (`timers.recheck_in`).
 - **Inventory (L23).** `plans.inventory` and its protection filter run in a thread.
 

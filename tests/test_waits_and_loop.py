@@ -3,6 +3,7 @@ free; a Codex account check that fails in any way still gives its request a chat
 import asyncio
 import json
 import threading
+from typing import Any
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -285,3 +286,53 @@ def test_worker_whose_app_server_never_answers_the_account_check_ends_as_stalled
     assert out['status'] == 'failed' and 'stopped responding' in out['subtasks']['worker']['summary'], out   # L11 plain words
     assert servers and all(proc.returncode is not None for proc in servers)
     assert not any({'thread/start', 'turn/start'} & set(proc.methods) for proc in servers)
+
+
+def test_an_account_check_that_fails_while_the_mac_has_no_network_says_its_offline(daemon, monkeypatch):
+    """Owner live use: with no network, Codex's account check failed and the reply said "Try again shortly"."""
+    import ferb.sense.network as network
+    from ferb.runtimes.codex_stream import AccountError
+    from tests.conftest import FakeRuntime
+    install(daemon, [])
+
+    async def unavailable(self, task_, request, token):
+        raise AccountError('account_unavailable', -32000)
+    monkeypatch.setattr(FakeRuntime, 'start', unavailable)
+    monkeypatch.setattr(network, 'has_route', lambda: False)
+    text = chat(daemon, 'what time is it?')[0]['text']
+    assert 'seems to be offline' in text and 'Try again shortly' not in text
+    monkeypatch.setattr(network, 'has_route', lambda: True)             # online: the service's own words, as before
+    assert 'Codex could not check the account' in chat(daemon, 'what time is it?')[0]['text']
+
+
+def test_a_login_problem_is_never_called_offline(daemon, monkeypatch):
+    import ferb.sense.network as network
+    from ferb.runtimes.codex_stream import AccountError
+    from tests.conftest import FakeRuntime
+    install(daemon, [])
+
+    async def signed_out(self, task_, request, token):
+        raise AccountError('auth_required')
+    monkeypatch.setattr(FakeRuntime, 'start', signed_out)
+    monkeypatch.setattr(network, 'has_route', lambda: False)
+    assert 'offline' not in chat(daemon, 'what time is it?')[0]['text']
+
+
+def test_the_route_fact_reads_the_routing_table_without_sending_anything() -> None:
+    import errno
+    import socket
+    from ferb.sense import network
+
+    class NoRoute:
+        def __init__(self, family: int, kind: int) -> None:
+            pass
+        def connect(self, address: Any) -> None:
+            raise OSError(errno.ENETUNREACH, "Network is unreachable")
+        def close(self) -> None:
+            pass
+    assert network._route(NoRoute) is False
+    class Route(NoRoute):
+        def connect(self, address: Any) -> None:
+            pass
+    assert network._route(Route) is True
+    assert socket.SOCK_DGRAM                              # UDP connect: a route lookup, no packet leaves

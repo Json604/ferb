@@ -32,16 +32,26 @@ NO_TOOLS_LOADED = ("Runtime fact: your previous attempt at this exact step never
 
 
 class ServiceError(ValueError):
-    """The model service (Codex / Claude) itself failed: its message is kept and told to the owner plainly."""
+    """The model service (Codex / Claude) itself failed: its message is kept and told to the owner plainly. `network`:
+    a failure reaching the service (its account check, a dropped stream), which this Mac being offline explains."""
 
-    def __init__(self, message: str, runtime: str = "Codex") -> None:
+    def __init__(self, message: str, runtime: str = "Codex", network: bool = False) -> None:
         super().__init__(message)
-        self.runtime = runtime
+        self.runtime, self.network = runtime, network
 
 
-def service_problem(message: str, runtime: str = "Codex") -> str:
-    """The owner-facing sentence for a model-service failure."""
+def service_problem(message: str, runtime: str = "Codex", network: bool = False) -> str:
+    """The owner-facing sentence for a model-service failure. A failure reaching the service while this Mac has no
+    network route (a fact, ferb/sense/network.py) says the Mac seems offline, not "try again shortly"."""
+    from ferb.sense import network as route
+    if network and route.has_route() is False:
+        return (f"This Mac seems to be offline (it has no network route), so I couldn't reach the AI service I use "
+                f"({runtime}). Ask again once it's back online.")
     return f"The AI service I use ({runtime}) reported an error: {message}"
+
+
+def problem_of(e: "ServiceError") -> str:
+    return service_problem(str(e), e.runtime, e.network)
 
 
 
@@ -189,7 +199,7 @@ class WorkerRuns:
             result = Outcome(task.id, "failed", "This attempt was stopped (a problem on my side).", [], [failure])
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
-            result = Outcome(task.id, "blocked", service_problem(str(e), e.runtime), [], [])
+            result = Outcome(task.id, "blocked", problem_of(e), [], [])
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
@@ -259,8 +269,8 @@ class WorkerRuns:
         except BaseException as exc:
             if watchdog is not None:
                 watchdog.cancel()
-            if isinstance(exc, RuntimeUnavailable):
-                raise ServiceError(str(exc), rt.name) from None
+            if isinstance(exc, RuntimeUnavailable):     # a login problem is never the network's
+                raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required") from None
             current = asyncio.current_task()
             if (isinstance(exc, asyncio.CancelledError) and worker_id in self._stalled
                     and not (current is not None and current.cancelling())):
@@ -295,7 +305,7 @@ class WorkerRuns:
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
                 elif ev.kind == "error":
-                    raise ServiceError(str(ev.data.get("message")), rt.name)
+                    raise ServiceError(str(ev.data.get("message")), rt.name, network=True)
                 elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it
                     raise InvalidAnswer(str(ev.data.get("message", "")))
                 elif ev.kind == "final":
