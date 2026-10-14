@@ -279,6 +279,6 @@ def test_worker_whose_app_server_never_answers_the_account_check_ends_as_stalled
     chatting.join(20)                                   # chat streams have no socket timeout: bound the wait here
     assert 'events' in turn, 'the worker was still starting: its silent account check hung the attempt'
     out = outcome(turn['events'])
-    assert out['status'] == 'failed' and 'stalled' in out['subtasks']['worker']['summary'], out
+    assert out['status'] == 'failed' and 'stopped responding' in out['subtasks']['worker']['summary'], out   # L11 plain words
     assert servers and all(proc.returncode is not None for proc in servers)
     assert not any({'thread/start', 'turn/start'} & set(proc.methods) for proc in servers)
