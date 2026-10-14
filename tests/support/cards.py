@@ -30,13 +30,18 @@ def card_store(home: Path) -> tuple[Database, Redactor, SpanStore, Learning]:
 
 
 def finished_task(db: Database, spans: SpanStore, learning: Learning, task_id: str, refs: Iterable[str] = (),
-                  reads: int = 0) -> None:
-    """A finished task's permanent record, a planner exposure citing `refs`, and `reads` recorded tool calls."""
+                  reads: int = 0, shown: Iterable[str] = ()) -> None:
+    """A finished task's permanent record, a tool call of its own whose evidence cites `refs` (direct sources of its
+    card), a planner exposure citing `shown` (what its planner was only shown: never a card source, C1), and `reads`
+    recorded tool calls."""
     trace = TraceBuilder(task_id=task_id, request="check the tea order", goal="answer about the tea order").finish()
     episodes.write(db, compose.compose(trace) | {"made_by": episodes.MADE_BY, "built_at": learning.now()})
     if refs:
+        call = spans.start("tool.call", task_id=task_id, input={"tool": "task.evidence", "args": {}, "kind": "read"})
+        spans.finish(call, output={"source_refs": list(refs), "records": []}, origin="inferred")
+    if shown:
         exposure = spans.start("context.exposure", task_id=task_id,
-                               input={"source_refs": list(refs), "reference": "Layer 4 — memory"})
+                               input={"source_refs": list(shown), "reference": "Layer 4 — memory"})
         spans.finish(exposure, output={"text": "held"}, origin="inferred")
     for n in range(reads):
         call = spans.start("tool.call", task_id=task_id, input={"tool": "fs.read", "args": {"path": f"/tmp/{n}"},

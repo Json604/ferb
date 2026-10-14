@@ -158,9 +158,8 @@ def test_episode_capture_with_refs_recorded_through_a_redacted_span_succeeds(sto
                                     for i in range(20000)) if card_shaped(node['id']))
     trace = TraceBuilder(task_id='t-recall', request='What do you know about me?', goal='answer from memory').finish()
     episodes.write(db, compose.compose(trace) | {'made_by': episodes.MADE_BY, 'built_at': learning.now()})
-    exposure = spans.start('context.exposure', task_id='t-recall',
-                           input={'source_refs': [entity['id']], 'reference': 'Layer 4 — memory'})
-    spans.finish(exposure, output={'text': 'The owner'}, origin='inferred')
+    read = spans.start('tool.call', task_id='t-recall', input={'tool': 'task.evidence', 'args': {}, 'kind': 'read'})
+    spans.finish(read, output={'source_refs': [entity['id']], 'records': []}, origin='inferred')   # a direct source
     captured = learning.capture_episode('t-recall')               # was: "unknown source m-8e953d2b8ca8f[redacted]…"
     assert captured is not None and entity['id'] in captured['sources']
 

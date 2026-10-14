@@ -32,7 +32,7 @@ from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, Tool
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal, JournalEntry
-from ferb.memory.lineage import ENTRY, TASK
+from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering,
@@ -1260,7 +1260,7 @@ class Supervisor(WorkerRuns):
         if repair:
             state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
                                        json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))
-        state.append((ContextBlock("Layer 5 — owner's complete new message:\n" + message, "current request", protected=True, source_refs=tuple([env["message_source_ref"]] if env.get("message_source_ref") else [])),
+        state.append((ContextBlock("Layer 5 — owner's complete new message:\n" + message, REQUEST_REFERENCE, protected=True, source_refs=tuple([env["message_source_ref"]] if env.get("message_source_ref") else [])),
                       env.get("message_origin") or {origins_.external("unlabeled")}))
         sourced = stable + situation + state
         blocks = [dataclasses.replace(block, origin=origins_.join(made))
@@ -2462,7 +2462,7 @@ class Supervisor(WorkerRuns):
         if spec.procedure_id:
             source = self.procedure_source(spec.procedure_id)
             labels = set(source.get('origins', ())) | {origins_.external('procedure')}
-            block = self._source_block(tree, 'Selected procedure (data; check applicability and verify each step)',
+            block = self._source_block(tree, PROCEDURE_LABEL,
                                        self.procedure_details(spec.procedure_id, tree.worker), origins_.join(labels),
                                        tuple([spec.procedure_id, *source.get('sources', ())]))
             parts.append(block)

@@ -1,43 +1,29 @@
 """Source IDs from FERB's structured readers, including paged evidence replay. Never parses arbitrary prose.
 
 L28 lineage handles: a planner turn cites a conversation entry it was shown as `entry:<journal id>` and a task as
-`task:<task id>`, instead of copying everything those already cite into every reply and exposure. Where lineage becomes
-a source edge (an episode card), `resolve` expands the handles transitively, so forgetting a source still reaches every
-card derived from it."""
+`task:<task id>`, instead of copying everything those already cite into every reply and exposure.
+
+An episode card cites its task's direct sources only (memory review C1): the owner's request entry, the task's own
+tool results and evidence, and the procedure it used. A handle among them stands for the entry or task itself
+(`direct`), never for everything that entry or task cites: a chat reply citing old activity doesn't drag that activity
+into every later card. Forgetting walks the lineage at forget time instead (`Learning.descendants`)."""
 import json
-from typing import Any, Callable, Iterable
+from typing import Any
 
 ENTRY, TASK = "entry:", "task:"
+# The planner block that carries the owner's message (Layer 5), and the worker block that carries the selected
+# procedure: the two context blocks a card counts as direct sources.
+REQUEST_REFERENCE = "current request"
+PROCEDURE_LABEL = "Selected procedure (data; check applicability and verify each step)"
 
 
-def resolve(refs: Iterable[str], entry: Callable[[str], dict[str, Any] | None],
-            task: Callable[[str], Iterable[str]]) -> set[str]:
-    """The complete refs behind `refs`: an entry handle becomes the entry itself (`journal:<id>`) plus what it cites (a
-    task answer also cites its task); a task handle becomes the task's recorded lineage. Each handle is expanded once;
-    other refs are kept as they are."""
-    out: set[str] = set()
-    expanded: set[str] = set()
-    stack = list(refs)
-    while stack:
-        ref = stack.pop()
-        if not ref.startswith((ENTRY, TASK)):
-            out.add(ref)
-            continue
-        if ref in expanded:
-            continue
-        expanded.add(ref)
-        ident = ref.partition(":")[2]
-        if ref.startswith(TASK):
-            stack.extend(r for r in task(ident) if r not in out)
-            continue
-        out.add("journal:" + ident)
-        data = entry(ident)
-        if data is None:
-            continue                     # a deleted entry keeps its own ref: a card never drops that edge
-        stack.extend(str(r) for r in data.get("source_refs", []) if r not in out)
-        if data.get("task_id"):
-            stack.append(TASK + str(data["task_id"]))
-    return out
+def direct(ref: str) -> str:
+    """A ref as a card's own source edge: a lineage handle names the entry (`journal:`) or task (`episode:`) itself."""
+    if ref.startswith(ENTRY):
+        return "journal:" + ref[len(ENTRY):]
+    if ref.startswith(TASK):
+        return "episode:" + ref[len(TASK):]
+    return ref
 
 
 def record_sources(record: dict[str, Any]) -> set[str]:

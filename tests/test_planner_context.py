@@ -149,30 +149,24 @@ def test_stable_prefix_is_byte_identical_across_consecutive_turns(daemon):
         any(p.startswith("Layer 5 — owner's complete new message:\nfourth message") for p in fourth.parts[fourth.cacheable:])
 
 
-def test_task_sources_runs_once_per_lineage_per_turn(daemon):
+def test_a_card_cites_its_direct_sources_never_the_earlier_tasks_its_planner_saw(daemon):
+    """Memory review C1: the planner is shown the earlier tasks and chat, but a card cites only its own episode and the
+    owner's request entry (and its own tool results): no earlier task's lineage, no lineage handle."""
     learning = daemon.daemon.learning
-    original = learning.task_sources
     install(daemon, [sup("task", "Doing.", task(f"step {i}")) for i in range(3)], {"worker": done("done")})
     earlier = [outcome(chat(daemon, f"do step {i}"))["task_id"] for i in range(3)]
     daemon.run(daemon.daemon.supervisor.finish_episodes())       # cards are written after the outcome (L28)
-    calls: list[str] = []
-
-    def counted(task_id: str) -> list[str]:
-        calls.append(task_id)
-        return original(task_id)
-    learning.task_sources = counted
     install(daemon, [sup("task", "Doing.", task("step 3"))], {"worker": done("done")})
     result = outcome(chat(daemon, "do step 3"))
     daemon.run(daemon.daemon.supervisor.finish_episodes())
-    assert len(calls) == len(set(calls)), calls                     # each task's lineage read once in the turn
 
     async def card():
-        node = next(n for n in learning.items("episode") if n["key"] == result["task_id"])
-        return node["sources"]
-    sources = daemon.run(card())
-    # the planner was shown the earlier tasks: their lineage reaches the new card, resolved (no handles stored)
-    assert {"episode:" + t for t in earlier} <= set(sources)
-    assert not [s for s in sources if s.startswith(("entry:", "task:"))]
+        node = learning.current_card(result["task_id"])
+        request = next(e.id for e in daemon.daemon.journal.of_kind("chat.message") if e.data.get("text") == "do step 3")
+        return node["sources"], request
+    sources, request = daemon.run(card())
+    assert set(sources) == {"episode:" + result["task_id"], "journal:" + request}
+    assert not {"episode:" + t for t in earlier} & set(sources)
 
 
 def test_one_activity_search_per_planner_turn_off_the_event_loop(daemon):
@@ -768,9 +762,10 @@ def test_verdicts_and_consolidation_read_cards_in_the_card_reader(daemon, monkey
     assert len(started) == 1                          # the second card waits for the next pass
 
 
-def test_a_capture_reaching_a_ref_damaged_by_redaction_still_writes_the_card_and_says_so(daemon):
-    """Controller decision B: the owner's journal holds 60 rows whose ids an earlier redaction altered. A capture whose
-    lineage reaches one skips that ref (it holds the redaction marker, so it can never resolve) and journals it."""
+def test_a_ref_damaged_by_redaction_that_the_planner_was_only_shown_never_reaches_the_card(daemon):
+    """Controller decision B, then C1: the owner's journal holds 60 rows whose ids an earlier redaction altered, and
+    every card used to reach them through the conversation and journal them. A card cites its direct sources only, so a
+    damaged ref the planner was merely shown neither fails the card nor is reported on every task."""
     damaged = "m-8e953d2b8ca8f[redacted]b46e986ee416a81e4cc270dfe91fe0f6a23784"
     fact = {'text': 'A remembered fact.', 'reference': 'memory.learned id=x', 'origin': 'private', 'source_refs': [damaged]}
     daemon.daemon.supervisor.memory_candidates = lambda words: [fact]
@@ -785,7 +780,7 @@ def test_a_capture_reaching_a_ref_damaged_by_redaction_still_writes_the_card_and
     cards, reported, failed = daemon.run(result())
     assert cards and not failed, failed
     assert damaged not in cards[0]["sources"]
-    assert reported and reported[-1]["refs"] == [damaged]
+    assert not reported
 
 
 

@@ -162,7 +162,7 @@ def test_missing_read_source_cannot_be_dropped_to_recreate_forgotten_content(lea
                      refs, made_by='code:evidence-card/1')
 
 
-def test_recalled_context_lineage_is_forgotten_and_cannot_reappear_from_old_trace(learning):
+def test_read_memory_lineage_is_forgotten_and_cannot_reappear_from_old_trace(learning):
     from ferb.orchestrator import episodes
     from ferb.trace import compose
     from tests.support.trace_builder import TraceBuilder
@@ -174,15 +174,16 @@ def test_recalled_context_lineage_is_forgotten_and_cannot_reappear_from_old_trac
     episode = compose.compose(trace)
     episodes.write(learning.db, episode | {'made_by': episodes.MADE_BY, 'built_at': learning.now()})
     learning.db.conn.execute('INSERT INTO spans (id,task_id,kind,started_at,input_json,output_json,origin) '
-        'VALUES (?,?,?,?,?,?,?)', ('exposure', 'recalled-task', 'context.exposure', learning.now(),
-                                  json.dumps({'source_refs': [source['id']]}), '{}', source['origin']))
+        'VALUES (?,?,?,?,?,?,?)', ('read', 'recalled-task', 'tool.call', learning.now(),
+                                  json.dumps({'tool': 'memory.learned', 'args': {'item_id': source['id']},
+                                              'kind': 'read'}), '{}', source['origin']))
     captured = learning.capture_episode('recalled-task')
     assert source['id'] in captured['sources']
     assert captured['origin'] == 'external:mail'
-    assert captured['body']['actions'] == []
     assert captured['id'] in learning.forget([source['id']])
-    with pytest.raises(LearningRefused):
-        learning.capture_episode('recalled-task')
+    assert learning.capture_episode('recalled-task') is None            # C1: built on forgotten content, never again
+    learning.db.conn.execute('DELETE FROM spans')                       # nor once its trace ages out
+    assert learning.capture_episode('recalled-task') is None
 
 
 def test_derived_external_content_keeps_private_label_for_sink_checks(learning):
@@ -196,16 +197,21 @@ def test_derived_external_content_keeps_private_label_for_sink_checks(learning):
         learning.db.conn.execute("UPDATE learning_nodes SET origins_json='[]' WHERE id=?", (lesson['id'],))
 
 
-def test_task_history_lineage_survives_as_missing_refs_after_source_forget(learning):
+def test_a_later_task_that_read_a_forgotten_source_gets_no_card(learning):
+    """C1: a later task read an earlier task's evidence naming a source that was then forgotten. Its card would be built
+    on forgotten content, so it is never written; the forget left the source's id as a tombstone, never its text."""
+    from ferb.orchestrator import episodes
+    from ferb.trace import compose
+    from tests.support.trace_builder import TraceBuilder
     source = learning.put('lesson', 'mail', {'text': 'Private message'}, [],
                           origin_label='private', made_by='model:test')
+    trace = TraceBuilder(task_id='later-task', request='Recall the summary', goal='Recall the summary').finish()
+    episodes.write(learning.db, compose.compose(trace) | {'made_by': episodes.MADE_BY, 'built_at': learning.now()})
     learning.db.conn.execute('INSERT INTO spans (id,task_id,kind,started_at,input_json,output_json) VALUES (?,?,?,?,?,?)',
-        ('read', 'history-task.worker', 'tool.call', learning.now(),
-         json.dumps({'tool': 'memory.learned', 'args': {'item_id': source['id']}}), '{}'))
-    episode = learning.put('episode', 'history-task', {'text': 'Summary'}, [source['id']], made_by='code:evidence/1')
-    assert {episode['id'], source['id']} <= set(learning.task_sources('history-task'))
+        ('read', 'later-task', 'tool.call', learning.now(),
+         json.dumps({'tool': 'task.evidence', 'args': {'task_id': 'history-task'}, 'kind': 'read'}),
+         json.dumps({'source_refs': [source['id']], 'records': []})))
     learning.forget([source['id']])
-    refs = learning.task_sources('history-task')
-    assert source['id'] in refs
-    with pytest.raises(LearningRefused):
-        learning.put('episode', 'later-task', {'text': 'Recall the summary'}, refs, made_by='code:evidence/1')
+    assert learning.prepare_episode('later-task') == {'task_id': 'later-task', 'forgotten': [source['id']]}
+    assert learning.capture_episode('later-task') is None
+    assert 'Private message' not in json.dumps([dict(r) for r in learning.db.conn.execute('SELECT * FROM forgotten_refs')])

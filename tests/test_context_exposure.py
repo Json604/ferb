@@ -41,7 +41,10 @@ def test_exposed_context_text_participates_in_private_url_and_argument_checks(da
     daemon.run(check())
 
 
-def test_activity_then_displayed_history_preserves_forget_edges(daemon):
+def test_activity_and_history_the_planner_was_shown_are_not_card_sources(daemon):
+    """Memory review C1: the first task's planner was shown today's activity (the clipboard row), the second task's the
+    first task in its history. Neither is a direct source of a card, so forgetting the row (or its retention) leaves
+    both cards; a card cites only what its task read or was asked."""
     from ferb.sense.trail import Observation
     from tests.conftest import chat, done, install, outcome, sup, task
     supervisor = daemon.daemon.supervisor
@@ -61,10 +64,10 @@ def test_activity_then_displayed_history_preserves_forget_edges(daemon):
         learning = daemon.daemon.learning
         cards = {node['key']: node for node in learning.items('episode')}
         a, b = cards[first['task_id']], cards[second['task_id']]
-        assert 'trail:' + source in a['sources']
-        assert a['id'] in b['sources'] and 'trail:' + source in b['sources']
+        assert 'trail:' + source not in a['sources']
+        assert a['id'] not in b['sources'] and 'episode:' + first['task_id'] not in b['sources']
         learning.forget(['trail:' + source])
-        assert learning.get(a['id']) is None and learning.get(b['id']) is None
+        assert learning.get(a['id']) is not None and learning.get(b['id']) is not None
     daemon.run(check())
 
 

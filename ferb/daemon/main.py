@@ -1200,7 +1200,8 @@ class Daemon:
         and the consolidator's re-capture all come here, one at a time. The reads run in the card reader
         (`_read_card`); only the write is on the loop. When a card input changed while the reader read (a forget, a
         verdict, a write of a card: `Learning.generation`), it reads again. `report`: journal the refs skipped as
-        damaged by redaction. Raises LearningRefused when the card can't be built."""
+        damaged by redaction or expired by retention, and a card skipped as built on forgotten content (C1). Raises
+        LearningRefused when the card can't be built."""
         assert self.learning is not None
         async with self._card_lock:
             while True:
@@ -1208,8 +1209,13 @@ class Daemon:
                 prepared = await self._read_card(task_id, apps)
                 if generation == self.learning.generation:
                     break
-            if report and prepared and prepared.get("damaged"):
-                self._journal().append("memory.episode_refs_damaged", {"task_id": task_id, "refs": prepared["damaged"]})
+            if report and prepared:
+                for kind, key in (("memory.episode_refs_damaged", "damaged"), ("memory.episode_refs_expired", "expired")):
+                    if prepared.get(key):
+                        self._journal().append(kind, {"task_id": task_id, "refs": prepared[key]})
+                if prepared.get("forgotten"):        # ids only: what they held is gone
+                    self._journal().append("memory.episode_skipped", {"task_id": task_id,
+                                                                     "why": "built on forgotten content"})
             return self.learning.write_episode(prepared)
 
     async def _read_card(self, task_id: str, apps: dict[str, str] | None) -> dict[str, Any] | None:

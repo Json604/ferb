@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable
 from ferb.core import origin
 from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
+from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
 from ferb.sanitize.redact import REDACTED
 
@@ -25,6 +26,9 @@ class LearningRefused(FerbError):
 
 # Kinds whose key is one of FERB's own ids: an episode card (its task id) and its annotation (the card's node id).
 ID_KEYED = frozenset({'episode', 'episode_annotation'})
+# The episode card's composer. 2: a card cites its task's direct sources only (memory review C1); a card an older
+# composer built is rebuilt once by the consolidator.
+CARD_MAKER = 'code:evidence-card/2'
 
 
 def encoded(value: Any) -> str:
@@ -134,6 +138,18 @@ class Learning:
         """A card input changed outside Learning (an owner verdict): a card read before now is read again."""
         self.generation += 1
 
+    def forgotten(self, ref: str) -> bool:
+        """Whether an explicit owner forget deleted this ref: its tombstone (the id, never its content). A missing ref
+        without one was removed by retention."""
+        ref = direct(ref)
+        return self.db.conn.execute('SELECT 1 FROM forgotten_refs WHERE ref=? UNION ALL SELECT 1 FROM learning_forgotten '
+                                    'WHERE id=? LIMIT 1', (ref, ref)).fetchone() is not None
+
+    @staticmethod
+    def card_key(task_id: str) -> str:
+        """The logical id of a task's episode card: its tombstone stops the card from ever being written again."""
+        return 'key-' + digest(['episode', task_id])
+
     def labels(self, sources: Iterable[str]) -> set[str]:
         """Every origin the sources hold (a missing or unknown source raises LearningRefused)."""
         return {label for s in sorted(set(sources)) for label in self._source_origins(s)}
@@ -196,32 +212,51 @@ class Learning:
         return self.write_episode(self.prepare_episode(task_id, apps))
 
     def write_episode(self, prepared: dict[str, Any] | None) -> dict[str, Any] | None:
-        """Write a card `prepare_episode` read: the only write of a capture."""
+        """Write a card `prepare_episode` read: the only write of a capture. A card built on forgotten content is never
+        written, and its tombstone stops every later capture of it (C1: no resurrection)."""
         if prepared is None:
             return None
+        if prepared.get('forgotten'):
+            self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)',
+                                 (self.card_key(prepared['task_id']), self.now()))
+            return None
         return self.put('episode', prepared['task_id'], prepared['body'], prepared['sources'],
-                        made_by='code:evidence-card/1', origin_label=origin.FERB, state='active',
+                        made_by=CARD_MAKER, origin_label=origin.FERB, state='active',
                         labels=set(prepared['labels']))
 
     def prepare_episode(self, task_id: str, apps: dict[str, str] | None = None) -> dict[str, Any] | None:
-        """Every read of an episode card: its body, its resolved lineage and its sources' origins, without writing. The
-        daemon runs it in `ferb.memory.card_reader`, a process of its own on a read-only connection (L28);
-        `write_episode` writes the result. `damaged`: the refs skipped as altered by redaction (`_card_labels`)."""
+        """Every read of an episode card: its body, its direct sources and their origins, without writing. The daemon
+        runs it in `ferb.memory.card_reader`, a process of its own on a read-only connection (L28); `write_episode`
+        writes the result.
+
+        Direct sources (memory review C1): the task's own episode, the owner's request entry its planner was given, the
+        sources of its own tool results and evidence, and the procedure it used. Never every conversation entry, task or
+        activity row its planner was shown: those stay out of the card, so their retention or a forget of one of them
+        never touches it. `damaged`/`expired`: the refs skipped as altered by redaction or kept as removed by retention
+        (`_card_labels`). A card built on a forgotten source comes back as `{'task_id', 'forgotten'}` only."""
         ep = episodes.get(self.db, task_id)
-        if ep is None:
+        if ep is None or self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?',
+                                              (self.card_key(task_id),)).fetchone():
             return None
         from ferb.store.spans import tree_where
         where, params = tree_where(task_id)
-        rows = self.db.conn.execute("SELECT id,kind,input_json,output_json,error FROM spans "
-                                    f"WHERE kind IN ('tool.call','context.exposure') AND {where} ORDER BY started_at,id",
+        rows = self.db.conn.execute("SELECT id,kind,input_json,output_json,error FROM spans WHERE kind IN "
+                                    f"('tool.call','context.exposure','context.source') AND {where} ORDER BY started_at,id",
                                     params)
         actions = []
         source_refs = {'episode:' + task_id}
         used_apps: set[str] = set()
+        traced = False
         for r in rows:
+            traced = True
             inp = json.loads(r['input_json'])
             if r['kind'] == 'context.exposure':
-                source_refs.update(str(ref) for ref in inp.get('source_refs', []))
+                if inp.get('reference') == REQUEST_REFERENCE:        # the owner's message the task was planned from
+                    source_refs.update(direct(str(ref)) for ref in inp.get('source_refs', []))
+                continue
+            if r['kind'] == 'context.source':
+                if inp.get('label') == PROCEDURE_LABEL:              # the procedure its worker was given
+                    source_refs.update(direct(str(ref)) for ref in inp.get('source_refs', []))
                 continue
             args = inp.get('args') or {}
             if isinstance(args.get('bundle_id'), str):
@@ -248,8 +283,10 @@ class Learning:
             outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and (arg_sources is None or any(origin.OWNER not in values and
                        any(origin.rank(o) >= origin.OUTSIDE_RANK for o in values)
                        for values in arg_sources.values()))
-            source_refs.update(self._action_sources(inp, json.loads(r['output_json']) if r['output_json'] else {}))
             result = json.loads(r['output_json']) if r['output_json'] else {}
+            # Missing evidence stays an edge (`_card_labels`): dropping it would let a forgotten fact's descendants
+            # be reconstructed from old task traces without their deletion lineage.
+            source_refs.update(direct(ref) for ref in self._action_sources(inp, result))
             outcome_facts = {k: result[k] for k in ('ok', 'status', 'intent_id', 'action_id', 'ledger_id')
                              if isinstance(result, dict) and k in result}
             actions.append({'id': r['id'], 'tool': inp.get('tool'), 'args': args,
@@ -265,85 +302,60 @@ class Learning:
                 'status': ep['status'], 'verified': valid, 'conditions': ep['conditions'],
                 'feedback': feedback, 'narrative': ep['answer'], 'problems': ep['problems'],
                 'started_at': ep['started_at'], 'ended_at': ep['ended_at'], 'usage': ep['usage']}
-        source_refs = self.resolve(source_refs)          # L28: lineage handles become their complete refs
-        old = next((n for n in self.items('episode') if n['key'] == task_id), None)
+        old = self.current_card(task_id)
         if old and apps is None:
             # A verdict/retention refresh keeps the versions actually captured at completion.
             body['apps'] = old['body'].get('apps', {})
             body['app_versions_captured'] = old['body'].get('app_versions_captured', False)
             if not actions:
                 body['actions'] = old['body'].get('actions', [])
-            # Retained cards keep lineage even when their raw rows have reached retention.
-            source_refs.update(old['sources'])
-        labels, damaged = self._card_labels(source_refs)
+            if not traced:
+                # Its trace reached retention: the card keeps the lineage it was captured with.
+                source_refs.update(old['sources'])
+        labels, damaged, expired, forgotten = self._card_labels(source_refs)
+        if forgotten:
+            return {'task_id': task_id, 'forgotten': forgotten}
         return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs - set(damaged)),
-                'labels': sorted(labels), 'damaged': damaged}
+                'labels': sorted(labels), 'damaged': damaged, 'expired': expired}
 
-    def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str]]:
-        """The origins of a card's sources, and the refs skipped as damaged. A source that can't be found fails the card
-        (it may have been forgotten on purpose), except a ref that holds the redaction marker: no FERB id contains '['
-        or ']', so it is an id an earlier redaction altered (60 old rows in the owner's journal); it never resolves.
-        A skipped ref adds the labels of a source whose content is unknown."""
+    def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
+        """The sources of one recorded tool call's result (memory/lineage.py)."""
+        return call_sources(inp, result)
+
+    def current_card(self, task_id: str) -> dict[str, Any] | None:
+        """A task's current episode card, by its key (the task id)."""
+        row = self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind='episode' AND key=? AND valid_to IS NULL "
+                                   "AND state NOT IN ('retired','rolled_back') ORDER BY recorded_at DESC,rowid DESC "
+                                   "LIMIT 1", (task_id,)).fetchone()
+        return self.get(row[0]) if row else None
+
+    def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str], list[str], list[str]]:
+        """The origins of a card's sources, and its missing sources by why they are missing (C1):
+        - `forgotten`: an explicit owner forget deleted it (its tombstone): the card is built on forgotten content;
+        - `damaged`: it holds the redaction marker. No FERB id contains '[' or ']', so an earlier redaction altered it
+          (60 old rows in the owner's journal); it never resolves and is dropped;
+        - `expired`: any other, removed by retention (aged out); it stays an edge (source edges survive retention).
+        A damaged or expired ref adds the labels of a source whose content is unknown: never assume it was less
+        private (as for a retained fact's lost event)."""
         labels: set[str] = set()
         damaged: list[str] = []
+        expired: list[str] = []
+        forgotten: list[str] = []
         for ref in sorted(set(refs)):
             try:
                 labels |= self._source_origins(ref)
+                continue
             except LearningRefused:
-                if REDACTED not in ref:
-                    raise
+                pass
+            if REDACTED in ref:
                 damaged.append(ref)
-                # What it held is unknown: never assume it was less private (as for a retained fact's lost event).
-                labels |= {origin.PRIVATE, origin.external('unlabeled')}
-        return labels, damaged
-
-    def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
-        from ferb.memory.lineage import call_sources
-        # Missing evidence must remain an edge: dropping it would let a forgotten fact's
-        # descendants be reconstructed from old task traces without their deletion lineage.
-        # put() validates these refs; retained cards already preserve expired-source origins.
-        return call_sources(inp, result)
-
-    def resolve(self, refs: Iterable[str]) -> set[str]:
-        """Lineage handles (`entry:`, `task:`; memory/lineage.py) expanded into the refs they stand for, reading each
-        conversation entry and each task's lineage once."""
-        from ferb.memory.lineage import resolve
-        tasks: dict[str, list[str]] = {}
-
-        def entry(ident: str) -> dict[str, Any] | None:
-            row = self.db.conn.execute('SELECT data_json FROM journal WHERE id=?', (ident,)).fetchone()
-            return json.loads(row[0]) if row else None
-
-        def task(ident: str) -> list[str]:
-            if ident not in tasks:
-                tasks[ident] = self.task_sources(ident)
-            return tasks[ident]
-        return resolve(refs, entry, task)
-
-    def task_sources(self, task_id: str) -> list[str]:
-        """Code-recorded lineage for a displayed task/history answer, never inferred from its prose. It may hold lineage
-        handles; `resolve` expands them."""
-        refs: set[str] = set()
-        if self.db.conn.execute('SELECT 1 FROM episodes WHERE task_id=?', (task_id,)).fetchone():
-            refs.add('episode:' + task_id)
-        for row in self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind='episode' AND key=?", (task_id,)):
-            node = self.get(row[0])
-            refs.add(node['id'])
-            refs.update(node['sources'])
-        forgotten = 'key-' + digest(['episode', task_id])
-        if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?', (forgotten,)).fetchone():
-            refs.add(forgotten)  # Keep this missing-source marker so a retained answer cannot recreate its card.
-        from ferb.store.spans import tree_where
-        where, params = tree_where(task_id)      # the task_id index range, never a LIKE scan of every span (L28)
-        rows = self.db.conn.execute("SELECT kind,input_json,output_json FROM spans WHERE "
-            f"kind IN ('tool.call','context.exposure') AND {where}", params)
-        for row in rows:
-            inp = json.loads(row['input_json'])
-            if row['kind'] == 'context.exposure':
-                refs.update(str(ref) for ref in inp.get('source_refs', []))
+            elif self.forgotten(ref):
+                forgotten.append(ref)
+                continue
             else:
-                refs.update(self._action_sources(inp, json.loads(row['output_json']) if row['output_json'] else {}))
-        return sorted(refs)
+                expired.append(ref)
+            labels |= {origin.PRIVATE, origin.external('unlabeled')}
+        return labels, damaged, expired, forgotten
 
     def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str) -> dict[str, Any]:
         examples = proposal.get('examples') or []
@@ -506,6 +518,10 @@ class Learning:
         return found
 
     def forget(self, refs: Iterable[str]) -> list[str]:
+        """An explicit owner forget: every version of a requested node, and every node derived from the refs or those
+        versions (`descendants`, walked now: cards cite direct sources only). Each requested ref and deleted node leaves
+        a tombstone (`forgotten_refs`: its id, never its content), and a deleted episode card's key does too, so a later
+        capture never writes it again (C1)."""
         self.generation += 1
         requested = list(refs)
         versions = set(requested)
@@ -517,12 +533,19 @@ class Learning:
                 versions.update(r[0] for r in self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=?',
                                                                   (node['kind'], node['key'])))
         doomed = self.descendants(versions)
+        for row in self.db.conn.execute(f"SELECT kind,key FROM learning_nodes WHERE id IN ({','.join('?' * len(doomed))})",
+                                        sorted(doomed)).fetchall() if doomed else []:
+            if row['kind'] in ID_KEYED:                       # a card or annotation of one task: never rebuilt
+                logical.append('key-' + digest([row['kind'], row['key']]))
+        now = self.now()
         self.db.conn.execute('SAVEPOINT learning_forget')
         try:
             for ident in logical:
-                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, self.now()))
+                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
+            self.db.conn.executemany('INSERT OR IGNORE INTO forgotten_refs VALUES (?,?)',
+                                     [(direct(ref), now) for ref in sorted(set(requested) | doomed)])
             for ident in doomed:
-                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, self.now()))
+                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
                 self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref=?', (ident,))
                 self.db.conn.execute('DELETE FROM learning_nodes WHERE id=?', (ident,))
             self.db.conn.execute('RELEASE learning_forget')

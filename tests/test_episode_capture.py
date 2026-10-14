@@ -1,7 +1,9 @@
 """L28 (review round 4): episode cards are read in `ferb.memory.card_reader`, a process started as an exact entry point
 that finds the database in the owner's FERB home itself. FERB's own ids survive redaction by key, while a secret placed
-under an id key is still redacted. A ref damaged by an earlier redaction is the only missing source a capture may skip.
-The reader never holds the WAL while it decodes, and a forget that can't empty the WAL is journaled."""
+under an id key is still redacted. The reader never holds the WAL while it decodes, and a forget that can't empty the
+WAL is journaled. Memory review C1 (fix wave 3): a card cites its direct sources only; a missing one is told apart by
+why it is missing: damaged by redaction (skipped), removed by retention (kept as an edge of unknown content), or
+forgotten (the card is never written)."""
 import json
 import os
 import sqlite3
@@ -13,11 +15,7 @@ import pytest
 
 from ferb.core.ids import RandomIds
 from ferb.memory.journal import Journal
-from ferb.memory.learning import LearningRefused
-from ferb.orchestrator import episodes
-from ferb.trace import compose
 from tests.support.cards import Clock, card_store, finished_task
-from tests.support.trace_builder import TraceBuilder
 
 READER = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
 
@@ -106,7 +104,7 @@ def test_a_forget_that_cannot_empty_the_wal_is_journaled(daemon):
     assert kept and kept[-1]["after"] == "memory.forget", kept
 
 
-# Decision B: only a ref that provably carries the redaction marker may be skipped ----------------------------------------
+# Decision B, then C1: a missing source is skipped by why it is missing ----------------------------------------------
 
 DAMAGED = ["trail:0525142c8c[redacted]a36a40c24",                       # shapes from the owner's journal
            "m-8e953d2b8ca8f[redacted]b46e986ee416a81e4cc270dfe91fe0f6a23784"]
@@ -128,12 +126,50 @@ def test_a_capture_skips_a_ref_damaged_by_redaction(tmp_path):
     db.close()
 
 
-def test_any_other_missing_ref_still_fails_the_capture(tmp_path):
-    """A missing ref without the marker may be an explicit forget: the card is not built past it."""
+def test_a_source_removed_by_retention_stays_an_edge_of_unknown_content(tmp_path):
+    """C1: a source missing without a forget tombstone aged out (the 30-day trail purge). It no longer fails the card:
+    the edge stays (source edges survive retention) with the labels of a source whose content is unknown."""
     db, _, spans, learning = card_store(tmp_path)
-    finished_task(db, spans, learning, "t-gone", refs=["trail:" + uuid.uuid4().hex])
-    with pytest.raises(LearningRefused, match="source is missing"):
-        learning.prepare_episode("t-gone")
+    purged = "trail:" + uuid.uuid4().hex
+    finished_task(db, spans, learning, "t-aged", refs=[purged])
+    prepared = learning.prepare_episode("t-aged")
+    assert prepared is not None and prepared["expired"] == [purged] and purged in prepared["sources"]
+    assert {"private", "external:unlabeled"} <= set(prepared["labels"])
+    card = learning.write_episode(prepared)
+    assert card is not None and purged in card["sources"]
+    db.close()
+
+
+def test_a_card_built_on_a_forgotten_source_is_never_written_and_never_returns(tmp_path):
+    """C1: a source an explicit forget deleted leaves a tombstone (its id only). A task that read it gets no card, and
+    the card's key is tombstoned, so it doesn't come back once the task's trace ages out either."""
+    db, _, spans, learning = card_store(tmp_path)
+    gone = "journal:" + uuid.uuid4().hex
+    finished_task(db, spans, learning, "t-used", refs=[gone])
+    learning.forget([gone])
+    assert db.conn.execute("SELECT 1 FROM forgotten_refs WHERE ref=?", (gone,)).fetchone()
+    prepared = learning.prepare_episode("t-used")
+    assert prepared == {"task_id": "t-used", "forgotten": [gone]}
+    assert learning.write_episode(prepared) is None
+    db.conn.execute("DELETE FROM spans")                                   # its trace reaches retention
+    assert learning.prepare_episode("t-used") is None
+    assert learning.current_card("t-used") is None
+    db.close()
+
+
+def test_a_forget_deletes_only_the_cards_that_cite_it_directly(tmp_path):
+    """C1: a card cites its direct sources only. A forget reaches the card of the task that read the source, never the
+    card of a task whose planner was merely shown it, and the deleted card is never rebuilt."""
+    db, _, spans, learning = card_store(tmp_path)
+    fact = learning.put("lesson", "tea", {"text": "Order oolong"}, [], made_by="model:test", state="active")
+    finished_task(db, spans, learning, "t-read", refs=[fact["id"]])
+    finished_task(db, spans, learning, "t-shown", shown=[fact["id"], "entry:" + uuid.uuid4().hex])
+    read, shown = learning.capture_episode("t-read"), learning.capture_episode("t-shown")
+    assert fact["id"] in read["sources"] and fact["id"] not in shown["sources"]
+    assert set(shown["sources"]) == {"episode:t-shown"}
+    assert read["id"] in learning.forget([fact["id"]]) and shown["id"] not in learning.forget([fact["id"]])
+    assert learning.current_card("t-shown") is not None
+    assert learning.capture_episode("t-read") is None                    # its key is tombstoned
     db.close()
 
 
@@ -145,7 +181,7 @@ def _ids() -> dict:
             "covered": ["entry:" + journal_id], "source_refs": ["trail:" + uuid.uuid4().hex, "task:" + task]}
 
 
-def test_journal_rows_keep_ferb_ids_whole_by_key_and_lineage_still_resolves(tmp_path):
+def test_journal_rows_keep_ferb_ids_whole_by_key(tmp_path):
     """A registered secret value can occur inside an id (live: task_id became 'aa[redacted]bb…', silently dropping a
     reply's lineage, so a later forget never reached its card). Ids under FERB's id keys are kept whole; the same
     value elsewhere in the row is still redacted."""
@@ -163,9 +199,6 @@ def test_journal_rows_keep_ferb_ids_whole_by_key_and_lineage_still_resolves(tmp_
         assert stored[key] == ids[key], key
     assert not any(value in stored["text"] for value in secrets_inside)
 
-    trace = TraceBuilder(task_id=ids["task_id"], request="tea", goal="tea").finish()
-    episodes.write(db, compose.compose(trace) | {"made_by": episodes.MADE_BY, "built_at": learning.now()})
-    assert "episode:" + ids["task_id"] in learning.resolve(["entry:" + row.id])      # the reply's task: still reached
     db.close()
 
 
@@ -277,5 +310,5 @@ def test_a_cards_key_keeps_its_task_id_whole(tmp_path):
     redactor.add_secret_value(task_id[4:16])
     card = learning.capture_episode(task_id)
     assert card is not None and card["key"] == task_id
-    assert learning.task_sources(task_id) and card["id"] in learning.task_sources(task_id)
+    assert learning.current_card(task_id)["id"] == card["id"]
     db.close()
