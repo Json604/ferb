@@ -1333,6 +1333,7 @@ def test_an_answer_and_a_stop_in_one_message_both_happen(daemon: RunningDaemon) 
     events = chat(daemon, "the work one, and stop the other task", session="s1")
     assert question.state == "granted" and question.answer == "the work one, and stop the other task"
     assert "Got your answer" in _texts(events) and "Stopped, as you asked." in _texts(events)
+    assert all("_turn_continues" not in e for e in events)
     run.proceed.set()
     run.turn.join(20)
     assert not run.turn.is_alive()
@@ -1340,6 +1341,27 @@ def test_an_answer_and_a_stop_in_one_message_both_happen(daemon: RunningDaemon) 
     async def status() -> str:
         return str(daemon.daemon.db.conn.execute("SELECT status FROM tasks WHERE id=?", (run.tree,)).fetchone()[0])
     assert daemon.run(status()) == "cancelled" and tree.stop
+
+
+def test_the_answer_acknowledgement_keeps_the_chat_in_order_until_the_rest_registers(daemon: RunningDaemon) -> None:
+    """Re-review of M1: `send` let the next message in at the first reply, which is now the answer's acknowledgement,
+    so a following message could be routed before this turn's stop, steer, task or schedule registered."""
+    from ferb.orchestrator.supervisor import ANSWERED, TURN_CONTINUES
+    supervisor = daemon.daemon.supervisor
+    held: list[bool] = []
+
+    async def turn(session_id: str, text: str, paths: list[str], request_id: str, screen: Any) -> Any:
+        yield {"type": "reply", "text": ANSWERED, TURN_CONTINUES: True}
+        held.append(supervisor._chat_locks[session_id].locked())         # the rest of the turn still registering
+        yield {"type": "reply", "text": "Stopped, as you asked."}
+        held.append(supervisor._chat_locks[session_id].locked())
+
+    async def drive() -> list[dict[str, Any]]:
+        supervisor._send = turn                                          # type: ignore[method-assign]
+        return [e async for e in supervisor.send("ordered", "the work one, and stop the other task")]
+    events = daemon.run(drive())
+    assert held == [True, False]
+    assert all(TURN_CONTINUES not in e for e in events)                  # FERB's own marker never reaches a client
 
 
 def test_an_answer_and_a_memory_in_one_message_both_happen(daemon: RunningDaemon) -> None:

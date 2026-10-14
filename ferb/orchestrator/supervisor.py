@@ -110,6 +110,9 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
+# On an event of `_send`: more of this turn follows that must register before the next message is routed (re-review of
+# M1). `send` removes it; no client sees it.
+TURN_CONTINUES = "_turn_continues"
 NOT_WAITING = "That question isn't waiting for an answer any more, so I didn't count your message as one."
 WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
 NO_QUESTION = "No question is waiting for your answer right now."
@@ -770,7 +773,8 @@ class Supervisor(WorkerRuns):
         held = True
         try:
             async for event in self._send(session_id, text, input_paths or [], request_id, screen):
-                if held and event.get('type') in ('plan', 'reply', 'clarify'):
+                continues = bool(event.pop(TURN_CONTINUES, False))
+                if held and not continues and event.get('type') in ('plan', 'reply', 'clarify'):
                     lock.release()
                     held = False
                 yield event
@@ -963,7 +967,7 @@ class Supervisor(WorkerRuns):
             more = answered["type"] != "clarify" and _carries_more(out)
             sent = False
             try:
-                yield answered
+                yield {**answered, TURN_CONTINUES: True} if more else answered
                 sent = True
             finally:
                 if not (sent and more):
