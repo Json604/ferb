@@ -2098,7 +2098,10 @@ class Daemon:
             recorded = Targets.of(
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
                 t.recipients)
-            s = self.schedules.add(spec.request, own_words, recorded.to_json(), rule, first)
+            # D30: the standing scope stated now, with the owner here, is the only one the unattended runs may use
+            scopes = [self.redact(scope.model_dump()) for scope in getattr(spec, "standing_sends", [])]
+            s = self.schedules.add(spec.request, own_words,
+                                   recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}."
         t = self.timers.add("schedule", first, s.id)
@@ -2108,7 +2111,13 @@ class Daemon:
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
-        return f"🗓 Scheduled: {s.request} — {when}"
+        said = f"🗓 Scheduled: {s.request} — {when}"
+        if scopes:
+            from ferb.orchestrator.plans import SendScope
+            from ferb.policy import confirm
+            said += "\n" + confirm.from_task_lines("Each run will send these without asking each time:\n" + "\n".join(
+                "- " + SendScope.model_validate(scope).line() for scope in scopes))
+        return said
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())

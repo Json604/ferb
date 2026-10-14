@@ -106,6 +106,9 @@ price and email me"):
 - "schedule_changes": to cancel / pause / resume one of the schedules listed in the facts, by its id, with the
   owner's quote. Otherwise null / an empty list. FERB states the result of each change (and of each reminder cancel)
   itself; don't claim it in text or display_text.
+- schedule.standing_sends: for scheduled work that sends as the owner (daily posts, a weekly report email), the exact
+  scopes its runs may send within without asking, only sends the owner asked for; FERB states them when it confirms the
+  schedule. A run, with nobody there, can't add to them: any other send asks, which an unattended run declines.
 
 Reminders and timers:
 - "timers": when the owner asks to be reminded or to set a timer ("remind me at 5 to call Mom", "timer for 20
@@ -159,9 +162,10 @@ exact destination/account/tool. Semantic limits remain part of the task instruct
 floor, uncertain-action checks, or private/outside provenance. Outside the stated scope the ordinary send
 confirmation still applies.
 Every control carries two explicit decisions. standing_sends: for a correction (steer, or continue on a running task),
-"unchanged" when it doesn't touch the task's stated standing scope, else the complete revised list (drop what the owner
-withdrew; add or widen a scope only when the owner asked for it). Code narrows at once and states a revised scope in its
-reply before it covers any send. supersedes: the ids, from the open questions list, of this task's questions the
+"unchanged" when it doesn't touch the task's stated standing scope, else the complete revised list, starting from the
+scope in force (its plan's standing_sends, or standing_scopes in the running tasks); drop what the owner withdrew, and
+add or widen a scope only when the owner asked for it. Code narrows at once; a new or wider scope covers sends only
+after FERB's reply has stated it. supersedes: the ids, from the open questions list, of this task's questions the
 correction changes (for example FERB's check about a send the owner just redirected); every other question stays open.
 For stop and retry use "unchanged" and [].
 

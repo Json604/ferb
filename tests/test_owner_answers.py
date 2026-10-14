@@ -712,6 +712,8 @@ def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon:
     assert "new@x.com" in _texts(chat(daemon, "you can post to the list without asking", session="s1"))
     script.sup.append(_decision(tree, [], spec=task("Post the update", "owner")))
     assert "ask before each" in _texts(chat(daemon, "actually ask me first", session="s1"))
+    running = script.contexts[-1][2].split("running tasks and open questions", 1)[1]
+    assert "new@x.com" in running.split("Layer 5", 1)[0]     # the planner saw the scope in force before revising it
     owner = Answers(daemon, granted=True, choice=1)
     proceed.set()
     turn.join(20)
@@ -721,3 +723,117 @@ def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon:
     async def rows() -> list[Any]:
         return daemon.daemon.supervisor.standing.scopes(tree)
     assert daemon.run(rows()) == []
+
+
+
+def test_a_widened_scope_covers_nothing_until_its_reply_has_been_sent(daemon: RunningDaemon) -> None:
+    """Round 2: the scopes already stated stay covered throughout; a new one is granted only after the reply that
+    states it has been yielded, and not at all if the task ended in between."""
+    from ferb.core.types import ActionSpec, Target
+    run = _running_plan(daemon, [_scope("kept@x.com")], [])
+    supervisor = daemon.daemon.supervisor
+
+    def covers(to: str) -> bool:
+        return supervisor.standing.covers(run.tree, "probe.post", "owner",
+                                          ActionSpec("post", Target(recipients=(to,)), "the update"))
+    run.script.sup.append(_decision(run.tree, [_scope("kept@x.com").model_dump(), _scope("new@x.com").model_dump()]))
+
+    async def steer() -> tuple[tuple[bool, bool], bool]:
+        at_reply = (True, True)
+        async for event in supervisor.send("s1", "also post to the new member"):
+            if event.get("type") == "reply":
+                assert "new@x.com" in event["text"]
+                at_reply = (covers("new@x.com"), covers("kept@x.com"))
+        return at_reply, covers("new@x.com")
+    at_reply, after = daemon.run(steer())
+    assert at_reply == (False, True) and after                         # stated first, then granted
+    _finish(daemon, run)
+
+
+def test_a_widened_scope_is_not_granted_when_the_task_ended_before_its_reply_went_out(daemon: RunningDaemon) -> None:
+    from ferb.core.types import ActionSpec, Target
+    run = _running_plan(daemon, [_scope("kept@x.com")], [])
+    supervisor = daemon.daemon.supervisor
+    run.script.sup.append(_decision(run.tree, [_scope("kept@x.com").model_dump(), _scope("new@x.com").model_dump()]))
+
+    async def steer() -> bool:
+        async for event in supervisor.send("s1", "also post to the new member"):
+            if event.get("type") == "reply":
+                supervisor.stop_tree(run.tree)
+        return supervisor.standing.covers(run.tree, "probe.post", "owner",
+                                          ActionSpec("post", Target(recipients=("new@x.com",)), "the update"))
+    assert daemon.run(steer()) is False
+    run.proceed.set()
+    run.turn.join(20)
+
+
+def test_the_cli_shows_ferbs_retry_and_conversation_checks_like_its_floor_checks() -> None:
+    from ferb.cli.chat import question
+    for capability in ("ferb.confirm", "ferb.retry", "conversation.approve"):
+        shown = question({"kind": "owner_question", "capability": capability, "reason": "Try once more?",
+                          "options": ["Yes", "No"]})
+        assert shown.endswith("number or your answer (Enter = No): "), capability
+
+
+def test_a_correction_racing_the_end_of_its_task_gets_a_plain_reply(daemon: RunningDaemon) -> None:
+    """The steer path's "just ended" reply has the same (reply, deferred grant) shape as any other steer reply."""
+    from ferb.orchestrator.steering import apply
+    run = _running_plan(daemon, [], [])
+    supervisor = daemon.daemon.supervisor
+    tree = supervisor._tree_of[run.tree]
+
+    async def steer() -> Any:
+        tree.stop = "stopped by you"
+        return await apply(supervisor, tree, "s1", "req-x", "also cc Bob", "also cc Bob", None, "journal:x",
+                           standing="unchanged", supersedes=[])
+    reply, widened = daemon.run(steer())
+    assert reply["type"] == "reply" and "just ended" in reply["text"] and widened is None
+    run.proceed.set()
+    run.turn.join(20)
+
+
+# ---------- unattended runs: no stated scope without an owner present (controller ruling, Task 18 finding) ----------
+
+def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope]) -> SimpleNamespace:
+    """A daily "post the launch story" schedule created from chat (with the scope that turn stated, if any); its run's
+    planner states the standing scope for new@x.com and its step posts there through the gateway."""
+    from datetime import timedelta
+    from tests.support.schedules import fire, mins, run as on_loop
+    cap = FakeCap("probe.post", "post", {"probe"})
+    daemon.daemon.registry.capabilities[cap.name] = cap
+    created = json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
+                          "schedule": {"request": "post the launch story", "when": mins(timedelta(minutes=1)),
+                                       "repeat": "daily", "weekday": None, "every_minutes": None,
+                                       "quote": "every day post the launch story",
+                                       "targets": {"apps": [], "sites": [], "paths": [], "recipients": []},
+                                       "standing_sends": [s.model_dump() for s in scope_at_creation]},
+                          "schedule_changes": []})
+    results: dict[str, Any] = {}
+
+    def step(token: str) -> str:
+        results["post"] = tool(daemon.sock, token, "probe.post", to="new@x.com", text="the launch story")
+        return done("Posted." if not results["post"]["is_error"] else "Not posted.")
+    spec = task("Post the launch story", "owner")
+    spec["plan"] = Plan(steps=[Step(id="post", kind="do", goal="Post the launch story")],
+                        standing_sends=[_scope("new@x.com")]).model_dump()
+    script = install(daemon, [created, sup("task", "Posting the launch story.", spec)],
+                     {"step.post": step, "worker": done("Checked.")})
+    confirmed = chat(daemon, "every day post the launch story", session="s1")
+    fire(daemon, 120)
+    trees = on_loop(daemon, lambda: [tuple(r) for r in daemon.daemon.db.conn.execute(
+        "SELECT task_id, active FROM standing_permissions").fetchall()])
+    return SimpleNamespace(confirmed=confirmed, results=results, grants=trees, script=script)
+
+
+def test_a_scheduled_run_cannot_grant_itself_a_scope_its_owner_turn_never_stated(daemon: RunningDaemon) -> None:
+    run = _scheduled_post_run(daemon, [])
+    assert run.results["post"]["is_error"]                                  # asked, nobody there: declined
+    assert "nobody is at chat" in json.dumps(run.results["post"]["content"])
+    assert run.grants == []                                                 # the stated scope was never granted
+
+
+def test_a_scheduled_run_uses_the_scope_its_creating_owner_turn_stated(daemon: RunningDaemon) -> None:
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")])
+    assert "new@x.com" in _texts(run.confirmed)                             # stated when the schedule was made
+    assert not run.results["post"]["is_error"]                              # covered: no question, it ran
+    assert run.grants and all(active == 0 for _, active in run.grants)      # granted for the run, revoked after

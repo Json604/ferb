@@ -66,18 +66,30 @@ def settle_questions(supervisor: Any, request_id: str, words: str, supersedes: l
         supervisor.publish('approval.resolved', event)
 
 
-def restate_scope(supervisor: Any, tree: Any, standing: Any) -> str:
+@dataclass
+class Restated:
+    """A correction's revised standing scope (D30): the statement for the reply, the full revised scopes and the
+    recorded statement they are granted under. `widened`: some scope is new or wider, so the full list is granted
+    only after the reply stating it has been sent (`grant_stated`)."""
+    text: str
+    scopes: list[SendScope]
+    approval_id: str
+    widened: bool
+
+
+def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
     """The planner's decision about the tree's stated standing scope (D30), made for every correction: "unchanged",
-    or the revised scopes. Revised: the old grant is revoked at once (a narrowing takes effect now) and the revised
-    scopes are stated, recorded (`plan.stated`) and granted under that statement, so a new or widened scope covers
-    nothing until the reply returned here states it. The statement for the reply, else ''."""
+    or the revised scopes. Revised: the old grant is revoked and only the scopes already stated are granted again at
+    once (a narrowing takes effect now); the revision is stated and recorded (`plan.stated`). A new or widened scope
+    is not granted here: the caller grants it under the same statement once the reply has been sent and the task is
+    still running (`grant_stated`). None when nothing changes."""
     if standing == 'unchanged':
-        return ''
+        return None
     revised = [SendScope.model_validate(supervisor.gateway.redact(s.model_dump())) for s in standing]
     plan = tree.spec.plan
     stated_before = list(plan.standing_sends) if plan is not None else supervisor.standing.scopes(tree.id)
     if revised == stated_before:
-        return ''                        # nothing changes
+        return None                      # nothing changes
     supervisor.standing.revoke(tree.id)
     if revised:
         text = ("For this task I'll now send these without asking each time:\n" +
@@ -86,25 +98,34 @@ def restate_scope(supervisor: Any, tree: Any, standing: Any) -> str:
         text = "From now on I'll ask before each of these sends."
     text = str(supervisor.gateway.redact(text))
     stated = supervisor.journal.append('plan.stated', {'task_id': tree.id, 'text': text})
-    if revised:
-        supervisor.standing.grant(tree.id, revised, 'stated:' + stated.id)
+    kept = [s for s in revised if s in stated_before]
+    if kept:
+        supervisor.standing.grant(tree.id, kept, 'stated:' + stated.id)
     if plan is not None:
         plan.standing_sends = revised
         supervisor.plans.update_plan(tree.id, plan)
-    return text
+    return Restated(text, revised, 'stated:' + stated.id, widened=len(kept) < len(revised))
+
+
+def grant_stated(supervisor: Any, tree: Any, restated: Restated) -> None:
+    """After the reply stating it has been sent: the revised scope, new or widened parts included, is granted under
+    its statement, only while the task still runs (D30)."""
+    if supervisor._tree_of.get(tree.id) is tree and not tree.stop and tree.accepting_updates:
+        supervisor.standing.grant(tree.id, restated.scopes, restated.approval_id)
 
 
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
                 payload: str, spec: Any, source_ref: str, *, standing: Any,
-                supersedes: list[str]) -> dict[str, Any] | None:
+                supersedes: list[str]) -> tuple[dict[str, Any], Restated | None] | None:
     """Persist first, then steer every live member of the named tree. New members read the same request. `standing`
-    and `supersedes` are the planner's explicit decisions for this correction (L3, D30)."""
+    and `supersedes` are the planner's explicit decisions for this correction (L3, D30). The reply, and a widened
+    standing scope the caller grants (`grant_stated`) only after yielding that reply."""
     state = tree.steering
     async with state.lock:
         if not tree.accepting_updates:
             return None
         if tree.stop or supervisor._tree_of.get(tree.id) is not tree:
-            return {'type': 'reply', 'text': 'That task has just ended; send the follow-up again to continue it.'}
+            return {'type': 'reply', 'text': 'That task has just ended; send the follow-up again to continue it.'}, None
         clean = supervisor.gateway.redact({'words': words, 'payload': payload})
         prior = supervisor.state.requests.get(tree.worker.request_id)
         # Scope/identity grants stay fixed for the active attempt. Corrections update the requested result,
@@ -170,6 +191,6 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         if not (active and all(accepted)):
             changed += "\nI'll apply it at my next step."
         reply = {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}
-        if stated:                       # D30: the revised standing scope is stated to the owner in this reply (D33)
-            reply['text'] += '\n' + confirm.from_task_lines(stated)
-        return reply
+        if stated is not None:           # D30: the revised standing scope is stated to the owner in this reply (D33)
+            reply['text'] += '\n' + confirm.from_task_lines(stated.text)
+        return reply, (stated if stated is not None and stated.widened else None)

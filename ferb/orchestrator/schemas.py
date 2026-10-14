@@ -86,6 +86,8 @@ SCHEDULE_SCHEMA = _obj({
     "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
     "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
     "targets": TARGETS_SCHEMA,
+    # D30: the scopes the runs may send within without asking, stated when the schedule is made (an owner turn)
+    "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA},
 })
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
@@ -270,6 +272,7 @@ class ScheduleRequest(BaseModel):
     every_minutes: int | None = None
     quote: str
     targets: TargetsSpec = TargetsSpec()
+    standing_sends: list[SendScope] = []   # stated now, with the owner here; a run can't add to them (D30)
 
 
 class ScheduleChange(BaseModel):

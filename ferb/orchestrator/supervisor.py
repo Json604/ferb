@@ -34,10 +34,11 @@ from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, TASK
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.steering import CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering
+from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering,
+                                       grant_stated)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
-from ferb.orchestrator.plans import Plan, Step, inventory, problems as plan_problems
+from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator import episodes
@@ -284,6 +285,9 @@ class _Tree:
     start_block: ContextBlock | None = None          # L12: the owner's front window at send, for this tree's worker
     start_image: ModelImage | None = None            # and its redacted screenshot, the worker's start-of-task image
     planner_reads: bool = False          # the planner turn's reads are recorded on the task (L28)
+    # no owner present (a scheduled or resumed run): the only standing scopes it may be granted, recorded by an owner
+    # turn; None when the owner started it from chat (D30, L3)
+    unattended_scopes: list[Any] | None = None
 
 
 class _Watch(Observer):
@@ -585,8 +589,10 @@ class Supervisor(WorkerRuns):
         self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
         self.state.approvals.unattended.add(request_id)
         final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
+        recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
         async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
-                                      origins=self._env.get(request_id, {}).get("turn_origins")):
+                                      origins=self._env.get(request_id, {}).get("turn_origins"),
+                                      unattended_scopes=recorded_scopes):
             if ev.get("type") == "outcome":
                 final = ev
         return final
@@ -641,8 +647,10 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
+            # nobody started this from chat: only the scope already granted to this tree may be granted again
             async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
-                    conversation_id=saved['conversation'], origins=set(data.get('origins', [])), resume_id=tree_id):
+                    conversation_id=saved['conversation'], origins=set(data.get('origins', [])), resume_id=tree_id,
+                    unattended_scopes=self.standing.scopes(tree_id)):
                 # no chat stream stamps these: each names its request and when it was sent, as task.result does
                 event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
                 self.publish('task.resumed_event', event)
@@ -862,14 +870,17 @@ class Supervisor(WorkerRuns):
             active = self._tree_of.get(control.task_id)
             if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
-                reply = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
-                                            out.task, 'journal:' + entry.id, standing=control.standing_sends,
-                                            supersedes=control.supersedes)
-                if reply is not None:
+                steered = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
+                                              out.task, 'journal:' + entry.id, standing=control.standing_sends,
+                                              supersedes=control.supersedes)
+                if steered is not None:
+                    reply, widened = steered
                     try:
                         yield reply
                     finally:
                         self._env.pop(request_id, None)
+                    if widened is not None:      # D30: a new or wider scope covers sends only once it was stated
+                        grant_stated(self, active, widened)
                     return
             if control.action in ('steer', 'continue') and active is not None and not active.accepting_updates:
                 # Work already completed; let its normal finalization finish, without requesting cancellation.
@@ -1097,7 +1108,10 @@ class Supervisor(WorkerRuns):
             'tasks': self.running_trees(), 'questions': open_questions,
             'delegated_conversations': [row for row in self.conversations.list() if row['tree_id'] in self.continuity.task_ids(session.id)],
             'plans': {key: {'plan': tree.spec.plan.model_dump(), 'steps': self.plans.steps(key)}
-                      for key, tree in self._tree_of.items() if key == tree.id and tree.spec.plan}
+                      for key, tree in self._tree_of.items() if key == tree.id and tree.spec.plan},
+            # each running task's standing scope in force (D30): a correction revises the complete list
+            'standing_scopes': {key: [scope.model_dump() for scope in scopes] for key, tree in self._tree_of.items()
+                                if key == tree.id and (scopes := self.standing.scopes(key))},
         })), 'chat.status', protected=True), {origins_.INFERRED}))
         if repair:
             state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
@@ -1425,7 +1439,8 @@ class Supervisor(WorkerRuns):
 
     async def run_tree(self, spec: TaskSpec, text: str, request_id: str, message: str = "", *,
                        conversation_id: str | None = None, prior_task: str | None = None,
-                       origins: set[str] | None = None, resume_id: str | None = None) -> AsyncIterator[dict[str, Any]]:
+                       origins: set[str] | None = None, resume_id: str | None = None,
+                       unattended_scopes: list[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
         """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content."""
         tree_id = resume_id or self.ids.new_id()
         now = self.clock.now()
@@ -1435,7 +1450,7 @@ class Supervisor(WorkerRuns):
         root = Task(tree_id, None, spec.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], limit)
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], limit)
-        tree = _Tree(tree_id, spec, worker, prior_task=prior_task)
+        tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes)
         tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
         front = self._env.get(request_id, {}).get("front_window")
         if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
@@ -1688,12 +1703,18 @@ class Supervisor(WorkerRuns):
         if (plan.big_job or plan.standing_sends) and not self.plans.load(tree.id)['approved']:
             # D24/D30 (L3): the plan line stated the plan and its standing scope; work starts at once and the owner
             # corrects by replying (a steer). Nothing waits for a Yes. The grant names the recorded statement.
-            stated = self.journal.append('plan.stated', {'task_id': tree.id,
-                                                         'text': self.gateway.redact(self._plan_statement(plan))})
-            self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
-            from ferb.orchestrator.plans import SendScope
             safe_scopes = [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
-            self.standing.grant(tree.id, safe_scopes, 'stated:' + stated.id)
+            # With nobody present (a scheduled or resumed run), only scopes an owner turn recorded are granted; any
+            # other stated scope is not: its sends ask, which an unattended run declines and reports.
+            allowed = tree.unattended_scopes
+            granted = safe_scopes if allowed is None else [s for s in safe_scopes if s in allowed]
+            stated = self.journal.append('plan.stated', {'task_id': tree.id,
+                                                         'text': self.gateway.redact(self._plan_statement(plan)),
+                                                         'not_granted': [s.line() for s in safe_scopes
+                                                                         if s not in granted]})
+            self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
+            if granted:
+                self.standing.grant(tree.id, granted, 'stated:' + stated.id)
         async def execute(step: Step, inputs: list[str], prior: dict[str, Any]) -> dict[str, Any]:
             if step.kind == 'ask':
                 return await self._plan_question(tree, step.question, step.options)

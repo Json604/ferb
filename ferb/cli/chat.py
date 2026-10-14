@@ -29,6 +29,7 @@ from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from ferb.voice.speak import Silent
 
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"
+FERB_CHECKS = {"ferb.confirm", "ferb.retry", "conversation.approve"}   # FERB's own Yes/No questions (L3)
 
 def read_message(inp: TextIO) -> str | None:
     """Without a terminal (piped input): one message per line; a bracketed paste may span several lines."""
@@ -147,8 +148,8 @@ def question(d: dict[str, Any], prompt: bool = True) -> str:
 def _question(d: dict[str, Any]) -> str:
     if d.get("kind") in {"owner_login_code", "owner_admin_password", "owner_secret"}:
         return f"   ? {d.get('reason', '')} "
-    if d.get("kind") == "owner_question" and d.get("capability") == "ferb.confirm" and d.get("options"):
-        # FERB's own check (D33): skipping it is a No, final for the task
+    if d.get("kind") == "owner_question" and d.get("capability") in FERB_CHECKS and d.get("options"):
+        # FERB's own check (D33; P19 retry, F9 conversation scope): skipping it is a No
         opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
         return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter = No): "
     if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)

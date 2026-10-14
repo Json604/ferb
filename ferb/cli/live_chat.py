@@ -5,10 +5,9 @@ import threading
 import time
 from typing import Any, Callable
 
-from ferb.cli.chat import Chat, ReplyDraft, question, render
+from ferb.cli.chat import FERB_CHECKS, Chat, ReplyDraft, question, render
 
 SECRETS = {'owner_login_code', 'owner_admin_password', 'owner_secret'}
-FERB_CHECKS = {'ferb.confirm', 'ferb.retry', 'conversation.approve'}   # FERB's own Yes/No questions (L3)
 
 
 class LiveChat(Chat):
