@@ -100,3 +100,11 @@ def test_a_captcha_block_is_reported_with_the_pages_own_words(name: str) -> None
 def test_the_orchestrator_checks_a_reported_captcha_block_against_the_page() -> None:
     assert ("A reported CAPTCHA or anti-bot block that doesn't quote the page's challenge or error is not yet a "
             "blocker: have the worker read the page and report what it actually says.") in _words("dispatch.md")
+
+
+def test_a_reworded_worker_question_keeps_the_workers_reason() -> None:
+    """Owner live use, 2026-10-14: the worker's "EF's CAPTCHA blocked the background interaction. Can I bring the EF
+    tab forward…" reached the owner as "Choose: use the EF tab briefly now, wait until you're idle, or skip…", so the
+    owner couldn't see, or correct, the reason."""
+    assert ("Both `question` and `display_text` keep the worker's stated reason for asking, in one short clause, "
+            "not only the choices, so the owner can see it and correct it.") in _words("question.md")

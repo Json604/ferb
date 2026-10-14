@@ -134,6 +134,8 @@ Final review fixes (2026-10-14):
 - Workers report a CAPTCHA block only with the challenge or error the page shows; a reCAPTCHA or Turnstile footer is
   not a block, so the page's real message (an "application not found" error) reaches you instead of a foreground
   request.
+- When FERB rewords a worker's question for you, it keeps the worker's reason (one short clause), not only the
+  choices, so you can see it and correct it.
 
 Licensed under Apache-2.0.
 
