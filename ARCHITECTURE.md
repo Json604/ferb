@@ -1551,7 +1551,9 @@ protected FERB state (16.9).
   on-screen window whose owner isn't FERB: FERB's apps (`FERB_APPS`: `com.ferb.ferb`, `dev.ferb.notch`,
   `com.ferb.app`, and `com.ferb.daemon`, the agent app the packaged daemon runs as), the daemon, or a bundle-less
   descendant of it. The app hosting the sending `ferb chat` is skipped.
-- Facts: app, bundle id, title, and for a browser the front tab's URL and title (AppleScript, only with Automation
+- Facts: app, bundle id, title, and for a browser the front tab's URL and title (Safari, and every Chromium browser
+  whose AppleScript has tabs: Chrome and its channels, Chromium, Brave, Edge and its channels, Vivaldi, Arc; not
+  Opera; read as two lines, URL then title, M1) (AppleScript, only with Automation
   already granted; a kept grant bridges a pending check). One screenshot of that window by window id, masked and
   through the F5 `ImageRedactor`, stored as evidence kind `front_window` under the request id.
 - An excluded site is captured under `external:web:excluded` with the URL shown as `[excluded]`; an excluded app gives

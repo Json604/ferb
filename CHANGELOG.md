@@ -174,6 +174,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - Clipboard capture respects macOS 15.4+ pasteboard privacy: FERB reads what you copy only when macOS allows it
   without asking (FERB set to Allow in Paste from Other Apps), so it never raises a surprise alert; setup offers to let
   macOS ask once, and `ferb doctor` says when clipboard capture is off and how to allow it.
+- The front tab's URL and title are read for Edge, Arc, Vivaldi, Chromium and Chrome's Beta/Dev/Canary too (not only
+  Safari, Chrome and Brave), and a title with commas or quotes comes back whole.
 
 Licensed under Apache-2.0.
 

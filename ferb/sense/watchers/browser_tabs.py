@@ -4,15 +4,17 @@ Browser tabs: page loads and tab switches, as metadata (browser, profile, host, 
 
 - Paired Chrome / Brave profiles: the extension's `tab_event`s, handed over by the Hub (`TabSink`). Tabs FERB opened
   for a task are FERB's; everything in FERB's own identity profile is FERB's; private windows are never recorded.
-- Safari, and Chrome / Brave while no profile of theirs is connected: an AppleScript read of the front tab, only
-  while that browser is frontmost and only if the owner has already granted Automation for it (never asked for
-  here). The profile is unknown there."""
+- Safari, and a Chromium browser with tab scripting (Chrome and its channels, Chromium, Brave, Edge and its
+  channels, Vivaldi, Arc) while no profile of it is connected: an AppleScript read of the front tab, only while that
+  browser is frontmost and only if the owner has already granted Automation for it (never asked for here). The
+  profile is unknown there."""
 
 import asyncio
 import subprocess
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
+from ferb.act.browser.profiles import BROWSERS
 from ferb.sense.trail import Observation
 from ferb.sense.watchers.base import Emit, Focused, focused_app, poll
 
@@ -29,20 +31,21 @@ def tab_observation(browser: str, folder: str, ferb_identity: bool, event: str, 
                        {"ferb_identity": ferb_identity, "tab_task": tab_task})
 
 
-SCRIPTS = {"com.apple.Safari": ("safari", "get {URL, name} of current tab of front window"),
-           "com.google.Chrome": ("chrome", "get {URL, title} of active tab of front window"),
-           "com.brave.Browser": ("brave", "get {URL, title} of active tab of front window")}
+# The front tab as two lines, URL then title (M1): Safari's tab, and the active tab of every Chromium browser whose
+# AppleScript dictionary has tabs (Opera's has none). Keys are the profile table's browser names.
+_CHROMIUM_TAB = "set t to active tab of front window\nreturn (URL of t) & linefeed & (title of t)"
+SCRIPTS = {"com.apple.Safari": ("safari", "set t to current tab of front window\nreturn (URL of t) & linefeed & (name of t)"),
+           **{b.bundle_id: (key, _CHROMIUM_TAB) for key, b in BROWSERS.items() if key != "opera"}}
 
 
 def applescript_front_tab(bundle_id: str) -> tuple[str, str] | None:
     _, body = SCRIPTS[bundle_id]
     script = f'tell application id "{bundle_id}"\n{body}\nend tell'
-    r = subprocess.run(["osascript", "-e", script, "-s", "s"], capture_output=True, text=True, timeout=5)
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=5)
     if r.returncode != 0:
         return None
-    out = r.stdout.strip().strip("{}")
-    parts = [p.strip().strip('"') for p in out.split('", "')]
-    return (parts[0], parts[1] if len(parts) > 1 else "") if parts and parts[0] else None
+    url, _, title = r.stdout.removesuffix("\n").partition("\n")
+    return (url.strip(), title) if url.strip() else None
 
 
 class ScriptedTabsWatcher:

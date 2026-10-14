@@ -73,7 +73,8 @@ Each step names its status. File paths are given for traceability only.
    "On it.", …), picked at random from the owner-approved list and never one of the last eight used
    (`ferb/orchestrator/acks.py`). It claims nothing about what FERB will do. **Landing this week — integrated, not
    live-tested (L7).**
-3. **The front window is captured at send.** App, window title, the browser's front tab URL/title, and one redacted
+3. **The front window is captured at send.** App, window title, the browser's front tab URL/title (Safari, Chrome and
+   its channels, Chromium, Brave, Edge, Vivaldi and Arc, once you've allowed FERB to automate that browser), and one redacted
    screenshot of that one window (FERB's own windows skipped). The planner sees it with the message and can answer a
    screen question directly from the picture; the worker for that request starts from the same picture.
    **Landing this week — integrated, not live-tested (L12).** Before it, the model got one start-of-task picture of
