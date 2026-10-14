@@ -28,6 +28,7 @@ from typing import Callable
 import ferb
 from ferb.core.errors import FerbError
 from ferb.paths import app_bundle as app_bundle   # FERB.app's own location (setup and the daemon ask it here)
+from ferb.paths import BUNDLE_PYTHON as BUNDLE_PYTHON   # its plain interpreter (python3.12)
 
 LABEL = "com.ferb.daemon"
 PYTHON_VERSION = "3.12"
@@ -37,7 +38,6 @@ NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 
 # The packaged app's layout (scripts/build-app.sh builds it; ui/mac/FERBNotch/Info.plist names it).
 APP_BUNDLE_ID = "com.ferb.FERB"
-BUNDLE_PYTHON = Path("Contents/Resources/python/bin") / f"python{PYTHON_VERSION}"
 BUNDLE_CLI = Path("Contents/Resources/bin/ferb")
 BUNDLE_NODE = Path("Contents/Resources/node")                 # holds node_modules/@openai/codex-darwin-arm64
 BUNDLE_SECRET_HELPER = Path("Contents/Helpers/ferb-secrets")

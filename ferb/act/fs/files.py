@@ -138,6 +138,33 @@ def _write_check(ctx: ToolContext) -> Callable[[Path], str | None] | None:
     return (lambda path: check(path, "write")) if check is not None else None
 
 
+write_check = _write_check                         # for other tools that write files (recordings)
+
+
+def destination_closed(path: Path, closed: Callable[[Path], str | None] | None) -> str | None:
+    """`closed`'s answer for a file about to be made at `path`, checked through the deepest folder above it that
+    exists, as macOS opens that folder (F_GETPATH): another spelling of a protected folder, or a link, is seen as the
+    folder it really is. A folder FERB can't open or tell is refused."""
+    if closed is None:
+        return None
+    tail = [path.name]
+    folder = path.parent
+    while not folder.exists() and folder != folder.parent:
+        tail.append(folder.name)
+        folder = folder.parent
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError as e:
+        return f"FERB couldn't open {folder} ({e.strerror or e}); nothing was written"
+    try:
+        where = opened_path(fd)
+    except OSError as e:
+        return f"FERB couldn't tell which folder it opened ({e.strerror or e}); nothing was written"
+    finally:
+        os.close(fd)
+    return closed(where.joinpath(*reversed(tail)))
+
+
 def real_path(path: str, workspace: str) -> Path:
     """The file a call really acts on: symlinks followed and `..` applied after them, as the OS does. The fs lock and
     S1 recovery key on it; `normalize_path` stays textual (display, provenance) and can name another file when a
@@ -368,8 +395,20 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
-        if ctx.path_closed is not None:              # the Trash takes a path, not an open file: resolve once more first
-            refusal = ctx.path_closed(real_path(str(p), ctx.workspace), self.access)
+        if ctx.path_closed is not None:
+            # The Trash takes a path, not an open file: check the item as macOS opens it (F_GETPATH; opened for its
+            # name only), so the lists see the kernel's own spelling of what moves, never an alias of it
+            try:
+                item = os.open(p, getattr(os, "O_EVTONLY", 0x8000) | os.O_NONBLOCK | os.O_CLOEXEC)
+            except OSError as e:
+                return _err(f"FERB couldn't open {p.name} to check it ({e.strerror or e}); nothing was moved")
+            try:
+                where = opened_path(item)
+            except OSError as e:
+                return _err(f"FERB couldn't tell which file it opened ({e.strerror or e}); nothing was moved")
+            finally:
+                os.close(item)
+            refusal = ctx.path_closed(where, self.access)
             if refusal:
                 return _err(refusal)
         try:

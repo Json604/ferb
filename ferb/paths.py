@@ -22,3 +22,14 @@ def app_bundle(prefix: Path | None = None) -> Path | None:
     if (p.name, p.parent.name, contents.name) == ("python", "Resources", "Contents") and contents.parent.suffix == ".app":
         return contents.parent
     return None
+
+
+BUNDLE_PYTHON = Path("Contents/Resources/python/bin/python3.12")   # FERB.app's plain interpreter (L27)
+
+
+def helper_python(prefix: Path | None = None) -> list[str]:
+    """How the daemon starts a Python child that runs FERB's own fixed code (`-c`): with its own interpreter, or, in
+    FERB.app, with the app's plain python3.12 (never writing bytecode into the sealed bundle), because the daemon's own
+    executable there is the agent app, which runs only FERB's entry points (L27)."""
+    bundle = app_bundle(prefix)
+    return [str(bundle / BUNDLE_PYTHON), "-B"] if bundle else [sys.executable]

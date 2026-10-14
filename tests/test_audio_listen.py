@@ -547,7 +547,9 @@ def test_mac_record_with_audio_hears_the_pinned_windows_own_process(tmp_path: Pa
     r = asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "m.mp4"), with_audio=True,
                                         language="hi-IN"), ctx))
     assert not r.is_error, r.content
-    assert got == {"audio": ("com.apple.Music", 77), "language": "hi-IN", "sources": ()}
+    assert "closed" in got                         # integrated with L27: the write check goes with the recording
+    assert {k: v for k, v in got.items() if k != "closed"} == {"audio": ("com.apple.Music", 77), "language": "hi-IN",
+                                                               "sources": ()}
     no_scope = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"screen", "fs:write"}), "device", None,
                            str(tmp_path), (), ())
     r = asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "n.mp4"), with_audio=True), no_scope))

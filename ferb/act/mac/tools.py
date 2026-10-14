@@ -361,7 +361,7 @@ class MacRecord(_Base):
     def describe(self, args: Any) -> ActionSpec:
         return ActionSpec('write_file', Target(site=self._bundle(args), path=args.path))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
-        from ferb.act.fs.files import resolve
+        from ferb.act.fs.files import resolve, write_check
         target, capture = self.driver.recording_source(args.app, args.shot)
         audio = None
         if args.with_audio:                            # hearing is its own scope, like audio.listen (L26)
@@ -369,7 +369,8 @@ class MacRecord(_Base):
                 raise Refused("recording with sound needs the audio scope (hearing); record without with_audio")
             audio = (str(target['app']), int(target['pid']))    # the pinned window's own process, never another
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
-                                             audio=audio, language=args.language, sources=())
+                                             audio=audio, language=args.language, sources=(),
+                                             closed=write_check(ctx))
         return ToolResult(result, read_sources=_sources(target['app']))
 
 

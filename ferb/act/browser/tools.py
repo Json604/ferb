@@ -434,7 +434,7 @@ class BrowserRecord(_Base):
         return ActionSpec('write_file', Target(site=self._site(args), path=args.path))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         from ferb.act.browser.profiles import BROWSERS
-        from ferb.act.fs.files import resolve
+        from ferb.act.fs.files import resolve, write_check
         tab = self.driver.owned_by(args.tab, ctx.task_id)
         audio = None
         if args.with_audio:                            # hearing is its own scope, like audio.listen (L26)
@@ -450,7 +450,8 @@ class BrowserRecord(_Base):
         target, capture = self.driver.recording_source(tab, ctx.task_id)
         page = self.driver.tab_url(tab.tab_id) or ''
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
-                                             audio=audio, language=args.language, sources=(('web', page),))
+                                             audio=audio, language=args.language, sources=(('web', page),),
+                                             closed=write_check(ctx))
         return ToolResult(result, read_sources=(('web', page),))
 
 

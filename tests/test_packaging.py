@@ -295,19 +295,148 @@ def test_real_bundle_structure_signature_and_embedded_cli(tmp_path_factory: pyte
                           text=True, env=env)
     assert seen.returncode == 0 and seen.stdout.strip() == str(app.resolve()), seen.stderr
     stub = c / "Helpers/FERB.app/Contents/MacOS/FERB"                        # the daemon's executable
-    seen = subprocess.run([str(stub), "-c", "import sys, AppKit, ferb.daemon; print(sys.executable, sys.flags.isolated, "
-                           "sys.dont_write_bytecode, sys.flags.safe_path, sys.version.split()[0])"],
-                          capture_output=True, text=True, env={**env, "PYTHONPATH": str(tmp_path)}, cwd=tmp_path)
-    assert seen.returncode == 0, seen.stderr
-    executable, isolated, no_bytecode, safe, version = seen.stdout.split()
-    assert Path(executable).resolve() == stub.resolve() and (isolated, no_bytecode, safe) == ("1", "True", "True")
-    assert version == "3.12.13"                                               # the pinned CPython
-    assert subprocess.run([str(stub)], capture_output=True, env=env).returncode == 64   # opened directly: no REPL
-    paths = (str(ROOT), str(app.parent))                                      # no build-machine paths ship
-    for f in (c / "MacOS/FERBNotch", stub, c / "Helpers/ferb-secrets"):
-        assert not any(p.encode() in f.read_bytes() for p in paths), f
-    assert not list(c.glob("Resources/python/lib/python3.12/site-packages/*.dist-info/direct_url.json"))
-    pyc = next(c.glob("Resources/python/lib/python3.12/site-packages/ferb/__pycache__/paths.*.pyc"))
-    assert not any(p.encode() in pyc.read_bytes() for p in paths)
+    for argv in (["-c", "print('ran')"], ["-m", "os"], [], ["-m", "ferb.daemon", "x"]):   # only FERB's entry points
+        refused = subprocess.run([str(stub), *argv], capture_output=True, text=True, env=env)
+        assert refused.returncode == 64 and "ran" not in refused.stdout, argv
+    foreign = tmp_path / "foreign-ferb"
+    foreign.mkdir()
+    refused = subprocess.run([str(stub), "-m", "ferb.daemon"], capture_output=True, text=True,
+                             env={**env, "FERB_HOME": str(foreign)})
+    assert refused.returncode == 64 and "FERB_HOME" in refused.stderr          # never another FERB home
+    log = tmp_path / "events.jsonl"                                           # FERB's detector, through the agent
+    detector = subprocess.Popen([str(stub), "-I", "-m", "ferb.device.detector", str(log)], cwd=tmp_path,
+                                env={k: v for k, v in env.items() if k != "FERB_HOME"} |
+                                {"PYTHONEXECUTABLE": str(tmp_path / "evil-shim"), "PYTHONPATH": str(tmp_path)},
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        import json
+        import time
+        deadline = time.monotonic() + 30
+        while not (log.exists() and log.read_text().strip()) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        started = json.loads(log.read_text().splitlines()[0])
+    finally:
+        detector.terminate()
+        detector.wait(timeout=10)
+    assert started["event"] == "started" and Path(started["executable"]).resolve() == stub.resolve()
+    from ferb.act.shell.local import WATCH                                  # L24's kernel-report stream watcher
+    from ferb.paths import helper_python
+    helper = helper_python(c / "Resources" / "python")
+    assert Path(helper[0]).resolve() == (c / "Resources/python/bin/python3.12").resolve()   # never the agent
+    watcher = subprocess.Popen([*helper, "-I", "-c", WATCH, "/usr/bin/true"], stdin=subprocess.PIPE,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
+    try:
+        assert watcher.wait(timeout=30) == 0                                # runs FERB's watcher code in the app
+    finally:
+        assert watcher.stdin is not None
+        watcher.stdin.close()
+    built = subprocess.run([str(c / "Resources/python/bin/python3.12"), "-I", "-c",
+                            "import platform; print(platform.python_version())"], capture_output=True, text=True, env=env)
+    assert built.stdout.strip() == "3.12.13"                                 # the pinned CPython
+    # No build-machine path anywhere in what ships: the checkout, the build folder, the builder's home
+    marks = [p.encode() for p in {str(ROOT), str(app.parent), os.path.realpath(app.parent), str(Path.home())}]
+    leaks = [str(f.relative_to(app)) for f in app.rglob("*") if f.is_file() and not f.is_symlink()
+             and any(m in f.read_bytes() for m in marks)]
+    assert leaks == [], leaks
     again = subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], capture_output=True, text=True)
     assert again.returncode == 0, "running FERB changed its own bundle: " + again.stderr
+
+
+# ---------- the agent stub: only FERB's own entry points, only FERB's own home (fix round 2) ----------
+
+@pytest.fixture(scope="module")
+def agent_stub(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """ui/mac/FERBAgent/main.c built into a FERB.app-shaped folder whose Python is this test's own interpreter's
+    standard library plus a stand-in `ferb` package that reports what it sees."""
+    clang = shutil.which("clang") or shutil.which("xcrun")
+    base = Path(sys.base_prefix)
+    lib = base / "lib" / "libpython3.12.dylib"
+    if clang is None or not lib.exists() or not (base / "include" / "python3.12").is_dir():
+        pytest.skip("needs clang and a CPython 3.12 with its headers and libpython")
+    app = tmp_path_factory.mktemp("stub") / "FERB.app"
+    python = app / "Contents" / "Resources" / "python"
+    stdlib = python / "lib" / "python3.12"
+    stdlib.mkdir(parents=True)
+    (python / "lib" / "libpython3.12.dylib").symlink_to(lib)
+    for entry in (base / "lib" / "python3.12").iterdir():
+        if entry.name != "site-packages":
+            (stdlib / entry.name).symlink_to(entry)
+    site = stdlib / "site-packages"
+    for rel in ("ferb/__init__.py", "ferb/cli/__init__.py", "ferb/device/__init__.py", "ferb/daemon/__init__.py"):
+        (site / rel).parent.mkdir(parents=True, exist_ok=True)
+        (site / rel).write_text("")
+    report = ("import json, os, sys\nprint(json.dumps({'module': __name__, 'argv': sys.argv[1:], "
+              "'executable': sys.executable, 'isolated': sys.flags.isolated, 'ferb_home': os.environ.get('FERB_HOME'), "
+              "'python_env': sorted(k for k in os.environ if k.startswith('PYTHON') or k == '__PYVENV_LAUNCHER__')}))\n")
+    for module in ("ferb/cli/mcp.py", "ferb/device/detector.py", "ferb/daemon/__main__.py"):
+        (site / module).write_text(report)
+    exe = app / "Contents" / "Helpers" / "FERB.app" / "Contents" / "MacOS" / "FERB"
+    exe.parent.mkdir(parents=True)
+    cmd = ["clang"] if shutil.which("clang") else ["xcrun", "clang"]
+    subprocess.run([*cmd, "-O2", f"-I{base / 'include' / 'python3.12'}", str(ROOT / "ui" / "mac" / "FERBAgent" / "main.c"),
+                    str(lib), f"-Wl,-rpath,{base / 'lib'}", "-o", str(exe)], check=True)
+    return exe
+
+
+def _stub(exe: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(exe), *args], capture_output=True, text=True, timeout=60,
+                          env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent-home", **env})
+
+
+def test_the_agent_runs_only_ferbs_own_entry_points(agent_stub: Path, tmp_path: Path) -> None:
+    import json
+    for argv in (["-I", "-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")]):
+        seen = json.loads(_stub(agent_stub, *argv).stdout)
+        assert seen["module"] == "__main__" and seen["isolated"] == 1
+    refused = (["-c", "print('ran')"], ["-m", "os"], ["-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.cli"],
+               [str(tmp_path / "script.py")], ["-m", "ferb.daemon", "--extra"], ["-I", "-m", "ferb.device.detector"],
+               ["-I", "-m", "ferb.cli.mcp", "x"], ["-i", "-m", "ferb.daemon"], [])
+    (tmp_path / "script.py").write_text("print('ran')\n")
+    for argv in refused:
+        r = _stub(agent_stub, *argv)
+        assert r.returncode == 64 and "ran" not in r.stdout and "FERB" in r.stderr, argv
+
+
+def test_the_agent_scrubs_python_variables_and_keeps_its_own_executable(agent_stub: Path, tmp_path: Path) -> None:
+    import json
+    r = _stub(agent_stub, "-I", "-m", "ferb.cli.mcp", PYTHONEXECUTABLE=str(tmp_path / "evil-shim"),
+              __PYVENV_LAUNCHER__=str(tmp_path / "evil"), PYTHONPATH=str(tmp_path), PYTHONHOME=str(tmp_path),
+              PYTHONINSPECT="1")
+    seen = json.loads(r.stdout)
+    assert Path(seen["executable"]).resolve() == agent_stub.resolve()
+    assert seen["python_env"] == []                         # none reaches FERB or the processes it starts
+
+
+def test_the_agent_runs_only_with_the_owners_ferb_home(agent_stub: Path, tmp_path: Path) -> None:
+    import json
+    import pwd
+    owner = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".ferb"
+    seen = json.loads(_stub(agent_stub, "-I", "-m", "ferb.cli.mcp").stdout)
+    assert seen["ferb_home"] == str(owner)                  # unset: the owner's ~/.ferb, never $HOME's
+    foreign = tmp_path / "other-ferb"
+    foreign.mkdir()
+    r = _stub(agent_stub, "-m", "ferb.daemon", FERB_HOME=str(foreign))
+    assert r.returncode == 64 and "FERB_HOME" in r.stderr and r.stdout == ""
+    link = tmp_path / "link-to-owner"
+    if owner.is_dir():                                      # the same folder by another path is the owner's
+        link.symlink_to(owner)
+        seen = json.loads(_stub(agent_stub, "-I", "-m", "ferb.cli.mcp", FERB_HOME=str(link)).stdout)
+        assert seen["ferb_home"] == str(link)
+
+
+def test_the_detector_runs_as_a_ferb_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.device.watch as watch
+    started: list[list[str]] = []
+
+    class Proc:
+        def __init__(self, argv: list[str], **kw: object) -> None:
+            started.append(argv)
+
+        def terminate(self) -> None:
+            pass
+    monkeypatch.setattr(watch.subprocess, "Popen", Proc)
+    det = watch.Detector(tmp_path / "e.jsonl")
+    det.stop()
+    assert started == [[sys.executable, "-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")]]
+    import ferb.device.detector as detector
+    assert callable(detector.main)

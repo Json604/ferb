@@ -2,6 +2,7 @@
 """The protection lists (SQ3 revised, SQ5, D27): where FERB's shell may never read or write, what code always adds
 (FERB's own state), and which rules the escape hatch may lift (D31). FERB's fs tools never touch FERB's own state."""
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -378,7 +379,7 @@ class _NoRecordings:
         self.records: dict[str, Any] = {}
         self.started: list[Path] = []
 
-    async def start(self, *args: Any) -> dict[str, Any]:
+    async def start(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self.started.append(args[2])
         raise AssertionError("a refused recording started")
 
@@ -686,3 +687,79 @@ def test_fs_write_into_ferb_app_is_refused(daemon: RunningDaemon, tmp_path: Path
     r = gateway_tool_call(daemon, grant, "fs.trash", path=str(app))
     assert r["is_error"] and "FERB's own code" in r["content"]["error"] and app.exists()
     assert "passwords" not in r["content"]["error"]                          # not the never-read store message
+
+
+# ---------- other spellings the kernel accepts for the same file (L27 fix round 2) ----------
+
+def _aliases(path: Path) -> list[Path]:
+    """The same existing file or folder through the Data volume's own mount and through volfs (by device and inode)."""
+    st = os.stat(path)
+    return [Path("/System/Volumes/Data" + os.path.realpath(path)), Path(f"/.vol/{st.st_dev}/{st.st_ino}")]
+
+
+def test_volume_and_inode_aliases_of_protected_paths_are_still_protected(tmp_path: Path) -> None:
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    (ferb / "config.toml").write_text("x")
+    gh = home / ".config" / "gh"
+    gh.mkdir(parents=True)
+    app = _app(tmp_path / "Applications")
+    p = Protection(home, ferb, ["~/.config/gh"], [], [], app_bundle=app)
+    cases = [(ferb, Kind.TRASH, "ferb_state"), (ferb / "config.toml", "write", "ferb_state"),
+             (ferb / "config.toml", "read", "ferb_state"), (app, Kind.TRASH, "ferb_app"),
+             (app.parent, Kind.TRASH, "ferb_app"), (app / "Contents" / "Helpers" / "ferb-secrets", "write", "ferb_app"),
+             (gh, "read", "read:~/.config/gh"), (home / ".config", Kind.TRASH, "read:~/.config/gh")]
+    for target, access, rule in cases:
+        for alias in _aliases(target):
+            assert alias.exists(), alias
+            assert p.fs_denied(alias, access) == rule, (alias, access)
+    contents = os.stat(app / "Contents")                     # a file inside, or a new one, through its folder's inode
+    inside = Path(f"/.vol/{contents.st_dev}/{contents.st_ino}")
+    assert p.fs_denied(inside / "Helpers" / "ferb-secrets", "write") == "ferb_app"
+    assert p.fs_denied(inside / "Resources" / "planted.pth", "write") == "ferb_app"
+    ws = os.stat(ferb / "workspace")                         # the workspace stays open under every spelling
+    assert p.fs_denied(Path(f"/.vol/{ws.st_dev}/{ws.st_ino}/notes.txt"), "write") is None
+    assert p.fs_denied(Path("/System/Volumes/Data" + os.path.realpath(ferb / "workspace")) / "n.txt", "write") is None
+    assert p.write_denied(_aliases(ferb / "config.toml")[1]) == "ferb_state"     # the shell's check too
+
+
+def test_a_volfs_path_ferb_cant_map_is_refused(tmp_path: Path) -> None:
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    p = Protection(home, ferb, [], [], [])
+    assert p.fs_denied(Path("/.vol/1/2/whatever"), "write") == "ferb_state"   # no such inode: can't tell, so closed
+    assert p.fs_denied(Path("/.vol/1/2/whatever"), "read") == "ferb_state"
+
+
+def test_fs_trash_checks_the_folder_it_really_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Trash takes a path: FsTrash checks the item's folder as macOS opened it (F_GETPATH), so the check sees
+    the kernel's own spelling, never an alias, before anything moves."""
+    import ferb.act.fs.files as files
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    (ferb / "config.toml").write_text("x")
+    seen: list[Path] = []
+    trashed: list[Path] = []
+
+    def closed(path: Path, access: str) -> str | None:
+        seen.append(path)                                      # a check that only knows FERB's own spelling
+        return "closed" if path in (Path(os.path.realpath(ferb)), Path(os.path.realpath(ferb)) / "config.toml") else None
+    monkeypatch.setattr(files, "move_to_trash", lambda p: trashed.append(p) or None)
+    ctx = ToolContext("t", "w", "r", Identity.OWNER, frozenset({"fs:write"}), "dev", None, str(ws), (), (),
+                      path_closed=closed)
+    folder = os.stat(ferb)
+    for alias in (Path(f"/.vol/{folder.st_dev}/{folder.st_ino}/config.toml"), *_aliases(ferb / "config.toml"),
+                  *_aliases(ferb)):                           # the file, and FERB's whole home
+        r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(alias)), ctx))
+        assert r.is_error and "closed" in r.content["error"], (alias, r.content)
+    assert trashed == [] and any(p == Path(os.path.realpath(ferb)) / "config.toml" for p in seen)
+
+
+def test_a_path_with_a_nul_byte_is_checked_without_raising(tmp_path: Path) -> None:
+    """The kernel can't open such a path: Protection still answers (the tool then refuses the path cleanly)."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    p = Protection(home, ferb, [], [], [])
+    assert p.fs_denied(Path("notes\x00.txt"), "write") is None
+    assert p.fs_denied(ferb / "config\x00.toml", "write") == "ferb_state"

@@ -253,3 +253,31 @@ def test_concurrent_recording_starts_cannot_claim_the_same_output(tmp_path,colou
         await m.end_task('task')
         assert not m.records and not list(tmp_path.glob('.ferb-recording-*'))
     asyncio.run(check())
+
+
+def test_a_recording_checks_the_folder_it_really_writes_into(tmp_path, monkeypatch):
+    """The output folder is checked as macOS opened it (F_GETPATH) before anything is made there, so another spelling
+    of a protected folder (volfs, the Data volume) or a link swapped in after the gateway's check can't take the video
+    into FERB's own files (rule 10)."""
+    import os
+    import ferb.act.recording as recording
+    monkeypatch.setattr(recording, 'executable', lambda name: name)
+    protected = tmp_path / 'protected'
+    protected.mkdir()
+    seen = []
+
+    def closed(path):
+        seen.append(path)
+        return 'closed' if Path(os.path.realpath(protected)) in (path, *path.parents) else None
+    st = os.stat(protected)
+
+    async def capture(): return b'frame'
+
+    async def check():
+        m = recording.RecordingManager(sanitize=lambda image: image)
+        for alias in (Path(f'/.vol/{st.st_dev}/{st.st_ino}/v.mp4'),
+                      Path('/System/Volumes/Data' + os.path.realpath(protected)) / 'v.mp4'):
+            with pytest.raises(Refused, match='closed'):
+                await m.start('task', {'tab': 1}, alias, capture, closed=closed)
+        assert list(protected.iterdir()) == [] and m.records == {}
+    asyncio.run(check())

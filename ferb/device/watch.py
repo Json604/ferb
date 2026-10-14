@@ -41,25 +41,7 @@ PROMPT = ("   What did you see?  [Enter]=nothing  s=desktop/Space switched  a=an
           "f=a flash  m=my mouse moved  w=a window appeared  o=other (describe) > ")
 
 
-# ---------- the detector: what macOS itself says happened ----------
-
-DETECTOR_SRC = r'''
-import json, sys, time, objc
-from AppKit import NSObject, NSWorkspace, NSWorkspaceActiveSpaceDidChangeNotification, NSWorkspaceDidActivateApplicationNotification
-from PyObjCTools import AppHelper
-out = open(sys.argv[1], "a", buffering=1)
-def write(kind, app=None): out.write(json.dumps({"t": round(time.time(), 3), "event": kind, "app": app}) + "\n")
-class W(NSObject):
-    def space_(self, n):
-        f = NSWorkspace.sharedWorkspace().frontmostApplication()
-        write("desktop_changed", str(f.bundleIdentifier()) if f else None)
-    def act_(self, n): write("app_activated", str(n.userInfo()["NSWorkspaceApplicationKey"].bundleIdentifier()))
-w = W.new(); nc = NSWorkspace.sharedWorkspace().notificationCenter()
-nc.addObserver_selector_name_object_(w, objc.selector(w.space_, signature=b"v@:@"), NSWorkspaceActiveSpaceDidChangeNotification, None)
-nc.addObserver_selector_name_object_(w, objc.selector(w.act_, signature=b"v@:@"), NSWorkspaceDidActivateApplicationNotification, None)
-write("started"); AppHelper.runConsoleEventLoop(installInterrupt=True)
-'''
-
+# ---------- the detector (ferb/device/detector.py): what macOS itself says happened ----------
 
 def _front() -> str | None:
     """The owner's app: Accessibility's focused application first (NSWorkspace goes stale in a long process)."""
@@ -100,8 +82,8 @@ def _mouse() -> tuple[float, float]:
 class Detector:
     def __init__(self, log: Path) -> None:
         self.log = log
-        self.proc = subprocess.Popen([sys.executable, "-c", DETECTOR_SRC, str(log)], stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL)
+        self.proc = subprocess.Popen([sys.executable, "-I", "-m", "ferb.device.detector", str(log)],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.samples: list[tuple[float, str | None]] = []
         self._stop = threading.Event()
         threading.Thread(target=self._poll, daemon=True).start()

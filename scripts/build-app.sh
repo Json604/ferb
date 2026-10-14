@@ -95,6 +95,12 @@ rm -f "$STDLIB"/site-packages/*.dist-info/direct_url.json(N)      # it names thi
 find "$PYHOME/bin" -mindepth 1 \( ! -name 'python*' -o -name '*-config' \) -delete
 rm -rf "$PYHOME"/{include,share} "$PYHOME"/lib/pkgconfig
 # Compiled once here and never checked against the sources, so FERB never writes into its own signed bundle.
+# uv wrote its install folder (this build's) into the build configuration; put back the standalone build's own
+# placeholder, so no build-machine path ships (it is only read when compiling extensions, which FERB never does).
+"$PY" -I -c 'import pathlib, sys
+for name in sys.argv[2:]:
+    f = pathlib.Path(name)
+    f.write_text(f.read_text().replace(sys.argv[1], "/install"))' "$PY_SRC" "$STDLIB"/_sysconfigdata_*.py(N)
 # Recorded source paths start at FERB.app, not this build folder (Python shows the real path once imported).
 "$PY" -I -m compileall -q -f -j 0 --invalidation-mode unchecked-hash -s "$APP" -p FERB.app "$STDLIB" >/dev/null \
   || die "compiling the bundled Python sources failed"

@@ -33,7 +33,6 @@ import os
 import re
 import secrets
 import subprocess
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -42,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from ferb.act.shell.listeners import NETSTAT, _PID, contained
+from ferb.paths import helper_python
 from ferb.policy.protection import LocalPort, Protection
 
 LOG = "/usr/bin/log"
@@ -227,7 +227,8 @@ class DirectReports:
 
     def start(self) -> bool:
         try:
-            self._proc = subprocess.Popen([sys.executable, "-I", "-c", WATCH, *self.argv], stdin=subprocess.PIPE,
+            # FERB.app's agent runs only FERB's entry points, never `-c` (L27): the app's plain interpreter runs WATCH
+            self._proc = subprocess.Popen([*helper_python(), "-I", "-c", WATCH, *self.argv], stdin=subprocess.PIPE,
                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
                                           errors="replace")
         except OSError as e:

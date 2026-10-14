@@ -24,7 +24,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ferb.act.fs.files import resolve
+from ferb.act.fs.files import PathRefused, destination_closed, make_folders, resolve
 from ferb.core.errors import Refused, Withheld
 from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
@@ -121,9 +121,12 @@ class RecordingManager:
 
     async def start(self, owner: str, target: dict[str, Any], path: Path, capture: Capture,
                     fps: float = 2, audio: tuple[str, int] | None = None, language: str | None = None,
-                    sources: tuple[tuple[str, str], ...] = ()) -> dict[str, Any]:
+                    sources: tuple[tuple[str, str], ...] = (), *,
+                    closed: Callable[[Path], str | None] | None = None) -> dict[str, Any]:
         """`audio`: (bundle id, pid) of the app whose sound is recorded with the frames (with_audio); `sources`: the
-        page it plays in, besides that app (its read sources once the transcript is attached)."""
+        page it plays in, besides that app (its read sources once the transcript is attached). `closed`: the
+        protection lists for a file written at a path (rule 10), checked through the folders as macOS opens them,
+        before and while the output's folders are made."""
         async with self._starts:
             executable('ffmpeg'); executable('ffprobe')
             if not math.isfinite(fps) or not 0.2 <= fps <= 10:
@@ -136,15 +139,24 @@ class RecordingManager:
                 raise Refused('recording path or receipt already exists; choose a new path')
             if any(r.target == target and r.result is None for r in self.records.values()):
                 raise Refused('this target already has an active recording')
+            refusal = destination_closed(path, closed)
+            if refusal:
+                raise Refused(refusal)
             # Capture before allocating files; no video should exist if the target cannot be reached.
             raw, note = _frame(await capture())
             first = await asyncio.to_thread(self.sanitize, raw)
             began = self.now()
             if audio is not None and self.hearing is None:
                 raise Refused('FERB has no way to hear sound here; record without with_audio')
+            try:
+                make_folders(path.parent, closed)          # each folder made inside one FERB opened and checked
+            except PathRefused as e:
+                raise Refused(str(e)) from None
+            refusal = destination_closed(path, closed)     # and the folder it now writes into, as opened
+            if refusal:
+                raise Refused(refusal)
             listening = await self.hearing.start(owner, *audio) if audio is not None else None
             try:
-                path.parent.mkdir(parents=True, exist_ok=True)
                 folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
             except BaseException:
                 if listening is not None:

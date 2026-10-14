@@ -16,8 +16,10 @@ FERB.app (L27), when FERB runs from one, holds the daemon's own code, its interp
 closed to writes and removal by FERB's tools and its shell, wherever the app sits, and no escape hatch lifts that
 (rule 10). Reading it stays open.
 
-A path is checked as typed and as the OS reaches it now (links first, then `..`), against each entry as written and as
-it resolved when FERB started: a rule matching any of them applies. FERB's workspace is the literal folder in FERB's
+A path is checked as typed, as the OS reaches it now (links first, then `..`) and as the kernel names the file it
+reaches (F_GETPATH on its deepest existing part: the Data volume's /System/Volumes/Data/… and volfs's /.vol/<dev>/<ino>
+spellings become FERB's own), against each entry as written, as it resolved when FERB started and as the kernel names
+it: a rule matching any of them applies. A volfs path FERB can't map is closed. FERB's workspace is the literal folder in FERB's
 home: a link planted there never moves the exception (and the daemon won't start with one)."""
 
 import os
@@ -27,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ferb import paths
-from ferb.act.fs.files import real_path
+from ferb.act.fs.files import opened_path, real_path
 from ferb.core.errors import FerbError
 from ferb.policy.rules import Kind
 
@@ -80,6 +82,7 @@ class Entry:
     path: Path       # resolved when FERB started
     shown: str       # as the owner wrote it, the home as ~
     typed: Path      # as written, absolute, `..` folded: still matched if the entry later becomes a link
+    kernel: Path | None = None   # as the kernel named it when FERB started (another spelling of the same folder)
 
 
 @dataclass(frozen=True)
@@ -128,8 +131,54 @@ def _real(path: Path) -> Path:
         return _typed(path)
 
 
+_DATA_VOLUME = Path("/System/Volumes/Data")      # every firmlinked folder (/Users, /Applications, /private…) is here too
+_VOLFS = Path("/.vol")                            # /.vol/<device>/<inode>/…: any file by its identity
+_O_EVTONLY = getattr(os, "O_EVTONLY", 0x8000)     # open for a name only: no read access needed, no data touched
+
+
+def _kernel(path: Path) -> Path | None:
+    """The path as the kernel names what it reaches (F_GETPATH on the deepest part that exists, then the rest), so
+    another spelling of the same file is the spelling FERB's rules use; None when nothing along it can be opened."""
+    tail: list[str] = []
+    p = _absolute(path)
+    while True:
+        try:
+            fd = os.open(p, _O_EVTONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        except (FileNotFoundError, NotADirectoryError):
+            if p == p.parent:
+                return None
+            tail.append(p.name)
+            p = p.parent
+            continue
+        except (OSError, ValueError):                 # ValueError: a NUL in the path, which no file can have
+            return None
+        try:
+            base = opened_path(fd)
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
+        return Path(os.path.normpath(base.joinpath(*reversed(tail))))
+
+
 def _forms(path: Path) -> tuple[Path, ...]:
-    return tuple(dict.fromkeys((_typed(path), _real(path))))
+    typed = _typed(path)
+    forms = [typed, _real(path)]
+    kernel = _kernel(path)
+    if kernel is not None:
+        forms.append(kernel)
+    if typed.is_relative_to(_DATA_VOLUME) and typed != _DATA_VOLUME:
+        forms.append(Path("/") / typed.relative_to(_DATA_VOLUME))      # the firmlinked spelling, even when missing
+    return tuple(dict.fromkeys(forms))
+
+
+def _unmapped(path: Path) -> bool:
+    """A volfs path the kernel can't name (it stays a /.vol path): which file it means is unknown, so it is treated as
+    FERB's own."""
+    if not _typed(path).is_relative_to(_VOLFS):
+        return False
+    kernel = _kernel(path)
+    return kernel is None or kernel.is_relative_to(_VOLFS)
 
 
 def _entry_path(home: Path, entry: str) -> Path:
@@ -218,9 +267,9 @@ class Protection:
         self.workspace = self.ferb_home / WORKSPACE          # literal: never where a link there points
         self.uploads = self.workspace / UPLOADS
         typed = _typed(ferb_home)
-        # FERB's own state as (home, workspace, uploads), resolved and as typed
-        self._state_roots = tuple(dict.fromkeys(((self.ferb_home, self.workspace, self.uploads),
-                                                 (typed, typed / WORKSPACE, typed / WORKSPACE / UPLOADS))))
+        # FERB's own state as (home, workspace, uploads): resolved, as typed, and as the kernel names the home
+        homes = [self.ferb_home, typed, *[k for k in (_kernel(ferb_home),) if k is not None]]
+        self._state_roots = tuple(dict.fromkeys((h, h / WORKSPACE, h / WORKSPACE / UPLOADS) for h in homes))
         self.reads = self._entries("read", _strings(never_read, "never_read", "paths"))
         self.writes = self._entries("write", _strings(never_write, "never_write", "paths"))
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
@@ -234,16 +283,19 @@ class Protection:
         for item in items:                               # one rule per id: the first spelling of an entry is kept
             raw = _entry_path(self.home, item)
             shown = _shown(self.home, raw)
-            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw)))
+            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw), _kernel(raw)))
         return list(out.values())
 
     def _forms(self, path: Path) -> tuple[Path, ...]:
-        """A checked path as typed and as resolved now; a relative one is the workspace's (as FERB's fs tools)."""
+        """A checked path as typed, as resolved now and as the kernel names it; a relative one is the workspace's (as
+        FERB's fs tools)."""
         return _forms(path if path.is_absolute() else self.workspace / path)
 
     def _state(self, forms: tuple[Path, ...], removes: bool = False) -> bool:
         """FERB's own state: its home minus the workspace, and the upload staging inside the workspace; for a call
-        that removes, also a folder holding any of it."""
+        that removes, also a folder holding any of it. A volfs path FERB can't map counts as FERB's own."""
+        if any(_unmapped(p) for p in forms):
+            return True
         return any((_under(p, home) and not _under(p, ws)) or _under(p, up)
                    or (removes and (_under(home, p) or _under(up, p)))
                    for p in forms for home, ws, up in self._state_roots)
@@ -256,7 +308,7 @@ class Protection:
     def _hit(entries: list[Entry], forms: tuple[Path, ...], removes: bool = False) -> str | None:
         """The first entry a path is inside (as typed or resolved, against the entry as written or resolved); for a
         call that removes, also an entry inside the path."""
-        return next((e.id for e in entries for p in forms for root in (e.path, e.typed)
+        return next((e.id for e in entries for p in forms for root in (e.path, e.typed, e.kernel) if root is not None
                      if _under(p, root) or (removes and _under(root, p))), None)
 
     def ferb_state(self, path: Path) -> bool:

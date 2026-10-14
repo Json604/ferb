@@ -221,6 +221,32 @@ def test_kernel_reports_unknown_when_the_system_log_cant_be_read() -> None:
     assert reports.connections("p-aaaa1111", 0.0) is None and not reports.running
 
 
+def test_in_ferb_app_the_stream_runs_under_the_apps_plain_python_never_the_agent(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """L24 x L27 integration: FERB.app's daemon executable is the agent, which runs only FERB's entry points and
+    refuses `-c`; the stream's watcher runs under the app's own python3.12 instead."""
+    from ferb import paths
+    app = tmp_path / "FERB.app"
+    prefix = app / "Contents" / "Resources" / "python"
+    prefix.mkdir(parents=True)
+    assert paths.helper_python(prefix) == [str(app.resolve() / "Contents/Resources/python/bin/python3.12"), "-B"]
+    assert paths.helper_python(tmp_path / "venv") == [sys.executable]          # a checkout: the daemon's own
+    started: list[list[str]] = []
+
+    class Stop(Exception):
+        pass
+
+    def popen(argv: list[str], **kw: Any) -> Any:
+        started.append(argv)
+        raise Stop
+    monkeypatch.setattr(local, "helper_python", lambda: paths.helper_python(prefix))
+    monkeypatch.setattr(local.subprocess, "Popen", popen)
+    with pytest.raises(Stop):
+        local.DirectReports(["/usr/bin/log", "stream"]).start()
+    assert started == [[str(app.resolve() / "Contents/Resources/python/bin/python3.12"), "-B", "-I", "-c", local.WATCH,
+                        "/usr/bin/log", "stream"]]
+
+
 def test_the_stream_stops_when_the_daemon_goes_away(tmp_path: Path) -> None:
     """Review minor 5: the stream's stdin is a pipe only FERB holds; a daemon that crashes closes it, and the stream
     stops instead of lingering."""
