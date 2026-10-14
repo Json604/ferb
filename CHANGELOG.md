@@ -128,6 +128,9 @@ Final review fixes (2026-10-14):
   model's window never runs Codex on the event loop.
 - Cancelling or pausing a one-time schedule while its run is under way now withdraws that run's standing permission
   (before, the schedule already counted as done and couldn't be cancelled).
+- The private-data check no longer asks when a link only carries a value that the same site already had in its own
+  address in your data (opening the Instagram reel you have open; the live "analyze the insta post now" question).
+  The same value going to another site, or also found elsewhere in your data, still asks.
 
 Licensed under Apache-2.0.
 

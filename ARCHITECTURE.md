@@ -1392,7 +1392,11 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   (`origin.stored_outside`, `SpanStore.outside_exposure_origins`, `Gateway._outside_read`), for both the taint and
   S4(b) (`tool_outputs(include_context=True)`). `confirm.url_carries_private` counts a URL piece only when the matched
   form is a value (`_is_value`: a digit or a non-word character); ordinary words never count, base64/hex decodings
-  still do. The front window's outside labels join the tree's request origins (L12), and a scheduled run's request
+  still do. A value whose every private occurrence is inside a URL of the destination's own registrable domain
+  (`_same_site_only`, `confirm.registrable`, IDNA hosts from `urls.parse`) doesn't count either: sending a reel's id
+  from the owner's own instagram.com tab back to instagram.com discloses nothing new (owner live use, 2026-10-14); the
+  same value going to another site, or also found in other private text, still asks. The front window's outside
+  labels join the tree's request origins (L12), and a scheduled run's request
   origins are the creating message's own labels (`schedule.created.request_origins`; an old row fails closed).
 - Bulk asks: two or more recipients the owner didn't name, or a permanent folder delete the owner didn't name, ask once
   with the count, size and a quoted sample (`confirm.bulk_delete`, `SHOWN` = 3, display only).

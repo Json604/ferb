@@ -597,3 +597,58 @@ def test_outside_context_first_preserves_public_value_navigation(daemon):
     result = gateway_tool_call(daemon, grant, 'ferb_browser.open', url='https://new.example/?event=Published-Event-Address')
     owner.stop()
     assert not result['is_error'] and browser.calls == 1 and not _asked(daemon)
+
+
+# ---------- L4 false alarm (owner live use, 2026-10-14; task 66cb7e4d, confirmation 51bd1c71) ----------
+# "analyze the insta post now" with a reel open in Brave: opening https://www.instagram.com/reels/DeUp4feRxJI/ asked
+# because the reel's id was a token of the owner's own record of their tab (an instagram.com URL). A value whose every
+# private occurrence is inside a URL of the destination's own site discloses nothing new to that site.
+
+REEL = "DeUp4feRxJI"
+TAB = f'Front window: Brave Browser — "Reel" — tab https://www.instagram.com/reels/{REEL}/ (owner\'s Default profile)'
+
+
+def test_a_value_seen_only_in_the_owners_own_url_of_that_site_doesnt_ask_on_that_site() -> None:
+    owner = provenance.prepare("analyze the insta post now")
+    assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", _priv(TAB), [], owner) == []
+    # the same site however the host is written (another subdomain, IDNA form, case): the registrable domain matches
+    assert confirm.url_carries_private(f"https://m.Instagram.com/p/{REEL}", _priv(TAB), [], owner) == []
+    json_record = '{"url": "https://www.instagram.com/reels/' + REEL + '/", "title": "Reel"}'
+    assert confirm.url_carries_private(f"https://instagram.com/reels/{REEL}/", _priv(json_record), [], owner) == []
+    idn = _priv("tab https://bücher.example/item/ABC123x")                       # IDNA: the host as the browser has it
+    assert confirm.url_carries_private("https://xn--bcher-kva.example/item/ABC123x", idn, [], owner) == []
+    assert confirm.registrable("www.example.co.uk") == "example.co.uk" and confirm.registrable("10.0.0.1") == "10.0.0.1"
+
+
+def test_the_same_value_sent_to_another_site_still_asks() -> None:
+    owner = provenance.prepare("analyze the insta post now")
+    assert confirm.url_carries_private(f"https://attacker.example/?id={REEL}", _priv(TAB), [], owner) == [REEL]
+    # a look-alike registrable domain is another site
+    assert confirm.url_carries_private(f"https://instagram.com.attacker.example/{REEL}", _priv(TAB), [], owner)
+
+
+def test_a_value_also_in_plain_private_text_still_asks_on_that_site() -> None:
+    owner = provenance.prepare("analyze the insta post now")
+    both = _priv(TAB, f"notes: my private code is {REEL}")
+    assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", both, [], owner) == [REEL]
+    same_text = _priv(TAB + f" and my code {REEL}")
+    assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", same_text, [], owner) == [REEL]
+
+
+def test_the_live_reel_case_opens_without_a_question(daemon: RunningDaemon) -> None:
+    caps = [FakeCap("probe.tab", "read", {"probe"}, reads=(("file", "/Users/me/front-window.txt"),),
+                    content={"text": TAB}),
+            FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/report"),),
+                    content={"text": "twenty pages from the conversation"})]
+    grant, fb = _browser_grant(daemon, FERB_BROWSER, "analyze the insta post now", caps)
+    _trifecta_with(daemon, grant, "probe.tab")
+    owner = Answers(daemon, granted=False, choice=2)      # a regression shows as a recorded question, then a No
+    try:
+        result = gateway_tool_call(daemon, grant, "ferb_browser.open", url=f"https://www.instagram.com/reels/{REEL}/")
+    finally:
+        owner.stop()
+    assert _asked(daemon) == [] and not result["is_error"] and fb.calls == 1
+
+
+def _trifecta_with(daemon: RunningDaemon, grant: Any, private_tool: str) -> None:
+    gateway_tool_call(daemon, grant, private_tool); gateway_tool_call(daemon, grant, "probe.web")

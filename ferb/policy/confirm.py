@@ -211,6 +211,38 @@ def _decodings(piece: str) -> set[str]:
     return out
 
 
+_URL_IN_TEXT = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>\[\]{}|\\^`]+")   # a URL's extent inside read text (shape)
+
+
+def registrable(host: str) -> str:
+    """A host's registrable domain: its last label plus its public suffix (two-level suffixes from `_TWO_LEVEL`), so
+    `www.instagram.com` and `m.instagram.com` are both `instagram.com`. An IP address or a one-label host is itself.
+    The host is already normalized (ferb/policy/urls.py: IDNA, lowercase)."""
+    labels = host.rstrip(".").split(".")
+    if len(labels) < 2 or labels[-1].isdigit():
+        return host
+    return ".".join(labels[-(3 if len(labels) > 2 and ".".join(labels[-2:]) in _TWO_LEVEL else 2):])
+
+
+def _same_site_only(private: list[tuple[int, provenance.Text]], site: str) -> set[str]:
+    """The tokens of the owner's own data whose every occurrence is inside a URL of `site` (by registrable domain):
+    a value that site already had in its own address, such as a reel's id in the owner's tab of that reel. A token
+    also found anywhere else in private text (another site's URL, plain text) isn't one. Shape only (rule 6)."""
+    inside: set[str] = set()
+    elsewhere: set[str] = set()
+    for _, t in private:
+        rest, cut = [], 0
+        for m in _URL_IN_TEXT.finditer(t.folded):
+            parsed = urls.parse(m.group(0).rstrip(_TRAIL))
+            if parsed is not None and parsed.host and registrable(parsed.host) == site:
+                inside |= set(provenance.tokens(m.group(0))) | _fine_tokens(m.group(0))
+                rest.append(t.folded[cut:m.start()])
+                cut = m.end()
+        rest.append(t.folded[cut:])
+        elsewhere |= set(provenance.tokens(" ".join(rest))) | _fine_tokens(" ".join(rest))
+    return inside - elsewhere
+
+
 def _value_labels(host: str) -> list[str]:
     """The host labels left of the site's registrable domain — where a value rides in `VALUE.attacker.com` (N3). The
     registrable domain (the label plus its public suffix) is not a value, so `github.com` and `stripe.com` yield
@@ -297,9 +329,13 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
     outside-only result read *before* that value was first read privately (laundering by later echo doesn't count), and
     a record labelled both outside and private counts as private, never making a value public (that split is the
     caller's). A URL seen verbatim in outside-only content read before the private value first appeared is a followed
-    link: nothing asked. Shape and provenance only, never a meaning (rule 6)."""
+    link: nothing asked. A value whose every private occurrence is inside a URL of the destination's own site (same
+    registrable domain) discloses nothing new to that site, so it doesn't count (L4, owner live use 2026-10-14: a
+    reel's id from the owner's own tab of that reel). Shape and provenance only, never a meaning (rule 6)."""
     if not private:
         return []
+    dest = urls.parse(url)
+    known_to_site = _same_site_only(private, registrable(dest.host)) if dest is not None and dest.host else set()
     first_private: dict[str, int] = {}
     for order, t in private:
         for tok in _toks(t):
@@ -317,7 +353,8 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
         value = piece.strip()
         # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
         shown, decoded = _variants(piece)
-        matched = {m for m in (shown | decoded) & set(first_private) if m not in owner_toks and not laundered(m)}
+        matched = {m for m in (shown | decoded) & set(first_private)
+                   if m not in owner_toks and m not in known_to_site and not laundered(m)}
         if matched and value and value not in [v for v, _ in hits]:
             hits.append((value, min(first_private[m] for m in matched)))
     if not hits:
