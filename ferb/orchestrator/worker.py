@@ -49,6 +49,10 @@ class RuntimeViolation(Exception):
     pass
 
 
+class InvalidAnswer(ValueError):
+    """The model answered, but its answer doesn't match the requested schema: output validation, not a failed call."""
+
+
 class Stalled(Exception):
     pass
 
@@ -304,7 +308,10 @@ class WorkerRuns:
             raise Stalled()
         if not final:
             raise ValueError("runtime finished without an answer")
-        return check_final(final, output_schema)
+        try:
+            return check_final(final, output_schema)
+        except ValueError as e:
+            raise InvalidAnswer(str(e)) from None
 
     async def _watch(self, stop: Callable[[], Awaitable[None]], worker_id: str) -> None:
         """Stop a silent worker (starting or running); owner waits suspend liveness timing."""

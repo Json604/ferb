@@ -61,6 +61,9 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         tree.worker.success_conditions = [c.text for c in tree.spec.success_conditions]
         envelope = supervisor._env.get(request_id, {})
         made = set(envelope.get('message_origin', ()))
+        # The window this correction was sent from is outside content the running tree now holds (L12, S4)
+        front = envelope.get('front_window')
+        shown = {o for o in origin.split(front.origin) if origin.is_external(o)} if front is not None else set()
         updated = Request(prior.request_id, prior.words + '\n' + clean['words'], supervisor._targets(tree.spec),
                           (prior.payload or prior.words) + '\n\nOwner correction:\n' + clean['payload'],
                           prior.asked_origins | frozenset(o for o in made if origin.is_external(o)))
@@ -79,7 +82,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             supervisor.tasks.db.conn.execute('UPDATE tasks SET goal=? WHERE id IN (?,?)',
                 (tree.spec.goal, tree.id, tree.worker.id))
             supervisor.spans.update_input(root.span_id, {'request': updated.payload, 'authority_words': updated.words,
-                'request_origins': sorted(supervisor.spans.request_origins(tree.id) | made),
+                'request_origins': sorted(supervisor.spans.request_origins(tree.id) | made | shown),
                 'task_spec': tree.spec.model_dump(), 'goal': tree.spec.goal})
         if tree.spec.plan:
             saved = supervisor.plans.load(tree.id)
@@ -93,7 +96,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         exposure = supervisor.spans.start('context.exposure', task_id=tree.id,
             input={'source_refs': [source_ref], 'reference': 'owner correction', 'revision': revision})
         supervisor.spans.finish(exposure, output={'text': message},
-            origin=origin.join(made | set(envelope.get('turn_origins', ())) | {origin.INFERRED}))
+            origin=origin.join(made | shown | set(envelope.get('turn_origins', ())) | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
         # Release ordinary question waits with the owner's exact words. Changed instructions never approve

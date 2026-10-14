@@ -8,10 +8,15 @@ and FERB's own browser profile windows are windows the owner sees: they count. W
 window of the app hosting it (a terminal running `ferb chat`) is skipped while it is in front: the next one is the
 owner's. What is kept: app, bundle id, window title, a browser's front tab URL and title, and one screenshot of that
 window only (D29). The tab is read before the shot when it can be; when the browser's Automation check is still
-answering, it is read again after the shot, and a site found excluded then drops the picture, which was never kept. The screenshot goes through FERB's screenshot path (secret fields
+answering, it is read again after the shot. The screenshot goes through FERB's screenshot path (secret fields
 the window's tree shows are masked in the capture), then the F5 on-device redaction; when either fails the image is
-withheld and the text facts stay. Text facts are redacted here, at capture (rule 14). An app or site on the owner's
-exclusion list is dropped completely, as every observation is (exclusions.py)."""
+withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).
+
+The owner's exclusion list governs perception recording, not what FERB sees when asked (owner, fix round 2: "no
+exceptions"): a site on it is still seen, title and pixels, but its origin never names the host
+(`external:web:excluded`, the gateway's convention) and its URL is the redactor's excluded marker; S4 still counts it as
+outside content. An app on it is never looked at (rule 14: a password manager shows secrets field masking can't
+reliably cover): the planner is told which app is in front and that FERB doesn't look at it."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -21,11 +26,13 @@ from ferb.act.mac.ax_browser import is_browser
 from ferb.act.mac.screenshot import Window
 from ferb.core import origin as origins
 from ferb.core.errors import Refused
+from ferb.sanitize.redact import EXCLUDED
 
 # FERB's own apps, as their bundles declare them: ui/mac/FERBNotch/Info.plist and macapp/FERB/Info.plist
 FERB_APPS = frozenset({"dev.ferb.notch", "com.ferb.app"})
 # libproc's PROC_PIDTBSDINFO answer (<sys/proc_info.h> struct proc_bsdinfo): its size, and where pbi_ppid lies in it
 PROC_PIDTBSDINFO, BSDINFO_SIZE, PPID_OFFSET = 3, 136, 16
+EXCLUDED_APP = "an app on the owner's exclusion list: FERB doesn't look at it (no title, page or screenshot)"
 
 
 @dataclass(frozen=True)
@@ -42,7 +49,9 @@ class FrontWindow:
 
     def facts(self) -> dict[str, Any]:
         """The labelled facts the planner is given (a browser's tab only when it was read)."""
-        out: dict[str, Any] = {"app": self.app, "bundle_id": self.bundle_id, "window_title": self.title}
+        out: dict[str, Any] = {"app": self.app, "bundle_id": self.bundle_id}
+        if self.title:
+            out["window_title"] = self.title
         if self.url or self.tab_title:
             out |= {"url": self.url, "tab_title": self.tab_title}
         return out
@@ -146,12 +155,10 @@ async def capture(src: Sources) -> FrontWindow | None:
     if found is None:
         return None
     w, name, bundle = found
-    if src.excluded(bundle, name, None):
-        return None
+    if src.excluded(bundle, name, None):               # named, never looked at: no title, tab or pixels (rule 14)
+        return FrontWindow(name, bundle, "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
     browser = is_browser(bundle)
     tab = await _tab(src, bundle) if browser else None
-    if tab is not None and src.excluded(bundle, name, tab[0]):
-        return None
     image: bytes | None = None
     withheld: str | None = None
     try:
@@ -167,12 +174,13 @@ async def capture(src: Sources) -> FrontWindow | None:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
     if browser and tab is None:                        # its Automation check may have answered during the shot
         tab = await _tab(src, bundle)
-        if tab is not None and src.excluded(bundle, name, tab[0]):
-            return None                                # an excluded site: the picture is dropped, never kept
     url, tab_title = tab if tab is not None else (None, None)
+    excluded_site = bool(url) and src.excluded(bundle, name, url)
     read = (("web", url),) if url else _sources(bundle)
-    origin = origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
-    facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": url, "tab_title": tab_title})
+    origin = origins.external("web", "excluded") if excluded_site else \
+        origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
+    facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": EXCLUDED if excluded_site else url,
+                        "tab_title": tab_title})
     ref: str | None = None
     if image is not None:
         try:

@@ -46,7 +46,7 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVI
                                        VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
+from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -801,7 +801,10 @@ class Supervisor(WorkerRuns):
             if draft:
                 draft.abort()
             self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
-            if not (images and isinstance(exc, (ServiceError, ValueError))):    # ValidationError is a ValueError
+            # Only a model call that failed before any answer existed (a service or protocol error, no answer) is
+            # retried without the image; an answer that doesn't validate goes to _decide's repair as before.
+            if not (images and isinstance(exc, (ServiceError, ValueError))
+                    and not isinstance(exc, (ValidationError, InvalidAnswer))):
                 raise
             refused = type(exc).__name__
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so

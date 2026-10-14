@@ -166,12 +166,13 @@ def test_a_tab_the_browser_answers_only_after_the_shot_is_still_used() -> None:
     assert screen.kept[0][1]["url"] == URL and screen.kept[0][2] == "external:web:www.youtube.com"
 
 
-def test_a_site_found_excluded_only_after_the_shot_drops_the_picture() -> None:
+def test_a_site_found_excluded_only_after_the_shot_is_labelled_excluded() -> None:
     screen = Screen([BRAVE], owners())
     screen.tab_after_shot = True
     screen.excluded = {URL}
-    assert asyncio.run(fw.capture(screen.sources())) is None
-    assert screen.kept == []                                         # taken in memory, never kept or sent
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.origin == "external:web:excluded" and front.url == "[excluded]"
+    assert screen.kept and screen.kept[0][2] == "external:web:excluded" and screen.kept[0][1]["url"] == "[excluded]"
 
 
 def test_ferbs_own_app_ids_are_the_ones_their_bundles_declare() -> None:
@@ -184,14 +185,31 @@ def test_parent_pid_is_the_kernels_answer() -> None:
     assert fw.parent_pid(os.getpid()) == os.getppid()
 
 
-def test_an_excluded_app_or_site_is_dropped_completely() -> None:
+def test_an_excluded_site_is_still_seen_under_the_excluded_label() -> None:
+    """Owner ruling (fix round 2, "no exceptions"): the exclusion list governs perception recording only. The window
+    is captured with its title and pixels; its origin never names the host (the gateway's convention), and its URL is
+    the redactor's excluded marker. S4 still counts it as outside content."""
     screen = Screen([BRAVE], owners())
     screen.excluded = {URL}
-    assert asyncio.run(fw.capture(screen.sources())) is None
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and screen.shot == [BRAVE] and front.image_ref == "ev-1" and front.title == BRAVE.title
+    assert front.origin == "external:web:excluded" and front.url == "[excluded]" and "youtube.com" not in front.origin
+    image, facts, origin = screen.kept[0]
+    assert origin == "external:web:excluded" and facts["url"] == "[excluded]" and image == JPEG
+
+
+def test_an_excluded_app_is_named_but_never_looked_at() -> None:
+    """Controller ruling (fix round 2): an app on the owner's exclusion list (password managers by default) shows
+    secrets field masking can't reliably cover (rule 14): no title, tab or pixels. The planner is told which app is in
+    front and that FERB doesn't look at it."""
+    screen = Screen([BRAVE], owners())
     screen.excluded = {"com.brave.Browser"}
-    assert asyncio.run(fw.capture(screen.sources())) is None
-    assert screen.shot == [] and screen.kept == []                    # no pixels taken, nothing kept
-    assert screen.tabs == ["com.brave.Browser"]                       # an excluded app isn't even asked for its tab
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and (front.app, front.bundle_id) == ("Brave Browser", "com.brave.Browser")
+    assert front.title == "" and front.url is None and front.image_ref is None and front.image is None
+    assert "exclusion list" in (front.withheld or "") and "doesn't look at it" in (front.withheld or "")
+    assert screen.shot == [] and screen.kept == [] and screen.tabs == []   # not even asked for its tab
+    assert "window_title" not in front.facts()
 
 
 # ---------- (d) a redaction failure withholds only the image ----------
@@ -326,7 +344,15 @@ def test_the_daemon_captures_the_browser_window_through_the_mac_driver_and_keeps
     daemon.daemon.config.set("privacy", "exclude_domains", ["youtube.com"])   # the owner's exclusion list
     chat(daemon, "and now?")
     block = next(p for p in planner_requests(script)[1].parts if p.startswith("Layer 2 — the owner's front window"))
-    assert "not available" in block and shots.captured == [121]       # excluded: no pixels taken
+    assert shots.captured == [121, 121] and planner_requests(script)[1].images      # still seen (owner ruling)
+    assert "[excluded]" in block and "www.youtube.com" not in block and BRAVE.title in block
+    second = [r for r in daemon.run(rows_of(daemon, journal(daemon, "chat.message")[-1].data["request_id"]))]
+    assert second[0]["origin"] == "external:web:excluded" and second[0]["data"]["url"] == "[excluded]"
+
+
+async def rows_of(d: RunningDaemon, request_id: str) -> list[dict[str, Any]]:
+    """The evidence rows kept under a request (read on the daemon's loop)."""
+    return d.daemon.evidence.list(request_id)                        # type: ignore[union-attr,no-any-return]
 
 
 def fake_screen_mac(d: RunningDaemon, mp: pytest.MonkeyPatch, windows: list[Window],
@@ -345,31 +371,35 @@ def test_a_cold_automation_check_still_gives_the_browser_tab(daemon: RunningDaem
                                                              monkeypatch: pytest.MonkeyPatch) -> None:
     """Fix round 1: with nothing checked yet (the owner's Brave has its extension connected, so the tab watcher never
     warms the check), the never-asking check starts at capture and answers while the window is captured; the tab is
-    read after the shot. A GRANTED answer is kept: the next message reads the tab without checking again."""
+    read after the shot. Fix round 2: a GRANTED answer is used again only while a fresh check is pending, and dropped
+    as soon as a check answers anything else (a `tccutil reset` mid-run must not lead to a prompt)."""
     from concurrent.futures import Future
     import ferb.device.permissions as permissions
     import ferb.sense.watchers.browser_tabs as browser_tabs
     shots = fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, BRAVE.title)],
                             {12: ("Brave", "com.brave.Browser")})
-    check: Future[Any] = Future()
+    first, second = Future(), Future()                              # type: ignore[var-annotated]
     checks: list[tuple[str, bool]] = []
 
     def automation_check(bundle_id: str, ask: bool = False) -> Future[Any]:
         checks.append((bundle_id, ask))
-        return check
+        return first if len(checks) == 1 else second
     monkeypatch.setattr(permissions, "automation_check", automation_check)
-    shots.on_capture = lambda: check.done() or check.set_result(permissions.Status.GRANTED)
+    shots.on_capture = lambda: first.done() or first.set_result(permissions.Status.GRANTED)
     reads: list[str] = []
     monkeypatch.setattr(browser_tabs, "applescript_front_tab", lambda bundle: (reads.append(bundle), (URL, BRAVE.title))[1])
-    script = install(daemon, [sup("reply", "It's a Korean lesson."), sup("reply", "Still the lesson.")])
-    chat(daemon, "what am I watching?")
+    script = install(daemon, [sup("reply", "It's a Korean lesson."), sup("reply", "Still the lesson."),
+                              sup("reply", "A YouTube video.")])
+    chat(daemon, "what am I watching?")                              # cold: answered GRANTED during the shot
     daemon.daemon._automation_cache.clear()                          # the watchers' 60 s answer has expired
     shots.on_capture = None
-    chat(daemon, "and now?")
-    for request in planner_requests(script):
-        block = next(p for p in request.parts if p.startswith("Layer 2 — the owner's front window"))
-        assert URL in block and BRAVE.title in block
-    assert checks == [("com.brave.Browser", False)]                  # one check, never asking; kept for this read
+    chat(daemon, "and now?")                                         # a fresh check pending: the kept answer serves
+    second.set_result(permissions.Status.NOT_DETERMINED)             # e.g. `tccutil reset` meanwhile
+    chat(daemon, "and now?")                                         # that answer drops it: no read, no prompt
+    blocks = [next(p for p in r.parts if p.startswith("Layer 2 — the owner's front window"))
+              for r in planner_requests(script)]
+    assert URL in blocks[0] and URL in blocks[1] and URL not in blocks[2] and BRAVE.title in blocks[2]
+    assert checks == [("com.brave.Browser", False)] * 2             # never asking the owner
     assert reads == ["com.brave.Browser", "com.brave.Browser"]
 
 
@@ -420,6 +450,85 @@ def test_a_model_that_refuses_the_image_still_answers_without_it(daemon: Running
     assert worker.images == () and "the screenshot couldn't be given to the model" in start
     [refused] = journal(daemon, "screen.image_refused")              # by type only
     assert refused.data["error"] == "ServiceError" and set(refused.data) == {"request_id", "error"}
+
+
+def test_an_invalid_planner_answer_goes_to_repair_and_keeps_the_image(daemon: RunningDaemon) -> None:
+    """Fix round 2: the model took the image and answered; its answer just didn't validate. That is format repair as
+    before, not a refused image: no screen.image_refused, and the repair call still carries the screenshot."""
+    screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    script = install(daemon, ['{"kind": "reply"}', sup("reply", "It says learning Korean.")])
+    evs = chat(daemon, "what does this say?")
+    assert [e["text"] for e in evs if e["type"] == "reply"] == ["It says learning Korean."]
+    first, repaired = planner_requests(script)
+    assert first.images and repaired.images == first.images
+    assert any(p.startswith("Layer 6 — plan repair") for p in repaired.parts)
+    block = next(p for p in repaired.parts if p.startswith("Layer 2 — the owner's front window"))
+    assert "attached to this request" in block and "couldn't be given" not in block
+    assert journal(daemon, "task.repair") and not journal(daemon, "screen.image_refused")
+
+
+def test_a_correction_sent_while_a_task_runs_adds_its_front_window_to_the_tree(daemon: RunningDaemon,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 2 (S4): a steer's own front window (other people's messages) is outside content the running tree now
+    holds, like the first message's."""
+    import threading
+    started, release = threading.Event(), threading.Event()
+    handles: list[Any] = []
+    original_events = FakeRuntime.events
+
+    async def events(rt: Any, run: Any) -> Any:
+        if run.state["key"] != "worker":
+            async for event in original_events(rt, run):
+                yield event
+            return
+        handles.append(run)
+        started.set()
+        while not release.is_set() and not run.state["cancel"]:
+            await asyncio.sleep(.01)
+        yield RuntimeEvent("final", {"text": done("Found it.")})
+
+    async def steer(rt: Any, run: Any, message: str) -> None:
+        pass
+    monkeypatch.setattr(FakeRuntime, "events", events)
+    monkeypatch.setattr(FakeRuntime, "continue_", steer)
+    whatsapp = fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Asmit", None, None, "ev-wa",
+                              "external:message:net.whatsapp.WhatsApp,private", image=JPEG)
+    notes = fw.FrontWindow("Notes", "com.apple.Notes", "Groceries", None, None, "ev-n", "private", image=JPEG)
+    fronts = [notes, whatsapp]
+    screen_at_send(daemon, lambda rid: fronts.pop(0))
+    script = install(daemon, [sup("task", "Looking.", task("find lunch"))])
+    first: list[dict[str, Any]] = []
+    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "find lunch", session="steer")))
+    thread.start()
+    try:
+        assert started.wait(5)
+        tree_id = handles[0].task_id.rsplit(".", 1)[0]
+
+        async def origins() -> set[str]:
+            return daemon.daemon.spans.request_origins(tree_id)     # type: ignore[union-attr,no-any-return]
+        assert not any(o.startswith("external:message") for o in daemon.run(origins()))
+        update = json.loads(sup("task", "Under 300, then.", task("find lunch under 300")))
+        update["control"] = {"task_id": tree_id, "action": "steer"}
+        script.sup.append(json.dumps(update))
+        chat(daemon, "keep it under 300", session="steer", timeout=5)
+        assert "external:message:net.whatsapp.WhatsApp" in daemon.run(origins())
+    finally:
+        release.set()
+        thread.join(5)
+
+
+def test_the_daemons_capture_never_raises_even_when_finding_the_sending_app_fails(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 2 (minor 5): finding the app hosting the sending CLI is part of the capture: its failure is
+    journaled by type and the capture is "not available", never an exception."""
+    fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, BRAVE.title)], {12: ("Brave", "com.brave.Browser")})
+
+    def broken(*args: Any) -> int | None:
+        raise PermissionError(1, "not permitted")
+    monkeypatch.setattr(fw, "sending_app", broken)
+    assert daemon.run(daemon.daemon._front_window("r-1", os.getpid())) is None
+    [failed] = journal(daemon, "screen.capture_failed")
+    assert failed.data == {"request_id": "r-1", "error": "PermissionError (errno 1)"}
 
 
 EMAIL = "priya.sharma@clientcorp.example"                          # a private value from the owner's own file

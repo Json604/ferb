@@ -760,7 +760,6 @@ class Daemon:
         if mac is None or evidence is None or (self.sense is not None and self.sense.paused):
             return None
         exclusions, daemon_pid = self._exclusions(), os.getpid()
-        sender = await asyncio.to_thread(fw.sending_app, client_pid, fw.app_of, fw.parent_pid) if client_pid else None
 
         async def shoot(w: Any) -> bytes:
             if not mac.snapshot_images():                    # the owner's `[mac] snapshot_image` switch
@@ -769,13 +768,15 @@ class Daemon:
 
         async def keep(image: bytes, facts: dict[str, Any], origin: str) -> str:
             return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)
-        sources = fw.Sources(
-            windows=screenshot.normal_windows, app_of=fw.app_of,
-            own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid, fw.parent_pid),
-            excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
-            tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
-            redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
         try:
+            sender = await asyncio.to_thread(fw.sending_app, client_pid, fw.app_of, fw.parent_pid) \
+                if client_pid else None
+            sources = fw.Sources(
+                windows=screenshot.normal_windows, app_of=fw.app_of,
+                own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid, fw.parent_pid),
+                excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
+                tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
+                redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
             return await fw.capture(sources)
         except Exception as e:
             self._journal().append("screen.capture_failed", {"request_id": request_id, "error": error_name(e)})
@@ -784,10 +785,16 @@ class Daemon:
     def _front_tab(self, bundle_id: str) -> tuple[str, str] | None:
         """A browser's front tab (URL, title) for the front window (L12): the tab watcher's AppleScript read, only when
         the owner already granted Automation for that browser (the check never asks; while it is still answering the
-        read is None, and the capture tries again after the shot). A GRANTED answer is kept for this read without the
-        watchers' expiry: a revoked permission makes osascript fail without asking, which drops it until checked again."""
+        read is None, and the capture tries again after the shot). A GRANTED answer is used again only while a fresh
+        check is still pending, and dropped as soon as a check answers anything else (a permission reset mid-run must
+        not lead to a prompt); a read that fails drops it too."""
         from ferb.sense.watchers.browser_tabs import SCRIPTS, applescript_front_tab
-        if bundle_id not in SCRIPTS or not (bundle_id in self._tab_granted or self._automation_granted(bundle_id)):
+        if bundle_id not in SCRIPTS:
+            return None
+        fresh = self._automation_granted(bundle_id)
+        probe = self._automation_checks.get(bundle_id)
+        if not fresh and not (bundle_id in self._tab_granted and probe is not None and not probe.done()):
+            self._tab_granted.discard(bundle_id)
             return None
         self._tab_granted.add(bundle_id)
         try:
