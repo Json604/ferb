@@ -346,9 +346,10 @@ class Supervisor(WorkerRuns):
         a reminder already set from it, in any state and in this turn too, refuses another. Two reminders are the same
         only when their words overlap (one quote within the other) and code resolves them to the same time ("at 3 and
         at 5 to stretch", quoted whole twice, is two). A reminder this turn already set is never set again from an
-        earlier message holding the same words. Each reminder records the request that asked for it. Returns the
-        reminders set, the messages of those refused for a problem, and the reminders that already existed for the
-        others."""
+        earlier message holding the same words. One whose time no longer resolves into the future ("today at 9" emitted
+        again after 9) is still matched against those already set, and refused only when it would be new. Each
+        reminder records the request that asked for it. Returns the reminders set, the messages of those refused for a
+        problem, and the reminders that already existed for the others (each once)."""
         if self.timers is None:
             return [], [str(it.message) for it in items], []
         now = self.clock.now()            # one moment for the whole turn: the same `when` resolves to the same time
@@ -356,24 +357,35 @@ class Supervisor(WorkerRuns):
         refused: list[str] = []
         existing: list[Any] = []
         made: list[tuple[Any, str]] = []                  # (reminder, its words) set in this turn
+
+        def exists(timer: Any) -> None:                   # one line per reminder, however many copies named it
+            if all(e.id != timer.id for e in existing):
+                existing.append(timer)
         for it in items:
             quote = " ".join(str(it.quote).lower().split())
             try:
                 asked = [source for source, words in said if quote and quote in " ".join(words.lower().split())]
                 if not asked:
                     raise ValueError("the reminder isn't in the owner's own words")
-                at = when.resolve(it.when, now)                                 # code computes the date, not the model
+                at: datetime | None = None
+                late: ValueError | None = None
+                try:
+                    at = when.resolve(it.when, now)                             # code computes the date, not the model
+                except ValueError as e:     # no future time now ("today at 9" after 9): it may still be one already set
+                    late = e
                 twin = next((t for t, words in made if _overlap(words, quote) and t.fire_at == at), None)
                 if twin is not None:                   # this turn set it already, whichever message authorized it
                     self.journal.append("timer.refused", {"why": "already set in this turn"})
-                    existing.append(twin)
+                    exists(twin)
                     continue
                 found = {s: self._reminder_set(s, quote, it.when) for s in asked}
                 source = next((s for s in asked if found[s] is None), None)
                 if source is None:                     # each message that asked for it already had it set
                     self.journal.append("timer.refused", {"why": "already set from that message"})
-                    existing.append(found[asked[0]])
+                    exists(found[asked[0]])
                     continue
+                if late is not None:                   # a new reminder that can't be set: refused as before
+                    raise late
                 t = self.timers.add("reminder", at, it.message, request_id=source)
                 self.journal.append("timer.set", {"timer_id": t.id, "request_id": source, "quote": quote,
                                                   "set_in": request_id, "resolved_from": now.isoformat()})

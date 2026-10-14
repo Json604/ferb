@@ -1087,3 +1087,49 @@ def test_a_no_said_again_after_the_owner_s_follow_up_is_final_for_that_attempt(d
     assert len(results) == 3 and all(r["is_error"] for r in results) and send.calls == 0
     assert owner.rules() == {"floor:new_recipient": 2}       # asked again once; the agent's retry after that isn't
     assert "already said no" in results[2]["content"]["error"]
+
+
+def test_a_steer_of_the_running_task_reopens_its_no(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """The live branch: the task is still running when the owner's correction arrives and is delivered to its worker.
+    The worker, refused once, tries the send again after the steer; FERB asks again and runs it on the owner's Yes."""
+    import threading
+    from tests.support.confirm import FerbAnswers
+    from tests.conftest import FakeRuntime, chat, install, outcome, sup, task, tool
+
+    async def delivered(rt: Any, run: Any, message: str) -> None:      # the runtime takes the correction live
+        return None
+    monkeypatch.setattr(FakeRuntime, "continue_", delivered)
+    send = FakeCap("probe.send", "send", {"probe"})
+    daemon.daemon.registry.capabilities[send.name] = send
+    refused, steered = threading.Event(), threading.Event()
+    results: list[dict[str, Any]] = []
+
+    def worker(token: str) -> str:
+        results.append(tool(daemon.sock, token, "probe.send", to="sam@new.example", text="the notes"))
+        refused.set()
+        assert steered.wait(20), "the test never steered"
+        results.append(tool(daemon.sock, token, "probe.send", to="sam@new.example", text="the notes"))
+        return json.dumps({"status": "failed" if results[-1]["is_error"] else "done", "summary": "Tried.",
+                           "artifacts": [], "evidence": []})
+    first: list[dict[str, Any]] = []
+    with FerbAnswers(daemon, yes=False) as owner:
+        script = install(daemon, [sup("task", "Sending.", task("send the notes to Sam", "owner"))], {"worker": worker})
+        thread = threading.Thread(target=lambda: first.extend(chat(daemon, "send the notes to Sam", session="notes")))
+        thread.start()
+        try:
+            assert refused.wait(20) and results[0]["is_error"]
+            [tree] = [r["id"] for r in _rows(daemon, "tasks") if r["parent_id"] is None]
+            owner.yes = True
+            steer = json.loads(sup("task", "Sending them.", task("send the notes to Sam", "owner")))
+            steer["control"] = {"task_id": tree, "action": "steer", "new_goal": False}
+            script.sup.append(json.dumps(steer))
+            reply = next(e for e in chat(daemon, "actually, go ahead and send it", session="notes", timeout=10)
+                         if e["type"] == "reply")
+            assert reply.get("task_id") == tree                       # delivered to the running task (live branch)
+        finally:
+            steered.set()
+            thread.join(30)
+    assert not thread.is_alive() and outcome(first)["task_id"] == tree
+    assert owner.rules() == {"floor:new_recipient": 2}                  # asked again, once
+    assert not results[1]["is_error"] and send.calls == 1
+    assert [r["task_id"] for r in _rows(daemon, "spans") if r["kind"] == "confirmations.reopened"] == [tree]

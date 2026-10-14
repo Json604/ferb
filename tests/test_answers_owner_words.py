@@ -655,6 +655,39 @@ def test_a_same_turn_duplicate_never_falls_back_to_an_earlier_message(daemon: Ru
     assert '⏰ The reminder “stretch” is already set for' in reply['text']
 
 
+def test_two_same_turn_copies_of_an_already_set_reminder_get_one_line(daemon: RunningDaemon) -> None:
+    install(daemon, [_reply_with_timer('remind me in 10 minutes to stretch', 'stretch')])
+    chat(daemon, 'remind me in 10 minutes to stretch', session='stretch')
+    twice = {'when': _in_minutes(10), 'message': 'stretch', 'quote': 'remind me in 10 minutes to stretch'}
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [twice, twice]})])
+    reply = next(e for e in chat(daemon, 'did you set it?', session='stretch') if e['type'] == 'reply')
+    assert len(_reminders(daemon)) == 1
+    assert reply['text'].count('⏰ The reminder “stretch”') == 1, reply['text']
+
+
+def test_an_earlier_today_reminder_re_emitted_after_its_time_is_told_as_existing(daemon: RunningDaemon) -> None:
+    """Round 5 (the reviewer's probe): "remind me today at <in 10 minutes> to call", then 20 minutes later the
+    planner emits it again from that message. Its time can't be resolved into the future any more, but it is the
+    reminder already set from those words: FERB says what exists, never "a problem on my side… ask again"."""
+    from ferb.clock.when import local_zone
+    now = daemon.daemon.clock.now().astimezone(local_zone())
+    if (now + timedelta(minutes=30)).date() != now.date():
+        pytest.skip('too close to local midnight for "today"')
+    at = (now + timedelta(minutes=10)).strftime('%H:%M')
+    said = f'remind me today at {at} to call'
+    today = {'in_minutes': None, 'in_days': None, 'day': 'today', 'date': None, 'time': at}
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [],
+                                 'timers': [{'when': today, 'message': 'call', 'quote': said}]})])
+    chat(daemon, said, session='today')
+    assert len(_reminders(daemon)) == 1
+    daemon.call_soon(daemon.daemon.clock.advance, 20 * 60)
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [],
+                                 'timers': [{'when': today, 'message': 'call', 'quote': said}]})])
+    reply = next(e for e in chat(daemon, 'did you set it?', session='today') if e['type'] == 'reply')
+    assert "I couldn't set" not in reply['text'], reply['text']
+    assert '⏰ The reminder “call”' in reply['text'] and len(_reminders(daemon)) == 1
+
+
 def test_a_reminder_set_event_reads_in_plain_words_and_carries_its_id_apart(daemon: RunningDaemon) -> None:
     """The notch shows a timer event's text as it passes: no internal id in it (the id is its own field)."""
     install(daemon, [_reply_with_timer('remind me in 10 minutes', 'stretch')])
