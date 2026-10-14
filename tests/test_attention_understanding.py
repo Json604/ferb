@@ -232,6 +232,45 @@ def test_the_consideration_sees_memory_chat_running_tasks_and_the_apps_told_noti
     assert quotes["items"]["required"] == ["text", "origin"]
 
 
+def test_the_consideration_fits_the_attention_models_window_with_a_huge_chat(daemon: RunningDaemon,
+                                                                            monkeypatch: Any) -> None:
+    """Task 22b (L28 with L10): the consideration is built with the planner's budgeted builders, within the attention
+    model's real window. The observations, the told notices, running tasks and memory always go in; the chat fills
+    what is left newest-first and the older entries become one note (chat.history keeps them)."""
+    from ferb.core.types import ModelLimits
+    from tests.conftest import FakeRuntime
+    d = daemon.daemon
+    sup_ = d.supervisor
+    assert sup_ is not None
+    _notes(daemon)
+
+    def huge_chat() -> None:
+        for n in range(60):                                       # about 24k tokens of chat
+            d._journal().append("chat.message", {"session_id": "owner", "request_id": f"r-{n}",
+                                                 "text": f"ownerline{n} " + "filler " * 400}, origin="owner")
+    _on_loop(daemon, huge_chat)
+    sup_.memory_candidates = lambda w: [{                         # type: ignore[assignment]
+        "text": "m1 [fact, confirmed, owner; data, not authorization] Claude plan — uniquememoryfact Max 5x",
+        "reference": "memory.learned item_id=m1", "origin": "owner", "source_refs": ["m1"]}]
+    sup_.running_trees = lambda: [("t-run", "uniquerunninggoal summarise the invoice")]  # type: ignore[method-assign]
+    limits = ModelLimits("fake-model", 12_000, 2_000, "test double")
+    monkeypatch.setattr(FakeRuntime, "limits", limits)
+    script = install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    now = _record(daemon, _tab(SUCCESS, "Settings - Claude"))
+    daemon.run(d._consider_attention({"batch_id": "b-budget", "source_refs": ["trail:" + now.id]}))
+    request = script.requests[-1][2]
+    context = request.context
+    assert "ownerline59 " in context and "ownerline0 " not in context        # the newest chat, not the oldest
+    assert "older entries not shown here; fetch full text: chat.history" in context
+    for always in ("uniquememoryfact", "uniquerunninggoal", "max_payment_success=true", "already_told"):
+        assert always in context, always
+    report = json.loads(request.parts[-1].removeprefix("Context budget: "))
+    assert report["budget_tokens"] == limits.context_budget and report["over_budget"] is False
+    considered = _on_loop(daemon, lambda: json.loads(d.db.conn.execute(  # type: ignore[union-attr]
+        "SELECT input_json FROM spans WHERE kind='attention.consider' ORDER BY rowid DESC").fetchone()[0]))
+    assert considered["context_budget_tokens"] == limits.context_budget
+
+
 def test_outside_text_reaches_the_owner_only_as_a_quote_with_its_origin(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     notes = _notes(daemon)
@@ -457,11 +496,17 @@ def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_cha
                if json.loads(inp)["reference"] == "chat.history" and "noticed" in json.loads(out)["text"]]
     assert history and "uniquenoticeword" in history[0][1] and "uniquequotedline" in history[0][1]  # task kept it
     assert "trail:" + copied.id in history[0][0]["source_refs"]                 # ...naming the notice's rows
+    # its S4 payload is the notice's own text and quote, plain (L28): no JSON "text" field the told forms match
+    plain = "You copied a uniquenoticeword reminder.\nuniquequotedline"
+    assert plain in json.loads(history[0][1])["payload"]
     assert "uniquenoticeword" in before
     daemon.call_soon(d.clock.advance, 7 * 86400 + 1)
     assert _on_loop(daemon, d.perception.purge_text) == 1
     after = _on_loop(daemon, spans)
     assert "uniquenoticeword" not in after and "uniquequotedline" not in after
+    kept = [json.loads(out) for kind, inp, out in json.loads(_on_loop(daemon, lambda: spans("context.exposure")))
+            if json.loads(inp) == history[0][0]]                   # the same exposure, after the purge
+    assert kept and "This notice came from typed or copied text" in kept[0]["payload"]   # replaced, not dropped
 
 
 def test_the_purge_clears_any_number_of_told_notices(tmp_path: Any) -> None:
@@ -485,6 +530,47 @@ def test_the_purge_clears_any_number_of_told_notices(tmp_path: Any) -> None:
     assert expire_derived(db, {"trail:copied"}, "expired", clock.now().isoformat()) == 600
     held = db.conn.execute("SELECT input_json FROM spans WHERE id=?", (span.id,)).fetchone()[0]
     assert "number 599" not in held
+    db.close()
+
+
+def test_the_purge_scrubs_a_notices_plain_payload_only_from_exposures_that_showed_it(tmp_path: Any) -> None:
+    """Task 22b (L28 with L10): the planner's conversation exposure keeps each shown entry's own text as its `payload`,
+    a notice's as its plain text and quotes. The purge removes exactly that text from every exposure whose source refs
+    name the notice's entry; an exposure that never showed the notice keeps the same words."""
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    from ferb.memory.journal import Journal
+    from ferb.orchestrator.attention import AttentionNotices, expire_derived, notice_payload
+    from ferb.store.db import Database
+    from ferb.store.spans import SpanStore
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    clock = FakeClock()
+    notices = AttentionNotices(db, clock, lambda value: value)
+    made = notices.add("batch:plain", ["trail:copied"], "You copied a plainnoticeword reminder.",
+                       [{"text": "plainquotedline"}])
+    assert made is not None
+    journal = Journal(db, clock, SequentialIds("j"), lambda value: value)
+    data = {k: AttentionNotices.view(made)[k] for k in ("id", "text", "quotes")}
+    entry = journal.append("chat.notice", data, origin=made["origin"])
+    other = journal.append("chat.message", {"session_id": "owner", "text": "plainquotedline"}, origin="owner")
+    store = SpanStore(db, clock, SequentialIds("s"), lambda value: value)
+    shown = notice_payload(data)
+    assert shown == "You copied a plainnoticeword reminder.\nplainquotedline"
+
+    def exposure(refs: list[str], payload: str) -> str:
+        span = store.start("context.exposure", input={"source_refs": refs, "reference": "chat.history"})
+        store.finish(span, output={"text": "display lines", "payload": payload})
+        return span.id
+    showed = exposure(["entry:" + other.id, "entry:" + entry.id, "trail:copied"], "earlier words\n\n" + shown)
+    unrelated = exposure(["entry:" + other.id], "plainquotedline")
+    assert expire_derived(db, {"trail:copied"}, "expired", clock.now().isoformat()) == 1
+
+    def payload(ident: str) -> str:
+        row = db.conn.execute("SELECT output_json FROM spans WHERE id=?", (ident,)).fetchone()
+        return str(json.loads(row[0])["payload"])
+    assert payload(showed) == "earlier words\n\nexpired"
+    assert payload(unrelated) == "plainquotedline"                 # never showed the notice: untouched
     db.close()
 
 

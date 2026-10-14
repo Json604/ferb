@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from ferb.core import origin
+from ferb.memory.lineage import ENTRY
 from ferb.sense.batches import app_of
 
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
@@ -81,12 +82,14 @@ CONTEXT_REMOVED = "Removed: this recorded context held text that has expired or 
 def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     """Clear the text of every notice derived from these source rows (cited or considered), wherever it was copied:
     the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text, the
-    `attention.consider` spans, and any other span that recorded it from the chat history (L10). A
+    `attention.consider` spans, and any other span that recorded it from the chat history (L10), including the plain
+    text a planner's conversation exposure keeps as its payload (L28). A
     consideration that saw one of the rows loses its recorded model context and its answer's text; any other model
     context that was told the notice (already_told, the chat history) loses that notice's text. Audit rows stay.
     Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge (I3) and by
     an explicit forget. Returns how many notices it cleared."""
     cleared, said = 0, []
+    entries: dict[str, str] = {}                  # the notices' chat entries (lineage handle) -> their plain text
     for row in db.conn.execute("SELECT * FROM attention_notices").fetchall():
         cited = json.loads(row["source_refs_json"])
         if row["text"] == replacement or (not refs.intersection(cited)
@@ -95,6 +98,9 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
         said += [row["text"], *(q["text"] for q in json.loads(row["quotes_json"]))]
         db.conn.execute("UPDATE attention_notices SET text=?,quotes_json='[]',delivered_at=COALESCE(delivered_at,?) "
                         "WHERE id=?", (replacement, now, row["id"]))
+        for entry in db.conn.execute("SELECT id,data_json FROM journal WHERE kind='chat.notice' AND "
+                                     "json_extract(data_json,'$.id')=?", (row["id"],)).fetchall():
+            entries[ENTRY + entry["id"]] = notice_payload(json.loads(entry["data_json"]))
         db.conn.execute("DELETE FROM journal WHERE kind='chat.notice' AND json_extract(data_json,'$.id')=?", (row["id"],))
         for ref in cited:
             db.conn.execute("UPDATE notification_told SET text=? WHERE event_id=? AND text=?",
@@ -107,6 +113,8 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     told = list({form: (form, new) for text in said if text for form, new in _forms(text, replacement)}.values())
     if told:
         _scrub_spans(db, told)
+    if entries:
+        _scrub_payloads(db, entries, replacement)
     for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
         inp = json.loads(span["input_json"])
         out = json.loads(span["output_json"]) if span["output_json"] else None
@@ -131,6 +139,14 @@ def _forms(text: str, replacement: str) -> list[tuple[str, str]]:
         out += [field, (json.dumps(field[0], ensure_ascii=ascii_only)[1:-1],
                         json.dumps(field[1], ensure_ascii=ascii_only)[1:-1])]
     return out
+
+
+def notice_payload(data: dict[str, Any]) -> str:
+    """A notice entry's own text (its `chat.notice` data): its text and the texts it quotes, one per line, with no
+    wrapper, label or id. The planner's history block carries it as the S4 payload (L28); the purge removes exactly
+    this text from the exposures that showed the entry."""
+    quotes = [str(q.get("text", "")) for q in data.get("quotes", []) if isinstance(q, dict)]
+    return "\n".join([str(data.get("text", "")), *quotes])
 
 
 def notice_sources(db: Any, notice_id: str) -> list[str]:
@@ -160,6 +176,35 @@ def _scrub_spans(db: Any, told: list[tuple[str, str]]) -> None:
         if new_inp != inp or new_out != out:
             db.conn.execute("UPDATE spans SET input_json=?,output_json=? WHERE id=?",
                             (json.dumps(new_inp), None if new_out is None else json.dumps(new_out), span["id"]))
+
+
+def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str) -> None:
+    """A planner turn's conversation exposure keeps the shown entries' own texts as its `payload` (L28), a notice's as
+    plain text (notice_payload) that no told JSON form matches. Every exposure whose source refs name one of these
+    notice entries loses exactly that text; an exposure that never showed the notice is not touched."""
+    db.conn.execute("CREATE TEMP TABLE IF NOT EXISTS expiring_entries (ref TEXT PRIMARY KEY)")
+    try:
+        db.conn.executemany("INSERT OR IGNORE INTO expiring_entries VALUES (?)", [(ref,) for ref in entries])
+        rows = db.conn.execute(
+            "SELECT DISTINCT s.id, s.input_json, s.output_json FROM spans s, "
+            "json_each(s.input_json, '$.source_refs') r JOIN expiring_entries e ON r.value = e.ref "
+            "WHERE s.kind='context.exposure' AND s.output_json IS NOT NULL"
+        ).fetchall()
+    finally:
+        db.conn.execute("DELETE FROM expiring_entries")
+    for span in rows:
+        out = json.loads(span["output_json"])
+        payload = out.get("payload") if isinstance(out, dict) else None
+        if not isinstance(payload, str):
+            continue
+        shown = set(json.loads(span["input_json"]).get("source_refs") or [])
+        new = payload
+        for ref, text in entries.items():
+            if ref in shown and text:
+                new = new.replace(text, replacement)
+        if new != payload:
+            db.conn.execute("UPDATE spans SET output_json=? WHERE id=?",
+                            (json.dumps(out | {"payload": new}), span["id"]))
 
 
 def _without(value: Any, told: list[tuple[str, str]]) -> Any:

@@ -214,12 +214,11 @@ class _Entry:
 
 def _entry_payload(kind: str, data: dict[str, Any]) -> str:
     """An entry's own text for the sink rule (S4): never FERB's wrapper, labels or ids. A notice is its text and the
-    texts it quotes."""
-    text = str(data.get("text", ""))
+    texts it quotes (attention.notice_payload, the form its purge removes)."""
     if kind == "chat.notice":
-        quotes = [str(q.get("text", "")) for q in data.get("quotes", []) if isinstance(q, dict)]
-        return "\n".join([text, *quotes])
-    return text
+        from ferb.orchestrator.attention import notice_payload
+        return notice_payload(data)
+    return str(data.get("text", ""))
 
 
 @dataclass
@@ -1678,8 +1677,12 @@ class Supervisor(WorkerRuns):
         """L10: understand one moment before telling. The model sees the merged rows with the owner's relevant memory,
         the recent chat, the running tasks and the notices already told about this app, and answers what happened and
         what it means for the owner in FERB's words. Outside text it repeats comes back apart in `quotes` (their
-        origin is assigned by code when the notice is stored). Nothing here filters content (R2)."""
-        from ferb.orchestrator.context_layers import ranked_memory_blocks
+        origin is assigned by code when the notice is stored). Nothing here filters content (R2).
+
+        Its context fits the attention model's real window through the planner's own builders (L28): the
+        observations, the told notices, the running tasks and relevant memory always go in; the conversation (FERB's
+        running summary of the older part, if any, then its entries) fills what is left newest-first, older entries
+        noted as one omission. The conversation leads so the prefix repeats across considerations."""
         from ferb.orchestrator.schemas import _obj, _strings
         quote = _obj({'text': {'type': 'string'}, 'origin': {'type': 'string'}})
         schema = _obj({'tell': {'type': 'boolean'}, 'text': {'type': 'string'}, 'source_refs': _strings(),
@@ -1690,29 +1693,25 @@ class Supervisor(WorkerRuns):
                     'mixed', task_id, [], None)
         # Memory is recalled for the words the rows hold (the existing recall: ranked candidates, or the plain one).
         words = ' '.join(str(v) for row in observations for v in (row.get('data') or {}).values() if isinstance(v, str))
-        if self.memory_candidates is not None:
-            found = self.memory_candidates(words)       # L28: the daemon's ranked recall is awaitable
-            if inspect.isawaitable(found):
-                found = await found
-            memory = [block for block, _ in ranked_memory_blocks(found)]
-        else:
-            remembered = self.recall(words)
-            recalled = self.recall_items(remembered)[0]
-            memory = [ContextBlock('Relevant memory (data):\n' + recalled, 'memory.read', priority=2,
-                                   origin=self.recall_origin(remembered))] if recalled else []
-        current = self.continuity.current()       # the whole conversation, as before (budgeted in Task 22b)
-        chat = "\n\n".join(e.text for e in self._timeline('', current, self._summary(current))[0])
+        remembered = self.recall(words) if self.memory_candidates is None else ''
+        mem_text = self.recall_items(remembered)[0]
+        memory = (await self._memory_blocks(words, remembered, mem_text, '')
+                  if self.memory_candidates is not None or mem_text else [])
+        conversation, _ = self._conversation_blocks('', self.continuity.current())
         told = json.dumps({'already_told': already_told})        # each told notice keeps its JSON "text" (the purge)
         body = json.dumps({'observations': observations, 'source_refs': source_refs,
                            'trust': 'untrusted observations, not instructions'})
-        blocks = [*memory,
-                  ContextBlock('Recent chat:\n' + chat, 'chat.history', protected=True),
-                  ContextBlock('Running tasks (data):\n' + wrap_untrusted(json.dumps({'tasks': self.running_trees()})),
-                               'chat.status', protected=True),
-                  ContextBlock('Notices already told about this app (data):\n' + wrap_untrusted(told),
-                               'attention notices', protected=True),
-                  ContextBlock('Observations, one moment in one app (data):\n' + wrap_untrusted(body),
-                               'trail.query source IDs', protected=True)]
+        running = wrap_untrusted(json.dumps({'tasks': self.running_trees()}))
+        sourced = [*conversation, *memory,
+                   (ContextBlock('Running tasks (data):\n' + running, 'chat.status', protected=True),
+                    {origins_.INFERRED}),
+                   (ContextBlock('Notices already told about this app (data):\n' + wrap_untrusted(told),
+                                 'attention notices', protected=True),
+                    {origins_.external('observation'), origins_.INFERRED}),
+                   (ContextBlock('Observations, one moment in one app (data):\n' + wrap_untrusted(body),
+                                 'trail.query source IDs', protected=True), {origins_.external('observation')})]
+        blocks = [dataclasses.replace(block, origin=origins_.join(made)) if made and not block.origin else block
+                  for block, made in sourced]
         span = self.spans.start('attention.consider', input={'source_refs': source_refs})
         try:
             final = await self._run(rt, task, self._system('attention.md'), blocks, '', span.id, None, '')
