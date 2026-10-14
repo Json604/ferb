@@ -362,11 +362,12 @@ class Daemon:
         self.server.streams['ps.attach'] = self._ps_attach
         self.server.unary['ps.send'] = self._ps_send
         self._build_voice()
+        await self._dump_codex_catalog()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
-        # L28: an unknown window is said, never guessed. Reading Codex's window dumps the catalog shipped with the pinned
-        # binary once per Codex version (codex_exec.bundled_catalog), so a fresh install knows each model's window
-        # before Codex has ever fetched a catalog for FERB's login.
+        # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
+        # serving (`_dump_codex_catalog`), so a fresh install knows each model's window before Codex has ever fetched
+        # a catalog for FERB's login.
         for role, problem in self._runtime_limits().items():
             if "problem" in problem:
                 self.journal.append("runtime.limits_unknown", {"role": role, **problem})
@@ -3368,6 +3369,15 @@ class Daemon:
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.state.stopped})
         return out
+
+    async def _dump_codex_catalog(self) -> None:
+        """L28, final review M8: when a role runs on Codex, the catalog shipped with the pinned binary is dumped (once
+        per Codex version; `codex debug models --bundled` is a process) in a worker thread before the daemon serves,
+        so no limits read on the event loop ever runs it. A failure leaves the window unknown, which is said."""
+        from ferb.runtimes.catalog import ROLES
+        from ferb.runtimes.codex_exec import bundled_catalog
+        if any(self._runtime_for(role) == "codex" for role in ROLES):
+            await asyncio.to_thread(bundled_catalog, self.home)
 
     def _runtime_limits(self) -> dict[str, dict[str, Any]]:
         """Each role's runtime and model with its documented context window and reply limit (L28), or the problem."""

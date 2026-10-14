@@ -1597,7 +1597,9 @@ protected FERB state (16.9).
 - **Window.** Every adapter reports `ModelLimits` per model, with the documented source; the budget is the window
   minus the reply limit. Codex uses its catalog's input window (`context_window` × `effective_context_window_percent`:
   258,400 for `gpt-5.6-sol`), read from FERB's own `models_cache.json` or the pinned binary's bundled catalog
-  (`~/.ferb/run/codex-bundled-<version>.json`, written offline).
+  (`~/.ferb/run/codex-bundled-<version>.json`, written offline). Reading a window only reads these files; the dump
+  (`codex debug models --bundled`, a process) runs at the daemon's start in a worker thread before it serves
+  (`_dump_codex_catalog`) and at `ferb setup --codex-login`, never on the event loop (final review M8).
 - **Unknown window.** A `ServiceError` in chat, `runtime.limits_unknown` at start (only for a role whose window is
   unknown, for example with no pinned Codex catalog reachable), and a `context window <role>` line in `ferb doctor`
   (`doctor.check.runtimes.limits`). A Claude runtime with no `[models] claude` fails explicitly.

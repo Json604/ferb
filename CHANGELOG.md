@@ -121,6 +121,8 @@ Final review fixes (2026-10-14):
   for your language it says so instead of sending your voice to Apple's servers. The Speech Recognition prompt says so.
 - Each task stores the conversation it was shown once, not twice, and a navigation's private-data check prepares it
   off the daemon's event loop.
+- Codex's shipped model catalog is dumped at the daemon's start, in a worker thread before it serves; reading a
+  model's window never runs Codex on the event loop.
 
 Licensed under Apache-2.0.
 

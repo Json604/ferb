@@ -71,11 +71,17 @@ CATALOG_LOCKDOWN: dict[str, Any] = {"tool_mode": None, "multi_agent_version": No
                                     "supports_search_tool": False}
 
 
+def _bundled_path(ferb_home: Path) -> Path:
+    return ferb_home / "run" / f"codex-bundled-{CODEX_VERSION}.json"
+
+
 def bundled_catalog(ferb_home: Path) -> Path | None:
     """The model catalog shipped with the pinned Codex (`codex debug models --bundled`), dumped once per Codex version
     into FERB's run folder. Codex itself prints it: offline, with an empty Codex home (no login, no owner settings).
-    None when the pinned binary is missing or prints no catalog."""
-    out = ferb_home / "run" / f"codex-bundled-{CODEX_VERSION}.json"
+    None when the pinned binary is missing or prints no catalog. It runs a process, so only the daemon's start (in a
+    worker thread, before serving) and `ferb setup --codex-login` call it; a limits read never does (final review
+    M8)."""
+    out = _bundled_path(ferb_home)
     if out.exists():
         return out
     try:
@@ -108,21 +114,17 @@ def bundled_catalog(ferb_home: Path) -> Path | None:
 
 def _catalog(ferb_home: Path) -> tuple[Any, str] | None:
     """Codex's model catalog for FERB's runs, and where it came from: the catalog Codex last fetched for FERB's own
-    login (`codex-home/models_cache.json`), else the one shipped with the pinned binary. Never the owner's ~/.codex."""
+    login (`codex-home/models_cache.json`), else the one shipped with the pinned binary, as `bundled_catalog` dumped
+    it. Files only: reading it never runs Codex (M8). Never the owner's ~/.codex."""
     home = codex_home(ferb_home)
-    sources = ([(home / "models_cache.json", "models_cache.json")] if home is not None else [])
+    sources = ([(home / "models_cache.json", "models_cache.json")] if home is not None else []) + [
+        (_bundled_path(ferb_home), "the catalog shipped with the pinned Codex (debug models --bundled)")]
     for path, label in sources:
         try:
             return json.loads(path.read_text()), label
         except (OSError, ValueError):
             continue
-    bundled = bundled_catalog(ferb_home)
-    if bundled is None:
-        return None
-    try:
-        return json.loads(bundled.read_text()), "the catalog shipped with the pinned Codex (debug models --bundled)"
-    except (OSError, ValueError):
-        return None
+    return None
 
 
 def _models(data: Any) -> list[Any] | None:

@@ -363,8 +363,8 @@ def _fake_codex(tmp_path, monkeypatch, catalog: dict):
 
 def test_a_fresh_codex_login_reads_its_window_from_codexs_own_catalog(tmp_path, monkeypatch):
     """A fresh install has FERB's Codex login but no cached catalog yet (Codex writes one only after a run): the window
-    comes from the catalog shipped with the pinned binary, dumped once through Codex itself, offline. Codex runs with
-    that same catalog."""
+    comes from the catalog shipped with the pinned binary, dumped once through Codex itself, offline (at the daemon's
+    start or `ferb setup --codex-login`, M8). Codex runs with that same catalog."""
     import ferb.runtimes.codex_exec as cx
     from ferb.core.errors import Unsupported
     home = tmp_path / "ferb"
@@ -372,6 +372,7 @@ def test_a_fresh_codex_login_reads_its_window_from_codexs_own_catalog(tmp_path, 
     (home / "codex-home" / "auth.json").write_text("{}")
     fake = _fake_codex(tmp_path, monkeypatch, {"models": [
         {"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95, "tool_mode": "x"}]})
+    assert cx.bundled_catalog(home) is not None                          # the daemon's start dumps it
     assert cx.CodexRuntime(fake, "supervisor", tmp_path, home).limits.context_budget == 258_400
     locked = cx.locked_catalog(home)
     assert locked is not None and json.loads(locked.read_text())["models"][0]["tool_mode"] is None
@@ -384,6 +385,51 @@ def test_a_fresh_codex_login_reads_its_window_from_codexs_own_catalog(tmp_path, 
         dumped.unlink()
     with pytest.raises(ModelLimitsUnknown, match="ferb setup --update"):  # the error names the real fix
         cx.CodexRuntime(fake, "supervisor", tmp_path, home).limits
+
+
+def test_reading_a_window_never_runs_codex(tmp_path, monkeypatch):
+    """Final review M8: a limits read (each planner turn, each Codex run start) only reads Codex's catalog files; the
+    pinned binary's `debug models --bundled` never runs there, where it would stall the event loop."""
+    import ferb.runtimes.codex_exec as cx
+    home = tmp_path / "ferb"
+    (home / "codex-home").mkdir(parents=True)
+    (home / "codex-home" / "auth.json").write_text("{}")
+    ran: list[str] = []
+    fake = _fake_codex(tmp_path, monkeypatch, {"models": [
+        {"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95}]})
+    monkeypatch.setattr(cx, "codex_binary", lambda ferb_home, repo=None: (ran.append("codex"), fake)[1])
+    with pytest.raises(ModelLimitsUnknown, match="ferb setup --update"):
+        cx.limits_for(home, "gpt-5.6-sol")
+    assert cx.locked_catalog(home) is None and ran == []
+    assert cx.bundled_catalog(home) is not None and ran == ["codex"]     # the dump: at startup or setup only
+    assert cx.limits_for(home, "gpt-5.6-sol").context_budget == 258_400 and ran == ["codex"]
+
+
+def test_the_daemon_dumps_codexs_catalog_off_the_event_loop_before_serving(home, monkeypatch):
+    import threading
+    from typing import Any
+    import ferb.runtimes.codex_exec as cx
+    seen: list[tuple[bool, bool]] = []
+    holder: dict[str, Any] = {}
+
+    def dump(ferb_home):
+        d = holder.get("daemon")
+        serving = d is not None and d.daemon.server.path.exists()
+        seen.append((threading.current_thread() is getattr(d, "thread", None), serving))
+        return None
+
+    original = RunningDaemon.__init__
+
+    def init(self, home, **kwargs):
+        holder["daemon"] = self
+        original(self, home, **kwargs)
+    monkeypatch.setattr(RunningDaemon, "__init__", init)
+    monkeypatch.setattr(cx, "bundled_catalog", dump)
+    d = RunningDaemon(home)
+    try:
+        assert seen == [(False, False)]           # once, in a worker thread, before the socket serves
+    finally:
+        d.stop()
 
 
 def test_the_conversation_seam_is_the_timeline_only():
