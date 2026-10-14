@@ -23,7 +23,10 @@ waits with no transport cutoff; when its runtime gives up a call it closes that 
 as the caller leaving: the call is not cancelled, its result goes nowhere, and an owner question it waited on stays
 open, untaken, so the identical retry of that call in the same request waits on the same question (or receives the
 answer the owner gave meanwhile) instead of asking again. A retry is matched on the worker's own question and options,
-before the orchestrator rewords them. `tools.call` takes an optional `call_id` (`"<threadId>/<callId>"` from the
+before the orchestrator rewords them, and only to a question its own task asked; a P19 retry question is matched on
+FERB's whole text, attempt count included, and the owner's Yes settles against the attempts that question named. An
+action that ran to completion after its call's caller had gone is not run again by that task's identical retry (same
+tool and arguments, as P19 binds them): the retry gets the earlier result with `completed_in_an_earlier_attempt: true`. `tools.call` takes an optional `call_id` (`"<threadId>/<callId>"` from the
 runtime's `tools/call` `_meta`); Codex drops a call that outlives its own per-call timeout without telling the shim,
 so the Codex adapter names that call (its failed `mcpToolCall` item carries the same id) and the daemon ends it as if
 the shim had left, closing the shim's connection. An answer is never taken by a call that has left or been released. The native host has extension-origin and

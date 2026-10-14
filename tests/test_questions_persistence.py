@@ -434,8 +434,156 @@ def test_releasing_a_call_marks_it_left_at_once_and_closes_only_that_tasks_conne
             self.closed = True
     server = Server(tmp_path / "s.sock", RunTokens(FakeClock()))
     left, writer = asyncio.Event(), Writer()
-    server._shim_calls[("task-1", "th/call_1")] = (left, writer)          # type: ignore[assignment]
+    server._shim_calls[("task-1", "th/call_1")] = [(left, writer)]        # type: ignore[list-item]
     assert not server.abandon("task-2", "th/call_1") and not left.is_set() and not writer.closed
     assert server.abandon("task-1", "th/call_1")
     assert left.is_set() and writer.closed                                 # before any waiter looks again
     assert not server.abandon("task-1", "th/call_1")                       # once
+
+
+# ---------- review round 3: P19 stays exact, questions stay their task's, duplicate call ids, a lost result ----------
+
+def _ask_args(daemon: RunningDaemon, token: str, args: dict[str, Any], call_id: str | None = None,
+              name: str = "owner.ask") -> tuple[Any, Any]:
+    """A worker's call as the shim makes it (its own connection, no timeout): (future, client)."""
+    import concurrent.futures
+    import threading
+    box: dict[str, Any] = {}
+    ready = threading.Event()
+
+    def run() -> dict[str, Any]:
+        client = Client(daemon.sock, role="mcp_shim", token=token, timeout=None)
+        box["client"] = client
+        ready.set()
+        try:
+            params: dict[str, Any] = {"name": name, "arguments": args}
+            if call_id:
+                params["call_id"] = call_id
+            return client.call("tools.call", params)
+        finally:
+            client.close()
+    future = concurrent.futures.ThreadPoolExecutor(1).submit(run)
+    ready.wait(5)
+    return future, box["client"]
+
+
+def _owner_questions(daemon: RunningDaemon) -> list[Any]:
+    async def go() -> list[Any]:
+        return [ap for ap in daemon.daemon.state.approvals.of_request("req-1") if ap.capability == "owner.ask"]
+    return daemon.run(go())
+
+
+def test_a_p19_yes_to_an_older_question_never_approves_a_later_attempt(ferb_yes: Any, daemon: RunningDaemon) -> None:
+    """Reviewer's reproduction (round 2): the owner's Yes to "could make it happen twice", given while the worker was
+    gone, must not approve a third attempt after another attempt ran meanwhile (P19, RETRY_STALE)."""
+    from tests.conftest import FakeCap, gateway_tool_call
+    ferb_yes.expect("floor:pay")
+    boom = FakeCap("probe.pay", "pay", {"probe"}, boom=True)
+    grant, token = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [boom])
+    gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")             # A1: unknown
+    ref = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")["content"]["retry_action"]
+    dropped, client = _ask_args(daemon, token, {"question": "Pay again?", "retry_action": ref})
+    [q1] = _until(lambda: [a for a in _owner_questions(daemon) if a.state == "pending"], "no first question")
+    assert "twice" in q1.reason
+    client.interrupt()                                                          # the runtime gave up the call
+    _until(lambda: not daemon.daemon.gateway._waiting, "the dropped call kept waiting")
+
+    async def another_attempt() -> None:                    # meanwhile another Yes let a second attempt run
+        daemon.daemon.ledger.approve_retry(ref, "span-other")
+    daemon.run(another_attempt())
+    gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")             # A2: unknown too
+    assert boom.calls == 2
+
+    async def owner_answers_the_older_question() -> None:  # nobody waits on it now
+        daemon.daemon.state.approvals.resolve(q1.id, True, 1)
+    daemon.run(owner_answers_the_older_question())
+    retry, retry_client = _ask_args(daemon, token, {"question": "Pay again?", "retry_action": ref})
+    newer = _until(lambda: [a for a in _owner_questions(daemon) if a.state == "pending"], "the newer question")
+    assert [a.id for a in newer] != [q1.id] and "twice" not in newer[0].reason   # it names the attempts as they are
+    assert not retry.done()                                  # the older Yes approved nothing
+    retry_client.interrupt()
+    _until(lambda: not daemon.daemon.gateway._waiting, "the retry kept waiting")
+
+
+def test_a_sibling_task_never_takes_another_tasks_question(daemon: RunningDaemon) -> None:
+    """Reviewer's reproduction (round 2), asserts flipped: two tasks of one request ask the same words; each gets its
+    own question, and the owner's Yes to the first task's question never reaches the second (rule 5)."""
+    from datetime import timedelta
+    from ferb.core.types import Task
+    from ferb.orchestrator.tree import TaskRecord
+    grant, token_a = gateway_setup(daemon, set(), gateway_request("send the invoice and tidy downloads"), [])
+    task_b = Task("task-2", None, "g2", "dev", Identity.OWNER, set(), "worker", "req-1", [],
+                  daemon.daemon.clock.now() + timedelta(minutes=10))
+
+    async def add_b() -> str:
+        root = daemon.daemon.spans.start("task", task_id=task_b.id, input={})
+        daemon.daemon.tasks.add(TaskRecord(task_b, daemon.daemon.clock.now(), root.id))
+        return daemon.daemon.tokens.issue(task_b.id, "w2", set(), Identity.OWNER, ttl_s=600)
+    token_b = daemon.run(add_b())
+    routed: list[tuple[str, str]] = []
+
+    async def reword(task_id: str, question: str, options: list[str]) -> dict[str, Any]:
+        routed.append((task_id, question))
+        ctx = {"task-1": "Send the invoice email to bob@example.com now", "task-2": "Delete the 40 old files"}[task_id]
+        return {"ask_owner": True, "question": f"{ctx}?", "answer": "", "display_text": ""}
+    daemon.daemon.gateway.route_question = reword
+    a, client = _ask_args(daemon, token_a, {"question": "Should I go ahead?", "options": ["Yes", "No"]})
+    [q] = _until(lambda: [x for x in _owner_questions(daemon) if x.state == "pending"], "no first question")
+    client.interrupt()
+    _until(lambda: not daemon.daemon.gateway._waiting, "the first task kept waiting")
+    b, b_client = _ask_args(daemon, token_b, {"question": "Should I go ahead?", "options": ["Yes", "No"]})
+    _until(lambda: daemon.daemon.gateway._waiting, "the second task never waited")
+
+    async def owner_yes() -> None:
+        daemon.daemon._resolve_approval(q.id, True, 1)
+    daemon.run(owner_yes())
+    _let_waiters_look_again(daemon)
+    assert routed == [("task-1", "Should I go ahead?"), ("task-2", "Should I go ahead?")]
+    assert len(_owner_questions(daemon)) == 2 and not b.done()   # its own question, still waiting for its answer
+    b_client.interrupt()
+    _until(lambda: not daemon.daemon.gateway._waiting, "the second task kept waiting")
+
+
+def test_two_live_calls_with_one_call_id_can_each_be_released(daemon: RunningDaemon) -> None:
+    grant, token = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    _ask_args(daemon, token, {"question": "Q A?"}, call_id="th/call_1")
+    _until(lambda: len(_owner_questions(daemon)) == 1, "no first question")
+    _ask_args(daemon, token, {"question": "Q B?"}, call_id="th/call_1")
+    _until(lambda: len(_owner_questions(daemon)) == 2, "no second question")
+    assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")
+    assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")      # the other one, too
+    assert not daemon.daemon.server.abandon(grant.task_id, "th/call_1")
+    _until(lambda: not daemon.daemon.gateway._waiting, "a released call kept waiting")
+
+
+def test_an_action_that_finished_after_its_caller_left_isnt_run_again_by_the_retry(daemon: RunningDaemon) -> None:
+    """An action that outlasts the runtime's own per-call timeout still finishes (Codex: 300 s) and its result goes
+    nowhere. The same task's identical retry (same tool, same arguments) gets that result, marked as from the earlier
+    attempt, instead of a second send."""
+    import asyncio as aio
+    from tests.conftest import FakeCap
+
+    class SlowSend(FakeCap):
+        release: Any = None
+
+        async def run(self, args: Any, ctx: Any) -> Any:
+            await self.release.wait()
+            return await super().run(args, ctx)
+    send = SlowSend("probe.send", "send", {"probe"}, content={"sent": True})
+    grant, token = gateway_setup(daemon, {"probe"}, gateway_request("send hi to alice@x.com"), [send])
+
+    async def event() -> aio.Event:
+        return aio.Event()
+    send.release = daemon.run(event())
+    args = {"to": "alice@x.com", "text": "hi"}
+    dropped, _ = _ask_args(daemon, token, args, call_id="th/call_1", name="probe.send")
+    _until(lambda: daemon.daemon.gateway.in_flight({grant.task_id}), "the send never started")
+    assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")      # the runtime gave up on it
+    daemon.call_soon(send.release.set)                                   # it finishes anyway
+    _until(lambda: not daemon.daemon.gateway.in_flight({grant.task_id}), "the send never finished")
+    retry, _ = _ask_args(daemon, token, args, call_id="th/call_2", name="probe.send")
+    got = retry.result(5)
+    assert send.calls == 1, "the identical retry sent it again"
+    assert got["content"]["sent"] is True and got["content"]["completed_in_an_earlier_attempt"] is True
+    again, _ = _ask_args(daemon, token, args, name="probe.send")         # a later, separate send runs as usual
+    assert again.result(5)["content"].get("completed_in_an_earlier_attempt") is None and send.calls == 2

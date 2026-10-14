@@ -393,6 +393,9 @@ class Gateway:
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._waiting: dict[str, int] = {}             # owner question id -> calls waiting on it now
+        # (task id, P19 ledger key, payload hash) -> (ledger row, reply) of an action that ran to completion while its
+        # caller was gone (the runtime gave up the call): the same task's identical retry gets this, not a second run
+        self._undelivered: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
@@ -522,6 +525,8 @@ class Gateway:
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
+        for kept in [k for k in self._undelivered if k[0] in task_ids]:
+            del self._undelivered[kept]
         for key in [k for k in self._looked if k[0] in task_ids]:
             del self._looked[key]
 
@@ -669,6 +674,8 @@ class Gateway:
             extra["arg_sources"] = self._arg_sources(spec, rec, grant)
         blocked = self._send_blocked(spec)               # test mode: before FERB asks the owner anything
         ident = self._identity(cap, name, spec, action, args, real)
+        if isinstance(ident, tuple) and (earlier := self._undelivered.pop((grant.task_id, *ident), None)):
+            return self._earlier_result(grant, rec, name, arguments, spec, *earlier)
         repeat = None if blocked is not None else self._repeat_refusal(ident, grant)
         covered = Covered()
         if consequential and blocked is None and repeat is None:
@@ -1259,7 +1266,22 @@ class Gateway:
         out = reply(content, result.is_error, origins)
         if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
+        if intent_id and not result.is_error and caller_left():
+            # It ran to completion, but its caller had gone (the runtime gave up the call): the result went nowhere, so
+            # the same task's identical retry gets it instead of doing it a second time (a send, a payment)
+            self._undelivered[(grant.task_id, key, digest)] = (intent_id, out)
         return out
+
+    def _earlier_result(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any,
+                        intent_id: str, out: dict[str, Any]) -> dict[str, Any]:
+        """The identical action (the same tool and arguments, as P19 binds them) already ran to completion in this
+        task, in a call whose caller had gone: its result, marked as from that attempt; nothing runs or is asked."""
+        span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
+                                input={"tool": name, "args": arguments, "kind": spec.kind,
+                                       "target": _target_dict(spec.target), "earlier_attempt": intent_id})
+        content = {**out["content"], "completed_in_an_earlier_attempt": True, "note": EARLIER_ATTEMPT}
+        self._finish_call(span, name, content, bool(out["is_error"]), output=content)
+        return {**out, "content": content}
 
     async def _initial_image(self, name: str, cap: Any, args: Any, spec: Any, grant: RunGrant, result: Any) -> Any:
         """D6/D26: first successful working-app observation supplies one image in this task's tool reply.
@@ -1587,10 +1609,11 @@ class Gateway:
         retry = str(getattr(args, "retry_action", "") or "").strip()
         # A retry of a dropped call matches its question on the worker's own words, before the orchestrator rewords
         # them (it rewords each time): it waits on the question the owner already sees, without routing it again
-        key = json.dumps({"question": question, "options": options, "retry_action": retry}, ensure_ascii=False)
+        key = json.dumps({"question": question, "options": options}, ensure_ascii=False)
         worker_options = list(options)
-        # A P19 retry question is FERB's own fixed text, checked against the ledger each time: it is matched when made
-        reused = None if retry else self._reusable(rec.task.request_id, OWNER_ASK, key)
+        # A P19 retry question is FERB's own text, built from the ledger each time (the attempts and their count): it
+        # is matched on that whole text once built, so a Yes to an older count never answers a newer one
+        reused = None if retry else self._reusable(rec.task.request_id, grant.task_id, OWNER_ASK, key)
         if reused is not None:
             question, options = reused.reason, list(reused.options)
         elif retry:                                  # P19: only the owner decides; the orchestrator is not asked
@@ -1606,6 +1629,7 @@ class Gateway:
             # or rewrite a line on the owner's terminal, that looks like FERB's
             question = f'{ferb_line}\n\nWhat the task found: "{quoted(self.redact({"q": question})["q"])}".'
             options = [RETRY_YES, RETRY_NO]
+            key = json.dumps({"retry_question": question, "options": options}, ensure_ascii=False)
         elif self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
             try:
@@ -1638,6 +1662,10 @@ class Gateway:
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
         ap, new = (reused, False) if reused is not None else self._question(ask, question, options, key=key)
+        if retry:                                    # the Yes answers the attempts as that question named them
+            if new:
+                ap.about = tuple(asked_about)
+            asked_about = list(ap.about)
         if new:
             ap.display_text = (confirm.task_question(printable(self.redact(display_text))) if display_text.strip()
                                else "")
@@ -1714,11 +1742,12 @@ class Gateway:
         return {"retry_approved": True}
 
 
-    def _reusable(self, request_id: str, capability: str, key: str) -> Any:
-        """The question of this request with this capability and key that a dropped call left untaken (open, or
-        answered while no call waited), with no call waiting on it now; None when there is none."""
+    def _reusable(self, request_id: str, task_id: str, capability: str, key: str) -> Any:
+        """The question this task asked (rule 5: never a sibling task's) with this capability and key that a dropped
+        call left untaken (open, or answered while no call waited), with no call waiting on it now; None when there is
+        none."""
         for ap in self.state.approvals.of_request(request_id):
-            if (ap.capability == capability and ap.key == key and not ap.taken
+            if (ap.task_id == task_id and ap.capability == capability and ap.key == key and not ap.taken
                     and ap.state in ("pending", "granted", "denied") and not self._waiting.get(ap.id)):
                 return ap
         return None
@@ -1726,7 +1755,7 @@ class Gateway:
     def _question(self, ask: ActionRequest, text: str, options: list[str], *, key: str) -> tuple[Any, bool]:
         """The owner question for this call: the one a dropped call of the same request left untaken (a worker's retry
         after its runtime gave up the call), else a new one. True when it is new, to be published."""
-        reused = self._reusable(ask.request_id, ask.capability, key)
+        reused = self._reusable(ask.request_id, ask.task_id, ask.capability, key)
         if reused is not None:
             return reused, False
         ap = self.state.approvals.question(ask, text, options)
@@ -1758,6 +1787,8 @@ class Gateway:
 
 
 CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)
+EARLIER_ATTEMPT = ("This identical action already ran to completion in an earlier call of this task whose result "
+                   "didn't reach you; it was not done again. This is that attempt's result.")
 EFFECT_HELP = "Optional description of this action's effect for the activity log; it does not grant permission."
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 

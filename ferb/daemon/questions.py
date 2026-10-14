@@ -26,6 +26,8 @@ class Approval:
     display_text: str = ""
     taken: bool = False                       # its answer reached the call that waited for it
     key: str = ""                             # what a retry of the same call matches (the asker's own words)
+    task_id: str = ""                         # the task that asked: only its own retry may wait on it (rule 5)
+    about: tuple[str, ...] = ()               # P19: the attempts this retry question named, as asked
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
@@ -42,7 +44,7 @@ class Approvals:
 
     def question(self, action: ActionRequest, question: str, options: list[str]) -> Approval:
         ap = Approval("ap-" + secrets.token_hex(6), action.capability, question, action.request_id,
-                      options=tuple(options))
+                      options=tuple(options), task_id=action.task_id)
         self._items[ap.id] = ap
         return ap
 

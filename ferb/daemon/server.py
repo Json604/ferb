@@ -117,17 +117,21 @@ class Server:
         self.voice_signed: Callable[[str], bool] = lambda path: False
         self._server: asyncio.base_events.Server | None = None
         self._writers: set[asyncio.StreamWriter] = set()
-        # (task id, the runtime's call id) -> (that MCP shim call's caller-left flag, its connection)
-        self._shim_calls: dict[tuple[str, str], tuple[asyncio.Event, asyncio.StreamWriter]] = {}
+        # (task id, the runtime's call id) -> each running MCP shim call so named: (caller-left flag, its connection),
+        # oldest first (a runtime may repeat a call id; each call can still be released)
+        self._shim_calls: dict[tuple[str, str], list[tuple[asyncio.Event, asyncio.StreamWriter]]] = {}
 
     def abandon(self, task_id: str, call_id: str) -> bool:
         """The runtime of `task_id` gave up its call `call_id` without telling the shim (Codex sends no cancellation):
         the call sees `caller_left()`, as if the shim had left, and the shim's connection is closed, so its waiting
-        thread ends. Only that task's own call; False when no such call is running."""
-        hit = self._shim_calls.pop((task_id, call_id), None)
-        if hit is None:
+        thread ends. Only that task's own call, the oldest still running under that id (one per report); False when
+        no such call is running."""
+        calls = self._shim_calls.get((task_id, call_id))
+        if not calls:
             return False
-        left, writer = hit
+        left, writer = calls.pop(0)
+        if not calls:
+            del self._shim_calls[(task_id, call_id)]
         left.set()
         writer.close()
         return True
@@ -270,7 +274,7 @@ class Server:
         call_id = req.params.get("call_id")
         key = (session.grant.task_id, call_id) if session.grant is not None and isinstance(call_id, str) else None
         if key is not None:
-            self._shim_calls[key] = (left, writer)
+            self._shim_calls.setdefault(key, []).append((left, writer))
         context = contextvars.copy_context()
         context.run(_CALLER_LEFT.set, left)
         call = asyncio.create_task(self.unary[req.method](session, req.params), context=context)
@@ -278,8 +282,12 @@ class Server:
         try:
             done, _ = await asyncio.wait({call, gone}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            if key is not None and self._shim_calls.get(key, (None,))[0] is left:
-                del self._shim_calls[key]
+            if key is not None:
+                calls = [c for c in self._shim_calls.get(key, []) if c[0] is not left]
+                if calls:
+                    self._shim_calls[key] = calls
+                else:
+                    self._shim_calls.pop(key, None)
         if call in done and not left.is_set():
             gone.cancel()
             with contextlib.suppress(asyncio.CancelledError):
