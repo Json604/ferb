@@ -2665,6 +2665,11 @@ class Supervisor(WorkerRuns):
         reason = ""                 # why work stopped, when code wrote it (the work stopped before a check)
         if tree.stop == STOPPED_BY_YOU:
             status, summary, answer = "cancelled", STOPPED_BY_YOU, "Stopped, as you asked."
+            # what the worker had found, from its latest report: unchecked, so it says so (owner live use 2026-10-15)
+            found = next((str(r.get("summary") or "").strip() for r in reversed(tree.reports)
+                          if r.get("status") != "cancelled" and str(r.get("summary") or "").strip()), "")
+            if found:
+                answer += f"\n\n{FOUND_BEFORE_STOP} {found}"
         elif tree.stop:
             status, summary = "failed", tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
@@ -2724,6 +2729,7 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+FOUND_BEFORE_STOP = "What I'd found before stopping (not checked):"
 NEEDS_ANSWER = "I need your answer to finish this task."
 NOT_FINISHED = "I couldn't finish this task."
 # FERB's report condition in the owner's terms: they never saw the worker's report (P27)

@@ -159,6 +159,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   without it and says so; a hung or very large app in front no longer delays every message without bound.
 - "Don't worry, leave it, it works now, but if you find the reason, tell me" narrows a running task (stop changing
   things, keep diagnosing, report) instead of stopping it; the planner stops only when your words ask only to stop.
+- A task you stop reports what its worker had found so far ("What I'd found before stopping (not checked): …")
+  instead of only "Stopped, as you asked.".
 
 Licensed under Apache-2.0.
 

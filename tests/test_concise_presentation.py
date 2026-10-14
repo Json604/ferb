@@ -139,7 +139,28 @@ def test_late_stop_overrides_recovery_display(daemon):
     supervisor.on_task_finish = stopped
     result = outcome(chat(daemon, 'review coding sessions'))
     assert result['status'] == 'cancelled'
-    assert result['display_text'] == result['answer'] == 'Stopped, as you asked.'
+    # owner live use, 2026-10-15: a stop keeps what the worker had found, labelled unchecked, never only the stop line
+    assert result['display_text'] == result['answer'] == ("Stopped, as you asked.\n\nWhat I'd found before stopping "
+                                                          "(not checked): Source missing.")
+
+
+def test_a_stop_reports_what_the_worker_had_found(daemon):
+    """The hotspot diagnosis stopped at 02:46 answered only "Stopped, as you asked.", dropping what the worker had
+    already found."""
+    from ferb.orchestrator.supervisor import STOPPED_BY_YOU
+    worker = json.dumps({'status': 'blocked', 'summary': "The hotspot's DHCP lease expired at 02:30; the Mac kept a "
+                         "stale address.", 'artifacts': [], 'evidence': []})
+    recovery = json.dumps({'action': 'ask', 'worker_type': 'default', 'question': 'Renew it?', 'instructions': '',
+                           'display_text': 'Renew it?'})
+    install(daemon, [sup('task', 'Looking.', task('find why the hotspot dropped'))],
+            {'worker': worker, 'worker.dispatch': recovery})
+    supervisor = daemon.daemon.supervisor
+    async def stopped(task_id):
+        supervisor._tree_of[task_id].stop = STOPPED_BY_YOU
+    supervisor.on_task_finish = stopped
+    result = outcome(chat(daemon, 'find why the hotspot dropped'))
+    assert result['status'] == 'cancelled' and result['answer'].startswith('Stopped, as you asked.')
+    assert "What I'd found before stopping (not checked): The hotspot's DHCP lease expired" in result['answer']
 
 
 def test_changed_cleanup_report_invalidates_prior_display(daemon, monkeypatch):
