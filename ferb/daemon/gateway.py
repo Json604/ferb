@@ -31,6 +31,7 @@ import asyncio
 import base64
 import dataclasses
 import ipaddress
+import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -981,7 +982,7 @@ class Gateway:
         ask = ActionRequest(capability=CONFIRM_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
-        ap, new = self._question(ask, text, [YES, NO])
+        ap, new = self._question(ask, text, [YES, NO], key=text)
         if new:
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": [YES, NO],
@@ -1584,7 +1585,15 @@ class Gateway:
         display_text = ""
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
-        if retry:                                    # P19: only the owner decides; the orchestrator is not asked
+        # A retry of a dropped call matches its question on the worker's own words, before the orchestrator rewords
+        # them (it rewords each time): it waits on the question the owner already sees, without routing it again
+        key = json.dumps({"question": question, "options": options, "retry_action": retry}, ensure_ascii=False)
+        worker_options = list(options)
+        # A P19 retry question is FERB's own fixed text, checked against the ledger each time: it is matched when made
+        reused = None if retry else self._reusable(rec.task.request_id, OWNER_ASK, key)
+        if reused is not None:
+            question, options = reused.reason, list(reused.options)
+        elif retry:                                  # P19: only the owner decides; the orchestrator is not asked
             found = self._retry_row(grant, rec, retry)
             if isinstance(found, str):
                 return {"error": found}
@@ -1611,8 +1620,8 @@ class Gateway:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
             display_text = str(decision.get('display_text', ''))
-        given_options = options
-        if not retry:                                # D33: only FERB's own checks read as FERB's; a task's is labelled
+        given_options = worker_options if reused is not None else options
+        if not retry and reused is None:             # D33: only FERB's own checks read as FERB's; a task's is labelled
             question = confirm.task_question(printable(question))
             options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
@@ -1628,7 +1637,7 @@ class Gateway:
         ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
-        ap, new = self._question(ask, question, options)
+        ap, new = (reused, False) if reused is not None else self._question(ask, question, options, key=key)
         if new:
             ap.display_text = (confirm.task_question(printable(self.redact(display_text))) if display_text.strip()
                                else "")
@@ -1705,15 +1714,24 @@ class Gateway:
         return {"retry_approved": True}
 
 
-    def _question(self, ask: ActionRequest, text: str, options: list[str]) -> tuple[Any, bool]:
-        """The owner question for this call: the same question of the same request that a dropped call left untaken
-        (open, or answered while nobody waited: a worker's retry after its runtime gave up the call), else a new one.
-        True when it is new, to be published."""
-        for ap in self.state.approvals.of_request(ask.request_id):
-            if (ap.capability == ask.capability and ap.reason == text and ap.options == tuple(options)
-                    and not ap.taken and ap.state in ("pending", "granted", "denied") and not self._waiting.get(ap.id)):
-                return ap, False
-        return self.state.approvals.question(ask, text, options), True
+    def _reusable(self, request_id: str, capability: str, key: str) -> Any:
+        """The question of this request with this capability and key that a dropped call left untaken (open, or
+        answered while no call waited), with no call waiting on it now; None when there is none."""
+        for ap in self.state.approvals.of_request(request_id):
+            if (ap.capability == capability and ap.key == key and not ap.taken
+                    and ap.state in ("pending", "granted", "denied") and not self._waiting.get(ap.id)):
+                return ap
+        return None
+
+    def _question(self, ask: ActionRequest, text: str, options: list[str], *, key: str) -> tuple[Any, bool]:
+        """The owner question for this call: the one a dropped call of the same request left untaken (a worker's retry
+        after its runtime gave up the call), else a new one. True when it is new, to be published."""
+        reused = self._reusable(ask.request_id, ask.capability, key)
+        if reused is not None:
+            return reused, False
+        ap = self.state.approvals.question(ask, text, options)
+        ap.key = key
+        return ap, True
 
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
         """The question's state once the owner answers; "gone" when it closed with its task; CALLER_LEFT when the call

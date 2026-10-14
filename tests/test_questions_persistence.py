@@ -302,3 +302,140 @@ def test_a_claude_worker_never_gives_up_a_silent_tool_call() -> None:
     for mode in ("worker", "supervisor"):
         rt = ClaudeRuntime(mode, proxy, "/tmp/ferb-home", shim_cmd=["ferb", "mcp"])   # type: ignore[arg-type]
         assert rt._options("run", "token").env["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] == "0"
+
+
+# ---------- review round 2: a call the runtime dropped silently (Codex), reworded asks, released callers ----------
+
+def test_the_shim_names_the_runtimes_call_to_the_daemon(monkeypatch: Any) -> None:
+    import anyio
+    import mcp.types as t
+    sent: list[dict[str, Any]] = []
+
+    class Answering(_ShimClient):
+        def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            sent.append(params)
+            return {"content": {"answer": "ok"}, "footer": "", "is_error": False}
+    shim = _shim(monkeypatch, Answering())
+    params = t.CallToolRequestParams.model_validate({"name": "owner_ask", "arguments": {},
+                                                     "_meta": {"callId": "call_1", "threadId": "th"}})
+    anyio.run(shim.call_tool, None, params)
+    assert sent[-1]["call_id"] == "th/call_1"
+    anyio.run(shim.call_tool, None, t.CallToolRequestParams(name="owner_ask", arguments={}))
+    assert "call_id" not in sent[-1]                          # a runtime that names no call (Claude)
+
+
+def _ask_with_call_id(daemon: RunningDaemon, token: str, question: str, call_id: str) -> tuple[Any, Any]:
+    import concurrent.futures
+    import threading
+    box: dict[str, Any] = {}
+    ready = threading.Event()
+
+    def run() -> dict[str, Any]:
+        client = Client(daemon.sock, role="mcp_shim", token=token, timeout=None)
+        box["client"] = client
+        ready.set()
+        try:
+            return client.call("tools.call", {"name": "owner.ask", "arguments": {"question": question},
+                                              "call_id": call_id})
+        finally:
+            client.close()
+    future = concurrent.futures.ThreadPoolExecutor(1).submit(run)
+    ready.wait(5)
+    return future, box["client"]
+
+
+def test_a_call_codex_dropped_is_released_and_its_question_waits_for_the_retry(daemon: RunningDaemon) -> None:
+    """Codex drops a timed-out call without telling the shim: the daemon, told by the Codex adapter, ends that call
+    (its shim connection closes, so the shim's thread ends too); the question stays open and untaken, an answer given
+    meanwhile stays on it, and the retry receives it."""
+    from ferb.core.errors import NotRunning
+    grant, token = gateway_setup(daemon, set(), gateway_request("tidy my downloads"), [])
+    dropped, _ = _ask_with_call_id(daemon, token, "Which folder should I tidy?", "th/call_1")
+    [question] = _until(lambda: _pending(daemon), "the worker's question never appeared")
+    assert not daemon.daemon.server.abandon("another-task", "th/call_1")    # only the task's own call
+    assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")
+    try:
+        dropped.result(5)
+        raise AssertionError("the dropped call was answered")
+    except NotRunning:
+        pass                                                    # its connection closed: the shim's thread ends
+    _until(lambda: not daemon.daemon.gateway._waiting, "the released call kept waiting")
+
+    async def answer() -> bool:
+        daemon.daemon._resolve_approval(question, True, text="Downloads")
+        approval = daemon.daemon.state.approvals.get(question)
+        return bool(approval is not None and approval.taken)
+    assert daemon.run(answer()) is False                      # nobody took it: no caller is waiting
+    retry, _ = _ask_with_call_id(daemon, token, "Which folder should I tidy?", "th/call_2")
+    assert retry.result(5)["content"]["answer"] == "Downloads"
+    assert _all_questions(daemon) == [question]
+
+
+def test_a_reworded_retry_waits_on_the_question_the_owner_already_sees(daemon: RunningDaemon) -> None:
+    """The orchestrator rewords a worker's question each time it routes it: a retry is matched on the worker's own
+    question and options, before any rewording, and is not routed again."""
+    grant, token = gateway_setup(daemon, set(), gateway_request("tidy my downloads"), [])
+    routed: list[str] = []
+
+    async def reword(task_id: str, question: str, options: list[str]) -> dict[str, Any]:
+        routed.append(question)
+        return {"ask_owner": True, "question": f"Reworded {len(routed)}: {question}", "answer": "",
+                "display_text": ""}
+    daemon.daemon.gateway.route_question = reword
+    first, client = _ask_over_the_socket(daemon, token, "Which folder should I tidy?")
+    [question] = _until(lambda: _pending(daemon), "the worker's question never appeared")
+    client.interrupt()
+    _until(lambda: not daemon.daemon.gateway._waiting, "the dropped call kept waiting")
+    retry, _ = _ask_over_the_socket(daemon, token, "Which folder should I tidy?")
+    _until(lambda: daemon.daemon.gateway._waiting, "the retry never waited")
+    assert _all_questions(daemon) == [question] and routed == ["Which folder should I tidy?"]
+
+    async def answer() -> None:
+        daemon.daemon._resolve_approval(question, True, text="Downloads")
+    daemon.run(answer())
+    assert retry.result(5)["content"]["answer"] == "Downloads"
+
+
+def test_an_answer_given_as_the_call_is_released_is_never_taken_by_it(daemon: RunningDaemon) -> None:
+    """The release and the owner's answer land before the waiting call looks again: the released call must not take
+    the answer; it stays on the question for the next waiter."""
+    grant, token = gateway_setup(daemon, set(), gateway_request("tidy my downloads"), [])
+    dropped, _ = _ask_with_call_id(daemon, token, "Which folder should I tidy?", "th/call_1")
+    [question] = _until(lambda: _pending(daemon), "the worker's question never appeared")
+
+    async def release_and_answer() -> None:              # one turn of the daemon's loop: no poll in between
+        assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")
+        daemon.daemon._resolve_approval(question, True, text="Desktop")
+    daemon.run(release_and_answer())
+    _until(lambda: not daemon.daemon.gateway._waiting, "the released call kept waiting")
+
+    async def taken() -> bool:
+        approval = daemon.daemon.state.approvals.get(question)
+        return bool(approval is not None and approval.taken)
+    assert daemon.run(taken()) is False
+    retry, _ = _ask_with_call_id(daemon, token, "Which folder should I tidy?", "th/call_2")
+    assert retry.result(5)["content"]["answer"] == "Desktop"
+    try:
+        dropped.result(5)
+    except Exception:
+        pass
+
+
+def test_releasing_a_call_marks_it_left_at_once_and_closes_only_that_tasks_connection(tmp_path: Any) -> None:
+    import asyncio
+    from ferb.clock.clock import FakeClock
+    from ferb.daemon.auth import RunTokens
+    from ferb.daemon.server import Server
+
+    class Writer:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+    server = Server(tmp_path / "s.sock", RunTokens(FakeClock()))
+    left, writer = asyncio.Event(), Writer()
+    server._shim_calls[("task-1", "th/call_1")] = (left, writer)          # type: ignore[assignment]
+    assert not server.abandon("task-2", "th/call_1") and not left.is_set() and not writer.closed
+    assert server.abandon("task-1", "th/call_1")
+    assert left.is_set() and writer.closed                                 # before any waiter looks again
+    assert not server.abandon("task-1", "th/call_1")                       # once

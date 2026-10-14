@@ -471,3 +471,23 @@ def test_a_stopped_report_stream_is_journaled_and_shown_by_doctor(home: Path) ->
 
 def test_no_kernel_report_stream_without_pinned_local_ports(daemon: Any) -> None:
     assert daemon.daemon.direct_reports is None
+
+
+def test_a_command_that_fails_to_start_leaves_no_expected_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    from ferb.act.shell import pty_proc
+    reports = FakeReports({})
+    shells, _ = shell_with_direct_port(tmp_path, monkeypatch, reports)
+
+    async def broken(self: Any) -> None:
+        raise OSError("no pty")
+    monkeypatch.setattr(pty_proc.PtyProc, "start", broken)
+
+    async def scenario() -> None:
+        with pytest.raises(OSError):
+            await shells.start("true", tmp_path, "task-1")
+    try:
+        asyncio.run(scenario())
+    finally:
+        shells.proxy.close()
+    assert list(reports.expected) and reports.forgotten == list(reports.expected)

@@ -157,6 +157,8 @@ class ShellManager:
             self._procs.pop(pid, None)
             if self.proxy is not None:
                 self.proxy.forget(pid)
+            if direct and self.reports is not None:   # it never ran: no reports to expect under its tag
+                self.reports.forget(pid)
             raise
         if escape is not None and self.on_escape is not None:
             self.on_escape(owner_task, escape)

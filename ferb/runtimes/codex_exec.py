@@ -27,7 +27,7 @@ import secrets
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import Unsupported
@@ -119,9 +119,13 @@ class CodexRuntime:
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900) -> None:
+                 output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900,
+                 on_abandoned: Callable[[str, str], None] | None = None) -> None:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
         self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
+        # Told (task id, "<thread>/<call id>") when Codex gives up a FERB tool call on its own: it sends the shim no
+        # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
+        self.on_abandoned = on_abandoned
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
 
     def _mcp_settings(self, token_file: Path | None) -> list[str]:

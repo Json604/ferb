@@ -3,7 +3,8 @@
 The first request on a connection must be `auth.hello {role, token?}`; afterwards only the role's methods are
 allowed. A handler returns a result, or (streaming methods) an async iterator of notifications. While an MCP shim's call
 runs, its connection is watched: a shim that leaves (its runtime gave up the call) is a fact the handler can read
-(`caller_left`), and its result goes nowhere."""
+(`caller_left`), and its result goes nowhere. A runtime that drops a call without telling its shim (Codex) has its
+adapter name the call (`abandon`), which ends it the same way and closes the shim's connection."""
 
 import asyncio
 import contextlib
@@ -116,6 +117,20 @@ class Server:
         self.voice_signed: Callable[[str], bool] = lambda path: False
         self._server: asyncio.base_events.Server | None = None
         self._writers: set[asyncio.StreamWriter] = set()
+        # (task id, the runtime's call id) -> (that MCP shim call's caller-left flag, its connection)
+        self._shim_calls: dict[tuple[str, str], tuple[asyncio.Event, asyncio.StreamWriter]] = {}
+
+    def abandon(self, task_id: str, call_id: str) -> bool:
+        """The runtime of `task_id` gave up its call `call_id` without telling the shim (Codex sends no cancellation):
+        the call sees `caller_left()`, as if the shim had left, and the shim's connection is closed, so its waiting
+        thread ends. Only that task's own call; False when no such call is running."""
+        hit = self._shim_calls.pop((task_id, call_id), None)
+        if hit is None:
+            return False
+        left, writer = hit
+        left.set()
+        writer.close()
+        return True
 
     async def start(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -229,7 +244,7 @@ class Server:
         if req.method in self.unary:
             try:
                 if session.role is Role.MCP_SHIM:
-                    result = await self._watched(session, req, reader)
+                    result = await self._watched(session, req, reader, writer)
                     if result is None:
                         return False
                 else:
@@ -246,22 +261,34 @@ class Server:
         await self._send(writer, _error(req.id, METHOD_NOT_FOUND, f"no method {req.method}"))
         return True
 
-    async def _watched(self, session: Session, req: Request, reader: asyncio.StreamReader) -> dict[str, Any] | None:
+    async def _watched(self, session: Session, req: Request, reader: asyncio.StreamReader,
+                       writer: asyncio.StreamWriter) -> dict[str, Any] | None:
         """An MCP shim's call, watching its connection (a shim sends one call and then only closes it). When the shim
-        leaves first, the call is not cancelled (an action already under way finishes and is recorded); it can see
-        `caller_left()`, and its result goes nowhere: None."""
+        leaves first, or its runtime's adapter abandons the call, the call is not cancelled (an action already under
+        way finishes and is recorded); it can see `caller_left()`, and its result goes nowhere: None."""
         left = asyncio.Event()
+        call_id = req.params.get("call_id")
+        key = (session.grant.task_id, call_id) if session.grant is not None and isinstance(call_id, str) else None
+        if key is not None:
+            self._shim_calls[key] = (left, writer)
         context = contextvars.copy_context()
         context.run(_CALLER_LEFT.set, left)
         call = asyncio.create_task(self.unary[req.method](session, req.params), context=context)
         gone = asyncio.create_task(reader.read(1))
-        done, _ = await asyncio.wait({call, gone}, return_when=asyncio.FIRST_COMPLETED)
-        if call in done:
+        try:
+            done, _ = await asyncio.wait({call, gone}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if key is not None and self._shim_calls.get(key, (None,))[0] is left:
+                del self._shim_calls[key]
+        if call in done and not left.is_set():
             gone.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await gone                    # the reader must be free before the connection reads again
             return call.result()
         left.set()
+        gone.cancel()
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await gone
         with contextlib.suppress(Exception):
             await call
         return None

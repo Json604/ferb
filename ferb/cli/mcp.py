@@ -80,8 +80,14 @@ class Shim:
 
     async def call_tool(self, ctx: Any, params: t.CallToolRequestParams) -> t.CallToolResult:
         name = self._names.get(params.name, params.name.replace("_", ".", 1))
+        request: dict[str, Any] = {"name": name, "arguments": params.arguments or {}}
+        meta = params.meta if isinstance(params.meta, dict) else {}
+        thread, call = meta.get("threadId"), meta.get("callId")
+        if isinstance(thread, str) and thread and isinstance(call, str) and call:
+            # Codex names its call (tools/call _meta): its adapter can tell the daemon when Codex drops it silently
+            request["call_id"] = f"{thread}/{call}"
         try:
-            r = await self._rpc("tools.call", {"name": name, "arguments": params.arguments or {}})
+            r = await self._rpc("tools.call", request)
         except RpcError as e:
             return t.CallToolResult(content=[t.TextContent(type="text", text=f"FERB refused: {e}")], is_error=True)
         except (NotRunning, OSError, ValueError) as e:     # the connection broke: never a raw transport error

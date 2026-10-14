@@ -2649,7 +2649,7 @@ class Daemon:
             workdir = self.home / "workspace" if mode == "worker" else self.home / "run" / "supervisor"
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
-                                timeout_s=None if mode == 'worker' else 900)
+                                timeout_s=None if mode == 'worker' else 900, on_abandoned=self.server.abandon)
         if name in ("anthropic", "openai", "google"):
             from ferb.runtimes.api import ApiRuntime, GatewayBridge
             from ferb.runtimes.catalog import CATALOG

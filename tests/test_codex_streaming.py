@@ -448,3 +448,24 @@ def test_account_error_never_retains_a_non_numeric_provider_code():
     error = _account_error({'code': 'secret-provider-payload', 'message': 'unknown provider failure'})
     assert error.reason == 'account_unavailable' and error.code is None
     assert 'secret-provider-payload' not in str(error)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('status, abandoned', [('failed', [('t', 'th/call_1')]), ('completed', [])])
+async def test_a_tool_call_codex_gave_up_is_reported_so_the_daemon_releases_it(tmp_path, monkeypatch, status,
+                                                                                abandoned):
+    """Measured on the pinned 0.157.1: a tools/call that outlives Codex's own per-call timeout ends as a failed
+    mcpToolCall item, and Codex sends the MCP server no cancellation. The item's id is the callId the shim got in
+    tools/call _meta (measured: both "call_1"), so the adapter names the dropped call to the daemon."""
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    told = []
+    rt.on_abandoned = lambda task_id, call_id: told.append((task_id, call_id))
+    item = {'id': 'call_1', 'type': 'mcpToolCall', 'server': 'ferb', 'tool': 'mac_read', 'arguments': {}}
+    proc.notify('item/started', {'item': {**item, 'status': 'inProgress'}})
+    proc.notify('item/completed', {'item': {**item, 'status': status, 'error': {
+        'message': 'tool call error: timed out awaiting tools/call after 300s'} if status == 'failed' else None}})
+    proc.complete()
+    got = [event async for event in rt.events(run)]
+    assert got[-1].kind == 'final'
+    assert told == abandoned

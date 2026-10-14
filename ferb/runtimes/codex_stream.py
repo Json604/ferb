@@ -402,6 +402,11 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         state['violation'] = {str(kind)}
                         raise ProtocolError('Codex runtime attempted a disallowed action')
                     if mcp_allowed and method == 'item/completed':
+                        # A call Codex ended without its result (its own per-call timeout: it sends the MCP server no
+                        # cancellation, measured on 0.157.1): the item id is the callId the shim got in tools/call
+                        # _meta (measured), so the daemon can release the call still waiting there
+                        if item.get('status') != 'completed' and runtime.on_abandoned is not None:
+                            runtime.on_abandoned(run.task_id, f"{state['thread_id']}/{item.get('id')}")
                         yield RuntimeEvent('tool_call', {'tool': item.get('tool'), 'status': item.get('status'),
                                                        'arguments': item.get('arguments')})
                     if kind == 'agentMessage':

@@ -22,7 +22,11 @@ The daemon verifies the kernel peer UID for `cli`; the role string alone is not 
 waits with no transport cutoff; when its runtime gives up a call it closes that connection, and the daemon reads that
 as the caller leaving: the call is not cancelled, its result goes nowhere, and an owner question it waited on stays
 open, untaken, so the identical retry of that call in the same request waits on the same question (or receives the
-answer the owner gave meanwhile) instead of asking again. The native host has extension-origin and
+answer the owner gave meanwhile) instead of asking again. A retry is matched on the worker's own question and options,
+before the orchestrator rewords them. `tools.call` takes an optional `call_id` (`"<threadId>/<callId>"` from the
+runtime's `tools/call` `_meta`); Codex drops a call that outlives its own per-call timeout without telling the shim,
+so the Codex adapter names that call (its failed `mcpToolCall` item carries the same id) and the daemon ends it as if
+the shim had left, closing the shim's connection. An answer is never taken by a call that has left or been released. The native host has extension-origin and
 pairing/HMAC checks. `voice` requires the installed app’s expected executable and signature. The exact role method
 allowlists live in `ferb/daemon/auth.py`. Never give an external client a native-host or worker token to bypass CLI auth.
 
