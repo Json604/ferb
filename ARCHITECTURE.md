@@ -1541,7 +1541,9 @@ protected FERB state (16.9).
   is the marker).
 - Code states side outputs in plain words (reminders, memory, cancels, schedules); a refused one adds one line and the
   reply is kept. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
-  (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat.
+  (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat, or be several
+  of them joined by blank lines when every part is exactly one owner message within this request's chain of owner
+  words (a reminder asked over a clarification; the first part's message is the source).
 - A `continue` with `control.new_goal` re-plans inside the same tree (`PlanStore.replace` for a different plan); a
   retry stays in its tree.
 - A non-owner stop says why in plain words (the class is journaled as `task.interrupted`). Failure replies are

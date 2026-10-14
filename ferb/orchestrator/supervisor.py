@@ -435,7 +435,7 @@ class Supervisor(WorkerRuns):
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
     def _set_timers(self, items: list[Any], said: list[tuple[str, str]],
-                    request_id: str) -> tuple[list[Any], list[str], list[Any]]:
+                    request_id: str, chain: str = "") -> tuple[list[Any], list[str], list[Any]]:
         """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
         and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
         message first, then this chat's earlier messages, newest first. A message authorizes its reminder once (L11):
@@ -445,7 +445,10 @@ class Supervisor(WorkerRuns):
         earlier message holding the same words. One whose time no longer resolves into the future ("today at 9" emitted
         again after 9) is still matched against those already set, and refused only when it would be new. Each
         reminder records the request that asked for it. Returns the reminders set, the messages of those refused for a
-        problem, and the reminders that already existed for the others (each once)."""
+        problem, and the reminders that already existed for the others (each once). A quote of several messages
+        joined by blank lines (a request asked over a clarification: "remind me … on oct30", "anytime", "7pm") counts
+        when every part is exactly one of the owner's own messages and lies in this request's chain of owner words
+        (`chain`), never pasted text or words they didn't type (MP2); the first part's message is the one that asked."""
         if self.timers is None:
             return [], [str(it.message) for it in items], []
         now = self.clock.now()            # one moment for the whole turn: the same `when` resolves to the same time
@@ -457,10 +460,17 @@ class Supervisor(WorkerRuns):
         def exists(timer: Any) -> None:                   # one line per reminder, however many copies named it
             if all(e.id != timer.id for e in existing):
                 existing.append(timer)
+        def plain(text: str) -> str:
+            return " ".join(text.lower().split())
         for it in items:
-            quote = " ".join(str(it.quote).lower().split())
+            quote = plain(str(it.quote))
             try:
-                asked = [source for source, words in said if quote and quote in " ".join(words.lower().split())]
+                asked = [source for source, words in said if quote and quote in plain(words)]
+                parts = [plain(part) for part in re.split(r"\n[ \t]*\n", str(it.quote)) if part.strip()]
+                if not asked and len(parts) > 1:
+                    owners = {plain(words): source for source, words in reversed(said)}   # newest wins
+                    if all(part in owners and part in plain(chain) for part in parts):
+                        asked = [owners[parts[0]]]
                 if not asked:
                     raise ValueError("the reminder isn't in the owner's own words")
                 at: datetime | None = None
@@ -1110,7 +1120,7 @@ class Supervisor(WorkerRuns):
         # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
         # (L11: the 19:52 boarding timer recovered at 20:10).
         said = [(request_id, m.own_words), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
-        set_timers, unset, existing = self._set_timers(out.timers, said, request_id)
+        set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
         for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
             yield {"type": "timer", "text": _reminder_line(t), "timer_id": t.id}
         # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before

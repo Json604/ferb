@@ -359,3 +359,54 @@ def test_a_test_reminder_survives_typo_fixing_and_a_refusal_is_told(daemon: Runn
     evs = chat(daemon, "remind me in a minute")
     # L11: the reply stays, and its last line says the reminder wasn't set (never "I'll remind you" alone)
     assert evs[-1]["text"].split("\n")[-1].startswith("I couldn't set the reminder “x”")
+
+
+# ---------- owner live case 2026-10-15 03:36: a reminder asked over three messages ----------
+
+def _clarify(text: str) -> str:
+    return json.dumps({"kind": "clarify", "text": text, "plan": None, "remember": [], "timers": []})
+
+
+def _oct30(quote: str) -> str:
+    when = {**mins(0), "in_minutes": None, "date": "10-30", "time": "19:00"}
+    return json.dumps({"kind": "reply", "text": "", "plan": None, "remember": [],
+                       "timers": [{"when": when, "message": "the show", "quote": quote}]})
+
+
+def test_a_reminder_asked_over_a_clarified_chain_is_set_from_the_owners_messages(daemon: RunningDaemon) -> None:
+    """"remind me about ths show on oct30 anytime" → "What time on October 30?" → "anytime" → (asked again) → "7pm":
+    the planner quoted the three messages joined, and the reminder was refused as not in the owner's own words while
+    the reply said it was set."""
+    install(daemon, [_clarify("What time on October 30?"), _clarify("Any time is fine: morning, noon or evening?"),
+                     _oct30("remind me about ths show on oct30 anytime\n\nanytime\n\n7pm")])
+    chat(daemon, "remind me about ths show on oct30 anytime")
+    chat(daemon, "anytime")
+    evs = chat(daemon, "7pm")
+    assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("⏰ Reminder set for")
+    assert len(run(daemon, daemon.daemon.timers.pending)) == 1
+
+
+@pytest.mark.parametrize("quote", [
+    "remind me about ths show on oct30 anytime\n\nWhat time on October 30?\n\n7pm",   # FERB's question is no owner text
+    "remind me about ths show on oct30 anytime\n\nany time at all\n\n7pm",           # words the owner never typed
+    "remind me about ths show on oct30 anytime\n\nanytime 7pm",                      # a segment that isn't one message
+])
+def test_every_segment_of_a_joined_quote_must_be_one_of_the_owners_messages(daemon: RunningDaemon, quote: str) -> None:
+    install(daemon, [_clarify("What time on October 30?"), _oct30(quote)])
+    chat(daemon, "remind me about ths show on oct30 anytime")
+    chat(daemon, "anytime")
+    install(daemon, [_oct30(quote)])
+    evs = chat(daemon, "7pm")
+    assert not any(e["text"].startswith("⏰ Reminder set") for e in evs if e["type"] == "timer")
+    assert run(daemon, daemon.daemon.timers.pending) == []
+
+
+def test_a_joined_quote_never_reaches_outside_the_request_chain(daemon: RunningDaemon) -> None:
+    """Owner messages from an earlier, finished request don't join this one's quote."""
+    install(daemon, [json.dumps({"kind": "reply", "text": "Okay.", "plan": None, "remember": [], "timers": []})])
+    chat(daemon, "the show is great")
+    install(daemon, [_clarify("What time on October 30?"), _oct30("the show is great\n\n7pm")])
+    chat(daemon, "remind me about ths show on oct30")
+    evs = chat(daemon, "7pm")
+    assert run(daemon, daemon.daemon.timers.pending) == []
+    assert not any(e["text"].startswith("⏰ Reminder set") for e in evs if e["type"] == "timer")

@@ -178,6 +178,10 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   Safari, Chrome and Brave), and a title with commas or quotes comes back whole.
 - "Sites contacted" also lists the pages a task's own tabs loaded (search results it clicked, where a redirect or
   form took it, a popup it adopted), not only the addresses it asked to open.
+- A reminder asked over a clarification ("remind me about the show on oct30" → "What time?" → "anytime" → "7pm") is
+  set: a quote made of the owner's own messages in that request, joined, counts. "Anytime" no longer gets the
+  question again: the planner picks a time from context (or your stored preference) and says which; and a reply never
+  claims a reminder is set before FERB's own line says so.
 
 Licensed under Apache-2.0.
 
