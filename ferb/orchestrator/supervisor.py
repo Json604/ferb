@@ -957,6 +957,7 @@ class Supervisor(WorkerRuns):
         reopened: str | None = None          # the task whose refused questions this message reopened
         resumed_payload = ""
         resumed_prior: str | None = None
+        acknowledged = ""                    # the answer's acknowledgement, said with the planner's reply
         if out.answer_question:
             # The answer is recorded first; the rest of the turn (a stop or correction, a new task, memory, reminders,
             # schedules) then runs as in any turn (final review M1). When FERB has to ask which question the answer is
@@ -964,16 +965,22 @@ class Supervisor(WorkerRuns):
             answered = self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
                                     payload)
             out = out.model_copy(update={"answer_question": None})
-            more = answered["type"] != "clarify" and _carries_more(out)
-            sent = False
-            try:
-                yield {**answered, TURN_CONTINUES: True} if more else answered
-                sent = True
-            finally:
-                if not (sent and more):
-                    self._env.pop(request_id, None)
-            if not more:
-                return
+            # With the planner's own reply (no stop, steer or task), the acknowledgement opens that reply: one message
+            fold = (answered["type"] == "reply" and answered["text"] == ANSWERED and out.control is None
+                    and not (out.kind == "task" and out.task is not None) and bool(out.text.strip()))
+            more = answered["type"] != "clarify" and (_carries_more(out) or fold)
+            if fold:
+                acknowledged = ANSWERED
+            else:
+                sent = False
+                try:
+                    yield {**answered, TURN_CONTINUES: True} if more else answered
+                    sent = True
+                finally:
+                    if not (sent and more):
+                        self._env.pop(request_id, None)
+                if not more:
+                    return
         if out.control is not None:
             control = out.control
             prior = self.continuity.load(control.task_id, session.id)
@@ -1155,8 +1162,12 @@ class Supervisor(WorkerRuns):
                                 origin=origins_.join({origins_.INFERRED} | turn_origins))
             self._env.pop(request_id, None)
             # D33: only FERB's own checks start with "FERB:"; a planner's line that does is marked as the task's
-            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(self.gateway.redact(out.text)),
-                   **({"display_text": confirm.from_task_lines(self.gateway.redact(out.display_text))} if out.display_text.strip() else {})}
+            said = confirm.from_task_lines(self.gateway.redact(out.text))
+            shown = confirm.from_task_lines(self.gateway.redact(out.display_text)) if out.display_text.strip() else ""
+            if acknowledged:
+                said, shown = acknowledged + " " + said, (acknowledged + " " + shown if shown else "")
+            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": said,
+                   **({"display_text": shown} if shown else {})}
             return
         if authority_id == request_id:
             self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload,

@@ -166,6 +166,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - A one-time schedule can be cancelled or paused from the moment its last run starts, its planning included (before,
   "There's no active schedule…" for a moment, then the scope was granted); pausing it says it has no future runs
   instead of leaving it "paused" for good.
+- An answer that comes with the planner's own reply is one message ("Got your answer. …"), not two; a message sent
+  right after an answer that also stops, steers or starts something waits until that has registered.
 
 Licensed under Apache-2.0.
 

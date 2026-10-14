@@ -1376,6 +1376,23 @@ def test_an_answer_and_a_memory_in_one_message_both_happen(daemon: RunningDaemon
     assert "w@x.com" in json.dumps(daemon.run(_on_loop(lambda: [i.content for i in daemon.daemon.memory.items()])))
 
 
+@pytest.mark.parametrize("remember", [True, False])
+def test_an_answer_with_a_planner_reply_is_one_message(daemon: RunningDaemon, remember: bool) -> None:
+    """Re-review of M1: the owner saw "Got your answer." and then the planner's reply as two messages."""
+    question = _task_question(daemon, "Which email should I use?", options=())
+    decision = json.loads(_routed(question.id, "the work email"))
+    decision["text"] = "I'll use your work email from now on."
+    if remember:
+        decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "work-email",
+                                 "content": "work email: w@x.com", "quote": "my work email is w@x.com"}]
+    install(daemon, [json.dumps(decision)])
+    events = chat(daemon, "use the work one; my work email is w@x.com", session="s")
+    assert question.state == "granted"
+    replies = [e["text"] for e in events if e["type"] == "reply"]
+    assert len(replies) == 1, replies
+    assert replies[0].startswith("Got your answer.") and "I'll use your work email from now on." in replies[0]
+
+
 def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply(daemon: RunningDaemon) -> None:
     """When FERB has to ask which question the answer is for, the whole message comes back with the owner's reply, so
     nothing else in it runs twice."""
