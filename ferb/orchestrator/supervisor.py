@@ -588,16 +588,21 @@ class Supervisor(WorkerRuns):
     async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
         """Decide an unattended run from its recorded request; report missing input when the owner is absent."""
         request_id = self.ids.new_id()
+        previous = self._previous_run(sched.id)          # before this run's own record
         self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
         recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
             "rule": sched.rule.describe(), "late": late, "overdue_s": overdue_s,
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
-            "standing_sends": [scope.model_dump() for scope in recorded_scopes]})
+            "standing_sends": [scope.model_dump() for scope in recorded_scopes],
+            # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
+            "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
+                             "later_runs_without_answer": previous["skipped"]} if previous else None})
         session = ChatSession(SCHEDULE_SESSION + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
+        self._env[request_id]["schedule_previous"] = previous
         try:                    # the run's per-request context goes when it ends, however it ends (final review M4)
             try:
                 out = await self._decide(session, sched.request + note, request_id)
@@ -609,6 +614,11 @@ class Supervisor(WorkerRuns):
                         "goal": sched.request}
             if out.kind != "task" or out.task is None:
                 status = "done" if out.kind == "reply" else "needs_user"
+                # in the schedule's conversation, so the next run (and its chat.history) has this answer
+                kind = "clarify" if out.kind == "clarify" else "reply"
+                made = origins_.join({origins_.INFERRED} | self._env.get(request_id, {}).get("turn_origins", set()))
+                self.journal.append(f"chat.{kind}", {"session_id": session.id, "request_id": request_id,
+                                                     "text": self.gateway.redact(out.text)}, origin=made)
                 return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
                         "goal": sched.request}
             recorded = Targets.from_json(sched.targets)
@@ -617,6 +627,7 @@ class Supervisor(WorkerRuns):
             final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY,
                                      "goal": sched.request}
             async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
+                                          conversation_id=session.id,      # the next run sees this one's answer
                                           origins=self._env.get(request_id, {}).get("turn_origins"),
                                           unattended_scopes=recorded_scopes,
                                           start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id)):
@@ -625,6 +636,38 @@ class Supervisor(WorkerRuns):
             return final
         finally:
             self._env.pop(request_id, None)
+
+    def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
+        """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
+        the journal, with how many later runs left none. Runs before 2026-10-15 had no conversation, so this reads
+        each run's request id rather than the schedule's conversation."""
+        skipped = 0
+        for run in reversed(self.journal.of_kind("schedule.run", "schedule_id", schedule_id)):
+            rid = str(run.data.get("request_id", ""))
+            answers = [e for kind in ("task.answer", "chat.reply", "chat.clarify")
+                       for e in self.journal.of_kind(kind, "request_id", rid)]
+            if not answers:
+                skipped += 1
+                continue
+            entry = max(answers, key=lambda e: e.at)
+            status = str(entry.data.get("status") or ("needs_user" if entry.kind == "chat.clarify" else "done"))
+            return {"ran_at": run.at.isoformat(), "status": status, "entry": entry, "skipped": skipped}
+        return None
+
+    @staticmethod
+    def _previous_run_block(previous: dict[str, Any] | None) -> tuple[ContextBlock, set[str]]:
+        """The schedule's previous run for this run's planner: its answer as recorded, with that entry's origins
+        (what it read from outside stays outside, MP2) and its lineage reference."""
+        if previous is None:
+            return (ContextBlock("Layer 2 — this schedule's previous run: no earlier run of this schedule is recorded, so "
+                                 "this run is its first.", "schedule facts", protected=True), {origins_.FERB})
+        entry = previous["entry"]
+        text = str(entry.data.get("text", ""))
+        ran = datetime.fromisoformat(previous["ran_at"]).astimezone()
+        return (ContextBlock(f"Layer 2 — this schedule's previous run (data; chat.history lists every earlier run): ran "
+                             f"{ran:%a %d %b %H:%M}, {previous['status']}. Its answer:\n{text}",
+                             f"chat.history entry_id={entry.id}", protected=True, source_refs=(ENTRY + entry.id,),
+                             payload=text), origins_.split(entry.origin))
 
     def stop_tree(self, tree_id: str) -> bool:
         """Ctrl-C in ferb chat: stop this request's task; it's recorded as stopped by the owner."""
@@ -1150,6 +1193,8 @@ class Supervisor(WorkerRuns):
         if "front_window" in env:                         # L12: what the owner saw as they sent this message
             situation.append(front_window_block(env["front_window"], env.get("front_image"), FRONT_WINDOW,
                                                 env.get("image_withheld")))
+        if "schedule_previous" in env:                    # a recurring run compares with the one before
+            situation.append(self._previous_run_block(env["schedule_previous"]))
         images = (env["front_image"],) if env.get("front_image") is not None else ()
         situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity, "task.evidence query=context.source; memory.read; trail.query",
                                        protected=True, source_refs=tuple(activity_refs), payload=activity_payload),
@@ -1157,7 +1202,9 @@ class Supervisor(WorkerRuns):
         # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
         situation.extend(await self._memory_blocks(message, remembered, mem_text, procedures))
         state: list[tuple[ContextBlock, set[str]]] = []
-        candidates = self.continuity.candidates(session.id)
+        # A scheduled run starts fresh: its earlier runs are its conversation and its previous-run block, never
+        # attempts to continue.
+        candidates = [] if session.id.startswith(SCHEDULE_SESSION) else self.continuity.candidates(session.id)
         if candidates:
             attempts, shown = self._attempts(candidates)
             state.append((ContextBlock('Layer 6 — resumable task state:\n' + attempts, "chat.history include_tasks=true", protected=True,

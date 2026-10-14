@@ -146,6 +146,10 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
+- A recurring schedule's run sees its previous run: when it ran, how it ended and its answer (with that answer's own
+  origins), and `chat.history` lists every earlier run, so "notify me if it falls or improves" compares. Live: the
+  daily Kaggle-rank run on Oct 15 found no earlier result and reported rank 205 as a first baseline instead of a
+  59-place drop from 146.
 
 Licensed under Apache-2.0.
 

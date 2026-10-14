@@ -248,3 +248,79 @@ def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningD
         await supervisor.resume_plans()
         return set(supervisor._env)
     assert "req-resumed" not in daemon.run(resume())
+
+
+# ---------- a recurring run compares with the one before (live: sc-933b051c3c, the daily Kaggle rank) ----------
+
+def _rank_worker(text: str) -> Any:
+    def act(token: str) -> str:
+        return json.dumps({"status": "done", "summary": text, "artifacts": [], "evidence": []})
+    return act
+
+
+def test_a_scheduled_run_sees_its_previous_runs_answer_and_can_report_the_change(daemon: RunningDaemon) -> None:
+    """Oct 15's run searched memory, chat.history and task.evidence, found nothing, and reported rank 205 as a first
+    baseline: no alert for a 59-place drop from Oct 14's rank 146."""
+    now = daemon.daemon.clock.now()
+    request = "check my RSNA Kaggle rank and notify me if it falls or improves"
+    s = make_schedule(daemon, request, "every day at 9 " + request, Targets.of(), now + timedelta(minutes=1))
+    first = install(daemon, [sup("task", "Checking.", task("check the RSNA Kaggle rank"))],
+                    {"worker": _rank_worker("Rank 146, score 0.957")})
+    fire(daemon, 61)
+    assert "Rank 146" in results(daemon)[0]["answer"]
+    assert "no earlier run" in first.contexts[0][2]                       # the first run knows it is the first
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        from tests.conftest import tool
+        seen["history"] = tool(daemon.sock, token, "chat.history", include_tasks=True)
+        return json.dumps({"status": "done", "summary": "Rank 205 (was 146): fell 59 places.", "artifacts": [],
+                           "evidence": []})
+    second = install(daemon, [sup("task", "Checking.", task("check the RSNA Kaggle rank"))], {"worker": worker})
+    nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id)).next_run
+    fire(daemon, (nxt - daemon.daemon.clock.now()).total_seconds() + 1)
+    planner = second.contexts[0][2]
+    assert "previous run" in planner and "Rank 146, score 0.957" in planner
+    assert "no earlier run" not in planner
+    assert not seen["history"]["is_error"] and "Rank 146, score 0.957" in json.dumps(seen["history"]["content"])
+    assert "fell 59 places" in results(daemon)[0]["answer"]
+
+
+def test_a_previous_runs_answer_keeps_its_own_origins(daemon: RunningDaemon) -> None:
+    """MP2: what an earlier run read from outside stays outside when the next run is shown its answer."""
+    from ferb.core import origin
+    now = daemon.daemon.clock.now()
+    request = "check my RSNA Kaggle rank and notify me if it falls or improves"
+    s = make_schedule(daemon, request, "every day at 9 " + request, Targets.of(), now + timedelta(minutes=1))
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    outside = origin.external("web", "kaggle.com")
+
+    def earlier() -> None:                     # a run before this change: no conversation, only its journal rows
+        supervisor.journal.append("schedule.run", {"schedule_id": s.id, "request_id": "req-earlier", "late": False})
+        supervisor.journal.append("task.answer", {"task_id": "tree-earlier", "request_id": "req-earlier",
+                                                  "status": "done", "text": "Rank 146, score 0.957", "display_text": ""},
+                                  origin=origin.join({origin.INFERRED, outside}))
+    run(daemon, earlier)
+    second = install(daemon, [sup("task", "Checking.", task("check the RSNA Kaggle rank"))],
+                     {"worker": _rank_worker("Rank 205 (was 146)")})
+    fire(daemon, 61)
+    assert "Rank 146, score 0.957" in second.contexts[0][2]
+    tree = results(daemon)[0]["task_id"]
+    assert outside in run(daemon, lambda: supervisor.spans.task_origins(tree))
+
+
+def test_a_reply_runs_answer_is_in_the_schedules_conversation(daemon: RunningDaemon) -> None:
+    now = daemon.daemon.clock.now()
+    request = "check my RSNA Kaggle rank and notify me if it falls or improves"
+    s = make_schedule(daemon, request, "every day at 9 " + request, Targets.of(), now + timedelta(minutes=1))
+    install(daemon, [sup("reply", "Rank 146, score 0.957.")])
+    fire(daemon, 61)
+    second = install(daemon, [sup("reply", "Rank 205, down from 146.")])
+    nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id)).next_run
+    fire(daemon, (nxt - daemon.daemon.clock.now()).total_seconds() + 1)
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    rows = run(daemon, lambda: supervisor.journal.of_kind("chat.reply", "session_id", "schedule:" + s.id))
+    assert [r.data["text"] for r in rows] == ["Rank 146, score 0.957.", "Rank 205, down from 146."]
+    assert "Rank 146, score 0.957." in second.contexts[0][2]

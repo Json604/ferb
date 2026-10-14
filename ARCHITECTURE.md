@@ -708,6 +708,16 @@ unconfirmed outcome into `failed` for that alone, nor a judged failure into `don
 `done_unverified` neither clears nor adds to its schedule's failure count; the "FERB finished" notification title is
 for `done` only.
 
+**A recurring run sees the one before (fix wave 2, 2026-10-15).** A scheduled run's tree is saved in the schedule's
+conversation (`schedule:<id>`), and a run the planner answers directly is journaled there as `chat.reply`, so the next
+run's planner history and `chat.history` (for its tree) hold every earlier run's answer. `Supervisor._previous_run`
+finds the schedule's latest earlier run that left an answer from the journal (`schedule.run` request id →
+`task.answer` / `chat.reply`; runs before this change had no conversation); its time and status go in the Schedule
+facts (`previous_run`, with `later_runs_without_answer`), and its answer is a protected Layer 2 block with that
+entry's origins and lineage reference (MP2), or a block saying no earlier run is recorded. A scheduled planner turn
+gets no resumable-attempts block: earlier runs are data to compare, not attempts to continue. `scheduled.md` tells the
+planner to compare with the previous run when the request asks about change. Notification delivery is unchanged.
+
 **The report check (P16 V4/V6, D34; F4 live fixes).** `checked_conditions`
 ([`supervisor.py`](ferb/orchestrator/supervisor.py)) adds `REPORT_CONDITION` ("My report to you says truthfully what was
 done, who did each part (FERB itself, or the agent, app or person you named) and with what, and leaves out nothing that
