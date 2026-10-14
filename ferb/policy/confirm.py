@@ -374,10 +374,10 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
         else:   # an input declared to destroy: the page its tab shows (a fact), else its place, and the declared item;
             # a declared one that names no item is a one-run Yes (SQ1): it never covers another unnamed delete there
             on = target.page or where
-            unnamed = kind != Kind.DELETE_PERMANENT and not target.item
+            one_run = kind != Kind.DELETE_PERMANENT and not target.item
             needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", None, on or None, target.item),
                               {"path": shown_quoted(target.item) if target.item else "an item it doesn't name",
-                               "place": (shown_quoted(on) if target.page else on)}, always=unnamed))
+                               "place": (shown_quoted(on) if target.page else on)}, always=one_run))
     sends = kinds & SEND_CLASS
     calls = Kind.CALL in kinds and not sends - {Kind.CALL}
     if sends:
