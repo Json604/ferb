@@ -173,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("release-checklist", help="print owner-supervised release checks as JSON; never runs them")
     tm = sub.add_parser("test-mode", help="inspect or set the exact send allowlist for owner-run tests")
     tm.add_argument("action", nargs="?", default="status", choices=("status", "on", "off"))
-    tm.add_argument("--allow-send", action="append", default=[], help="exact recipient, repeat per allowed destination")
+    tm.add_argument("--allow-send", action="append", default=[],
+                    help='exact recipient, or "SITE @ACCOUNT" (or "SITE") for a post on that page; '
+                         'repeat per destination')
     rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
     rg.add_argument("--allow-send", action="append", default=[], help="exact recipient allowed in test-mode send actions")
     rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: the built-in smoke set)")

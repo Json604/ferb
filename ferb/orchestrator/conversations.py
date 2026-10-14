@@ -8,6 +8,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from ferb.policy.confirm import SEND_CLASS
+from ferb.policy.rules import declared_kinds
 
 
 class ConversationScope(BaseModel):
@@ -116,7 +117,7 @@ class ConversationStore:
         if spec.target.recipients and sorted(spec.target.recipients) != sorted(scope['recipients']):
             # Typed text occasionally appears in the recipients field to make provenance stricter; only actual
             # send/contact declarations are recipient comparisons. A mere text field cannot authorize a send.
-            if spec.kind in SEND_CLASS or spec.declared in SEND_CLASS:
+            if spec.kind in SEND_CLASS or declared_kinds(spec) & SEND_CLASS:
                 return 'The action names a recipient outside this conversation permission.'
         if spec.target.contact is not None and spec.target.contact not in scope['recipients']:
             return 'The action names a contact outside this conversation permission.'

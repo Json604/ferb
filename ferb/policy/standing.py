@@ -2,18 +2,19 @@
 is authority for these grants; code matches a call against a scope's concrete bounds only.
 
 A scope covers a send-class call: one whose own kind is a send, or a generic input (a click, typing, an app's control)
-the worker declared to send (W2, ferb/policy/rules.py `declare`), never one declared or described as a payment, an
-account-security change or a permanent delete. Its tool, identity, site, account and recipients must equal the
-scope's (sites and accounts compared case-insensitively, without a leading "www." or "@"; a public post has no
-recipients); its content must equal the scope's text, unless the scope's content is None (any body: a campaign whose
-posts are composed later). A click carries no text, so a scope naming the exact text never covers one: FERB asks."""
+the worker declared to send (W2, ferb/policy/rules.py `declare`), never one with any declared or described kind that
+isn't a send (a payment, an account-security change, a permanent delete). Its tool, identity, site, account and
+recipients must equal the scope's (sites as the browser names them, `confirm.site_key`; accounts and recipients
+exactly but for ASCII case and a leading "@", `confirm.account_key`; a public post has no recipients); its content
+must equal the scope's text, unless the scope's content is None (any body: a campaign whose posts are composed
+later). A click carries no text, so a scope naming the exact text never covers one: FERB asks."""
 import json
 from typing import Any
 from ferb.core.types import Target
 from ferb.orchestrator.plans import SendScope
 from ferb.policy import provenance
-from ferb.policy.confirm import SEND_CLASS
-from ferb.policy.rules import GENERIC_INPUT
+from ferb.policy.confirm import SEND_CLASS, account_key, site_key
+from ferb.policy.rules import GENERIC_INPUT, declared_kinds
 from ferb.store.db import Database
 
 SCHEDULE_GRANT = "schedule:"     # a schedule's runs hold its recorded scopes under `schedule:<schedule id>`
@@ -25,15 +26,6 @@ def owner_named(scope: SendScope, owner_text: str) -> bool:
     values = provenance.arg_sources(Target(account=scope.account, site=scope.site, recipients=tuple(scope.recipients)),
                                     owner_text, [])
     return bool(values) and all("owner_words" in found for found in values.values())
-
-
-def _site(value: str | None) -> str:
-    host = str(value or "").strip().lower().rstrip(".")
-    return host[4:] if host.startswith("www.") else host
-
-
-def _who(value: str | None) -> str:
-    return " ".join(str(value or "").casefold().split()).removeprefix("@")
 
 
 class StandingPermissions:
@@ -49,22 +41,21 @@ class StandingPermissions:
     def sends(spec: Any) -> bool:
         """Whether a call is a send a scope may cover: its own kind is a send (and nothing it declares is another
         kind), or it is a generic input declared to send. Never with an amount or a contact the agent noted."""
-        if spec.target.amount is not None or spec.target.contact is not None:
+        declared = declared_kinds(spec)
+        if spec.target.amount is not None or spec.target.contact is not None or declared - SEND_CLASS:
             return False
-        if spec.kind in SEND_CLASS:
-            return not spec.declared or spec.declared in SEND_CLASS
-        return spec.kind in GENERIC_INPUT and spec.declared in SEND_CLASS
+        return spec.kind in SEND_CLASS or (spec.kind in GENERIC_INPUT and bool(declared & SEND_CLASS))
 
     def covers(self, task_id: str, capability: str, identity: str, spec: Any) -> bool:
         if not self.sends(spec):
             return False
-        recipients = sorted(_who(r) for r in spec.target.recipients)
+        recipients = sorted(account_key(r) for r in spec.target.recipients)
         for row in self.db.conn.execute('SELECT scope FROM standing_permissions WHERE task_id=? AND active=1', (task_id,)):
             scope = json.loads(row[0])
             if (scope['capability'] == capability and scope['identity'] == identity and
-                _who(scope['account']) == _who(spec.target.account) and
-                _site(scope['site']) == _site(spec.target.site) and
-                sorted(_who(r) for r in scope['recipients']) == recipients and
+                account_key(scope['account']) == account_key(spec.target.account) and
+                site_key(scope['site']) == site_key(spec.target.site) and
+                sorted(account_key(r) for r in scope['recipients']) == recipients and
                 (scope['content'] is None or (bool(spec.content) and scope['content'] == spec.content)) and
                 bool(scope['recipients'] or scope['site'])):
                 return True

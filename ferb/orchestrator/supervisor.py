@@ -580,7 +580,7 @@ class Supervisor(WorkerRuns):
             "standing_sends": [scope.model_dump() for scope in recorded_scopes]})
         session = ChatSession("schedule:" + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
-        self._env[request_id]["request_origins"] = self._schedule_request_origins(sched.id)   # S4 (L4)
+        self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
         try:
             out = await self._decide(session, sched.request + note, request_id)
         except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
@@ -1019,7 +1019,7 @@ class Supervisor(WorkerRuns):
         # every line (clients may show those events only in passing).
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
             changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins,
-                                            self._scheduled_request_origins(request_id)))
+                                            self._sink_origins_for_new_schedule(request_id)))
             yield {"type": "timer", "text": changed[-1]}
         for ch in out.schedule_changes:
             changed.append(self.on_schedule_change(ch, typed))
@@ -1416,20 +1416,22 @@ class Supervisor(WorkerRuns):
             self.journal.db.conn.execute("DELETE FROM journal WHERE id = ? AND kind = ?", (ident, SUMMARY_KIND))
         return len(doomed)
 
-    def _scheduled_request_origins(self, request_id: str) -> set[str]:
-        """What a request a schedule is made from carries itself (S4's request origins, L4): the owner's message and
-        what it carried (pasted text, a clarify's earlier text), the context given to its planner whose stored origin
-        is outside content, and `inferred` (the planner wrote the scheduled request). FERB's own memory, history and
-        device facts are not outside content, whatever they inherited, so a scheduled run doesn't start as having
-        read outside content because the turn that made it saw FERB's own context. Its labels (MP2) stay the turn's."""
+    def _sink_origins_for_new_schedule(self, request_id: str) -> set[str]:
+        """The sink rule's request origins a schedule made in this turn records for its runs (S4, L4): what the
+        request carries itself (the owner's message and what it carried: pasted text, a clarify's earlier text), the
+        context given to its planner whose stored origin is outside content, and `inferred` (the planner wrote the
+        scheduled request). FERB's own memory, history and device facts are not outside content, whatever they
+        inherited, so a scheduled run doesn't start as having read outside content because the turn that made it saw
+        FERB's own context. Its labels (MP2) stay the turn's."""
         env = self._env.get(request_id, {})
         read = [origins_.split(e["origin"]) for e in env.get("context_exposures", [])]
         return ({origins_.INFERRED} | set(env.get("message_origin") or {origins_.external("unlabeled")}) |
                 {o for labels in read if origins_.stored_outside(labels) for o in labels})
 
-    def _schedule_request_origins(self, schedule_id: str) -> set[str]:
-        """A scheduled run's request origins for the sink rule (S4, L4), as recorded on its schedule.created row; a
-        row recorded without them (before L4) gives every label the turn saw (`_schedule_origins`): fail-closed."""
+    def _schedule_sink_origins(self, schedule_id: str) -> set[str]:
+        """A scheduled run's request origins for the sink rule (S4, L4), as `_sink_origins_for_new_schedule` recorded
+        them on its schedule.created row; a row recorded without them (before L4) gives every label the turn saw
+        (`_schedule_origins`): fail-closed."""
         rows = self.journal.of_kind("schedule.created", "schedule_id", schedule_id)
         recorded = [e.data.get("request_origins") for e in rows]
         if rows and all(isinstance(r, list) and r for r in recorded):
@@ -1846,13 +1848,16 @@ class Supervisor(WorkerRuns):
         # It sees all complete notes; it must inspect final artifacts and cannot inherit a completion verdict.
         if result['status'] == 'done' or plan_revision != len(tree.steering.messages):
             from ferb.policy.confirm import SEND_CLASS
+            from ferb.policy.rules import declared_of
             sends = []
             for row in self.journal.db.conn.execute('SELECT s.id,s.input_json,s.output_json,s.error FROM spans s '
                     'JOIN tasks t ON t.id=s.task_id WHERE t.tree_id=? AND s.kind=? ORDER BY s.started_at',
                     (tree.id, 'tool.call')):
                 call = json.loads(row['input_json'])
-                if call.get('kind') in SEND_CLASS:
-                    sends.append({'span': row['id'], 'target': call.get('target'),
+                # a send by its own kind, or an input the worker declared to send (W2): a post, a webmail send
+                if ({call.get('kind')} | declared_of(call.get('declared'))) & SEND_CLASS:
+                    sends.append({'span': row['id'], 'tool': call.get('tool'), 'target': call.get('target'),
+                                  'declared': call.get('declared'), 'standing': call.get('standing'),
                                   'result': json.loads(row['output_json']) if row['output_json'] else None,
                                   'error': row['error']})
             self.journal.append('task.send_digest', {'task_id': tree.id, 'sends': sends},

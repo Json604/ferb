@@ -6,10 +6,11 @@ from typing import Any
 
 from ferb.act.browser.ext_bridge import OutcomeUnknown
 from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct, BrowserNavigate, BrowserOpen, Family
-from ferb.core.types import ActionResult, BrowserAction, ElementRef, PageElement, TabRef
+from ferb.core.types import ActionResult, ActionSpec, BrowserAction, ElementRef, PageElement, TabRef, Target
 from ferb.orchestrator.plans import SendScope
 from ferb.policy import security_digest
-from tests.conftest import RunningDaemon, gateway_request, gateway_setup, tool
+from ferb.policy.rules import Kind
+from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, tool
 from tests.support.browser_sink import FakeBrowser
 
 STORY = "FERB is live: a personal assistant that works across your Mac. https://ferb.kartikey.xyz"
@@ -42,6 +43,15 @@ class PostingBrowser(FakeBrowser):
     def clicks(self) -> list[str]:
         """The page URLs a click was delivered on, in order."""
         return [url for url, kind, _ in self.acts if kind == "click"]
+
+
+class DeclaredClick(FakeCap):
+    """A mac.click-like capability: physical kind mac_input in WhatsApp, its purpose declared as a send, no contact."""
+    def __init__(self, name: str) -> None:
+        super().__init__(name, Kind.MAC_INPUT, {"probe"})
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(Kind.MAC_INPUT, Target(site="net.whatsapp.whatsapp"), declared=Kind.SEND, place="WhatsApp")
 
 
 def browser_caps(browser: PostingBrowser, family: Family = OWNER_BROWSER) -> list[Any]:

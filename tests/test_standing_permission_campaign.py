@@ -27,8 +27,8 @@ from ferb.orchestrator.plans import Plan, SendScope, Step
 from ferb.policy.rules import EFFECTS
 from tests.conftest import Answers, FakeCap, RunningDaemon, chat, done, gateway_tool_call, install, sup, task, tool
 from tests.support import egress
-from tests.support.campaign import (STORY, X_SCOPE, PostingBrowser, browser_caps, calls_of, campaign_grant, digest,
-                                    ferb_questions, posts_on, stand)
+from tests.support.campaign import (STORY, X_SCOPE, DeclaredClick, PostingBrowser, browser_caps, calls_of,
+                                    campaign_grant, digest, ferb_questions, posts_on, stand)
 from tests.support.schedules import fire, schedule_reply
 
 WORDS = "post the launch story to X daily until Oct 21"
@@ -189,38 +189,45 @@ def test_a_scope_with_the_owners_exact_text_never_covers_a_click_it_cannot_read(
     assert result["is_error"] and browser.clicks() == [] and len(ferb_questions(daemon)) == 1
 
 
-def test_a_declared_permanent_delete_on_a_page_asks_once_per_place(daemon: RunningDaemon) -> None:
+def test_a_declared_permanent_delete_on_a_page_asks_once_per_page_and_item(daemon: RunningDaemon) -> None:
+    """A delete declared on a page is keyed and named by the page the tab shows (a fact) and the item the worker
+    declares (it only adds): another item or another page asks again; the same one carries (rule 9)."""
     grant, browser = campaign_grant(daemon, WORDS)
     stand(daemon, grant.task_id, X_SCOPE)
     owner = _answering(daemon, yes=True)
+    page, repo = "https://x.com/i/lists/42", "https://github.com/me/repo/settings"
     try:
-        for url in ("https://x.com/settings/delete_post", "https://x.com/settings/delete_post",
-                    "https://github.com/me/repo/settings"):
-            assert not _post(daemon, grant, url, text="delete", effect="destroy")["is_error"]
+        for url, item in ((page, "the post from 9 Oct"), (page, "the post from 9 Oct"), (page, "the post from 10 Oct"),
+                          (repo, None)):
+            declared: dict[str, Any] = {"destination": {"item": item}} if item else {}
+            assert not _post(daemon, grant, url, text="delete", effect="destroy", **declared)["is_error"]
     finally:
         owner.stop()
-    assert len(browser.clicks()) == 3
+    assert len(browser.clicks()) == 4
     assert [q["question"].split(". The step:")[0] for q in ferb_questions(daemon)] == [
-        "FERB: this permanently deletes an item it doesn't name in x.com (it can't be undone)",
-        "FERB: this permanently deletes an item it doesn't name in github.com (it can't be undone)"]
+        f'FERB: this permanently deletes "the post from 9 Oct" on {page} (it can\'t be undone)',
+        f'FERB: this permanently deletes "the post from 10 Oct" on {page} (it can\'t be undone)',
+        f"FERB: this permanently deletes an item it doesn't name on {repo} (it can't be undone)"]
 
 
 def test_only_a_generic_input_is_checked_as_its_declared_effect() -> None:
     """W2: the declaration adds the kind it names, and the destination, to a click, typing or app input; it never
     changes another call, an effect that names no consequential kind, or the capability's own target."""
     from ferb.core.types import ActionSpec, Target
-    from ferb.policy.rules import Kind, declare
+    from ferb.policy.rules import Kind, declare, declared_kinds
     click = ActionSpec(Kind.CLICK, Target(site="mail.google.com", recipients=("a@x.com",)), content="click:e2:")
     sent = declare(click, "send", ("a@x.com", " b@x.com "), "me@gmail.com")
-    assert sent.declared == Kind.SEND and sent.target.recipients == ("a@x.com", "b@x.com")
+    assert declared_kinds(sent) == {Kind.SEND} and sent.target.recipients == ("a@x.com", "b@x.com")
     assert sent.target.account == "me@gmail.com" and sent.target.site == "mail.google.com"
     assert sent.content == click.content and declare(click, "edit") == click and declare(click, "") == click
     paid = declare(ActionSpec(Kind.MAC_INPUT, Target(site="com.shop"), declared=Kind.SEND), "pay", amount=8)
-    assert paid.declared == Kind.PAY and paid.target.amount == 8                 # the stronger kind is kept
+    assert declared_kinds(paid) == {Kind.SEND, Kind.PAY} and paid.target.amount == 8   # every declared kind is kept
     call = ActionSpec(Kind.MAC_INPUT, Target(site="com.apple.FaceTime"), declared=Kind.CALL)
-    assert declare(call, "send").declared == Kind.CALL                           # the capability's own purpose stays
+    assert declared_kinds(declare(call, "send")) == {Kind.CALL, Kind.SEND}       # the capability's own purpose stays
     write = ActionSpec("write_file", Target(path="/tmp/x"), content="x")
     assert declare(write, "destroy") == write and declare(write, "send", ("a@x.com",)) == write
+    assert declared_kinds(declare(write, "pay")) == {Kind.PAY}                    # pay is honoured on any acting call
+    assert declare(ActionSpec(Kind.READ), "pay") == ActionSpec(Kind.READ)        # a read changes nothing
 
 
 # ---------- messages and emails: the declared recipients are what the floor and the scope check ----------
@@ -289,7 +296,7 @@ def test_generic_inputs_offer_the_effect_and_destination_declaration(daemon: Run
     assert "account_security" in EFFECTS
     act = schemas["browser.act"]
     assert act["effect"]["enum"] == list(EFFECTS)
-    assert set(act["destination"]["properties"]) == {"recipients", "account", "amount"}
+    assert set(act["destination"]["properties"]) == {"recipients", "account", "amount", "item"}
     assert "destination" not in schemas["browser.open"]
 
 
@@ -379,8 +386,9 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
 
     second, browser2 = _campaign_daemon(home, "b", monkeypatch)
     try:
-        install(second, [], {"step.post2": posts_on(second.sock, "https://x.com/compose/post", effect="send"),
-                             "worker": done("Posted the launch story today and tomorrow.")})
+        script = install(second, [], {"step.post2": posts_on(second.sock, "https://x.com/compose/post",
+                                                             effect="send"),
+                                      "worker": done("Posted the launch story today and tomorrow.")})
         _until(lambda: _plan_status(second, tree).get("wait") == "waiting")
         time.sleep(0.1)
         assert browser2.clicks() == []                                   # resumed, still before 09:00 tomorrow
@@ -390,9 +398,24 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
         assert ferb_questions(second) == []                              # the stated scope still covers it
         click = calls_of(second, "browser.act")[-1]
         assert click["standing"] == {"task": tree, "rules": ["floor:new_recipient"]}
+        _until(lambda: any(key == "worker" for _, key, _, _ in script.contexts))
+        sent = _send_digest(second, tree)                                # both posts, either side of the restart
+        assert [(s["target"]["site"], s["declared"], s["standing"]) for s in sent] == [
+            ("x.com", "send", {"task": tree, "rules": ["floor:new_recipient"]})] * 2
+        final = next(c for _, key, c, _ in script.contexts if key == "worker")
+        block = final.split("Layer 6 — current plan step and handed results (data):", 1)[1]
+        handed = json.loads(block.split(">\n", 1)[1].split("\n</untrusted-data", 1)[0])
+        assert [a["declared"] for a in handed["message_activity"]] == ["send", "send"]   # the final worker sees them
     finally:
         _WallClock.now_at = datetime(2026, 10, 15, 9, 0, tzinfo=timezone.utc)
         second.stop()
+
+
+def _send_digest(d: RunningDaemon, tree: str) -> list[dict[str, Any]]:
+    async def go() -> list[dict[str, Any]]:
+        rows = d.daemon.journal.of_kind("task.send_digest", "task_id", tree)
+        return list(rows[-1].data["sends"]) if rows else []
+    return d.run(go())                                   # type: ignore[no-any-return]
 
 
 def _drain_turn(d: RunningDaemon, text: str) -> None:
@@ -464,3 +487,177 @@ def test_a_schedule_whose_own_message_carried_pasted_text_still_counts_it(daemon
         rows = daemon.daemon.db.conn.execute("SELECT DISTINCT task_id FROM spans WHERE kind = 'task'").fetchall()
         return [daemon.daemon.spans.request_origins(r["task_id"]) for r in rows]
     assert any("external:paste" in origins for origins in daemon.run(roots()))
+
+
+# ---------- fix round 1 ----------
+
+def test_a_site_ferb_knows_from_an_earlier_request_still_asks_outside_the_scope(daemon: RunningDaemon) -> None:
+    """I1: "known" lasts forever (SQ6); only the owner's words for this request authorize the place (D33)."""
+    grant, browser = campaign_grant(daemon, WORDS)
+    stand(daemon, grant.task_id, X_SCOPE)
+    for host in ("www.linkedin.com", "mail.google.com"):
+        daemon.call_soon(daemon.daemon.gateway.destinations.record, "host", host, "named")
+    owner = _answering(daemon, yes=False)
+    try:
+        post = _post(daemon, grant, "https://www.linkedin.com/feed/", effect="send")
+        mail = _post(daemon, grant, "https://mail.google.com/mail/u/0/#inbox?compose=new", effect="send")
+    finally:
+        owner.stop()
+    assert post["is_error"] and mail["is_error"] and browser.clicks() == []
+    assert len(ferb_questions(daemon)) == 2 and digest(daemon)["standing_sends"] == []
+
+
+def test_a_declared_effect_never_drops_a_send_the_capability_declared(daemon: RunningDaemon) -> None:
+    """I3: mac.click purpose=send plus effect=destroy keeps both kinds: the floor asks both, no scope covers it, and
+    test mode sees the send."""
+    from ferb.core.types import ActionSpec, Target
+    from ferb.policy.rules import Kind, declare, declared_kinds
+    from ferb.policy.standing import StandingPermissions
+    click = ActionSpec(Kind.MAC_INPUT, Target(site="net.whatsapp.whatsapp"), declared=Kind.SEND, place="WhatsApp")
+    both = declare(click, "destroy")
+    assert declared_kinds(both) == {Kind.SEND, Kind.DELETE_PERMANENT}
+    assert not StandingPermissions.sends(both)
+    rules = [n.rule for n in __import__("ferb.policy.confirm", fromlist=["decide"]).decide(
+        both.kind, declared_kinds(both), both.target, {}, read_private=False, read_external=False,
+        known=lambda k, v: False, place=both.place)]
+    assert rules == ["floor:delete_permanent", "floor:new_recipient"]
+    tap = DeclaredClick("probe.click_send")
+    grant, _ = campaign_grant(daemon, "reply on WhatsApp", [tap])
+    daemon.daemon.gateway.test_send_allowlist = {"net.whatsapp.whatsapp"}
+    result = gateway_tool_call(daemon, grant, "probe.click_send", effect="destroy")
+    assert result["is_error"] and "test-mode send allowlist" in result["content"]["error"] and tap.calls == 0
+
+
+def test_send_means_delivering_the_owners_words_not_signing_in(daemon: RunningDaemon) -> None:
+    """I5: the tool text defines send narrowly; a sign-in, search, filter or setting is edit or navigate."""
+    grant, _ = campaign_grant(daemon, WORDS)
+    help_text = {t["name"]: t for t in daemon.daemon.gateway.tools_for(grant)}["browser.act"][
+        "input_schema"]["properties"]["effect"]["description"]
+    assert "message, post or email" in help_text and "sign-in" in help_text and "edit or navigate" in help_text
+    assert "form submissions" not in help_text
+
+
+def test_accounts_compare_exactly_and_sites_by_their_idna_form() -> None:
+    """M1: ASCII case only (straße is not strasse); a Unicode site in the scope is the punycode host the tab shows."""
+    from ferb.policy.confirm import account_key, site_key
+    assert account_key("@KartikeyXYZ") == account_key("kartikeyxyz")
+    assert account_key("strasse@shop.de") != account_key("straße@shop.de")
+    assert site_key("Bücher.example") == site_key("xn--bcher-kva.example") == site_key("www.xn--bcher-kva.example")
+    assert site_key("x.com") != site_key("x.com.evil.example") and site_key("x.com") != site_key("mobile.x.com")
+
+
+def test_a_declared_post_after_private_and_outside_reads_also_asks_the_sink_question(daemon: RunningDaemon) -> None:
+    """M2: as for a send-class call, private data may go to a place nobody named after outside content was read."""
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/press"),),
+                   content={"text": "Press kit"})
+    note = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/launch.txt"),),
+                   content={"text": "Launch draft"})
+    grant, browser = campaign_grant(daemon, WORDS, [page, note])
+    gateway_tool_call(daemon, grant, "probe.web")
+    gateway_tool_call(daemon, grant, "probe.file")
+    owner = _answering(daemon, yes=False)
+    try:
+        result = _post(daemon, grant, "https://x.com/compose/post", effect="send")
+    finally:
+        owner.stop()
+    assert result["is_error"] and browser.clicks() == []
+    assert [c["rule"] for c in ferb_questions(daemon)[0]["confirm"]] == ["floor:new_recipient", "sink:new_destination"]
+
+
+def test_a_destination_is_a_note_only_on_generic_inputs_and_errors_name_it(daemon: RunningDaemon) -> None:
+    """M3: another tool keeps its arguments as they are (nothing is taken off or recorded); a bad destination's error
+    says where it is."""
+    probe = FakeCap("probe.shell", "run_shell", {"probe"})
+    grant, _ = campaign_grant(daemon, WORDS, [probe])
+    assert not gateway_tool_call(daemon, grant, "probe.shell", text="x", destination={"account": "@a"})["is_error"]
+    assert "destination" not in calls_of(daemon, "probe.shell")[-1]
+    tab = gateway_tool_call(daemon, grant, "browser.open", url="https://x.com/compose/post")["content"]["tab"]
+    bad = gateway_tool_call(daemon, grant, "browser.act", tab=tab, element="s1e2", action="click", effect="pay",
+                            destination={"amount": -1})
+    assert bad["is_error"] and bad["content"]["details"][0]["loc"][0] == "destination"
+
+
+def test_an_effect_matches_whatever_its_case_and_spaces(daemon: RunningDaemon) -> None:
+    """M4."""
+    grant, browser = campaign_grant(daemon, WORDS)
+    owner = _answering(daemon, yes=False)
+    try:
+        assert _post(daemon, grant, "https://x.com/compose/post", effect=" Send ")["is_error"]
+    finally:
+        owner.stop()
+    assert browser.clicks() == [] and len(ferb_questions(daemon)) == 1
+
+
+def test_a_payment_or_account_security_declared_on_any_acting_tool_asks(daemon: RunningDaemon) -> None:
+    """M5 (controller ruling): a declaration only adds, and L3 keeps both asks, so a shell command declared to pay or
+    change account security asks; send and destroy there stay notes (the shell has its own boundaries)."""
+    shell = FakeCap("probe.shell", "run_shell", {"probe"})
+    grant, _ = campaign_grant(daemon, WORDS, [shell])
+    owner = _answering(daemon, yes=False)
+    try:
+        assert gateway_tool_call(daemon, grant, "probe.shell", text="pay", effect="pay")["is_error"]
+        assert gateway_tool_call(daemon, grant, "probe.shell", text="pw", effect="account_security")["is_error"]
+        assert not gateway_tool_call(daemon, grant, "probe.shell", text="rm", effect="destroy")["is_error"]
+        assert not gateway_tool_call(daemon, grant, "probe.shell", text="curl", effect="send")["is_error"]
+    finally:
+        owner.stop()
+    assert [q["confirm"][0]["rule"] for q in ferb_questions(daemon)] == ["floor:pay", "floor:account_security"]
+    assert shell.calls == 2
+
+
+def test_the_post_question_shows_the_text_typed_into_that_tab(daemon: RunningDaemon) -> None:
+    """M6 (L3: the exact recipient and text): display only, redacted."""
+    grant, _ = campaign_grant(daemon, WORDS)
+    owner = _answering(daemon, yes=False)
+    try:
+        _post(daemon, grant, "https://x.com/compose/post", text="Launch day! token ghp_" + "a" * 36, effect="send")
+    finally:
+        owner.stop()
+    question = ferb_questions(daemon)[0]["question"]
+    assert 'The text: "Launch day! token [redacted' in question and "ghp_aaaa" not in question
+
+
+def test_one_answer_covers_an_account_however_it_is_written(daemon: RunningDaemon) -> None:
+    """M8: the account in the place question's key is normalised like the scope's."""
+    grant, browser = campaign_grant(daemon, WORDS)
+    owner = _answering(daemon, yes=True)
+    try:
+        for account in ("@KartikeyXYZ", "kartikeyxyz"):
+            assert not _post(daemon, grant, "https://x.com/compose/post", effect="send",
+                             destination={"account": account})["is_error"]
+    finally:
+        owner.stop()
+    assert len(browser.clicks()) == 2 and len(ferb_questions(daemon)) == 1
+
+
+def test_test_mode_lets_a_post_through_only_to_an_allowed_site_and_account(daemon: RunningDaemon) -> None:
+    """Rule 22 (controller ruling): an allowlist entry names a site and account; the page's host is a fact."""
+    grant, browser = campaign_grant(daemon, WORDS)
+    stand(daemon, grant.task_id, SendScope(capability="browser.act", identity="owner", site="x.com",
+                                           account="@kartikeyxyz", recipients=[], content=None),
+          SendScope(capability="browser.act", identity="owner", site="x.com", recipients=[], content=None),
+          SendScope(capability="browser.act", identity="owner", site="www.linkedin.com", recipients=[], content=None))
+    daemon.daemon.gateway.test_send_allowlist = {"x.com @kartikeyxyz"}
+    ok = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@KartikeyXYZ"})
+    other = _post(daemon, grant, "https://x.com/compose/post", effect="send", destination={"account": "@other"})
+    bare = _post(daemon, grant, "https://x.com/compose/post", effect="send")
+    elsewhere = _post(daemon, grant, "https://www.linkedin.com/feed/", effect="send")
+    assert not ok["is_error"] and browser.clicks() == ["https://x.com/compose/post"]
+    for refused in (other, bare, elsewhere):
+        assert refused["is_error"] and "test-mode send allowlist" in refused["content"]["error"]
+
+
+def test_the_prompts_carry_the_declaration_and_the_campaign_scope() -> None:
+    """Controller ruling: workers declare effect and destination truthfully (send narrowly; pay on the final control);
+    the planner states a browser campaign's scope as the gateway matches it."""
+    prompts = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
+    worker = " ".join((prompts / "worker.md").read_text().split())
+    supervisor = " ".join((prompts / "supervisor.md").read_text().split())
+    for words in ("`send` only when the action delivers the owner's message, post or email to people or a public "
+                  "audience", "`pay` only on the final Pay or confirm control", "`account_security` for a password",
+                  "Put what it reaches in `destination`", "never only in `why`",
+                  "a declaration never grants permission, so never declare a milder kind"):
+        assert words in worker, words
+    assert "does not grant or withhold permission" not in worker
+    assert ("the scope's capability is browser.act, its site the page's host (x.com), its recipients [] for public "
+            "posts, its content null unless the owner gave the exact text") in supervisor

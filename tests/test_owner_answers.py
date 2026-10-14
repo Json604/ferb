@@ -370,12 +370,13 @@ def test_workers_are_never_told_to_ask_for_confirmation() -> None:
 
 def test_workers_declare_the_true_kind_of_consequential_actions() -> None:
     """The code floor sees a browser send, post or payment only when the call declares its kind (W2, D23)."""
-    interaction = (PROMPTS / "interaction.md").read_text()
-    worker = (PROMPTS / "worker.md").read_text()
+    interaction = " ".join((PROMPTS / "interaction.md").read_text().split())
+    worker = " ".join((PROMPTS / "worker.md").read_text().split())
     assert "declare the true kind of every consequential browser or app" in interaction
-    for kind in ("effect send", "pay for a payment", "destroy for a permanent delete", "account-security change",
-                 "purpose send or call"):
-        assert kind in worker
+    # Task 18 owns the declaration wording (narrow send, pay on the final control, account_security, destination)
+    for kind in ("effect send", "`pay` only on the final Pay or confirm control", "`destroy` for a permanent delete",
+                 "`account_security` for a password", "account-security change", "purpose send or call"):
+        assert kind in worker, kind
     assert "never ask the owner to confirm yourself" in worker
 
 

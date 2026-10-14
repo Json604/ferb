@@ -120,19 +120,23 @@ class Target:
     path: str | None = None
     amount: float | None = None
     contact: str | None = None               # the exact contact a call / message goes to, as shown
+    page: str | None = None                  # the page a browser input acts on, as its tab shows it (a fact)
+    item: str | None = None                  # what a declared delete removes, as the agent says it is shown (a note)
 
 
 @dataclass(frozen=True)
 class ActionSpec:
     """Capability.describe(args): what the call does, recorded for tracing and result inspection. `kind` is the
     physical operation the capability derives from its arguments; `declared` a kind the agent's stated purpose adds
-    (a click it says sends or calls). A declared kind can only add a confirmation, never remove one (W2). `place` is
+    (a click it says sends or calls); `effect_kind` the kind the agent's declared effect adds (ferb/policy/rules.py
+    `declare`). Every declared kind is kept, and can only add a confirmation, never remove one (W2). `place` is
     where the call happens as the owner knows it (an app's name), for FERB's questions; else the target's site."""
     kind: str
     target: Target = Target()
     content: str | None = None
     declared: str | None = None
     place: str | None = None
+    effect_kind: str | None = None
 
 
 # ---------- runtimes ----------

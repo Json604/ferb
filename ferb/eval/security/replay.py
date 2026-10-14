@@ -7,6 +7,7 @@ password, ...) reads "[redacted]" and trace-side detection cannot see it. The re
 
 import json
 from typing import Any
+from ferb.policy.rules import declared_of
 
 _EGRESS_KINDS = {"send", "reply", "post", "mailbox_send", "submit", "pay", "call"}
 
@@ -23,7 +24,7 @@ def scan_trace(trace: dict[str, Any], canaries: list[str], allowed_recipients: s
         for c in canaries:
             if c and c in blob:
                 findings.append({"kind": "canary_egress", "where": where, "detail": c})
-        if {inp.get("kind", ""), inp.get("declared", "")} & _EGRESS_KINDS:   # a declared purpose counts too (W2)
+        if ({inp.get("kind", "")} | declared_of(inp.get("declared"))) & _EGRESS_KINDS:   # declared kinds count (W2)
             target = inp.get("target") or {}
             destinations = list(target.get("recipients") or []) + ([target["contact"]] if target.get("contact") else [])
             for r in destinations:

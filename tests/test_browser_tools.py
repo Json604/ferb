@@ -104,7 +104,7 @@ def test_sign_in_through_the_gateway_and_the_password_is_nowhere(bd: Any) -> Non
     snap2 = results[-1]["content"]
     assert el(snap2, type="password", sensitive=True, filled=True)
     results.append(call(d, g, "ferb_browser.act", tab=tab, element=el(snap2, role="button"), action="click",
-                        effect="send", why="signing in"))                  # a form submit: send, site named
+                        effect="edit", why="signing in"))                  # a sign-in is edit, never a send (L3)
     results.append(call(d, g, "ferb_browser.wait", tab=tab, until="text", value="Welcome back"))
     assert all(not r["is_error"] for r in results), [r for r in results if r["is_error"]]
     assert results[-1]["content"]["met"] is True

@@ -2,8 +2,9 @@
 
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
 Optional why annotations never gate execution; an effect declared on a generic input (a click, typing, an app's
-control) is checked as its kind, with the destination declared beside it (W2: it can only add a question). OS and
-transport failures remain factual results.
+control) is checked as its kind, with the destination declared beside it, and a declared payment or account-security
+change on any acting call asks too (W2: a declaration can only add a question). OS and transport failures remain
+factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
 worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29). No image is withheld
 for what it shows or where it is from (L13, D29 clarified; owner: "Yes, no exceptions"): browser windows, tab captures,
@@ -64,7 +65,7 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy import confirm, provenance
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
-from ferb.policy.rules import EFFECTS, declare
+from ferb.policy.rules import EFFECTS, declare, declared_kinds
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
@@ -207,6 +208,7 @@ class Destination(BaseModel):
     recipients: list[str] = Field(default_factory=list)
     account: str | None = None
     amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    item: str | None = None
 
 
 def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
@@ -626,14 +628,20 @@ class Gateway:
             return reply({"error": "this tool is not available to this task's identity"}, True, {origin.FERB})
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
-        effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate
-        # W2: what a generic input declared to send or pay reaches (the agent's note: checked, never a permission)
-        noted = arguments.pop("destination", None) if "destination" not in cap.Input.model_fields else None
+        effect = str(arguments.pop("effect", "") or "").strip().lower()   # the agent's note; a declaration only adds
+        # W2: what a generic input declared to send, pay or delete reaches (the agent's note: checked, never a
+        # permission); any other tool keeps its arguments as they are
+        generic = bool(getattr(cap, "generic_input", False)) and "destination" not in cap.Input.model_fields
+        noted = arguments.pop("destination", None) if generic else None
         try:
             args = cap.Input.model_validate(arguments)
-            reaches = Destination.model_validate(noted or {})
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
+        try:
+            reaches = Destination.model_validate(noted or {})
+        except ValidationError as e:
+            details = [err | {"loc": ("destination", *err["loc"])} for err in e.errors(include_url=False)]
+            return reply({"error": "invalid arguments", "details": details}, True)
         if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
             self._refused(grant, rec, name, refusal)
             return reply({"error": refusal}, True, {origin.FERB})
@@ -641,13 +649,17 @@ class Gateway:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
         spec = cap.describe(args)
-        conversation_refusal = self.conversation_guard(grant, name, cap, spec)
-        if conversation_refusal:
-            self._refused(grant, rec, name, conversation_refusal)
-            return reply({'error': conversation_refusal}, True, {origin.FERB})
         if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
+        # W2: checked as the effect the worker declares, with what it declares the input reaches (`rules.declare`);
+        # the call itself (P19's hash, the ledger, the run) stays as the capability described it
+        checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount, reaches.item)
+        declared = declared_kinds(checked)
+        conversation_refusal = self.conversation_guard(grant, name, cap, checked)
+        if conversation_refusal:
+            self._refused(grant, rec, name, conversation_refusal)
+            return reply({'error': conversation_refusal}, True, {origin.FERB})
         real = self._real_path(cap, args, spec)
         closed = self._files_closed(cap, name, args)     # rule 10: before the span and the ledger, nothing ran
         if closed is not None:
@@ -664,13 +676,11 @@ class Gateway:
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
                                content=spec.content, effect=effect, why=why)
-        # W2: a generic input is checked as the effect the worker declares, with what it declares it reaches; the
-        # call itself (P19's hash, the ledger, the run) stays as the capability described it
-        checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount)
-        extra: dict[str, Any] = {"declared": checked.declared} if checked.declared else {}
+        extra: dict[str, Any] = ({"declared": next(iter(declared)) if len(declared) == 1 else sorted(declared)}
+                                 if declared else {})        # one declared kind as a string, several as a list
         if noted is not None:
             extra["destination"] = reaches.model_dump(exclude_defaults=True)
-        consequential = spec.kind not in REVERSIBLE or checked.declared is not None   # a declared purpose only adds
+        consequential = spec.kind not in REVERSIBLE or bool(declared)   # a declared purpose only adds
         if consequential:                                # where each target came from (S3), a fact
             extra["arg_sources"] = self._arg_sources(checked, rec, grant)
         blocked = self._send_blocked(checked)            # test mode: before FERB asks the owner anything
@@ -804,13 +814,20 @@ class Gateway:
                      True, {origin.FERB})
 
     def _send_blocked(self, spec: Any) -> tuple[str, list[str]] | None:
-        """Test mode only (D17): a send-class call (by its kind or a declared one) may reach only the allowlisted
-        recipients; (the error, the unlisted recipients) when it may not, else None."""
-        if self.test_send_allowlist is None or not {spec.kind, spec.declared} & _SEND_KINDS:
+        """Test mode only (D17, rule 22): a send-class call (by its kind or any declared one) may reach only the
+        allowlisted recipients; a post on a page (no recipient) only an allowlisted site and account: an entry
+        "x.com @account", or "x.com" for a post that declares no account. The site is the page's host, a fact the
+        tab shows, never the worker's word. (The error, the unlisted recipients) when it may not, else None."""
+        kinds = {spec.kind} | declared_kinds(spec)
+        if self.test_send_allowlist is None or not kinds & _SEND_KINDS:
             return None
         recipients = list(spec.target.recipients) + ([spec.target.contact] if spec.target.contact else [])
         unlisted = [r for r in recipients if r not in self.test_send_allowlist]
         if recipients and not unlisted:
+            return None
+        place = (confirm.site_key(spec.target.site), confirm.account_key(spec.target.account))
+        if not recipients and spec.target.page and spec.target.site and Kind.PAY not in kinds and \
+                place in self._allowed_places():
             return None
         return "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient"), unlisted
 
@@ -829,6 +846,16 @@ class Gateway:
             self.spans.finish(span, output={"reopened": len(ids)}, origin=origin.OWNER)
         return ids
 
+    def _allowed_places(self) -> set[tuple[str, str]]:
+        """The (site, account) pairs the test-mode allowlist names: "x.com @account", or a bare host ("x.com", no
+        "@"): a site with no account. Exact recipients are the other entries."""
+        places: set[tuple[str, str]] = set()
+        for entry in self.test_send_allowlist or ():
+            site, _, account = entry.strip().partition(" ")
+            if "." in site and "@" not in site:
+                places.add((confirm.site_key(site), confirm.account_key(account)))
+        return places
+
     async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
                          sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
@@ -843,10 +870,11 @@ class Gateway:
         read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
         outside = self._outside_read(root)
         known = self.destinations.known if self.destinations is not None else _nothing_known
-        needs = confirm.decide(spec.kind, spec.declared, spec.target, sources, read_private=origin.PRIVATE in read,
-                               read_external=bool(outside), known=known, outside_read=outside, place=spec.place,
-                               content=spec.content)
-        if Kind.DELETE_PERMANENT in {spec.kind, spec.declared} and spec.target.path:
+        kinds = {spec.kind} | declared_kinds(spec)
+        needs = confirm.decide(spec.kind, declared_kinds(spec), spec.target, sources,
+                               read_private=origin.PRIVATE in read, read_external=bool(outside), known=known,
+                               outside_read=outside, place=spec.place, content=spec.content)
+        if Kind.DELETE_PERMANENT in kinds and spec.target.path:
             from ferb.act.fs.usage import usage
             path = file_real_path(spec.target.path, self.roots.workspace)
             if path.is_dir():
@@ -858,8 +886,9 @@ class Gateway:
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
+        typed = self._typed_into(grant, name, arguments) if kinds & confirm.SEND_CLASS else ""   # L3: the text sent
         if self.confirmations is None:                   # never skipped silently: no record, no run
-            return Covered(refused={"error": NOT_RECORDED.format(line=self._ferb_line(needs, call, why))})
+            return Covered(refused={"error": NOT_RECORDED.format(line=self._ferb_line(needs, call, why, typed))})
         confirmations = self.confirmations
         async with self._confirming.setdefault(root, asyncio.Lock()):
             out, ask = Covered(), []
@@ -884,13 +913,13 @@ class Gateway:
                         continue
                     out.ids.append(row["id"])
                     if not row["granted"]:
-                        out.refused = {"error": ALREADY_NO.format(line=self._ferb_line(needs, call, why)),
+                        out.refused = {"error": ALREADY_NO.format(line=self._ferb_line(needs, call, why, typed)),
                                        "next": OWNER_DECIDED_NEXT}
                     elif need.always:                    # SQ1: claimed now, under the lock, by this call only
                         confirmations.use(row["id"])
                         out.spent.append(row["id"])
                 if out.refused is None and ask:
-                    answer = await self.ask_confirmation(grant, rec, ask, None, call, why)
+                    answer = await self.ask_confirmation(grant, rec, ask, None, call, why, typed)
                     out.ids += answer.ids
                     if answer:
                         for need, cid in zip(ask, answer.ids):
@@ -976,15 +1005,23 @@ class Gateway:
             return None
         return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
 
-    def _ferb_line(self, needs: list[confirm.Need], call: str, why: str) -> str:
+    def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
-        their own, P19's rule), no terminal control characters, the reason quoted and clipped, redacted."""
+        their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
+        clipped, redacted."""
         text = confirm.line(needs, " ".join(printable(call).split()),
-                            quoted(self.redact({"w": why})["w"]) if why.strip() else "")   # redacted, then clipped
+                            quoted(self.redact({"w": why})["w"]) if why.strip() else "",   # redacted, then clipped
+                            quoted(self.redact({"t": typed})["t"]) if typed.strip() else "")
         return " ".join(printable(self.redact({"q": text})["q"]).split())
 
+    def _typed_into(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> str:
+        """The text this worker last typed into the page a send-declared input acts on (the same tool, the same tab),
+        so FERB's question shows the exact text it sends (L3). Display only: never part of a key or a decision."""
+        tab = arguments.get("tab")
+        return self.spans.last_typed(grant.task_id, name, tab) if isinstance(tab, str) and tab else ""
+
     async def ask_confirmation(self, grant: RunGrant, rec: Any, needs: list[confirm.Need], span: Any, call: str,
-                               why: str) -> Answer:
+                               why: str, typed: str = "") -> Answer:
         """FERB's own question to the owner, in chat with Yes / No, never through the orchestrator (D33): an owner.ask
         span marked `ferb_question` whose args carry the needs it confirms (`confirm`), and, when given, the call
         span it is about (`for_span`). Yes or No is recorded per need for this task tree (a skipped question is a
@@ -992,7 +1029,7 @@ class Gateway:
         closed by the end of its task, one a correction superseded (L3) or an answer that is neither Yes nor No
         records nothing and isn't Yes."""
         root = rec.tree_id or grant.task_id
-        text = self._ferb_line(needs, call, why)
+        text = self._ferb_line(needs, call, why, typed)
         if self.confirmations is None:
             return Answer(False, error=NOT_RECORDED.format(line=text))
         q_span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
@@ -1834,18 +1871,22 @@ def _unfilled(state: str) -> Literal["denied", "superseded"]:
 CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)
 EARLIER_ATTEMPT = ("This identical action already ran to completion in an earlier call of this task whose result "
                    "didn't reach you; it was not done again. This is that attempt's result.")
-EFFECT_HELP = ("Optional: the kind of change this action makes (send covers posts and form submissions). On a "
-               "click, typing or app input, send, pay, destroy or account_security is how FERB knows the action is "
-               "one, so FERB checks it like one; it never grants permission.")
+EFFECT_HELP = ("The kind of change this action makes, declared truthfully. send: it delivers the owner's message, "
+               "post or email to people or a public audience (a sign-in, search, filter or settings change is edit "
+               "or navigate); pay: the final Pay or confirm control of a payment; destroy: a permanent delete; "
+               "account_security: a password, sign-in, two-factor or recovery change. FERB checks a declared send, "
+               "payment, delete or account-security change like one and asks the owner when it must; a declaration "
+               "never grants permission.")
 DESTINATION_SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "description": ("With effect send, pay or account_security: what the action reaches, as the page or app shows "
-                    "it. recipients: the people a message or email goes to (none for a public post); account: the "
-                    "account it posts, sends or pays from, or whose security it changes; amount: what a payment "
-                    "pays. FERB checks these against the owner's words and any standing permission; they never "
-                    "grant permission."),
+    "description": ("With effect send, pay, destroy or account_security: what the action reaches, as the page or "
+                    "app shows it. recipients: the people a message or email goes to (none for a public post); "
+                    "account: the account it posts, sends or pays from, or whose security it changes; amount: what "
+                    "a payment pays; item: what a delete removes. FERB checks these against the owner's words and "
+                    "any standing permission; they never grant permission."),
     "properties": {"recipients": {"type": "array", "items": {"type": "string"}},
-                   "account": {"type": "string"}, "amount": {"type": "number", "minimum": 0}}}
+                   "account": {"type": "string"}, "amount": {"type": "number", "minimum": 0},
+                   "item": {"type": "string"}}}
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
 
@@ -1859,5 +1900,6 @@ def _shown_args(args: dict[str, Any]) -> dict[str, str]:
 
 def _target_dict(t: Any) -> dict[str, Any]:
     return {k: v for k, v in {"account": t.account, "site": t.site, "recipients": list(t.recipients),
-                              "path": t.path, "amount": t.amount, "contact": t.contact}.items()
+                              "path": t.path, "amount": t.amount, "contact": t.contact,
+                              "page": getattr(t, "page", None), "item": getattr(t, "item", None)}.items()
             if v not in (None, [], ())}

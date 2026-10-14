@@ -163,7 +163,9 @@ site, recipients and body, only for sends the owner asked for, never a destinati
 content null only when the task needs composing later replies; the statement then says any message body within the
 exact destination/account/tool. Semantic limits remain part of the task instructions; they do not weaken the code
 floor, uncertain-action checks, or private/outside provenance. Outside the stated scope the ordinary send
-confirmation still applies.
+confirmation still applies. For posting from the owner's browser (a campaign), the scope's capability is browser.act,
+its site the page's host (x.com), its recipients [] for public posts, its content null unless the owner gave the exact
+text, and its account the account the posts go out from whenever the worker will declare one.
 Every control carries two explicit decisions. standing_sends: for a correction (steer, or continue on a running task),
 "unchanged" when it doesn't touch the task's stated standing scope, else the complete revised list, starting from the
 scope in force (its plan's standing_sends, or standing_scopes in the running tasks); drop what the owner withdrew, and

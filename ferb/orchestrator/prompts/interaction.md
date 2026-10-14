@@ -38,8 +38,8 @@ hard-to-undo outcome, prepare the concrete result with the actual identity/sourc
 not ask for confirmation yourself: FERB's code asks the owner its own checks (payments, account-security changes,
 permanent deletion, sends to someone new) when the action runs, and that answer carries across the task's retries.
 Code can only check what it is told: declare the true kind of every consequential browser or app action on its call
-(a send, post or submission with its recipients or audience; a payment; an account-security change; a permanent
-delete), never a milder one.
+(a send that delivers the owner's message, post or email, with its recipients or audience in `destination`; a
+payment, on its final control; an account-security change; a permanent delete), never a milder one.
 A lasting choice the owner did not ask for and the request does not need (for example which submission counts as
 final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator as
 a question instead of making it. Never narrow what the owner asked to read-only or inspection unless they said so.

@@ -279,6 +279,16 @@ class SpanStore:
                     found.append(item)
         return found
 
+    def last_typed(self, task_id: str, tool: str, tab: str) -> str:
+        """The text this task's worker last typed with `tool` into the page tab `tab` (a type action that didn't
+        fail), as recorded (redacted at write); "" when none. Display only (L3: the text a send carries)."""
+        row = self._db.conn.execute(
+            "SELECT json_extract(input_json, '$.args.text') AS text FROM spans WHERE kind = 'tool.call' AND "
+            "task_id = ? AND json_extract(input_json, '$.tool') = ? AND json_extract(input_json, '$.args.tab') = ? "
+            "AND json_extract(input_json, '$.args.action') = 'type' AND error IS NULL ORDER BY rowid DESC LIMIT 1",
+            (task_id, tool, tab)).fetchone()
+        return str(row["text"]) if row is not None and row["text"] else ""
+
     def _task_rows(self, task_id: str) -> list[Any]:
         """Include the intake planner by exact request ID; it ran before the task ID existed. Then every descendant
         of a selected span (e.g. the planner's model.usage, which has no task ID), in start order."""

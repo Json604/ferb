@@ -33,27 +33,40 @@ class Kind:
 GENERIC_INPUT = frozenset({Kind.CLICK, Kind.FILL_FORM, Kind.MAC_INPUT, Kind.APPLESCRIPT})
 EFFECT_KINDS = {"send": Kind.SEND, "pay": Kind.PAY, "destroy": Kind.DELETE_PERMANENT,
                 "account_security": Kind.ACCOUNT_SECURITY}
-_KEPT_FIRST = {Kind.PAY: 0, Kind.ACCOUNT_SECURITY: 0, Kind.DELETE_PERMANENT: 1}   # one declared kind: the strongest
+ALWAYS_DECLARED = frozenset({Kind.PAY, Kind.ACCOUNT_SECURITY})   # honoured on any acting call, not only an input
+
+
+def declared_kinds(spec: ActionSpec) -> frozenset[str]:
+    """Every kind a call's declarations add: the capability's declared purpose and the agent's declared effect."""
+    return frozenset(k for k in (spec.declared, spec.effect_kind) if k)
+
+
+def declared_of(recorded: Any) -> set[str]:
+    """The declared kinds a tool.call span records (`declared`: one kind as a string, several as a list)."""
+    if isinstance(recorded, str):
+        return {recorded} if recorded else set()
+    return {str(k) for k in recorded} if isinstance(recorded, (list, tuple, set, frozenset)) else set()
 
 
 def declare(spec: ActionSpec, effect: str, recipients: tuple[str, ...] = (), account: str | None = None,
-            amount: float | None = None) -> ActionSpec:
+            amount: float | None = None, item: str | None = None) -> ActionSpec:
     """W2: a generic input checked as the effect the agent declares for it (send, pay, destroy, account_security),
     with the destination it declares added to its target: the account it posts, sends or pays from, a message's
-    recipients, a payment's amount. It only adds: the capability's own kind and target stay, an effect that names no
-    consequential kind or a call that isn't a generic input changes nothing, and when the capability already declared
-    a purpose (mac.click's send or call) the stronger kind is kept (a payment or account-security change, then a
-    permanent delete, then the capability's own). Code reads the declaration only, never the page's or app's words
-    (rule 6). It is the agent's note, never what the call is: P19 hashes the call as the capability described it."""
-    kind = EFFECT_KINDS.get(effect)
-    if kind is None or spec.kind not in GENERIC_INPUT:
+    recipients, a payment's amount, what a delete removes. A payment or an account-security change declared on any
+    other acting call is honoured too (L3 keeps both asks); send and destroy there stay notes (the shell has its own
+    boundaries). It only adds: the capability's own kind, declared purpose and target stay, every declared kind is
+    kept (`declared_kinds`), and an effect that names no consequential kind, or a call that changes nothing, is
+    unchanged. Code reads the declaration only, never the page's or app's words (rule 6). It is the agent's note, never
+    what the call is: P19 hashes the call as the capability described it."""
+    kind = EFFECT_KINDS.get(effect.strip().lower())
+    if kind is None or spec.kind in REVERSIBLE or (spec.kind not in GENERIC_INPUT and kind not in ALWAYS_DECLARED):
         return spec
-    declared = min((k for k in (spec.declared, kind) if k), key=lambda k: _KEPT_FIRST.get(k, 2))
     t = spec.target
     target = dataclasses.replace(
         t, recipients=tuple(dict.fromkeys([*t.recipients, *(r.strip() for r in recipients if r.strip())])),
-        account=t.account or (account or "").strip() or None, amount=t.amount if t.amount is not None else amount)
-    return dataclasses.replace(spec, declared=declared, target=target)
+        account=t.account or (account or "").strip() or None, amount=t.amount if t.amount is not None else amount,
+        item=t.item or (item or "").strip() or None)
+    return dataclasses.replace(spec, effect_kind=kind, target=target)
 
 
 # Reversible kinds never get a ledger row: nothing of the owner's changes.

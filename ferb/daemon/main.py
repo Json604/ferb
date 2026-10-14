@@ -3034,7 +3034,7 @@ class Daemon:
                     "allow_send": sorted(self.gateway.test_send_allowlist or ())}
         allowed = params.get("allow_send", [])
         if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
-            raise FerbError("allow_send must be a list of exact recipient addresses")
+            raise FerbError('allow_send must be a list of exact recipients or "SITE @ACCOUNT" entries for posts')
         next_allowlist = None if params.get("off") is True else set(allowed)
         record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ())}
         self.config.set('test_mode', 'state', record)  # one atomic config write before the running state changes
