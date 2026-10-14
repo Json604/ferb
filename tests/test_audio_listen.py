@@ -1078,3 +1078,32 @@ def test_push_to_talk_checks_and_opens_ferb_app_by_absolute_path(tmp_path: Path,
     Daemon._launch_voice_app(host)  # type: ignore[arg-type]
     assert ran == [["/usr/bin/codesign", "--verify", "--strict", "-R=req", str(bundle)],
                    ["/usr/bin/open", "-g", str(bundle)]]
+
+
+def test_capture_reads_the_format_pyobjc_really_returns(tmp_path: Path, monkeypatch) -> None:
+    """Live (owner, 2026-10-14): PyObjC returns AudioStreamBasicDescription as a plain tuple in struct order, not an
+    object with fields, so every buffer failed ('tuple' object has no attribute 'mFormatFlags') and nothing was heard."""
+    from ferb.act.mac import audio
+    target = _Obj(processID=lambda: 77, bundleIdentifier=lambda: "com.brave.Browser")
+    sck, cm, seen = _fake_frameworks([target])
+    monkeypatch.setattr(audio, "_frameworks", lambda: (sck, cm))
+    monkeypatch.setattr(audio, "_sink", lambda on_buffer: SimpleNamespace(on_buffer=on_buffer))
+    handle = audio.AppAudio().start("com.brave.Browser", 77, tmp_path / "x.wav")
+    # mSampleRate, mFormatID ('lpcm'), mFormatFlags (float|packed|non-interleaved), mBytesPerPacket, mFramesPerPacket,
+    # mBytesPerFrame, mChannelsPerFrame, mBitsPerChannel, mReserved — exactly as CoreMedia gave it on this Mac
+    asbd = (16000.0, 1819304813, 41, 4, 1, 4, 1, 32, 0)
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=100.0), 1)
+    facts = handle.stop()
+    assert "error" not in facts, facts
+    assert facts["sample_rate"] == 16000 and abs(facts["audio_s"] - 0.25) < 1e-6 and facts["peak"] > 0.4
+
+
+def test_a_capture_error_is_never_told_as_paused_or_muted_media(tmp_path: Path) -> None:
+    """A capture that failed on FERB's side says so; it never sends the model off to unmute or replay the media."""
+    import asyncio
+    from ferb.act import listen as L
+    hearing = L.Hearing.__new__(L.Hearing)
+    out = asyncio.run(L.Hearing.transcript(hearing, tmp_path / "none.wav",
+                                           {"audio_s": 0.0, "peak": 0.0, "error": "AttributeError: boom"}, "en-US"))
+    assert out["transcript"] == "" and "muted" not in out["note"] and "paused" not in out["note"]
+    assert "FERB" in out["note"]

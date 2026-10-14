@@ -21,6 +21,7 @@ import struct
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from ferb.act.mac.screenshot import TIMEOUT_S, _wait
@@ -115,6 +116,17 @@ def _done(start: Callable[[Callable[[Any], None]], None]) -> None:
         raise RuntimeError(str(box["e"].localizedDescription()))
 
 
+# AudioStreamBasicDescription's fields in struct order. PyObjC returns the struct as a plain tuple (measured on macOS 26
+# with PyObjC 12: CMAudioFormatDescriptionGetStreamBasicDescription -> (48000.0, 1819304813, 41, 4, 1, 4, 1, 32, 0)).
+ASBD_FIELDS = ("mSampleRate", "mFormatID", "mFormatFlags", "mBytesPerPacket", "mFramesPerPacket", "mBytesPerFrame",
+               "mChannelsPerFrame", "mBitsPerChannel", "mReserved")
+
+
+def _asbd(raw: Any) -> Any:
+    """The stream description by field name, whether PyObjC gives a tuple (it does) or a struct object."""
+    return SimpleNamespace(**dict(zip(ASBD_FIELDS, raw))) if isinstance(raw, tuple) else raw
+
+
 class AudioCapture:
     """One running app-audio stream into one file."""
 
@@ -131,7 +143,7 @@ class AudioCapture:
             return
         try:
             cm = self.cm
-            asbd = cm.CMAudioFormatDescriptionGetStreamBasicDescription(cm.CMSampleBufferGetFormatDescription(buf))
+            asbd = _asbd(cm.CMAudioFormatDescriptionGetStreamBasicDescription(cm.CMSampleBufferGetFormatDescription(buf)))
             block = cm.CMSampleBufferGetDataBuffer(buf)
             got = cm.CMBlockBufferCopyDataBytes(block, 0, cm.CMBlockBufferGetDataLength(block), None)
             data = bytes(got[1] if isinstance(got, tuple) else got)

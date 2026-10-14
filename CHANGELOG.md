@@ -17,6 +17,11 @@ The fixes from the owner's first days of daily use, before the public launch on 
 task had a fresh reviewer. Not installed and not live-tested yet (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch week").
 Commits: those after `6d613a4` on `astra_resume`.
 
+**Live fix (owner's first live use, 2026-10-14):** hearing captured nothing on a real Mac. PyObjC returns the audio
+stream description as a plain tuple, not an object with fields, so every buffer failed ("'tuple' object has no
+attribute 'mFormatFlags'") and the model was told the media might be paused or muted. FERB now reads the tuple by
+field order, and a capture error says it is FERB's problem, never the media's.
+
 Fewer questions (L1–L5, L24):
 - Shell and browser reach any site without asking. The proxy still records every host, and the full answer ends with
   "Sites contacted: …". This replaces the per-host (2026-10-10) and per-command (2026-10-11) shell questions; in the

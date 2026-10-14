@@ -30,6 +30,8 @@ from ferb.sense.transcribe import Transcriber, redacted
 FOLDER = "audio"                     # under FERB's workspace
 NO_SOUND = ("no sound was captured: the media may be paused or muted, or the app played nothing; check the snapshot's "
             "media state, play or unmute with browser_media / ferb_browser_media, then listen again")
+CAPTURE_FAILED = ("FERB couldn't capture this app's sound (a problem on FERB's side, not with the media): don't replay or "
+                  "unmute the media for it; say in the answer that the sound couldn't be heard")
 
 
 @dataclass
@@ -136,6 +138,8 @@ class Hearing:
     async def transcript(self, path: Path, facts: dict[str, Any], language: str | None,
                          offset: float = 0.0) -> dict[str, Any]:
         """The redacted transcript and segments for a finished capture; no sound: an empty one and a note."""
+        if facts.get("error") and (not facts.get("audio_s") or not facts.get("peak")):
+            return {"transcript": "", "segments": [], "on_device": True, "note": CAPTURE_FAILED}
         if not facts.get("audio_s") or not facts.get("peak"):
             return {"transcript": "", "segments": [], "on_device": True, "note": NO_SOUND}
         t = await self.transcriber.transcribe(path, language)
