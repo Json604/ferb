@@ -57,7 +57,7 @@ What makes it different (each claim checked in code and docs):
   (`ferb/memory/`). Honest note: learning only started working reliably with the launch-week fix L16.
 - **Secure by design.** Trust, record, recover (L1): a small set of code-enforced questions, everything recorded,
   FERB's own file changes recoverable. Secrets travel only through a sealed path.
-- **Open source.** Public on 2026-10-21. (Known limit: no LICENSE file exists in the repository yet; see §6.)
+- **Open source.** Apache-2.0 licensed; the repository goes public on 2026-10-21.
 - **Your existing subscription.** Codex and Claude runtimes bill the owner's subscription; API runtimes bill per
   token (`ferb runtimes` labels each).
 
@@ -818,8 +818,6 @@ Real uses from the owner's traces (no private contents), with status.
 ## 6. Known limits and honest caveats (consolidated)
 
 Release and distribution
-- **No LICENSE file** is in the repository and `pyproject.toml` declares no license. One must be chosen before the
-  repo is called open source on 2026-10-21.
 - The DMG is ad-hoc signed: first open needs "Open Anyway"; permissions may need re-granting after updates; the
   quarantined-launchd question is untested. Developer ID signing and notarization come after launch.
 - No auto-updates; no in-app onboarding or settings beyond the setup console and sound settings.

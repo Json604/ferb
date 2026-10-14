@@ -3,6 +3,8 @@ name = "ferb"
 version = "0.27.0.dev1"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 dependencies = [
     "claude-agent-sdk==0.2.160",
     "cryptography==50.0.1",

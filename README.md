@@ -466,3 +466,8 @@ a semantic classifier for arbitrary GUI input or shell programs.
 The [baseline comparison report](docs/0.27_BASELINE_COMPARISON.md) preserves the saved F0 measurements and
 marks the new installed-run results unavailable until owner acceptance. `ferb release-checklist` includes
 the complete prepared procedures from the 38-case security catalogue alongside the target-task checks.
+
+## License
+
+FERB is licensed under the [Apache License 2.0](LICENSE). Retained third-party attributions are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
