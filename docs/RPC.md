@@ -49,7 +49,11 @@ that element's state (`playing`, `current_time`, `duration`, `muted`, `volume`, 
 it refused). Each snapshot frame lists its media elements' state under `media`. The daemon refuses an extension on
 another protocol, so the daemon and extension update together; the extension version is unchanged.
 
-`doctor.check` also returns `hearing` (L26): `installed` (FERB.app), and when probed `signed` (matches the signature
+`doctor.check` also returns `runtimes.limits` (L28): per role, the runtime and model with its documented
+`context_window`, `max_output`, `context_budget` and `source`, or a `problem` when the window is unknown (the planner
+then fails explicitly). `containment.local_reports` is the state of the kernel-report stream for pinned local ports
+(L24), or null when no port is pinned. `doctor.check` also returns `hearing` (L26): `installed` (FERB.app), and when
+probed `signed` (matches the signature
 setup recorded) and FERB.app's own `speech` permission state, `on_device` support and `locale`. It probes by default,
 or with `selftest: false` only when `hearing: true` is passed; probing starts FERB.app in the background and never
 prompts.
@@ -75,6 +79,9 @@ prompts.
 | `recovery.list` | `{}` | What FERB can put back (S1), newest first: `{days, total, trash_days, records}`; at most 100 records, `total` counts all; a record has `needs_owner: true` when what fs.trash left in the Trash isn't what it checked (restore refuses it) |
 | `recovery.restore` | `{id: record_id_or_unique_prefix}` | Puts one back, never over a change made since: `{id, kind, original, restored_to, in_place}`; journaled `recovery.restored` |
 | `timeline.get` | `{since?: ISO timestamp}` | Complete matching journal entries, chronological |
+| `schedules.change` | `{id, action: "cancel"\|"pause"\|"resume"}` | `{text}` in plain words; cancel and pause also withdraw the standing scope recorded with that schedule from every task holding it (journaled `standing.revoked`) |
+| `memory.learning` | `{op: "digest"}` (among other ops) | `{digest}`: the day's pending identity proposals, once a day, recorded as seen; the notch app shows them with Confirm (`op: "confirm"`) and Not right (`op: "retire"`) |
+| `test.mode` | `{status: true}`, `{allow_send: [entry,...]}` or `{off: true}` | `{enabled, allow_send}`; an entry is an exact recipient, or `"SITE @ACCOUNT"` (a bare `"SITE"` for a post that declares no account) for a declared post on a page of that host from that account, never a payment; a URL-shaped entry is refused. Saved in config, so it survives a restart; journaled `test.mode` |
 | `logs.subscribe` | Optional `filters` list and `maxsize` queue bound | `logs.subscribe.event` notifications; overflow is explicit |
 
 `chat.send` events contain a `type`; examples include ack, plan, progress/tool events, verification, approval/question,
@@ -135,7 +142,14 @@ never by the planner's text: a `reply`/`clarify` gets them appended to
 `text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
 do), and the outcome's `answer` and `display_text` carry every line. A `timer` event for a reminder just set carries
 its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply names the change
-("Switched to: …").
+("Switched to: …"). A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
+change anything:", its steps, estimates and standing scopes); work has already started, and a reply is a correction
+(L3). A correction that changes a standing scope says so in its reply ("For this task I'll now send these without
+asking each time: …"); a narrower scope applies at once, a wider one only once that reply is out. On a run nobody
+started from chat (a scheduled run, or a plan resumed after a restart) nothing new or wider is granted: the reply lists
+those scopes under "These weren't set up with you, so they aren't covered: …". A schedule's
+confirmation lists the standing scopes recorded with it and those not recorded (their destination isn't in the
+owner's typed words).
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.
@@ -203,7 +217,8 @@ unknown) or `conversation.approve` (F9, a delegated conversation's scope). They 
 reply could answer more than one open question (or the planner's own pending question), FERB asks which one in plain
 words (a `clarify`). A
 spoken transcript (`voice.transcript`) is a chat turn the same way (`{"handled": "request"}`), except while a secret
-question waits. `approval.resolved` may carry `state: "superseded"`: the owner's correction changed what the
+question waits (the old `voice.question_selection_required` topic is gone). `approval.resolved` may carry
+`state: "superseded"`: the owner's correction changed what the
 question was about (only questions the planner names as changed), or its task was stopped. Superseded is not a No;
 clients remove the question. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending
 questions never expire (L3): a question stays open while its task waits and closes when it is answered or its task

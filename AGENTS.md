@@ -26,6 +26,8 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
 - **"Codex astra" / "code astra" means the Codex CLI running the `gpt-6-astra` model**, never an editor plugin.
 - **The owner's north star:** an agent that controls the Mac the way the owner can, in the background, and keeps
   learning by doing.
+- **The app is the product** (owner, 2026-10-14): the notch app / FERB.app is the main interface; the CLI is a
+  development and power-user tool (CLAUDE.md rule 18).
 
 ## How milestones are built
 
@@ -44,7 +46,8 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
 4. **Rulings.** The controller (the agent running the plan) decides conflicts and ambiguities instead of stalling,
    and records each in the ledger as `Ruling: <what> — <why> — <what it costs if wrong>`. It stops only for an
    owner decision, an irreversible or security-sensitive action, or a plan too broken to follow.
-5. **Push** `astra/0.27-upgrade` after each task passes review (never merge, never force-push).
+5. **Push** `astra_resume` after each task passes review and is integrated (CLAUDE.md rule 1: never force-push;
+   it becomes `main` only with the owner's confirmed commands).
 6. **After all tasks:** one whole-branch review on the most capable model, one fix wave, then the owner installs
    (`ferb setup --update`, run by the owner) and runs the live checks listed in `docs/OWNER_ACCEPTANCE.md`. The
    owner's verdict and sign-off are recorded there.
@@ -63,45 +66,44 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
   `review-package PLAN BASE HEAD` writes the commit list, stat and diff for a reviewer.
 - **Live results and pending checks:** `docs/OWNER_ACCEPTANCE.md`.
 
-## Where things stood on 2026-10-10 (handoff point)
+## Where things stood on 2026-10-14 (launch week)
 
-**Done and signed off:** F0–F4 (owner sign-off recorded in `docs/OWNER_ACCEPTANCE.md`).
+**Done and signed off:** F0–F4 (owner sign-off in `docs/OWNER_ACCEPTANCE.md`). F5–F10 were built and installed
+(2026-10-11) with full offline validation; their owner live acceptance is still pending.
 
-**In progress: F5a, containment and confirmations.** Plan `docs/superpowers/plans/2026-10-10-f5a-containment.md`;
-ledger `.superpowers/sdd/2026-10-10-f5a-containment/progress.md` (read it first: every ruling, residual and parked item).
-F5 was split: F5a (this plan) and F5b (secret classes and redaction, screenshot redaction, the start-of-task screenshot
-to the model, Jev's destructive classifier in shadow, then Full Disk Access by default), planned after F5a.
+**Launch-week fixes (L1–L28), integrated on `astra_resume`, not yet installed or live-tested.** Spec
+`docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md` (owner-approved 2026-10-13, with L25–L28 added at
+approval and on 2026-10-14); plan `docs/superpowers/plans/2026-10-13-launch-week-fixes.md`; ledger
+`.superpowers/sdd/2026-10-13-launch-week-fixes/progress.md` (read it first: every dispatch, ruling, residual and
+parked item, plus each task's report and the integration reports). Tasks 1–18 and 20–22 and the UI follow-ups
+U7b, U8 and U9 are reviewed and integrated; Task 19 is these docs. What landed, in short:
+- questions: FERB asks only for money, account security, permanent deletion and sends to someone new outside a
+  standing scope (plus S4, D31, P19); shell and browser reach any site, recorded and listed in the answer; answers
+  are routed by question id in the owner's own words; questions never expire; big-job plans are stated, not blocking;
+- chat: the daemon's instant ack, the plan line, one live line, late answers at the bottom, notices in chat, inline
+  questions, and every event carrying `request_id` and `at`;
+- seeing and hearing: the front window with every message, browser windows and recordings redacted instead of
+  refused, `audio.listen` during tasks with on-device transcription;
+- context: the planner uses each model's real window with the situation first (Codex model `gpt-5.6-sol`);
+- broken features: learning, typed text, choice answers, Codex account errors, waits after sleep, the inventory walk;
+- distribution: one ad-hoc signed FERB.app in a DMG (the daemon runs as the agent app FERB), extension auto-install
+  requests and the Chrome Web Store kit, the launch campaign path through standing permissions and schedules;
+- the license is Apache-2.0.
 
-| Task | State |
-|---|---|
-| 1 Protection lists, `file_paths` gate | complete (ac5dbfd, b24eeb3, d439801) |
-| 2 Shell sandbox (sandbox-exec) | complete (10453cd, 66a1dcd, b2d41ef) |
-| 3 Egress proxy | complete (96cf41d, 4bfd429, 4b27714), plus a small follow-up "T3b" once the owner answers Q1–Q2 below |
-| 4 Code-floor confirmations, sink rule, known destinations | complete (19318d3, 8aee147, eaa9000, 3ec05d4) |
-| 5 Sinks that are not sends (shell destinations, URLs) | rounds 1–3 pushed (54cffba). Fix round 4 (fresh implementer, strongest model) dispatched from `.superpowers/sdd/2026-10-10-f5a-containment/task-5-round4-brief.md`: browser-matching IDNA (a `meßenger.com` look-alike bypass), punycode labels, numeric IPv4, named hosts via the new parser, and the owner's 2026-10-10 answer (a host the tree reached before it first read outside content stays allowed). If the ledger shows no `fix round 4 —` commit, re-dispatch from that brief; then a scoped re-review. |
-| 6 Escape hatch (D31) | not started |
-| 7 Worker permission model (W1, W2, W4, D36) | not started |
-| 8 Security suite (offline replays, live P0 set, test-mode send switch, overhead in `ferb stats`) | not started |
-| 9 Docs, registry, "0.27 F5a — pending live checks" | not started; must also record the owner decisions and residuals listed in the ledger |
+**Pending, in order:**
+1. The whole-branch final review on the most capable model, then one fix wave (the Task 7+18 and Task 21
+   integration follow-ups are in, up to `6ac9fb5`).
+2. The owner installs: `ferb setup --update` (run by the owner) and a rebuilt notch app, or FERB.app from a DMG.
+3. The live week: the owner runs the checks in `docs/OWNER_ACCEPTANCE.md` ("0.27 launch week") and records
+   `ferb verdict TASK pass|fail`; the campaign's first posts run supervised under test mode.
+4. Chrome Web Store approval of the extension (0.15.2 was submitted on 2026-10-14; the launch build needs 0.15.3 /
+   protocol 14 uploaded, then `[browser] store_extension_id` or `STORE_EXTENSION_ID` set).
+5. After launch (2026-10-21): git cleanup, `astra_resume` becomes `main` and the other branches go, with the exact
+   commands confirmed with the owner (L14); then the phase-2 security design (spec section 6).
 
-**Owner decisions:** the owner answered all four questions below "recommended" on 2026-10-10 (recorded in the ledger),
-plus a fifth (keep hosts the tree reached before its first outside read allowed for that tree — in the round-4 brief);
-apply them as described:
-1. Local servers (dev server, Ollama): FERB's shell can't reach programs already listening on the Mac; add a
-   `[protection]` list of local ports the owner allows, each pinned to the listening program's executable, connections
-   recorded. → T3b.
-2. macOS's certificate service (trustd) can fetch a URL planted in a certificate outside the proxy: deny it in the
-   shell profile by default, liftable per exact command by the escape hatch (Task 6); Go tools (gh, docker, kubectl)
-   then need that one approval. → T3b (+ Task 6 rule id).
-3. Shell egress after outside content (Task 5 review finding C1): code can't tell what a shell command read, so once a
-   tree has read outside content, a shell connection to a host neither known nor named is refused, then asked once per
-   host (Yes remembered for later tasks; No final for the tree). → Task 5 round 3.
-4. Records labelled both outside and private (owner-browser pages, Mail/Messages) count as the owner's data for the
-   URL sink (already built that way in 3c4d125; a one-line switch if the owner says otherwise). → Task 5.
-
-**Process notes:** From 2026-10-10 the owner's Opus/Sonnet weekly pool is exhausted; all agent dispatches run on
-Fable (its own weekly pool) until the pool resets Thursday. the earlier owner answers ("all recommended" to F5a's eight questions; agents FERB starts run inside
-the sandbox with their own sandbox off) are in the ledger. Residuals for owner acceptance accumulate in the ledger and
-go into Task 9's live-check list. Five `test_orchestrated_control` tests fail only when the tiktoken o200k_base cache is
-absent (pre-existing, parked for the final review). The installed daemon still runs F4 + live fixes; nothing of F5a is
-installed until the owner runs `ferb setup --update` after F5a's final review.
+**Process notes:** commits between the first Task 22 pick (`9db0a5a`) and `906cb61` are not green on their own (the
+fixture fix is `1af6731`): never install from them, and skip that range in `git bisect`. Parked for the final
+review: two load-sensitive tests (`test_downloads` concurrent-transfer timing, `test_acceptance_one_worker::test_3`)
+that passed when rerun alone, a `ShadowDecider._drain` teardown warning in `test_mac_shell`, and the five
+`test_orchestrated_control` tests that fail only without the tiktoken o200k_base cache (from F5a). Real tests use the
+Codex runtime only. The F5a handoff state of 2026-10-10 is in Git history and its own ledger.

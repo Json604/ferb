@@ -1,13 +1,14 @@
 # FERB
 
-FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchestrator assigns workers, answers their
-questions from context and changes approach when needed. Agents interpret your request and decide what actions it
+FERB is a personal assistant for macOS. Talk to it from its notch app (FERB.app); `ferb chat` is the same
+conversation in a terminal, for development. Its orchestrator assigns workers, answers their questions from context
+and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
 Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 passed combined checkout
-validation; owner live acceptance remains pending. The running installation is separate from this checkout;
-the owner installed the prerelease and authorized the subsequent update repair. Earlier F0–F4 owner verdicts
-remain in the acceptance record.
+validation; owner live acceptance remains pending. The launch-week fixes (L1–L28, 2026-10-13/14) are integrated
+here and not yet installed or live-tested. The running installation is separate from this checkout. Earlier F0–F4
+owner verdicts remain in the acceptance record.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -61,11 +62,26 @@ run it when existing work can be interrupted. The development environment and in
 Updates check existing grants in the running daemon and acknowledge them even when an older setup version was
 recorded. Only missing or unknown grants are reported as deferred; updating does not open permission dialogs.
 
-Chrome and Brave need FERB extension **0.15.1** (protocol 12); downloads without a Save dialog need it. After pulling
-it, run `ferb setup --update` to republish the managed bundle; a managed install reloads it when idle, and an older one
-is refused with a reload notice. Prepare its managed folder with `ferb browsers extension install`;
-`ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
-unpacked from `~/.ferb/extensions/chromium`, once per profile. Pair with:
+### Browser extension
+
+FERB's browser hands are its extension, **0.15.3** (protocol 14); the daemon refuses an older protocol with a reload
+notice. `ferb setup` (and `--update`) handles it for every Chromium browser it finds (Chrome and its Beta, Dev and
+Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
+- it registers FERB's native host in each browser's folder;
+- once FERB's Chrome Web Store listing is live, it asks each browser to install it from the store (documented for
+  Chrome and Chromium; written but unconfirmed for Brave and Edge; not possible for Vivaldi, Arc and Opera). The
+  browser installs it at its next start and asks you to turn it on in each profile; setup says which browsers to
+  reopen. Setup never restarts a browser, approves its prompt or edits its preferences;
+- it reports, per profile, whether the extension is installed, enabled and paired.
+
+The listing is waiting for Chrome Web Store review (0.15.2 was submitted on 2026-10-14; 0.15.3 has to be uploaded
+before the store copy works with this build). Until then, and in browsers without the store request, setup prints the
+Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers extension path`
+prints it), enable Developer mode in the browser's extensions page and Load unpacked from
+`~/.ferb/extensions/chromium`, once per profile. When the listing is live, put its id in `~/.ferb/config.toml`
+(`[browser] store_extension_id = "<id>"`) and run `ferb setup --update`. `ferb browsers extension package --out DIR`
+builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads
+it when idle. Pair with:
 
 ```sh
 ferb browsers pair --browser chrome "scaler"
@@ -127,21 +143,39 @@ browser reads the file again when the form is submitted) or until FERB next star
 form still open in such a tab no longer has its file to send.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
+Push-to-talk recognizes speech on this Mac only: where on-device recognition isn't available it says so and doesn't
+listen.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.
 `ferb setup --jev` configures optional memory/activity enrichment; it does not decide task permissions.
 
 F7 development adds passive app/Accessibility events, redacted typed fields and clipboard text (seven-day content
-retention), notification observation under Full Disk Access, and installed-software facts. Notification triage stays
-in shadow until measured with you; now-playing and two-app Accessibility acceptance are still pending. See the
+retention), notification observation under Full Disk Access, and installed-software facts. Typed text is captured per
+field again since the launch week; it is never captured from password fields (shown passwords included), while
+Secure Input is on, or in terminal apps. Notification triage stays in shadow until measured with you; now-playing and
+two-app Accessibility acceptance are still pending. See the
 [F7 checklist](docs/OWNER_ACCEPTANCE.md#027-f7-perception--pending-owner-acceptance) before treating these as live-proven.
 
 ## Everyday use
 
-The native notch frontend in `ui/` (`ui/mac/FERBNotch`, built with `./build.sh`) uses the same local daemon socket as the CLI.
-Its integration covers task progress, identified questions and approvals, hidden secret input, stop, selected file
-sources and actual task artifacts. See the [RPC contract](docs/RPC.md) for attachment capability negotiation and
-reconnect behavior. Native dictation uses the microphone button or right Command + Option and places the transcript
-in the composer for review. The separate voice app is optional. Live microphone/device-switch acceptance remains pending.
+The app is the product: the notch app's source is in `ui/` (`ui/mac/FERBNotch`; a development build with `./build.sh`
+there, the packaged app with `scripts/build-app.sh`). It uses the same local daemon socket as the CLI. See the
+[RPC contract](docs/RPC.md) for its events and reconnect behavior. In its chat:
+- a short acknowledgement ("Got it.", "On it.") appears as soon as you send, then the plan line when FERB has a plan,
+  then one live line with the current step ("reading github.com", "writing notes.md") and the time elapsed, until the
+  answer arrives;
+- an answer to an earlier message that arrives after a newer one appears at the bottom, quoting your question, and
+  the earlier message says "Answered below";
+- FERB's questions appear inline and you can keep typing; reply in your own words ("yes", "the payment one"), or use
+  the question's own buttons; a hidden field for a password or code takes focus only when you click it;
+- notices (something FERB noticed on your Mac) appear as FERB messages with a small "noticed" tag; outside text they
+  repeat is shown as a quote with where it came from;
+- a verified answer shows a small check mark;
+- FERB steps aside while its file picker, another app's menu over the notch, or (pinned) an app you bring forward under
+  the chat needs the space; hover the notch or use the shortcut to bring it back.
+
+The app's history keeps the message as FERB stored it (secret values replaced), never the raw text, and never your
+unsent draft. Native dictation uses the microphone button or right Command + Option and places the transcript in the
+composer for review. The separate voice app is optional. Live microphone/device-switch acceptance remains pending.
 
 ```sh
 ferb chat                         # resumes the last conversation
@@ -193,6 +227,12 @@ A task ends in one of three results, each its own status:
 - **failed**: the work didn't finish, a check found a condition false, or FERB judged that it failed. The answer gives
   the real reason; `ferb trace` shows `failed ✗`.
 
+For an unfinished task the short answer starts with FERB's status line, then says in plain words what was delivered
+(with paths and links), what isn't confirmed and what you can do; the checker's findings stay under Details. There is
+no "Verified." text prefix (the app shows a check mark). When the task reached any website, the full answer ends with
+"Sites contacted: …", built by code from FERB's records. A correction you send after an answer ("too LinkedIn-ish")
+re-plans the same task with the new goal.
+
 "Unverified" appears only beside a condition a check ran on; the status itself reads "not confirmed". If the work
 stopped before any check, the answer says "I couldn't finish this task." and lists what is "Still to do". `ferb stats`
 counts the three apart ("done N (x%), not confirmed N (y%), failed N (z%)"), `ferb baseline` records them as `done`,
@@ -218,7 +258,10 @@ Before FERB overwrites or edits one of your files with its file tools, it keeps 
 while it is still there. `ferb restore` lists what it can put back, newest first, with an id; `ferb restore ID` puts one
 back. A copy goes back in place only if the file is gone or unchanged since FERB wrote it; if you changed it since, your
 version stays and the earlier one is saved beside it as "<name> (before FERB)<ext>". A trashed item moves back without
-replacing anything ("<name> (restored)<ext>" beside whatever is there now). Before bulk work an agent may take a local
+replacing anything ("<name> (restored)<ext>" beside whatever is there now). FERB moves items into and out of the Trash
+only between folders it holds open: if what landed in the Trash isn't what FERB checked, it stays there and
+`ferb restore` says so instead of moving it (look at it in the Trash and move it yourself if it's yours). Finder's
+"Put Back" isn't offered for items FERB trashed; use `ferb restore`. Before bulk work an agent may take a local
 disk snapshot (at most one per 15 minutes; FERB deletes its own after 7 days). FERB can't open a snapshot itself (that
 needs admin rights); you can, from macOS Recovery or Time Machine. File changes FERB makes through shell commands or
 AppleScript get no per-file copy.
@@ -287,9 +330,12 @@ still require fresh account/contact reads and a checker: their metadata alone ca
 Incoming text never changes the approved task. A lead is handed over with evidence and action receipts; an unknown
 send stays unknown until observed or its retry is explicitly approved.
 
-Ordinary activity can produce a sourced owner notice; it cannot create a task. Notification triage remains in
+Ordinary activity can produce a sourced owner notice; it cannot create a task. When Jev (optional, `ferb setup --jev`)
+flags a moment, FERB considers it once per app, with your relevant memory, the recent chat, running tasks and the
+notices already told, and posts what happened and what it means in chat. A macOS banner is used only when no FERB
+client is showing notices. Posting a notice counts as telling it, so it isn't repeated. Notification triage remains in
 shadow pending measured owner acceptance. Chat can save an owner-quoted app/chat/topic mute; `ferb notifications`
-shows rules and labelled measurements. Notice receipts are marked delivered after the CLI displays them.
+shows rules and labelled measurements.
 
 ## Privacy and debugging
 
@@ -298,17 +344,22 @@ shows rules and labelled measurements. Notice receipts are marked delivered afte
 Memory retrieval, activity search and registry search supply relevant context each turn. Forgetting source-backed
 memory removes its corresponding daily-log copies too. This is single-device context, not cross-device sync.
 
-Sensing records app/window/tab metadata and configured folder events, not keystrokes, clipboard or continuous
-screenshots. Exclusions and pause apply before storage. Task tools can explicitly capture windows for the model.
-The first successful observation of the app or task-owned browser tab supplies one working-window picture to the
-model; later pictures require an explicit screenshot request. AX password rectangles and on-device Vision OCR mask
-classified secrets before images reach a model, evidence file or recording. If redaction is unavailable, pixels are
-withheld. Browser app windows remain excluded: use the exact task tab. OCR can miss unreadable/obscured text; this is
-class-based redaction, not a guarantee that all private text is removed.
+Sensing records app/window/tab metadata, configured folder events, typed text per field and clipboard text (both
+redacted, kept seven days), never continuous screenshots. Exclusions and pause apply before storage.
+With every message you send, FERB captures your front window (the topmost window that isn't FERB's own): the app,
+its title, a browser's front tab, and one redacted screenshot of that window. The planner sees it with your message
+and can answer a question about your screen from it; the worker for that message starts from the same picture. The
+hosted model therefore sees your front window, redacted, with every message. An app on your exclusion list is not
+looked at or named; a site on it is still seen, under an "excluded" label. Later pictures need an explicit screenshot
+request. Browser windows, task-tab screenshots and recording frames all go to the model redacted: password and code
+fields (shown passwords included) are painted over, and on-device Vision OCR masks classified secrets before an image
+reaches a model, evidence file or recording. An image is withheld only when masking or redaction fails. OCR can miss
+unreadable/obscured text; this is class-based redaction, not a guarantee that all private text is removed.
 `browser.secret` and `mac.secret` ask through hidden CLI input and fill only the exact origin/app and element.
 They can offer to remember a specific item in Keychain; the prompt names the handle and bound destination. Models
 receive only handles and fill facts. Login codes, including recognized split numeric boxes, use sealed browser fills.
-A code accidentally entered in an ordinary code-related question is redacted before the answer is recorded.
+A choice you pick (a "1" for SMS) is never treated as a secret. A code typed into an ordinary question that asks for a
+code is hidden for that answer, but only codes entered through the hidden input are remembered as secrets.
 Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 FERB's shell and its AppleScript run inside a macOS sandbox built from `[protection]`. It can't read the credential
@@ -317,14 +368,17 @@ start background jobs, and can't send Apple Events to other apps. Neither can an
 included.
 
 Its only way to the internet is FERB's egress proxy, which records each host, port and byte count per command (never
-the page, path or query). Output from a command that reached a site is labelled with that site. Programs that ignore
-the proxy settings get no network, and `ssh` doesn't work.
+the page, path or query). Shell and browser reach any site without asking; every site is recorded and listed in the
+answer. Output from a command that reached a site is labelled with that site. Programs that ignore the proxy settings
+get no network, and `ssh` doesn't work. FERB's shell can't write any Trash folder: only FERB's own Trash tool and
+`ferb restore` move things in and out.
 
 Existing local listeners are blocked by default. To approve one, add an entry such as
-`local_ports = [{port = 11434, executable = "/absolute/path/to/server"}]` under `[protection]`. Each connection goes
-through the authenticated proxy, which checks the listening and connected process executable and records the actual
-address/executable. HTTP proxy clients can use normal localhost URLs; proxy-unaware protocols need a proxy-capable
-client. Raw direct access to configured ports stays blocked. Servers started inside FERB's containment still work.
+`local_ports = [{port = 11434, executable = "/absolute/path/to/server"}]` under `[protection]`. HTTP proxy clients use
+normal localhost URLs through the authenticated proxy, which checks the listening and connected process executable and
+records the actual address/executable. A command can also connect directly (psql, redis-cli) when every listener on
+that port runs the pinned executable as the command starts; those connections are recorded from the kernel's own
+reports (a lower-bound count, no bytes). Servers started inside FERB's containment still work.
 
 `mac.applescript` runs under a second profile with the same file, network and Keychain rules but keeps Apple Events,
 so a script you have it run can drive apps you have authorized FERB to automate (Finder, for example).
@@ -346,7 +400,8 @@ checkers remain observation-only. `shell.send` records input as FERB's; `mac.cli
 
 `fs.disk_usage` reports metadata sizes without opening file contents. `ferb stats` reports shell startup-to-output/exit
 latency, destinations/refusals, confirmation counts and escapes. Daily summaries include a security digest. Test
-regressions enable a send allowlist (`ferb regress SET --allow-send EXACT_RECIPIENT`) and clear it afterward.
+regressions enable a send allowlist (`ferb regress SET --allow-send EXACT_RECIPIENT`, or `"SITE @ACCOUNT"` for a
+post) and clear it afterward.
 
 If the sandbox can't run, those tools are off and `ferb doctor` says why. `shell.rules` lists the rules.
 Before each shell command FERB takes a local disk snapshot (at most one per 15 minutes; a recent one is reused). If
@@ -355,17 +410,32 @@ none can be taken the command still runs, and `ferb doctor` shows the last failu
 FERB itself asks you, in chat, before some steps run. FERB's own checks start with `FERB:` and offer Yes or No. A
 task's question always reads "Question from the task: …". A task's option, and a line of a plan, reply, question or
 answer the task wrote, that starts with "FERB" (ignoring case, spaces and punctuation) has "(from the task)" in front.
-Letters from another alphabet that only look like "FERB" aren't caught in those chat lines; a "yes" you type in chat
-never stands in for one of FERB's checks. FERB's question names the exact step (Enter counts as No):
-- a payment or a change to a password, sign-in or recovery setting: always;
-- a permanent delete of something you didn't name, or a message or call to someone you didn't name, or to a contact
-  it can't name ("Rahul" names "Rahul Verma"; typed in lower case, only the full name counts);
-- sending to a place you haven't named after the task read your own files and outside content;
-- a recipient, number or amount that only outside content (a page, an email, a message, text you pasted) supplied.
+Letters from another alphabet that only look like "FERB" aren't caught in those chat lines. Answer in chat in your own
+words: a plain "Yes" or "No" answers one of FERB's checks only when FERB can tell which question it is for; if it could
+answer more than one, FERB asks which. FERB asks only for these (Enter counts as No in the terminal):
+- money: a payment, always;
+- account security: a change to a password, sign-in or recovery setting, always;
+- a permanent delete of something you didn't name (a folder shows its count, size and a sample);
+- sending as you to someone new: a message, post or call to someone you didn't name, or to a contact it can't name
+  ("Rahul" names "Rahul Verma"; typed in lower case, only the full name counts), unless a standing permission covers it;
+- private data going somewhere you didn't name: sending to a place you haven't named after the task read your own
+  files and outside content, a link carrying one of your actual private values, or a recipient, number or amount that
+  only outside content (a page, an email, a message, text you pasted) supplied;
+- installing a tool you named that isn't installed (asked once);
+- an escape-hatch command, and a retry of a step whose outcome is unknown.
 
-You're asked once per task: your answer carries across its retries, and a No stops that step for the task. A recipient
-or place you named, chose in an answer, or said Yes to is known from then on and isn't asked about again. A scheduled
-run doesn't take such a step, since nobody is at chat to answer.
+A big job's plan doesn't wait: FERB states the plan, its estimate and any standing permission in the plan line and
+starts; reply to change it. You're asked once per task: your answer carries across its retries, and a No stops that
+step for the task (when you yourself ask FERB to retry or continue, it asks that one again once). A question stays
+open while its task waits; it never expires. A recipient or place you named, chose in an answer, or said Yes to is
+known from then on and isn't asked about again. A scheduled run doesn't take such a step, since nobody is at chat to
+answer, except a send inside a standing permission recorded with the schedule.
+
+For a scheduled campaign (posts at set times), say the exact site and handle when you create the schedule, for
+example "every day at 9, post the next launch update on x.com from @handle": FERB records a schedule's standing
+permission only for destinations in words you typed ("X" isn't "x.com"), and its confirmation lists what it recorded
+and what each run will still ask about. A correction to a run can narrow that permission but never widen it, and
+cancelling or pausing the schedule ends it.
 An oversized unfinished record may be replaced by an explicit redaction marker.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
@@ -381,6 +451,27 @@ Start with `ferb doctor` and `ferb trace TASK --full` when something fails. Doct
 runtime prompts and extension resources with the checkout. Connection errors, provider errors, watcher failures,
 planner/dispatch decisions and cleanup failures should remain visible. Background input depends on the app and OS;
 no automated test proves that the owner experienced no disturbance.
+
+## Current limitations
+
+- Nothing from the launch week (L1–L28) is live-tested yet; the pending checks are in
+  [owner acceptance](docs/OWNER_ACCEPTANCE.md).
+- FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
+  update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is
+  untested. Developer ID signing and notarization come later. The app is about 666 MB.
+- The Chrome Web Store listing isn't live yet; until it is, each profile needs Load unpacked. Brave and Edge may ignore
+  the store install request; Vivaldi, Arc and Opera always need Load unpacked.
+- Trust, record, recover: after reading a malicious page, the shell could send one of your files somewhere. It is
+  recorded, not prevented, until the planned per-task folder scope.
+- A private value that is a plain word (an email's local part, a username) in a link no longer asks; outside text
+  inside FERB's own records (window titles, notification previews) no longer counts as outside content.
+- A browser post, webmail send or payment is checked only when the worker declares it (`effect`); code can't detect an
+  undeclared one.
+- The hosted model sees your front window, redacted, with every message. Redaction covers secret classes, not all
+  private text.
+- Hearing is per app, so a browser is heard whole; the sound must play for FERB to hear it.
+- Notices need the optional Jev service; notification triage is shadow only.
+- The terminal chat shows no live progress line.
 
 ## Development and documentation
 
@@ -402,10 +493,22 @@ native window selected by a fresh screenshot (`mac.record`). Captures stay bound
 including when you use another app. They never fall back to capturing the whole display or raising a window.
 An unsupported or lost capture route returns a concrete error/partial result.
 
-These are silent sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task
-replays, not high-frame-rate video or audio recording. They need `ffmpeg` and `ffprobe` installed; FERB searches PATH
-and the usual Homebrew/user binary folders. Browser capture requires extension 0.15.1 / protocol 12; native capture
-requires macOS Screen Recording access and the target window to remain capturable.
+These are sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task replays,
+not high-frame-rate video. With `with_audio`, FERB transcribes the app's sound on this Mac and attaches a redacted,
+time-aligned transcript; the video itself keeps no audio track and the sound is deleted once transcribed. They need
+`ffmpeg` and `ffprobe` installed; FERB searches PATH and the usual Homebrew/user binary folders. Browser capture
+requires extension 0.15.3 / protocol 14; native capture requires macOS Screen Recording access and the target window
+to remain capturable. A frame whose secret fields can't be painted over is skipped, and the result says how many.
+
+### Hearing during tasks
+
+A worker can listen to one app, or the browser showing a task's tab, for as long as it chooses (`audio.listen`), and
+can play, pause, mute or unmute a page's video first (`browser.media`). FERB's voice helper transcribes the sound on
+this Mac with Apple's on-device speech recognition; there is no cloud fallback, so where on-device recognition isn't
+available the tool says so. Only the redacted transcript reaches the model, labelled as outside content; the sound
+file is deleted as soon as it is transcribed. The sound has to actually play, so FERB may briefly unmute or play a tab
+you can hear. A tab is heard through its whole browser (every tab of that browser that makes sound). Setup asks once
+for Speech Recognition; `ferb doctor` reports it. Listening ends with the task; there is no always-on hearing.
 
 `recording.stop` finalizes the MP4 plus a JSON receipt of the target and capture times/errors. `recording.inspect`
 decodes chosen moments from the actual saved video into a contact sheet. FERB must inspect those pixels before
@@ -458,7 +561,8 @@ or roll back a consolidation batch. The link carries a temporary bearer token in
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, with full paged bodies. Inferred facts are labelled unconfirmed hints. Only owner
 statements or confirmed identity proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
-A pending identity digest is shown in chat at most once per day; `/memory confirm ID` records an explicit confirmation.
+A pending identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal
+`/memory confirm ID` records an explicit confirmation.
 
 The sleep service runs incrementally when no task is active (`ferb memory consolidate` also requests a pass).
 Procedures contain text tool templates and expect lines, cite verified episodes, and become learned after three
@@ -493,7 +597,10 @@ cache rate and missing measurements. Different task mixes and overlapping all-ti
 aggregate improvement does not stand in for owner acceptance. With/without-memory comparisons use matched real runs.
 
 For owner-supervised live checks, `ferb test-mode on` refuses all declared send actions; add repeated
-`--allow-send EXACT_RECIPIENT` only for owner-controlled destinations. `ferb test-mode` inspects the active setting
+`--allow-send EXACT_RECIPIENT` only for owner-controlled destinations. A post has no recipient, so allow it as
+`--allow-send "SITE @ACCOUNT"` (for example `"x.com @ferb_test"`), or a bare `"SITE"` for a post that declares no
+account: such a post passes only on a page of that host from that declared account, never a payment. An entry that is
+a URL is refused. `ferb test-mode` inspects the active setting
 and `ferb test-mode off` disables it. Manual mode persists across daemon restart. `ferb regress --allow-send EXACT_RECIPIENT` temporarily sets this gate and
 restores the prior manual setting afterward. This gate covers send-class tools and declared GUI purposes; it is not
 a semantic classifier for arbitrary GUI input or shell programs.

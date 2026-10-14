@@ -23,7 +23,7 @@ This workspace contains FERB's native macOS interaction layer. The agent backend
 - SOUND FEEDBACK IS A STANDING REQUIREMENT. The Quiet notch pass adds low-volume system sound cues for dictation start/stop, completion, and attention; submission is silent (the owner rejected the Tink on Return), with mute/volume controls in native Settings (Command-comma). No hover or repeating progress sounds. Right Option taps stay silent; the dedicated right Command + Option voice chord acknowledges immediately. System output volume/mute still applies.
 - User handles visual evaluation and proposes changes. Build and relaunch after edits; do not run unsolicited screenshot/UI inspection loops.
 - The frontend is connected to the real daemon. Dictation uses AVAudioEngine + Apple Speech with system permission prompts, live transcription, and review in the composer. Hold release, Stop, Cancel, hiding, and switching to typing must stop capture; releasing while permissions are pending must prevent delayed recording.
-- As of 2026-10-11 the user explicitly wants a continuous daily chat, replacing the earlier result-only design below. No New request action. Persist the app’s complete conversation locally; keep Today and discoverable History/date tabs. Maintain the same backend conversation across days. Approval secrets never enter chat history.
+- As of 2026-10-11 the user explicitly wants a continuous daily chat, replacing the earlier result-only design below. No New request action. Persist the app’s complete conversation locally (the owner's sent messages as the daemon's redacted `ack.message`, never the raw text; the unsent draft only in memory, L20); keep Today and discoverable History/date tabs. Maintain the same backend conversation across days. Approval secrets never enter chat history.
 - Real task events stream immediately. The installed daemon currently emits full answer text in reply/outcome; frontend reply_delta support is implemented but token generation still requires a backend protocol/runtime change. Do not claim token streaming works or fake it with delayed text.
 - A newly arriving answer expands the hidden notch or pinned header with its existing animation, without taking keyboard focus. Cancel pending hover dismissal. Startup/history restoration must not reopen or replay the completion glow.
 
@@ -56,3 +56,13 @@ Do not copy or publish subscription lesson content into this repository. Retain 
 - Messages-style layout: compact blue owner bubbles on the right and neutral frosted FERB bubbles on the left. Keep the notch backdrop black/glass.
 - The composer remains usable during work. Clear it on submission, never on reply arrival. Track each submitted turn independently so concurrent/out-of-order responses preserve the next draft and resolve their own message.
 - Native NSTextView owns Return (submit) and Shift–Return (newline), preserving IME composition. No submission Tink or unhandled-command beep.
+
+## Launch-week chat rules (owner, 2026-10-13/14; spec `../docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`)
+
+- Every chat event carries `request_id` and `at`; bind each to its own turn and drop an event that names another turn's request.
+- Show the daemon's `ack` at once under the owner's message, then the plan line (in chat, not the activity feed), then one live line from `progress` with the elapsed time; remove the live line at the answer or when the stream ends (L7, L8).
+- An answer to a turn that isn't the last entry goes to the bottom as a reply quoting that turn; the original turn reads "Answered below" (L6). A verified answer shows a small check mark, never a "Verified." prefix.
+- Questions are inline cards; the composer stays enabled while one is open. A hidden secret field takes focus only on an explicit owner action (clicking its card, Tasks → Answer request), never because a question arrived.
+- Notices are FERB messages with a small "noticed" tag; quotes show their origin; they never expand the notch, take focus, glow or sound; acknowledge them with `attention.ack`. Poll `chat.status` with `peek: true` and acknowledge placed results with `results.ack` (L9).
+- No paste dialog: pasted ranges are tracked and sent as data with the CLI's delimiters.
+- Recovered tasks show on FERB's side with their goal, never as the owner's words.

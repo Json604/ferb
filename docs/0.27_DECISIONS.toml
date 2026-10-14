@@ -4,6 +4,7 @@
 [D1]
 milestone = "F0"
 tests = ["tests/test_decision_coverage.py"]
+note = "Clarified 2026-10-13 (L14): the launch-week work lands on astra_resume, which becomes main after the fixes; the other branches are then deleted with commands confirmed with the owner at that step."
 summary = "Python stays; work on astra/0.27-upgrade"
 
 [D2]
@@ -30,12 +31,13 @@ summary = "No system log (log stream) monitoring: too much noise"
 [D6]
 milestone = "F4"
 tests = ["tests/test_evidence_store.py"]
-note = "Clarified 2026-10-09 (owner: 'at start of every task its sent, then on command of model'): at the start of each task the model gets one screenshot of the window of the app the task works on, taken when the worker first starts on it (D26; D29: that window only, never the desktop); after that, screenshots go to the model only when it asks (mac.screenshot, browser.screenshot); no per-step screenshots (D20). F4 built: no continuous capture or text recognition; the app-start picture, stored as evidence only (browsers excluded, messaging and mail apps facts only until F5); after-action accessibility reads. The model-bound part is built in F5, right after screenshot redaction (D8, D13, D28), so no unredacted pixels reach a hosted model (rule 14)."
+note = "Clarified 2026-10-13 (L12): the screenshot is taken when the owner sends, with every message: the front window (the topmost window that isn't FERB's own), redacted, goes to the planner as a labelled data block, and the worker for that message reuses the same picture as its start-of-task screenshot (tests/test_front_window_context.py). Earlier clarification, 2026-10-09 (owner: 'at start of every task its sent, then on command of model'): at the start of each task the model gets one screenshot of the window of the app the task works on, taken when the worker first starts on it (D26; D29: that window only, never the desktop); after that, screenshots go to the model only when it asks (mac.screenshot, browser.screenshot); no per-step screenshots (D20). F4 built: no continuous capture or text recognition; the app-start picture, stored as evidence only (browsers excluded, messaging and mail apps facts only until F5); after-action accessibility reads. The model-bound part is built in F5, right after screenshot redaction (D8, D13, D28), so no unredacted pixels reach a hosted model (rule 14)."
 summary = "No continuous screen capture or text recognition; a screenshot goes with each task turn"
 
 [D7]
 milestone = "F7"
-tests = ["tests/test_perception_capture.py"]
+tests = ["tests/test_perception_capture.py", "tests/test_typed_text_capture.py", "tests/test_shown_password_fields.py"]
+note = "Launch week (L17): typed text recorded nothing until the PyObjC call was fixed; terminal apps, secure fields, Secure Input and password fields (shown passwords included) are never captured; no digit-shape rule (owner, 2026-10-13)."
 summary = "Keystrokes recorded with content, stored as text typed per field"
 
 [D8]
@@ -121,7 +123,8 @@ summary = "Every consequential action is classified by Jev (destructive / ...)"
 
 [D24]
 milestone = "F6"
-tests = ["tests/test_task_plans.py"]
+tests = ["tests/test_task_plans.py", "tests/test_owner_answers.py"]
+note = "Clarified 2026-10-13 (L3, spec section 4.1; CLAUDE.md rule 9): a big job's plan no longer waits for a go-ahead. The plan, its estimates and any standing scope are stated in the plan line and work starts at once; the owner corrects by replying, which becomes a steer (test_big_job_plan_is_stated_and_starts_without_waiting)."
 summary = "Big jobs show plan with time and cost estimate and wait for go-ahead"
 
 [D25]
@@ -132,7 +135,7 @@ summary = "CLAUDE.md is rewritten once planning ends to match this plan"
 [D26]
 milestone = "F4"
 tests = ["tests/test_evidence_store.py"]
-note = "Clarified 2026-10-09 (see D6): 'each task turn' means the start of each task, then screenshots only when the model asks; never per model step. F4 built the app-window picture when a worker starts on an app (once per task, worker and app; masked secret fields; evidence only) and per-step after-action reads (V2). Sending that start-of-task picture to the model is built in F5 after screenshot redaction (D8, D13, D28)."
+note = "Clarified 2026-10-13 (L12): the start-of-task screenshot is the front-window picture taken when the owner sent the message; the planner gets it and the worker reuses it, so the model-bound start image is not taken again at the worker's first mac.* call (the F4 evidence-only first look per app remains). Earlier, 2026-10-09 (see D6): 'each task turn' means the start of each task, then screenshots only when the model asks; never per model step. F4 built the app-window picture when a worker starts on an app (once per task, worker and app; masked secret fields; evidence only) and per-step after-action reads (V2). Sending that start-of-task picture to the model is built in F5 after screenshot redaction (D8, D13, D28)."
 summary = "One screenshot per task turn; screenshot when a worker starts on an app"
 
 [D27]
@@ -142,17 +145,20 @@ summary = "Security: S1 recovery, SQ3 shell commands, and related controls"
 
 [D28]
 milestone = "F5"
-tests = ["tests/test_secret_classes.py", "tests/test_split_code.py"]
+tests = ["tests/test_secret_classes.py", "tests/test_split_code.py", "tests/test_choice_answers_not_secret.py"]
+note = "Launch week (L18): only values entered through the sealed input become hidden secrets; a choice answer (the 2FA '1' picking SMS) never does. Sealed filling stays as built (owner, 2026-10-13, spec section 8.6)."
 summary = "OTPs are secrets: redacted, filled only through the sealed input"
 
 [D29]
 milestone = "F4"
-tests = ["tests/test_evidence_store.py"]
+tests = ["tests/test_evidence_store.py", "tests/test_pixels_to_model.py", "tests/test_front_window_context.py"]
+note = "Clarified 2026-10-13 (L13) and 2026-10-14 (owner: 'no screenshots should be refused; go with redacted stuff'): browser windows, task-tab screenshots and recording frames go to the model, masked and redacted; an image is withheld only when masking or redaction fails. Excluded sites are captured under the external:web:excluded label; apps on the exclusion list are not looked at and not named. Still one window or tab, never the desktop."
 summary = "Screenshots and recordings cover only the app FERB is working on"
 
 [D30]
 milestone = "F6"
-tests = ["tests/test_task_plans.py", "tests/test_f6_standing.py", "tests/test_delegated_conversations.py"]
+tests = ["tests/test_task_plans.py", "tests/test_f6_standing.py", "tests/test_delegated_conversations.py", "tests/test_standing_permission_campaign.py", "tests/test_owner_answers.py"]
+note = "Launch week (L3, L22): the standing scope is stated in the plan line and granted without a Yes; a correction narrows it at once and widens it only after FERB's reply states the change. A declared send on a browser or app input (effect send with its destination) is checked as a send, so the floor and the scope apply to browser posts. A schedule records only scopes whose destinations the owner typed; each run gets them under schedule:<id> and they end when the schedule is cancelled or paused. The ack line (TQ3) now comes from the daemon (L7)."
 summary = "Task loop: plan step types do / map / reduce / wait / ask / converse"
 
 [D31]
@@ -245,7 +251,8 @@ summary = "Episodic, semantic and procedural memory, searchable by content and t
 
 [P11]
 milestone = "F7"
-tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py", "tests/test_delegated_conversations.py"]
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py", "tests/test_delegated_conversations.py", "tests/test_notices_in_chat.py", "tests/test_attention_understanding.py"]
+note = "Clarified 2026-10-13 (L9, L10): notices are delivered in chat (chat.notice, attention.notice), not as macOS banners; a banner is sent only when no FERB client shows that topic. Posting a notice is telling it. Jev still decides what reaches FERB; FERB then considers one moment per app with the owner's memory, recent chat, running tasks and the notices already told, and quotes outside text with its origin. Notification triage itself stays shadow."
 summary = "Notification triage with owner rules and already-told records; scope mutes applied by code"
 
 [P12]
@@ -276,12 +283,13 @@ summary = "Local memory dashboard with origin, evidence, confirm/edit/forget"
 
 [P18]
 milestone = "F7"
-tests = ["tests/test_perception_capture.py"]
+tests = ["tests/test_perception_capture.py", "tests/test_typed_text_capture.py"]
+note = "Launch week (L17): no digit-shape OTP rule in typed text (owner, 2026-10-13); only explicit code labels hide a code. Terminal apps are never captured."
 summary = "Keystroke capture rules: Secure Input, field role, ~0.5 s hold, OTP redaction"
 
 [P19]
 milestone = "F4"
-tests = ["tests/test_unknown_retry.py", "tests/test_delegated_conversations.py"]
+tests = ["tests/test_unknown_retry.py", "tests/test_delegated_conversations.py", "tests/test_questions_persistence.py"]
 note = "Code refuses within one task tree; a continuation in a new tree is not refused by code (its orchestrator sees the earlier rows under 'Uncertain prior actions'). A reworded message is another action (rule 6)."
 summary = "Never retry a consequential action with an unknown outcome without the owner"
 
@@ -313,7 +321,8 @@ summary = "Disk-usage tool inside FERB returning sizes only, never contents"
 
 [P25]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py"]
+tests = ["tests/test_f6_chat.py", "tests/test_chat_events.py"]
+note = "Clarified 2026-10-13 (L7, TQ3): the daemon sends the acknowledgement on receipt, before routing, from the full list (29 phrases, the starred one dropped), never one of the last eight said across chats (test_ack_phrases_are_the_plans_p25_list_without_the_starred_one)."
 summary = "Neutral acknowledgment list, picked at random without repeats"
 
 [P26]
@@ -366,8 +375,8 @@ summary = "Origin labels on every record; consequential arguments matched agains
 
 [S4]
 milestone = "F5"
-tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py", "tests/test_sinks.py", "tests/test_context_exposure.py", "tests/test_shell_network_free.py"]
-note = "Owner 2026-10-11: public research passes; actual private URL payload checks exclude delivery metadata. Opaque shell networking asks once per exact command/cwd/identity/scopes/tree; external-source execution declares its source. Retain destructive floors, local executable pins and explicit No. This supersedes per-host shell prompts; no TLS payload inspection is claimed."
+tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py", "tests/test_sinks.py", "tests/test_context_exposure.py", "tests/test_shell_network_free.py", "tests/test_sink_false_alarms.py", "tests/test_standing_permission_campaign.py"]
+note = "Launch week, 2026-10-13 (L2, L4; supersedes the 2026-10-10 per-host rule and the 2026-10-11 per-command rule for shell egress): shell and browser reach any site without asking; the proxy records every host and the answer lists them under 'Sites contacted'. external_source is a recorded declaration, not an approval. A tree's No to a host (from the URL question) still holds for the shell. S4 keeps sends and URLs: FERB's own context counts as outside content only when its stored origin is wholly outside; a URL counts only actual private values (a word is never one); bulk sends and folder deletes ask once with a count and a sample. Local executable pins, the code floor and explicit No remain; no TLS payload inspection is claimed."
 summary = "Sink rule: the narrow cases where FERB must confirm"
 
 [S5]
@@ -418,7 +427,8 @@ summary = "The final checker gets observation tools only; unverifiable becomes u
 
 [D33]
 milestone = "F5"
-tests = ["tests/test_confirmations.py"]
+tests = ["tests/test_confirmations.py", "tests/test_standing_permission_campaign.py", "tests/test_owner_answers.py"]
+note = "Clarified 2026-10-13/14 (L3, D30): 'a standing permission they approved' means a scope FERB stated in its acknowledgement or plan line and the owner didn't correct; for a schedule, only destinations the owner typed (now, or behind an owner-stated memory item) back a recorded scope; the setup persona never does. A browser post to a site and account the owner named is already authorized."
 summary = "\"Already authorized\" decided by code from provenance; the orchestrator may only add a question; Jev in shadow"
 
 [D34]
@@ -440,3 +450,158 @@ summary = "FERB may write the clipboard and approve another agent's prompts; log
 
 # F10 release validation: tests/test_release_measurement.py covers packaged target/security definitions
 # and saved-baseline comparisons. Live acceptance is recorded separately in OWNER_ACCEPTANCE.md.
+
+# Launch-week decisions L1–L28 (owner, 2026-10-13 and 2026-10-14): docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md.
+# Milestone "L". Integrated on astra_resume; the owner's install and live checks (docs/OWNER_ACCEPTANCE.md) are pending.
+
+[L1]
+milestone = "L"
+tests = ["tests/test_shell_network_free.py", "tests/test_recovery.py", "tests/test_protection.py"]
+summary = "Security direction: trust, record, recover; a small prevention core now, the full design after launch"
+
+[L2]
+milestone = "L"
+tests = ["tests/test_shell_network_free.py", "tests/test_answers_owner_words.py", "tests/test_sinks.py"]
+note = "test_a_networked_shell_command_runs_without_asking, test_an_owners_no_to_a_host_stays_final_for_the_shell, test_sites_contacted_lists_each_host_once_sorted_from_shell_records_and_browser_navigations, test_the_full_answer_ends_with_the_sites_contacted. Accepted residual: after reading a malicious page the shell could send one of the owner's files somewhere; recorded, not prevented."
+summary = "Shell and browser reach any site without asking; code records every site and lists it in the answer (supersedes Q3 of 2026-10-10 and the 2026-10-11 per-command choice)"
+
+[L3]
+milestone = "L"
+tests = ["tests/test_owner_answers.py", "tests/test_sink_false_alarms.py", "tests/test_standing_permission_campaign.py", "tests/test_task_plans.py", "tests/test_questions_persistence.py", "tests/test_confirmations.py", "tests/test_answers_owner_words.py", "tests/test_prompt_contract.py"]
+note = "Code asks only for money, account-security changes, permanent deletion and sends as the owner to someone new unless a standing scope covers them (plus S4, D31 and P19). Answers are routed by question id, recorded in the owner's own words; a plain Yes/No counts for FERB's checks; an ambiguous reply gets 'which one?'. Steering never records a No (only questions the planner names are superseded). Questions never expire (spec section 8.1). Big-job plans are stated, not blocking. A named tool that isn't installed is asked about once (owner, 2026-10-14). An owner-driven retry or continue re-asks a confirmation they said No to, once; agent retries keep the No (controller ruling under rule 9). Schedules: test_a_scheduled_campaign_post_runs_inside_the_scope_recorded_with_its_schedule, test_the_setup_persona_never_names_a_destination_for_a_schedules_scope, test_a_correction_to_a_scheduled_run_keeps_its_scope_withdrawn_by_a_cancel (an unattended run is never widened). A post's destination names its account, no recipients for a public post (test_a_declared_post_names_no_audience_in_its_destination)."
+summary = "FERB asks only for money, account security, permanent deletion and sending as the owner to someone new unless a standing permission covers it; once per task, the answer carries across retries"
+
+[L4]
+milestone = "L"
+tests = ["tests/test_sink_false_alarms.py", "tests/test_context_exposure.py", "tests/test_sinks.py"]
+summary = "Keep the private-data-in-links-and-sends check (S4) without its false alarms"
+
+[L5]
+milestone = "L"
+tests = ["tests/test_shell_network_free.py", "tests/test_shell_sandbox.py", "tests/test_protection.py", "tests/test_secret_classes.py", "tests/test_recovery.py"]
+note = "test_ferbs_state_and_the_keychain_stay_out_of_reach_of_networked_and_outside_sourced_commands; test_the_shell_cannot_move_anything_into_or_out_of_a_trash (the shell can't write any Trash, controller ruling 2026-10-14)."
+summary = "Keep every protection that never asks: secrets as handles, credential stores and FERB's own files locked, sandbox, proxy recording, recovery copies"
+
+[L6]
+milestone = "L"
+tests = ["ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/ContinuousChatTests.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/QuestionsAndNoticesTests.swift", "tests/test_chat_events.py"]
+summary = "A late answer appears at the bottom as a reply quoting its question; the original turn says 'Answered below'"
+
+[L7]
+milestone = "L"
+tests = ["tests/test_chat_events.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/RedactedHistoryTests.swift"]
+note = "test_ack_arrives_before_the_planner_is_called, test_daemon_acks_never_repeat_one_of_the_last_eight_said. The ack carries the daemon-redacted message (ack.message), the only copy the notch app stores."
+summary = "Instant acknowledgement from the daemon (TQ3/P25) and the plan line appear in the app's chat"
+
+[L8]
+milestone = "L"
+tests = ["tests/test_progress_line.py", "tests/test_baseline.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
+summary = "One live line under the plan line shows the current step (built by code, never model text) and elapsed time until the answer"
+
+[L9]
+milestone = "L"
+tests = ["tests/test_notices_in_chat.py", "tests/test_frontend_rpc.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/QuestionsAndNoticesTests.swift"]
+summary = "Perception goes in chat, not macOS notifications; a banner only when no FERB client shows it"
+
+[L10]
+milestone = "L"
+tests = ["tests/test_attention_understanding.py", "tests/test_notices_in_chat.py"]
+summary = "Jev still decides what reaches FERB (P11/Q4); FERB then understands before telling: one moment, one notice, outside text quoted with its origin"
+
+[L11]
+milestone = "L"
+tests = ["tests/test_answers_owner_words.py", "tests/test_concise_presentation.py", "tests/test_time.py"]
+summary = "Short answers in plain words from the owner's point of view, answering the question as asked; no 'Verified.' prefix (a check mark); follow-ups re-plan in the same task; a partly refused reply is kept"
+
+[L12]
+milestone = "L"
+tests = ["tests/test_front_window_context.py"]
+note = "Clarifies D6/D26. Privacy (owner-accepted): the hosted model sees the front window, redacted, with every message. Excluded apps are not looked at and not named; the terminal hosting ferb chat is skipped."
+summary = "The planner sees the front window (app, title, tab URL, one redacted screenshot taken when the owner sends) with every message; the worker reuses that screenshot"
+
+[L13]
+milestone = "L"
+tests = ["tests/test_pixels_to_model.py", "tests/test_evidence_store.py", "tests/test_mac_vision.py", "tests/test_recording.py", "tests/test_split_code.py"]
+note = "Clarifies D29. Owner 2026-10-14: no screenshot is refused; secret fields are painted over and an image is withheld only when masking fails. Extension protocol 14 (window_secrets)."
+summary = "Browser-window screenshots and recording frames go to the model, redacted, with no exceptions"
+
+[L14]
+milestone = "L"
+tests = ["tests/test_decision_coverage.py"]
+summary = "Fixes land on astra_resume; afterwards it becomes main and the other branches are deleted (commands confirmed with the owner)"
+
+[L15]
+milestone = "L"
+tests = ["ui/mac/FERBNotch/Tests/NotchCoreTests/DaemonRPCTests.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/ChatFlowTests.swift"]
+summary = "The notch UI lives in this repository as ui/ (2b9f727)"
+
+[L16]
+milestone = "L"
+tests = ["tests/test_learning_alive.py", "tests/test_structured_results.py", "tests/test_security_digest.py", "tests/test_episode_capture.py"]
+note = "Ids are protected by key (Redactor.ident: task_id, span_id, session_id, run_token_id, request_id, covered, source_refs, procedure_id, approval_id, timer_id); the card pattern needs word boundaries; the consolidator schema is strict-compatible; distill, consolidate and the embedding restore fail in separate scopes."
+summary = "Learning works again: redaction never corrupts internal ids, the consolidator schema is strict, the hourly loop survives"
+
+[L17]
+milestone = "L"
+tests = ["tests/test_typed_text_capture.py", "tests/test_shown_password_fields.py"]
+summary = "Typed text is captured per field again, never from secure fields, Secure Input, password fields (shown ones included) or terminal apps; no digit-shape rule"
+
+[L18]
+milestone = "L"
+tests = ["tests/test_choice_answers_not_secret.py", "tests/test_secret_classes.py"]
+summary = "Only sealed-input values become hidden secrets; choice answers never do"
+
+[L19]
+milestone = "L"
+tests = ["tests/test_chat_events.py", "tests/test_owner_answers.py"]
+note = "test_cli_typed_yes_with_one_pending_approval_goes_to_chat_send; voice transcripts are chat turns too (test_voice_never_auto_answers_the_single_open_question)."
+summary = "The CLI's client-side auto-answer of the only pending question is removed"
+
+[L20]
+milestone = "L"
+tests = ["ui/mac/FERBNotch/Tests/NotchCoreTests/QuestionsAndNoticesTests.swift", "ui/mac/FERBNotch/Tests/NotchCoreTests/RedactedHistoryTests.swift"]
+note = "The unsent draft was never persisted (premise check, Task 16); sent messages are stored as the daemon-redacted ack.message only (U7b)."
+summary = "The UI draft is kept only in memory; the app's saved history holds only daemon-redacted message text"
+
+[L21]
+milestone = "L"
+tests = ["tests/test_waits_and_loop.py"]
+summary = "Codex account errors never drop a request silently: the request gets a reply naming the failure, scheduled runs included"
+
+[L22]
+milestone = "L"
+tests = ["tests/test_waits_and_loop.py", "tests/test_standing_permission_campaign.py"]
+summary = "Plan waits re-check the wall clock, so a wait due during sleep ends soon after wake"
+
+[L23]
+milestone = "L"
+tests = ["tests/test_waits_and_loop.py", "tests/test_task_plans.py"]
+summary = "The plan inventory walk runs off the event loop"
+
+[L24]
+milestone = "L"
+tests = ["tests/test_local_egress.py", "tests/test_shell_sandbox.py"]
+summary = "Local services (T3b, owner's Q1): direct connections to executable-pinned local ports are allowed and recorded"
+
+[L25]
+milestone = "L"
+tests = ["tests/test_extension_autoinstall.py", "tests/test_setup_flow.py"]
+summary = "ferb setup asks each Chromium browser to install FERB's Chrome Web Store extension, registers the native host and reports per profile; never edits browser preferences or restarts a browser"
+
+[L26]
+milestone = "L"
+tests = ["tests/test_audio_listen.py", "tests/test_browser_media.py", "tests/test_push_to_talk.py", "tests/test_setup_flow.py", "tests/test_audio_listen_real.py"]
+note = "Owner 2026-10-14: hearing during tasks, not 24/7; on-device transcription only, no cloud fallback; captured sound is deleted once transcribed and recordings keep no audio track. tests/test_audio_listen_real.py is a live test (-m real)."
+summary = "FERB hears an app's sound during tasks (audio.listen, recordings with a transcript, browser.media)"
+
+[L27]
+milestone = "L"
+tests = ["tests/test_packaging.py", "tests/test_install.py", "tests/test_setup_flow.py", "tests/test_protection.py", "tests/test_recovery.py", "tests/test_shell_sandbox.py", "tests/test_audio_listen.py", "tests/test_front_window_context.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/AppSetupTests.swift"]
+note = "Owner 2026-10-14: ad-hoc signed DMG now, Developer ID later (no Apple Developer membership). FERB.app's code is protected FERB state; the daemon runs as the agent app FERB, which accepts only FERB's entry points and the owner's ~/.ferb, and FERB Voice likewise runs only with the owner's ~/.ferb (test_audio_listen.py). Trash moves go through held folders; the shell can't write any Trash (test_fs_trash_never_moves_a_trash_side_swap_out_of_the_trash, test_a_restore_never_goes_through_a_folder_swapped_for_a_link)."
+summary = "One packaged FERB.app in a DMG, ad-hoc signed now and signed later; source install stays supported"
+
+[L28]
+milestone = "L"
+tests = ["tests/test_planner_context.py", "tests/test_daily_activity.py", "tests/test_episode_capture.py", "tests/test_attention_understanding.py"]
+note = "Owner 2026-10-14: the model's real window (Codex: the catalog's input window, 258,400 tokens for gpt-5.6-sol, FERB's Codex default); the raw last-10-minutes trail dump is fetch-only; the running summary refreshes only when uncovered entries fall out. The hidden 32,768-token cap was never an owner decision."
+summary = "The planner's prompt uses each model's real context window; situation, running tasks, questions, memory and today's activity always go in, then chat newest-first with older chat summarized, ordered for caching"

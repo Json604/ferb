@@ -11,6 +11,8 @@ Judge designs by quality, the owner's goals and security, never by build time or
 - `docs/0.27_PLAN.md`: the plan of record; what is Decided, Proposed or Open, and the final build order F0–F10.
 - `docs/0.27_DECISIONS.toml`: each decision's milestone and tests.
 - `docs/0.27_SECURITY_TESTS.md`: the documented attack scenarios that security tests are built from.
+- `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`: the launch-week decisions L1–L28 (2026-10-13/14);
+  the plan's "Launch-week clarifications" record how they change earlier decisions.
 - `README.md`: setup, use, commands and current limitations.
 - `ARCHITECTURE.md`: the design as built, folder responsibilities and debugging entry points.
 - `CHANGELOG.md`: versioned changes; older entries describe historical behavior.
@@ -23,8 +25,10 @@ look at a specific experiment only when needed. Historical documentation remains
 
 ## Working rules
 
-1. All 0.27 work happens on the one branch `astra/0.27-upgrade`, pushed to `origin` as work lands; never merge or
-   force-push, and never start a new branch per step (owner, 2026-10-07).
+1. Work happens on the one branch `astra_resume`, pushed to `origin` as work lands; never force-push, and never start
+   a new branch per step. After the launch-week fixes `astra_resume` becomes `main` and the other branches are
+   deleted, with the exact commands confirmed with the owner at that step (L14, owner 2026-10-13; this replaces the
+   2026-10-07 rule naming `astra/0.27-upgrade`, where F0–F4 were built).
 2. Build in the plan's final order, F0–F10. The plan's "Decision status" table is authoritative; take anything it
    marks OPEN to the owner first.
 3. Every D*/MP*/P*/S*/W* decision needs a milestone in `docs/0.27_DECISIONS.toml`, or `tests/test_decision_coverage.py`
@@ -36,16 +40,21 @@ look at a specific experiment only when needed. Historical documentation remains
    Agents interpret intent, authorization, account choice, retry and escalation.
 7. Jev's destructive classification (D23) runs in shadow until its catch and false-alarm rates are measured on an
    owner-reviewed labelled set; the code floor is enforced from the start (CQ2).
-8. Code enforces confirmations (built in F5) for concrete hard-to-undo actions: destructive actions not already
-   authorized (D23), and the sink rule cases (S4), e.g. private data going to a new destination after outside
-   content was read. The code floor always counts payments, permanent deletion, account-security changes and sends
-   to new recipients as destructive; payments and account-security changes always ask. Actions made recoverable by
-   S1 (Trash plus a backup copy) are not destructive. "Already authorized" is decided by code from provenance (the
-   target appears in the owner's own words or a standing permission they approved); the orchestrator may add a
-   question but never remove one; Jev only advises while in shadow (D33).
-9. FERB prepares the concrete action before asking, asks once per task, and the answer carries across retries.
-   Besides these, a big job's plan (D24), an escape-hatch command (D31) and a retry of a consequential action with
-   an unknown outcome (P19) wait for the owner; everything else runs and is logged.
+8. Code enforces confirmations (built in F5) for concrete hard-to-undo actions, and asks only for these (L3): money,
+   account-security changes, permanent deletion, and sending as the owner to someone new unless a standing
+   permission covers it; plus the sink rule cases (S4) for sends and URLs, e.g. private data going to a new
+   destination after outside content was read. Shell and browser reach any site without asking: code records every
+   site and lists it in the answer (L2, 2026-10-13; this replaces the sink rule as it applied to shell egress and the
+   2026-10-10/11 shell-network questions). Payments and account-security changes always ask. Actions made recoverable
+   by S1 (Trash plus a backup copy) are not destructive. "Already authorized" is decided by code from provenance (the
+   target appears in the owner's own words, or in a standing permission FERB stated in its acknowledgement or plan
+   line and the owner didn't correct; a schedule's scope counts only destinations the owner typed); the orchestrator
+   may add a question but never remove one; Jev only advises while in shadow (D33).
+9. FERB prepares the concrete action before asking, asks once per task, and the answer carries across retries;
+   a question never expires while its task waits. A big job's plan (D24) and any standing scope are stated in the
+   plan line and work starts at once; the owner corrects by replying, which becomes a steer (L3, 2026-10-13). Besides
+   the confirmations, only an escape-hatch command (D31) and a retry of a consequential action with an unknown outcome
+   (P19) wait for the owner; everything else runs and is logged.
 10. Nothing, the escape hatch included, lets FERB change its own audit records, protection rules, sandbox profile,
     config or secrets helper, type into terminal apps, or bypass its network proxy (D31). This governs FERB's own
     shell; a command FERB approves in another agent's prompt runs with that agent's permissions (D36, owner).
@@ -64,8 +73,10 @@ look at a specific experiment only when needed. Historical documentation remains
 17. Background first: leave the owner's cursor, keyboard focus and Space alone; foreground input needs an explicit
     tool choice and the owner's direction. In live tests the owner watches: pause between supervised actions and
     record what the owner saw, so a disturbance can be tied to one action.
-18. The CLI is the main interface. The only other planned interfaces are the local memory dashboard (P17) and,
-    later, the Mac app; keep unavoidable extension setup and microphone UI minimal.
+18. The Mac app (the notch UI in `ui/`, shipped as FERB.app) is the product and the main interface; the CLI is a
+    development and power-user tool (owner, 2026-10-14: "cli was just for my testing"; this replaces "the CLI is the
+    main interface"). The only other planned interface is the local memory dashboard (P17); keep unavoidable
+    extension setup and microphone UI minimal.
 19. Ask the owner only what/who/which and real decisions, never a method (P27); workers ask the orchestrator first.
 20. Acceptance is the owner's live verdict (`ferb verdict TASK pass|fail`). A passing offline test never proves a
     milestone or a live workflow.

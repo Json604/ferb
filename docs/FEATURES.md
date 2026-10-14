@@ -1,9 +1,9 @@
 # FERB — product feature reference
 
 Prepared 2026-10-14 from the `astra_resume` branch (checkout version `0.27.0.dev1`), its plan of record, the owner
-acceptance record and the launch-week work in progress. Written for FERB itself, to plan the launch campaign around
-the public open-source release on **2026-10-21** (site: https://ferb.kartikey.xyz, privacy page:
-https://ferb.kartikey.xyz/privacy; the repository goes public on launch day).
+acceptance record and the launch-week work (statuses updated once every launch-week task was integrated). Written for
+FERB itself, to plan the launch campaign around the public open-source release on **2026-10-21** (site:
+https://ferb.kartikey.xyz, privacy page: https://ferb.kartikey.xyz/privacy; the repository goes public on launch day).
 
 Every feature below carries a status. Marketing must never promise more than the status says.
 
@@ -12,9 +12,7 @@ Every feature below carries a status. Marketing must never promise more than the
 | Label | Meaning |
 |---|---|
 | **Shipped** | In the code on `astra_resume` from the 0.27 milestones (F0–F10) or earlier. "Live-verified" is added only where `docs/OWNER_ACCEPTANCE.md` records the owner's live result; otherwise live acceptance is pending. |
-| **Landing this week — integrated (Lnn)** | Launch-week work, reviewed and already on `astra_resume`. Not yet live-tested by the owner unless stated. The owner's installed copy picks it up at the next `ferb setup --update`. |
-| **Landing this week — in review (Lnn)** | Launch-week work built in its own lane and still in review/fix rounds; not yet on `astra_resume`. Tasks 3, 6, 7, 8, 14, 21 and 22. |
-| **Landing this week — planned** | Launch-week work not started yet (Task 18, the campaign test through the gateway; Task 19, docs). |
+| **Landing this week — integrated, not live-tested (Lnn)** | Launch-week work, reviewed and on `astra_resume` (every launch-week task is integrated; the whole-branch final review is still to come). Not yet live-tested by the owner unless stated. The owner's installed copy picks it up at the next `ferb setup --update`. |
 | **After launch** | Decided or discussed, deliberately deferred. |
 | **Known limit** | An honest residual or caveat. |
 
@@ -23,7 +21,9 @@ Where things stand overall:
   validation (about 2,000+ tests; 2,262 at the last integration) and are installed; their formal owner live
   acceptance is still pending.
 - The owner has used FERB daily through the notch app since the 2026-10-11 install. That use produced the launch-week
-  fix list (L1–L28 in `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`).
+  fix list (L1–L28 in `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`). All of it is now integrated on
+  `astra_resume`; the final review, the owner's install and the live checks (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch
+  week") are pending.
 - The installed copy now runs the Codex model `gpt-5.6-sol` (set in the owner's config on 2026-10-14).
 
 ---
@@ -71,21 +71,22 @@ Each step names its status. File paths are given for traceability only.
    pasted text is marked as outside data, never as the owner's own instructions. **Shipped.**
 2. **Instant acknowledgement.** Before anything else, the daemon replies with a short neutral phrase ("Got it.",
    "On it.", …), picked at random from the owner-approved list and never one of the last eight used
-   (`ferb/orchestrator/acks.py`). It claims nothing about what FERB will do. **Landing this week — integrated (L7).**
+   (`ferb/orchestrator/acks.py`). It claims nothing about what FERB will do. **Landing this week — integrated, not
+   live-tested (L7).**
 3. **The front window is captured at send.** App, window title, the browser's front tab URL/title, and one redacted
    screenshot of that one window (FERB's own windows skipped). The planner sees it with the message and can answer a
    screen question directly from the picture; the worker for that request starts from the same picture.
-   **Landing this week — in review (L12, Task 8).** Today (shipped), the model gets one start-of-task picture of the
-   app a worker first works on, then screenshots only when it asks.
+   **Landing this week — integrated, not live-tested (L12).** Before it, the model got one start-of-task picture of
+   the app a worker first worked on; screenshots still come only when the model asks.
 4. **The planner decides.** It receives, in this order: the situation (current time, owner activity, front window),
    running tasks and open questions, relevant memory, today's matching activity, and as much conversation as fits.
    It either answers directly (a reply or a clarifying question) or writes a task: a goal, outcome conditions the
    owner would recognise, which account (the owner's or FERB's own), and optionally a multi-step plan.
-   **Shipped**, with the new context order and the model's real context window **Landing this week — in review
-   (L28, Task 22)**. (Today a hidden 32,768-token cap meant the situation, activity and memory blocks were usually
-   squeezed out by long chat history; L28 fixes that.)
+   **Shipped**, with the new context order and the model's real context window **Landing this week — integrated,
+   not live-tested (L28)**. (Before, a hidden 32,768-token cap meant the situation, activity and memory blocks were
+   usually squeezed out by long chat history.)
 5. **Plan line.** As soon as the planner returns a task, a one-line plan appears in chat, before any worker acts.
-   **Landing this week — integrated (L7/L8).**
+   **Landing this week — integrated, not live-tested (L7/L8).**
 6. **Workers act through FERB's gateway.** One worker per plan step, with only the tools its identity allows. Every
    tool call goes through the gateway (`ferb/daemon/gateway.py`), which validates arguments, checks paths, locks the
    resource, records the action and its origin, redacts the result, and asks the owner when code requires it. Tools:
@@ -94,7 +95,8 @@ Each step names its status. File paths are given for traceability only.
 7. **Live progress line.** While a worker works, one line under the plan updates in place ("reading github.com",
    "looking at Brave", "writing notes.md") with elapsed time. Code builds the text from the tool and its target, never
    from model text, so a web page cannot speak through it. It disappears when the answer arrives. **Landing this week
-   — integrated (L8)** in the notch app; the terminal chat does not show it yet (`ferb logs --tools` shows step lines).
+   — integrated, not live-tested (L8)** in the notch app; the terminal chat does not show it yet (`ferb logs --tools`
+   shows step lines).
 8. **The checker verifies.** A separate final check judges every outcome condition plus one extra: "my report to you
    says truthfully what was done, who did each part and with what". The checker gets observation-only tools, enforced
    by code: it can look but not click, type, send or write. **Shipped, live-verified (F4).**
@@ -103,20 +105,20 @@ Each step names its status. File paths are given for traceability only.
    **failed** (with the real reason). A short answer shows first; full details stay under Details. **Shipped.**
    Short answers written in the owner's words for unfinished tasks, no "Verified." prefix (a check mark instead),
    follow-up corrections that re-plan, and a code-built **"Sites contacted:"** line at the end of the full answer:
-   **Landing this week — in review (L11, L2; Task 6).** The check mark itself is integrated in the app (Task 15).
+   **Landing this week — integrated, not live-tested (L11, L2).** The check mark shows in the app.
 10. **Learning.** Every task is written as a permanent episode (request, steps, checks, outcome, origins, desktop
     changes). An idle-time consolidator turns verified episodes into lessons and procedures; identity suggestions go
     to the owner as a digest. **Shipped**; the bugs that made learning fail in practice are fixed **Landing this week —
-    integrated (L16)**; live check pending.
+    integrated, not live-tested (L16)**.
 
 Things that can happen along the way:
 - **Questions.** A worker's question goes to the planner first; only real what/who/which choices reach the owner.
   Code-owned safety questions start with "FERB:" and offer Yes/No (Enter = No). **Shipped.** Questions shown inline
-  in the notch chat while typing stays enabled: **integrated (L9/L20, Task 16)**. Questions that never expire while
-  their task waits (today they expire after 600 s): **in review (Task 14)**.
+  in the notch chat while typing stays enabled, and questions that never expire while their task waits (they used to
+  expire after 600 s): **integrated, not live-tested (L3, L9)**.
 - **Steering.** The owner can correct a running task by just replying; the correction reaches the same running worker
   without restarting it. **Shipped (2026-10-11).** "Steering never records a No" and free-text answers routed by
-  question id: **in review (L3, Task 7)**.
+  question id, in the owner's own words: **integrated, not live-tested (L3)**.
 - **Stop.** Escape / `/stop` / the app's Stop button stops a task; `ferb stop` is a persistent emergency stop.
   **Shipped.**
 
@@ -147,35 +149,34 @@ over an owner-only Unix socket (`docs/RPC.md`).
 - What: the ack appears at once, the plan line follows when the planner returns, and one live line shows the current
   step with elapsed time until the answer arrives. Each event carries its request id, so two requests in flight never
   mix.
-- Status: **Landing this week — integrated (L6–L8; Tasks 4, 5, 15).** Not yet live-tested.
+- Status: **Landing this week — integrated, not live-tested (L6–L8).**
 
 #### Late answers appear at the bottom as replies
 - What: when an older request finishes after a newer one, its answer appears at the bottom quoting the original
   question, and the original turn says "answered below". Before, a late answer was written into its old spot, out of
   sight.
-- Status: **Landing this week — integrated (L6, Task 15).**
+- Status: **Landing this week — integrated, not live-tested (L6).**
 
 #### Verification check mark
 - What: a small check mark on answers whose every condition was verified.
-- Status: **Landing this week — integrated (Task 15).** Removing the literal "Verified." text prefix: **in review
-  (Task 6)**.
+- Status: **Landing this week — integrated, not live-tested (L11)**, with the literal "Verified." text prefix removed.
 
 #### Inline questions and hidden secret input
 - What: FERB's questions show inline in the chat; typing stays enabled while one is open (before, a question
   replaced the chat). Secret prompts (passwords, codes) use a hidden field, never enter chat history and never take
   keyboard focus on their own. A new genuine question opens the panel once with amber attention.
-- Status: **Landing this week — integrated (L9/L20, Task 16).** Amber attention: **Shipped.**
+- Status: **Landing this week — integrated, not live-tested (L9/L20).** Amber attention: **Shipped.**
 
 #### Perception notices in chat
 - What: when FERB notices something worth telling (see 3.3), it posts a FERB message with a small "noticed" tag.
   Any outside text it repeats is shown as a quote with its origin, never as FERB's own words. macOS banners are used
   only when no FERB client is connected.
-- Status: **Landing this week — integrated (L9, L10; Tasks 9, 10, 16).** Not yet live-tested in this form.
+- Status: **Landing this week — integrated, not live-tested (L9, L10).**
 
 #### Learning digest buttons
 - What: pending identity suggestions ("FERB thinks you prefer …") appear in chat with **Confirm** and **Not right**
   buttons. Nothing inferred becomes part of FERB's always-loaded picture of the owner without a Confirm.
-- Status: **Landing this week — integrated (Task 16).** Digest itself: **Shipped** (at most once a day).
+- Status: **Landing this week — integrated, not live-tested.** Digest itself: **Shipped** (at most once a day).
 
 #### Voice dictation
 - What: hold right Command + Option to dictate; the transcript lands in the composer for review before sending.
@@ -193,17 +194,16 @@ over an owner-only Unix socket (`docs/RPC.md`).
 #### Attachments and results as objects
 - What: attach files (sent as source paths, never as extra authority); paste with provenance kept; results with
   Open, Quick Look (Space) and Reveal in Finder. The "Is this your request?" paste dialog is removed.
-- Status: **Shipped**; paste-dialog removal **integrated (Task 16)**.
+- Status: **Shipped**; paste-dialog removal **integrated, not live-tested**.
 
 #### Drafts never stored
-- What: the unsent draft is kept only in memory, never written to the app's preferences file.
-- Status: **Landing this week — integrated (L20).**
-- Known limit: messages the owner has already **sent** are kept in the app's local history as typed. The daemon's
-  journal stores a redacted copy and now offers it to the app (`ack.message`), but the app does not use it yet, so a
-  secret typed into a chat message stays in the app's local archive.
+- What: the unsent draft is kept only in memory, never written to the app's preferences file. A sent message is saved
+  in the app's history only as the daemon's redacted copy (`ack.message`), so a secret typed into a chat message never
+  reaches the app's archive; a message sent before FERB confirmed it is saved as a placeholder.
+- Status: **Landing this week — integrated, not live-tested (L20, L7).**
 
 #### Packaged FERB.app in a DMG
-- See 3.15. **Landing this week — in review (L27, Task 21).**
+- See 3.15. **Landing this week — integrated, not live-tested (L27).**
 
 ### 3.2 The CLI (developer and power-user tool)
 
@@ -212,8 +212,8 @@ over an owner-only Unix socket (`docs/RPC.md`).
   (plans, steps, tools, checks), `--speak` (the Mac's voice reads final replies). Escape on an empty line stops the
   latest task; `/stop` stops a named task or all; Ctrl-C twice on an empty line closes chat.
 - Status: **Shipped.** The daemon's ack in the CLI and the removal of the old CLI shortcut that auto-answered the only
-  pending approval when typed text matched an option (a payment included): **Landing this week — integrated (L7,
-  L19).**
+  pending approval when typed text matched an option (a payment included): **Landing this week — integrated, not
+  live-tested (L7, L19).**
 
 #### Command reference
 All **Shipped** (`ferb --help`):
@@ -239,7 +239,8 @@ All **Shipped** (`ferb --help`):
   local append-only store. Secure text fields, Secure Input, terminal apps, concealed or transient clipboard types are
   never captured.
 - Status: **Shipped** (F7, installed). Typed-text capture recorded nothing until the launch-week fix, which also
-  stops capture in terminal apps and of shown passwords: **Landing this week — integrated (L17, Task 12)**. Owner
+  stops capture in terminal apps and of shown passwords: **Landing this week — integrated, not live-tested (L17)**.
+  Owner
   acceptance of the two-app Accessibility prototype, field capture, clipboard and notifications is pending.
 - Limits: "now playing" (what music/video is playing system-wide) is not built. Background-task inventory is
   unavailable (macOS's only source opens an admin prompt). Electron/browser custom controls vary.
@@ -252,7 +253,7 @@ All **Shipped** (`ferb --help`):
   20x. It renews on Nov 13."), or nothing. A notice can never create a task or a send.
 - Status: notices: **Shipped** (F7/F9) as macOS banners; delivery in chat, one moment one notice, owner context,
   quotes with origins, "already told" that actually works, no backlog flood at install: **Landing this week —
-  integrated (L9, L10).** Not yet live-tested.
+  integrated, not live-tested (L9, L10).**
 - Requires: a Jev key (`ferb setup --jev`). Without it, activity is still recorded but no notices are produced.
 
 #### Notification triage
@@ -263,12 +264,12 @@ All **Shipped** (`ferb --help`):
 #### Notification rules (mutes)
 - What: "don't tell me about this group" is saved as a rule quoted from the owner's words (app, chat, topic,
   expiry, exceptions); `ferb notifications rules|unmute|label`.
-- Status: **Shipped**; case-insensitive app ids **integrated (L9)**.
+- Status: **Shipped**; case-insensitive app ids **integrated, not live-tested (L9)**.
 
 #### FERB knows its own actions
 - What: events in a window or tab where FERB is acting, or in FERB's own browser profile, are recorded as FERB's, so
   FERB never narrates its own clicks back to the owner. Clipboard writes by FERB are marked as FERB's.
-- Status: **Landing this week — integrated (L9, P4).** Clipboard attribution: **Shipped.**
+- Status: **Landing this week — integrated, not live-tested (L9, P4).** Clipboard attribution: **Shipped.**
 
 #### New-software watch
 - What: when software is installed, FERB records signer, Gatekeeper assessment, provenance, entitlements, readable
@@ -278,11 +279,12 @@ All **Shipped** (`ferb --help`):
 #### Daily summaries and activity search
 - What: a code-built daily summary (apps per hour, sites, window titles, FERB tasks) plus a model-written narrative,
   kept forever and searchable by content; today's matching activity goes into each planner turn.
-- Status: **Shipped.** One indexed search per turn, off the event loop: **in review (L28, Task 22).**
+- Status: **Shipped.** One indexed search per turn, off the event loop: **integrated, not live-tested (L28).**
 
 #### Retention, purge and exclusions
 - What: raw activity 30 days (a day is purged only after its summary exists); typed text and clipboard content 7
-  days (including derived notice text: **integrated, L9**); detailed traces and Jev decisions 30 days; captured
+  days (including derived notice text: **integrated, not live-tested, L9**); detailed traces and Jev decisions 30
+  days; captured
   images 7 days; task stories, the task list, chat, daily summaries and memory kept. Exclusion lists (apps, domains)
   and `ferb pause` apply before storage.
 - Status: **Shipped.**
@@ -290,7 +292,8 @@ All **Shipped** (`ferb --help`):
 #### Setup persona
 - What: on first open, FERB reads local app-use metadata (Spotlight use counts) and proposes a short profile with its
   evidence; the owner saves, edits or skips. Installed apps alone never establish an occupation.
-- Status: **Shipped**, live (the owner reviewed it 2026-10-11). "Asked once, no banner": **in review (Task 14).**
+- Status: **Shipped**, live (the owner reviewed it 2026-10-11). "Asked once, no banner": **integrated, not
+  live-tested (L3).**
 
 #### Desktop disturbance sentinel
 - What: throughout every task, FERB samples the front app, key window, cursor, full-screen state, window order and
@@ -306,16 +309,16 @@ All **Shipped** (`ferb --help`):
 - How: password fields (from Accessibility and the extension) are painted over, and on-device Vision OCR blacks out
   recognised secret classes before any pixel reaches a model, evidence file or recording.
 - Status: **Shipped** (F5).
-- Change landing: browser windows, task-tab screenshots and recording frames go to the model **redacted, with no
+- Launch-week change: browser windows, task-tab screenshots and recording frames go to the model **redacted, with no
   exceptions**; nothing is refused any more, and an image is withheld only when masking itself fails; shown
-  passwords are masked too. **Landing this week — in review (L13, Task 3).** Today some browser windows and recording
-  frames are withheld from the model.
+  passwords are masked too. **Landing this week — integrated, not live-tested (L13).** Before it, browser windows and
+  recording frames were withheld from the model.
 - Limits: OCR can miss unreadable or obscured text; this is class-based redaction, not removal of all private text.
 
 #### Front window with every message
 - What: see step 3 of §2. Answering screen questions directly from the screenshot (a reply, no worker, no checker).
-- Status: **Landing this week — in review (L12, Task 8).** Privacy: the hosted model sees the front window, redacted,
-  with every message; the owner accepted this.
+- Status: **Landing this week — integrated, not live-tested (L12).** Privacy: the hosted model sees the front window,
+  redacted, with every message; the owner accepted this.
 
 #### Target recordings
 - What: record specific task tabs (`browser.record`) or a native window (`mac.record`) as silent sampled video
@@ -333,7 +336,7 @@ All **Shipped** (`ferb --help`):
 - How: ScreenCaptureKit captures that app's audio (FERB's own audio excluded); FERB.app transcribes it with Apple's
   **on-device** speech recognition (no cloud fallback: if on-device isn't available, the tool says so). The sound
   file is deleted as soon as it is transcribed; only the transcript is kept (owner decision 2026-10-14).
-- Status: **Landing this week — integrated (L26, Task 20).** Not yet live-tested. Needs a one-time Speech
+- Status: **Landing this week — integrated, not live-tested (L26).** Needs a one-time Speech
   Recognition permission for FERB (setup asks; doctor reports).
 - Limits: capture is per app, so listening to a browser hears every tab of that browser that makes sound. The sound
   must actually play, so FERB may briefly unmute or play a tab the owner can hear (recorded like any on-screen
@@ -341,13 +344,13 @@ All **Shipped** (`ferb --help`):
 
 #### Recordings with a transcript
 - What: `with_audio` on a recording attaches the redacted transcript aligned to the video's timeline.
-- Status: **Landing this week — integrated (L26).**
+- Status: **Landing this week — integrated, not live-tested (L26).**
 
 #### Media control
 - What: `browser.media` plays, pauses, mutes, unmutes or seeks a page's video/audio; snapshots report each media
   element's state (playing, time, duration, muted), so FERB confirms a video is really playing before recording or
   listening. (In a real task FERB recorded a reel that never played; this fixes that.)
-- Status: **Landing this week — integrated (L26)**; needs extension 0.15.3 / protocol 14.
+- Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.3 / protocol 14.
 
 #### Always-on hearing
 - Status: **After launch / not decided.** The owner chose hearing during tasks only, not 24/7.
@@ -387,7 +390,8 @@ All **Shipped** (`ferb --help`):
   trace, log or the database. Split one-digit code boxes are supported. The owner can choose to store one item in
   the Keychain; models then see only a handle. FERB can also read codes from FERB's own inbox via opaque candidates.
 - Status: **Shipped** (F5). Shown passwords ("Show password" ticked) are now treated as secrets everywhere:
-  **integrated (L17)**. The real Zomato split-code login failed before the split-box fix and has not been retested
+  **integrated, not live-tested (L17)**. The real Zomato split-code login failed before the split-box fix and has not
+  been retested
   live since.
 
 #### Extension auto-install at setup and Web Store
@@ -396,8 +400,8 @@ All **Shipped** (`ferb --help`):
   Vivaldi, Arc, Opera manual), and reports per profile whether the extension is installed, enabled and paired. It
   never edits browser preferences or restarts a browser; the owner enables the extension when the browser offers it.
   Until the store ID exists, setup keeps the Load-unpacked steps.
-- Status: **Landing this week — integrated (L25, Task 17).** The owner submitted extension 0.15.2 to the Chrome Web
-  Store on 2026-10-14; review is pending (in-depth review expected because of broad host permissions).
+- Status: **Landing this week — integrated, not live-tested (L25).** The owner submitted extension 0.15.2 to the
+  Chrome Web Store on 2026-10-14; review is pending (in-depth review expected because of broad host permissions).
 - Known limit: the repository now requires extension 0.15.3 / protocol 14, and the daemon refuses an older protocol.
   The store copy must be updated to 0.15.3 before the store install path works with the launch build.
 
@@ -437,9 +441,11 @@ All **Shipped** (`ferb --help`):
 - Launch-week change: shell and browser reach any site **without asking**; code records every site (L2). Before, 65 of
   100 approvals in the owner's first 25 tasks were shell-network questions (one research task asked 46 times in 7
   minutes).
-- Status: **Landing this week — integrated (L2, Task 1).** "Sites contacted" in the answer: **in review (Task 6).**
+- Status: **Landing this week — integrated, not live-tested (L2)**, with "Sites contacted" at the end of the full
+  answer.
 - Local services: an existing local server is reachable only when the owner pins its port to an executable
-  (**Shipped**); direct connections to pinned ports, recorded: **in review (L24, Task 14).**
+  (**Shipped**); direct connections to pinned ports, recorded from the kernel's reports: **integrated, not live-tested
+  (L24).**
 
 #### Escape hatch
 - What: for code-enforced boundaries only (writing a protected folder, reading a never-read store, an admin `sudo`
@@ -465,7 +471,9 @@ All **Shipped** (`ferb --help`):
 - What: before FERB overwrites or edits a file it keeps an APFS-clone copy for 7 days; deletions go to the Trash
   with their origin remembered. `ferb restore` lists what can be put back; `ferb restore ID` restores without ever
   overwriting a change the owner made since ("<name> (before FERB)").
-- Status: **Shipped, live-verified (F4).**
+- Status: **Shipped, live-verified (F4).** Trash moves only between folders FERB holds open, nothing moved out of the
+  Trash after a mismatch, and no Trash writable by the shell: **integrated, not live-tested (L27)**. Finder's "Put
+  Back" isn't offered for FERB's items; `ferb restore` is the way back.
 
 ### 3.10 Scheduling, timers, reminders, standing permissions and long plans
 
@@ -476,16 +484,18 @@ This section matters most for an automated campaign. It says exactly what runs u
   never runs a task. The owner's words are quote-checked; times are computed by code from the owner's wording, with
   no hidden 09:00 default.
 - Status: **Shipped.** Accepting a reminder asked for in an earlier message of the same chat, and keeping the reply
-  when a reminder is refused: **in review (L11, Task 6).**
+  when a reminder is refused: **integrated, not live-tested (L11).**
 
 #### Schedules (unattended runs)
 - What: "do X tomorrow at 9" or recurring (daily, weekdays, weekly, every N minutes). Each run is a fresh,
   **unattended** task with the original request and targets. `ferb schedules` lists, cancels, pauses, resumes.
 - What happens when nobody is at chat: any step that would need the owner (a code confirmation, a question, a
   foreground permission) is **not done**; the run reports what is missing. Standing permissions from an earlier chat
-  task do not carry into a scheduled run (they belong to one task tree).
+  task do not carry into a scheduled run. A standing scope stated when the schedule is made is recorded with it, but
+  only for destinations the owner typed (name the real domain and handle: "x.com", "@handle"; "X" isn't "x.com"); each
+  run gets exactly that scope and nothing more, and cancelling or pausing the schedule ends it.
 - Status: **Shipped.** Scheduled-run failures named in chat instead of a generic apology; account errors never drop a
-  request silently: **Landing this week — integrated (L21).**
+  request silently; scopes recorded with a schedule: **Landing this week — integrated, not live-tested (L21, L3).**
 - Limits: the Mac must be awake and logged in, with the daemon running; a run that comes late is judged by the
   agents for usefulness. An unattended browser task needs the browser and its paired profile already open with a
   window (creating a window needs the owner's permission).
@@ -494,24 +504,27 @@ This section matters most for an automated campaign. It says exactly what runs u
 - What: multi-step plans with step types do / map / reduce / wait / ask / converse; waits on a time or an event
   (e.g. a reply); completed steps stay complete across daemon restarts; unknown outcomes are never replayed.
 - Status: **Shipped** (F6; live acceptance pending). Waits now fire on wall-clock time after the Mac sleeps:
-  **Landing this week — integrated (L22).**
+  **Landing this week — integrated, not live-tested (L22).**
 
 #### Standing permissions (D30)
 - What: for a long task the planner can propose exact send scopes (tool, account identity, site, recipients, and
   either an exact message body or explicit "any message body"). Inside the approved scope, sends that code would
   otherwise ask about (new recipient, a new destination after private and outside content, bulk sends) run without
   asking and are recorded. Anything outside asks as usual; payments and account-security changes always ask.
-- Today: a plan with standing sends (or a big job) asks once — "Here is the plan … may I send these messages without
-  asking again? Start?" — and the Yes grants the scope for that task tree only.
-- Changing: plans and standing scopes are **stated** in the acknowledgement/plan line instead of waiting for a Yes;
-  the owner corrects by replying. **Landing this week — in review (L3/D24, Task 7).**
-- The end-to-end campaign path (standing permission stated, durable waits, in-scope posts logged and not asked,
-  out-of-scope asks, resume after restart) gets its own offline test through the gateway and an owner-approved live
-  run: **Landing this week — planned (Task 18).**
-- Important code fact: standing permissions only matter for actions code classifies as sends. Today only a native
-  Mac click declared as "send" or "call" (e.g. a send button in a desktop messaging app) is classified that way.
-  A post or email sent through the browser is recorded as typing and clicks, so code does not ask about it at all
-  (see 3.13 and §4).
+- Plans and standing scopes are **stated** in the plan line and work starts at once; the owner corrects by replying.
+  A correction narrows a scope at once; a wider scope applies only after FERB's reply states it, and never on a
+  scheduled or resumed run (its scope can only shrink, and the schedule's cancel always ends it). (Before, a plan with
+  standing sends asked "… Start?" and waited.) **Landing this week — integrated, not live-tested (L3/D24).**
+- A post, webmail send, payment or account-security change made through the browser (or an app's generic controls)
+  is checked as that kind when the worker declares it (`effect` with its `destination`: the account it goes out from,
+  recipients (none for a public post), amount),
+  so the code floor and standing permissions apply to browser posting. A browser campaign scope is `browser.act`, the
+  page's host as site, the account it posts from, no recipients and any body. An undeclared click gets no question
+  (code can't tell, rule 6; the prompts carry the declaration). **Landing this week — integrated, not live-tested
+  (L3).**
+- The end-to-end campaign path (stated scope, durable waits, in-scope posts logged and not asked, out-of-scope asks,
+  resume after restart, a scheduled post inside its recorded scope) has offline tests through the gateway
+  (`tests/test_standing_permission_campaign.py`); the owner-approved live run is pending.
 
 ### 3.11 Delegated conversations (F9)
 
@@ -523,7 +536,7 @@ This section matters most for an automated campaign. It says exactly what runs u
   FERB's input). Incoming messages are outside data: they never change the task or grant permission.
 - Commands: `ferb conversations list|show|pause|takeover|resume`.
 - Status: **Shipped** in code (F9). Live acceptance pending; third-party outreach only in an owner-approved run.
-  Typed-text capture, needed for take-over detection, works only since L17 (integrated).
+  Typed-text capture, needed for take-over detection, works only since L17 (integrated, not live-tested).
 - Limits: generic GUI controls can't prove which account or contact is selected, so fresh reads and the checker are
   still needed; input already sent can't be recalled; thread matching is an after-launch item.
 
@@ -543,7 +556,7 @@ This section matters most for an automated campaign. It says exactly what runs u
 #### Episodes
 - What: one permanent record per task, composed by code from the trace.
 - Status: **Shipped.** 35 task records had failed to save because redaction corrupted internal ids: fixed
-  **Landing this week — integrated (L16).**
+  **Landing this week — integrated, not live-tested (L16).**
 
 #### Procedures, lessons and the fast path
 - What: an idle-time consolidator writes procedures (tool-call templates with expect lines) citing verified
@@ -552,7 +565,8 @@ This section matters most for an automated campaign. It says exactly what runs u
   final check. Procedures with steps that came from outside content are quarantined until the owner confirms. App
   updates or repeated failures mark a procedure suspect.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
-  **Landing this week — integrated (L16)**. No learned procedure has been observed live yet; do not claim measured
+  **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
+  claim measured
   speed-ups from learning.
 
 #### Memory dashboard (P17)
@@ -563,7 +577,8 @@ This section matters most for an automated campaign. It says exactly what runs u
 #### Running conversation summary
 - What: when chat history no longer fits the model's window, FERB keeps a summary of the older part; the full text
   stays fetchable.
-- Status: **Landing this week — in review (L28, Task 22).**
+- Status: **Landing this week — integrated, not live-tested (L28).** It refreshes only when entries it doesn't cover
+  fall out of the window.
 
 #### Skills directory
 - What: owner-written skills in `~/.ferb/skills`; a small catalogue is visible to workers, bodies are read
@@ -580,30 +595,31 @@ is recorded and FERB's own file changes are recoverable.
 Each question names the exact step, is asked once per task, and the answer carries across that task's retries; a No
 is final for that step in the task.
 - **Payments** and **account-security changes** (passwords, sign-in, recovery settings): always ask, and each Yes
-  covers one attempt. Code fact: the rule is enforced in the gateway, but no current tool labels its own action as a
-  payment or security change (a browser "Pay" click is a click). Today these asks depend on the agents' shared
-  instruction to confirm hard-to-undo outcomes; Task 7 (in review) moves confirmation asking out of worker prompts.
-  Treat payment protection as "agent-dependent plus code floor where tools declare it" until this is verified.
+  covers one attempt. Code fact: no tool is a payment by its own kind (a browser "Pay" click is a click); the gateway
+  checks a click or typing step as a payment or account-security change when the worker declares it (`effect`), on
+  any acting tool. Workers no longer ask for confirmation themselves. Treat payment protection as "code floor when the
+  worker declares the step" (an undeclared click isn't caught, rule 6) until the live checks confirm it.
 - **Permanent deletion** of something the owner didn't name (a folder delete shows count, size and a sample). FERB's
   own file tools only move to the Trash, which is recoverable and does not ask.
 - **Sending as the owner to someone new** (a recipient or contact the owner didn't name), unless a standing
-  permission covers it. Code fires this for native-app sends declared as send/call; browser posting and webmail are
-  not classified as sends (see 3.10).
+  permission covers it. Code fires this for native-app sends declared as send/call and for browser posts and webmail
+  sends declared as `effect: send` (see 3.10); a post to a site and account the owner named is already authorized.
 - **Private data to a place the owner didn't name after the task read outside content** (S4): a send to a new place
   after reading both the owner's data and outside content; a URL carrying an actual private value to a host nobody
   named; a recipient, number or amount that only outside content supplied. False alarms from FERB's own context words
-  removed: **integrated (L4, Task 2)**.
-- **Bulk sends** to several new recipients: one question with count and sample (**integrated, L3**).
+  removed: **integrated, not live-tested (L4)**.
+- **Bulk sends** to several new recipients: one question with count and sample (**integrated, not live-tested,
+  L3**).
 - **Escape hatch** commands (D31).
 - **Retrying an action whose outcome is unknown** (P19), such as a send that was cut off: "an earlier attempt … may
   already have happened". A Yes allows exactly one more attempt.
 - **Installing a tool the owner named that isn't installed**: asked once as a courtesy, with the install command
-  prepared (owner correction, 2026-10-14). **In review (Task 7).**
+  prepared (owner correction, 2026-10-14). **Integrated, not live-tested (L3).**
 - Ordinary what/who/which questions when evidence leaves real ambiguity (agents decide; never "how should I do it").
 
 #### What never asks
-- Reaching any website from the shell or browser (recorded instead) — **integrated (L2)**.
-- Big-job plans — **in review (Task 7)**; today they ask once before fan-out.
+- Reaching any website from the shell or browser (recorded instead) — **integrated, not live-tested (L2)**.
+- Big-job plans: stated in the plan line, work starts at once — **integrated, not live-tested (L3)**.
 - Reversible work: reading, navigating public pages, writing/editing files (copies kept), moving to the Trash.
 - Notices, memory reads, recordings and listening during a task.
 
@@ -613,14 +629,15 @@ is final for that step in the task.
   AWS, Google), JWTs, bearer tokens, credential URL parameters and signed-URL signatures, one-time codes next to a
   code label, Luhn-valid card numbers, password fields (including shown passwords), and exact known secret values.
   Applied to text, streamed replies, logs, traces, screenshots and recordings.
-- Choice answers (a "1" picking SMS) are no longer treated as secrets: **integrated (L18)**.
+- Choice answers (a "1" picking SMS) are no longer treated as secrets: **integrated, not live-tested (L18)**.
 - Limit: redaction covers secret **classes**, not all private text (owner-accepted residual). Model processing is
   hosted; only redacted context leaves the Mac.
 
 #### Locked stores and FERB's own protections
 - The shell can't read credential stores or FERB's files, can't use the Keychain, and runs only through the proxy.
 - FERB's own state, audit records, protection rules, sandbox profile, config and secrets helper can't be changed by
-  FERB (no escape). The packaged app's own code is protected the same way (in review, Task 21).
+  FERB (no escape). The packaged app's own code is protected the same way, and the shell can't write any Trash
+  (integrated, not live-tested, L27).
 - The secrets helper is a locally signed binary whose signature is checked on every call.
 
 #### Trust follows origin
@@ -630,7 +647,9 @@ is final for that step in the task.
 
 #### Test mode
 - `ferb test-mode on --allow-send EXACT_RECIPIENT` refuses all declared send-class actions except to listed
-  recipients, for supervised live tests. It does not cover ordinary GUI typing.
+  recipients, for supervised live tests. A post has no recipient, so it is allowed as `"SITE @ACCOUNT"` (e.g.
+  `"x.com @handle"`): it passes only on a page of that host from that declared account, never a payment. It does not
+  cover undeclared GUI typing.
 
 #### Security test catalogue
 - 38 documented attack scenarios with benign twins, packaged (`ferb release-checklist`). Offline boundary tests pass;
@@ -653,9 +672,10 @@ is final for that step in the task.
 - Codex runs in FERB's own home (`ferb setup --codex-login`), so the owner's personal Codex settings and skills never
   load.
 - Status: **Shipped** (live: Codex and Claude CLI suites passed 2026-10-08; API runtimes untested live, no keys).
-- Model: the owner's installed FERB uses **gpt-5.6-sol** on Codex. Making it the default in code (the previous default
-  `gpt-5.5` retires for ChatGPT sign-ins) and using each model's documented context window: **Landing this week — in
-  review (L28, Task 22).** A Claude runtime without a configured model will fail with an explicit error (no guessed
+- Model: the owner's installed FERB uses **gpt-5.6-sol** on Codex. It is the default in code (the previous default
+  `gpt-5.5` retired for ChatGPT sign-ins), and each model's documented context window is used: **Landing this week —
+  integrated, not live-tested (L28).** A Claude runtime without a configured model will fail with an explicit error
+  (no guessed
   default).
 
 #### Streaming replies and live steering
@@ -665,7 +685,7 @@ is final for that step in the task.
 
 #### Images to the planner
 - What: every runtime accepts an image on a planner call (for the front-window screenshot).
-- Status: **Landing this week — in review (L12, Task 8).**
+- Status: **Landing this week — integrated, not live-tested (L12).**
 
 #### Model providers' own rules
 - Known limit: a provider's model may refuse a request on its own (for example, it declined to extract a session
@@ -688,7 +708,7 @@ is final for that step in the task.
   daemon runs as an agent app named FERB, so macOS privacy settings show "FERB".
 - Signing: **ad-hoc signed now**; the build has one signing step that becomes Developer ID signing plus
   notarization later, with no repackaging.
-- Status: **Landing this week — in review (L27, Task 21).** A real build succeeded (app about 666 MB, DMG about
+- Status: **Landing this week — integrated, not live-tested (L27).** A real build succeeded (app about 666 MB, DMG about
   187 MB). Not yet installed or launched live.
 - Known limits: first open needs System Settings → Privacy & Security → **Open Anyway**; macOS may ask for
   permissions again after each update until Developer ID signing exists; untested whether launchd runs the bundled
@@ -708,7 +728,7 @@ All **Shipped** unless noted.
 - `ferb timeline`, `ferb stats` (outcomes, tool errors, model runs, shell latency, confirmations, escapes),
   `ferb doctor` (installation, permissions, containment, proxy, hearing, context windows).
 - `ferb verdict TASK pass|fail`: the owner's acceptance; `ferb baseline`: metrics snapshots and comparisons (message
-  → ack / plan / answer times added: **integrated, L8**); `ferb regress`; `ferb release-checklist`.
+  → ack / plan / answer times added: **integrated, not live-tested, L8**); `ferb regress`; `ferb release-checklist`.
 - Daily summaries include a security digest (new destinations, confirmations, blocked flows).
 
 ### 3.17 Performance (measured offline on replays of the owner's real data unless stated)
@@ -718,21 +738,23 @@ All **Shipped** unless noted.
   work.
 - **Acknowledgement:** sent on receipt, before routing (integrated, L7). Not yet timed live.
 - **Message → plan line, FERB's side:** 11.4–17.0 s → **0.9–2.0 s** (replay of six real turns, provider time
-  excluded; the model's own time comes on top). **In review (L28, Task 22).**
-- **Plan line → worker start:** 0.5–3.9 s → about 0.1 s (replay, in review).
+  excluded; the model's own time comes on top). **Integrated, not live-tested (L28).**
+- **Plan line → worker start:** 0.5–3.9 s → about 0.1 s (replay; integrated).
 - **Reusable (cacheable) prompt prefix:** about 8k → about 54k tokens per turn (replay); real cache hits need a live
   check.
 - **Live observation (F4):** shell tasks of 60 s and 90 s took 1 min 57 s and 2 min 29 s end to end (planning ~10 s,
   worker model turns 16–26 s, the check 25–32 s).
 - **Idle CPU:** one watcher measured 96% → 0.24% CPU after the 2026-10-11 fix (that watcher only).
-- Known regression being fixed in review: task end → outcome rose from about 0.4 s to about 2 s in the first fix
-  round (episode capture moves after the answer).
+- Task end → outcome: a regression to about 2 s in an early L28 round was removed by capturing the episode card after
+  the answer, in a separate process (a follow-up message's first line came in about 0.5–0.7 s during a capture, on
+  the replay).
 
 ---
 
 ## 4. What FERB can do for its own launch campaign
 
-Precise and conservative. "Today" means the code on `astra_resume`; launch-week items are marked.
+Precise and conservative. "Today" means the code on `astra_resume`, launch-week work included (integrated, not
+live-tested).
 
 ### Capabilities that apply
 - **Post through the owner's logged-in browser profiles.** FERB can open X, LinkedIn, Reddit, Discord, Product Hunt
@@ -740,30 +762,35 @@ Precise and conservative. "Today" means the code on `astra_resume`; launch-week 
   then read the page back to confirm the post exists. **Shipped** browser primitives; no site-specific posting recipe
   or platform API exists.
 - **Draft in the owner's voice.** The planner sees relevant memory (owner-stated preferences, identity rules) and the
-  conversation; the owner can correct a draft by replying ("too LinkedIn-ish"), and corrections re-plan (follow-up
-  re-planning: **in review, Task 6**). Store voice rules explicitly with `ferb memory identity '…'` or "remember
+  conversation; the owner can correct a draft by replying ("too LinkedIn-ish"), and corrections re-plan in the same
+  task (**integrated, not live-tested, L11**). Store voice rules explicitly with `ferb memory identity '…'` or "remember
   that …" so every draft gets them.
 - **Schedule posts.** Either (a) a schedule per post or a recurring schedule (each run unattended), or (b) one long
   plan with wait steps until each posting time (one task tree, durable across restarts and sleep; waits fire on
-  wall-clock time: **integrated, L22**).
+  wall-clock time: **integrated, not live-tested, L22**).
 - **Watch for replies and mentions.** Ways that exist: a plan step that waits for a time and then reads the
   notifications/mentions page; a delegated conversation (F9) scoped to an exact thread that wakes on its incoming
   messages; perception notices in chat when Jev flags activity (needs a Jev key; integrated, not live-tested).
 - **Reply to comments in scope.** Delegated conversations with an approved account/site/thread/topic scope and
   hand-over; live acceptance pending.
 - **Research and monitor.** Read pages, search, collect metrics from analytics pages, summarise threads; every site
-  contacted is recorded ("Sites contacted" in answers: **in review**).
+  contacted is recorded and listed under "Sites contacted" in the full answer (**integrated, not live-tested, L2**).
 - **Watch and hear media.** Play a video in a tab, confirm it is playing, listen and get a transcript (L26,
-  integrated, not live-tested); record a tab as silent sampled video for evidence.
+  integrated, not live-tested); record a tab as sampled video for evidence, with a transcript when asked.
 - **Audit everything.** `ferb trace`, `ferb timeline` and the daily security digest show what was posted where; the
   owner records `ferb verdict` per task.
 
 ### What will still ask, and what won't (today's code)
-- **A post or comment through the browser is not classified as a send by code.** It is recorded as typing and
-  clicks, so the gateway asks nothing for it, with or without a standing permission. Today the agents' shared
-  instructions still tell them to confirm hard-to-undo outcomes, so a post may be confirmed once per task by the
-  agent; Task 7 (in review) removes worker-side confirmation asking. The owner should decide and state the intended
-  behaviour in the campaign request (e.g. "post these without asking" or "show me each post first").
+- **A post or comment through the browser is checked as a send when the worker declares it** (`effect: send`, with the
+  account it posts from in `destination`; Task 18). Then:
+  - a post to a site and account the owner named in the request is already authorized and doesn't ask;
+  - a post inside a standing scope (`browser.act`, the site's host, the account, no recipients, any body) runs without
+    a question and is recorded, and the daily security digest lists it;
+  - any other post asks once per task for that site and account, showing the text last typed on that page;
+  - workers no longer ask the owner to confirm on their own; an undeclared click gets no question (code can't tell).
+- **A scheduled campaign**: say the exact domain and handle when creating the schedule ("post … on x.com from
+  @handle"). FERB records the scope only for destinations the owner typed; its confirmation lists what was recorded
+  and what each run will still ask about. Cancelling or pausing the schedule ends the scope.
 - **S4 can still ask** if a post's URL or recipient carries the owner's private data, or a recipient came only from
   outside content.
 - **Native desktop messaging apps** (a send button declared as send): code asks for a new recipient unless a
@@ -779,11 +806,13 @@ Precise and conservative. "Today" means the code on `astra_resume`; launch-week 
   terms for approval. This is the owner's risk decision.
 - No image or video generation tool; FERB uses files the owner provides or that tasks download.
 - CAPTCHAs, new-device checks and 2FA need the owner.
-- The end-to-end standing-permission campaign path has no offline test yet (Task 18 planned) and no live run; plan
-  the first week of posts as supervised runs, using `ferb test-mode` with an owner-controlled destination for dry
-  runs.
+- The end-to-end standing-permission campaign path has offline tests through the gateway
+  (`tests/test_standing_permission_campaign.py`, including a scheduled post inside its recorded scope) but no live run
+  yet; plan the first posts as supervised runs, using `ferb test-mode on --allow-send "SITE @ACCOUNT"` with an
+  owner-controlled account for dry runs.
 - Model providers may refuse some requests.
-- Recordings are 2 frames/s silent video, not marketing-grade footage.
+- Recordings are 2 frames/s sampled video with no audio track (a transcript can be attached), not marketing-grade
+  footage.
 
 ---
 
@@ -800,13 +829,13 @@ Real uses from the owner's traces (no private contents), with status.
 | "Which app came to the front and was it FERB?" | Trace states facts: "<App> came to the front — no FERB on-screen action in progress (the last ended 4.9 s earlier)" | **Shipped, live-verified** (F4) |
 | Find the right assignment in a mail account and set reminders a day before the deadline | Correct answer and reminders (the owner failed the run for reading browser data via shell; F5's sandbox now blocks that) | **Shipped**; the original run failed for method, the fix is in F5 |
 | Research a startup/topic online without a flood of questions | Shell and browser reach any site, recorded; zero network questions (was 46 in 7 minutes) | **Landing — integrated (L2)**; live check pending |
-| "What does this line on my screen mean?" | Answered directly from the front-window screenshot, no worker (took 1 min 16 s through planner, worker and checker before) | **Landing — in review (L12)** |
+| "What does this line on my screen mean?" | Answered directly from the front-window screenshot, no worker (took 1 min 16 s through planner, worker and checker before) | **Landing — integrated (L12)**; not live-tested |
 | "Find the startup he's talking about in this reel" | Plays the video, confirms it plays, listens, reads the on-device transcript | **Landing — integrated (L26)**; not live-tested |
 | Subscription upgrade noticed | One understood chat notice ("You upgraded … It renews on …") instead of four alarm-style banners | **Landing — integrated (L10)**; needs Jev; not live-tested |
-| Late answer to an earlier question | Appears at the bottom as a reply quoting the question | **Landing — integrated (L6)** |
-| Correct a draft ("too LinkedIn-ish") | The new goal is used and re-planned | **Landing — in review (L11)** |
-| Reminder asked for earlier in the chat (a boarding-time timer) | Set, and the reply is kept even if one side output is refused | **Landing — in review (L11)** |
-| "Use tool X to clean my Mac" when X isn't installed | Asks once "X isn't installed — should I install it?", installs on Yes, continues | **Landing — in review (Task 7)** |
+| Late answer to an earlier question | Appears at the bottom as a reply quoting the question | **Landing — integrated (L6)**; not live-tested |
+| Correct a draft ("too LinkedIn-ish") | The new goal is used and re-planned | **Landing — integrated (L11)**; not live-tested |
+| Reminder asked for earlier in the chat (a boarding-time timer) | Set, and the reply is kept even if one side output is refused | **Landing — integrated (L11)**; not live-tested |
+| "Use tool X to clean my Mac" when X isn't installed | Asks once "X isn't installed — should I install it?", installs on Yes, continues | **Landing — integrated (L3)**; not live-tested |
 | Kaggle: hand the work to a named coding agent and submit | FERB starts and helps the named agent, does none of its work, asks before choosing which submission is final | **Shipped** (F4 live fixes); live re-check pending |
 | Upload a file from the Desktop to a web form | No macOS folder prompt; the site sees the original name | **Shipped**; live re-check pending |
 | Food-delivery login with a one-time code into split boxes | Hidden input, sealed fill into the boxes | **Shipped**; failed live before the split-box fix, retest pending |
@@ -835,20 +864,17 @@ Acceptance
 
 Security and privacy residuals
 - Trust-record-recover: after a malicious page, the shell could send a file somewhere (recorded, not prevented).
-- Payment/account-security/permanent-delete asks are enforced in code only for tools that declare those kinds; none
-  do yet, so in practice they rely on the agents (see 3.13).
-- Browser posts and webmail sends aren't classified as sends by code.
+- Payment, account-security, permanent-delete and send asks for browser and app input are enforced in code when the
+  worker declares the step's effect; an undeclared click isn't caught (see 3.13).
 - Redaction covers secret classes, not all private text; OCR can miss text.
 - The hosted model sees a redacted screenshot of the front window with every message (L12, owner-accepted).
-- Sent chat messages are stored as typed in the notch app's local history.
 - LAN-reachable `0.0.0.0` servers, domain fronting, unenumerated system services, listener timing (see 3.13).
 
 Capability limits
 - Background behaviour depends on each app and macOS; most native apps are untested per app.
-- Hearing is per app (a browser is heard whole); recordings are silent 2 fps samples.
+- Hearing is per app (a browser is heard whole); recordings are 2 fps samples with no audio track.
 - Perception notices need a Jev key; notification triage is shadow only; "now playing" isn't built.
 - Learning has no observed learned procedure yet; no measured memory benefit.
-- Questions still expire after 600 s until Task 14 lands.
 - Model providers' own refusals; provider latency dominates response time.
 - The CLI doesn't show the live progress line.
 
@@ -901,8 +927,8 @@ Decided or discussed, deferred (spec §6 and plan):
 - **Code floor** — the code-enforced questions: payment, account security, permanent deletion, send to a new
   recipient.
 - **S4 (sink rule)** — the check on private data going to an unnamed place after outside content was read.
-- **Standing permission (D30)** — an owner-approved, exact send scope for one long task; in-scope sends don't ask
-  and are logged.
+- **Standing permission (D30)** — an exact send scope FERB states for one long task (or records with a schedule from
+  the owner's typed words); the owner corrects it by replying; in-scope sends don't ask and are logged.
 - **Sealed fill** — a password or code typed by the owner into hidden input and filled straight into the exact
   field; no model sees it.
 - **Keychain handle** — a reference to a secret the owner chose to store; models see only the handle.
@@ -914,6 +940,7 @@ Decided or discussed, deferred (spec §6 and plan):
 - **Disturbance sentinel** — the recorder of desktop changes during tasks.
 - **Delegated conversation (F9)** — an approved, scoped conversation FERB carries on with hand-over.
 - **Big job (D24)** — a large fan-out plan stated with time and cost estimates.
-- **Test mode** — an allowlist that refuses send-class actions except to listed recipients during supervised tests.
+- **Test mode** — an allowlist that refuses send-class actions except to listed recipients (or `"SITE @ACCOUNT"` for
+  a post) during supervised tests.
 - **L-numbers** — launch-week decisions L1–L28 (2026-10-13/14); **D/P/S/MP/W** — 0.27 plan decisions; **F0–F10** —
   the 0.27 milestones.

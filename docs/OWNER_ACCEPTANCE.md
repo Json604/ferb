@@ -169,8 +169,10 @@ real path):
 7. **Trash from the daemon.** FERB moves `~/ferb-test/old.txt` to the Trash. `ferb restore` lists "moved to Trash
    ~/ferb-test/old.txt"; `ferb trace TASK --full` shows the `fs.trash` result with `trashed_to` and `recoverable`;
    `ferb restore <id>` prints "Put ~/ferb-test/old.txt back from the Trash." This is the first run of the Trash record
-   and restore (lstat and rename in `~/.Trash`) from the installed daemon under TCC; offline tests never touch the real
-   Trash.
+   and restore from the installed daemon under TCC; offline tests never touch the real Trash. Since the launch week
+   (L27) both moves go between held folders (`O_SEARCH` folder handles plus `renameatx_np(RENAME_EXCL)`, identity
+   checked before and after), and Finder's "Put Back" isn't offered for FERB's items. Launch-week check 30 below adds an
+   iCloud Drive item.
 8. **Snapshot from the daemon.** Ask for bulk work on a disposable folder and say "take a snapshot first" (for
    example "rename every file in ~/ferb-test/bulk to lowercase"). The worker calls `recovery.snapshot`: no password
    prompt, the result names `com.apple.TimeMachine.<date>.local`, `tmutil listlocalsnapshots /` lists it, and
@@ -929,7 +931,8 @@ retained in the trace; no claim about them or successful live login is made.
 
 The corrected helper still rejects a mismatched signature. Explicit ordered split textboxes are now supported via
 sealed input with one exact tab/frame/snapshot binding and pre-write validation; automatic OTP classification is
-unchanged. Extension 0.15.2 / protocol 13 is required. Replacement-node value masking and sensitive screenshot
+unchanged. Extension 0.15.2 / protocol 13 was required then (0.15.3 / protocol 14 since the launch week).
+Replacement-node value masking and sensitive screenshot
 handling are reviewed separately from ordinary editing, so privacy protection does not disable restaurant search.
 
 Recent journal replies (14:22:05 and 14:22:49) repeated the ongoing assignment and speculative timing. The new
@@ -1059,3 +1062,146 @@ Compilation, core mypy and `git diff --check` passed. The revised auth-only prob
 Activation is deferred to preserve the still-running local report server (`p-08a32c98`, port 8766); no active task
 or approval remained. Daemon shutdown kills managed shell processes (`ferb/daemon/main.py`), so activating this
 change requires stopping that server. The owner's earlier keep-running instruction is retained.
+
+## 0.27 launch week (L1–L28) — pending live checks (2026-10-14)
+
+The launch-week fixes are integrated on `astra_resume` (spec
+`docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`,
+section 7). **Every check below is pending: none has been run, and offline tests don't accept any of them.** Record
+each task with `ferb verdict TASK pass|fail [--note …]` and add what you saw here. Live tests use the Codex runtime;
+anything that can send runs on your own surfaces, with `ferb test-mode on` where it applies. Pause between supervised
+steps so a disturbance can be tied to one action.
+
+This supersedes the 2026-10-11 pending check "exact shell networking asks once" (L2: shell networking no longer asks).
+
+Install (you run these):
+1. `ferb setup --update` (or FERB.app, checks 38–44), then `ferb doctor`: the context-window lines for each role
+   (Codex `gpt-5.6-sol`, 258,400 input tokens), the hearing line, and the local-connections line if you pinned ports.
+   Rebuild the notch app with `./build.sh` in `ui/mac/FERBNotch` (if the build fails on a stale module cache, remove
+   `.build` once). Reload the extension so the browser runs 0.15.3 / protocol 14.
+
+Chat (L6–L8, L19, L20):
+2. The acknowledgement appears at once in the app, before the plan line; `ferb chat` shows the daemon's phrase too.
+   `ferb baseline` then has `latency_s`.
+3. The plan line follows, then one live line with the current step and elapsed time; it disappears at the answer. Two
+   requests in flight keep their own lines.
+4. Late answer: send a slow request A, then a quick B. A's answer appears at the bottom quoting A, A reads "Answered
+   below", and History shows both.
+5. A question shows inline while you keep typing; paste plus typing sends with no dialog; a hidden code field takes
+   focus only when you click it.
+6. After relaunching the app, History shows your sent messages as FERB stored them (a secret you typed is replaced);
+   an unsent draft is gone.
+7. `ferb chat` doesn't replay results the app already showed; the learning digest shows Confirm and Not right in the
+   app.
+
+Questions (L2, L3, L24):
+8. Sentient-style research (like the traced "traction online" task): no questions at all; the full answer ends with
+   "Sites contacted: …".
+9. A plain "Yes" answers one of FERB's checks; with two questions open FERB asks which one; "sure, sounds good" gets
+   "Is that a Yes or a No to this?".
+10. A big job states its plan and starts; your reply changes it.
+11. "Use <tool> to …" with a tool that isn't installed: asked once, installed on Yes, then the task goes on.
+12. Leave a worker's question unanswered for more than five minutes (past Codex's per-call timeout), then answer: the
+    question stayed open and the worker goes on without asking again.
+13. With a pinned local port, `psql` or `redis-cli` connects directly; `ferb trace TASK --json` shows `local_direct`.
+
+Answers (L11):
+14. A correction after an answer ("too LinkedIn-ish") re-plans the same task; a reminder asked for in an earlier
+    message of the chat is set; a partly refused reply is kept with one line. For an unfinished task, check that the
+    short text agrees with FERB's status line (code doesn't check the wording).
+
+Seeing (L12, L13):
+15. "What does this line mean?" about something on screen (the Korean-line case): a direct reply, no worker.
+16. Front window: on a YouTube Short, ask "why's she doing this": answered from the front window and its tab.
+17. The capture skips FERB's own windows and the terminal running `ferb chat`; an app on your exclusion list isn't
+    named. Note how long a message takes to its plan line now (`ferb baseline`).
+18. `browser.screenshot` of a sign-in page, password hidden and then shown: the fields are black, the rest visible.
+19. `mac.screenshot` of your Brave with a login form: the fields are black.
+20. `browser.record` across a login step, then `recording.inspect`: the fields are black in the frames.
+21. A task started with a browser in front counts that page as outside content read, so the private-data check may
+    ask a little more: note any extra question.
+
+Hearing (L26):
+22. Plain `ferb setup` asks once for Speech Recognition (for "FERB" from a checkout); `ferb doctor` shows hearing.
+23. From a terminal with Screen Recording: `uv run --no-sync pytest -q -s -m real tests/test_audio_listen_real.py`
+    (a lab Chrome tab plays a sentence, FERB listens, listens again with your output muted, records with sound). Note
+    what you heard; your mute setting is restored.
+24. On a reel, "find the startup he's talking about": FERB plays the video, confirms it plays, listens and uses the
+    transcript.
+25. If you use push-to-talk: `ferb voice off`, then `ferb voice on`, so the running helper picks up on-device-only.
+
+Perception (L9, L10, L17):
+26. A subscription-like event (the Claude-upgrade case) gives one understood chat notice ("You upgraded … It renews
+    on …"), not banners; outside text is quoted with its origin.
+27. With no FERB client open, a notice arrives as a macOS banner, and FERB doesn't read its own banner back as a new
+    notification (its title, body and poster `com.apple.ScriptEditor2` are assumed, not yet seen live).
+28. A WhatsApp group notification: its trail row shows `conversation_source: "thread"` (the `thre` key, unverified).
+29. Typed text: typing into Google sign-in with "Show password" ticked is not captured; a Terminal `sudo` prompt is
+    not captured; an ordinary field is. Note CPU and Jev call volume after a normal day.
+
+Files and Trash (L27):
+30. FERB trashes a disposable file in an iCloud Drive folder; `ferb restore` puts it back. Note what iCloud shows.
+31. A shell command that moves a file into `~/.Trash` fails with "Operation not permitted"; `fs.trash` and
+    `ferb restore` still work.
+
+Learning (L16):
+32. After a few tasks: `ferb timeline` shows no `memory.distill_failed` or `memory.consolidate_failed`, a consolidator
+    pass completes on Codex (strict schema), and `ferb memory search` finds the new episode cards.
+
+Runtime and timing (L21, L22, L28):
+33. If a Codex account check fails, the request gets a reply naming the failure.
+34. A plan wait due while the Mac sleeps ends shortly after it wakes.
+35. On consecutive planner turns, `ferb trace TASK --json` shows `cached_input_tokens` on `model.turn`.
+
+Launch campaign (D30, L3; owner-approved run on your own accounts):
+36. First under test mode: `ferb test-mode on --allow-send "x.com @<your handle>"`. Create the schedule naming the
+    domain and handle ("every day at 9, post … on x.com from @<handle>"). The confirmation lists the recorded scope; a
+    run posts with no question and the trace marks it covered; a post elsewhere asks (and, unattended, is reported
+    not done); cancelling the schedule ends the scope. Then the real posts, supervised.
+
+Sealed filling (spec section 8.6):
+37. A Zomato login with an OTP through sealed filling (split code boxes).
+
+Packaged FERB.app (L27):
+38. Download the DMG through a browser (so it's quarantined), drag FERB to Applications, Open Anyway in Privacy &
+    Security; the Set Up FERB window runs setup.
+39. The daemon starts under launchd from the app. If it doesn't, run
+    `log show --last 5m --predicate 'process == "launchd"' | grep -i quarantine` and record it (the main open risk).
+40. Privacy & Security and Login Items name **FERB** (the agent: Accessibility, Screen Recording, Full Disk Access,
+    Automation) and **FERB Voice** (Speech Recognition, and Microphone with push-to-talk), not python3.12.
+41. Hearing through the packaged helper: setup asks Speech Recognition for FERB Voice, and a listen transcribes
+    through the helper inside `/Applications/FERB.app`.
+42. `ferb` works from a new terminal once `~/.local/bin` is on PATH; the extension's native host connects; with pinned
+    ports, local connection reports run under launchd.
+43. Replace FERB.app with a newer build: the update runs in the window, permissions are granted again, and the
+    Keychain asks at most once.
+44. `ferb setup --voice` from the app sets up push-to-talk without building.
+
+Notch app (U8, U9):
+45. Expand the chat, type a draft, click the paperclip: the chat steps aside, the picker is fully clickable (files in
+    folders too), and the draft and attachment are back after.
+46. The yield checks: a clipboard app's menu over the notch (FERB steps aside and returns), a pinned chat with a click
+    into a window under it, hover back on the notch, a click just below the folded pinned header, dictation and an
+    arriving question while FERB is aside, a screen-share bar FERB is brought back over, and a desktop swipe after FERB
+    returns (the notch stays put).
+
+Extension (L25):
+47. After `ferb setup --update`, reopen each browser and note which offer FERB from the Web Store request (Chrome
+    expected; Brave and Edge unconfirmed). After the listing is approved, set `[browser] store_extension_id`, run
+    `ferb setup --update` again and record it.
+
+Residuals to know during the week (accepted or recorded, not checks):
+- After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
+- A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.
+- An undeclared browser post or payment click gets no question; the prompts carry the declaration.
+- Image tokens aren't counted in the planner's context budget.
+- A captured memory item's whole typed turn can back a schedule's scope; cancelling a schedule doesn't stop a run
+  already going (its sends then get the usual checks).
+- Your follow-up reopens every No in that task (each asked again at most once, only if the action recurs).
+- Typed text: terminals inside other apps (VS Code, Cursor) and terminals added to `[protection] terminal_apps` aren't
+  gated; a PIN typed into a phone-number field labelled only "PIN" is recorded.
+- A new floating window appearing while you type makes FERB step aside, and your keystrokes go to the app underneath.
+- In the milliseconds between Codex's timeout and FERB releasing the call, an answer can be lost; the retry asks
+  again.
+- `mac.applescript` can still ask Finder to move Trash items.
+- Ad-hoc builds lose macOS permissions on every update until Developer ID signing.

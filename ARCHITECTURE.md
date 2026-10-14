@@ -13,7 +13,9 @@ it does not switch a local source to Drive, resolve a contact by first match or 
 The harness consists of daemon RPC, gateway, stores, ownership, locks, sentinel, recording and stop. The approach
 consists of prompts, planning, dispatch, success-condition generation and checker judgment. All prompts are versioned
 files loaded through `ferb/core/prompts.py`. `Supervisor._approach` is the single selection seam for a later verified
-override with default fallback. Notification and ordinary-activity attention questions are recorded in shadow; they do not authorize tasks.
+override with default fallback. Notification triage questions are recorded in shadow. The ordinary-activity attention
+question (`trail.attention`) is live under Q4 and recorded as live: a yes lets FERB consider the moment and post a
+chat notice (section 16); it never authorizes a task or a send.
 
 <!-- source: ferb/orchestrator/supervisor.py#Supervisor._approach -->
 <!-- source: ferb/core/prompts.py#load_prompt -->
@@ -36,7 +38,10 @@ override with default fallback. Notification and ordinary-activity attention que
 | Native, processes, files, recordings | [`act/mac/`](ferb/act/mac/), [`act/shell/`](ferb/act/shell/), [`act/fs/files.py`](ferb/act/fs/files.py), [`act/recording.py`](ferb/act/recording.py) |
 | Memory, sensing, reminders and schedules | [`memory/`](ferb/memory/), [`sense/`](ferb/sense/), [`clock/`](ferb/clock/), [`schedules.py`](ferb/orchestrator/schedules.py) |
 | Optional typed enrichment | [`decide/`](ferb/decide/) |
-| Installation/diagnostics and voice transport | [`device/`](ferb/device/), [`voice/`](ferb/voice/), [`macapp/`](macapp/) |
+| Installation/diagnostics and voice transport | [`device/`](ferb/device/), [`voice/`](ferb/voice/), [`macapp/`](macapp/) (FERB Voice: push-to-talk and on-device transcription) |
+| The Mac app (notch UI, the product) and its setup console | [`ui/mac/FERBNotch`](ui/mac/FERBNotch/) |
+| Packaged FERB.app: build, signing, agent stub | [`scripts/build-app.sh`](scripts/build-app.sh), [`scripts/build-dmg.sh`](scripts/build-dmg.sh), [`scripts/signing.sh`](scripts/signing.sh), [`ui/mac/FERBAgent`](ui/mac/FERBAgent/) |
+| Chat events: acknowledgement, live line, front window, hearing | [`acks.py`](ferb/orchestrator/acks.py), [`progress.py`](ferb/orchestrator/progress.py), [`sense/front_window.py`](ferb/sense/front_window.py), [`act/listen.py`](ferb/act/listen.py), [`sense/transcribe.py`](ferb/sense/transcribe.py) |
 | Measurement: regression runner, security test harness | [`eval/regress.py`](ferb/eval/regress.py), [`eval/security/`](ferb/eval/security/) |
 
 Public store methods own their queries. Keep edits within these responsibilities. Split a module only for a real
@@ -53,8 +58,9 @@ checks. They are source metadata wrapped as untrusted data, never extra owner wo
 Final redacted answers, verification and artifacts persist in task/root-span outcomes; `trace.get` supplies them
 after reconnect. `chat.status` includes pending questions' root task IDs when unambiguous, and accepts `peek` to
 avoid consuming unseen results while polling. The daemon remains the execution and security boundary for all clients.
-The planner-context snapshot attached to a task holds the non-protected blocks only; the capped chat history and
-resumable attempts (protected since F1) are not in it, and workers fetch history with `chat.history` (revisited in F6).
+The planner-context snapshot attached to a task holds the planner's situation blocks (the front window included,
+L28) and its optional blocks, never the conversation or resumable attempts; workers fetch history with
+`chat.history`. It is written right after the plan line goes out.
 
 `run_tree` records the full request and specification, starts the sentinel and worker, and retains artifacts and
 uncertain actions across recovery. Workers get the installed tool registry; `actions.search` supports complete paged
@@ -121,10 +127,12 @@ expired credentials. No task or model turn is replayed by this handling.
 Owner corrections route through `orchestrator/steering.py` to the active task tree. Chat intake is serialized until
 each message is registered, while workers continue independently. `steer` (and `continue` on an active task)
 updates the redacted durable request and result conditions, then calls `AgentRuntime.continue_` on existing member
-runs. It never calls stop/cancel/revoke or changes existing identity/scope grants, standing approvals or the plan
-graph. All plan members share correction state; future workers and retries read it too. An ordinary `owner.ask`
-wait can receive the owner's exact words; old consequential/secret prompts are denied, never approved or filled.
-Explicit `plan.ask` approvals/questions remain pending. Unrelated requests use their own tree; stop/retry retains
+runs. It never calls stop/cancel/revoke or changes identity grants or the plan graph; a standing scope changes only
+through the steer's required scope decision (section 16). All plan members share correction state; future workers
+and retries read it too. A steer settles only the open questions the planner names as changed (`supersedes`): a named
+`owner.ask`/`plan.ask` gets the owner's words; a named FERB check or hidden input closes as `superseded`, never as a
+No, and is asked again if the action recurs; every other question stays open (L3). Unrelated requests use their own
+tree; stop/retry retains
 explicit cancellation semantics. Corrections cannot undo an action already in flight.
 
 Revision checks prevent a result captured before an undelivered correction from finishing the task. Worker
@@ -135,11 +143,11 @@ pending input. Claude uses UUID user-message replay to keep receiving through st
 adapters append ordered user messages at the next model decision, preserve started tool outcomes and skip stale
 unstarted tool calls. Neither path replaces the runtime to accept a correction.
 
-As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
-entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts
-newest first with a note about the older ones. Blocks are ordered stable first: device facts (installed apps), then
-history, whose chat tags count from the oldest (`c1`) so earlier lines never change as the conversation grows; the
-owner's message is last and the budget report at the end (P20). The Codex catalog lockdown sets
+The planner's context window and order are as built in the launch week (L28, section 16): the budget is the
+model's real window, the situation always goes in, and chat fills the rest newest-first. Resumable attempts
+(`ATTEMPTS_TOKENS` 2000) keep their newest entries whole with a note about the older ones. Chat tags count from the
+oldest (`c1`) so earlier lines never change as the conversation grows; the owner's message is last (P20). The
+F1 `HISTORY_TOKENS` 12000 cap and the 32,768-token default budget are gone. The Codex catalog lockdown sets
 `supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
 tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
 
@@ -171,17 +179,21 @@ intended, executing, done, failed and unknown delivery. A delivered event is not
 Code refuses a consequential call identical to one in the same task tree whose outcome is unknown or still running;
 only the owner's Yes allows one more attempt (P19, section 11).
 Each `tool.call` span records the action `kind` and its non-empty `target` fields, so exported traces can be scanned
-offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions (by kind or declared purpose)
-to unlisted or unidentifiable recipients are refused before FERB asks anything and before the ledger; it is None
-(inert) in normal running. GUI typing into a messaging app is kind `mac_input`, not send-class, so the allowlist does
-not cover it. Before a consequential call runs, code may ask the owner itself (section 12, "Confirmations").
+offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions (by kind, declared purpose or
+declared effect) to unlisted or unidentifiable recipients are refused before FERB asks anything and before the
+ledger; it is None (inert) in normal running. An entry is an exact recipient, or `"SITE @ACCOUNT"` (a bare `"SITE"`
+for a post that declares no account): a recipient-less declared send passes only on a page whose host (a fact) and
+declared account match, never a payment; a URL-shaped entry is refused (`allowlist_problem`). Undeclared GUI typing
+into a messaging app is kind `mac_input`, not send-class, so the allowlist does not cover it. Before a consequential
+call runs, code may ask the owner itself (section 12, "Confirmations").
 
 Ordinary `owner.ask` first goes to the orchestrator with context. If what/who/which remains ambiguous, the owner gets
 candidates and their evidence. Before a hard-to-undo action, preparation and target confirmation are concrete; an
 already-given confirmation carries across retries. Foreground permission follows the same task-wide principle.
 Free text is preserved; duplicate option labels are not resolved to the first. OTP is a separate sealed path.
 
-The question wait is 600 seconds and expires without consent. The worker/checker silence watchdog currently polls
+Questions never expire (L3, spec section 8.1): a question stays open while its task waits and closes when it is
+answered or its task ends; silence is never consent. The worker/checker silence watchdog currently polls
 at 5 seconds and detects 180 seconds without activity; no-tool provider calls have a separate 900-second liveness
 bound. These are transport/liveness safeguards, not task-duration or artifact-length goals. Stop revokes tokens,
 cancels active handles, stops owned inputs/processes and persists across restart until explicitly lifted.
@@ -265,7 +277,9 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.2 / protocol 13** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
+Extension **0.15.3 / protocol 14** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+`media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields). Task
+tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
@@ -279,9 +293,12 @@ hidden prompt and rechecks them afterward. The extension validates origin, exact
 code length before writing and preserves unknown outcomes if the page mutates during input. After explicit
 split input, editable values/text/labels remain masked for that document across node replacement, with AX merge
 preserving the masked labels. This capture state does not change ordinary field action classification, so unrelated
-search inputs remain editable. Screenshot and recording paths check sensitive/document state before and after capture. No site-name heuristic or broader automatic OTP classification is introduced.
+search inputs remain editable. Screenshot and recording paths read the page's secret-field state before and after
+capture and paint over those fields (section 16, L13). No site-name heuristic or broader automatic OTP
+classification is introduced.
 The locally signed helper is verified with codesign's inline requirement syntax (`-R=`), retaining fail-closed
-signature checks. Protocol 13 prevents an older extension silently ignoring explicit split targets. The background fill callback also
+signature checks. Protocol 13 (and 14 since) prevents an older extension silently ignoring explicit split targets.
+The background fill callback also
 requires the current page helper’s explicit split-fill capability before writing, so a stale isolated helper refuses
 without falling back to filling only the first field.
 
@@ -379,8 +396,9 @@ partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in 
 signed-URL credentials; never content). The worker sees them in the open/navigate result (it waits for the transfer),
 the next snapshot or act (with `opened_tabs`), and `browser.downloads` (an observation tool). The folder is always an
 untrusted fs root (`external:download`). Files are FERB's working copies and stay until the owner deletes them; only
-while the folder is over `browser.download_total_mb` (20480) do the oldest move to the Trash (`move_to_trash`, the
-hourly pass); rows stay with `trashed_to`. There is no time-based clearing. These limits are the owner's decision of
+while the folder is over `browser.download_total_mb` (20480) do the oldest move to the Trash (`files.trash_item`
+through the downloads folder FERB holds open, the hourly pass; never by path); rows stay with `trashed_to`. There is
+no time-based clearing. These limits are the owner's decision of
 2026-10-09 (section 11 has the one-time upgrade of the values F4 had written into `config.toml`).
 
 Residuals (measured in the headless lab; nothing tab-scoped closes them), recorded `not_taken` from the tab's own
@@ -458,7 +476,8 @@ conversation history may be omitted, with counts and retrieval references. A 32k
 questions; over-limit requests are recorded unavailable without partial JSON. `trail.sensitive` is retired in favor
 of code redaction. `notification.attention` cannot be enabled; its owner-labelled confusion counts remain shadow.
 `perception.attention` is an ordinary-activity proposal with source references, never an owner instruction. No task
-authorization or target-routing rule depends on Jev.
+authorization or target-routing rule depends on Jev. Since the launch week a Jev yes leads to one consideration per
+app and a chat notice (section 16, L9/L10); typed text is captured again (L17).
 
 `device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
 app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
@@ -467,7 +486,8 @@ by file identity, including firmlink aliases. Cancellation kills, drains and rea
 cancellation during process creation. `daemon/persona.py` owns asynchronous discovery, redacted pending evidence and one shared
 review across full setup, updates, `setup --persona`, CLI chat and native startup. `chat.attach` starts missing
 discovery without blocking conversation. The existing approval channel shows the proposal/evidence and accepts
-Save, an owner edit or Skip; reconnect and approval expiry reuse the pending evidence. Confirmed/skipped state is
+Save, an owner edit or Skip; the question is created once (no banner, never re-asked by polling) and reconnect reuses
+the pending evidence. Confirmed/skipped state is
 durable. Only confirmed text becomes an owner-stated `setup-persona` preference, and `Learning.sync_facts` puts it
 in the stable identity context used by `Supervisor._system`.
 
@@ -476,9 +496,14 @@ in the stable identity context used by `Supervisor._system`.
 Every model call goes through one interface. `ModelRequest(system, parts, cacheable)` ([`core/types.py`](ferb/core/types.py))
 carries FERB's instructions and the context as ordered parts; the first `cacheable` parts repeat across a role's calls and
 adapters cache them (P20). `assemble_parts` ([`core/context.py`](ferb/core/context.py)) returns the parts and that count from
-the `ContextBlock`s whose `cache=True` leads the list. The supervisor marks the device facts and the chat history for the
-orchestrator, and the owner's original request and the task specification for task calls
-([`supervisor.py`](ferb/orchestrator/supervisor.py)). Everything model-specific stays in the adapter.
+the `ContextBlock`s whose `cache=True` leads the list. The supervisor marks Layer 1, the conversation header and every
+shown chat entry for the orchestrator (L28), and the owner's original request and the task specification for task
+calls ([`supervisor.py`](ferb/orchestrator/supervisor.py)). `ModelRequest.images` carries images (`ModelImage`: bytes,
+evidence ref, mime) after the text parts, so the cacheable prefix is unchanged; every adapter accepts them (L12:
+Anthropic image blocks, OpenAI `input_image`, Gemini `inlineData`, Claude SDK streaming input, Codex app-server image
+items, `codex exec --image`). Each adapter reports `limits` per model (`ModelLimits`: documented context window, reply
+limit and their source), and the context budget comes from them (L28, section 16). Everything model-specific stays in
+the adapter.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
@@ -488,7 +513,8 @@ orchestrator, and the owner's original request and the task specification for ta
 | `openai` | [`openai_api.py`](ferb/runtimes/openai_api.py) | per token | explicit breakpoints on gpt-6 and gpt-5.6, else implicit; a per-role `prompt_cache_key` |
 | `google` | [`google_api.py`](ferb/runtimes/google_api.py) | per token | implicit |
 
-`CATALOG` ([`runtimes/catalog.py`](ferb/runtimes/catalog.py)) holds each runtime's default model, its `Capabilities`
+`CATALOG` ([`runtimes/catalog.py`](ferb/runtimes/catalog.py)) holds each runtime's default model (Codex: `gpt-5.6-sol`,
+owner 2026-10-14), its `Capabilities`
 (tools, cache, cache key, typed output, reasoning effort, image input, continuation, live messaging, billing) and whether
 it is usable on this Mac; `ferb runtimes` prints it. A role picks its runtime in `config.toml`: `[runtimes]`
 `orchestrator`, `worker`, `checker` (the checker falls back to the worker's) and `[models]` `<runtime>`; `ferb runtimes use ROLE RUNTIME
@@ -741,15 +767,16 @@ the kind (`screenshot`, `snapshot`, `recording`, `app_window`), redacted facts a
 each tool image (`_keep_image`, through `put_async`: masking and the file write run in a worker thread, the row on the
 loop right after the write; cancelled mid-write, it waits for the thread, removes the file and re-raises, so never a
 file without its row; the cancelled call's span still ends, with `evidence_error: cancelled`); the model gets it as
-before, and the span's output names it (`evidence: <id>`, or `evidence_error`). These keep facts only, with
-`image_withheld` saying why: a site on the exclusion list; a result that lists a secret field (no image-pixel box to
-mask it with); a browser window or a page with no known host (it may show the owner's own tab, D29); a recording's contact sheet (the recording file is the evidence); and, until F5 redacts
-screenshots, a messaging or mail app (`UNTRUSTED_APPS`) or an email/message source, where one-time codes arrive
-(rule 14). When a worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
+before, and the span's output names it (`evidence: <id>`, or `evidence_error`). Since the launch week (L13) the
+evidence keeps exactly the image the model got, masked where captured and then sanitized; browser windows, hostless
+pages, excluded sites and recording contact sheets keep their pixels. Facts only, with `image_withheld` saying why,
+remain only where masking or the F5 redaction failed ("image redaction unavailable", a `Withheld` reason). When a
+worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
 app's window, after the call has answered and outside its resource lock (`_look_later` starts `_first_look` as its own
 job, in `Gateway.looks`; a stop or shutdown cancels it, while a task that just ended lets it finish, bounded by its
 10 s capture timeout), through
-`MacComputerDriver.window_image` (one window through ScreenCaptureKit, never the desktop, never brought forward, never the worker's latest shot; the password-field floor still drops the frame), masks the
+`MacComputerDriver.window_image` (one window through ScreenCaptureKit, never the desktop, never brought forward,
+never the worker's latest shot; secret fields are painted over, L13), masks the
 secret fields its accessibility tree shows ([`act/evidence/mask.py`](ferb/act/evidence/mask.py), in a worker thread) and
 stores it as `app_window` on an `evidence.app_window` span. That happens once per task, worker and app, not when the
 call itself returned an image (kept or facts only), not for browsers, not without the screen scope or with `[mac] snapshot_image` off; a failure,
@@ -757,11 +784,10 @@ or a capture over 10 s, is logged on the span (a cancel finishes it as `cancelle
 goes to the daemon's log) and never fails the call. The picture is evidence only: it does not go to
 the model. The checker lists captures with `task.evidence kind=evidence` and reads one by `evidence_id` (facts and
 origin; never bytes or paths; its own task's only). Retention deletes the file before the row. D6/D26 as clarified
-2026-10-09: the model gets this start-of-task picture of the working app's window, then screenshots only when it asks
-(`mac.screenshot`, `browser.screenshot`), never one per model step; sending the picture to the model is built in F5,
-after screenshot redaction, so no unredacted pixels reach a hosted model. Stored images carry only
-accessibility-known masking until F5's screenshot redaction (D13, D28). V8's input exists: an
-episode's `verified` flag and the task's stored evidence; learning from it is F8.
+2026-10-13 (L12): the model-bound start-of-task picture is the front window captured when the owner sent the message
+(section 16), which the planner and the worker both get; this evidence-only first look per app stays. Screenshots
+otherwise go to the model only when it asks (`mac.screenshot`, `browser.screenshot`), never one per model step. V8's
+input exists: an episode's `verified` flag and the task's stored evidence; learning from it is F8.
 
 **Unknown outcomes are never retried by code (P19).** Before a consequential call runs, `Ledger.intend(...,
 reconcile_first=True)` looks for the same action anywhere in the task tree (ledger rows keep the worker's task id) in
@@ -806,10 +832,16 @@ new task tree is not refused by code: its orchestrator sees the earlier tree's r
   `written_sha256` records the file as FERB left it; an error result drops the copy only when the file still equals it;
   an exception (unknown outcome) keeps it. The result says `recoverable: <id>`, or `recovery_error`. Copies and their
   records are kept `retention.recovery_days` (7).
-- Trash. `fs.trash` moves the item to the Trash (`move_to_trash`), and a `trash` record keeps the resolved original
-  path, the Trash path (a real `.Trash` or `.Trashes` ancestor is required) and the item's device and inode. The record
-  stays while that very item is still in the Trash, at most 90 days (`TRASH_RECORD_MAX_DAYS`); the item itself always
-  stays in the owner's Trash.
+- Trash. `fs.trash` (`files.trash_item`, L27) moves the item only between two folders it holds open: the item's
+  folder (opened `O_SEARCH|O_DIRECTORY`, named with F_GETPATH and checked against the lists) and the Trash folder
+  (which must be a real `.Trash`/`.Trashes`, never made through a link), with `renameatx_np(RENAME_EXCL)`. It then
+  checks that what landed is what it checked (device and inode through the Trash fd). A mismatch, or an item it can't
+  look at afterwards, stays in the Trash and nothing moves out: the result says `verified: false` and the record's
+  reason is `trash-unverified`, which `ferb restore` refuses and `recovery.list` marks `needs_owner`. Another disk is
+  refused, never copied. A `trash` record keeps the original path, the Trash path and the device and inode fs.trash
+  verified (never re-read by path). The record stays while that very item is still in the Trash, at most 90 days
+  (`TRASH_RECORD_MAX_DAYS`); the item itself always stays in the owner's Trash. FERB doesn't go through NSFileManager's
+  trash, so Finder's "Put Back" isn't offered; `ferb restore` is the way back.
 - Snapshots. When an agent asks (`recovery.snapshot`, input `before`: kind `snapshot`, reversible, no ledger row,
   not an observation tool), before a `DELETE_PERMANENT` call (no capability has that kind yet) and, since F5a, before
   every `RUN_SHELL` call (`shell.run`, `shell.start`, `shell.send`: code can't tell a shell delete from a build,
@@ -824,9 +856,13 @@ new task tree is not refused by code: its orchestrator sees the earlier tree's r
 - `ferb restore` (RPCs `recovery.list`, `recovery.restore`) lists what FERB can put back, newest first, and puts one
   back by id or a unique prefix, holding the file's gateway lock. A copy goes back in place only when the file is gone
   or still exactly what FERB wrote (SHA-256); otherwise the current file stays and the copy goes beside it as
-  "<name> (before FERB)<ext>". A trashed item moves back with `renamex_np(RENAME_EXCL)`, never replacing anything
-  ("<name> (restored)<ext>" beside whatever is there now), only when its device and inode still match; its record then
-  goes. Each restore is journaled as `recovery.restored`.
+  "<name> (before FERB)<ext>". A trashed item moves back through held folders (L27): the Trash folder opened
+  `O_SEARCH|O_DIRECTORY|O_NOFOLLOW` and still a Trash folder, the item checked with `fstatat` against the verified
+  device and inode, the original folder made only where its deepest existing parent is exactly where it was
+  (`make_folders(…, exact=True)`) and opened and checked by F_GETPATH, each name checked against the lists, then
+  `renameatx_np(RENAME_EXCL)` to the original name or "<name> (restored)<ext>", never replacing anything, and the item
+  checked again after the move. Nothing goes through a link; a mismatch refuses and leaves the item in the Trash. Its
+  record then goes. Each restore is journaled as `recovery.restored`.
 - Not covered: file changes made through shell commands or AppleScript get no per-file copy.
 
 **Named targets (D34).** The "What the owner named" block (the spec's apps, sites, folders/files and people) reaches
@@ -846,7 +882,8 @@ pins the sentences).
 
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
-the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.15.1, protocol 12. The
+the `downloads` table (migration 0025); `browser.downloads` is an observation tool; built on extension 0.15.1,
+protocol 12 (now 0.15.3, protocol 14). The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -872,7 +909,10 @@ moves beside `~/.ferb/recovery` (F4 live fixes).
 
 **The protection lists** ([`policy/protection.py`](ferb/policy/protection.py), S2, SQ3 revised, SQ5, D27, rule 10).
 `[protection]` in `config.toml` names the never-read stores and the never-write places. Code always adds FERB's own
-state (`~/.ferb` except the workspace, plus `workspace/uploads`), which nothing lifts. FERB's tools that name files
+state (`~/.ferb` except the workspace, plus `workspace/uploads`), which nothing lifts, and, when FERB runs from
+FERB.app, the app bundle itself (`ferb_app`, L27: never written or removed by FERB's file tools or shell, nor a folder
+holding it). Paths are compared as typed, resolved and as the kernel names them (F_GETPATH), so `/System/Volumes/Data`
+and `/.vol` spellings don't evade a rule. FERB's tools that name files
 check every path they declare (`file_paths`) against the same lists at the gateway.
 
 **The shell sandbox** ([`act/shell/sandbox.py`](ferb/act/shell/sandbox.py)). Every command `shell.run` and
@@ -885,6 +925,9 @@ The profile:
   FERB's home and upload staging allow `file-read-metadata` only, so tools that walk up from the workspace (git, node,
   a POSIX `cd`, `python3 -m venv`, `ls -l`) work while the contents stay unreadable;
 - denies writes to the never-write places;
+- denies writes to every Trash folder (`regex #"/\.Trash(es)?(/|$)"`, plus `~/.Trash` and `.Trashes` spelled out),
+  after every lift and never liftable, so `fs.trash` and `ferb restore` are the only ways in or out (ruling
+  2026-10-14, rule 5/10); FERB.app's bundle is denied the same way when FERB runs from it;
 - denies writes to every *existing* folder above a protected path, and to the workspace folder itself, as literals, so
   a rename can't carry protected content to an unnamed path (a missing parent like `~/.cargo` is left writable so a
   first install can create it; the entry's own subpath deny still blocks the entry);
@@ -946,8 +989,9 @@ shutdown.
   - Another process can't read it: macOS returns no environment for another process through `KERN_PROCARGS2`, even
     unsandboxed; `ps` is setuid, so it can't start inside; `task_for_pid` fails.
 - **Asked before resolving.** Before resolving a name, the proxy asks `Gateway.destination_allowed(proc, host, port)`.
-  Remote traffic requires a live process grant for an owner-approved exact command. A prior host No remains
-  final; local connections require executable-pinned permission. A refusal is 403 and recorded under `refused`.
+  Any remote host is allowed for a live process FERB tracks (L2); an untracked or ended process gets nothing. The
+  owner's No to a host in the task stays final; local connections require executable-pinned permission. A refusal is
+  403 and recorded under `refused`. The TLS server name is always checked against the same rule.
 - **Connecting.** The proxy resolves names itself, because the sandbox has no DNS. It connects only to an address it
   checked, and refuses this Mac's own addresses: loopback, `0.0.0.0`, and any address an interface holds.
   - CONNECT tunnels any port as opaque bytes.
@@ -1037,8 +1081,10 @@ Residuals:
   clients reach a dev server by `127.0.0.1`. curl, Python, Node and Go resolve `localhost` from `/etc/hosts`.
 - **Owner-approved local servers.** `[protection].local_ports` pins each port to an absolute executable. The
   authenticated proxy verifies listener and connected peer before forwarding application bytes, then records actual
-  address, executable, count and bytes. Configured ports remain closed to direct shell connections. Unknown owner
-  snapshots fail closed; script/plugin execution by the pinned binary and the snapshot/exec race remain residuals.
+  address, executable, count and bytes. Since L24 a pinned port whose every listener runs the pinned executable when a
+  command starts is also reachable directly by that command (section 16); a tree's No to one of this Mac's addresses
+  keeps the command on the proxy route. Unknown owner snapshots fail closed; script/plugin execution by the pinned
+  binary and the snapshot/exec race remain residuals.
 
 **Owner clarification, 2026-10-11 (S4/D27/MP2).** Ordinary public browser navigation passes; literal loopback
 navigation is local (a prior explicit No still applies). URL transfer checks use actual private source values,
@@ -1048,16 +1094,13 @@ URL evidence is cached incrementally and refreshed for late results and changed 
 chunks remain comparable when a value is encoded across reads. This is source matching, not semantic detection
 of every transformed private value; common words in real private bodies may still collide.
 
-`shell.run`/`shell.start` declare `network=true` when remote access is needed. The gateway asks before spawn and
-binds the answer to command, resolved cwd, identity, scopes and task tree. A code-owned grant follows the tracked
-process and children using its proxy credentials; it is not a global host permission. Its scope includes later
-input to that live process, so approving an interactive interpreter is broader than approving one fixed script.
-The proxy checks host refusals and local executable pins separately, including TLS SNI. A process exit removes
-its grant for new connections; already-open tunnels may drain. Background services must use a tracked long-lived
-process rather than a detached launcher. Changed command context asks again; P19 still blocks unknown-outcome
-retries. Encrypted application payloads are opaque. Declared `external_source` code execution requires concrete
-approval even without networking; deciding semantic origin remains a model responsibility, not complete code
-recognition of arbitrary externally derived programs. Payment, permanent-delete and account-security floors stay.
+Launch week (L2, 2026-10-13): the 2026-10-11 exact-command network approval is gone, and so are the `network`
+argument, the `external_source` approval and the dead Q3 code (`_reached_hosts`, `sni_enforced`,
+`owner.ask(allow_destination)`). A tracked process and its children reach any remote host through the proxy, which
+records each one; an ended or untracked process reaches nothing new, and its record is journaled when it exits. The
+proxy still checks host refusals and local executable pins separately, including TLS SNI. `external_source` is a
+recorded declaration. P19 still blocks unknown-outcome retries. Encrypted application payloads are opaque. Payment,
+permanent-delete and account-security floors stay.
 
 **Confirmations** ([`policy/confirm.py`](ferb/policy/confirm.py),
 [`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ1, SQ6, W2; migration `0026`). Before a
@@ -1065,18 +1108,30 @@ consequential call runs, and before any call whose agent declared a purpose, the
 the owner must answer first (`confirm.decide`):
 - **What is checked.** The physical kind the capability derives, plus `ActionSpec.declared`: a kind the agent's stated
   purpose adds (`mac.click`/`mac.pointer` `purpose` send/call: physical kind `mac_input`, `declared` send/call,
-  `Target.contact` the contact it names, `ActionSpec.place` the app's name; a hover declares nothing). A declaration
-  can only add a question; `why` and `effect` are never read. `noted_targets` keeps the declared contact out of P19's
-  hash. Typed text that is wholly an email address, a phone number or a URL, the punctuation around it aside
+  `Target.contact` the contact it names, `ActionSpec.place` the app's name; a hover declares nothing). Since the
+  launch week (L3, Task 18) a generic input (`click`, `fill_form`, `mac_input`, `applescript`) is also checked as the
+  `effect` its worker declares (send, pay, destroy as `delete_permanent`, account_security) with the declared
+  `destination` (recipients, none for a public post; the account it goes out from; amount; item) added to its target
+  (`rules.declare`, `ActionSpec.effect_kind`,
+  `rules.declared_kinds`); a declared pay or account_security on any acting call asks. A declaration can only add a
+  question; `why` is never read, and the physical spec still keys P19 and the ledger. `noted_targets` keeps the
+  declared contact out of P19's hash. Typed text that is wholly an email address, a phone number or a URL, the
+  punctuation around it aside
   (`provenance.typed_destination`: "<a@x.com>", "a@x.com," and "a@x.com;" are a@x.com), is the call's recipient on
   `mac.act` type/set_value/edit and `browser.act` type. A phone shape needs at least 8 digits and isn't a date's shape.
 - **The floor.** A payment and an account-security change always ask, and their Yes covers one run (SQ1). A permanent
   delete of a path the owner didn't name, and a send-class call (send, reply, post, mailbox send, submit, call) to a
   recipient or contact the owner didn't name, ask. A send FERB can't see the recipient of (a click declared to send or
-  call with no contact; a send-class call with neither recipient nor place) asks as an unnamed contact; an app's bundle
-  id is never recorded as a host.
+  call with no contact; a send-class call with neither recipient nor place) asks as an unnamed contact, once per tree
+  for that site and declared account, unless the owner named the site (and the account, when one is declared) in this
+  request; an app's bundle id is never recorded as a host. A declared delete on a page is keyed by page and item.
+  Two or more recipients the owner didn't name, or a permanent folder delete the owner didn't name, ask once with the
+  count, size and a quoted sample (S4(c), L3); a send's question still names every new recipient.
 - **Already authorized** (D33) is provenance: the value is in the owner's words for this request or in their answer in
-  this task (`owner_words`, `owner_answer`), or it is a known destination. A multi-word shown name counts as named when
+  this task (`owner_words`, `owner_answer`), it is a known destination, or a standing scope covers the call
+  (`standing.covers`: a send by kind or declared effect, same tool, identity, site, account and recipients; an any-body
+  scope covers every post, an exact-text scope only a call carrying that text). A multi-word shown name counts as
+  named when
   every word the owner used for it is a whole word of it (OPEN QUESTION 4: "Rahul" names "Rahul Verma"; "Rahul Verma"
   doesn't name "Rahul Attacker"). Where the owner's name ends is told by shape: from a capitalized word, the run of
   joined words that are capitalized (not a sentence's first word) or words of the value; from a lower-case word (or a
@@ -1124,8 +1179,11 @@ the owner must answer first (`confirm.decide`):
 - **Answers.** One row per need in `confirmations`, keyed by the task tree and the exact values (JSON of the tuple),
   so the answer carries across that tree's retries and workers (rule 9). Yes runs the call (its span's
   `confirmations` lists the rows). No, or a skipped question, refuses it (`the owner said no to this: …`, and later
-  `the owner already said no to this in this task: …`, with `next` telling the task not to try another way). An
-  expired question records nothing. A scheduled run refuses (`… This needs you, and nobody is at chat (a scheduled
+  `the owner already said no to this in this task: …`, with `next` telling the task not to try another way).
+  Questions never expire; a question a correction supersedes records nothing. An owner-driven retry, continue or
+  steer reopens the tree's earlier Noes once (`confirmations.reopened` span; the action asks again if it recurs);
+  the orchestrator's own retries keep them final. A scheduled run refuses (`… This needs you, and nobody is at chat
+  (a scheduled
   run); not done.`). One question at a time per tree. A call the ledger refuses (P19) is refused at once, exactly as
   the ledger refuses it, and nothing is asked. The test-mode allowlist (send-class kinds and pay) refuses before any
   question.
@@ -1141,14 +1199,14 @@ the owner must answer first (`confirm.decide`):
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
   says `snapshot_error`, and `ferb doctor` shows the last failure in local time, or that snapshots are off (OPEN
   QUESTION 3).
-- **For Task 5.** `owner.ask` declares `allow_destination`; until shell destinations can be refused, every value is
-  refused with "no command of this task tried to reach … and was refused".
-
-What reaches it today: no capability yet has the kind pay, account_security, delete_permanent or a send-class kind of
-its own, so the floor fires for `mac.click`/`mac.pointer` with a declared send or call, and the sink rule (b) for a
-typed address, number or URL only outside content (or a paste) supplied. A browser form posted by a click or Enter is
-`click` / `fill_form`, which sink (a) doesn't cover (Task 5 covers URLs and shell destinations).
-Residuals: the floor has no hook for a GUI send by a plain click with no declared purpose (W3, F5b's Jev); a name the
+What reaches it today: no capability has the kind pay, account_security, delete_permanent or a send-class kind of
+its own, so the floor fires for a generic input whose worker declared the effect (a browser post, a webmail send, a
+payment, an account-security change, a delete on a page) and for `mac.click`/`mac.pointer` with a declared send or
+call, and the sink rule (b) for a typed address, number or URL only outside content (or a paste) supplied. A declared
+post on a page also raises S4(a) when the tree read private data and outside content and the site isn't named or
+known. Residuals: an undeclared click that sends gets no question (code can't tell, rule 6; the prompts carry the
+declaration, W3 and F5b's Jev); a declared effect on `shell.run` other than pay/account_security stays a note; a name
+the
 owner typed in lower case or in a script without capitals counts as named only in full; a destination named in any
 request ("don't email bob@x.com" included), and a URL host named only to read, is known from then on; an address in a
 free-text answer counts as the owner's even in a negative sentence (code doesn't read meaning, rule 6); a physical
@@ -1166,14 +1224,18 @@ remain a process-cleanup residual. No unsandboxed command fallback exists.
 `Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
 and Luhn-valid payment cards to existing credential classes. `ImageRedactor` uses local Vision OCR and Quartz masking.
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
-masks AX rectangles before returning bytes; unknown field inventories fail closed. The first actual app/tab observation
-adds one initial image to its tool response, then only explicit screenshots return images. Browser snapshots retain their
+masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a capture is withheld only when
+masking fails). The model-bound start image is the front window captured at send (L12); the first actual app/tab
+observation adds one only when none was given, then only explicit screenshots return images. Browser snapshots retain
+their
 reference generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
 
 `browser.secret` seals hidden input to the command ID and HTTPS origin; `mac.secret` binds to the app PID and exact AX
 node and uses only AXValue. Optional owner-confirmed handles persist nonsecret target metadata in
-`owner-secret-handles.json`; values live in Keychain. Setup builds/signs `ferb-secrets` with the existing local
-certificate and writes its designated requirement; each call verifies that requirement. No unsigned fallback exists.
+`owner-secret-handles.json`; values live in Keychain. A source install builds/signs `ferb-secrets` with the existing
+local certificate and writes its designated requirement; FERB.app ships the helper in `Contents/Helpers` and setup
+pins its copy to the exact code hash FERB.app's own signature seals (the `cdhash` when ad-hoc, the Developer ID team
+later). Each call verifies that requirement. No unsigned fallback exists.
 Python production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain
 an injectable crypto implementation. Developer ID distribution remains later work. Swift type-checking is not a live
 Keychain/signature test.
@@ -1188,8 +1250,9 @@ Jev's `action.destructive` is forced shadow even if enabled in config. Its label
 accuracy or owner acceptance. `action.alignment` sees owner words and action metadata, logs advice and exposes active-task
 mismatches to the orchestrator; it cannot block or authorize. Daily summaries include code-built new destinations,
 confirmation answers, blocked flows and outside-source memory handles. `ferb stats` distinguishes observed shell latency
-from isolated sandbox overhead. CLI-only `test.mode` restricts send-class actions; it cannot constrain arbitrary GUI
-clicks/typing. The owner setting persists across restart. Regression cleanup restores the prior setting even after an error.
+from isolated sandbox overhead. CLI-only `test.mode` restricts send-class actions (exact recipients, or
+`"SITE @ACCOUNT"` for a declared post); it cannot constrain undeclared GUI clicks/typing. The owner setting persists
+across restart. Regression cleanup restores the prior setting even after an error.
 
 Full Disk Access is required in full setup only after doctor reports the shell profile and authenticated proxy available.
 This checkout has not changed TCC, FileVault, the installed daemon or any personal browser. FileVault setup and all live
@@ -1219,10 +1282,11 @@ flight may have happened; cancellation never fabricates a failed-send receipt.
 Owner-only conversation/notification RPCs expose exact scope, actions and receipts. `conversation_changes` and
 notification rules in chat are quote-checked against actual owner text. A changed destination/topic needs a new
 approved scope. Resume reopens only that saved converse step, leaving prior completed research/actions intact.
-`attention.py` persists ordinary activity notices, and CLI `attention.ack` records actual display. Incoming
+`attention.py` persists ordinary activity notices; `attention.ack` records that a client showed one. Incoming
 notification triage remains shadow; ordinary attention invokes an observation-only model with no tools and cannot
 create tasks. A requested ongoing conversation can still wake from its directly scoped incoming notification,
-without relying on a triage verdict. Notification `told` receipts are written only after display acknowledgment.
+without relying on a triage verdict. Since L9, posting a notice to chat is telling it: notification `told` receipts
+are written when the notice is posted, not on acknowledgment.
 
 ## 13. Documentation and diagrams
 
@@ -1276,18 +1340,346 @@ plan re-display the standing scope because its prior grants were revoked. Task r
 not delete referenced evidence or creation timestamps.
 
 `cli/live_chat.py` maintains input while independent work streams run; planner submissions from a conversation stay
-ordered. Hidden questions wait for Enter on an empty input line. Emergency stop and explicit task stops remain code
+ordered. It prints the daemon's ack and never answers a question on its own: typed text is always a `chat.send`
+(L7, L19). Hidden questions wait for Enter on an empty input line. Emergency stop and explicit task stops remain code
 paths. `cli/attach.py` exposes a managed PTY output stream and optional exclusive input lease; a disconnected client
 releases the lease. Owner skills are catalogued from local owner-written files, with no symlink traversal or automatic
 network installation.
 
-P3 context labels protect identity, request/conversation and task state. Recent activity is grouped over ten minutes.
-F8 supplies individually ranked fact, episode, procedure and lesson candidates; each is a complete optional block
-with its stored origin and retrieval reference. Lower-ranked items are omitted before higher-ranked ones, and
-activity has lower allocation priority than memory. Omission references and protected overflow remain explicit.
+P3 context labels protect identity, request/conversation and task state. The raw last-ten-minutes trail is
+fetch-only through `trail.query` (L28); today's matching activity goes in every planner turn.
+F8 supplies individually ranked fact, episode, procedure and lesson candidates; each is a complete block with its
+stored origin and retrieval reference. Since L28 the recalled items and every ranked learned item are protected
+(always in the planner's prompt, `Supervisor._memory_blocks`), like the situation and today's activity; only the
+conversation and optional blocks give way. Omission references and protected overflow remain explicit.
 
 `eval/release.py` exposes packaged owner-supervised definitions through `ferb release-checklist`; it never executes
 or accepts a check. `eval/comparison.py` compares saved baseline JSON without daemon RPC or model calls. Missing
 measurements remain null, denominators are retained and aggregate deltas are not treated as task acceptance.
 Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
 local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.
+
+## 16. Launch week (L1–L28), as built (checkout; owner install and live checks pending)
+
+The owner's decisions of 2026-10-13/14 are in
+[the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
+clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L28 to their tests. What follows is the design as built. Nothing
+here is live-accepted yet ([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
+
+### 16.1 Questions and security (L1–L5, L24)
+
+**Direction (L1).** Trust, record, recover: a small code-enforced core, everything recorded, FERB's own file changes
+recoverable. The fuller prevention design is after launch (spec section 6).
+
+**Any site, every site recorded (L2).**
+- `Gateway.destination_allowed` allows any remote host for a process FERB tracks while it runs
+  (`ShellManager.live_owner`); an ended or untracked process reaches nothing new. Loopback still needs its
+  executable pin. The tree's No to a host (from the browser's URL question, under the shared SQ6 key) still holds for
+  the shell, and the TLS server name is always checked against it.
+- A background process that ends after its task is journaled (`shell.network`) when it exits.
+- `ferb/policy/sites.py` `sites_contacted(spans, tree_id)` lists hosts from the tree's `shell.network` rows and its
+  browser open/navigate calls that asked for an http(s) URL (unknown outcomes included; `use_tab` excluded). The
+  supervisor appends "Sites contacted: …" to the full answer, never to `display_text`.
+- Accepted residual: after reading a malicious page, the shell could send one of the owner's files somewhere.
+
+**What asks (L3).**
+- The code floor: payment and account-security changes (always; one Yes covers one run), permanent deletion the owner
+  didn't name, and a send as the owner to someone new unless a standing scope covers it (section 12, Confirmations).
+- S4 (L4): FERB's own context exposures count as outside content only when every label they hold is outside
+  (`origin.stored_outside`, `SpanStore.outside_exposure_origins`, `Gateway._outside_read`), for both the taint and
+  S4(b) (`tool_outputs(include_context=True)`). `confirm.url_carries_private` counts a URL piece only when the matched
+  form is a value (`_is_value`: a digit or a non-word character); ordinary words never count, base64/hex decodings
+  still do. The front window's outside labels join the tree's request origins (L12), and a scheduled run's request
+  origins are the creating message's own labels (`schedule.created.request_origins`; an old row fails closed).
+- Bulk asks: two or more recipients the owner didn't name, or a permanent folder delete the owner didn't name, ask once
+  with the count, size and a quoted sample (`confirm.bulk_delete`, `SHOWN` = 3, display only).
+- Worker prompts never ask the owner to confirm; workers bring other questions to the planner. A named tool that isn't
+  installed is asked about once, with the install command prepared (owner, 2026-10-14).
+- D31 escape-hatch commands and P19 retries still wait.
+
+**Answers, steering and plans (L3).**
+- The planner routes a free-text answer by question id (`AnswerQuestion {approval_id, answer}`) to any open
+  `owner.ask`, `plan.ask` or FERB check, from any chat. The answer recorded is the owner's own words, never the
+  planner's reading; pasted text is never an answer.
+- FERB's checks (`FERB_CHECKS`: `ferb.confirm`, `ferb.retry` for P19, `conversation.approve` for F9) resolve only on a
+  plain Yes or No routed to that id that the planner's reading agrees with. A reply that could answer another open
+  question, or the planner's own pending clarify, gets "Which one is it for?" (`_Focus` carries the earlier Yes).
+- `Daemon._hide_code_reply` turns a reply that is wholly a code into `[redacted]` while a question asks for a code,
+  for typed and spoken text alike; voice transcripts are chat turns and never auto-answer.
+- Every planner control carries two required decisions: `standing_sends` ("unchanged" or the full revised list) and
+  `supersedes` (the question ids the correction changes). `steering.settle_questions` touches only those; a named
+  FERB check closes as `superseded`. `steering.restate_scope` narrows at once and, on a run the owner started, grants
+  a widened scope only after the steer's reply has gone out (`grant_stated`), and only while that statement is the
+  task's latest `plan.stated`.
+- A big job's plan is stated (`_plan_statement`: steps, estimates, scopes, "Here's the plan; I'm starting now. Reply
+  to change anything:"), journaled `plan.stated` and granted under `stated:<journal id>`; work starts at once.
+- An owner-driven retry, continue or steer reopens the tree's earlier Noes once (`Gateway.reopen_noes`,
+  `confirmations.reopened`); a reopened browser-URL host No is re-checked from the facts; the proxy keeps its No.
+- Questions never expire (`Approvals()` has no clock). A question closes when answered, when its task ends, or as
+  superseded. The setup persona question is created once and posts no banner.
+
+**Schedules and standing scopes (D30, L3).**
+- `_schedule_create` records only scopes whose site, account and recipients are in words the owner typed this turn
+  or typed behind an active owner-stated memory item (`Daemon._schedule_scopes`, `standing.owner_named`,
+  `_typed_behind_memory`; the setup persona, `PERSONA_KEY`, never counts; same-turn captures add nothing). The
+  confirmation lists recorded and not-recorded scopes; `schedule.created` journals `standing_sends`, `not_recorded`
+  and `request_origins`.
+- Each run is granted exactly the recorded scopes under `schedule:<id>` (`SCHEDULE_GRANT`) as its tree starts,
+  checked again just before (`_schedule_live`: active or done), and revoked when the run ends. A scope the run's
+  planner states is not granted unattended. A correction to a run nobody started from chat (a scheduled run, or a plan
+  resumed after a restart) keeps each kept scope under the statement it was granted under
+  (`StandingPermissions.in_force`, `grant_each`), so `schedule:<id>` stays and a cancel still reaches it; nothing new or
+  wider is granted to such a run (`grant_stated` refuses it), and the reply lists the new scopes as not covered
+  (`steering.not_covered`, the plan line's wording). Cancelling or pausing a schedule revokes its grant from running and
+  suspended trees (`StandingPermissions.revoke_approval`, journaled `standing.revoked`); a grant that lapsed is
+  journaled `standing.withheld`.
+- The security digest lists every call that ran under a standing scope (`standing_sends`).
+
+**Calls a runtime drops (spec section 8.1).** The MCP shim waits with no cutoff. Codex drops a call that outlives its
+own per-call tool timeout (300 s measured) without telling the shim; the shim passes `call_id`
+(`<threadId>/<callId>`), the Codex adapter names the failed call, and `Server.abandon` releases it (`caller_left`).
+The question stays open; the identical retry in the same task waits on it (matched before rewording, P19 on FERB's
+whole text). An action that completed after its caller left returns its stored result to the identical retry
+(`completed_in_an_earlier_attempt`). Runtime per-call timeouts keep their defaults (owner, 2026-10-14).
+
+**Local services (L24).** `local.direct_ports()` keeps a pinned port only if every TCP listener on it runs the pinned
+executable when the command starts; the profile then adds `(allow network-outbound (with report) (with message
+"ferb p-<id>") (remote tcp "localhost:PORT"))` after the deny. One `log stream` (`DirectReports`, only when
+`protection.local_ports` is set; under FERB.app it runs under the app's plain `python3.12`, `paths.helper_python`)
+counts the kernel's reports per command tag. Records carry `local_direct` (lower-bound counts, `null` when unknown);
+a stopped stream is journaled `shell.local_reports_stopped` and shown by `ferb doctor`. Limits: the pin is checked once
+per command; counts are a lower bound; no byte counts; the kernel line has no IP.
+
+**Protections that never ask (L5).** Secrets as handles, credential stores and FERB's state locked, the sandbox, proxy
+recording and recovery copies stay. New: the shell can't write any Trash (section 12), and FERB.app's code is
+protected FERB state (16.9).
+
+### 16.2 Chat flow (L6–L8, L19, L20)
+
+- Every `chat.send` event carries `request_id` (the id journaled with `chat.message`) and `at`; task events carry
+  `task_id` ([RPC contract](docs/RPC.md)).
+- **Ack (L7).** `Daemon._chat_ack` puts `ack {request_id, text, message, at}` on the stream before the per-session
+  routing lock. `acks.PHRASES` is the P25 list (29 phrases, the starred one dropped); `pick` never returns one of the
+  last eight journaled `chat.ack` rows (`RECENT`, across chats and restarts). `message` is the daemon-redacted text;
+  `chat.ack.received_at` records arrival.
+- **Plan line.** `run_tree` yields `plan` as soon as the planner returns, before the disturbance baseline sample;
+  journaled `chat.plan {request_id, task_id}`.
+- **Live line (L8).** `Observer.tool_started` → `WorkerRuns.tool_progress` → `progress.describe(tool, args, kind,
+  site, app)` puts `progress {task_id, text, started_at}` on that tree's own queue. The text is the tool's verb and
+  target (a browser-parsed host, an app named from the Mac's app list or "an app", a file's basename), never model
+  text; a failing line journals `progress.failed` and never stops the call.
+- **Latency.** `ferb baseline` adds `latency_s {ack, plan, answer, context}`.
+- **CLI (L19).** No client-side auto-answer: typed text is always a `chat.send`; the CLI prints the daemon's ack.
+- **Notch app.** Renders the ack, plan line and live line under the owner's turn; files the plan line in chat, not the
+  activity feed; places a late answer at the bottom as a reply quoting its turn, which reads "Answered below" (L6);
+  shows a check mark for `verified`; drops an event naming another turn's `request_id`. Questions are inline cards and
+  typing stays enabled; a secret field takes focus only on an explicit owner action. Notices render with a "noticed"
+  tag and are acknowledged (`attention.ack`). Results are read with `chat.status {peek:true}` and acknowledged with
+  `results.ack` once placed. The learning digest comes from `memory.learning {op: "digest"}` with Confirm / Not right.
+  Recovered tasks show on FERB's side, never as the owner's words. Paste provenance is kept without a dialog.
+- **History (L20).** The unsent draft lives only in memory. A sent message is saved only as the daemon's redacted
+  `ack.message`; a turn never acknowledged is saved as "Message not saved — sent before FERB confirmed it".
+- **Yield.** FERB orders its windows out while its file picker, another app's menu or floating window over it, or (for
+  the pinned chat) an app the owner brings forward under it is in the way; it never toggles click-through.
+
+### 16.3 Answers (L11)
+
+- For failed, needs_user and done_unverified outcomes, `display_text` is code's status label ("Done, but not
+  confirmed:" and so on) plus the short text the dispatcher writes from the checker's verdict; the findings stay in
+  `answer`. A needs_user outcome adds FERB's `Question: …` line. The literal "Verified. " prefix is gone (`verified`
+  is the marker).
+- Code states side outputs in plain words (reminders, memory, cancels, schedules); a refused one adds one line and the
+  reply is kept. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
+  (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat.
+- A `continue` with `control.new_goal` re-plans inside the same tree (`PlanStore.replace` for a different plan); a
+  retry stays in its tree.
+- A non-owner stop says why in plain words (the class is journaled as `task.interrupted`). Failure replies are
+  journaled as `chat.reply`; a scheduled run's failure is named (`SCHEDULED_SORRY` otherwise), with `chat.failed`.
+- A steer replies "Switched to: …" or "Added your correction: …".
+
+### 16.4 Seeing (L12, L13)
+
+**Front window at send (L12, [`sense/front_window.py`](ferb/sense/front_window.py)).**
+- `_chat_send` starts the capture right after the ack, alongside routing. The front window is the topmost normal
+  on-screen window whose owner isn't FERB: FERB's apps (`FERB_APPS`: `com.ferb.ferb`, `dev.ferb.notch`,
+  `com.ferb.app`, and `com.ferb.daemon`, the agent app the packaged daemon runs as), the daemon, or a bundle-less
+  descendant of it. The app hosting the sending `ferb chat` is skipped.
+- Facts: app, bundle id, title, and for a browser the front tab's URL and title (AppleScript, only with Automation
+  already granted; a kept grant bridges a pending check). One screenshot of that window by window id, masked and
+  through the F5 `ImageRedactor`, stored as evidence kind `front_window` under the request id.
+- An excluded site is captured under `external:web:excluded` with the URL shown as `[excluded]`; an excluded app gives
+  only `[excluded]` (not named, not looked at); `[mac] snapshot_image = false` keeps the facts only.
+- The planner gets a protected Layer 2 block (data in `<untrusted-data>`, origin the window's labels) and the image;
+  it may answer a screen question directly. The worker for that message gets the same picture as its start block
+  (`gateway.initial_image_given`). Failures journal `screen.capture_failed`; a model that rejects the image is
+  retried once without it (`screen.image_refused`), only for service or protocol errors.
+- Residual: image tokens aren't counted in the context budget.
+
+**Redacted, not refused (L13).**
+- `pixels_withheld` is gone. Every image goes through masking and the `ImageRedactor`; `Withheld` (a `Refused`)
+  is raised only when masking fails.
+- Browser tabs: the extension's `maskState` reads secret-field rects before and after the capture, one look per tab
+  at a time; `mask.page_masks` paints fields that stayed put and withholds a field that moved, appeared or vanished,
+  or a page that navigated or resized. A child frame is linked to its host only by a trusted per-round announcement;
+  a child frame holding secrets is painted whole; a transformed host is painted whole; mirrored or filtered secrets
+  (box-reflect, SVG `url()` filters, `::details-content`) withhold.
+- Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
+  area; AX-only masking is recorded as `masking`.
+- The AX inventory also masks text fields whose title, description, placeholder or identifier says passw/pwd, and
+  walks the whole tree for secret fields.
+- Recordings paint each frame; an unmaskable frame is skipped (`frames_withheld`, `withheld_reason`).
+  `recording.inspect` returns its contact sheet to the model.
+- Accepted residuals: other CSS pixel-copy effects (drop-shadow on transparent fields, view transitions) rely on the
+  OCR layer; a hostile parent page timing its looks could expose an embedded frame's field to the model provider.
+
+### 16.5 Hearing (L26)
+
+- `audio.listen {app | tab, seconds, language?}` (`act/listen.py`, scope `audio`, observation): ScreenCaptureKit
+  captures that one process's audio (FERB's own excluded; a tab means its whole browser process) into a 0600 WAV in
+  `workspace/audio`.
+- `Transcriber` checks FERB Voice's signature against `[hearing] requirement`, then runs
+  `open -g -n -W <FERB Voice> --args transcribe` with FERB's home (`Transcriber(home=)`). FERB Voice requires on-device
+  recognition and never prompts from a task.
+- FERB Voice runs only with the owner's own FERB home (`macapp/FERB/home.swift`, the same rule as the agent stub):
+  `FERB_HOME` is taken only when unset or empty (then the account's `~/.ferb`, from the account database, never
+  `$HOME`) or when it is that folder by device and inode; anything else exits 64 before FERB Voice does anything, in
+  every mode. So no other process can point its microphone, speech or transcripts at a socket or folder of its own.
+- The WAV is deleted as soon as the listen ends; the result holds the redacted transcript and segments, labelled
+  `external:audio:<bundle>` (plus the tab's page). Every listen is traced (app, seconds). A task's end or a stop ends
+  it; `Hearing.sweep()` clears leftovers at start.
+- `browser.media` plays, pauses, mutes, unmutes or seeks a snapshot's media element (protocol 14); snapshots report
+  each element's state.
+- `with_audio` recordings attach a time-aligned transcript and keep no audio track.
+- `ferb setup` asks for Speech Recognition only (`request-speech`); `doctor.check` reports `hearing`; push-to-talk is
+  on-device only too.
+- From FERB.app the helper is `Contents/Helpers/FERB Voice.app` (`com.ferb.app`), pinned without building.
+
+### 16.6 Perception in chat (L9, L10)
+
+- **Delivery (L9).** `_post_notice` journals `chat.notice {id, text, quotes}` (origin `external:observation,inferred`),
+  writes told receipts, and publishes `attention.notice`. A macOS banner is sent only when no `logs.subscribe` stream
+  wants that topic (`_client_shows`, from `_log_subscriptions`). `chat.status.notices` lists unacknowledged notices.
+  Migration 0035 marked the 73 legacy notices delivered and records an install floor (`perception_floor`, the highest
+  trail `seq` then) so old trail rows never flood Jev; Notification Center records already there at the first read are
+  marked seen and not recorded (`Perception.notification_floor`).
+- **One moment, one notice (L10).** At most one consideration runs per app (`app_of`: a bundle id, or a tab's browser);
+  yes batches arriving meanwhile merge into the next one, and a flush publishes each app's yes answers together.
+- **Understanding.** The prompt (`prompts/attention.md`) gets the merged rows (time, actor, task), the owner's memory,
+  the recent chat, running tasks and the notices already told about that app (`told(apps)`). It is budgeted from the
+  model's window like the planner. Quotes come back separately and their origin is assigned by code.
+- **FERB's own actions.** Events in an app while a FERB action runs there are actor FERB (`Attribution.acting`).
+  FERB's own banners are recognised by exact title, body and poster (`banner_posted`, `com.apple.ScriptEditor2`).
+- **Audit.** `trail.attention` is live; its decision rows record the effect ("told in chat: notice …").
+- **Purge.** `expire_derived` clears a notice derived from expired typed or clipboard rows from the notice row, its
+  journal entry, told receipts, span inputs and outputs, and the exposure payloads that showed it (`notice_payload`,
+  `_scrub_payloads`).
+- **Bounds.** The told list for an app is bounded by trail retention (30 days), since it joins the notices' trail rows.
+  Residual: a `task.evidence` listing preview cut at 500 characters may keep a notice fragment in that tool call's
+  output until trace retention (30 days).
+
+### 16.7 Planner context (L28)
+
+- **Window.** Every adapter reports `ModelLimits` per model, with the documented source; the budget is the window
+  minus the reply limit. Codex uses its catalog's input window (`context_window` × `effective_context_window_percent`:
+  258,400 for `gpt-5.6-sol`), read from FERB's own `models_cache.json` or the pinned binary's bundled catalog
+  (`~/.ferb/run/codex-bundled-<version>.json`, written offline).
+- **Unknown window.** A `ServiceError` in chat, `runtime.limits_unknown` at start (only for a role whose window is
+  unknown, for example with no pinned Codex catalog reachable), and a `context window <role>` line in `ferb doctor`
+  (`doctor.check.runtimes.limits`). A Claude runtime with no `[models] claude` fails explicitly.
+- **Order.**
+  - Stable: Layer 1, then the conversation (a header with FERB's running summary when one exists, then one cacheable
+    block per entry).
+  - Situation, always included: Layer 2 (time, owner activity, front window), today's matching activity, relevant
+    memory.
+  - State: attempts, running tasks and open questions (with each running tree's `standing_scopes`), plan repair, the
+    owner's message.
+  - The conversation fills what is left newest-first; the rest becomes one fetch note.
+- **Running summary.** `chat.summary` (`prompts/summary.md`) is written in the background only when uncovered entries
+  fall out; it never folds notices, cites what it folded, and is deleted when a folded entry is forgotten.
+- **Fetch only.** The raw last-10-minutes trail goes to no prompt; it is reached through `trail.query`.
+- **Speed.**
+  - A turn cites shown entries and tasks as `entry:`/`task:` handles, resolved when the episode card is captured.
+  - `DailyActivity` keeps an in-memory term index: one indexed search per turn, off the loop.
+  - The query embedding is encoded off the loop.
+  - The planner snapshot and exposures are written after the plan line.
+- **Episode capture** runs after the outcome in a child process (`[sys.executable, "-I", "-m",
+  "ferb.memory.card_reader"]`, request on stdin, the database derived from `FERB_HOME`). Writes are serialized
+  (`_capture_card`) with a generation counter so a verdict given during a capture stays on the card. Shutdown cancels
+  pending captures (`memory.episode_deferred`) and kills readers. A ref damaged by old redaction is skipped and
+  journaled (`memory.episode_refs_damaged`); a replayed receipt respects the owner's fail verdict
+  (`memory.receipt_replayed`).
+- **Ids.** FERB's ids are protected by key (`Redactor.ident` for `task_id`, `span_id`, `session_id`, `run_token_id`,
+  `request_id`, `covered`, `source_refs`, `procedure_id`, `approval_id`, `timer_id`): only a generated hex body is
+  spared
+  exact-value replacement, and secret patterns still run over the whole value. `Redactor.id_ref` is gone.
+- **Usage.** `model.turn` spans record `cached_input_tokens`.
+- **Measured** on replays of real turns (provider time excluded): message → plan line 11.4–17.0 s → 0.9–2.0 s;
+  reusable prefix about 8k → 54k tokens.
+
+### 16.8 Broken features (L16–L18, L21–L23)
+
+- **Learning (L16).** The card pattern needs a token of its own, so hex ids never match; a card inside a URL's path
+  segment is kept, query and fragment are still scanned; OCR masks any Luhn-valid run. The consolidator schema uses
+  `{name, value}` pairs (strict-compatible). `security_digest` accepts the string form of `network`. `_memory_pass`
+  runs distill, consolidate and the embedding restore in separate scopes (`memory.distill_failed`,
+  `memory.consolidate_failed`, `memory.embedding_restore_failed`).
+- **Typed text (L17).** `key_text` reads the whole string; terminal apps (`TERMINAL_APPS`), secure fields, Secure Input
+  and password fields (shown ones included, `capture.password_element`, `redact.password_field`) are never captured;
+  no digit-shape rule.
+- **Choice answers (L18).** Only sealed inputs call `remember_hidden_secret`; a picked option (`Approval.option_for`) is
+  never redacted; other words to a code-labelled question are hidden for that answer only (`Redactor.answer`).
+- **Codex account errors (L21).** Any account-check failure becomes `AccountError('account_unavailable')` and a named
+  reply for that request; scheduled runs name it too.
+- **Waits (L22).** `PlanExecutor` re-checks the wall clock at most every `POLL_S` (`timers.recheck_in`).
+- **Inventory (L23).** `plans.inventory` and its protection filter run in a thread.
+
+### 16.9 Distribution (L25, L27)
+
+**Extension auto-install (L25, [`autoinstall.py`](ferb/act/browser/autoinstall.py)).**
+- For every catalogued Chromium browser whose `Local State` exists, `ferb setup` and `--update` write a Chrome Web
+  Store install request in its `External Extensions`: Chrome and its channels and Chromium (documented); Brave and
+  Edge (unconfirmed); none for Vivaldi, Arc and Opera (Load unpacked).
+- Setup registers the native host for the pinned and store ids, reports per profile from Preferences (read only), and
+  records the request files it wrote in `~/.ferb/extension-requests.json` (so a changed or cleared id, and uninstall,
+  remove them).
+- `STORE_EXTENSION_ID` is empty until the listing is live (`[browser] store_extension_id` overrides); with no id,
+  setup prints the Load-unpacked steps. Setup never restarts a browser or approves its prompt.
+- `ferb browsers extension package` builds the store zip.
+- Discovery, pairing and doctor cover every catalogued browser. Two copies of the extension in one profile aren't
+  handled yet.
+
+**Packaged FERB.app (L27, [`scripts/build-app.sh`](scripts/build-app.sh)).**
+- **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; uv's standalone CPython 3.12.13 with `ferb` and
+  its locked dependencies in `Contents/Resources/python` (precompiled, never written); the `ferb` launcher; Codex in
+  `Contents/Resources/node`; `Contents/Helpers/ferb-secrets`; `Contents/Helpers/FERB Voice.app`; and the agent
+  `Contents/Helpers/FERB.app`.
+- **The agent** ([`ui/mac/FERBAgent`](ui/mac/FERBAgent/), `com.ferb.daemon`) is a native stub embedding the app's
+  libpython. launchd runs it as `-m ferb.daemon`, so macOS names FERB in permission prompts, Privacy & Security and
+  Login Items. It accepts only `-m ferb.daemon`, `-I -m ferb.cli.mcp` and `-I -m ferb.memory.card_reader`, and only
+  the owner's `~/.ferb` (by inode). It rebuilds a fixed environment with every `PYTHON*` variable removed.
+- **Signing.** `scripts/signing.sh` is the one signing step: ad-hoc by default with the hardened runtime
+  (disable-library-validation only when not Developer ID); `SIGN_IDENTITY` with notary credentials adds timestamps,
+  notarization and stapling; `build-app.sh --sign-only` re-signs without rebuilding.
+- **First launch.** `AppSetupPlan` reads the LaunchAgent and runs `ferb setup` or `--update` in a console window;
+  another installation is replaced only after the owner says so.
+- **Install refusals.** Install refuses a translocated app, a read-only volume (the DMG) or a bundle failing
+  `codesign --verify --deep --strict`.
+- **Install steps.** Helpers are pinned to the exact code FERB.app's signature seals. `~/.ferb/node` links to the
+  app's Codex. `ferb` is linked at `~/.local/bin` (no shell-profile edits). A checkout's setup takes launchd back.
+- **Protection.** FERB.app's bundle is protected FERB state (section 12).
+- **Recordings** write only through the output folder they checked and keep open; frames are staged in
+  `~/.ferb/run/recordings`, swept at start. A stop cancelled midway still finishes the recording once: the receipt is
+  finalized through the held folder, the folder is closed, staging and the sound are deleted, and the task's end finds
+  it finished and never encodes again.
+- **Residuals** (owner-accepted or live checks): ad-hoc builds lose macOS grants and may prompt the Keychain on update;
+  whether launchd runs the bundled Python from a quarantined download is untested; the app is about 666 MB;
+  `mac.applescript` keeps Apple Events, so a script could ask Finder to move Trash items (not a file rule).
+
+### 16.10 Journal kinds added in the launch week
+
+`chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
+`standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
+`screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
+`memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
+`memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
+`standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.

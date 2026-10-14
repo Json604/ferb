@@ -10,6 +10,101 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0.dev1 launch week (L1–L28) — 2026-10-13 to 2026-10-14 — integrated, owner install and live checks pending
+
+The fixes from the owner's first days of daily use, before the public launch on 2026-10-21. Decisions L1–L28 are in
+`docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md` and the plan's "Launch-week clarifications"; every
+task had a fresh reviewer. Not installed and not live-tested yet (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch week").
+Commits: those after `6d613a4` on `astra_resume`.
+
+Fewer questions (L1–L5, L24):
+- Shell and browser reach any site without asking. The proxy still records every host, and the full answer ends with
+  "Sites contacted: …". This replaces the per-host (2026-10-10) and per-command (2026-10-11) shell questions; in the
+  traced week they were 65 of 100 approvals, 46 in seven minutes for one research task. The owner's No to a host still
+  holds for the shell. Accepted residual: after a malicious page, the shell could send a file somewhere (recorded).
+- FERB asks only for money, account-security changes, permanent deletion and sending as the owner to someone new,
+  unless a standing permission covers it; plus the private-data check (S4), escape-hatch commands and unknown-outcome
+  retries. A named tool that isn't installed is asked about once.
+- The private-data check no longer fires on FERB's own context words ("search", "playlist", "about-us"): only actual
+  private values count, and FERB's own memory and history don't make a task "outside content".
+- Bulk sends and folder deletes ask once, with a count, size and a sample.
+- Big-job plans are stated in the plan line and start at once; reply to change them.
+- Answers: say "yes" or answer in your own words; FERB routes it to the right question by id and asks "which one?"
+  when it can't tell. A correction never records a No. Questions never expire while their task waits. The CLI no
+  longer auto-answers the only open question.
+- A command can reach a pinned local server (psql, redis-cli) directly; the kernel's reports record each connection.
+
+Chat that keeps up (L6–L8, L20):
+- The daemon acknowledges every message at once with a short phrase from the approved list, then shows the plan line
+  as soon as the planner returns, then one live line with the current step and elapsed time.
+- Every chat event names its request, so a late answer appears at the bottom as a reply quoting its question.
+- Questions appear inline in the app while typing stays enabled; the paste dialog is gone; notices appear in chat.
+- The app keeps only the daemon-redacted copy of what you sent, never the raw text or the unsent draft.
+- The app steps aside for its own file picker, other apps' menus over the notch, and apps you bring forward under the
+  pinned chat; it never toggles click-through.
+- `ferb baseline` records the time from message to acknowledgement, plan line and answer.
+
+Answers in your words (L11):
+- Unfinished tasks get a short answer in plain words (what was delivered, what isn't confirmed, what you can do); the
+  checker's findings stay under Details. No more "Verified." prefix: the app shows a check mark.
+- A correction after an answer re-plans the same task with the new goal. A refused reminder or memory write keeps the
+  reply and adds one plain line. A reminder you asked for earlier in the same chat is set. Steering says what changed.
+
+Seeing and hearing (L12, L13, L26):
+- The planner sees your front window with every message: app, title, browser tab and one redacted screenshot taken
+  when you send. It can answer a question about your screen directly; the worker starts from the same picture.
+- Browser windows, tab screenshots and recording frames now reach the model redacted instead of being refused:
+  password and code fields are painted over, and an image is withheld only when masking fails. Extension 0.15.3 /
+  protocol 14.
+- FERB can hear an app during a task: `audio.listen`, recordings with a time-aligned transcript, and `browser.media`
+  to play or unmute a video first. Transcription is on-device only; the sound is deleted once transcribed. FERB's
+  voice helper runs only with your own `~/.ferb`, so no other process can point its microphone or transcripts
+  elsewhere; a recording stopped midway is still finished once.
+
+Perception in chat (L9, L10):
+- Notices are chat messages tagged "noticed", not macOS banners (banners only when no FERB client is open).
+- One moment gives one notice: FERB considers it once per app with your memory, the recent chat, running tasks and
+  what it already told you, and says what happened and what it means; outside text is quoted with its origin.
+- FERB no longer narrates its own clicks or reads its own banners back; no backlog at install; the seven-day purge also
+  clears notice text derived from typed or clipboard text.
+
+Planner context (L28):
+- The planner uses each model's real context window instead of a hidden 32,768-token cap that squeezed out the
+  situation, activity and memory on 85 of 87 turns. The situation, running tasks, questions, memory and today's
+  activity always go in; chat fills the rest newest-first, with older chat summarized; the order is cache-friendly.
+- Replays of real turns: message to plan line 11–17 s → 1–2 s on FERB's side; the reusable prompt prefix grew from
+  about 8k to 54k tokens. Episode capture runs after the answer, in its own process.
+- FERB's Codex model is `gpt-5.6-sol` (GPT-5.5 retired from Codex for ChatGPT sign-ins).
+
+Broken things fixed (L16–L18, L21–L23):
+- Learning: redaction no longer corrupts internal ids (35 task records had failed to save); the consolidator's
+  schema works in strict mode; the hourly memory loop survives a failing step.
+- Typed text is captured per field again, never from password fields (shown ones included), Secure Input or terminal
+  apps. A choice answer (the 2FA "1") is no longer treated as a secret.
+- A Codex account error always gets a reply naming it, scheduled runs included. Waits after the Mac sleeps end on
+  time. A large folder inventory no longer freezes the daemon.
+
+Packaging and setup (L15, L25, L27):
+- The notch UI lives in this repository as `ui/`.
+- One FERB.app in a DMG: the notch UI, the daemon's Python, Codex, the secret helper and the voice helper in one
+  bundle, ad-hoc signed now with one signing step ready for Developer ID. The daemon runs as the agent app "FERB".
+  FERB.app's own code is protected from FERB's tools and shell. Install from source still works.
+- `ferb setup` asks every Chromium browser it finds to install FERB's Chrome Web Store extension where that is
+  documented, registers the native host and reports per profile; the Load-unpacked steps stay until the listing is
+  live.
+- The Trash: FERB moves items in and out only between folders it holds open, never moves something out after a
+  mismatch, and FERB's shell can't write any Trash.
+- Campaign path: a browser post declared as a send (naming the account it goes out from, no recipients for a public
+  post) is checked like one, so standing permissions cover it. A schedule records a standing permission only for
+  destinations you typed, each run gets exactly that, and cancelling or pausing the schedule ends it; a correction to
+  a scheduled or resumed run never widens its scope and never moves it out of the cancel's reach. In test mode, allow
+  a post as `"SITE @ACCOUNT"`.
+
+Licensed under Apache-2.0.
+
+Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
+not green on their own; never install from them, and skip that range in `git bisect`.
+
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
 - Surface Codex account-check failures with safe diagnostics and relevant recovery instructions instead of the
@@ -32,12 +127,6 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 - Native follow-ups: standard paste/edit commands, no automatic panel reopening on background answers, and a Tasks
   view with individually scoped Stop, activity, results/artifacts and full-record inspection. These changes and
   direct steering were activated after the owner’s tasks completed; no running task was interrupted.
-- Notch yields to other apps: another app's menu, popover or floating window over the notch or chat (from the
-  window list, no titles read, polled only while FERB is on screen), FERB's file picker, or an app the owner brings
-  forward or clicks into under the pinned chat orders FERB out until it ends; entering the notch or the shortcut
-  brings it back, also over a window that never closes. The panel's click-through is never toggled, so its
-  transparent margins keep passing clicks. Dictation is never hidden; a question arriving meanwhile keeps its sound
-  and amber light.
 
 - Inject owner corrections into active workers without stopping/replacing the task. Codex workers now use isolated
   app-server steering; Claude and direct APIs retain the same run and apply queued updates before accepting a
