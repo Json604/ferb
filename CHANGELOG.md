@@ -182,6 +182,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   set: a quote made of the owner's own messages in that request, joined, counts. "Anytime" no longer gets the
   question again: the planner picks a time from context (or your stored preference) and says which; and a reply never
   claims a reminder is set before FERB's own line says so.
+- "What is this song?" is answered from the page only when the page names it; otherwise FERB listens on the tab you're
+  looking at, and says plainly when it hears speech or music it can't identify (its hearing transcribes speech; it
+  doesn't recognise music) instead of naming something the speaker mentioned.
 
 Licensed under Apache-2.0.
 

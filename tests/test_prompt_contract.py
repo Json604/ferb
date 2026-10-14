@@ -145,3 +145,20 @@ def test_any_time_is_fine_picks_a_time_from_context_and_says_it() -> None:
 def test_a_reminder_quote_is_the_owners_message_and_the_reply_never_claims_it_was_set() -> None:
     words = _words("supervisor.md")
     assert QUOTE_ONE in words and NO_SET_CLAIM in words
+
+
+SONG_PLANNER = ("\"What is this song/sound?\" is answered from the page only when the page names the song; otherwise "
+                "it needs listening (a task) on the tab the owner is looking at (their front window, or the tab already "
+                "identified in this conversation), never another tab.")
+SONG_WORKER = ("FERB's hearing turns speech into text; it can't recognise music by its sound. Asked what a song or sound "
+               "is, listen on the tab the owner is looking at (the one named in the task), not another; if what you "
+               "hear is speech, or music without lyrics you can identify, say so plainly and never name something "
+               "else (a video or product the speaker mentions) as the song.")
+
+
+def test_what_is_this_song_listens_on_the_owners_tab_and_never_names_something_else() -> None:
+    """Live use: "what is this song?" on a reel was answered from the page's "Original audio by @…" label without
+    listening; on "hear and tell" a 12 s speech-only voiceover was heard on a different tab, and the video the speaker
+    mentioned was named as the song."""
+    assert SONG_PLANNER in _words("supervisor.md")
+    assert SONG_WORKER in _words("worker.md")
