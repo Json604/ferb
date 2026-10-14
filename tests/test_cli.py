@@ -105,8 +105,17 @@ def test_daemon_process_lifecycle_writes_journal(home: Path) -> None:
     entries = Journal(db, SystemClock(), RandomIds(), lambda d: d).entries()
     # A fresh home records the owner's limits decision once (nothing to change: the defaults are the decided values),
     # so a value the owner sets later is never replaced; then the lifecycle.
-    # A home without FERB's Codex login can't report the model's window: said at start, once per role (L28)
-    assert [e.kind for e in entries] == ["config.upgraded", "daemon.started", *["runtime.limits_unknown"] * 3,
+    # A home without FERB's Codex login can't report the model's window: said at start, once per role (L28), unless
+    # the pinned Codex this checkout can reach (its node_modules) ships the catalog that knows every window
+    from ferb.core.errors import Unsupported
+    from ferb.device.install import repo_root
+    from ferb.runtimes.codex_exec import codex_binary
+    try:
+        codex_binary(home, repo_root())
+        unknown = 0
+    except Unsupported:
+        unknown = 3
+    assert [e.kind for e in entries] == ["config.upgraded", "daemon.started", *["runtime.limits_unknown"] * unknown,
                                          "daemon.stopped"]
     assert entries[0].data["changes"] == []
 
