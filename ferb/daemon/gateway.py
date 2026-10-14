@@ -343,6 +343,8 @@ class OutsideTexts:
     file_chunks: dict[str, dict[int, PayloadOutput]] = field(default_factory=dict)
     joined_files: dict[str, list[tuple[int, set[str], provenance.Text]]] = field(default_factory=dict)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
+    ready: dict[int, provenance.Text] = field(default_factory=dict)   # payloads prepared off the loop, not yet used
+    preparing: asyncio.Lock = field(default_factory=asyncio.Lock)     # one off-loop preparation per tree at a time
 
 
 @dataclass
@@ -572,7 +574,8 @@ class Gateway:
         for result in self.spans.payload_outputs(root, known.payload_floor, seen=known.payload_seen):
             known.payload_seen.add(result.rowid)
             if result.text:
-                known.payloads[result.rowid] = (result.origins, provenance.prepare(result.text))
+                text = known.ready.pop(result.rowid) if result.rowid in known.ready else provenance.prepare(result.text)
+                known.payloads[result.rowid] = (result.origins, text)
             if result.path:
                 known.file_chunks.setdefault(result.path, {})[result.rowid] = result
                 changed.add(result.path)
@@ -599,6 +602,22 @@ class Gateway:
         outside_only = [(rowid, text) for rowid, labels, text in results
                         if origin.PRIVATE not in labels and any(origin.is_external(label) for label in labels)]
         return private, outside_only
+
+    async def _sink_texts_ready(self, root: str) -> tuple[list[tuple[int, provenance.Text]],
+                                                         list[tuple[int, provenance.Text]]]:
+        """`_sink_texts`, with the payloads it hasn't seen prepared in a worker thread first (final review M7): a task's
+        first navigation can meet the conversation its planner was shown, up to the model's whole window. The rows
+        are read on the loop (the database is the loop's); a result that finishes meanwhile is still read, and
+        prepared, by `_sink_texts`. One preparation per tree at a time, so a concurrent navigation waits for it."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        async with known.preparing:
+            fresh = [(r.rowid, r.text) for r in self.spans.payload_outputs(root, known.payload_floor,
+                                                                            seen=known.payload_seen)
+                     if r.text and r.rowid not in known.ready]
+            if fresh:
+                known.ready.update(await asyncio.to_thread(
+                    lambda: {rowid: provenance.prepare(text) for rowid, text in fresh}))
+            return self._sink_texts(root)
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
@@ -986,7 +1005,8 @@ class Gateway:
         request = self.state.requests.get(rec.task.request_id)
         words = request.words if request is not None else ""
         owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
-        private, outside_only = self._sink_texts(root)   # N1: span-ordered; a followed link read first asks nothing
+        private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
+                                                                      # asks nothing
         values = confirm.url_carries_private(url, private, outside_only, owner_text)
         if not values:
             return None

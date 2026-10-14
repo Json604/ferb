@@ -1089,8 +1089,11 @@ Residuals:
 **Owner clarification, 2026-10-11 (S4/D27/MP2).** Ordinary public browser navigation passes; literal loopback
 navigation is local (a prior explicit No still applies). URL transfer checks use actual private source values,
 including structured records and inherited private history/memory. Context producers record a typed source
-payload separately from presentation metadata; legacy context keeps its complete text conservatively. Prepared
-URL evidence is cached incrementally and refreshed for late results and changed file streams. Contiguous file
+payload separately from presentation metadata; legacy context keeps its complete text conservatively. A task's
+conversation exposure stores only its payload, the shown entries' own texts (their display lines are in the model
+turn's recorded context). Prepared URL evidence is cached incrementally and refreshed for late results and changed
+file streams; a navigation prepares the payloads it hasn't seen in a worker thread (`Gateway._sink_texts_ready`, one
+preparation per tree at a time), so a large conversation never stalls the event loop (final review M7). Contiguous file
 chunks remain comparable when a value is encoded across reads. This is source matching, not semantic detection
 of every transformed private value; common words in real private bodies may still collide.
 

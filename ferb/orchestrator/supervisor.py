@@ -187,6 +187,13 @@ def _bare(text: str) -> str:
     return text.strip().rstrip(".!").strip()
 
 
+def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
+    """A context exposure's stored output: the text shown and its S4 payload; for the conversation (no `text`), the
+    payload alone, so a task never keeps the chat twice (final review M7)."""
+    payload = record.get('payload', record['text'])
+    return {'payload': payload} if record['text'] is None else {'text': record['text'], 'payload': payload}
+
+
 def _carries_more(out: SupervisorOutcome) -> bool:
     """Whether a planner turn carries anything besides an answer: a control (stop, steer, retry, continue), a new
     task, or a side output (memory, reminders, schedules, conversation or notification changes)."""
@@ -1735,7 +1742,7 @@ class Supervisor(WorkerRuns):
         for exposure in env.get('context_exposures', []):
             captured = self.spans.start('context.exposure', task_id=tree.id, parent_id=root_span,
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
-            self.spans.finish(captured, output={'text': exposure['text'], 'payload': exposure.get('payload', exposure['text'])}, origin=exposure['origin'])
+            self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
 
     async def _plan_question(self, tree: _Tree, question: str, options: list[str],
                              capability: str = 'plan.ask') -> dict[str, Any]:
@@ -2404,7 +2411,9 @@ class Supervisor(WorkerRuns):
 
     def _context_exposure(self, task: Task, blocks: list[ContextBlock], assembly: Assembly, tree: _Tree | None) -> None:
         """Only bytes actually handed to a model become reads; omitted full-source snapshots are not reads. The
-        conversation entries shown are one read: their texts, joined, are its payload (S4: no times, tags or ids)."""
+        conversation entries shown are one read: their texts, joined, are its payload (S4: no times, tags or ids),
+        stored once (final review M7): their display lines are in the model turn's recorded context, and chat.history
+        has every entry."""
         records: list[dict[str, Any]] = []
         history: list[ContextBlock] = []
         for block, shown in zip((b for b in blocks if b.text), assembly.shown):
@@ -2419,7 +2428,7 @@ class Supervisor(WorkerRuns):
                             'reference': block.reference, 'payload': block.text if block.payload is None else block.payload})
         if history:
             records[records.index({})] = {
-                'text': '\n\n'.join(b.text for b in history),
+                'text': None,                     # the payload alone: the entries' own texts (M7)
                 'origin': origins_.join({o for b in history for o in origins_.split(b.origin)}),
                 'source_refs': sorted({ref for b in history for ref in b.source_refs}), 'reference': 'chat.history',
                 'payload': '\n\n'.join(b.text if b.payload is None else b.payload for b in history)}
@@ -2433,7 +2442,7 @@ class Supervisor(WorkerRuns):
         for record in records:
             span = self.spans.start('context.exposure', task_id=tree.id,
                                    input={'source_refs': record['source_refs'], 'reference': record['reference']})
-            self.spans.finish(span, output={'text': record['text'], 'payload': record['payload']}, origin=record['origin'])
+            self.spans.finish(span, output=_exposure_output(record), origin=record['origin'])
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
                       source_refs: tuple[str, ...] = (), *, payload: str | None = None) -> ContextBlock:

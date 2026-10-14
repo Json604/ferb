@@ -520,9 +520,10 @@ def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_cha
             "SELECT kind, input_json, output_json FROM spans" + (" WHERE kind=?" if kind else ""),
             (kind,) if kind else ())])
     before = _on_loop(daemon, spans)
-    # L28: the conversation entries the planner was shown are one exposure, referenced `chat.history`
+    # L28: the conversation entries the planner was shown are one exposure, referenced `chat.history`, stored once as
+    # their own texts (final review M7)
     history = [(json.loads(inp), out) for kind, inp, out in json.loads(_on_loop(daemon, lambda: spans("context.exposure")))
-               if json.loads(inp)["reference"] == "chat.history" and "noticed" in json.loads(out)["text"]]
+               if json.loads(inp)["reference"] == "chat.history" and "uniquenoticeword" in json.loads(out)["payload"]]
     assert history and "uniquenoticeword" in history[0][1] and "uniquequotedline" in history[0][1]  # task kept it
     assert "trail:" + copied.id in history[0][0]["source_refs"]                 # ...naming the notice's rows
     # its S4 payload is the notice's own text and quote, plain (L28): no JSON "text" field the told forms match

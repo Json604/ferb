@@ -119,6 +119,8 @@ Final review fixes (2026-10-14):
   when they end, instead of keeping it in memory until the daemon restarts.
 - The app's dictation is recognized on this Mac only, like push-to-talk: where on-device recognition isn't available
   for your language it says so instead of sending your voice to Apple's servers. The Speech Recognition prompt says so.
+- Each task stores the conversation it was shown once, not twice, and a navigation's private-data check prepares it
+  off the daemon's event loop.
 
 Licensed under Apache-2.0.
 
