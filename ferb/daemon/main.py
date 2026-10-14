@@ -749,9 +749,9 @@ class Daemon:
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that
         isn't FERB's (nor, while in front, that of the app hosting the CLI that sent it, `client_pid`), its redacted
-        screenshot kept as evidence under the request. None: no Mac driver or evidence store, sensing paused (`ferb
-        pause`), nothing in front, or an excluded app or site. A failure is journaled by type and never blocks the
-        message."""
+        screenshot kept as evidence under the request; an app on the exclusion list is reported unnamed and unlooked
+        at, a site on it under the excluded label. None: no Mac driver or evidence store, sensing paused (`ferb
+        pause`), or nothing but FERB in front. A failure is journaled by type and never blocks the message."""
         from ferb.act.mac import screenshot
         from ferb.daemon.gateway import error_name
         from ferb.sanitize.images import ImageRedactor
@@ -782,20 +782,22 @@ class Daemon:
             self._journal().append("screen.capture_failed", {"request_id": request_id, "error": error_name(e)})
             return None
 
-    def _front_tab(self, bundle_id: str) -> tuple[str, str] | None:
+    def _front_tab(self, bundle_id: str, after_shot: bool = False) -> tuple[str, str] | None:
         """A browser's front tab (URL, title) for the front window (L12): the tab watcher's AppleScript read, only when
         the owner already granted Automation for that browser (the check never asks; while it is still answering the
-        read is None, and the capture tries again after the shot). A GRANTED answer is used again only while a fresh
-        check is still pending, and dropped as soon as a check answers anything else (a permission reset mid-run must
-        not lead to a prompt); a read that fails drops it too."""
+        read is None, and the capture tries again after the shot). A kept GRANTED answer serves only that read after
+        the shot, and only while a fresh check is still pending; it is dropped as soon as a check answers anything else
+        (a permission reset mid-run must not lead to a prompt), and when a read fails."""
         from ferb.sense.watchers.browser_tabs import SCRIPTS, applescript_front_tab
         if bundle_id not in SCRIPTS:
             return None
-        fresh = self._automation_granted(bundle_id)
-        probe = self._automation_checks.get(bundle_id)
-        if not fresh and not (bundle_id in self._tab_granted and probe is not None and not probe.done()):
-            self._tab_granted.discard(bundle_id)
-            return None
+        if not self._automation_granted(bundle_id):
+            probe = self._automation_checks.get(bundle_id)
+            if probe is None or probe.done():          # a check answered something other than GRANTED
+                self._tab_granted.discard(bundle_id)
+                return None
+            if not (after_shot and bundle_id in self._tab_granted):
+                return None
         self._tab_granted.add(bundle_id)
         try:
             tab = applescript_front_tab(bundle_id)

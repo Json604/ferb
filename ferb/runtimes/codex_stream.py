@@ -385,8 +385,9 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         raise ProtocolError('Codex runtime did not complete its final answer')
                     try:
                         check_final(final, runtime.output_schema)
-                    except ValueError:
-                        raise ProtocolError('Codex runtime final answer did not match the requested schema') from None
+                    except ValueError as exc:      # the model answered outside the schema: repair, not a failed call
+                        yield RuntimeEvent('invalid_answer', {'message': str(exc)})
+                        return
                     for text in pending_text:
                         yield RuntimeEvent('text_delta', {'text': text})
                     pending_text.clear()

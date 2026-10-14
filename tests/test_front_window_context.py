@@ -86,8 +86,9 @@ class Screen:
         self.kept.append((image, facts, origin))
         return f"ev-{len(self.kept)}"
 
-    def _tab(self, bundle_id: str) -> tuple[str, str] | None:
+    def _tab(self, bundle_id: str, after_shot: bool) -> tuple[str, str] | None:
         self.tabs.append(bundle_id)
+        assert after_shot == bool(self.shot)                         # the capture says which read it is
         if self.tab_after_shot and not self.shot:
             return None
         return (URL, BRAVE.title) if bundle_id == "com.brave.Browser" else None
@@ -198,18 +199,20 @@ def test_an_excluded_site_is_still_seen_under_the_excluded_label() -> None:
     assert origin == "external:web:excluded" and facts["url"] == "[excluded]" and image == JPEG
 
 
-def test_an_excluded_app_is_named_but_never_looked_at() -> None:
-    """Controller ruling (fix round 2): an app on the owner's exclusion list (password managers by default) shows
-    secrets field masking can't reliably cover (rule 14): no title, tab or pixels. The planner is told which app is in
-    front and that FERB doesn't look at it."""
+def test_an_excluded_app_is_neither_named_nor_looked_at() -> None:
+    """Controller rulings (fix rounds 2 and 3): an app on the owner's exclusion list (password managers by default)
+    shows secrets field masking can't reliably cover (rule 14): no title, tab or pixels. The planner is told an app
+    FERB doesn't look at is in front, without its name, as the redactor writes it everywhere else ([excluded])."""
+    from ferb.orchestrator.supervisor import FRONT_WINDOW, front_window_block
     screen = Screen([BRAVE], owners())
     screen.excluded = {"com.brave.Browser"}
     front = asyncio.run(fw.capture(screen.sources()))
-    assert front is not None and (front.app, front.bundle_id) == ("Brave Browser", "com.brave.Browser")
+    assert front is not None and front.app == "[excluded]" and front.bundle_id == ""
     assert front.title == "" and front.url is None and front.image_ref is None and front.image is None
-    assert "exclusion list" in (front.withheld or "") and "doesn't look at it" in (front.withheld or "")
+    assert front.withheld == "an app FERB doesn't look at ([excluded]) is in front: no title, page or screenshot"
     assert screen.shot == [] and screen.kept == [] and screen.tabs == []   # not even asked for its tab
-    assert "window_title" not in front.facts()
+    block = front_window_block(front, None, FRONT_WINDOW)[0].text
+    assert "Brave" not in block and "com.brave" not in block and "an app FERB doesn't look at ([excluded])" in block
 
 
 # ---------- (d) a redaction failure withholds only the image ----------
@@ -328,7 +331,7 @@ def test_the_daemon_captures_the_browser_window_through_the_mac_driver_and_keeps
                                                                brave_window])
     monkeypatch.setattr(fw, "app_of", {99: ("FERB Notch", "dev.ferb.notch"), 12: ("Brave", "com.brave.Browser")}.get)
     monkeypatch.setattr(fw, "parent_pid", {}.get)
-    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle: (URL, BRAVE.title))
+    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle, after_shot=False: (URL, BRAVE.title))
     daemon.daemon.front_window = daemon.daemon._front_window
     script = install(daemon, [sup("reply", "It says learning Korean."), sup("reply", "I can't see that page.")])
     chat(daemon, "what does this say?")
@@ -386,8 +389,9 @@ def test_a_cold_automation_check_still_gives_the_browser_tab(daemon: RunningDaem
         return first if len(checks) == 1 else second
     monkeypatch.setattr(permissions, "automation_check", automation_check)
     shots.on_capture = lambda: first.done() or first.set_result(permissions.Status.GRANTED)
-    reads: list[str] = []
-    monkeypatch.setattr(browser_tabs, "applescript_front_tab", lambda bundle: (reads.append(bundle), (URL, BRAVE.title))[1])
+    reads: list[tuple[str, int]] = []                                # (browser, windows captured so far)
+    monkeypatch.setattr(browser_tabs, "applescript_front_tab",
+                        lambda bundle: (reads.append((bundle, len(shots.captured))), (URL, BRAVE.title))[1])
     script = install(daemon, [sup("reply", "It's a Korean lesson."), sup("reply", "Still the lesson."),
                               sup("reply", "A YouTube video.")])
     chat(daemon, "what am I watching?")                              # cold: answered GRANTED during the shot
@@ -400,7 +404,8 @@ def test_a_cold_automation_check_still_gives_the_browser_tab(daemon: RunningDaem
               for r in planner_requests(script)]
     assert URL in blocks[0] and URL in blocks[1] and URL not in blocks[2] and BRAVE.title in blocks[2]
     assert checks == [("com.brave.Browser", False)] * 2             # never asking the owner
-    assert reads == ["com.brave.Browser", "com.brave.Browser"]
+    # each read came after its message's shot: the kept answer serves only that read (fix round 3)
+    assert reads == [("com.brave.Browser", 1), ("com.brave.Browser", 2)]
 
 
 def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -411,7 +416,7 @@ def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkey
                             [Window(780, 78, BOUNDS, "ferb chat"), Window(121, 12, BOUNDS, BRAVE.title)],
                             {78: ("Terminal", "com.apple.Terminal"), 12: ("Brave", "com.brave.Browser")},
                             {client: 78, 78: 1})
-    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle: None)
+    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle, after_shot=False: None)
     install(daemon, [sup("reply", "That's a YouTube video.")])
     chat(daemon, "what's this?")
     assert shots.captured == [121]
@@ -465,6 +470,61 @@ def test_an_invalid_planner_answer_goes_to_repair_and_keeps_the_image(daemon: Ru
     block = next(p for p in repaired.parts if p.startswith("Layer 2 — the owner's front window"))
     assert "attached to this request" in block and "couldn't be given" not in block
     assert journal(daemon, "task.repair") and not journal(daemon, "screen.image_refused")
+
+
+class SchemaRuntime(FakeRuntime):
+    """A fake runtime that, like the direct-API runtimes, leaves the output schema to FERB's own final check."""
+
+    def __init__(self, script: Script, mode: str, tools: list[str], schema: dict[str, Any] | None) -> None:
+        super().__init__(script, mode, tools)
+        self.output_schema = schema
+
+
+def test_a_schema_invalid_answer_goes_to_repair_and_keeps_the_image(daemon: RunningDaemon) -> None:
+    """Fix round 3 (1a): on a runtime whose only schema check is FERB's (`check_final` in `_run`), an answer missing
+    a required field is format repair, with the screenshot kept, not "Sorry, something went wrong"."""
+    from ferb.orchestrator.schemas import SupervisorOutcome
+    screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    script = Script([json.dumps({"kind": "reply", "text": "half an answer", "task": None}),
+                     SupervisorOutcome(kind="reply", text="It says learning Korean.", task=None).model_dump_json()], {})
+    daemon.daemon.supervisor.make_runtime = (                        # type: ignore[union-attr]
+        lambda role, *, mode, tool_names, schema: SchemaRuntime(script, mode, tool_names, schema))
+    evs = chat(daemon, "what does this say?")
+    assert [e["text"] for e in evs if e["type"] == "reply"] == ["It says learning Korean."]
+    first, repaired = planner_requests(script)
+    assert first.images and repaired.images == first.images
+    assert journal(daemon, "task.repair") and not journal(daemon, "screen.image_refused")
+    assert not journal(daemon, "chat.failed")
+
+
+class InvalidOnce(FakeRuntime):
+    """A fake adapter reporting, as Codex and the Claude SDK now do, that the model's final answer didn't match the
+    schema: its own event kind, not a service error."""
+    reported = False
+
+    async def events(self, run: Any) -> Any:
+        if run.state["key"] == "supervisor" and not InvalidOnce.reported:
+            InvalidOnce.reported = True
+            yield RuntimeEvent("invalid_answer", {"message": "the answer doesn't match the schema at the top level"})
+            return
+        async for ev in super().events(run):
+            yield ev
+
+
+def test_an_adapter_reported_invalid_answer_goes_to_repair_and_keeps_the_image(daemon: RunningDaemon) -> None:
+    """Fix round 3 (1b): `_run` maps the adapters' invalid-answer event to InvalidAnswer: repair, image kept."""
+    screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    script = Script([sup("reply", "It says learning Korean.")], {})
+    InvalidOnce.reported = False
+    daemon.daemon.supervisor.make_runtime = (                        # type: ignore[union-attr]
+        lambda role, *, mode, tool_names, schema: InvalidOnce(script, mode, tool_names))
+    evs = chat(daemon, "what does this say?")
+    assert [e["text"] for e in evs if e["type"] == "reply"] == ["It says learning Korean."]
+    first, repaired = planner_requests(script)
+    assert first.images and repaired.images == first.images
+    [repair] = journal(daemon, "task.repair")
+    assert "doesn't match the schema" in json.dumps(repair.data["problems"])
+    assert not journal(daemon, "screen.image_refused")
 
 
 def test_a_correction_sent_while_a_task_runs_adds_its_front_window_to_the_tree(daemon: RunningDaemon,
@@ -733,3 +793,45 @@ async def test_codex_exec_cancel_before_events_removes_its_files(tmp_path: Path,
     assert all(f.exists() for f in files)
     await rt.cancel(run)
     assert not any(f.exists() for f in files)
+
+
+@pytest.mark.anyio
+async def test_codex_app_server_reports_a_schema_mismatch_as_an_invalid_answer(tmp_path: Path,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 3 (1b): the model answered; FERB's adapter check found the answer outside the schema. That is its
+    own event kind (repair, image kept), not a protocol error (which would read as a refused image)."""
+    import ferb.runtimes.codex_stream as stream
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
+    proc = Process()
+
+    async def spawn(*cmd: Any, **kw: Any) -> Process:
+        return proc
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path / "work", tmp_path,
+                         output_schema={"type": "object", "required": ["answer_question"]}, model="test-model",
+                         timeout_s=None)
+    run = await stream.start(rt, TASK, request())
+    events = stream.events(rt, run)
+    proc.complete()
+    got = [ev async for ev in events]
+    assert [ev.kind for ev in got if ev.kind in ("error", "final", "invalid_answer")] == ["invalid_answer"]
+    assert "answer_question" in got[-1].data["message"]
+
+
+@pytest.mark.anyio
+async def test_claude_sdk_reports_exhausted_structured_output_retries_as_an_invalid_answer() -> None:
+    """Fix round 3 (1b): the Claude CLI's `error_max_structured_output_retries` result means the model answered but
+    never matched the schema: an invalid answer, not a service error."""
+    from claude_agent_sdk import ResultMessage
+    from ferb.core.types import RunHandle
+
+    class Client:
+        async def receive_messages(self) -> Any:
+            yield ResultMessage(subtype="error_max_structured_output_retries", duration_ms=1, duration_api_ms=1,
+                                is_error=True, num_turns=3, session_id="s", errors=["schema mismatch"])
+    rt = ClaudeRuntime("supervisor", None, "/unused", output_schema={"type": "object"})   # type: ignore[arg-type]
+    run = RunHandle("run-1", "claude", "t", {"client": Client(), "checked_auth": True})
+    got = [ev async for ev in rt.events(run)]
+    assert [ev.kind for ev in got if ev.kind in ("error", "final", "invalid_answer")] == ["invalid_answer"]

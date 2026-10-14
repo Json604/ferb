@@ -23,6 +23,8 @@ from ferb.runtimes.usage import from_anthropic
 
 SDK_VERSION = "0.2.160"
 STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when output_format is set
+# The CLI's result subtype when the model's answers never matched output_format (bundled CLI, SDK 0.2.160)
+STRUCTURED_RETRIES = "error_max_structured_output_retries"
 
 
 async def _with_images(text: str, images: tuple[ModelImage, ...]) -> AsyncIterator[dict[str, Any]]:
@@ -144,7 +146,10 @@ class ClaudeRuntime:
                                                                   provider_cost=m.total_cost_usd)))
                 if getattr(m, "is_error", False):
                     run.state["closed"] = True
-                    yield RuntimeEvent("error", {"message": m.result or str(getattr(m, "errors", None)) or m.subtype})
+                    detail = m.result or str(getattr(m, "errors", None)) or m.subtype
+                    # the model answered, but never within the schema: format repair, not a failed call
+                    yield RuntimeEvent("invalid_answer" if m.subtype == STRUCTURED_RETRIES else "error",
+                                       {"message": detail})
                     return
                 extra = self.proxy.seen(run.id) - self.allowed
                 if extra:

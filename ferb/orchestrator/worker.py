@@ -278,6 +278,8 @@ class WorkerRuns:
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
                 elif ev.kind == "error":
                     raise ServiceError(str(ev.data.get("message")), rt.name)
+                elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it
+                    raise InvalidAnswer(str(ev.data.get("message", "")))
                 elif ev.kind == "final":
                     if "tools_seen" in ev.data:
                         if worker_id:

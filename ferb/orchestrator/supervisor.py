@@ -323,7 +323,7 @@ class Supervisor(WorkerRuns):
         """Repair an invalid task reference without inferring task intent or account permission."""
         try:
             out = await self._supervise(session, message, request_id, recalled, emit=emit)
-        except ValidationError as exc:
+        except (ValidationError, InvalidAnswer) as exc:      # pydantic, FERB's schema check, or the adapter's
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
             out = await self._supervise(session, message, request_id, recalled, repair=problems)

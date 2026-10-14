@@ -16,7 +16,8 @@ The owner's exclusion list governs perception recording, not what FERB sees when
 exceptions"): a site on it is still seen, title and pixels, but its origin never names the host
 (`external:web:excluded`, the gateway's convention) and its URL is the redactor's excluded marker; S4 still counts it as
 outside content. An app on it is never looked at (rule 14: a password manager shows secrets field masking can't
-reliably cover): the planner is told which app is in front and that FERB doesn't look at it."""
+reliably cover) and never named: the planner is told an app FERB doesn't look at ([excluded], as the redactor writes
+it everywhere else) is in front."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -32,7 +33,7 @@ from ferb.sanitize.redact import EXCLUDED
 FERB_APPS = frozenset({"dev.ferb.notch", "com.ferb.app"})
 # libproc's PROC_PIDTBSDINFO answer (<sys/proc_info.h> struct proc_bsdinfo): its size, and where pbi_ppid lies in it
 PROC_PIDTBSDINFO, BSDINFO_SIZE, PPID_OFFSET = 3, 136, 16
-EXCLUDED_APP = "an app on the owner's exclusion list: FERB doesn't look at it (no title, page or screenshot)"
+EXCLUDED_APP = f"an app FERB doesn't look at ({EXCLUDED}) is in front: no title, page or screenshot"
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,9 @@ class FrontWindow:
 
     def facts(self) -> dict[str, Any]:
         """The labelled facts the planner is given (a browser's tab only when it was read)."""
-        out: dict[str, Any] = {"app": self.app, "bundle_id": self.bundle_id}
+        out: dict[str, Any] = {"app": self.app}
+        if self.bundle_id:
+            out["bundle_id"] = self.bundle_id
         if self.title:
             out["window_title"] = self.title
         if self.url or self.tab_title:
@@ -64,7 +67,7 @@ class Sources:
     app_of: Callable[[int], tuple[str, str] | None]       # a process's (app name, bundle id); None: not an app
     own: Callable[[int, str], bool]                       # (pid, bundle id): a FERB process (`ferb_process`)
     excluded: Callable[[str, str, str | None], bool]      # (bundle id, app name, url): on the owner's exclusion list
-    tab: Callable[[str], tuple[str, str] | None]          # a browser's front tab (url, title), when it can be read
+    tab: Callable[[str, bool], tuple[str, str] | None]    # (bundle id, after the shot): its front tab (url, title)
     shoot: Callable[[Window], Awaitable[bytes]]           # that window's JPEG, its tree's secret fields masked
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
@@ -142,23 +145,23 @@ def _topmost(src: Sources) -> tuple[Window, str, str] | None:
     return None
 
 
-async def _tab(src: Sources, bundle: str) -> tuple[str | None, str | None] | None:
+async def _tab(src: Sources, bundle: str, after_shot: bool) -> tuple[str | None, str | None] | None:
     """A browser's front tab (url, title), when it can be read now."""
-    tab = await asyncio.to_thread(src.tab, bundle)
+    tab = await asyncio.to_thread(src.tab, bundle, after_shot)
     return (tab[0] or None, tab[1] or None) if tab is not None else None
 
 
 async def capture(src: Sources) -> FrontWindow | None:
-    """The owner's front window now, or None when there is none or it is excluded. Never brings anything forward."""
+    """The owner's front window now, or None when no window but FERB's is in front. Never brings anything forward."""
     from ferb.act.mac.tools import _sources            # the mac tools' labels for what an app's window shows
     found = await asyncio.to_thread(_topmost, src)
     if found is None:
         return None
     w, name, bundle = found
-    if src.excluded(bundle, name, None):               # named, never looked at: no title, tab or pixels (rule 14)
-        return FrontWindow(name, bundle, "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
+    if src.excluded(bundle, name, None):               # never named or looked at: no title, tab or pixels (rule 14)
+        return FrontWindow(EXCLUDED, "", "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
     browser = is_browser(bundle)
-    tab = await _tab(src, bundle) if browser else None
+    tab = await _tab(src, bundle, False) if browser else None
     image: bytes | None = None
     withheld: str | None = None
     try:
@@ -173,7 +176,7 @@ async def capture(src: Sources) -> FrontWindow | None:
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
     if browser and tab is None:                        # its Automation check may have answered during the shot
-        tab = await _tab(src, bundle)
+        tab = await _tab(src, bundle, True)
     url, tab_title = tab if tab is not None else (None, None)
     excluded_site = bool(url) and src.excluded(bundle, name, url)
     read = (("web", url),) if url else _sources(bundle)

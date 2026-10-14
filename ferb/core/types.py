@@ -192,7 +192,9 @@ class RunHandle:
 
 @dataclass(frozen=True)
 class RuntimeEvent:
-    kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation"]
+    # invalid_answer: the model answered, but its final answer doesn't match the requested schema (format repair, not
+    # a failed call); data["message"] says where
+    kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation", "invalid_answer"]
     data: dict[str, Any]
 
 

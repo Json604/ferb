@@ -295,7 +295,9 @@ async def test_worker_completion_validates_schema_and_closed_run_rejects_steerin
     rt.output_schema = {'type': 'object', 'required': ['missing']}
     proc.complete()
     got = [event async for event in rt.events(run)]
-    assert got[-1].kind == 'error' and 'schema' in got[-1].data['message']
+    # the model answered outside the schema: its own kind (format repair), not a protocol error (L12 fix round 3)
+    assert got[-1].kind == 'invalid_answer' and 'schema' in got[-1].data['message']
+    assert not any(event.kind in ('error', 'final') for event in got)
     with pytest.raises(Unsupported):
         await rt.continue_(run, 'new correction')
     assert not any(m['method'] == 'turn/steer' for m in proc.requests)
