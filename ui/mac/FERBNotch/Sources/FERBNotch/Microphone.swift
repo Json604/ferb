@@ -2,6 +2,23 @@ import AVFoundation
 import AudioCapture
 @preconcurrency import Speech
 
+/// Dictation is recognized on this Mac only (Task 20 / L26 ruling, final review M5): raw voice is unredacted, so it never
+/// goes to Apple's servers. Without on-device recognition for the current language there is no request, and FERB says
+/// so instead of listening.
+enum OnDeviceSpeech {
+    static let unavailable = "Dictation needs on-device speech recognition for your language, and it isn't available "
+        + "on this Mac, so FERB doesn't listen (your voice never goes to Apple's servers). Please type your request."
+
+    static func request(supportsOnDevice: Bool) -> SFSpeechAudioBufferRecognitionRequest? {
+        guard supportsOnDevice else { return nil }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        return request
+    }
+}
+
 @MainActor
 protocol VoiceCapturing: AnyObject {
     func start(update: @escaping (String) -> Void, completion: @escaping (Result<String, Error>) -> Void)
@@ -81,15 +98,16 @@ final class Microphone: VoiceCapturing {
             fail("Speech recognition is unavailable for your current language. Try again or type your request.")
             return
         }
+        // Checked before the microphone is tapped: no audio is captured for a request that would leave the Mac.
+        guard let request = OnDeviceSpeech.request(supportsOnDevice: recognizer.supportsOnDeviceRecognition) else {
+            fail(OnDeviceSpeech.unavailable)
+            return
+        }
         self.recognizer = recognizer
         captureStarted = true
         recognitionRevision = UUID()
         let revision = recognitionRevision
         let prefix = transcript.isEmpty ? "" : transcript + " "
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.addsPunctuation = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
         self.request = request
         // AVFAudio invokes this on its audio thread; it must not inherit MainActor.
         if let error = FERBInstallMicrophoneTap(engine, { @Sendable buffer, _ in request.append(buffer) }) {

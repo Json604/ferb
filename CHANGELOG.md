@@ -117,6 +117,8 @@ Final review fixes (2026-10-14):
   not only in the daily conversation.
 - Scheduled runs and plans resumed after a restart release their per-request context (each planner block's full text)
   when they end, instead of keeping it in memory until the daemon restarts.
+- The app's dictation is recognized on this Mac only, like push-to-talk: where on-device recognition isn't available
+  for your language it says so instead of sending your voice to Apple's servers. The Speech Recognition prompt says so.
 
 Licensed under Apache-2.0.
 

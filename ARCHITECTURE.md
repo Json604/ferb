@@ -1558,7 +1558,8 @@ protected FERB state (16.9).
   each element's state.
 - `with_audio` recordings attach a time-aligned transcript and keep no audio track.
 - `ferb setup` asks for Speech Recognition only (`request-speech`); `doctor.check` reports `hearing`; push-to-talk is
-  on-device only too.
+  on-device only too, and so is the notch's own dictation (`OnDeviceSpeech` in `Microphone.swift`): without on-device
+  recognition for the language it says so before tapping the microphone (final review M5).
 - From FERB.app the helper is `Contents/Helpers/FERB Voice.app` (`com.ferb.app`), pinned without building.
 
 ### 16.6 Perception in chat (L9, L10)
