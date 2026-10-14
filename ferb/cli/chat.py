@@ -100,8 +100,8 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
         return f"ferb> {ev['text'] if verbose else ev.get('display_text') or ev['text']}"
     if t == "memory":
         return f"   ✎ {ev['text']}"
-    if t == "timer":
-        return f"   {ev['text']}"
+    if t == "timer":                      # the reminder's id is its own field (L11): shown only when verbose
+        return f"   {ev['text']}" + (f"  [{ev['timer_id']}]" if verbose and ev.get("timer_id") else "")
     if t == "plan":
         if not verbose:
             return f"ferb> {ev['text']}"

@@ -133,7 +133,8 @@ What FERB did with a turn's reminders, memory writes, reminder cancels and sched
 a reminder its message already had set, or one line naming what it refused; plain words, never an internal id),
 never by the planner's text: a `reply`/`clarify` gets them appended to
 `text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
-do), and the outcome's `answer` and `display_text` carry every line. A steering reply names the change
+do), and the outcome's `answer` and `display_text` carry every line. A `timer` event for a reminder just set carries
+its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply names the change
 ("Switched to: …").
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.

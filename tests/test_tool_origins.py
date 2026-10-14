@@ -607,8 +607,10 @@ def test_a_retried_task_carries_the_original_requests_origins(daemon: RunningDae
     seen = _trim_history(daemon)
     sup_ = daemon.daemon.supervisor                   # the task lines shown (history, resumable attempts) say nothing
     sup_._task_line_origins = lambda task_id: {"inferred"}           # type: ignore[method-assign]
-    second = _retry(daemon, first)                    # so only the retry's own inheritance can carry the paste
-    assert "external:paste" in _task_origins(daemon, second)
+    _retry(daemon, first)                             # so only the retry's own inheritance can carry the paste
+    # The retry is the same tree, whose first attempt holds the paste anyway: the retry's own attempt (its newest
+    # task span) must carry it.
+    assert "external:paste" in _root_origin(daemon)
     assert not any("external:paste" in s for s in seen)
 
 

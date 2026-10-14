@@ -138,6 +138,24 @@ class SpanStore:
             found |= {str(o) for o in recorded if o} if isinstance(recorded, list) else origin.split(row['origin'])
         return found
 
+    def asked_origins(self, root_id: str) -> set[str]:
+        """The outside origins of FERB's earlier questions this tree's requests answered (S4 b), as the supervisor
+        recorded them on each attempt's root task span (`input.asked_origins`). A root recorded without them adds
+        none."""
+        rows = self._db.conn.execute("SELECT input_json FROM spans WHERE kind = 'task' AND task_id = ?", (root_id,))
+        found: set[str] = set()
+        for row in rows:
+            recorded = json.loads(row["input_json"]).get("asked_origins")
+            found |= {str(o) for o in recorded if o} if isinstance(recorded, list) else set()
+        return found
+
+    def reopened_answers(self, root_id: str) -> set[str]:
+        """The ids of the owner's No answers in this tree that the owner's own later message carrying the task on
+        reopened (`confirmations.reopened` spans, Gateway.reopen_noes)."""
+        rows = self._db.conn.execute("SELECT input_json FROM spans WHERE kind = 'confirmations.reopened' "
+                                     "AND task_id = ?", (root_id,))
+        return {str(cid) for row in rows for cid in json.loads(row["input_json"]).get("reopened", [])}
+
     def exposure_origins(self, root_id: str) -> set[str]:
         """Actual retrieved content given to models, distinct from stored-but-omitted context sources."""
         where, params = self._tree_where(root_id)

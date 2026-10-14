@@ -312,10 +312,10 @@ def test_the_confirmation_shows_the_time_code_computed(daemon: RunningDaemon) ->
     when = {**mins(0), "in_minutes": None, "day": "tomorrow", "time": "17:00"}
     install(daemon, [json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
                                  "timers": [{"when": when, "message": "call Mom", "quote": "tomorrow at 5 pm"}]})])
-    notes = [e["text"] for e in chat(daemon, "remind me tomorrow at 5 pm to call Mom") if e["type"] == "timer"]
+    told = [e for e in chat(daemon, "remind me tomorrow at 5 pm to call Mom") if e["type"] == "timer"]
     expected = resolve(When(**when), daemon.daemon.clock.now())
-    assert notes == [f"⏰ reminder {run(daemon, daemon.daemon.timers.pending)[0].id} set for "
-                     f"{expected.astimezone():%a %d %b %H:%M}: call Mom"]
+    assert [e["text"] for e in told] == [f"⏰ Reminder set for {expected.astimezone():%a %d %b %H:%M}: call Mom"]
+    assert [e["timer_id"] for e in told] == [run(daemon, daemon.daemon.timers.pending)[0].id]   # apart (L11)
 
 
 def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(daemon: RunningDaemon) -> None:
@@ -336,7 +336,7 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     evs = chat(daemon, "no, by next friday I meant this friday")
     notes = [e["text"] for e in evs if e["type"] == "timer"]
     assert notes[0].startswith("⏰ Cancelled the reminder “call Mom”") and wrong.id not in notes[0]   # no ids (L11)
-    assert notes[1].startswith("⏰ reminder")
+    assert notes[1].startswith("⏰ Reminder set for")
     left = run(daemon, daemon.daemon.timers.pending)
     assert len(left) == 1 and left[0].fire_at == resolve(When(**this), daemon.daemon.clock.now())
     facts = run(daemon, daemon.daemon._facts)
@@ -352,7 +352,7 @@ def test_a_test_reminder_survives_typo_fixing_and_a_refusal_is_told(daemon: Runn
     install(daemon, [json.dumps({"kind": "reply", "text": "I'll send you a test reminder in one minute.", "plan": None,
                                  "remember": [], "timers": [{"when": mins(1), "message": "test", "quote": said}]})])
     evs = chat(daemon, said)
-    assert [e["type"] for e in evs] == ["timer", "reply"] and evs[0]["text"].startswith("⏰ reminder")
+    assert [e["type"] for e in evs] == ["timer", "reply"] and evs[0]["text"].startswith("⏰ Reminder set for")
     assert len(run(daemon, daemon.daemon.timers.pending)) == 1
     install(daemon, [json.dumps({"kind": "reply", "text": "I'll remind you.", "plan": None, "remember": [],
                                  "timers": [{"when": mins(1), "message": "x", "quote": "words never said"}]})])

@@ -516,7 +516,7 @@ def test_a_reminder_asked_for_in_an_earlier_message_of_the_same_chat_is_set(daem
     timer = {'when': _in_minutes(10), 'message': 'boarding starts at 8.25', 'quote': 'set a timer for 8:20'}
     install(daemon, [json.dumps({'kind': 'reply', 'text': 'Timer set.', 'remember': [], 'timers': [timer]})])
     events = chat(daemon, 'did you set it?', session='boarding')
-    assert [e['text'] for e in events if e['type'] == 'timer'][0].startswith('⏰ reminder')
+    assert [e['text'] for e in events if e['type'] == 'timer'][0].startswith('⏰ Reminder set for')
     assert [t.message for t in _pending(daemon)] == ['boarding starts at 8.25']
 
 
@@ -605,6 +605,64 @@ def test_two_reminders_quoting_the_same_words_in_one_turn_are_one(daemon: Runnin
                  if e['type'] == 'reply')
     assert len(_reminders(daemon)) == 1
     assert '⏰ The reminder “boarding starts” is already set for' in reply['text']
+
+
+def test_two_reminders_at_different_times_quoting_the_same_words_are_both_set(daemon: RunningDaemon) -> None:
+    """Round 4: "remind me at 3 and at 5 to stretch", the planner quoting the whole sentence for both. Overlapping
+    words alone don't make two reminders one: their code-resolved times differ."""
+    said = 'remind me at 3 and at 5 to stretch'
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [
+        {'when': _at('15:00'), 'message': 'stretch', 'quote': said},
+        {'when': _at('17:00'), 'message': 'stretch', 'quote': said}]})])
+    reply = next(e for e in chat(daemon, said, session='stretch') if e['type'] == 'reply')
+    assert len(_reminders(daemon)) == 2
+    assert 'already' not in reply['text']
+
+
+def test_an_earlier_message_s_second_reminder_at_another_time_is_set(daemon: RunningDaemon) -> None:
+    said = 'remind me at 3 and at 5 to stretch'
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [
+        {'when': _at('15:00'), 'message': 'stretch', 'quote': said}]})])
+    chat(daemon, said, session='stretch')
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [
+        {'when': _at('17:00'), 'message': 'stretch', 'quote': said}]})])
+    chat(daemon, 'and the one at 5?', session='stretch')
+    assert len(_reminders(daemon)) == 2
+
+
+def test_a_relative_reminder_from_an_earlier_message_is_not_set_again_later(daemon: RunningDaemon) -> None:
+    """"In 10 minutes", resolved again two minutes later, is a later time; it is still the reminder already set from
+    those words: the time is compared as resolved when that reminder was set."""
+    install(daemon, [_reply_with_timer('remind me in 10 minutes to stretch', 'stretch')])
+    chat(daemon, 'remind me in 10 minutes to stretch', session='stretch')
+    daemon.call_soon(daemon.daemon.clock.advance, 120)
+    install(daemon, [_reply_with_timer('remind me in 10 minutes to stretch', 'stretch')])
+    reply = next(e for e in chat(daemon, 'did you set it?', session='stretch') if e['type'] == 'reply')
+    assert len(_reminders(daemon)) == 1
+    assert '⏰ The reminder “stretch” is already set for' in reply['text']
+
+
+def test_a_same_turn_duplicate_never_falls_back_to_an_earlier_message(daemon: RunningDaemon) -> None:
+    """The same words in an earlier message whose reminder was never set: the turn's second copy is the reminder the
+    turn just set, not a new one authorized by that earlier message."""
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Noted.', 'remember': [], 'timers': []})])
+    chat(daemon, 'remind me in 10 minutes to stretch', session='stretch')
+    twice = {'when': _in_minutes(10), 'message': 'stretch', 'quote': 'remind me in 10 minutes to stretch'}
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [twice, twice]})])
+    reply = next(e for e in chat(daemon, 'remind me in 10 minutes to stretch', session='stretch')
+                 if e['type'] == 'reply')
+    assert len(_reminders(daemon)) == 1
+    assert '⏰ The reminder “stretch” is already set for' in reply['text']
+
+
+def test_a_reminder_set_event_reads_in_plain_words_and_carries_its_id_apart(daemon: RunningDaemon) -> None:
+    """The notch shows a timer event's text as it passes: no internal id in it (the id is its own field)."""
+    install(daemon, [_reply_with_timer('remind me in 10 minutes', 'stretch')])
+    events = chat(daemon, 'remind me in 10 minutes to stretch', session='plain')
+    [(timer_id, _)] = _reminders(daemon)
+    [event] = [e for e in events if e['type'] == 'timer']
+    assert event['timer_id'] == timer_id and timer_id not in event['text']
+    assert event['text'].startswith('⏰ Reminder set for ') and event['text'].endswith(': stretch')
 
 
 def test_asking_again_in_a_new_message_sets_it_again(daemon: RunningDaemon) -> None:
@@ -740,3 +798,7 @@ def _pending(daemon: RunningDaemon) -> list[Any]:
     async def read() -> list[Any]:
         return list(daemon.daemon.timers.pending())
     return daemon.run(read())   # type: ignore[no-any-return]
+
+
+def _at(clock: str) -> dict[str, Any]:
+    return {'in_minutes': None, 'in_days': None, 'day': None, 'date': None, 'time': clock}

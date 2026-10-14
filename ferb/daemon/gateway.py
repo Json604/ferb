@@ -461,7 +461,9 @@ class Gateway:
         host, port and byte count (L2, owner 2026-10-13). The proxy calls before DNS and again for a differing TLS SNI.
         A process that has ended, or that FERB can't attribute to a task, gets nothing. A local address needs the proxy's executable-pinned
         permission (`local_approved`, supplied only after the proxy checked the listener against its pin). The owner's
-        No to a host in this tree (the browser's S4 question; SQ6 shares the key) stays final for the shell too."""
+        No to a host in this tree (the browser's S4 question; SQ6 shares the key) stays final for the shell too, even
+        after the owner's follow-up reopened it: the shell never asks, so only a new Yes to the browser's question
+        lifts it."""
         norm = KnownDestinations.normalize("host", host)
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
@@ -811,6 +813,21 @@ class Gateway:
             return None
         return "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient"), unlisted
 
+    def reopen_noes(self, tree_id: str, request_id: str, source_ref: str) -> list[str]:
+        """Controller ruling (L11 round 4): the owner's own new chat message carried this task on (continue, retry or
+        steer; the supervisor decides that from provenance). Each question's latest answer in the tree that is a No is
+        reopened: the next call that needs it asks the owner again, once, and the new answer is final as before. Nothing
+        becomes a Yes here. Recorded as a `confirmations.reopened` span in the tree, so the trace shows which answers
+        the message (`source_ref`) reopened. The shell proxy, which never asks, keeps the No."""
+        if self.confirmations is None:
+            return []
+        ids = self.confirmations.noes(tree_id)
+        if ids:
+            span = self.spans.start("confirmations.reopened", task_id=tree_id,
+                                    input={"request_id": request_id, "source_ref": source_ref, "reopened": ids})
+            self.spans.finish(span, output={"reopened": len(ids)}, origin=origin.OWNER)
+        return ids
+
     async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
                          sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
@@ -818,9 +835,9 @@ class Gateway:
         request's pasted parts and private or outside content actually retrieved into model context; L4: only context
         whose stored origin is outside counts as outside), the known destinations. A permanent delete of a folder is
         counted first: one FERB can't fully count is refused, named or not; one the owner didn't name asks with its
-        count, size and a sample (S4(c)). An answer recorded in this tree covers its need (a No refuses); the rest are
-        asked at once, in one question, while nothing is held. One question at a time per tree, so two workers'
-        identical calls ask once."""
+        count, size and a sample (S4(c)). An answer recorded in this tree covers its need (a No refuses, unless the
+        owner's own follow-up reopened it: then it is asked again); the rest are asked at once, in one question, while
+        nothing is held. One question at a time per tree, so two workers' identical calls ask once."""
         root = rec.tree_id or grant.task_id
         read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
         outside = self._outside_read(root)
@@ -846,9 +863,10 @@ class Gateway:
         async with self._confirming.setdefault(root, asyncio.Lock()):
             out, ask = Covered(), []
             approved: list[str] | None = None
+            reopened = self.spans.reopened_answers(root)    # a No the owner's own follow-up reopened is asked again
             try:
                 for need in needs:
-                    row = confirmations.find(root, need.key)
+                    row = confirmations.find(root, need.key, reopened)
                     standing = getattr(self, 'standing', None)
                     if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination', confirm.BULK) and
                         standing is not None and standing.covers(root, name, grant.identity.value, spec)):
@@ -899,7 +917,8 @@ class Gateway:
         whose URL carries a value from the owner's own data to a host the owner hasn't named, after the task read
         outside content. FERB asks once per tree (under the tree's lock, so concurrent navigations ask once); the reply
         when it must not run, else None. Never asks when the host is owner-named or FERB knows it, when the owner
-        already answered in this tree (a Yes runs, a No is final, shared with shell commands), when the URL is one the
+        already answered in this tree (a Yes runs, a No is final until the owner's own follow-up reopens it, shared
+        with shell commands), when the URL is one the
         tree read (a followed link), or when it carries no value that is the owner's own and not also public."""
         url = str(arguments.get("url") or "")
         if spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not url:
@@ -910,12 +929,13 @@ class Gateway:
                     "next": "Use a plain http(s) address with a site name."}
         root = rec.tree_id or grant.task_id
         if self.confirmations is not None:
-            row = self.confirmations.find(root, confirm.destination_key(host))
+            row = self.confirmations.find(root, confirm.destination_key(host), self.spans.reopened_answers(root))
             if row is not None:
                 if row["granted"]:
                     return None
                 # A tree's No applies to this host, even if another tree later makes it known or this URL no longer
-                # carries private data. A change in sink shape cannot turn a final refusal into permission.
+                # carries private data. A change in sink shape cannot turn a final refusal into permission. Only the
+                # owner's own follow-up reopens it (find returned None): then this host is checked as if unanswered.
                 return {"error": ALREADY_NO.format(line=self.redact(f"reaching {host}")), "next": OWNER_DECIDED_NEXT}
         # Opening a local report is not a remote data transfer. This does not grant a shell access to local
         # programs, nor waive an explicit No recorded above. Only literal loopback addresses qualify.
@@ -947,7 +967,8 @@ class Gateway:
         if self.confirmations is None:                   # never run unasked
             return {"error": NOT_RECORDED.format(line=self._ferb_line([need], call, why))}
         async with self._confirming.setdefault(root, asyncio.Lock()):   # M2: one question per tree
-            row = self.confirmations.find(root, need.key)  # ask once per tree; the answer carries across retries
+            # ask once per tree; the answer carries across retries, until the owner's own follow-up reopens a No
+            row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
             if row is not None:
                 if row["granted"]:
                     return None
@@ -1091,7 +1112,7 @@ class Gateway:
         need = confirm.Need("escape:" + rule, key,
                             {"text": f"this exact command needs rule {rule} lifted once: {shown}"}, always=True)
         async with self._confirming.setdefault(root, asyncio.Lock()):
-            row = self.confirmations.find(root, key)
+            row = self.confirmations.find(root, key, self.spans.reopened_answers(root))
             if row is not None and not row["granted"]:
                 raise Refused("you already said no to this exact escape command in this task")
             if row is None or row["used"]:

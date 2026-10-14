@@ -84,6 +84,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                 (tree.spec.goal, tree.id, tree.worker.id))
             supervisor.spans.update_input(root.span_id, {'request': updated.payload, 'authority_words': updated.words,
                 'request_origins': sorted(supervisor.spans.request_origins(tree.id) | made | shown),
+                'asked_origins': sorted(updated.asked_origins),          # a later retry keeps them (S4 b)
                 'task_spec': tree.spec.model_dump(), 'goal': tree.spec.goal})
         if tree.spec.plan:
             saved = supervisor.plans.load(tree.id)

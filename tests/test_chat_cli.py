@@ -46,6 +46,9 @@ def test_verbose_shows_the_internals() -> None:
         {"condition": "a.md exists", "met": True, "path": "code", "evidence": "exists"}]}, verbose=True)
     assert "✓ a.md exists  [code: exists]" in ver
     assert "▸ worker started" in render({"type": "subtask", "id": "worker", "status": "started"}, verbose=True)
+    timer = {"type": "timer", "text": "⏰ Reminder set for Thu 01 Jan 09:10: stretch", "timer_id": "tm-1"}
+    assert render(timer) == "   ⏰ Reminder set for Thu 01 Jan 09:10: stretch"            # plain words (L11)
+    assert render(timer, verbose=True) == "   ⏰ Reminder set for Thu 01 Jan 09:10: stretch  [tm-1]"
 
 
 def test_login_code_uses_hidden_input_and_never_the_chat_input(monkeypatch: Any) -> None:

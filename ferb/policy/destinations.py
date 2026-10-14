@@ -5,11 +5,12 @@ A known destination is one the owner named in a request (emails, URL hosts and p
 shape), chose in an answer, or confirmed to FERB's question; it is never "new" for the sink rule in a later task.
 Values are normalized: an email or host lowercased, a phone number's digits, a name casefolded. Never message content.
 A confirmation is the owner's Yes or No to FERB's question in one task tree, keyed by what it covers; it carries
-across that tree's retries (rule 9). A used row (an escape run, a payment that ran or is running) covers nothing more.
+across that tree's retries (rule 9), except that the owner's own later message carrying the task on reopens a No (FERB
+asks it again; L11 round 4). A used row (an escape run, a payment that ran or is running) covers nothing more.
 Rule 14: what is stored goes through the redactor first. A destination or key the redactor changes (it holds a secret)
 is never known and never covered: FERB asks again rather than let two secrets share one stored "[redacted]"."""
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Collection
 
 from ferb.core.interfaces import Clock, IdSource
 from ferb.policy import provenance
@@ -86,14 +87,26 @@ class Confirmations:
     def __init__(self, db: "Database", clock: Clock, ids: IdSource, redact: Redact) -> None:
         self.db, self.clock, self.ids, self.redact = db, clock, ids, redact
 
-    def find(self, tree_id: str, key: str) -> dict[str, Any] | None:
+    def find(self, tree_id: str, key: str, reopened: Collection[str] = ()) -> dict[str, Any] | None:
         """The owner's latest answer in this task tree to the question `key` names, or None (always None for a key
-        holding a secret: it is stored redacted, so it could match another one)."""
+        holding a secret: it is stored redacted, so it could match another one). `reopened`: ids of No answers the
+        owner's own later message carrying the task on reopened (Gateway.reopen_noes); such a No reads as unanswered,
+        so a caller that asks asks again. A caller that never asks passes none: the No stays for it."""
         if _redacted(self.redact, key) != key:
             return None
         row = self.db.conn.execute("SELECT * FROM confirmations WHERE tree_id = ? AND key = ? "
                                    "ORDER BY rowid DESC LIMIT 1", (tree_id, key)).fetchone()
-        return dict(row) if row is not None else None
+        if row is None or (not row["granted"] and row["id"] in reopened):
+            return None
+        return dict(row)
+
+    def noes(self, tree_id: str) -> list[str]:
+        """The ids of this tree's answers that are each question's latest and a No."""
+        latest: dict[str, Any] = {}
+        for row in self.db.conn.execute("SELECT id, key, granted FROM confirmations WHERE tree_id = ? ORDER BY rowid",
+                                        (tree_id,)):
+            latest[row["key"]] = row
+        return [row["id"] for row in latest.values() if not row["granted"]]
 
     def refused(self, tree_id: str) -> list[str]:
         """The keys whose latest answer in this task tree is No."""
