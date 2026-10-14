@@ -352,7 +352,8 @@ class PageSnapshot:
     dialogs: list[str] = field(default_factory=list)   # JS dialogs dismissed since the last snapshot
     scroll: dict[str, Any] | None = None     # the window scroller: {y, height, viewport_h, at_end}
     scrollers: list[dict[str, Any]] = field(default_factory=list)   # containers: {id, label, y, height, viewport_h, at_end}
-    # video/audio elements (L26): {index, playing, current_time, duration, muted, volume, in_view[, frame]}
+    # video/audio elements (L26): {index, playing (its time moved, I5), paused, current_time, duration, muted, volume,
+    # in_view[, frame]}
     media: list[dict[str, Any]] = field(default_factory=list)
 
 

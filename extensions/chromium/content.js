@@ -489,11 +489,29 @@
     }
     return out;
   }
+  // Whether an element's media really plays (I5): its time moved while it wasn't paused, seen in the page's own
+  // timeupdate events or between two of FERB's looks. play() clears `paused` at once, even before (or without) the
+  // browser starting the media, so `!paused` is no proof. A new start, a pause, a seek or a stall needs fresh movement.
+  const progress = new WeakMap();
+  function moving(el) {
+    let p = progress.get(el);
+    if (!p) {
+      p = { at: el.currentTime, moved: false };
+      progress.set(el, p);
+      if (typeof el.addEventListener === "function") {
+        el.addEventListener("timeupdate", () => { if (!el.paused && el.currentTime !== p.at) p.moved = true; p.at = el.currentTime; });
+        for (const type of ["play", "pause", "seeking", "waiting", "emptied", "ended"])
+          el.addEventListener(type, () => { p.moved = false; p.at = el.currentTime; });
+      }
+    } else if (!el.paused && el.currentTime !== p.at) { p.moved = true; p.at = el.currentTime; }
+    return p.moved;
+  }
+  function restart(el) { const p = progress.get(el); if (p) { p.moved = false; p.at = el.currentTime; } }
   function mediaState(el, index) {
     const r = el.getBoundingClientRect();
     const finite = v => Number.isFinite(v) ? round(v) : null;    // an unknown or live duration is null
-    return { index, playing: !el.paused && !el.ended, current_time: finite(el.currentTime), duration: finite(el.duration),
-             muted: !!el.muted, volume: finite(el.volume),
+    return { index, playing: !el.paused && !el.ended && moving(el), paused: !!el.paused, current_time: finite(el.currentTime),
+             duration: finite(el.duration), muted: !!el.muted, volume: finite(el.volume),
              in_view: r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight };
   }
   // The page's own media controls on one element of the latest snapshot: never a click, never page script. play()
@@ -505,13 +523,14 @@
     let error = null;
     try {
       if (action === "play") {
+        if (el.paused) restart(el);
         const refused = await Promise.race([Promise.resolve(el.play()).then(() => null, e => e),
                                             new Promise(r => setTimeout(() => r(null), 0))]);
         if (refused) error = String(refused.name || refused);
       } else if (action === "pause") el.pause();
       else if (action === "mute") el.muted = true;
       else if (action === "unmute") el.muted = false;
-      else if (action === "seek" && Number.isFinite(to) && to >= 0) el.currentTime = to;
+      else if (action === "seek" && Number.isFinite(to) && to >= 0) { el.currentTime = to; restart(el); }
       else return { error: "unsupported media action" };
     } catch (e) { error = String((e && e.name) || e); }
     return error ? { ...mediaState(el, index), error } : mediaState(el, index);

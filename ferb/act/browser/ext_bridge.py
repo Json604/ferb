@@ -42,7 +42,8 @@ WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extensio
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
-MEDIA_FIELDS = ("playing", "current_time", "duration", "muted", "volume", "in_view")   # a media element's state (L26)
+# a media element's state (L26): `playing` once its time moves (I5), `paused` as the page has it
+MEDIA_FIELDS = ("playing", "paused", "current_time", "duration", "muted", "volume", "in_view")
 
 
 class OutcomeUnknown(DriverError):

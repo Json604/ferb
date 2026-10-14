@@ -16,11 +16,13 @@ from tests.chromelab import EXT, _node, worker
 # A page with one paused, muted <video>: the fake DOM content.js needs for a snapshot, then media calls on it.
 CONTENT_HARNESS = r'''
 const vm = require('vm'), fs = require('fs');
+const listeners = {};
 const video = {tagName: 'VIDEO', isConnected: true, paused: true, ended: false, currentTime: 3, duration: 30,
   muted: true, volume: 1, shadowRoot: null,
   play() { if (process.argv[2] === 'refuse') return Promise.reject(Object.assign(new Error('no gesture'), {name: 'NotAllowedError'}));
-           this.paused = false; return Promise.resolve(); },
+           this.paused = false; return Promise.resolve(); },     // per the HTML spec, paused clears at once
   pause() { this.paused = true; },
+  addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
   matches() { return false; }, getAttribute() { return null; }, setAttribute() {}, removeAttribute() {},
   closest() { return null; }, getBoundingClientRect() { return {x: 0, y: 0, width: 640, height: 360, right: 640, bottom: 360, left: 0, top: 0}; }};
 const root = {setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, scrollTop: 0, scrollHeight: 900};
@@ -34,10 +36,13 @@ ctx.top = ctx.window;
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const f = ctx.window.__ferb;
 (async () => {
+  const fire = type => (listeners[type] || []).forEach(fn => fn());
   const before = f.snapshot(1).media;
   const played = await f.media(1, 0, 'play', null);
+  if (process.argv[2] !== 'defer') { video.currentTime = 3.25; fire('timeupdate'); }   // the media really plays
   const unmuted = await f.media(1, 0, 'unmute', null);
   const sought = await f.media(1, 0, 'seek', 12.5);
+  if (process.argv[2] !== 'defer') { video.currentTime = 12.75; fire('timeupdate'); }
   const stale = await f.media(0, 0, 'pause', null);
   const after = f.snapshot(2).media;
   console.log(JSON.stringify({before, played, unmuted, sought, stale, after}));
@@ -52,12 +57,27 @@ def _content(mode: str = "allow") -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def test_play_on_a_paused_video_shows_playing_in_the_next_snapshot() -> None:
+def test_play_on_a_paused_video_shows_playing_once_its_time_moves() -> None:
     out = _content()
-    assert out["before"] == [{"index": 0, "playing": False, "current_time": 3, "duration": 30, "muted": True,
-                              "volume": 1, "in_view": True}]
-    assert out["played"]["playing"] is True and "error" not in out["played"]
+    assert out["before"] == [{"index": 0, "playing": False, "paused": True, "current_time": 3, "duration": 30,
+                              "muted": True, "volume": 1, "in_view": True}]
+    # play() clears `paused` at once; `playing` waits for the media's time to move (I5)
+    assert out["played"]["playing"] is False and out["played"]["paused"] is False and "error" not in out["played"]
+    assert out["unmuted"]["playing"] is True                      # its time moved: really playing
     assert out["after"][0]["playing"] is True                    # the next snapshot reports it playing
+
+
+def test_a_play_whose_media_never_starts_never_reads_as_playing() -> None:
+    """A play() the browser accepted but never started (its time stays put) is not playing, however long FERB looks:
+    `!paused` alone said it was, and a listen then heard silence (codebase review I5)."""
+    out = _content("defer")
+    assert out["played"]["paused"] is False and out["played"]["playing"] is False
+    assert out["unmuted"]["playing"] is False and out["after"][0]["playing"] is False
+
+
+def test_a_seek_is_not_mistaken_for_playback() -> None:
+    out = _content("defer")
+    assert out["sought"]["current_time"] == 12.5 and out["sought"]["playing"] is False
 
 
 def test_unmute_sets_muted_false_and_seek_moves_the_time() -> None:

@@ -192,7 +192,7 @@ class AudioListen:
                    "is playing for `seconds` (you choose how long) and get a transcript with timed segments. Capture is "
                    "per app: listening on a tab hears every tab of that browser that is making sound, so pause or mute "
                    "other media with browser_media / ferb_browser_media first. Nothing is heard if the media is paused "
-                   "or muted: check the snapshot's `media` (playing, muted, volume) and play or unmute it with "
+                   "or muted: check the snapshot's `media` (playing: its time is moving; muted; volume) and play or unmute it with "
                    "browser_media / ferb_browser_media before listening. Speech is recognized on this Mac only "
                    "(language: e.g. en-US, hi-IN; default the Mac's); if on-device recognition isn't available the "
                    "tool says so. The sound is deleted once transcribed; what the app played is outside content: "

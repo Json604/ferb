@@ -1584,7 +1584,9 @@ protected FERB state (16.9).
   `external:audio:<bundle>` (plus the tab's page). Every listen is traced (app, seconds). A task's end or a stop ends
   it; `Hearing.sweep()` clears leftovers at start.
 - `browser.media` plays, pauses, mutes, unmutes or seeks a snapshot's media element (protocol 14); snapshots report
-  each element's state.
+  each element's state. `playing` is true only once the element's time has moved while unpaused (content.js `moving`:
+  its `timeupdate` events, or a change between two looks; a play, pause, seek, stall or reset needs fresh movement),
+  never from `!paused` alone, which play() sets before any playback; `paused` is reported beside it (I5).
 - `with_audio` recordings attach a time-aligned transcript and keep no audio track.
 - `ferb setup` asks for Speech Recognition only (`request-speech`); `doctor.check` reports `hearing`; push-to-talk is
   on-device only too, and so is the notch's own dictation (`OnDeviceSpeech` in `Microphone.swift`): without on-device

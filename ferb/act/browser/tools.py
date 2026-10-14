@@ -466,8 +466,9 @@ class BrowserMedia(_Base):
     on_screen = True                                   # the owner may hear what plays (owner accepted, L26)
     blurb = ("Play, pause, mute, unmute or seek one video or audio element in one of this task's tabs ({whose}), by "
              "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one). "
-             "Returns that element's state: playing, current_time, duration, muted, volume. Sound must actually play "
-             "for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
+             "Returns that element's state: playing (true only once its time has moved), paused, current_time, "
+             "duration, muted, volume. Right after play, `playing` stays false until the media's time moves: check "
+             "again with {p}_snapshot. Sound must actually play for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
              "(the error is returned): then use the page's own play control with {p}_act. The owner may briefly hear "
              "what plays.")
 
@@ -493,7 +494,8 @@ class BrowserMedia(_Base):
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(args.tab, ctx.task_id)
         state = await self.driver.media(ref, args.action, args.index, args.to)  # type: ignore[attr-defined]
-        return ToolResult({"state": state, "next": "check `playing` and `muted` before listening or recording"},
+        return ToolResult({"state": state, "next": "`playing` is true once the media's time moves; check it and "
+                           "`muted` (in a snapshot) before listening or recording"},
                           is_error=bool(state.get("error")), read_sources=self._page(ref.tab_id))
 
 

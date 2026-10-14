@@ -348,8 +348,8 @@ All **Shipped** (`ferb --help`):
 
 #### Media control
 - What: `browser.media` plays, pauses, mutes, unmutes or seeks a page's video/audio; snapshots report each media
-  element's state (playing, time, duration, muted), so FERB confirms a video is really playing before recording or
-  listening. (In a real task FERB recorded a reel that never played; this fixes that.)
+  element's state (playing, paused, time, duration, muted); "playing" means the media's time is moving, so FERB
+  confirms a video is really playing before recording or listening. (In a real task FERB recorded a reel that never played; this fixes that.)
 - Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.3 / protocol 14.
 
 #### Always-on hearing

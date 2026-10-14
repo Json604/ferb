@@ -153,6 +153,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - The private-data check's "the site already had it" rule matches the exact host (or a host under it), not the
   registrable domain: a token from your own app at `you.vercel.app` going to `someone.vercel.app` asks again
   (likewise `*.github.io`, `*.netlify.app`, `*.pages.dev`, …). The live Instagram reel case still opens.
+- `browser.media` reports a video as playing only once its time moves, not as soon as play() was called (which clears
+  "paused" before anything plays); it also reports `paused`. A media that never starts never reads as playing.
 
 Licensed under Apache-2.0.
 
