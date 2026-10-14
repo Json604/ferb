@@ -1,5 +1,6 @@
 """The owner's continuous chat shows real provisional text without speaking or replaying it."""
 import io
+import os
 import threading
 
 from ferb.cli.chat import Chat
@@ -158,7 +159,9 @@ def test_small_terminal_renders_owner_input_and_newest_long_draft_together(monke
         class SmallTerminal(DummyOutput):
             def get_size(self): return Size(rows=6, columns=36)
     
-        monkeypatch.setattr('ferb.cli.live_chat.shutil.get_terminal_size', lambda: SimpleSize(36, 6))
+        # The real type, any arguments: this patches the one shutil module, which pytest's own writer also calls
+        # (`get_terminal_size(fallback=…)`, unpacked) under -v (codebase review M4).
+        monkeypatch.setattr('ferb.cli.live_chat.shutil.get_terminal_size', lambda *a, **k: os.terminal_size((36, 6)))
         chat = LiveChat(lambda: None, io.StringIO(), lambda _: '')
         chat._show_draft(0, 'Earlier provisional line\n' * 50 + 'NEWEST-DRAFT')
         with create_pipe_input() as inp:
@@ -178,6 +181,3 @@ def test_small_terminal_renders_owner_input_and_newest_long_draft_together(monke
 
     asyncio.run(render_fixture())
 
-
-class SimpleSize:
-    def __init__(self, columns, lines): self.columns, self.lines = columns, lines
