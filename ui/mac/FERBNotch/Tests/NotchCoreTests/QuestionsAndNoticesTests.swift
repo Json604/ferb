@@ -179,7 +179,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
     func testSentOwnerMessagesSurviveARestart() async throws {
         let rpc = StatusRPC()
         rpc.events = [
-            ["type": "ack", "request_id": "req-a", "at": at, "text": "On it."],
+            ["type": "ack", "request_id": "req-a", "at": at, "text": "On it.", "message": "Rename the Q3 report to final"],
             ["type": "plan", "request_id": "req-a", "at": at, "task_id": "task-a", "text": "Renaming the report.", "goal": "Rename"],
             ["type": "outcome", "request_id": "req-a", "at": at, "task_id": "task-a", "status": "done",
              "answer": "Renamed.", "verified": true]

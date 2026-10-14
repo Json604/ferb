@@ -54,7 +54,7 @@ extension NotchModel {
             promptError = "Earlier history couldn’t be read or set aside, so new messages aren’t being saved."
             return
         }
-        do { preferences.set(try JSONEncoder().encode(conversation), forKey: "FERBConversationArchive") }
+        do { preferences.set(try JSONEncoder().encode(conversation.forStorage()), forKey: "FERBConversationArchive") }
         catch { promptError = "Conversation history could not be saved: " + error.localizedDescription }
     }
 

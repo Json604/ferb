@@ -81,7 +81,7 @@ final class NotchModel: ObservableObject {
             if let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
                 conversation = saved
                 conversation.interruptRestoredDrafts()
-                if conversation != saved, let repaired = try? JSONEncoder().encode(conversation) {
+                if conversation != saved, let repaired = try? JSONEncoder().encode(conversation.forStorage()) {
                     preferences.set(repaired, forKey: "FERBConversationArchive")
                 }
             } else {
@@ -345,7 +345,7 @@ final class NotchModel: ObservableObject {
         selectedDay = Calendar.current.startOfDay(for: Date())
         promptError = nil
         // The sent message joins the saved conversation; an unsent draft is only ever in memory (L20).
-        conversation.begin(id: id, request: session.draft, sources: session.attachments)
+        conversation.begin(id: id, request: session.draft, sources: session.attachments, unredacted: true)
         session.clearComposer()
         pasteProvenance = PasteProvenance()
         workSessions[id] = session

@@ -251,7 +251,7 @@ extension NotchModel {
            !conversation.bindRequest(id: localID, requestID: requestID) { return false }
         switch event["type"] as? String {
         case "ack":
-            conversation.acknowledge(id: localID, text: event["text"] as? String ?? "")
+            conversation.acknowledge(id: localID, text: event["text"] as? String ?? "", message: event["message"] as? String)
             saveConversation()
         case "plan":
             guard let id = event["task_id"] as? String else { return false }

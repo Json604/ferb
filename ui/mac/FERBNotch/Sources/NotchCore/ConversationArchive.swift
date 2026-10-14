@@ -5,7 +5,10 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public let createdAt: Date
     /// The message the owner sent. It is saved with the conversation (History shows both sides); the unsent
     /// composer draft never is (L20).
-    public let request: String
+    public internal(set) var request: String
+    /// True from sending until the daemon's `ack` returns the message as it redacted it (L7). While true, `request`
+    /// is the owner's raw typed text: memory only, never saved (rule 14). Not coded.
+    public internal(set) var awaitingRedaction = false
     public let sources: [URL]
     public var backendTaskID: String?
     public var answer = ""
@@ -227,9 +230,21 @@ public struct ConversationArchive: Codable, Equatable {
     }
 
     /// `goal`: the turn is a task this chat didn't send, described by the daemon's goal.
-    public mutating func begin(id: UUID, request: String, sources: [URL], date: Date = Date(), goal: String? = nil) {
+    /// `unredacted`: `request` is raw typed text the daemon has not yet redacted; it stays out of every save until
+    /// `acknowledge` brings the daemon's redacted message.
+    public mutating func begin(id: UUID, request: String, sources: [URL], date: Date = Date(), goal: String? = nil,
+                               unredacted: Bool = false) {
         guard !turns.contains(where: { $0.id == id }) else { return }
-        turns.append(ConversationTurn(id: id, createdAt: date, request: request, sources: sources, taskGoal: goal))
+        var turn = ConversationTurn(id: id, createdAt: date, request: request, sources: sources, taskGoal: goal)
+        turn.awaitingRedaction = unredacted
+        turns.append(turn)
+    }
+
+    /// The archive as it may be written to disk: a turn still awaiting the daemon's redaction saves no request text.
+    public func forStorage() -> ConversationArchive {
+        var copy = self
+        for index in copy.turns.indices where copy.turns[index].awaitingRedaction { copy.turns[index].request = "" }
+        return copy
     }
 
     /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.
@@ -283,8 +298,15 @@ public struct ConversationArchive: Codable, Equatable {
         turns.first { $0.requestID == requestID }
     }
 
-    public mutating func acknowledge(id: UUID, text: String) {
-        guard !text.isEmpty, let index = turns.firstIndex(where: { $0.id == id }) else { return }
+    /// `message`: the owner's message as the daemon redacted it (L7); it replaces the raw text the turn was sent with.
+    /// Without one the raw text stays in memory only.
+    public mutating func acknowledge(id: UUID, text: String, message: String? = nil) {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        if let message, !message.isEmpty {
+            turns[index].request = message
+            turns[index].awaitingRedaction = false
+        }
+        guard !text.isEmpty else { return }
         turns[index].ack = text
     }
 
