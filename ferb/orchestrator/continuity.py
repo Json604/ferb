@@ -94,6 +94,11 @@ class Continuity:
             words = _strip_endorsed(words, "\n" + re.sub(r"\byour\b", "my", question, flags=re.I))
         return words
 
+    def prior_of(self, task_id: str) -> str | None:
+        """The earlier task this task continued, as recorded (None when it continued none)."""
+        row = self.db.conn.execute("SELECT prior_task FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
+        return row[0] if row else None
+
     def candidates(self, conversation: str) -> list[dict[str, Any]]:
         rows = self.db.conn.execute(
             "SELECT c.task_id, c.prior_task, t.status, t.goal, t.updated_at, t.outcome_json FROM task_context c "

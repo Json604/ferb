@@ -332,10 +332,10 @@ class Supervisor(WorkerRuns):
                     request_id: str) -> tuple[list[Any], list[str], list[Any]]:
         """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
         and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
-        message first, then this chat's earlier messages, newest first. An earlier message authorizes its reminder
-        once (L11): a reminder already set from it for the same words (one quote within the other), in any state,
-        refuses another. Each reminder records the request that asked for it. Returns the reminders set, the messages
-        of those refused for a problem, and the reminders that already existed for the others."""
+        message first, then this chat's earlier messages, newest first. A message authorizes its reminder once (L11):
+        a reminder already set from it for the same words (one quote within the other), in any state and in this
+        turn too, refuses another. Each reminder records the request that asked for it. Returns the reminders set, the
+        messages of those refused for a problem, and the reminders that already existed for the others."""
         if self.timers is None:
             return [], [str(it.message) for it in items], []
         out: list[Any] = []
@@ -347,7 +347,7 @@ class Supervisor(WorkerRuns):
                 asked = [source for source, words in said if quote and quote in " ".join(words.lower().split())]
                 if not asked:
                     raise ValueError("the reminder isn't in the owner's own words")
-                found = {s: None if s == request_id else self._reminder_set(s, quote) for s in asked}
+                found = {s: self._reminder_set(s, quote) for s in asked}
                 source = next((s for s in asked if found[s] is None), None)
                 if source is None:                     # each message that asked for it already had it set
                     self.journal.append("timer.refused", {"why": "already set from that message"})
@@ -648,6 +648,7 @@ class Supervisor(WorkerRuns):
         turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw
         resumed: TaskSpec | None = None      # an ended task carried on in place (its own tree), with this spec
         resumed_payload = ""
+        resumed_prior: str | None = None
         if out.answer_question:
             routed = out.answer_question
             ap = self.state.approvals.get(routed.get('approval_id', ''))
@@ -701,15 +702,19 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             prior_spec, prior_request, prior_state = prior
-            # Carried on in place (resume_id), so completed work, uncertain effects (P19's repeat check is per tree),
-            # the task's history and its sites stay the same records (L11):
+            # Every continue and retry of an ended task carries on in place (resume_id), so completed work, uncertain
+            # effects (P19's repeat check is per tree: a send or payment whose outcome is unknown is never repeated
+            # without the owner's answer), confirmations, the task's history and its sites stay the same records
+            # (L11):
             # - a continue with a new goal (the planner's control.new_goal; ef9e5d75): the planner's spec replaces the
             #   saved one. The saved plan reopens only when the new spec carries it unchanged; a new plan replaces it
             #   (finished steps it keeps unchanged stay done, the others' results become its data); with no plan, one
             #   worker runs the new goal with the old steps' results as data, and none of those steps runs again;
-            # - any other continue: the saved goal and plan resume, however the planner worded the goal;
-            # - a retry keeps the saved plan's tree when the planner's task leaves that plan as it was.
-            if control.action == 'continue' and control.new_goal and out.task is not None:
+            # - any other continue, or a retry without a task: the saved goal and plan resume, unfinished steps again;
+            # - a retry with the planner's task: the saved plan reopens when that task leaves it as it was (a generic
+            #   retry task); otherwise the planner's task is the fresh attempt, with the earlier goal and result.
+            action = 'continue' if control.action == 'steer' else control.action
+            if action == 'continue' and control.new_goal and out.task is not None:
                 resumed = out.task
                 resumed.goal += (f"\nEarlier goal of this task: {prior_spec.goal}\n"
                                  f"Last recorded result (verify afresh): {prior_state}")
@@ -719,39 +724,35 @@ class Supervisor(WorkerRuns):
                     self.plans.replace(control.task_id, resumed.plan)
                 elif prior_spec.plan is not None:
                     self.plans.set_status(control.task_id, 'replaced')    # never resumed, now or after a restart
-            elif control.action == 'continue':
+            elif action == 'continue' or out.task is None or (
+                    prior_spec.plan is not None and out.task.plan in (None, prior_spec.plan)):
                 resumed = prior_spec.model_copy(deep=True)
                 if prior_spec.plan is not None:
                     self.plans.reopen(control.task_id)
                 else:
                     resumed.goal += f"\nLast recorded result (verify afresh): {prior_state}"
-            elif prior_spec.plan is not None and (out.task is None or out.task.plan is None or
-                                                  out.task.plan == prior_spec.plan):
-                resumed = prior_spec
-                self.plans.reopen(control.task_id)
-            if resumed is not None:
-                words = prior_request.words + "\n" + words
-                continued = Request(request_id, prior_request.words + "\n" + authority, self._targets(resumed),
-                                    payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload)
-                self.state.requests.record(continued)
-                resumed_payload = continued.payload
-                turn_origins = turn_origins | self.spans.task_origins(control.task_id)
-                self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
-                self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
-                                              "payload": resumed_payload})
             else:
-                turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
-                    self._request_origins(prior_request.request_id)   # the retry carries the earlier request and result
-            if resumed is None and out.task is not None:
-                out.task.goal += f"\nOriginal request context: {prior_spec.goal}\nLast recorded result (verify afresh): {prior_state}\nOwner's follow-up: {m.for_model}"
-                words = prior_request.words + "\n" + words
-                authority = prior_request.words + "\n" + authority
-                payload = prior_request.payload + "\n\nOwner follow-up:\n" + payload
-                self._env[request_id] = {**(await _value(self.environment(words))), "words": words, "payload": payload,
-                                         "message_origin": self._env[request_id].get("message_origin", set()),
-                                         **{k: v for k, v in self._env[request_id].items()
-                                            if k in ("front_window", "front_image", "image_withheld")}}
-                # A new attempt gets fresh scoped authority; durable context never restores approval grants.
+                assert out.task is not None
+                resumed = out.task
+                resumed.goal += (f"\nOriginal request context: {prior_spec.goal}\n"
+                                 f"Last recorded result (verify afresh): {prior_state}\n"
+                                 f"Owner's follow-up: {m.for_model}")
+                if prior_spec.plan is not None and resumed.plan is not None:
+                    self.plans.replace(control.task_id, resumed.plan)
+                elif prior_spec.plan is not None:
+                    self.plans.set_status(control.task_id, 'replaced')
+            words = prior_request.words + "\n" + words
+            continued = Request(request_id, prior_request.words + "\n" + authority, self._targets(resumed),
+                                payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload)
+            self.state.requests.record(continued)
+            resumed_payload = continued.payload
+            resumed_prior = self.continuity.prior_of(control.task_id)   # the task it continued, if any (P19 context)
+            # the continuation carries the earlier request and what its attempts read (S3, MP2)
+            turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
+                self._request_origins(prior_request.request_id)
+            self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
+            self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
+                                          "payload": resumed_payload})
         for change in out.conversation_changes:
             if not change.quote.strip() or change.quote not in typed:
                 yield {'type': 'reply', 'text': 'A conversation change needs your own instruction.'}
@@ -822,8 +823,8 @@ class Supervisor(WorkerRuns):
             assert out.control is not None
             try:
                 async for event in self.run_tree(resumed, out.text, request_id, resumed_payload,
-                                                 conversation_id=session.id, origins=turn_origins,
-                                                 resume_id=out.control.task_id):
+                                                 conversation_id=session.id, prior_task=resumed_prior,
+                                                 origins=turn_origins, resume_id=out.control.task_id):
                     yield event
             finally:
                 self._env.pop(request_id, None)
@@ -843,7 +844,6 @@ class Supervisor(WorkerRuns):
                                                asked_origins=frozenset(asked_outside)))
         try:
             async for ev in self.run_tree(out.task, out.text, authority_id, payload, conversation_id=session.id,
-                                          prior_task=out.control.task_id if out.control else None,
                                           origins=turn_origins):
                 yield ev
         finally:

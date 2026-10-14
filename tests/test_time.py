@@ -335,7 +335,8 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     install(daemon, [fix])
     evs = chat(daemon, "no, by next friday I meant this friday")
     notes = [e["text"] for e in evs if e["type"] == "timer"]
-    assert notes[0] == f"⏰ cancelled reminder {wrong.id}: call Mom" and notes[1].startswith("⏰ reminder")
+    assert notes[0].startswith("⏰ Cancelled the reminder “call Mom”") and wrong.id not in notes[0]   # no ids (L11)
+    assert notes[1].startswith("⏰ reminder")
     left = run(daemon, daemon.daemon.timers.pending)
     assert len(left) == 1 and left[0].fire_at == resolve(When(**this), daemon.daemon.clock.now())
     facts = run(daemon, daemon.daemon._facts)

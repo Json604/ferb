@@ -328,6 +328,59 @@ def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task
     assert refusals and refusals[0] is not None                                   # P19 follows the task
 
 
+def _refusals(daemon: RunningDaemon, capability: str, payload: str, report: str) -> tuple[list[Any], Any]:
+    """A worker that records whether FERB would refuse an identical action now (P19), then reports `report`."""
+    seen: list[Any] = []
+
+    def worker(token: str) -> str:
+        grant = daemon.daemon.tokens.validate(token)
+
+        async def check() -> Any:                  # the database belongs to the daemon's loop
+            assert daemon.daemon.ledger is not None
+            return daemon.daemon.ledger.refusal(grant.task_id, capability, payload)
+        seen.append(daemon.run(check()))
+        return report
+    return seen, worker
+
+
+def _lost(daemon: RunningDaemon, task_id: str, capability: str, payload: str) -> None:
+    async def lost() -> None:
+        assert daemon.daemon.ledger is not None
+        intent = daemon.daemon.ledger.intend(task_id, capability, {'to': 'admissions@example.test'}, payload)
+        daemon.daemon.ledger.mark(intent.id, 'unknown')
+    daemon.run(lost())
+
+
+def test_a_retry_stays_in_the_same_task_so_an_unknown_send_is_still_refused(daemon: RunningDaemon) -> None:
+    install(daemon, [sup('task', 'Sending.', task('send the application', 'owner'))],
+            {'worker': json.dumps({'status': 'needs_user', 'summary': 'Unclear', 'artifacts': [], 'evidence': []})})
+    tree = outcome(chat(daemon, 'send the application', session='apply'))['task_id']
+    _lost(daemon, tree + '.worker', 'mail.send', 'sent')
+    seen, worker = _refusals(daemon, 'mail.send', 'sent', done('Checked the Sent folder.'))
+    retry = json.loads(sup('task', 'Trying again.', task('try again', 'owner')))
+    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False}
+    install(daemon, [json.dumps(retry)], {'worker': worker})
+    second = outcome(chat(daemon, 'try again', session='apply'))
+    assert second['task_id'] == tree
+    assert seen and seen[0] is not None            # the send may have happened: FERB asks before repeating it (P19)
+
+
+def test_a_retry_reruns_a_failed_step_and_still_refuses_its_unknown_send(daemon: RunningDaemon) -> None:
+    old = task('Send the application')
+    old['plan'] = Plan(steps=[Step(id='send', kind='do', goal='Send the application to admissions')]).model_dump()
+    install(daemon, [sup('task', 'Sending.', old)], {'step.send': json.dumps(
+        {'status': 'blocked', 'summary': 'The page timed out after Send.', 'artifacts': [], 'evidence': []})})
+    tree = outcome(chat(daemon, 'send the application', session='apply'))['task_id']
+    _lost(daemon, tree + '.step.send', 'mail.send', 'sent')
+    seen, step = _refusals(daemon, 'mail.send', 'sent', done('Found it in the Sent folder.'))
+    retry = json.loads(sup('task', 'Trying again.', old))
+    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False}
+    install(daemon, [json.dumps(retry)], {'step.send': step, 'worker': done('Sent.')})
+    second = outcome(chat(daemon, 'try again', session='apply'))
+    assert second['task_id'] == tree
+    assert len(seen) == 1 and seen[0] is not None    # the failed step ran again, and its unknown send is refused
+
+
 def test_a_new_goal_with_its_own_plan_runs_that_plan_in_the_same_task(daemon: RunningDaemon) -> None:
     """A step of the new plan runs even when a finished step of the old plan had the same id."""
     tree = _filled_origins(daemon)
@@ -422,7 +475,7 @@ def test_a_clarify_question_is_kept_without_code_lines(daemon: RunningDaemon) ->
     assert daemon.run(asked()) == 'Which gate?'                         # the question an answer continues
 
 
-@pytest.mark.parametrize('quote, line', [('every day at 9 write report.md', '🗓 scheduled ('),
+@pytest.mark.parametrize('quote, line', [('every day at 9 write report.md', '🗓 Scheduled: write report.md — every day at '),
                                          ('words the owner never said', "I couldn't set that up")])
 def test_a_schedule_is_stated_by_code_in_the_reply(daemon: RunningDaemon, quote: str, line: str) -> None:
     from tests.support.schedules import schedule_reply
@@ -431,6 +484,26 @@ def test_a_schedule_is_stated_by_code_in_the_reply(daemon: RunningDaemon, quote:
     reply = next(e for e in chat(daemon, 'every day at 9 write report.md') if e['type'] == 'reply')
     lines = reply['text'].split('\n')
     assert lines[0] == 'Scheduled.' and len(lines) == 2 and lines[1].startswith(line)
+
+    async def ids() -> list[str]:
+        return [str(r['id']) for r in daemon.daemon.db.conn.execute('SELECT id FROM schedules')]
+    assert not any(sid in reply['text'] for sid in daemon.run(ids()))   # the id stays in the records
+
+
+def test_a_one_off_schedule_and_a_reminder_cancel_read_in_plain_words(daemon: RunningDaemon) -> None:
+    from tests.support.schedules import schedule_reply
+    install(daemon, [schedule_reply(daemon, 'write report.md', 'write report.md',
+                                    daemon.daemon.clock.now() + timedelta(minutes=5))])
+    reply = next(e for e in chat(daemon, 'in 5 minutes write report.md') if e['type'] == 'reply')
+    assert reply['text'].split('\n')[1].startswith('🗓 Scheduled: write report.md — on ')
+    install(daemon, [_reply_with_timer('remind me in 10 minutes', 'stretch')])
+    chat(daemon, 'remind me in 10 minutes to stretch', session='plain')
+    [(timer_id, _)] = _reminders(daemon)
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Done.', 'remember': [], 'timers': [],
+                                 'reminder_cancels': [{'id': timer_id, 'quote': 'cancel the stretch reminder'}]})])
+    reply = next(e for e in chat(daemon, 'cancel the stretch reminder', session='plain') if e['type'] == 'reply')
+    told = reply['text'].split('\n')[1]
+    assert told.startswith('⏰ Cancelled the reminder “stretch”') and timer_id not in told
 
 
 # ---------- (e) reminder provenance: the owner's words in this chat ----------
@@ -522,6 +595,16 @@ def test_a_recovered_reminder_is_not_set_twice(daemon: RunningDaemon) -> None:
         install(daemon, [_reply_with_timer('set a timer for 8:20')])
         chat(daemon, 'did you set it?', session='boarding')
     assert len(_reminders(daemon)) == 1
+
+
+def test_two_reminders_quoting_the_same_words_in_one_turn_are_one(daemon: RunningDaemon) -> None:
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [
+        {'when': _in_minutes(10), 'message': 'boarding starts', 'quote': 'set a timer for 8:20'},
+        {'when': _in_minutes(10), 'message': 'boarding', 'quote': 'timer for 8:20'}]})])
+    reply = next(e for e in chat(daemon, 'set a timer for 8:20, the boarding starts at 8.25', session='boarding')
+                 if e['type'] == 'reply')
+    assert len(_reminders(daemon)) == 1
+    assert '⏰ The reminder “boarding starts” is already set for' in reply['text']
 
 
 def test_asking_again_in_a_new_message_sets_it_again(daemon: RunningDaemon) -> None:

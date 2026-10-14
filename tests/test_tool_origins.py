@@ -598,7 +598,7 @@ def _retry(daemon: RunningDaemon, first: str) -> str:
     install(daemon, [json.dumps(retry)], {"worker": done("It says…")})
     chat(daemon, "try again")
     second = _root(daemon)
-    assert second != first
+    assert second == first                    # a retry carries on in the same task (L11, P19)
     return second
 
 
@@ -685,7 +685,8 @@ def test_history_and_attempt_lines_carry_their_tasks_origins(daemon: RunningDaem
 def _root_origin(daemon: RunningDaemon) -> set[str]:
     root = _root(daemon)
     return set(_on_loop(daemon, lambda: daemon.daemon.db.conn.execute(
-        "SELECT origin FROM spans WHERE kind = 'task' AND task_id = ?", (root,)).fetchone()["origin"]).split(","))
+        "SELECT origin FROM spans WHERE kind = 'task' AND task_id = ? ORDER BY started_at DESC, rowid DESC",
+        (root,)).fetchone()["origin"]).split(","))                      # its newest attempt
 
 
 def test_a_scheduled_run_takes_the_origin_of_the_request_that_made_it(daemon: RunningDaemon) -> None:

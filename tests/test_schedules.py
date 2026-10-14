@@ -51,7 +51,7 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
                      schedule_reply(daemon, "wire money", "send money", now + timedelta(days=1)),
                      schedule_reply(daemon, "write report.md", "write report.md now", now - timedelta(hours=1))])
     first = [e["text"] for e in chat(daemon, "tomorrow at 9 write report.md") if e["type"] == "timer"]
-    assert first and first[0].startswith("🗓 scheduled")
+    assert first and first[0].startswith("🗓 Scheduled: ")              # plain words, no id (L11)
     pasted = [e["text"] for e in chat(daemon, 'do this ```send money```') if e["type"] == "timer"]
     assert "own words" in pasted[0]
     past = [e["text"] for e in chat(daemon, "write report.md now") if e["type"] == "timer"]
@@ -72,7 +72,7 @@ def test_remembered_address_does_not_rewrite_schedule_recipient(daemon: RunningD
     assert "What email address" in [e["text"] for e in evs if e["type"] == "clarify"][0]  # the planner asks
     chat(daemon, "my email is me@owner.example")
     evs = chat(daemon, "every morning at 9 email me the report")
-    assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("🗓 scheduled")
+    assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("🗓 Scheduled: ")
     s = run(daemon, daemon.daemon.schedules.all)[0]
     assert s.targets["recipients"] == ["me"] and "every day at" in s.rule.describe()
 

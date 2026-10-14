@@ -129,8 +129,9 @@ outcome then shows FERB's copy of the open question on its own `Question: …` l
 `answer`. A task that ended without the owner's stop says why in plain words, never an exception's name.
 When the task reached any site, `answer` ends with a code-built line `Sites contacted: host, host` (L2's list).
 What FERB did with a turn's reminders, memory writes, reminder cancels and schedules is said in code-built lines
-("⏰ Reminder set for …", "Remembered: …", "🗓 scheduled …", what already exists for a reminder its message already
-had set, or one line naming what it refused), never by the planner's text: a `reply`/`clarify` gets them appended to
+("⏰ Reminder set for …", "Remembered: …", "🗓 Scheduled: …", "⏰ Cancelled the reminder …", what already exists for
+a reminder its message already had set, or one line naming what it refused; plain words, never an internal id),
+never by the planner's text: a `reply`/`clarify` gets them appended to
 `text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
 do), and the outcome's `answer` and `display_text` carry every line. A steering reply names the change
 ("Switched to: …").

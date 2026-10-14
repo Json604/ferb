@@ -1969,7 +1969,10 @@ class Daemon:
         self.schedules.set_timer(s.id, t.id, first)
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
                                                     "request_id": request_id}, origin=origin_.join(origins))
-        return f"🗓 scheduled ({s.id}): {s.request} — {rule.describe()}, first on {first.astimezone():%a %d %b %H:%M}"
+        # The owner's line in plain words (L11); the schedule's id stays in the journal row above
+        at = f"{first.astimezone():%a %d %b %H:%M}"
+        when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
+        return f"🗓 Scheduled: {s.request} — {when}"
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())
@@ -1977,14 +1980,17 @@ class Daemon:
             return "I didn't change any reminder — could you say which one in your own words?"
         t = self.timers.get(rc.id) if self.timers is not None else None
         if t is None or t.kind != "reminder" or not self.timers.cancel(rc.id):
-            return f"I couldn't find a pending reminder {rc.id}."
-        self._journal().append("timer.cancelled", {"timer_id": rc.id, "by": "owner"})
-        return f"⏰ cancelled reminder {rc.id}: {t.message}"
+            return "I couldn't find that reminder among the pending ones."
+        self._journal().append("timer.cancelled", {"timer_id": rc.id, "by": "owner"})     # the id stays here (L11)
+        return f"⏰ Cancelled the reminder “{t.message}” for {t.fire_at.astimezone():%a %d %b %H:%M}."
 
     def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())
         if len(ch.quote.strip()) < 3 or " ".join(ch.quote.lower().split()) not in norm:
             return "I didn't change any schedule — could you say which one in your own words?"
+        s = self.schedules.get(ch.id)
+        if s is None or s.state in ("cancelled", "done"):          # the owner's line never shows the id (L11)
+            return "There's no active schedule like that to change."
         return self._schedule_change(ch.id, ch.action)
 
     def _schedule_change(self, sid: str, action: str) -> str:
@@ -2005,7 +2011,7 @@ class Daemon:
                 if s.rule.repeat != "none" else (s.next_run if s.next_run and s.next_run > self.clock.now() else None)
             if nxt is None:
                 self.schedules.set_state(sid, "done")
-                return f"{sid} has no future runs left."
+                return f"{s.request} has no future runs left."
             t = self.timers.add("schedule", nxt, sid)
             self.schedules.set_timer(sid, t.id, nxt)
         self._journal().append(f"schedule.{action}", {"schedule_id": sid})
