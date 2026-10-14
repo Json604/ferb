@@ -224,8 +224,10 @@ def _labelled_code(label: str, text: str) -> bool:
 
 def _labelled_secret(kind: str, label: str, text: str) -> bool:
     """A text field a secret word names (API key, token, PIN, secret): its value is that secret, whatever its shape
-    (C1). Only text-entry fields, so a "Pin tab" checkbox keeps its state."""
-    return bool(text.strip()) and kind.casefold() in TEXT_FIELD_KINDS and SECRET_WORD.search(label) is not None
+    (C1). Only a record that names a text-entry kind, so a "Pin tab" checkbox keeps its state and a record naming no
+    kind (a chat channel called "secret-santa") keeps its text, as with the password rule."""
+    return (bool(text.strip()) and bool(kind) and kind.casefold() in TEXT_FIELD_KINDS
+            and SECRET_WORD.search(label) is not None)
 
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete

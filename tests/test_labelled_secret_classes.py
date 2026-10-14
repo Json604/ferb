@@ -212,3 +212,11 @@ def test_a_stream_never_holds_a_line_with_a_number_and_no_value_link() -> None:
     assert stream.feed(b"port 54321\n") == b"port 54321\n"
     assert stream.feed(b"Code server ready (3733 files)\n") == b"Code server ready (3733 files)\n"
     assert stream.feed(b"Downloaded 12345 bytes\r") == b"Downloaded 12345 bytes\r"
+
+
+def test_a_record_with_no_field_kind_is_never_masked_by_its_name() -> None:
+    """Like the password rule: a dict naming no field kind (a chat channel, a file) keeps its text whatever its name."""
+    r = Redactor()
+    assert r({"name": "secret-santa", "text": "gifts are due friday"})["text"] == "gifts are due friday"
+    assert r({"label": "Token budget", "value": "32768"})["value"] == "32768"
+    assert r({"role": "AXTextField", "label": "API key", "value": "abc-def"})["value"] == REDACTED
