@@ -29,6 +29,25 @@ ID_KEYED = frozenset({'episode', 'episode_annotation'})
 # The episode card's composer. 2: a card cites its task's direct sources only (memory review C1); a card an older
 # composer built is rebuilt once by the consolidator.
 CARD_MAKER = 'code:evidence-card/2'
+# Model-written suggestions the owner can turn down ("Not right": retire); one turned down never comes back (M3).
+SUGGESTIONS = frozenset({'procedure', 'identity_proposal', 'lesson'})
+# Card fields a consolidation doesn't need (usage, the tool tally, wording about version scope): left out of its digest.
+_NOT_FOR_CONSOLIDATION = ('usage', 'surfaces', 'app_version_scope')
+
+
+def card_digest(node: dict[str, Any]) -> dict[str, Any]:
+    """An episode card as the consolidator is given it (I3): its id, origin and body, without its lineage list and the
+    body fields it doesn't use. Nothing it uses is shortened."""
+    return {'id': node['id'], 'origin': node['origin'],
+            'body': {k: v for k, v in node['body'].items() if k not in _NOT_FOR_CONSOLIDATION}}
+
+
+def card_shape(node: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """An episode's structure: the tools its actions used and the apps it ran in. Episodes of one shape are consolidated
+    together (I3): a shared word in their requests says nothing about sameness."""
+    body = node['body']
+    return (tuple(sorted({str(a.get('tool')) for a in body.get('actions') or [] if isinstance(a, dict)})),
+            tuple(sorted(body.get('apps') or {})))
 
 
 def encoded(value: Any) -> str:
@@ -166,6 +185,11 @@ class Learning:
         the event loop; otherwise they are read here."""
         if kind == 'identity' and not owner:
             raise LearningRefused('only the owner can write identity')
+        if kind in SUGGESTIONS and not owner and self.db.conn.execute(
+                "SELECT 1 FROM learning_nodes WHERE kind=? AND state='retired' AND (key=? OR "
+                "(json_extract(body_json, '$.text') IS NOT NULL AND json_extract(body_json, '$.text')=?)) LIMIT 1",
+                (kind, key, str(body.get('text', '')))).fetchone():
+            raise LearningRefused('the owner said this suggestion was not right')
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
         body = json.loads(self.redact(encoded(body)))
@@ -225,9 +249,12 @@ class Learning:
             self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)',
                                  (self.card_key(prepared['task_id']), self.now()))
             return None
-        return self.put('episode', prepared['task_id'], prepared['body'], prepared['sources'],
+        card = self.put('episode', prepared['task_id'], prepared['body'], prepared['sources'],
                         made_by=CARD_MAKER, origin_label=origin.FERB, state='active',
                         labels=set(prepared['labels']))
+        if prepared.get('inputs'):
+            self.card_read(prepared['task_id'], prepared['inputs'])
+        return card
 
     def prepare_episode(self, task_id: str, apps: dict[str, str] | None = None) -> dict[str, Any] | None:
         """Every read of an episode card: its body, its direct sources and their origins, without writing. The daemon
@@ -318,10 +345,37 @@ class Learning:
                 # Its trace reached retention: the card keeps the lineage it was captured with.
                 source_refs.update(old['sources'])
         labels, damaged, expired, forgotten = self._card_labels(source_refs)
+        inputs = self.card_inputs(task_id).get(task_id, '')
         if forgotten:
-            return {'task_id': task_id, 'forgotten': forgotten}
+            return {'task_id': task_id, 'forgotten': forgotten, 'inputs': inputs}
         return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs - set(damaged)),
-                'labels': sorted(labels), 'damaged': damaged, 'expired': expired}
+                'labels': sorted(labels), 'damaged': damaged, 'expired': expired, 'inputs': inputs}
+
+    def card_inputs(self, task_id: str | None = None) -> dict[str, str]:
+        """Each episode's card inputs as one digest (I3): its composer, the episode as recorded and the owner's latest
+        verdict. A card read from other inputs is read again; one read from these is not."""
+        sql = ('SELECT e.task_id, e.built_at, e.status, e.verified, (SELECT MAX(v.seq) FROM owner_verdicts v '
+               'WHERE v.task_id = e.task_id) FROM episodes e' + (' WHERE e.task_id = ?' if task_id else ''))
+        return {r[0]: digest([CARD_MAKER, r[1], r[2], r[3], r[4]])
+                for r in self.db.conn.execute(sql, (task_id,) if task_id else ())}
+
+    def cards_to_read(self, force: bool = False) -> list[str]:
+        """The tasks whose card must be read (again), oldest first: no card yet, or a card read from other inputs (a
+        new verdict, a rebuilt episode, an older composer). A failed read waits for its inputs to change, unless
+        `force` (`ferb memory consolidate`). A card built on forgotten content is never read again."""
+        current = self.card_inputs()
+        recorded = {r[0]: (r[1], r[2]) for r in self.db.conn.execute(
+            'SELECT task_id, inputs, status FROM learning_card_inputs')}
+        gone = {r[0] for r in self.db.conn.execute("SELECT id FROM learning_forgotten WHERE id LIKE 'key-%'")}
+        order = [r[0] for r in self.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')]
+        return [t for t in order if self.card_key(t) not in gone and (
+            recorded.get(t, ('', ''))[0] != current.get(t) or (force and recorded[t][1] == 'failed'))]
+
+    def card_read(self, task_id: str, inputs: str, error: str | None = None) -> None:
+        """Record the inputs a card was read from (or failed to be read from, with the error)."""
+        self.db.conn.execute('INSERT INTO learning_card_inputs VALUES (?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET '
+                             'inputs=excluded.inputs, status=excluded.status, error=excluded.error',
+                             (task_id, inputs, 'failed' if error else 'read', error))
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
         """The sources of one recorded tool call's result (memory/lineage.py)."""

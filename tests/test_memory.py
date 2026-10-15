@@ -275,7 +275,7 @@ def test_the_summary_is_written_by_code_before_the_model_and_survives_its_failur
     assert r["status"] == "failed" and run(daemon, lambda: summary.summarized(daemon.daemon.db, day))
     for _ in range(3):
         daemon.run(dd.run_day(day))
-    assert day in run(daemon, dd.pending_days)
+    assert day not in run(daemon, dd.pending_days)       # M5: waits for its summary to change or `ferb memory distill`
     dd, recovered = distiller(daemon, {"narrative": "Recovered after the provider outage", "items": []})
     assert daemon.run(dd.run_day(day))["status"] == "distilled"
     assert recovered.contexts and day not in run(daemon, dd.pending_days)

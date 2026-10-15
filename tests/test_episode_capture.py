@@ -149,7 +149,7 @@ def test_a_card_built_on_a_forgotten_source_is_never_written_and_never_returns(t
     learning.forget([gone])
     assert db.conn.execute("SELECT 1 FROM forgotten_refs WHERE ref=?", (gone,)).fetchone()
     prepared = learning.prepare_episode("t-used")
-    assert prepared == {"task_id": "t-used", "forgotten": [gone]}
+    assert prepared["forgotten"] == [gone] and "body" not in prepared
     assert learning.write_episode(prepared) is None
     db.conn.execute("DELETE FROM spans")                                   # its trace reaches retention
     assert learning.prepare_episode("t-used") is None

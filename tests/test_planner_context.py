@@ -755,9 +755,17 @@ def test_verdicts_and_consolidation_read_cards_in_the_card_reader(daemon, monkey
     assert [f["verdict"] for f in daemon.run(card(first))] == ["pass"]
 
     consolidator = daemon.daemon.consolidator
+    started.clear()
+    daemon.run(consolidator.catch_up(), timeout=60)
+    assert started == []                              # I3: no card's inputs changed, so none is read again
+
+    async def verdicts():                             # both cards' inputs change (verdicts recorded elsewhere)
+        for task_id in (first, second):
+            daemon.daemon.db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES "
+                                          "(?, ?, 'pass', '', 'now')", ("v-" + task_id, task_id))
+    daemon.run(verdicts())
     checks = iter([True, True, False])                # idle at the start and before the first card, then a task starts
     consolidator.idle = lambda: next(checks, False)
-    started.clear()
     assert daemon.run(consolidator.catch_up(), timeout=60) == {"status": "busy"}
     assert len(started) == 1                          # the second card waits for the next pass
 
@@ -981,6 +989,9 @@ def test_a_consolidation_pass_refused_while_stopping_is_not_a_failure(daemon):
 
     async def stopping():
         d = daemon.daemon
+        task_id = d.db.conn.execute("SELECT task_id FROM episodes").fetchone()[0]
+        d.db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES ('v1', ?, 'pass', '', "
+                          "'now')", (task_id,))          # its card's inputs changed: the pass reads it again (I3)
         d._shutting_down = True
         try:
             return await d.consolidator.catch_up()

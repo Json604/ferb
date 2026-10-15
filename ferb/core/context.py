@@ -168,6 +168,12 @@ def _report(budget: int, reserved: int, content: int, over: bool, omitted: int) 
                                             "over_budget": over, "omitted_blocks": omitted})
 
 
+def overhead_tokens(budget_tokens: int, reserved_tokens: int = 0) -> int:
+    """What `assemble` adds around one protected block at most (its budget report and separator): what a caller that
+    splits work to fit a window keeps free beside its own text."""
+    return count_tokens(_report(budget_tokens, reserved_tokens, 10 ** 9, True, 1)) + 2 * count_tokens("\n\n")
+
+
 def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int,
                    reserved_tokens: int = 0) -> tuple[list[str], int]:
     """`assemble` as (ordered parts with the budget report last, how many leading parts repeat across calls)."""

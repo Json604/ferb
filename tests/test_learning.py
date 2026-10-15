@@ -212,6 +212,21 @@ def test_a_later_task_that_read_a_forgotten_source_gets_no_card(learning):
          json.dumps({'tool': 'task.evidence', 'args': {'task_id': 'history-task'}, 'kind': 'read'}),
          json.dumps({'source_refs': [source['id']], 'records': []})))
     learning.forget([source['id']])
-    assert learning.prepare_episode('later-task') == {'task_id': 'later-task', 'forgotten': [source['id']]}
+    assert learning.prepare_episode('later-task')['forgotten'] == [source['id']]
     assert learning.capture_episode('later-task') is None
     assert 'Private message' not in json.dumps([dict(r) for r in learning.db.conn.execute('SELECT * FROM forgotten_refs')])
+
+
+def test_a_suggestion_the_owner_turned_down_never_comes_back(learning):
+    """Review M3: "Not right" (retire) left the suggestion free to be proposed again from the same evidence."""
+    first = learning.put('identity_proposal', 'reports', {'text': 'Sends the weekly report by mail'}, [],
+                         made_by='model:test')
+    learning.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (first['id'],))
+    with pytest.raises(LearningRefused, match='not right'):
+        learning.put('identity_proposal', 'reports', {'text': 'Sends reports by mail on Fridays'}, [],
+                     made_by='model:test', batch='next-day')
+    with pytest.raises(LearningRefused, match='not right'):
+        learning.put('identity_proposal', 'weekly', {'text': 'Sends the weekly report by mail'}, [],
+                     made_by='model:test', batch='next-day')
+    assert learning.put('identity', 'reports', {'text': 'I send reports on Fridays'}, [], made_by='owner:identity/1',
+                        origin_label='owner', owner=True, state='active')        # the owner's own word still counts

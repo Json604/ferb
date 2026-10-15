@@ -68,7 +68,8 @@ class Distiller:
         self.jev: Any = None                          # memory.worth_keeping: may only drop
 
     def pending_days(self, today: date | None = None) -> list[str]:
-        """Past days with anything to remember that aren't done yet (oldest first)."""
+        """Past days with anything to remember that aren't done yet (oldest first). A day whose distillation failed
+        waits until its summary changes (a forget rebuilt it) or `ferb memory distill DAY` (M5): never every hour."""
         today = today or self.clock.now().astimezone().date()
         days = {r["day"] for r in self.db.conn.execute("SELECT DISTINCT day FROM trail WHERE day < ?",
                                                        (today.isoformat(),))}
@@ -77,7 +78,16 @@ class Distiller:
             if d < today:
                 days.add(d.isoformat())
         done = {r["day"] for r in self.db.conn.execute("SELECT day FROM distill_runs WHERE status = 'distilled'")}
-        return sorted(d for d in days if d not in done or not summary.summarized(self.db, d))
+        failed = {r["day"]: r["inputs"] for r in self.db.conn.execute(
+            "SELECT day, inputs FROM distill_runs WHERE status = 'failed'")}
+        return sorted(d for d in days if (d not in done or not summary.summarized(self.db, d))
+                      and not (d in failed and failed[d] is not None and failed[d] == self._summary_id(d)))
+
+    def _summary_id(self, day: str) -> str | None:
+        """The day summary a distillation reads (its journal id: a rebuilt summary has a new one)."""
+        row = self.db.conn.execute("SELECT id FROM journal WHERE kind = ? AND json_extract(data_json, '$.day') = ? "
+                                   "ORDER BY seq DESC LIMIT 1", (summary.SUMMARY_KIND, day)).fetchone()
+        return str(row["id"]) if row else None
 
     def write_summary(self, day: str) -> summary.DayEvidence:
         ev = summary.build(self.db, day)
@@ -96,8 +106,9 @@ class Distiller:
             return {"day": day, "status": "distilled", "proposed": 0}
         try:
             out = await self._model(day, ev)                          # 2. one model run
-        except Exception as e:                                        # summary stays; retried on a later run
+        except Exception as e:              # summary stays; retried once it changes, or by `ferb memory distill` (M5)
             self._run(day, "failed", f"{type(e).__name__}: {e}")
+            self.db.conn.execute("UPDATE distill_runs SET inputs = ? WHERE day = ?", (self._summary_id(day), day))
             return {"day": day, "status": "failed"}
         self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", "")),
                                                     "made_by": str(out.get("made_by", ""))})

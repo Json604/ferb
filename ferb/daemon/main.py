@@ -1451,7 +1451,7 @@ class Daemon:
             return {"item": l.put("identity", str(params.get("key", "owner")), {"text": str(params["text"])}, [],
                     origin_label="owner", made_by="owner:identity/1", owner=True, state="active")}
         if op == "consolidate":
-            return await self.consolidator.catch_up()
+            return await self.consolidator.catch_up(force=True)       # the owner asked: failed jobs too (I3)
         if op == "eval_export":
             from ferb.eval.memory import history_queries
             return history_queries(l)
