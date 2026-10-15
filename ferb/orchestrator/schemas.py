@@ -111,6 +111,8 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
     "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
     "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
+    # memory review I2: a forget the owner asked for in chat, by the id the planner was shown; code asks Yes/No first
+    "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
     "conversation_changes": {"type": "array", "items": _obj({"id": {"type": "string"},
         "action": {"type": "string", "enum": ["pause", "resume", "takeover", "close"]}, "quote": {"type": "string"}})},
     "notification_rules": {"type": "array", "items": _obj({"app": {"type": "string"},
@@ -219,6 +221,12 @@ class Remember(BaseModel):
     quote: str
 
 
+class ForgetRequest(BaseModel):
+    """A memory item the owner asked FERB to forget, by the id the planner was shown, with the owner's exact words."""
+    item_id: str
+    quote: str
+
+
 class AnswerQuestion(BaseModel):
     """The planner's routing of the owner's message to one open question (L3): its id, from the planner's context,
     and the planner's reading of the answer. The answer recorded is always the owner's own words; for FERB's floor
@@ -248,6 +256,7 @@ class SupervisorOutcome(BaseModel):
     answer_question: AnswerQuestion | None = None
     task: TaskSpec | None = None
     remember: list[Remember] = []
+    forget: list["ForgetRequest"] = []
     timers: list["TimerRequest"] = []
     schedule: "ScheduleRequest | None" = None
     schedule_changes: list["ScheduleChange"] = []

@@ -112,7 +112,7 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     # or with that context encoded once more as a JSON string).
     told = list({form: (form, new) for text in said if text for form, new in _forms(text, replacement)}.values())
     if told:
-        _scrub_spans(db, told)
+        scrub_spans(db, told)
     if entries:
         _scrub_payloads(db, entries, replacement)
     for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
@@ -156,17 +156,18 @@ def notice_sources(db: Any, notice_id: str) -> list[str]:
     return sorted(set(json.loads(row[0])) | set(json.loads(row[1] or "[]"))) if row is not None else []
 
 
-def _scrub_spans(db: Any, told: list[tuple[str, str]]) -> None:
-    """Every span but the considerations (handled by the caller) whose recorded input or output holds one of the told
-    strings loses it. One scan, matched in SQL against a temporary table of the strings, so any number of them fits."""
+def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = False) -> None:
+    """Every span but the considerations (handled by the caller, unless `every_kind`: a memory forget, I2) whose
+    recorded input or output holds one of the told strings loses it. One scan, matched in SQL against a temporary table
+    of the strings, so any number of them fits."""
     db.conn.execute("CREATE TEMP TABLE IF NOT EXISTS expiring_text (held TEXT PRIMARY KEY)")
     try:
         db.conn.executemany("INSERT OR IGNORE INTO expiring_text VALUES (?)",
                             [(json.dumps(old)[1:-1],) for old, _ in told])      # as it sits inside the stored JSON
         rows = db.conn.execute(
-            "SELECT id,input_json,output_json FROM spans s WHERE kind!='attention.consider' AND EXISTS (SELECT 1 FROM "
-            "expiring_text e WHERE instr(s.input_json, e.held) > 0 OR instr(COALESCE(s.output_json, ''), e.held) > 0)"
-        ).fetchall()
+            "SELECT id,input_json,output_json FROM spans s WHERE (? OR kind!='attention.consider') AND EXISTS (SELECT 1 "
+            "FROM expiring_text e WHERE instr(s.input_json, e.held) > 0 OR instr(COALESCE(s.output_json, ''), e.held) > 0)",
+            (int(every_kind),)).fetchall()
     finally:
         db.conn.execute("DELETE FROM expiring_text")
     for span in rows:

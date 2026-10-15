@@ -18,8 +18,9 @@ stated: both stay active and recall flags the conflict (the owner's wins).
 
 `forget` purges: the item, all its versions, items built on the same sources, the sources themselves (journal
 entries, trail rows) unless the owner keeps them, the search index, the WAL; days whose trail rows went are
-re-summarized (or their summary deleted once the raw rows are gone). A one-way fingerprint stops distillation from
-proposing it again."""
+re-summarized (or their summary deleted once the raw rows are gone), and a day's narrative written from a forgotten
+chat message is deleted. What FERB's own records say of it goes too (`echoes`, I2). A one-way fingerprint stops
+distillation from proposing it again."""
 
 import hashlib
 import json
@@ -118,9 +119,16 @@ class ForgetPlan:
     trail: list[str] = field(default_factory=list)            # trail row ids
     rebuild_days: list[str] = field(default_factory=list)     # summaries rebuilt from the rows that remain
     delete_summaries: list[str] = field(default_factory=list)  # days whose raw rows are gone: summary deleted
+    delete_narratives: list[str] = field(default_factory=list)  # days whose narrative was written from forgotten chat
+    echoes: Any = None                                         # what FERB's own records say of it (echoes.Forgotten)
 
     def describe(self, db: Database) -> list[str]:
-        out = [f"{len(self.items)} memory item(s) (all versions and items built on the same sources)"]
+        """What a forget deletes, naming each memory item (review M4: items built on the same sources go too)."""
+        out = []
+        for r in db.conn.execute(f"SELECT content, kind, subject, key FROM memory_items WHERE id IN "
+                                 f"({','.join('?' * len(self.items))}) ORDER BY seq", self.items).fetchall() \
+                if self.items else []:
+            out.append(f"memory item “{' '.join(str(r['content']).split())}” ({r['kind']} · {r['subject']} · {r['key']})")
         if self.journal:
             kinds = [r["kind"] for r in db.conn.execute(
                 f"SELECT kind FROM journal WHERE id IN ({','.join('?' * len(self.journal))})", self.journal)]
@@ -132,6 +140,9 @@ class ForgetPlan:
             out.append("daily summaries rebuilt without them: " + ", ".join(self.rebuild_days))
         if self.delete_summaries:
             out.append("daily summaries deleted (raw rows already gone): " + ", ".join(self.delete_summaries))
+        if self.delete_narratives:
+            out.append("daily narratives deleted (written from the forgotten words): " + ", ".join(self.delete_narratives))
+        out.append("FERB's lines that state it, in its replies and its stored model turns")
         return out
 
 
@@ -374,19 +385,30 @@ class Memory:
             for d in days:
                 if d in summarized:
                     plan.rebuild_days.append(d)
+        narrated = self._narrative_days()
         for jid in plan.journal:                                     # a summary itself as a source: it goes
-            r = self.db.conn.execute("SELECT kind, data_json FROM journal WHERE id = ?", (jid,)).fetchone()
+            r = self.db.conn.execute("SELECT kind, at, data_json FROM journal WHERE id = ?", (jid,)).fetchone()
             if r is not None and r["kind"] == "trail.day_summary":
                 plan.delete_summaries.append(str(json.loads(r["data_json"]).get("day")))
+            elif r is not None and r["kind"] == "chat.message":       # the day's narrative was written from it
+                day = datetime.fromisoformat(r["at"]).astimezone().date().isoformat()
+                if day in narrated and day not in plan.delete_narratives:
+                    plan.delete_narratives.append(day)
         plan.rebuild_days = [d for d in plan.rebuild_days if d not in plan.delete_summaries]
         return plan
+
+    def _narrative_days(self) -> set[str]:
+        return {str(json.loads(r["data_json"]).get("day")) for r in self.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind = 'trail.day_narrative'")}
 
     def _summary_days(self) -> set[str]:
         return {str(json.loads(r["data_json"]).get("day")) for r in self.db.conn.execute(
             "SELECT data_json FROM journal WHERE kind = 'trail.day_summary'")}
 
     def forget(self, item_id: str, keep_sources: bool = False) -> ForgetPlan:
+        from ferb.memory import echoes
         plan = self.plan_forget(item_id, keep_sources)
+        plan.echoes = echoes.capture(self.db, plan.items, plan.journal, plan.trail)   # read before anything goes
         # Delete derived copies first. If that fails, retain the source/plan so the owner can retry.
         self.on_forget(plan)
         now = self.clock.now().isoformat()
@@ -411,6 +433,9 @@ class Memory:
                           (day,))
                 c.execute("DELETE FROM journal WHERE kind = 'trail.day_narrative' AND json_extract(data_json, '$.day') = ?",
                           (day,))
+            for day in plan.delete_narratives:
+                c.execute("DELETE FROM journal WHERE kind = 'trail.day_narrative' AND json_extract(data_json, '$.day') = ?",
+                          (day,))
             for fp in prints:
                 c.execute("INSERT OR IGNORE INTO memory_forgotten (fingerprint, at) VALUES (?, ?)", (fp, now))
             c.execute("COMMIT")
@@ -420,7 +445,8 @@ class Memory:
         plan.rebuild_days = [d for d in plan.rebuild_days if d not in plan.delete_summaries]
         for day in plan.rebuild_days:
             self.rebuild_summary(day)
-        c.execute("INSERT INTO memory_fts(memory_fts) VALUES ('rebuild')")
+        echoes.scrub(self.db, plan.echoes)                            # what FERB's own records said of it (I2)
+        # memory_fts zeroes a deleted item's terms itself (FTS5 secure-delete, migration 0037): no rebuild here
         self.db.truncate_wal("memory.forget")                         # no copy left behind in the WAL
         self.on_change()
         return plan

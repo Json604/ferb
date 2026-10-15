@@ -558,8 +558,7 @@ class Learning:
             self.db.conn.execute('ROLLBACK TO learning_forget')
             self.db.conn.execute('RELEASE learning_forget')
             raise
-        self.db.conn.execute("INSERT INTO learning_fts(learning_fts) VALUES ('rebuild')")
-        self.db.conn.execute("INSERT INTO learning_titles(learning_titles) VALUES ('rebuild')")
+        # The indexes zero a deleted row's terms themselves (FTS5 secure-delete, migration 0037): no rebuild here.
         self.db.truncate_wal('memory.forget')
         self.publish('memory.forgot_derived', {'ids': sorted(doomed)})
         return sorted(doomed)

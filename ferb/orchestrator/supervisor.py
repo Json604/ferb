@@ -31,6 +31,7 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
+from ferb.memory.items import contains_words
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
@@ -110,6 +111,7 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
+FORGET_NEEDS_WORDS = "A forget needs your own words asking for it, so I didn't ask about deleting anything."
 # On an event of `_send`: more of this turn follows that must register before the next message is routed (re-review of
 # M1). `send` removes it; no client sees it.
 TURN_CONTINUES = "_turn_continues"
@@ -202,7 +204,7 @@ def _carries_more(out: SupervisorOutcome) -> bool:
     """Whether a planner turn carries anything besides an answer: a control (stop, steer, retry, continue), a new
     task, or a side output (memory, reminders, schedules, conversation or notification changes)."""
     return bool(out.control is not None or (out.kind == "task" and out.task is not None) or out.remember or
-                out.timers or out.schedule is not None or out.schedule_changes or out.reminder_cancels or
+                out.forget or out.timers or out.schedule is not None or out.schedule_changes or out.reminder_cancels or
                 out.conversation_changes or out.notification_rules)
 
 
@@ -412,6 +414,10 @@ class Supervisor(WorkerRuns):
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; supplied by the daemon
         self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = lambda items, own_words, source: []
+        # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
+        self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
+        # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
+        self.question_answered: Callable[[Any], str] = lambda approval: ""
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
@@ -863,7 +869,8 @@ class Supervisor(WorkerRuns):
         self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
         self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
         self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
-        return self._code_turn(session, request_id, 'reply', ANSWERED)
+        followed = self.question_answered(ap)                # e.g. the forget the owner just said Yes to (I2)
+        return self._code_turn(session, request_id, 'reply', ANSWERED + ('\n' + followed if followed else ''))
 
     @staticmethod
     def _listed(questions: Any) -> str:
@@ -1116,6 +1123,10 @@ class Supervisor(WorkerRuns):
         self._env[request_id]["intake_receipts"] = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             yield {"type": "memory", "text": receipt}
+        for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
+            saved.append(self.forget_request(wanted.item_id, request_id) if contains_words(typed, wanted.quote)
+                         else FORGET_NEEDS_WORDS)
+            yield {"type": "memory", "text": saved[-1]}
         changed: list[str] = []          # code's own lines about cancelled reminders and schedules
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
             changed.append(self.on_reminder_cancel(rc, typed))

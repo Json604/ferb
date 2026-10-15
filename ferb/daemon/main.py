@@ -267,6 +267,7 @@ class Daemon:
         # Episode cards are read off the loop (L28) by exactly this entry point: the packaged app's stub accepts only
         # exact entry points, so it takes no arguments (the request goes on stdin; the home comes as FERB_HOME).
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+        self._chat_forgets: dict[str, tuple[str, str]] = {}            # chat forget questions -> what goes (I2)
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -1168,6 +1169,8 @@ class Daemon:
             self.supervisor.availability = self._availability
             self.supervisor.recall = lambda words: ('', {}, [])  # F8 ranked candidates include current facts
             self.supervisor.remember = self._remember
+            self.supervisor.forget_request = self._chat_forget
+            self.supervisor.question_answered = self._question_answered
             self.supervisor.procedure_context = self._learning_context
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
@@ -1338,14 +1341,60 @@ class Daemon:
         return self.learning.candidates(words)
 
     def _forget_learning_sources(self, plan: Any) -> None:
+        from ferb.memory import echoes
         self.daily_activity.forget_sources(set(plan.trail))
         refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
                 ["trail:" + s for s in plan.trail])
+        # FERB's rows that were given it or state it: a running summary that folded one of them goes too (I2)
+        stated = echoes.given(self.db, plan.echoes.refs) | echoes.stating(self.db, plan.echoes) if plan.echoes else set()
         if self.learning:
             self.learning.forget(refs)
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
-            self.supervisor.forget_summaries(set(plan.journal))        # a running summary that folded a forgotten entry
+            self.supervisor.forget_summaries(set(plan.journal) | stated)   # rebuilt later from what remains
+
+    def _chat_forget(self, item_id: str, request_id: str) -> str:
+        """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the
+        fact node it was shown as, or another learned item). Nothing is deleted now: FERB asks a plain Yes/No question
+        naming everything that goes, as `ferb memory forget` does, and `_question_answered` forgets on the Yes."""
+        from ferb.core.types import Identity
+        from ferb.orchestrator.steering import FORGET_ASK
+        from ferb.policy.rules import ActionRequest
+        node = self.learning.get(item_id) if self.learning is not None else None
+        ident = str(node["body"].get("id", "")) if node and node["kind"] == "fact" else item_id
+        if self.memory is not None and self.memory.get(ident) is not None:
+            target, lines = ("memory", ident), self.memory.plan_forget(ident).describe(self.db)
+        elif node is not None and node["kind"] not in ("fact", "identity") and self.learning is not None:
+            doomed = sorted(self.learning.descendants([item_id]))
+            target = ("learning", item_id)
+            lines = [f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']}) and "
+                     f"{len(doomed) - 1} record(s) built on it"]
+        else:
+            return "I couldn't find that memory, so nothing was deleted."
+        reason = "Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines)
+        action = ActionRequest(FORGET_ASK, "owner_question", Identity.OWNER, frozenset(), "", "",
+                               "memory-forget-" + request_id, frozenset())
+        ap = self.state.approvals.question(action, reason, ["Yes", "No"])
+        self._chat_forgets[ap.id] = target
+        self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
+                                             "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+        return reason + "\nAnswer Yes or No."
+
+    def _question_answered(self, ap: Any) -> str:
+        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2). A line for the owner, or ''."""
+        target = self._chat_forgets.pop(ap.id, None)
+        if target is None:
+            return ""
+        if ap.state != "granted" or ap.choice != "Yes":
+            return "Kept: nothing was forgotten."
+        kind, ident = target
+        if kind == "memory":
+            plan = self.memory.forget(ident)
+            gone = len(plan.items)
+        else:
+            gone = len(self.learning.forget([ident]))
+        self._journal().append("memory.forgot", {"via": "chat", "items": gone})
+        return f"Forgot it: {gone} item(s) deleted, with the records built on them."
 
     async def _memory_learning(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         from ferb.memory.learning import LearningRefused
@@ -3158,6 +3207,9 @@ class Daemon:
                     self._add_secret_value(text)
         try:
             ap = self.state.approvals.resolve(approval_id, granted, choice, text)
+            followed = self._question_answered(ap)          # a chat forget answered with the notch's buttons (I2)
+            if followed:
+                self._publish("memory.forgot", {"approval_id": ap.id, "text": followed})
             if ap.capability == 'setup.persona' and self.persona is not None:
                 try:
                     self.persona.resolve(ap)
