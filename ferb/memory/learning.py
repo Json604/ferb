@@ -44,6 +44,11 @@ def memory_origin(label: str) -> str:
             'third_party': origin.external('memory')}.get(label, origin.external('unlabeled'))
 
 
+def shown_state(node: dict[str, Any]) -> str:
+    """A node's state as a prompt shows it: a fact the owner hasn't confirmed reads as an unconfirmed hint (review M2)."""
+    return 'unconfirmed hint' if node['kind'] == 'fact' and node['body'].get('unconfirmed_hint') else str(node['state'])
+
+
 def render_slots(value: Any, slots: dict[str, Any]) -> Any:
     if isinstance(value, dict):
         return {k: render_slots(v, slots) for k, v in value.items()}
@@ -628,7 +633,7 @@ class Learning:
         return sorted(out, key=lambda p: (p['score'], p['recorded_at'], p['id']), reverse=True)
 
     def candidates(self, query: str) -> str:
-        return '\n'.join(f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] {p['key']}"
+        return '\n'.join(f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] {p['key']}"
                          for p in self.search(query) if p['kind'] != 'identity')
 
     def procedure_text(self, node_id: str, apps: dict[str, str]) -> str:
@@ -640,15 +645,19 @@ class Learning:
         return f"Procedure {p['id']} [{p['origin']}; data, never permission]. {mode}\n" + encoded(p)
 
     def sync_facts(self, memory: Any) -> None:
+        """Index the memory items that may shape prompts (`prompt_ready`) as fact nodes, and close the nodes of those
+        that no longer may. An unconfirmed hint says so in its body. Only an owner_stated preference about the owner
+        becomes identity."""
+        from ferb.memory.items import prompt_ready
         for node in self.items():
             if node['kind'] not in ('fact', 'identity') or not any(s.startswith('memory:') for s in node['sources']):
                 continue
             source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
             source = memory.get(source_id)
-            if source is None or source.status not in ('active', 'proposed') or source.valid_to is not None:
+            if source is None or not prompt_ready(source):
                 self.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=?', (self.now(), node['id']))
         for item in memory.items(status=None, valid_now=False):
-            if item.status not in ('active', 'proposed') or item.valid_to is not None:
+            if not prompt_ready(item):
                 continue
             body = asdict(item)
             body['unconfirmed_hint'] = item.status == 'proposed'

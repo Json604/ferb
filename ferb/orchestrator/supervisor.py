@@ -410,7 +410,8 @@ class Supervisor(WorkerRuns):
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
-        self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
+        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; supplied by the daemon
+        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
@@ -1104,12 +1105,14 @@ class Supervisor(WorkerRuns):
             yield {'type': 'reply', 'text': self.notification_rule(rule, typed)}
         # Quotes are checked against what the owner typed (never against pasted text)
         receipts: list[str] = []
-        saved: list[str] = []
+        saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[str] = []
         for item in out.remember:           # one at a time, so a refused one is known by name
             saved_now = self.remember([item], typed, entry.id)
-            receipts += saved_now
-            (saved if saved_now else unsaved).append(item.content)
+            receipts += [r["receipt"] for r in saved_now]
+            saved += [r["line"] for r in saved_now]
+            if not saved_now:
+                unsaved.append(item.content)
         self._env[request_id]["intake_receipts"] = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             yield {"type": "memory", "text": receipt}
@@ -1136,7 +1139,7 @@ class Supervisor(WorkerRuns):
             yield {"type": "timer", "text": changed[-1]}
         refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
             [("memory", line) for line in [_not_saved(unsaved)] if line]
-        side_lines = ([f"Remembered: {' '.join(content.split())}" for content in saved] + changed
+        side_lines = (saved + changed
                       + [_reminder_line(t) for t in set_timers]
                       + [line for _, line in refused])
         question = out.text                                    # the planner's own question, before code's lines

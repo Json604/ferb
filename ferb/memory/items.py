@@ -3,11 +3,13 @@
 Memory items: SQLite is the source of truth; every rule about where an item may come from is here.
 
 Origins, enforced in code:
-- `owner_stated`: the owner's own words (`ferb memory add`, `edit`, or chat capture whose quote was checked against
-  the owner's own words) -> active on commit; it supersedes any earlier version of the same fact.
+- `owner_stated`: the owner's own words (`ferb memory add`, `edit`, or chat capture whose saved text appears word for
+  word in what the owner typed, `contains_words`) -> active on commit; it supersedes any earlier version of the same
+  fact.
 - `observed`: from the owner's own activity. Its sources must all be trail rows with actor "owner" (FERB's own
   activity never becomes the owner's habits); it activates once that evidence spans 3 separate days.
-- `inferred`: stays proposed until the owner confirms it.
+- `inferred`: stays proposed until the owner confirms it (FERB's own wording of what the owner said is inferred); until
+  then it never reaches a prompt (`prompt_ready`).
 - `third_party`: pages, emails, pasted text. A fact about the world only: never a preference, never about the owner.
 
 Versions: kind + subject + key name one fact. A newer version closes the old one (`valid_to`) and links to it
@@ -57,6 +59,37 @@ def query_terms(text: str) -> list[str]:
     if current:
         terms.append(current)
     return list(dict.fromkeys(terms))
+
+
+def _spaced(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def _wordlike(ch: str) -> bool:
+    return unicodedata.category(ch)[0] in "LNM" or unicodedata.category(ch) == "Co"
+
+
+def contains_words(text: str, part: str) -> bool:
+    """Whether `part` appears in `text` as whole words, word for word (case and spacing aside; the sentence punctuation
+    around `part` doesn't count). "the" is in "summarize the email" but "Rao" is not in "Raoul" (I1, MP2)."""
+    needle = _spaced(part).strip(" .,;:!?\"'“”‘’()[]")
+    if not needle:
+        return False
+    hay = _spaced(text)
+    start = hay.find(needle)
+    while start != -1:
+        end = start + len(needle)
+        if (start == 0 or not _wordlike(hay[start - 1])) and (end == len(hay) or not _wordlike(hay[end])):
+            return True
+        start = hay.find(needle, start + 1)
+    return False
+
+
+def prompt_ready(item: MemoryItem) -> bool:
+    """Whether an item may shape FERB's prompts: a current active item, or an observed pattern still gathering days
+    (shown as an unconfirmed hint). An inferred item (model wording: a paraphrase of the owner, a distilled guess) waits
+    for the owner's Confirm (I1, MP2)."""
+    return item.valid_to is None and (item.status == "active" or (item.status == "proposed" and item.origin == "observed"))
 
 
 def fingerprint(kind: str, subject: str, key: str, content: str) -> str:

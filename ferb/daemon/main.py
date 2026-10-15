@@ -1323,7 +1323,8 @@ class Daemon:
             except Exception as e:                       # reported once; keyword ranking only, no second encode
                 embed = False
                 self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
-        return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
+        from ferb.memory.learning import shown_state
+        return [{'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
                          + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
                  'reference': 'memory.learned item_id=' + p['id'],
                  'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
@@ -1609,22 +1610,40 @@ class Daemon:
         if self.memory is not None:
             export(self.memory, self.home / "memory")
 
-    def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[str]:
-        """Chat capture (owner_stated): only when the quote is really the owner's own words (not pasted text)."""
-        norm = " ".join(own_words.lower().split())
-        saved = []
+    def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[dict[str, str]]:
+        """Chat capture (memory review I1, MP2). `own_words`: what the owner typed (pasted parts left out). The quote must
+        be whole words of it. Saved as owner_stated is only text the owner typed: the planner's content when it appears
+        in their words word for word (`contains_words`). Any other content is FERB's wording of what they said: an
+        inferred proposal that waits for their Confirm before it reaches a prompt; one whose quote shares no word with
+        it rests on nothing the owner said and is refused. Per saved item: its receipt and the line code adds to the
+        reply."""
+        from ferb.memory.items import contains_words, query_terms
+        saved: list[dict[str, str]] = []
         for it in items:
-            quote = " ".join(str(it.quote).lower().split())
-            if len(quote) < 3 or quote not in norm:
-                self._journal().append("memory.capture_refused", {"key": it.key, "why": "quote not in the owner's words"})
+            content = str(it.content).strip()
+            owner = contains_words(own_words, content)
+            if not contains_words(own_words, str(it.quote)):
+                why = "quote not in the owner's words"
+            elif not owner and not set(query_terms(str(it.quote))) & set(query_terms(content)):
+                why = "the quote holds nothing of what would be saved"
+            else:
+                why = ""
+            if why:
+                self._journal().append("memory.capture_refused", {"key": it.key, "why": why})
                 continue
             try:
-                m = self.memory.propose(it.kind, it.subject, it.key, it.content, "owner_stated",
-                                        [("journal", source_id)], 1.0)
+                m = self.memory.propose(it.kind, it.subject, it.key, content, "owner_stated" if owner else "inferred",
+                                        [("journal", source_id)], 1.0 if owner else 0.7)
             except FerbError as e:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
                 continue
-            saved.append(f"remembered ({m.id}): {m.content}")
+            text = " ".join(m.content.split())
+            if m.origin == "owner_stated":
+                saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}"})
+            else:
+                saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Confirm)",
+                              "line": f"Saved in my words, not yours, so it waits for your Confirm before I use it: "
+                                      f"{text} (ferb memory confirm {m.id})"})
         return saved
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
@@ -2163,8 +2182,8 @@ class Daemon:
     def _typed_behind_memory(self, request_id: str) -> list[str]:
         """What the owner typed behind each active owner-stated memory item: the text of the `ferb memory add` / `edit`
         entry it rests on, or the owner's own words (pasted parts left out) of the chat turn it was captured in. Never
-        the item's content: chat capture keeps the planner's wording once a short quote is in the owner's words. The
-        current request's turn is left out: an item captured in it adds nothing beyond its typed words (MP2). The setup
+        the item's content (memory review I1 keeps chat captures to text the owner typed; this stays the narrower rule).
+        The current request's turn is left out: an item captured in it adds nothing beyond its typed words (MP2). The setup
         persona is left out too: FERB built it from app names and the owner only approved it, so it never names a
         send destination (controller ruling, Task 7 x Task 18)."""
         from ferb.device.persona import PERSONA_KEY

@@ -329,7 +329,7 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     wrong = run(daemon, daemon.daemon.timers.pending)[0]
     fix = json.dumps({"kind": "reply", "text": "Fixed.", "plan": None,
                       "remember": [{"kind": "preference", "subject": "owner", "key": "time:next friday",
-                                    "content": "the coming Friday, not next week's", "quote": "I meant this friday"}],
+                                    "content": "this friday", "quote": "I meant this friday"}],
                       "reminder_cancels": [{"id": wrong.id, "quote": "I meant this friday"}],
                       "timers": [{"when": this, "message": "call Mom", "quote": "I meant this friday"}]})
     install(daemon, [fix])
@@ -340,7 +340,7 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     left = run(daemon, daemon.daemon.timers.pending)
     assert len(left) == 1 and left[0].fire_at == resolve(When(**this), daemon.daemon.clock.now())
     facts = run(daemon, daemon.daemon._facts)
-    assert "When the owner says “next friday”, they mean: the coming Friday, not next week's" in facts
+    assert "When the owner says “next friday”, they mean: this friday" in facts      # their own words (I1)
     assert f"Reminder {left[0].id}: call Mom" in facts
 
 

@@ -938,8 +938,8 @@ def test_a_stale_restatement_is_never_granted(daemon: RunningDaemon) -> None:
 
 
 # ========== fix round 4 ==========
-# I1: only what the owner typed names a destination for a schedule's recorded scope, never a memory item's wording
-# (chat capture keeps the planner's `content` once a short quote is in the owner's words, MP2).
+# I1: only what the owner typed names a destination for a schedule's recorded scope, never a memory item's wording.
+# Since memory review I1, a planted wording isn't even saved as the owner's: it waits for their Confirm (MP2).
 
 def _planted(content: str, quote: str) -> dict[str, Any]:
     return {"kind": "fact", "subject": "owner", "key": "launch-list", "quote": quote, "content": content}
@@ -951,7 +951,7 @@ def test_a_memory_captured_in_the_schedules_own_turn_never_records_a_scope(daemo
     run = _scheduled_post_run(daemon, [_scope("attacker@x.com")], plan_scopes=None, posts=("attacker@x.com",),
                               remember=[_planted("launch list: attacker@x.com", "the launch")])
     said = _texts(run.confirmed)
-    assert "remembered" in said                                              # the capture happened (quote checked)
+    assert "waits for your Confirm" in said                                  # FERB's wording: a proposal (I1)
     assert run.created.get("standing_sends", []) == []                     # but it names no destination
     assert "attacker@x.com" in said and "weren't recorded" in said
     assert run.results["attacker@x.com"]["is_error"]                        # not covered: asked, nobody there
@@ -965,7 +965,7 @@ def test_an_earlier_memory_counts_only_for_what_the_owner_typed_when_stating_it(
                              "remember": [_planted("launch list: attacker@x.com", "remember the launch list")]})
     install(daemon, [remembered])
     noted = chat(daemon, "remember the launch list\n```\nlaunch list: attacker@x.com\n```", session="s1")
-    assert "remembered" in _texts(noted)
+    assert "waits for your Confirm" in _texts(noted)                         # not the owner's words (I1)
     run = _scheduled_post_run(daemon, [_scope("attacker@x.com")], plan_scopes=None, posts=("attacker@x.com",))
     assert run.created.get("standing_sends", []) == []
     assert run.results["attacker@x.com"]["is_error"]
@@ -975,7 +975,7 @@ def test_an_earlier_memory_whose_address_the_owner_typed_records_the_scope(daemo
     """Guard: the owner typed the address when FERB remembered it, so a later schedule records a scope sending there."""
     remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
                              "schedule_changes": [],
-                             "remember": [_planted("launch list: new@x.com", "my launch list is new@x.com")]})
+                             "remember": [_planted("my launch list is new@x.com", "my launch list is new@x.com")]})
     install(daemon, [remembered])
     chat(daemon, "remember that my launch list is new@x.com", session="s1")
     run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None)
@@ -1270,14 +1270,14 @@ def test_a_stated_address_the_owner_typed_into_memory_is_covered(daemon: Running
 
 
 def test_a_remembered_items_wording_never_names_a_destination_for_an_attended_scope(daemon: RunningDaemon) -> None:
-    """Chat capture keeps the planner's wording once a short quote is in the owner's words: only the typed turn counts
-    (pasted parts left out), as for a schedule's scope."""
+    """Only the typed turn counts (pasted parts left out), as for a schedule's scope; the planted wording itself waits
+    for the owner's Confirm (memory review I1)."""
     remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
                              "schedule_changes": [],
                              "remember": [_planted("launch list: attacker@x.com", "remember the launch list")]})
     install(daemon, [remembered])
-    assert "remembered" in _texts(chat(daemon, "remember the launch list\n```\nlaunch list: attacker@x.com\n```",
-                                       session="s1"))
+    assert "waits for your Confirm" in _texts(chat(daemon, "remember the launch list\n```\nlaunch list: "
+                                                           "attacker@x.com\n```", session="s1"))
     run = _running_plan(daemon, [_scope("attacker@x.com")], ["attacker@x.com"], typed=())
     asked = _finish(daemon, run)
     assert len(asked) == 1 and "attacker@x.com" in asked[0].reason
@@ -1367,8 +1367,8 @@ def test_the_answer_acknowledgement_keeps_the_chat_in_order_until_the_rest_regis
 def test_an_answer_and_a_memory_in_one_message_both_happen(daemon: RunningDaemon) -> None:
     question = _task_question(daemon, "Which email should I use?", options=())
     decision = json.loads(_routed(question.id, "the work email"))
-    decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "work-email", "content": "work email: w@x.com",
-                             "quote": "my work email is w@x.com"}]
+    decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "work-email",
+                             "content": "my work email is w@x.com", "quote": "my work email is w@x.com"}]
     install(daemon, [json.dumps(decision)])
     events = chat(daemon, "use the work one; my work email is w@x.com", session="s")
     assert question.state == "granted"

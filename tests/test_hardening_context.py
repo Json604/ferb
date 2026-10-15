@@ -59,7 +59,7 @@ def test_pasted_syllabus_reaches_worker_and_checker_as_data(daemon):
 
 def test_checker_receives_successful_intake_memory_receipt(daemon):
     receipt = "remembered (memory-study-123): The current syllabus is https://example.test/syllabus."
-    daemon.daemon.supervisor.remember = lambda *_: [receipt]
+    daemon.daemon.supervisor.remember = lambda *_: [{"receipt": receipt, "line": "Remembered: the syllabus link"}]
     planned = json.loads(sup("task", "Preparing", task(conds=(cond("Syllabus link is stored durably"),))))
     # the planner asked to remember the link (each item goes to the memory hook on its own, L11)
     planned["remember"] = [{"kind": "fact", "subject": "owner", "key": "syllabus", "quote": "Remember "

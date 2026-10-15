@@ -440,7 +440,7 @@ def test_a_reply_turn_names_what_was_set_and_saved_in_code_built_lines(daemon: R
     """The planner doesn't confirm side outputs itself (it can't know yet); code adds what happened."""
     said = 'remind me in 10 minutes to call Mom, and remember that my dentist is Dr. Rao'
     install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'display_text': 'Okay.', 'remember': [
-        {'kind': 'person', 'subject': 'owner', 'key': 'dentist', 'content': 'Your dentist is Dr. Rao',
+        {'kind': 'person', 'subject': 'owner', 'key': 'dentist', 'content': 'my dentist is Dr. Rao',
          'quote': 'my dentist is Dr. Rao'}], 'timers': [
         {'when': _in_minutes(10), 'message': 'call Mom', 'quote': 'remind me in 10 minutes to call Mom'}]})])
     events = chat(daemon, said)
@@ -450,7 +450,7 @@ def test_a_reply_turn_names_what_was_set_and_saved_in_code_built_lines(daemon: R
         lines = reply[field].split('\n')
         assert lines[0] == 'Okay.'
         assert f'⏰ Reminder set for {at:%a %d %b %H:%M}: call Mom' in lines
-        assert 'Remembered: Your dentist is Dr. Rao' in lines
+        assert 'Remembered: my dentist is Dr. Rao' in lines           # the owner's words, as saved (I1)
     assert [e['type'] for e in events if e['type'] in ('memory', 'timer')] == ['memory', 'timer']   # still sent
 
 
