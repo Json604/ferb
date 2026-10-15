@@ -130,7 +130,9 @@ class Consolidator:
                 done = await self._consolidate(members, force, results)
                 if not done:
                     return {'status': 'busy', 'sources': results}
-            self.rollups()
+            if not self.idle():                      # I4: never once a task has started
+                return {'status': 'busy', 'sources': results}
+            await self._rollups_off_loop()
             if l.embedder is not None:
                 from ferb.memory.embeddings import index_async
                 try:
@@ -270,16 +272,42 @@ class Consolidator:
         l.publish('memory.consolidated', {'batch': batch, 'accepted': accepted, 'refused': refused})
         return accepted, refused
 
-    def rollups(self) -> None:
+    async def _rollups_off_loop(self) -> None:
+        """The rollups (I4) in a worker thread on a connection of their own, never on the event loop; they stop between
+        days once a task starts. What they publish is published on the loop afterwards."""
         l = self.learning
+        events: list[tuple[Any, ...]] = []
+
+        def work() -> None:
+            from ferb.store.db import Database
+            db = Database(l.db.path)
+            try:
+                own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id)
+                self.rollups(own, stop=lambda: not self.idle())
+            finally:
+                db.close()
+        await asyncio.to_thread(work)
+        for event in events:
+            l.publish(*event)
+
+    def rollups(self, learning: Learning | None = None, stop: Callable[[], bool] = lambda: False) -> None:
+        """Index each day summary and narrative, roll episode cards up by day, week, month and year, and summarize facts
+        by entity. A day summary is indexed again only when its journal row changed (a rebuilt summary has a new one),
+        so a pass builds only new days (I4)."""
+        l = learning or self.learning
         groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
         from ferb.memory.summary import SUMMARY_KIND, NARRATIVE_KIND, build
         for row in l.db.conn.execute('SELECT id,kind,data_json FROM journal WHERE kind IN (?,?)',
-                                     (SUMMARY_KIND, NARRATIVE_KIND)):
+                                     (SUMMARY_KIND, NARRATIVE_KIND)).fetchall():
             data = json.loads(row['data_json'])
             day = data.get('day')
-            if not day:
-                continue
+            if not day or l.db.conn.execute(
+                    "SELECT 1 FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id WHERE n.kind = "
+                    "'activity_summary' AND n.key = ? AND n.valid_to IS NULL AND s.source_ref = ?",
+                    (row['kind'] + ':' + day, 'journal:' + row['id'])).fetchone():
+                continue                             # indexed from this very row already
+            if stop():
+                return
             raw_refs = {kind + ':' + ident for refs in build(l.db, day).handles.values() for kind, ident in refs}
             try:
                 l.put('activity_summary', row['kind'] + ':' + day, data, [

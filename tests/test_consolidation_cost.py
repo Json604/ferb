@@ -166,3 +166,50 @@ def test_the_consolidator_is_shown_only_the_groups_procedures(learning) -> None:
     rt = FakeDistillRuntime(EMPTY)
     asyncio.run(consolidator(learning, rt).catch_up())
     assert shown(rt, mail["id"]) == 1 and "open pages" not in json.dumps(rt.contexts)
+
+
+# ---------- I4: the day rollups never run on the event loop, nor once a task started ----------
+
+def _summary_day(store: Learning, day: str) -> None:
+    store.db.conn.execute("INSERT INTO journal (id, at, kind, data_json) VALUES (?, ?, 'trail.day_summary', ?)",
+                          ("sum-" + day, day + "T23:00:00+00:00", json.dumps({"day": day, "made_by": "code:summary/1"})))
+
+
+def test_rollups_run_in_a_worker_thread_and_only_for_days_that_changed(learning, monkeypatch) -> None:
+    """Review I4: rollups() rebuilt every summarized day on the event loop every pass (8.5 s for 30 days, 23 s for 90
+    on synthetic data), even after a task had started."""
+    import threading
+    from ferb.memory import summary
+    for day in ("2026-10-01", "2026-10-02"):
+        _summary_day(learning, day)
+    built: list[tuple[str, str]] = []
+    real = summary.build
+
+    def counted(db: Any, day: str) -> Any:
+        built.append((day, threading.current_thread().name))
+        return real(db, day)
+    monkeypatch.setattr(summary, "build", counted)
+    sleep = consolidator(learning, FakeDistillRuntime(EMPTY))
+
+    async def run_pass() -> str:
+        await sleep.catch_up()
+        return threading.current_thread().name
+    loop_thread = asyncio.run(run_pass())
+    assert sorted(day for day, _ in built) == ["2026-10-01", "2026-10-02"]
+    assert all(thread != loop_thread for _, thread in built)
+    assert {n["key"] for n in learning.items("activity_summary")} == {"trail.day_summary:2026-10-01",
+                                                                      "trail.day_summary:2026-10-02"}
+    asyncio.run(sleep.catch_up())                                       # nothing changed: no day is built again
+    assert len(built) == 2
+
+
+def test_rollups_never_start_once_a_task_has_started(learning, monkeypatch) -> None:
+    from ferb.memory import summary
+    _summary_day(learning, "2026-10-01")
+    card(learning, "a")
+    built: list[str] = []
+    monkeypatch.setattr(summary, "build", lambda db, day: built.append(day))
+    checks = iter([True, True])                    # idle at the start and before the model call, then a task starts
+    sleep = consolidator(learning, FakeDistillRuntime(EMPTY), idle=lambda: next(checks, False))
+    asyncio.run(sleep.catch_up())
+    assert built == []
