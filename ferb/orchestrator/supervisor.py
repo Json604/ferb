@@ -375,6 +375,8 @@ class Supervisor(WorkerRuns):
         self.memory_candidates: Callable[[str], Any] | None = None      # ranked items, or an awaitable of them
         self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
         self.procedure_source: Callable[[str], dict[str, Any]] = lambda ident: {}
+        # why a planner's procedure_id can't be used (not stored, not a procedure, not current), or None (I5)
+        self.procedure_problem: Callable[[str], str | None] = lambda ident: None
         self.identity_context: Callable[[], str] = lambda: ''
         self.on_episode: Callable[[str], Any] = lambda task_id: None      # may return an awaitable
         self.procedure_outcome: Callable[[str, str], None] = lambda procedure_id, task_id: None
@@ -1672,6 +1674,9 @@ class Supervisor(WorkerRuns):
                 known.record(kind, value, "named", request_id=request_id)
         # The worker sees the whole request payload in a protected block: derived labels inherit its origins (MP2).
         self.spans.set_origin(root_span.id, origins_.join(origins or {origins_.external("unlabeled")}))
+        if spec.procedure_id and (why := self.procedure_problem(spec.procedure_id)):
+            # I5: a procedure id that isn't a usable procedure is noted and left out; the task runs without the hint
+            self._ignore_procedure(tree, root_span.id, why)
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
@@ -2474,12 +2479,15 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock('Layer 6 — current plan step and handed results (data):\n' +
                          wrap_untrusted(tree.step_context), 'task.evidence', protected=True))
         if spec.procedure_id:
-            source = self.procedure_source(spec.procedure_id)
-            labels = set(source.get('origins', ())) | {origins_.external('procedure')}
-            block = self._source_block(tree, PROCEDURE_LABEL,
-                                       self.procedure_details(spec.procedure_id, tree.worker), origins_.join(labels),
-                                       tuple([spec.procedure_id, *source.get('sources', ())]))
-            parts.append(block)
+            try:
+                source = self.procedure_source(spec.procedure_id)
+                details = self.procedure_details(spec.procedure_id, tree.worker)
+            except Exception as exc:          # forgotten or rolled back since the plan (I5): run without it
+                self._ignore_procedure(tree, None, f"{type(exc).__name__}: {exc}")
+            else:
+                labels = set(source.get('origins', ())) | {origins_.external('procedure')}
+                parts.append(self._source_block(tree, PROCEDURE_LABEL, details, origins_.join(labels),
+                                                tuple([spec.procedure_id, *source.get('sources', ())])))
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
@@ -2503,6 +2511,13 @@ class Supervisor(WorkerRuns):
                                       'reopened that No, so FERB asks it again if it comes up):\n' +
                                       json.dumps(confirmations), 'task.evidence', protected=True))
         return parts
+
+    def _ignore_procedure(self, tree: _Tree, parent: str | None, why: str) -> None:
+        """A selected procedure that can't be used: a note in the task's trace, and the task goes on without it (I5)."""
+        note = self.spans.start("procedure.ignored", task_id=tree.id, parent_id=parent,
+                                input={"procedure_id": tree.spec.procedure_id})
+        self.spans.finish(note, output={"why": why})
+        tree.spec.procedure_id = None
 
     def _saved_plan(self, tree_id: str) -> dict[str, Any]:
         """This task's saved plan and its step states, when it has one."""

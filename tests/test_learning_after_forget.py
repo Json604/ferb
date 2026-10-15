@@ -107,3 +107,35 @@ def test_card_capture_continues_after_the_30_day_trail_purge(daemon: RunningDaem
     _on_loop(daemon, lambda: d.db.conn.execute("DELETE FROM trail WHERE id=?", (tid,)))   # what the purge does
     task_id = _run_task(daemon, "check the gate number")
     assert _card(daemon, task_id) is not None and not _episode_rows(daemon), _episode_rows(daemon)
+
+
+# ---------- I5: a procedure id that isn't a current procedure never fails the task ----------
+
+def _plan_with_procedure(d: RunningDaemon, procedure_id: str) -> dict[str, Any]:
+    spec = task("check the gate number")
+    spec["procedure_id"] = procedure_id
+    install(d, [sup("task", "Checking.", spec)], {"worker": done("Gate B12.")})
+    return outcome(chat(d, "check the gate number", session="gate"))
+
+
+def _ignored(d: RunningDaemon) -> list[Any]:
+    return _on_loop(d, lambda: [(json.loads(r[0]), json.loads(r[1] or "{}")) for r in d.daemon.db.conn.execute(
+        "SELECT input_json, output_json FROM spans WHERE kind='procedure.ignored'")])
+
+
+def test_a_planner_procedure_id_that_is_an_episode_is_ignored_and_the_task_runs(daemon: RunningDaemon) -> None:
+    """Probe P4b: an episode's id as procedure_id failed the whole task ("LearningRefused: not a procedure")."""
+    lr = daemon.daemon.learning
+    node = _on_loop(daemon, lambda: lr.put("episode", "old-task", {"task_id": "old-task", "verified": True,
+                                                                   "actions": []}, [], origin_label="ferb",
+                                           made_by="code:evidence-card/2", state="active"))
+    final = _plan_with_procedure(daemon, node["id"])
+    assert final["status"] == "done"
+    assert not _on_loop(daemon, lambda: daemon.daemon.journal.of_kind("task.execution_failed"))
+    [(inp, out)] = _ignored(daemon)
+    assert inp["procedure_id"] == node["id"] and "not a procedure" in out["why"]
+
+
+def test_an_unknown_procedure_id_is_ignored_and_the_task_runs(daemon: RunningDaemon) -> None:
+    final = _plan_with_procedure(daemon, "m-" + "0" * 64)
+    assert final["status"] == "done" and len(_ignored(daemon)) == 1

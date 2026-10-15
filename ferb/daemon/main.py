@@ -1175,6 +1175,7 @@ class Daemon:
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
             self.supervisor.procedure_source = lambda ident: self.learning.get(ident) or {}
+            self.supervisor.procedure_problem = self._procedure_problem
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
@@ -1280,6 +1281,18 @@ class Daemon:
         for proc in list(self._card_readers):
             if proc.returncode is None:
                 proc.kill()
+
+    def _procedure_problem(self, ident: str) -> str | None:
+        """Why the planner's procedure_id can't be used, or None (I5): it must name a current procedure the owner
+        hasn't turned down, rolled back or left quarantined."""
+        node = self.learning.get(ident) if self.learning is not None else None
+        if node is None:
+            return "no stored item has this id"
+        if node["kind"] != "procedure":
+            return f"a {node['kind']}, not a procedure"
+        if node["valid_to"] or node["state"] in ("retired", "rolled_back", "quarantined"):
+            return f"not a current procedure ({'superseded' if node['valid_to'] else node['state']})"
+        return None
 
     def _procedure_outcome(self, procedure_id: str, task_id: str) -> None:
         if self.learning is None:
