@@ -119,6 +119,9 @@ class Consolidator:
                     return {'status': 'busy'}
                 try:
                     await self.capture(task_id)
+                    if not l.db.conn.execute('SELECT 1 FROM learning_card_inputs WHERE task_id=?', (task_id,)).fetchone():
+                        # read without a card to write (nothing to learn from): not read again until it changes
+                        l.card_read(task_id, l.card_inputs(task_id).get(task_id, ''))
                 except LearningRefused as e:         # waits for its inputs to change (or `force`)
                     l.card_read(task_id, l.card_inputs(task_id).get(task_id, ''), l.redact(str(e)) or 'refused')
                 except Deferred:                     # FERB is stopping: the next start's pass reads the rest
