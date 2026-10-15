@@ -43,8 +43,39 @@ def test_verified_threshold_slots_and_current_version(learning):
     a, b, c = [card(learning, str(i), slot=s) for i, s in enumerate(('a', 'b', 'a'))]
     p = procedure(learning, [a, b, c])
     assert learning.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'learned'
-    assert learning.procedure(p['id'], {'com.apple.mail': '2'})['state'] == 'suspect'
+    # review M6: an app update alone sends it back to candidate (re-verified on the new version), never suspect for good
+    assert learning.procedure(p['id'], {'com.apple.mail': '2'})['state'] == 'candidate'
+    assert learning.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'learned'
+    newer = card(learning, 'on-2', slot='c', version='2')                    # a success on the updated app
+    learning.receipt(p['id'], newer['id'], {'recipient': 'c'})
+    assert learning.procedure(p['id'], {'com.apple.mail': '2'})['state'] == 'learned'
+
+
+def test_only_failures_make_a_procedure_suspect(learning):
+    a, b, c = [card(learning, str(i), slot=s) for i, s in enumerate(('a', 'b', 'a'))]
+    p = procedure(learning, [a, b, c])
+    for n in range(2):
+        learning.receipt(p['id'], card(learning, f'f{n}', verified=False)['id'])
     assert learning.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'suspect'
+
+
+def test_two_slot_values_are_two_real_values(learning):
+    """Review M1 (probe P3): a run's receipt carries no slot values ({}), and it counted as a second slot value, so one
+    real value plus two runs made a procedure learned."""
+    first = card(learning, 't1', slot='a@x')
+    p = procedure(learning, [first])
+    for t in ('t2', 't3'):
+        learning.receipt(p['id'], card(learning, t, slot='a@x')['id'], {})      # as a run records it: no slots
+    state = learning.procedure(p['id'], {'com.apple.mail': '1'})
+    assert state['state'] == 'candidate' and state['counters']['slot_variants'] == 1
+
+
+def test_a_receipt_for_something_that_is_not_a_procedure_writes_nothing(learning):
+    """Review M7: receipt() inserted its row before checking that the id named a procedure."""
+    a, b = card(learning, 'a'), card(learning, 'b')
+    with pytest.raises(LearningRefused):
+        learning.receipt(a['id'], b['id'])
+    assert learning.db.conn.execute('SELECT COUNT(*) FROM learning_receipts').fetchone()[0] == 0
 
 
 def test_unverified_episode_never_credited(learning):

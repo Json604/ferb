@@ -470,7 +470,7 @@ class Learning:
 
     def receipt(self, procedure_id: str, episode_id: str, slots: dict[str, Any] | None = None) -> None:
         p, ep = self.get(procedure_id), self.get(episode_id)
-        if not p or not ep or ep['kind'] != 'episode':
+        if not p or not ep or p['kind'] != 'procedure' or ep['kind'] != 'episode':   # checked before writing (M7)
             raise LearningRefused('missing procedure/episode')
         # The owner's latest verdict counts even when the card couldn't be refreshed after it (a replayed receipt).
         last = self.db.conn.execute('SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1',
@@ -496,22 +496,27 @@ class Learning:
         rows = list(unique.values())
         ok = [r for r in rows if r['successful']]
         expected = p['body'].get('preconditions', {}).get('apps', {})
+        declared = set(p['body'].get('slots') or {})
+        # M1: a slot value counts only when it supplies the procedure's slots; a run's receipt without values doesn't
+        variants = {r['slots_json'] for r in ok if declared and declared <= set(json.loads(r['slots_json']) or {})}
         latest = self.get(ok[-1]['episode_id']) if ok else None
         latest_apps = latest['body'].get('apps', {}) if latest else {}
+        # M6: "current" is the versions installed now when known: an update sends a learned procedure back to
+        # candidate until it succeeds on the new version; it never makes it suspect by itself
+        current = {k: (apps or {}).get(k, v) for k, v in expected.items()}
         matches = 'unknown' not in latest_apps.values() and bool(latest and latest['body'].get('app_versions_captured', True)) and all(
-            latest_apps.get(k) == v for k, v in expected.items())
-        changed = apps is not None and any(apps.get(k) != v for k, v in expected.items())
+            latest_apps.get(k) == v for k, v in current.items())
         consecutive_failures = len(rows) >= 2 and not rows[-1]['successful'] and not rows[-2]['successful']
         state = p['state']
         if state not in ('retired', 'rolled_back', 'quarantined'):
-            if changed or consecutive_failures:
+            if consecutive_failures:                 # only a procedure that actually failed is suspect (M6)
                 state = 'suspect'
             elif state != 'suspect':
-                state = 'learned' if len(ok) >= 3 and len({r['slots_json'] for r in ok}) >= 2 and matches else 'candidate'
+                state = 'learned' if len(ok) >= 3 and len(variants) >= 2 and matches else 'candidate'
         self.db.conn.execute('UPDATE learning_nodes SET state=? WHERE id=?', (state, node_id))
         p['state'] = state
         p['counters'] = {'verified_successes': len(ok), 'failures': len(rows) - len(ok),
-                         'slot_variants': len({r['slots_json'] for r in ok})}
+                         'slot_variants': len(variants)}
         return p
 
     def procedure(self, node_id: str, apps: dict[str, str]) -> dict[str, Any]:

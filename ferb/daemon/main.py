@@ -1471,9 +1471,14 @@ class Daemon:
         if op == "embedding":
             from ferb.memory import embeddings
             action = str(params.get("action", "status"))
+            missing = embeddings.extra_missing()
             if action == "status":
-                return {"active": getattr(l.embedder, "name", None), "evaluations": [dict(r) for r in
-                    self.db.conn.execute("SELECT * FROM learning_embedding_evals ORDER BY at")]}
+                return {"active": getattr(l.embedder, "name", None), "available": missing is None,
+                        "evaluations": [dict(r) for r in
+                                        self.db.conn.execute("SELECT * FROM learning_embedding_evals ORDER BY at")]}
+            if missing is not None:                      # found before any download (M8)
+                raise LearningRefused(f"local embeddings need FERB's optional memory extra ({missing}), which this "
+                                      "install doesn't have; nothing was downloaded")
             manifest_path = Path(str(params["manifest"]))
             data = embeddings.manifest(manifest_path)
             root = self.home / "models" / "embeddings" / embeddings.digest(data)
@@ -1658,9 +1663,9 @@ class Daemon:
         if self.learning.embedder is not None:
             return
         config = self.home / "memory-embedding.json"
-        if not config.is_file():
+        from ferb.memory.embeddings import LocalMLX, extra_missing
+        if not config.is_file() or extra_missing() is not None:     # keyword ranking only (status says why)
             return
-        from ferb.memory.embeddings import LocalMLX
         value = json.loads(config.read_text())
         adopted = self.db.conn.execute("SELECT 1 FROM learning_embedding_evals WHERE model=? AND adopted=1",
                                        (value["model"],)).fetchone()

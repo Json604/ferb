@@ -55,6 +55,13 @@ def verify(root: Path, data: dict[str, Any]) -> None:
                 raise ValueError('model file hash mismatch: ' + name)
 
 
+def extra_missing() -> str | None:
+    """The optional `memory` extra's module a local embedding model needs, when this install lacks it (the packaged
+    app doesn't bundle it): checked before anything is downloaded (review M8). sqlite-vec has a Python fallback."""
+    import importlib.util
+    return None if importlib.util.find_spec("mlx_embeddings") is not None else "mlx_embeddings"
+
+
 def download(root: Path, data: dict[str, Any], fetch: Callable[..., Any] = urlopen) -> None:
     root.parent.mkdir(parents=True, exist_ok=True)
     if root.exists():
