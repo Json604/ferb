@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator, TextIO
 import ferb
 from ferb.act.browser import autoinstall, profiles
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+from ferb.cli import tokenizer
 from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
@@ -51,6 +52,7 @@ class Env:
     persona_usage: Callable[[list[Any]], list[dict[str, Any]]] = app_usage
     browser_support: Path | None = None      # ~/Library/Application Support (the CLI's); None: no browser step
     run: Callable[..., Any] = subprocess.run  # FERB.app's build, signature and permission request (tests replace it)
+    tokenizer: Callable[[Path], str] = tokenizer.ensure   # FERB's own pinned tokenizer copy (fix wave 3, 8a)
 
     def say(self, line: str = "") -> None:
         print(line, file=self.out, flush=True)
@@ -162,6 +164,7 @@ def setup(env: Env, update: bool = False) -> int:
     if update:
         env.say(f"Updating FERB from {inst.bundle} and restarting the daemon…" if inst.bundle else
                 "Updating FERB in its venv and restarting the daemon…")
+        env.say(env.tokenizer(inst.home))          # before the restart: the new daemon counts tokens with it
         _install(env, update=True)
         client = wait_for_daemon(env)
         config = Config(inst.home)
@@ -200,6 +203,7 @@ def setup(env: Env, update: bool = False) -> int:
         env.say(f"1/4  Setting up FERB's background service from {inst.bundle}…")
     else:
         env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
+    env.say("     " + env.tokenizer(inst.home))
     _install(env, update=False)
     client = wait_for_daemon(env)
     binary = inst.grant_target()
@@ -620,6 +624,12 @@ def doctor(env: Env) -> int:
                       ("FERB.app not connected" if not voice.get("connected") else
                        f"microphone: {perms.get('microphone')}, speech: {perms.get('speech')}"),
                       "" if ok else "run `ferb setup --voice`"))
+        if "tokenizer" in report:                  # how the daemon counts tokens (its budgets depend on it)
+            exact = str(report["tokenizer"]).startswith("o200k")
+            add(Check("tokenizer", "ok" if exact else "warn",
+                      "o200k_base, pinned copy verified" if exact else
+                      "missing: token counts (the planner's budget) use a byte ceiling",
+                      "" if exact else "run `ferb setup --update`"))
         rs = report.get("runtimes", {})
         for name in ("codex", "claude"):
             if name in rs:

@@ -3,7 +3,9 @@
 Budget complete context blocks and expose omissions; never shorten requests or generated artifacts.
 
 Counts use the cached o200k_base tokenizer as an estimate, not a claim about every provider's tokenizer.
-Loading is local only. A missing tokenizer/cache uses a conservative UTF-8 byte ceiling and says so."""
+Loading is local only: FERB's own pinned copy under its home (`tokenizer_path`, put there by `ferb setup`), else a
+tiktoken cache, each checked against the pinned SHA-256. macOS cleans the temporary folder, so FERB never relies on
+it alone. A missing tokenizer uses a conservative UTF-8 byte ceiling and says so (`token_method`, `ferb doctor`)."""
 
 import base64
 import hashlib
@@ -28,15 +30,45 @@ _PATTERN = "|".join([
 ])
 
 
+TOKENIZER_URL, TOKENIZER_SHA256 = _ENCODING_URL, _ENCODING_SHA256
+
+
+def tokenizer_path(home: Path | None = None) -> Path:
+    """FERB's own pinned copy of the o200k_base ranks, under FERB's home ($FERB_HOME or ~/.ferb), never in temp."""
+    return (home or Path(os.environ.get("FERB_HOME", Path.home() / ".ferb"))) / "cache" / "tokenizer" / \
+        "o200k_base.tiktoken"
+
+
+def tokenizer_sources() -> list[Path]:
+    """Where a copy may be, in order: FERB's own, then tiktoken's cache (its environment variable, else temp)."""
+    name = hashlib.sha1(_ENCODING_URL.encode()).hexdigest()
+    caches = [os.environ.get(v) for v in ("TIKTOKEN_CACHE_DIR", "DATA_GYM_CACHE_DIR")]
+    return [tokenizer_path(), *(Path(c) / name for c in caches if c), Path(tempfile.gettempdir()) / "data-gym-cache" / name]
+
+
+def verified_tokenizer() -> bytes | None:
+    """The first copy whose bytes match the pinned SHA-256, or None."""
+    for path in tokenizer_sources():
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        if hashlib.sha256(data).hexdigest() == _ENCODING_SHA256:
+            return data
+    return None
+
+
+def reload_tokenizer() -> None:
+    """Look for the tokenizer again (after `ferb setup` put FERB's copy in place)."""
+    _encoding.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def _encoding() -> Any:
     try:
         import tiktoken
-        directory = os.environ.get("TIKTOKEN_CACHE_DIR", os.environ.get("DATA_GYM_CACHE_DIR",
-                                    str(Path(tempfile.gettempdir()) / "data-gym-cache")))
-        path = Path(directory) / hashlib.sha1(_ENCODING_URL.encode()).hexdigest()
-        data = path.read_bytes()
-        if hashlib.sha256(data).hexdigest() != _ENCODING_SHA256:
+        data = verified_tokenizer()
+        if data is None:
             return None
         ranks = {base64.b64decode(token): int(rank) for token, rank in
                  (line.split() for line in data.splitlines() if line)}

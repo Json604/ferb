@@ -3510,6 +3510,8 @@ class Daemon:
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,
                         "permissions": self.voice.permissions if self.voice is not None else {}}
+        from ferb.core.context import token_method
+        out["tokenizer"] = token_method()                 # FERB's pinned o200k copy, or the byte ceiling (8a)
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.state.stopped})

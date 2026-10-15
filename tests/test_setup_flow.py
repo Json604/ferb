@@ -29,6 +29,7 @@ class FakeDaemon:
         self.hearing = {"installed": True, "signed": True, "speech": "granted", "on_device": True, "locale": "en-US"}
         self.clipboard = "allow"         # macOS lets the daemon read the clipboard without asking (I3)
         self.clipboard_requests = 0
+        self.tokenizer = "o200k_base_chunked8192_estimate_provider_may_differ"   # how the daemon counts tokens (8a)
 
     def client(self) -> "FakeClient":
         return FakeClient(self)
@@ -52,7 +53,7 @@ class FakeClient:
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid,
                     "hearing": dict(self.d.hearing) if probe else {"installed": self.d.hearing["installed"]},
-                    "clipboard": self.d.clipboard,
+                    "clipboard": self.d.clipboard, "tokenizer": self.d.tokenizer,
                     "containment": {"sandbox_exec": True, "profile_ok": True, "reason": "ok", "shell": True,
                                     "shell_reason": "ok", "proxy": True, "proxy_alive": True, "snapshots": False}}
         if method == "clipboard.request":            # macOS shows its alert once; the owner then sets Allow
@@ -643,3 +644,25 @@ def test_doctor_says_how_to_let_ferb_read_the_clipboard(world: dict[str, Any]) -
         assert line in text, (state, text)
         if state != "allow":
             assert "Paste from Other Apps" in text
+
+
+# ---------- fix wave 3, 8a: FERB's own pinned tokenizer copy ----------
+
+def test_doctor_says_when_token_counts_fall_back_to_a_byte_ceiling(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    for method, line in (("o200k_base_chunked8192_estimate_provider_may_differ", "✓ tokenizer"),
+                         ("utf8_byte_ceiling_tokenizer_unavailable", "! tokenizer")):
+        world["daemon"].tokenizer = method
+        env, out = make_env(world, [])
+        S.doctor(env)
+        assert line in out.getvalue(), out.getvalue()
+    assert "ferb setup --update" in out.getvalue()
+
+
+def test_setup_puts_ferbs_tokenizer_in_place_before_the_daemon_restarts(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    env, out = make_env(world, [])
+    said: list[Path] = []
+    env.tokenizer = lambda home: (said.append(home), "Tokenizer: FERB's pinned copy is in place.")[1]
+    assert S.setup(env, update=True) == 0
+    assert said == [world["home"]] and "Tokenizer: FERB's pinned copy is in place." in out.getvalue()

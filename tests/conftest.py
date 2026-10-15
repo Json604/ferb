@@ -141,6 +141,18 @@ def network_route(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
+def offline_tokenizer(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests never download the tokenizer: `ferb setup` copies a verified one already on this Mac, or says it
+    isn't available."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.cli.tokenizer as tokenizer
+
+        def offline(url: str) -> bytes:
+            raise OSError("offline test: no download")
+        monkeypatch.setattr(tokenizer, "_fetch", offline)
+
+
+@pytest.fixture(autouse=True)
 def offline_trash(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline tests never move anything into the owner's real Trash: FsTrash reaches it only through
     tests.support.trash.use_trash."""
