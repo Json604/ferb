@@ -1334,15 +1334,55 @@ a delivered event does not prove completion; silence in an old trace does not pr
 ### F8 derived memory and learning
 
 `memory/learning.py` adds immutable, deterministic derived records over existing permanent episodes and versioned
-facts. `learning_sources` is the transitive source graph; automatic retention keeps evidence cards, while explicit
-owner forgetting erases dependent records, FTS entries and vectors. Source-origin labels remain permanent.
+facts. `learning_sources` is the source graph, walked transitively at forget time (`descendants`); automatic retention
+keeps evidence cards, while explicit owner forgetting erases dependent records, FTS entries (FTS5 secure-delete,
+migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain permanent.
+- **Card lineage (fix wave 3, C1).** An episode card cites its task's direct sources only: `episode:<task>`, the
+  planner exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence
+  (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
+  source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
+  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/2`.
+- **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
+  (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
+  keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later
+  capture rebuilds it; a ref holding the redaction marker is skipped (`memory.episode_refs_damaged`); any other was
+  removed by retention, stays an edge and adds `{private, external:unlabeled}` (`memory.episode_refs_expired`). A
+  forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
+  keys.
+- **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated only content that appears word for word in the
+  owner's typed words (`items.contains_words`); FERB's rewording is an inferred proposal; a quote sharing no word with
+  the content is refused. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
+  "unconfirmed hint", `learning.shown_state`), reach prompts through `sync_facts`.
+- **Forget echoes (I2).** `memory/echoes.py`, after a forget's deletion: FERB's whole answer to a forgotten chat message;
+  in FERB's other rows (`chat.reply`, `chat.clarify`, `task.answer`, `task.outcome`) each line holding an item's or a
+  forgotten message's text word for word, or, in a row whose turn was given the item, a word of the item nothing left
+  holds; every span loses those lines and texts (`attention.scrub_spans`). Append-only journal rows are deleted and
+  written again with the same seq, id, time and origin. Running summaries that folded such a row go
+  (`forget_summaries`); a day narrative written from a forgotten chat message is deleted.
+- **Chat forget (I2).** The planner's `forget` output (item id and the owner's quote, checked with `contains_words`)
+  makes `Daemon._chat_forget` ask a `memory.forget` FERB check (Yes/No, in `FERB_CHECKS`) naming what goes; the Yes,
+  from chat (`Supervisor._answer` → `question_answered`) or the notch (`_resolve_approval`), runs the forget.
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
 
 `memory/consolidate.py` uses a no-tool runtime during idle periods, validates cited verified episodes and actual
 instantiated tool arguments, creates scoped failure/success lessons and pending identity proposals, and records
-per-source job completion. Code rollups cite their child cards. Task completion captures app versions; old episodes
+per-source job completion. Code rollups cite their child cards.
+- **Incremental (fix wave 3, I3).** A pass reads again only cards whose inputs changed (`Learning.cards_to_read`:
+  `learning_card_inputs` holds each card's input digest: composer, episode `built_at`/status/verified, latest verdict).
+  Pending episodes go to the model grouped by `card_shape` (tools and apps), one call per group with compact
+  `card_digest`s and that group's procedures and owner refusals, split by `_chunks` to fit `runtime_limits(rt)` (a card
+  too large for the window is never sent; its job says why). `learning_jobs.inputs` holds the group digest: a failed
+  job is retried when its group changes or on `ferb memory consolidate` (`catch_up(force=True)`); a failed distill day
+  waits for its summary row to change (`distill_runs.inputs`) or `ferb memory distill DAY`.
+- **Rollups off the loop (I4).** `_rollups_off_loop` runs `rollups` in a worker thread on its own `Database`
+  connection, never once a task has started, stopping between days; a day summary row already indexed is skipped.
+- **Owner refusals (M3).** `Learning.put` refuses a procedure, identity proposal or lesson whose key or text matches
+  one the owner retired. **Procedure state (M1, M6):** slot variants count only receipts that supply the declared
+  slots; "current" versions are the installed ones, so an update demotes to candidate, and only two consecutive
+  failures mark suspect. A planner `procedure_id` that isn't a current procedure becomes a `procedure.ignored` span
+  and the task runs without it (I5). Task completion captures app versions; old episodes
 retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load the selected procedure,
 keep owner-only identity in context and record procedure outcomes; none bypass gateway confirmations or checks.
 
@@ -1442,7 +1482,8 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   planner's reading; pasted text is never an answer. The rest of that turn (a control, a new task, memory, reminders,
   schedules) then runs as in any turn (`_carries_more`); when FERB asks "which one?", the whole message waits for the
   reply instead (final review M1).
-- FERB's checks (`FERB_CHECKS`: `ferb.confirm`, `ferb.retry` for P19, `conversation.approve` for F9) resolve only on a
+- FERB's checks (`FERB_CHECKS`: `ferb.confirm`, `ferb.retry` for P19, `conversation.approve` for F9, `memory.forget`
+  for a chat forget) resolve only on a
   plain Yes or No routed to that id that the planner's reading agrees with. A reply that could answer another open
   question, or the planner's own pending clarify, gets "Which one is it for?" (`_Focus` carries the earlier Yes).
 - `Daemon._hide_code_reply` turns a reply that is wholly a code into `[redacted]` while a question asks for a code,
@@ -1673,16 +1714,20 @@ protected FERB state (16.9).
   fall out; it never folds notices, cites what it folded, and is deleted when a folded entry is forgotten.
 - **Fetch only.** The raw last-10-minutes trail goes to no prompt; it is reached through `trail.query`.
 - **Speed.**
-  - A turn cites shown entries and tasks as `entry:`/`task:` handles, resolved when the episode card is captured.
+  - A turn cites shown entries and tasks as `entry:`/`task:` handles; an episode card cites none of them (F8 card
+    lineage).
   - `DailyActivity` keeps an in-memory term index: one indexed search per turn, off the loop.
   - The query embedding is encoded off the loop.
   - The planner snapshot and exposures are written after the plan line.
 - **Episode capture** runs after the outcome in a child process (`[sys.executable, "-I", "-m",
   "ferb.memory.card_reader"]`, request on stdin, the database derived from `FERB_HOME`). Writes are serialized
   (`_capture_card`) with a generation counter so a verdict given during a capture stays on the card. Shutdown cancels
-  pending captures (`memory.episode_deferred`) and kills readers. A ref damaged by old redaction is skipped and
-  journaled (`memory.episode_refs_damaged`); a replayed receipt respects the owner's fail verdict
-  (`memory.receipt_replayed`).
+  pending captures (`memory.episode_deferred`) and kills readers. Missing sources follow F8's rule (forgotten: no card;
+  damaged: skipped, `memory.episode_refs_damaged`; expired: kept); a replayed receipt respects the owner's fail
+  verdict (`memory.receipt_replayed`).
+- **Tokenizer.** Counts use FERB's own pinned o200k copy (`context.tokenizer_path`: `~/.ferb/cache/tokenizer`, put
+  there by `ferb setup` via `cli/tokenizer.ensure`), else tiktoken's cache, each checked against the pinned SHA-256;
+  `doctor.check.tokenizer` reports the method.
 - **Ids.** FERB's ids are protected by key (`Redactor.ident` for `task_id`, `span_id`, `session_id`, `run_token_id`,
   `request_id`, `covered`, `source_refs`, `procedure_id`, `approval_id`, `timer_id`): only a generated hex body is
   spared

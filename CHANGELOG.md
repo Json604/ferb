@@ -186,6 +186,31 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   looking at, and says plainly when it hears speech or music it can't identify (its hearing transcribes speech; it
   doesn't recognise music) instead of naming something the speaker mentioned.
 
+Fix wave 3 (2026-10-15, after the memory and learning review):
+- Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own
+  sources (your message, its tool results and evidence, the procedure it used), not every chat entry and task its
+  planner was shown. A forget leaves a tombstone (the ids it deleted, never their content): a card built on forgotten
+  content is never written or rebuilt; a source removed by retention stays a link of unknown content. One forget no
+  longer deletes the cards of unrelated tasks.
+- Only your own words are saved as yours. "Remember that …" saves the text you typed; FERB's rewording of it waits for
+  your Confirm (`ferb memory confirm`) before it reaches a prompt, and a quote like "the" no longer turns the planner's
+  sentence into an owner rule. Unconfirmed hints read as unconfirmed to the planner.
+- Forget is complete: FERB's "Remembered: …" line, its answer to the forgotten message, and its reply lines that stated
+  the item go too, from the chat and from its stored model turns. You can forget from chat or the notch ("forget my
+  test lab colour"): FERB names everything that goes and deletes only after your Yes. The confirmation names each
+  item.
+- The sleep service works on what changed: a card is read again only when its inputs change; episodes go to the model
+  grouped by the tools and apps they used, one call per group, split to fit the model's window; a failed job waits for
+  a change or `ferb memory consolidate`, and a failed distill day for its evidence to change, instead of retrying every
+  hour. The day rollups run off the event loop and never once a task has started; forget no longer rebuilds search
+  indexes on it.
+- A planner's procedure id that isn't a current procedure is noted in the trace and ignored; the task runs.
+- "Not right" on a suggestion stops it coming back; two slot values must be two real values; an app update sends a
+  learned procedure back to candidate instead of marking it suspect for good; a procedure receipt checks its ids
+  first; local embeddings say they need the optional memory extra before downloading anything.
+- FERB keeps its own pinned tokenizer copy under its home (setup puts it there; `ferb doctor` checks it), so token
+  counts no longer fall back to a byte ceiling when macOS cleans the temporary folder.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

@@ -574,23 +574,30 @@ uv run python scripts/check_doc_sources.py
 
 `ferb memory dashboard` prints a private localhost link; leave that terminal open while reviewing memories.
 It shows identity, facts, entity summaries, past tasks, procedures, lessons and rollups, with source IDs and history.
-Confirm a pending identity proposal or procedure explicitly, edit a fact, forget a memory and its derived records,
-or roll back a consolidation batch. The link carries a temporary bearer token in its fragment; it is not a public site.
+Confirm a pending identity proposal or procedure explicitly, edit a fact, forget a memory and its derived records
+(FERB's own lines that stated it in chat and in its stored model turns go too), or roll back a consolidation batch.
+In chat or the notch, "forget my …" asks a Yes/No question naming each item that goes. The link carries a temporary bearer token in its fragment; it is not a public site.
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
-workers the same read-only records, with full paged bodies. Inferred facts are labelled unconfirmed hints. Only owner
-statements or confirmed identity proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
+workers the same read-only records, with full paged bodies. "Remember that …" saves as yours only text you typed;
+FERB's rewording, like any inferred fact, waits for `ferb memory confirm ID` before it reaches a prompt. Observed
+patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
+proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
 A pending identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal
 `/memory confirm ID` records an explicit confirmation.
 
-The sleep service runs incrementally when no task is active (`ferb memory consolidate` also requests a pass).
+The sleep service runs incrementally when no task is active: it reads again only cards whose inputs changed, sends
+new episodes grouped by the tools and apps they used (split to fit the model's window), and retries a failed job only
+when its group changes or on `ferb memory consolidate`, which requests a pass.
 Procedures contain text tool templates and expect lines, cite verified episodes, and become learned after three
 verified successes across two slot values, with the latest on current captured app versions. They still require
 step checks and final verification. Outside-derived action/destination steps are quarantined until confirmed;
-reading an outside page alone does not quarantine a procedure. App version changes and consecutive failures mark
-procedures suspect. Old episodes without captured app versions cannot establish the current-version requirement.
+reading an outside page alone does not quarantine a procedure. An app update sends a learned procedure back to
+candidate until it succeeds on the new version; two consecutive failures mark it suspect. A suggestion you turned
+down ("Not right") is not proposed again. Old episodes without captured app versions cannot establish the current-version requirement.
 
-Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra.
+Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra
+(not in FERB.app); without it, the embedding commands say so before downloading anything.
 `ferb memory eval-export` exports real historical queries for owner relevance labels; no labels are invented.
 `ferb memory embeddings prepare --manifest FILE` downloads public model artifacts pinned by a full repository
 commit and every file's SHA256. The JSON manifest declares `repository`, `revision`, `files` (path to SHA256),

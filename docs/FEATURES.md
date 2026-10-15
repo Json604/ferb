@@ -553,10 +553,15 @@ This section matters most for an automated campaign. It says exactly what runs u
 ### 3.12 Memory and learning (F8)
 
 #### Owner memory
-- What: "remember that …" is saved with the owner's exact quote; inferred facts are labelled unconfirmed hints and
-  only become identity after the owner confirms. Search, edit (versions kept), retract, forget (with every derived
-  copy, summary entry and vector).
-- Status: **Shipped.**
+- What: "remember that …" saves as the owner's words only text they typed (word for word, pasted parts left out);
+  FERB's rewording waits for the owner's Confirm before it reaches a prompt. Inferred facts never reach a prompt
+  unconfirmed; observed patterns not yet seen on 3 days show as unconfirmed hints; only the owner's own stated
+  preferences become identity. Search, edit (versions kept), retract, forget (with every derived copy, summary entry
+  and vector, FERB's own lines that stated it in chat and its stored model turns, and a tombstone of the deleted ids,
+  never their content). Forget from the CLI, the dashboard or chat: FERB names each item that goes and deletes only
+  after a Yes.
+- Status: **Shipped**; the chat forget and the scrub of FERB's own lines are **landing this week — integrated, not
+  live-tested (fix wave 3)**. The Mac app's own chat archive still keeps its copy of a forgotten line.
 
 #### Similar past tasks and recall
 - What: before planning, FERB retrieves relevant facts, past episodes, procedures and lessons (keyword search that
@@ -564,16 +569,22 @@ This section matters most for an automated campaign. It says exactly what runs u
 - Status: **Shipped**; no embedding model adopted yet.
 
 #### Episodes
-- What: one permanent record per task, composed by code from the trace.
+- What: one permanent record per task, composed by code from the trace. Its learning card cites the task's own
+  sources only (its request, its tool results and evidence, the procedure it used), so retention and forgets of other
+  conversation entries never stop learning (fix wave 3).
 - Status: **Shipped.** 35 task records had failed to save because redaction corrupted internal ids: fixed
   **Landing this week — integrated, not live-tested (L16).**
 
 #### Procedures, lessons and the fast path
 - What: an idle-time consolidator writes procedures (tool-call templates with expect lines) citing verified
   episodes; a procedure becomes "learned" after three verified successes across two different slot values on the
-  current app versions. A learned procedure can save exploration but never skips gateway checks, step checks or the
-  final check. Procedures with steps that came from outside content are quarantined until the owner confirms. App
-  updates or repeated failures mark a procedure suspect.
+  current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
+  save exploration but never skips gateway checks, step checks or the final check. Procedures with steps that came
+  from outside content are quarantined until the owner confirms. An app update sends a learned procedure back to
+  candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
+  down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed and sends
+  episodes grouped by the tools and apps they used, split to fit the model's window; a failed job waits for a change
+  or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured
