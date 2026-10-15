@@ -126,8 +126,9 @@ class Consolidator:
                 await asyncio.sleep(0)               # the loop runs between episodes
             self.cards_refreshed()
             results: list[dict[str, Any]] = []
+            jobs = {r[0]: (r[1], r[2]) for r in l.db.conn.execute('SELECT source_ref, status, inputs FROM learning_jobs')}
             for members in self._groups():
-                done = await self._consolidate(members, force, results)
+                done = await self._consolidate(members, jobs, force, results)
                 if not done:
                     return {'status': 'busy', 'sources': results}
             if not self.idle():                      # I4: never once a task has started
@@ -148,11 +149,11 @@ class Consolidator:
             groups.setdefault(card_shape(node), []).append(node)
         return list(groups.values())
 
-    async def _consolidate(self, members: list[dict[str, Any]], force: bool, results: list[dict[str, Any]]) -> bool:
+    async def _consolidate(self, members: list[dict[str, Any]], jobs: dict[str, tuple[str, str]], force: bool,
+                           results: list[dict[str, Any]]) -> bool:
         """One group: its cards not yet consolidated, with its already consolidated cards as examples where the window
         has room, in as many calls as the window needs. False when a task started (the next pass goes on)."""
         l = self.learning
-        jobs = {r[0]: (r[1], r[2]) for r in l.db.conn.execute('SELECT source_ref, status, inputs FROM learning_jobs')}
         group = digest(sorted(n['id'] for n in members))
         pending = [n for n in members if n['id'] not in jobs or
                    (jobs[n['id']][0] == 'failed' and (force or jobs[n['id']][1] != group))]
@@ -277,13 +278,23 @@ class Consolidator:
         days once a task starts. What they publish is published on the loop afterwards."""
         l = self.learning
         events: list[tuple[Any, ...]] = []
+        loop = asyncio.get_running_loop()
+
+        async def idle_now() -> bool:
+            return self.idle()
+
+        def stop() -> bool:                          # asked on the loop: its task state belongs to it
+            try:
+                return not asyncio.run_coroutine_threadsafe(idle_now(), loop).result()
+            except Exception:
+                return True
 
         def work() -> None:
             from ferb.store.db import Database
             db = Database(l.db.path)
             try:
                 own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id)
-                self.rollups(own, stop=lambda: not self.idle())
+                self.rollups(own, stop=stop)
             finally:
                 db.close()
         await asyncio.to_thread(work)

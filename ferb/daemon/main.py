@@ -1401,11 +1401,16 @@ class Daemon:
         if ap.state != "granted" or ap.choice != "Yes":
             return "Kept: nothing was forgotten."
         kind, ident = target
-        if kind == "memory":
-            plan = self.memory.forget(ident)
-            gone = len(plan.items)
-        else:
-            gone = len(self.learning.forget([ident]))
+        from ferb.memory.items import MemoryRefused
+        try:
+            if kind == "memory":
+                gone = len(self.memory.forget(ident).items)
+            elif self.learning.get(ident) is None:
+                raise MemoryRefused(ident)
+            else:
+                gone = len(self.learning.forget([ident]))
+        except MemoryRefused:                            # forgotten another way while the question waited
+            return "It was already gone: nothing else was deleted."
         self._journal().append("memory.forgot", {"via": "chat", "items": gone})
         return f"Forgot it: {gone} item(s) deleted, with the records built on them."
 
