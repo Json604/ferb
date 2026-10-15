@@ -24,7 +24,8 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "voice.heard", "voice.said", "browser.debugger_detached",
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",
             "voice.device_unresolved",
-            "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback"}
+            "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback",
+            "memory.forgot"}   # a forget the owner said Yes to from the notch's buttons (I2)
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
              "disturbance.observed", "memory.derived", "memory.consolidated", "memory.digest",

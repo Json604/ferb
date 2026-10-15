@@ -30,6 +30,7 @@ def test_selected_procedure_and_owner_answer_are_checked_in_same_task(daemon):
     spec['procedure_id'] = 'procedure-session'
     inspected = []
     supervisor = daemon.daemon.supervisor
+    supervisor.procedure_problem = lambda key: None           # a current procedure (I5 checks it before the task)
     supervisor.procedure_details = lambda key, worker: inspected.append((key, worker.id)) or 'Read and verify the file.'
     supervisor.on_episode = lambda key: inspected.append(('episode', key))
     supervisor.procedure_outcome = lambda key, task_id: inspected.append(('outcome', key, task_id))
