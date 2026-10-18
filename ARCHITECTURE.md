@@ -1252,16 +1252,27 @@ remain a process-cleanup residual. No unsandboxed command fallback exists.
 
 `Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
 and Luhn-valid payment cards to existing credential classes. The labelled classes (C1, owner decision 2026-10-15,
-`labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with a code word (code, OTP, passcode,
-PIN, one-time password, verification/verify) within `CODE_REACH` (8) words on the same line: before it, joined
-directly (`OTP 482913`, `Code: 482913`, or alone on the next line), after a link (`… is 482913`, `login: 482913`) or in
-parentheses; or after it, joined by a link ("is", "to", ":", "("). So "2024 code review", "code review on 12 Oct 2024"
-and "Code (3733 recorded uses)" stay. The value after a secret word (password, passcode, PIN, secret, API key, token,
-private key): any value after ":"/"=" (also on the next line), one with a digit or symbol after "is"/"was" (any after
-"my/our … is"), one with a digit right after the word. A text field named by a secret word hides its whole value; a
-code word hides a code-shaped one. Masking is idempotent. `RedactionStream` holds the current line from its first
-class word (or a code a link follows) and a line ending in a label until the line under it completes, so a dev
-server's "port 54321" line is never held. URL words never count (query credentials are the URL rule's).
+`labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with one of the owner's code words
+(code, OTP, passcode, PIN, one-time password, verification; never inside a file name) within `CODE_REACH` (8) words
+on the same line and no sentence or clause break [.,;!?] between: before it, joined directly (`OTP 482913`,
+`Code: 482913`), after a link on the line (`… is 482913`, `login: 482913`) or in parentheses; or after it, joined by
+"is"/"are"/"was"/"as" or "(". So "2024 code review", "Line 1234: code smell" and "PR 4821 is ready, please review the
+code" stay. Across lines only a code alone on its line relates: to the label line above it (one ending in ":", "is"
+or the code word; blank lines allowed) or the naming line below it (an email's layout, `_line_codes`); sibling page
+nodes are read the same way (`_siblings`). Every code in a backup or recovery list ("Backup codes: 1234 5678 …", one
+per line) is masked. Address and coupon codes are ordinary data (owner decision 2026-10-15): "PIN code", "pincode",
+"ZIP code", "postal code", "coupon code", "promo code" and close variants are no code or secret words (`ADDRESS_CODE`).
+The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
+(also on the next line), one with a digit or symbol after "is"/"was" (or, after "my/our … is", a plain word that ends
+its clause), one with a digit right after the word. A text field named by a secret word hides its whole value; a code
+word hides a code-shaped one. An answer is hidden only when its question asks for a one-time code or a password or PIN
+(`Redactor.answer`). A masked code counts as the digits it replaced, so masking twice changes nothing.
+`RedactionStream` decides whole lines: the line being read is held while it holds a class word, a code, an OTP
+introducer or a word that can still become one ("api ", "my wifi "), and the last complete line is held while the
+next can still relate to it (a label line, a line that is only a code or list codes, a line ending in "Password:"),
+with each related line above it; a line too long to hold is held only from the class items still within reach of its
+end. Its output never masks less than `Redactor.text` (a fuzz test). URL words never count (query credentials are the
+URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture

@@ -142,7 +142,11 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   transcripts, OCR): a 4–8 digit code with a code word a few words away on either side ("123456 is your Instagram
   code", "G-482913 …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word
   is masked too ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them
-  stay readable (owner decision C1).
+  stay readable (owner decision C1). After the review: streamed output (shell output, replies) never shows a code the
+  text redactor masks; an email's code on its own line and every code in a backup-code list are masked; your own
+  requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code"); address
+  and coupon codes (PIN code, ZIP code, promo code) stay readable (owner decision); an answer is hidden only when the
+  question asks for a one-time code or a sign-in PIN or password.
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
