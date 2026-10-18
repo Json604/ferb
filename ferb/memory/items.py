@@ -461,7 +461,9 @@ class Memory:
         return {str(json.loads(r["data_json"]).get("day")) for r in self.db.conn.execute(
             "SELECT data_json FROM journal WHERE kind = 'trail.day_summary'")}
 
-    def forget(self, item_id: str, keep_sources: bool = False) -> ForgetPlan:
+    def forget(self, item_id: str, keep_sources: bool = False, *, finish: bool = True) -> ForgetPlan:
+        """`finish` False: the deletions only; the caller runs `echoes.finish` (the daemon does it off the event loop),
+        then `after_forget` and an emptied WAL."""
         from ferb.memory import echoes
         plan = self.plan_forget(item_id, keep_sources)
         plan.echoes = echoes.capture(self.db, plan.items, plan.journal, plan.trail)   # read before anything goes
@@ -501,10 +503,11 @@ class Memory:
         plan.rebuild_days = [d for d in plan.rebuild_days if d not in plan.delete_summaries]
         for day in plan.rebuild_days:
             self.rebuild_summary(day)
-        plan.scrubbed = echoes.scrub(self.db, plan.echoes)            # what FERB's own records said of it (I2)
-        self.after_forget(plan)
         # memory_fts zeroes a deleted item's terms itself (FTS5 secure-delete, migration 0037): no rebuild here
-        self.db.truncate_wal("memory.forget")                         # no copy left behind in the WAL
+        if finish:
+            plan.scrubbed = echoes.finish(self.db, plan.echoes)       # what FERB's own records said of it (I2)
+            self.after_forget(plan)
+            self.db.truncate_wal("memory.forget")                     # no copy left behind in the WAL
         self.on_change()
         return plan
 

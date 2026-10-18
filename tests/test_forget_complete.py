@@ -103,6 +103,7 @@ def test_chat_can_forget_after_a_yes_to_a_question_naming_what_goes(daemon: Runn
     told = "\n".join(str(e.get("text")) for e in chat(daemon, "Yes"))
     assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)) is None
     assert "Forgot" in told
+    daemon.run(daemon.daemon._settle_forgets())          # its echo scrub finishes off the loop (the next turn waits)
     assert _holding(daemon, "heron")[0] == []
 
 
@@ -181,3 +182,44 @@ def test_a_chat_forget_quote_must_be_a_whole_clause_of_the_owners_words(daemon: 
     install(daemon, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "please forget my dentist"}])])
     chat(daemon, "please forget my dentist, thanks")
     assert _forget_question(daemon) is not None
+
+
+def test_the_echo_scrub_runs_off_the_event_loop_and_the_next_turn_waits_for_it(daemon: RunningDaemon) -> None:
+    """Review minor: forget's echo scrub (about 2.2 s at scale) ran on the event loop. It runs in a worker thread on
+    its own connection; the RPC returns when it is done, and a chat turn waits for one still running."""
+    import threading
+    from ferb.cli.client import Client
+    from ferb.memory import echoes
+    item = _remember(daemon, "remember that my dentist is Dr. Quillfeather", "my dentist is Dr. Quillfeather",
+                     "dentist")
+    ran: list[str] = []
+    real = echoes.scrub
+
+    def recorded(db: Any, forgotten: Any) -> Any:
+        ran.append(threading.current_thread().name)
+        return real(db, forgotten)
+    echoes.scrub = recorded                                     # type: ignore[assignment]
+    try:
+        c = Client(daemon.sock)
+        try:
+            c.call("memory.forget", {"id": item.id, "confirm": True})
+        finally:
+            c.close()
+    finally:
+        echoes.scrub = real                                     # type: ignore[assignment]
+    assert ran and ran[0] != daemon.thread.name
+    assert _holding(daemon, "Quillfeather") == ([], [])
+
+
+def test_a_forget_answered_in_chat_is_complete_before_the_next_turn(daemon: RunningDaemon) -> None:
+    item = _remember(daemon, "remember that my test lab colour is violet-heron", "my test lab colour is violet-heron",
+                     "test_lab_colour")
+    install(daemon, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "forget my test lab colour"}])])
+    chat(daemon, "forget my test lab colour")
+    question = _forget_question(daemon)
+    install(daemon, [json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": question.id,
+                                                                                    "answer": "Yes"}})])
+    chat(daemon, "Yes")
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "what is my test lab colour?")
+    assert "heron" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")

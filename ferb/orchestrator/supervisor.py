@@ -202,6 +202,10 @@ def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
     return {'payload': payload} if record['text'] is None else {'text': record['text'], 'payload': payload}
 
 
+async def _settled() -> None:
+    return None
+
+
 def _carries_more(out: SupervisorOutcome) -> bool:
     """Whether a planner turn carries anything besides an answer: a control (stop, steer, retry, continue), a new
     task, or a side output (memory, reminders, schedules, conversation or notification changes)."""
@@ -436,6 +440,8 @@ class Supervisor(WorkerRuns):
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
         self.question_answered: Callable[[Any], str] = lambda approval: ""
+        # awaited before a chat turn builds its context: a forget still being finished completes first (I2)
+        self.settle: Callable[[], Awaitable[None]] = _settled
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
@@ -923,6 +929,7 @@ class Supervisor(WorkerRuns):
 
     async def _send(self, session_id: str, text: str, input_paths: list[str],
                     request_id: str, screen: Awaitable[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+        await self.settle()                                  # a forget still being finished completes first (I2)
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
         focus = self._answer_focus.pop(session_id, None)     # FERB's own answer question applies to this message only
         session.pending, session.asked = self.continuity.pending(session_id)

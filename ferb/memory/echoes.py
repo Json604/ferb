@@ -202,6 +202,35 @@ def _rare(db: Any, forgotten: Forgotten, given_rows: set[str], ferb: list[Any]) 
     return words
 
 
+SUMMARY_KIND = "chat.summary"
+
+
+def finish(db: Any, forgotten: Forgotten) -> Scrubbed:
+    """A forget's work after its deletion: `scrub`, then the running summaries that folded a row written with the item
+    or rewritten here (or a summary built on one: they are rebuilt from what remains), then an emptied WAL."""
+    written = given(db, forgotten) | stating(db, forgotten)
+    out = scrub(db, forgotten)
+    folded = {"entry:" + ident for ident in written | set(out.rewritten)}
+    while folded:
+        doomed = {row[0] for row in db.conn.execute("SELECT id, data_json FROM journal WHERE kind = ?", (SUMMARY_KIND,))
+                  if folded & set(json.loads(row[1]).get("source_refs", []))}
+        for ident in doomed:
+            db.conn.execute("DELETE FROM journal WHERE id = ? AND kind = ?", (ident, SUMMARY_KIND))
+        folded = {"entry:" + ident for ident in doomed}
+    db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return out
+
+
+def finish_at(path: Any, forgotten: Forgotten) -> Scrubbed:
+    """`finish` on a connection of its own (the daemon runs it in a worker thread, off the event loop)."""
+    from ferb.store.db import Database
+    db = Database(path)
+    try:
+        return finish(db, forgotten)
+    finally:
+        db.close()
+
+
 def scrub(db: Any, forgotten: Forgotten) -> Scrubbed:
     """Remove what FERB's own records say of the forgotten item (module docstring), after its deletion."""
     out = Scrubbed()

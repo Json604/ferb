@@ -268,6 +268,7 @@ class Daemon:
         # exact entry points, so it takes no arguments (the request goes on stdin; the home comes as FERB_HOME).
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
+        self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -390,6 +391,7 @@ class Daemon:
 
     async def shutdown(self) -> None:
         self._shutting_down = True
+        await self._settle_forgets()                         # a forget's scrub runs in a thread: it finishes first
         if self.persona is not None:
             await self.persona.close()
         current = asyncio.current_task()
@@ -1251,6 +1253,7 @@ class Daemon:
             self.supervisor.remember = self._remember
             self.supervisor.forget_request = self._chat_forget
             self.supervisor.question_answered = self._question_answered
+            self.supervisor.settle = self._settle_forgets
             self.supervisor.procedure_context = self._learning_context
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
@@ -1434,17 +1437,40 @@ class Daemon:
         return self.learning.candidates(words)
 
     def _forget_learning_sources(self, plan: Any) -> None:
-        from ferb.memory import echoes
         self.daily_activity.forget_sources(set(plan.trail))
         refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
                 ["trail:" + s for s in plan.trail])
-        # FERB's rows that were given it or state it: a running summary that folded one of them goes too (I2)
-        stated = echoes.given(self.db, plan.echoes) | echoes.stating(self.db, plan.echoes) if plan.echoes else set()
         if self.learning:
             self.learning.forget(refs)
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
-            self.supervisor.forget_summaries(set(plan.journal) | stated)   # rebuilt later from what remains
+            # a running summary that folded a forgotten entry; one that folded FERB's rows stating it goes in
+            # echoes.finish
+            self.supervisor.forget_summaries(set(plan.journal))
+
+    def _forget_memory(self, item_id: str, keep_sources: bool = False) -> Any:
+        """A forget's deletions, now, on the event loop; its echo scrub then runs in a worker thread on a connection of
+        its own (`_finish_forget`, review minor), and a chat turn waits for it first (`_settle_forgets`)."""
+        plan = self.memory.forget(item_id, keep_sources, finish=False)
+        job = asyncio.get_running_loop().create_task(self._finish_forget(plan))
+        self._forgetting.add(job)
+        job.add_done_callback(self._forgetting.discard)
+        return plan
+
+    async def _finish_forget(self, plan: Any) -> None:
+        from ferb.memory import echoes
+        try:
+            if plan.echoes is not None:
+                plan.scrubbed = await asyncio.to_thread(echoes.finish_at, self.db.path, plan.echoes)
+            self._forget_stating_cards(plan)
+            self.db.truncate_wal("memory.forget")
+        except Exception as e:                       # the deletions stand; what's left is said, never raised
+            self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
+
+    async def _settle_forgets(self) -> None:
+        """Wait until every forget's echo scrub has finished."""
+        while self._forgetting:
+            await asyncio.gather(*list(self._forgetting), return_exceptions=True)
 
     def _forget_stating_cards(self, plan: Any) -> None:
         """After a forget's echo scrub: the cards of tasks given the item whose body states it are forgotten too, with
@@ -1508,7 +1534,7 @@ class Daemon:
         kind = what.removeprefix("forget:")
         try:
             if kind == "memory":
-                gone = len(self.memory.forget(ident).items)
+                gone = len(self._forget_memory(ident).items)
             elif self.learning.get(ident) is None:
                 raise MemoryRefused(ident)
             else:
@@ -1561,7 +1587,8 @@ class Daemon:
             if node and node["kind"] == "fact":
                 item_id = node["body"]["id"]
                 if params.get("confirm"):
-                    self.memory.forget(item_id)
+                    self._forget_memory(item_id)
+                    await self._settle_forgets()
                     return {"deleted": [ident]}
                 plan = self.memory.plan_forget(item_id)
                 return {"descendants": sorted(l.descendants(["memory:" + s for s in plan.items])),
@@ -1884,8 +1911,10 @@ class Daemon:
         if not params.get("confirm"):
             plan = self.memory.plan_forget(str(params["id"]), keep)
             return {"confirmed": False, "will_delete": plan.describe(self.db)}
-        plan = self.memory.forget(str(params["id"]), keep)
-        return {"confirmed": True, "deleted": plan.describe(self.db)}
+        described = self.memory.plan_forget(str(params["id"]), keep).describe(self.db)
+        self._forget_memory(str(params["id"]), keep)
+        await self._settle_forgets()                     # the RPC answers once the forget is complete
+        return {"confirmed": True, "deleted": described}
 
     async def _memory_distill(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Distill one day now (owner / tests); normally the hourly loop does it."""
