@@ -369,6 +369,8 @@ def payment_card(value: str) -> bool:
 
 
 INPUT_TEXT_FIELDS = {"text", "unmodifiedText", "key", "code"}
+# Where a page or accessibility node holds its visible text, in order of preference (sibling codes, C1).
+NODE_TEXT = ("value", "text", "name", "label", "title", "content")
 
 
 def _words(key: str) -> list[str]:
@@ -485,10 +487,34 @@ class Redactor:
         if isinstance(obj, dict):
             return self._dict(obj)
         if isinstance(obj, (list, tuple)):
-            return [self._walk(v) for v in obj]
+            return self._siblings(list(obj), [self._walk(v) for v in obj])
         if isinstance(obj, str):
             return self._str(obj)
         return obj
+
+    def _siblings(self, raw: list[Any], out: list[Any]) -> list[Any]:
+        """A code split from its label across sibling nodes (a page's "Your verification code" heading and the code in
+        the next node, C1): the siblings' texts read as lines, as an email's are (`_line_codes`)."""
+        keys: list[str | None] = []
+        lines: list[str] = []
+        for item in raw:
+            key = next((k for k in NODE_TEXT if isinstance(item, dict) and isinstance(item.get(k), str)
+                        and item[k].strip()), None)
+            keys.append(key)
+            lines.append(item if isinstance(item, str) else str(item[key]) if key else "")
+        if len(raw) < 2 or not any(_code_alone(line) for line in lines if line):
+            return out
+        joined, starts = "", []
+        for line in lines:
+            starts.append(len(joined))
+            joined += " ".join(line.split()) + "\n"
+        for a, _ in _line_codes(joined):
+            i = bisect.bisect_right(starts, a) - 1
+            if isinstance(out[i], str):
+                out[i] = REDACTED
+            elif keys[i] is not None and isinstance(out[i], dict):
+                out[i] = {**out[i], keys[i]: REDACTED}
+        return out
 
     def _dict(self, d: dict[Any, Any]) -> dict[Any, Any]:
         kind_type = str(d.get("type") or "")

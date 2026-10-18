@@ -214,6 +214,8 @@ STREAMED = [
     "G-482913 is your Google verification code\n",
     "Your OTP is 482913. Use 739201 as your PIN\n",
     "api key 482-913\n",
+    "Your verification code is:\n\n482913\n\nIt expires in 10 minutes.\n",
+    "482913\nis your verification code\n",
     "my private key = material9\n",
 ]
 
@@ -366,3 +368,31 @@ def test_form_snapshot_nodes_keep_address_codes() -> None:
 def test_ocr_keeps_an_address_pin_code() -> None:
     assert _masked([TextRegion("PIN code", (0, 0, 40, 9)), TextRegion("560001", (0, 12, 40, 9))]) == []
     assert _masked([TextRegion("Bangalore PIN code: 560001", (0, 0, 90, 9))]) == []
+
+
+
+@pytest.mark.parametrize("message,code", [
+    ("Your verification code is:\n\n482913\n\nIt expires in 10 minutes.", "482913"),
+    ("Use this code to sign in:\n482913", "482913"), ("Your OTP is\n482913", "482913"),
+    ("Sign-in code\n\n482913", "482913"), ("482913\nis your verification code", "482913"),
+])
+def test_an_emails_code_alone_on_its_line_next_to_its_label_is_masked(message, code) -> None:
+    assert code not in Redactor().text(message)
+
+
+def test_a_line_that_only_holds_a_number_under_an_ordinary_line_stays() -> None:
+    assert Redactor().text("Your order number is:\n482913") == "Your order number is:\n482913"
+
+
+def test_snapshot_nodes_split_into_a_label_and_its_code_are_related() -> None:
+    """Review of fix wave 2 (probe p6): a page shows "Your verification code" in one node and the code in the next."""
+    r = Redactor()
+    page = r({"elements": [{"role": "heading", "name": "Your verification code"},
+                           {"role": "statictext", "value": "482913"},
+                           {"role": "statictext", "value": "Order 778812"}]})["elements"]
+    assert page[1]["value"] == REDACTED and page[2]["value"] == "Order 778812"
+    below = r({"nodes": [{"role": "statictext", "text": "482913"},
+                         {"role": "statictext", "text": "is your verification code"}]})["nodes"]
+    assert below[0]["text"] == REDACTED
+    plain = r({"elements": [{"role": "heading", "name": "Order number"}, {"role": "statictext", "value": "482913"}]})
+    assert plain["elements"][1]["value"] == "482913"
