@@ -6,7 +6,9 @@ L28 lineage handles: a planner turn cites a conversation entry it was shown as `
 An episode card cites its task's direct sources only (memory review C1): the owner's request entry, the task's own
 tool results and evidence, and the procedure it used. A handle among them stands for the entry or task itself
 (`direct`), never for everything that entry or task cites: a chat reply citing old activity doesn't drag that activity
-into every later card. Forgetting walks the lineage at forget time instead (`Learning.descendants`)."""
+into every later card. A forget reaches the rest at forget time: nodes built on what it deletes
+(`Learning.descendants`), and the tasks that were given the item, recorded on each task as its exposures cite memory
+(`task_memory_refs`): their answers, records and cards are scrubbed or forgotten there (`memory/echoes.py`)."""
 import json
 from typing import Any
 

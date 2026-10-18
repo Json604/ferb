@@ -126,3 +126,47 @@ def test_a_chat_forget_needs_the_owners_own_words(daemon: RunningDaemon) -> None
     chat(daemon, "summarize the page I'm looking at")
     assert _forget_question(daemon) is None
     assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)) is not None
+
+
+# ---------- fix round (review Q1, Q2): forget reaches what a task did with the item; one shared word isn't a mention ----
+
+def _added(d: RunningDaemon, content: str, key: str) -> Any:
+    dd = d.daemon
+    src = str(_on_loop(d, lambda: dd._journal().append("memory.added", {"content": content}).id))
+    return _on_loop(d, lambda: dd.memory.propose("person", "owner", key, content, "owner_stated", [("journal", src)], 1.0))
+
+
+def test_forget_reaches_what_a_task_did_with_the_item(daemon: RunningDaemon) -> None:
+    """Review Q1: the planner was given the fact (Layer 4) and the task's answer used it. After the forget, the card,
+    the task's answer and outcome, its stored records and the next planner turn no longer hold it."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [sup("task", "Emailing.", task("email my dentist to book Monday"))],
+            {"worker": done("Emailed Dr. Zorblat's office to book Monday.")})
+    task_id = outcome(chat(daemon, "email my dentist to book Monday"))["task_id"]
+    daemon.run(d.supervisor.finish_episodes())
+    assert "Zorblat" in json.dumps(_on_loop(daemon, lambda: d.learning.current_card(task_id)))
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    assert _on_loop(daemon, lambda: d.learning.current_card(task_id)) is None
+    assert _on_loop(daemon, lambda: d.learning.prepare_episode(task_id)) is None          # never rebuilt
+    journal, spans = _holding(daemon, "Zorblat")
+    assert journal == [] and spans == []
+    held = _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT 'episode' FROM episodes WHERE answer LIKE '%Zorblat%' OR goal LIKE '%Zorblat%' UNION ALL "
+        "SELECT 'task' FROM tasks WHERE outcome_json LIKE '%Zorblat%' OR goal LIKE '%Zorblat%'")])
+    assert held == []
+    assert not _on_loop(daemon, lambda: [p for p in d.learning.search("who is my dentist") if p["kind"] == "episode"])
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "who is my dentist?")
+    assert "Zorblat" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+
+
+def test_a_reply_sharing_one_word_with_the_item_keeps_its_line(daemon: RunningDaemon) -> None:
+    """Review Q2: a reply about something else that shares one rare word with the item was emptied."""
+    item = _added(daemon, "My wifi hint is the blue router", "wifi_hint")
+    install(daemon, [_reply("The router light is blue when it updates.\nAnything else?")])
+    chat(daemon, "what does my router light colour mean?")
+    _on_loop(daemon, lambda: daemon.daemon.memory.forget(item.id))
+    texts = _on_loop(daemon, lambda: [e.data.get("text") for e in daemon.daemon.journal.of_kind("chat.reply")])
+    assert "The router light is blue when it updates.\nAnything else?" in texts

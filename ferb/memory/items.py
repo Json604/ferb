@@ -121,6 +121,7 @@ class ForgetPlan:
     delete_summaries: list[str] = field(default_factory=list)  # days whose raw rows are gone: summary deleted
     delete_narratives: list[str] = field(default_factory=list)  # days whose narrative was written from forgotten chat
     echoes: Any = None                                         # what FERB's own records say of it (echoes.Forgotten)
+    scrubbed: Any = None                                       # what the echo scrub changed (echoes.Scrubbed)
 
     def describe(self, db: Database) -> list[str]:
         """What a forget deletes, naming each memory item (review M4: items built on the same sources go too)."""
@@ -153,6 +154,8 @@ class Memory:
         self.redact = redact                         # secrets never reach memory or its export
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
         self.on_forget: Callable[[ForgetPlan], None] = lambda plan: None
+        # after the echo scrub: the episode cards whose body states the item go, with what is built on them (Q1)
+        self.after_forget: Callable[[ForgetPlan], None] = lambda plan: None
 
     # ---------- reads ----------
 
@@ -445,7 +448,8 @@ class Memory:
         plan.rebuild_days = [d for d in plan.rebuild_days if d not in plan.delete_summaries]
         for day in plan.rebuild_days:
             self.rebuild_summary(day)
-        echoes.scrub(self.db, plan.echoes)                            # what FERB's own records said of it (I2)
+        plan.scrubbed = echoes.scrub(self.db, plan.echoes)            # what FERB's own records said of it (I2)
+        self.after_forget(plan)
         # memory_fts zeroes a deleted item's terms itself (FTS5 secure-delete, migration 0037): no rebuild here
         self.db.truncate_wal("memory.forget")                         # no copy left behind in the WAL
         self.on_change()

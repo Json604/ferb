@@ -1235,6 +1235,7 @@ class Daemon:
             cards_refreshed=self._replay_deferred_receipts, spans=self.spans)
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
+        self.memory.after_forget = self._forget_stating_cards
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -1438,12 +1439,19 @@ class Daemon:
         refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
                 ["trail:" + s for s in plan.trail])
         # FERB's rows that were given it or state it: a running summary that folded one of them goes too (I2)
-        stated = echoes.given(self.db, plan.echoes.refs) | echoes.stating(self.db, plan.echoes) if plan.echoes else set()
+        stated = echoes.given(self.db, plan.echoes) | echoes.stating(self.db, plan.echoes) if plan.echoes else set()
         if self.learning:
             self.learning.forget(refs)
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
             self.supervisor.forget_summaries(set(plan.journal) | stated)   # rebuilt later from what remains
+
+    def _forget_stating_cards(self, plan: Any) -> None:
+        """After a forget's echo scrub: the cards of tasks given the item whose body states it are forgotten too, with
+        their keys tombstoned so no capture rebuilds them (fix round, review Q1: no partial card)."""
+        cards = plan.scrubbed.cards if plan.scrubbed is not None else []
+        if cards and self.learning is not None:
+            self.learning.forget(cards)
 
     def _chat_forget(self, item_id: str, request_id: str) -> str:
         """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the

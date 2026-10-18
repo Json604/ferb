@@ -1891,6 +1891,7 @@ class Supervisor(WorkerRuns):
             self._source_block(tree, "planner-context", planner_sources, origins_.join(held),
                                tuple(sorted({ref for item in items for ref in item.get("source_refs", [])})))
         for exposure in env.get('context_exposures', []):
+            self._given_memory(tree.id, exposure['source_refs'])
             captured = self.spans.start('context.exposure', task_id=tree.id, parent_id=root_span,
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
@@ -2604,9 +2605,17 @@ class Supervisor(WorkerRuns):
             env['assembly'] = assembly
             return
         for record in records:
+            self._given_memory(tree.id, record['source_refs'])
             span = self.spans.start('context.exposure', task_id=tree.id,
                                    input={'source_refs': record['source_refs'], 'reference': record['reference']})
             self.spans.finish(span, output=_exposure_output(record), origin=record['origin'])
+
+    def _given_memory(self, tree_id: str, refs: list[str]) -> None:
+        """Record on the task the memory items and learned nodes it was given, so a forget finds the tasks that were
+        given an item directly (fix round, review Q1). Ids only."""
+        rows = sorted({(tree_id, str(r)) for r in refs if str(r).startswith(('memory:', 'm-'))})
+        if rows:
+            self.journal.db.conn.executemany('INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)', rows)
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
                       source_refs: tuple[str, ...] = (), *, payload: str | None = None) -> ContextBlock:
