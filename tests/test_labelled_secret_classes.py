@@ -302,3 +302,52 @@ def test_owners_requests_keep_their_numbers(message, kept) -> None:
 def test_a_code_after_a_sentence_break_is_still_masked_by_its_own_word() -> None:
     out = Redactor().text("Order 4821 is out for delivery. Share OTP 7731 with the agent")
     assert "4821" in out and "7731" not in out
+
+
+# Owner decision 2026-10-15: address and coupon codes are ordinary data. "PIN code", "pincode", "ZIP code", "postal
+# code", "coupon code", "promo code" (and close variants) are no code words; a login PIN or an OTP stays masked.
+@pytest.mark.parametrize("message", [
+    "Bangalore PIN code: 560001", "PIN code 560001", "Pincode 560001", "pin-code 560001", "pin_code: 560001",
+    "ship to HSR Layout, Bangalore - 560102. PIN code 560102", "ZIP code 94107", "zip code 94103",
+    "postal code 94103", "postal_code=560001", "Use coupon code 4455 at checkout", "promo code 2024",
+    "Promo code SAVE10", "voucher code 7788",
+])
+def test_address_and_coupon_codes_stay_visible(message) -> None:
+    assert Redactor().text(message) == message
+
+
+@pytest.mark.parametrize("message,code", [
+    ("your PIN is 4821", "4821"), ("Enter PIN 1234 to unlock", "1234"), ("UPI PIN: 4821", "4821"),
+    ("Your OTP is 482913, delivery to PIN code 560001", "482913"),
+])
+def test_a_login_pin_or_otp_stays_masked(message, code) -> None:
+    out = Redactor().text(message)
+    assert code not in out
+    if "560001" in message:
+        assert "560001" in out
+
+
+@pytest.mark.parametrize("label,value,kept", [
+    ("PIN code", "560001", True), ("Pincode", "560001", True), ("Postal Code", "560102", True),
+    ("ZIP code", "94107", True), ("Coupon code", "SAVE10", True), ("Promo code", "2024", True),
+    ("UPI PIN", "4821", False), ("Enter OTP", "482913", False), ("Your PIN", "1234", False),
+])
+def test_typed_address_and_coupon_codes_stay_and_a_pin_hides(label, value, kept) -> None:
+    out = Redactor().field(value, role="AXTextField", label=label)
+    assert (out == value) is kept, (label, out)
+
+
+def test_form_snapshot_nodes_keep_address_codes() -> None:
+    r = Redactor()
+    for node in ({"role": "textbox", "name": "PIN code", "value": "560001"},
+                 {"role": "textbox", "name": "ZIP code", "value": "94103"},
+                 {"tag": "input", "type": "text", "name": "pincode", "value": "560001"},
+                 {"tag": "input", "type": "text", "name": "postal_code", "value": "560001"},
+                 {"role": "textbox", "name": "Coupon code", "value": "2024"}):
+        assert r(node)["value"] == node["value"], node
+    assert r({"role": "textbox", "name": "UPI PIN", "value": "4821"})["value"] == REDACTED
+
+
+def test_ocr_keeps_an_address_pin_code() -> None:
+    assert _masked([TextRegion("PIN code", (0, 0, 40, 9)), TextRegion("560001", (0, 12, 40, 9))]) == []
+    assert _masked([TextRegion("Bangalore PIN code: 560001", (0, 0, 90, 9))]) == []

@@ -10,8 +10,8 @@ import math
 import re
 from typing import Callable
 from ferb.act.evidence.mask import Box, mask_secret_fields
-from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, CODE_VALUE, CODE_WORD, OTP_LABEL, SECRET_WORD,
-                                  Redactor, payment_card)
+from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, CODE_VALUE, OTP_LABEL, Redactor, code_words,
+                                  payment_card, secret_words)
 
 # OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
 # glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
@@ -34,14 +34,14 @@ def neighbour_spans(lines: list[str]) -> set[int]:
     for i in range(len(lines) - 1):
         a, b = lines[i].strip(), lines[i + 1].strip()
         code_b = CODE_VALUE.fullmatch(b.strip(" .:()")) is not None
-        near_end = [m for m in CODE_WORD.finditer(a) if len(a[m.end():].split()) <= CODE_REACH]
+        near_end = [m for m in code_words(a) if len(a[m.end():].split()) <= CODE_REACH]
         if code_b and near_end:
             out.add(i + 1)
-        secret = [m for m in SECRET_WORD.finditer(a) if re.fullmatch(r"[ \t:=]*", a[m.end():])]
+        secret = [m for m in secret_words(a) if re.fullmatch(r"[ \t:=]*", a[m.end():])]
         if secret and b and len(b.split()) == 1 and (a.endswith((":", "=")) or any(c.isdigit() for c in b)):
             out.add(i + 1)
         if CODE_VALUE.fullmatch(a.strip(" .:()")) and CODE_LINK.match(b) and any(
-                len(b[:m.start()].split()) <= CODE_REACH for m in CODE_WORD.finditer(b)):
+                len(b[:m.start()].split()) <= CODE_REACH for m in code_words(b)):
             out.add(i)
     return out
 

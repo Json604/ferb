@@ -100,6 +100,26 @@ CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-
 # "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
 # OTP", "issue 4821 - code freeze" and "Line 1234: code smell" don't join either.
 CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
+# Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
+# no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
+ADDRESS_CODE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
+                          r"[ _-]?codes?|pincodes?|postcodes?|zipcodes?)(?![A-Za-z0-9])")
+
+
+def _not_address(s: str, found: Any) -> list[re.Match[str]]:
+    """The matches of a word class outside address and coupon codes."""
+    spans = [m.span() for m in ADDRESS_CODE.finditer(s)]
+    return [m for m in found if not any(a <= m.start() and m.end() <= b for a, b in spans)]
+
+
+def code_words(s: str) -> list[re.Match[str]]:
+    return _not_address(s, CODE_WORD.finditer(s))
+
+
+def secret_words(s: str) -> list[re.Match[str]]:
+    return _not_address(s, SECRET_WORD.finditer(s))
+
+
 # A sentence or clause break: a code never reaches its word across one ("Order 4821 is out. Share OTP 7731").
 CLAUSE = re.compile(r"[.,;!?](?=\s|$)")
 # A code after its word comes right after it ("OTP 482913", "Code: 482913"), after a link on the same line ("… is
@@ -181,13 +201,13 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
     def in_url(span: tuple[int, int]) -> bool:
         return any(a <= span[0] and span[1] <= b for a, b in urls)
     spans: list[tuple[int, int]] = []
-    words = [m for m in SECRET_WORD.finditer(s) if not in_url(m.span())]
+    words = [m for m in secret_words(s) if not in_url(m.span())]
     for word in words:
         value = _secret_value(s, word)
         if value is not None:
             spans.append(value)
     codes = [m for m in CODE_VALUE.finditer(s) if not in_url(m.span())]
-    labels = [m.span() for m in CODE_WORD.finditer(s) if not in_url(m.span())] if codes else []
+    labels = [m.span() for m in code_words(s) if not in_url(m.span())] if codes else []
     if labels:
         starts, ends, begins = _word_starts(s), [b for _, b in labels], [a for a, _ in labels]
         for code in codes:
@@ -251,7 +271,7 @@ def _labelled_code(label: str, text: str) -> bool:
     code word hides a code-shaped one (C1)."""
     value = text.strip()
     return (bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d -]+", value) is not None) or (
-        bool(CODE_WORD.search(label)) and CODE_VALUE.fullmatch(value) is not None)
+        bool(code_words(label)) and CODE_VALUE.fullmatch(value) is not None)
 
 
 def _labelled_secret(kind: str, label: str, text: str) -> bool:
@@ -259,7 +279,7 @@ def _labelled_secret(kind: str, label: str, text: str) -> bool:
     (C1). Only a record that names a text-entry kind, so a "Pin tab" checkbox keeps its state and a record naming no
     kind (a chat channel called "secret-santa") keeps its text, as with the password rule."""
     return (bool(text.strip()) and bool(kind) and kind.casefold() in TEXT_FIELD_KINDS
-            and SECRET_WORD.search(label) is not None)
+            and bool(secret_words(label)))
 
 
 def _code_alone(line: str) -> bool:
@@ -270,7 +290,7 @@ def _code_alone(line: str) -> bool:
 def _label_line(line: str) -> bool:
     """A line that labels the code under it: it holds a code word near its end and ends with ":", "is"/"are" or the
     code word ("Your verification code is:", "Use this code to sign in:", "Your OTP is", "Sign-in code")."""
-    words = list(CODE_WORD.finditer(line))
+    words = code_words(line)
     if not words:
         return False
     text, rest = line.rstrip(), line[words[-1].end():]
@@ -282,7 +302,8 @@ def _label_line(line: str) -> bool:
 def _link_line(line: str) -> bool:
     """A line that names the code above it: it starts with a link and holds a code word ("is your verification
     code")."""
-    word = CODE_WORD.search(line)
+    found = code_words(line)
+    word = found[0] if found else None
     return (CODE_LINK.match(line) is not None and word is not None and CLAUSE.search(line, 0, word.start()) is None
             and len(line[:word.start()].split()) <= CODE_REACH)
 
@@ -290,7 +311,7 @@ def _link_line(line: str) -> bool:
 def _secret_colon_end(line: str) -> bool:
     """A line ending in a secret word and its ":" or "=" ("Password:", "password for gmail:"), whose value may be on
     the next line."""
-    for word in SECRET_WORD.finditer(line):
+    for word in secret_words(line):
         after = SECRET_AFTER.match(line, word.end())
         if after is not None and after.end() >= len(line.rstrip()) and re.search("[:=]", after.group("link")):
             return True
