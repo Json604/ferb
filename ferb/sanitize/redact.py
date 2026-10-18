@@ -93,8 +93,9 @@ CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|p
                        r"pass[ _-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
-CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
-                        rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d)")
+# A masked code counts as the digits it replaced, so masking twice changes nothing.
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])(?<!\][ -])"
+                        rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d|[ -]\[redacted\])")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
 # "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
@@ -107,9 +108,9 @@ ADDRESS_CODE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:(?:pin|zip|postal|post|area|c
 
 
 def _not_address(s: str, found: Any) -> list[re.Match[str]]:
-    """The matches of a word class outside address and coupon codes."""
+    """The matches of a word class that don't start inside an address or coupon code."""
     spans = [m.span() for m in ADDRESS_CODE.finditer(s)]
-    return [m for m in found if not any(a <= m.start() and m.end() <= b for a, b in spans)]
+    return [m for m in found if not any(a <= m.start() < b for a, b in spans)]
 
 
 def code_words(s: str) -> list[re.Match[str]]:
@@ -187,7 +188,10 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         return None
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
-    if strong or (after is not None and (mine or (len(value) >= 4 and (digit or symbol)))) or \
+    # "my password is sunshine" hides a plain word that ends its clause; "my PIN is on the card" is no value
+    ends_clause = re.match(r"(?i)[ \t]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))", s[stop:]) is not None
+    if strong or (after is not None and ((mine and (digit or symbol or ends_clause))
+                                         or (len(value) >= 4 and (digit or symbol)))) or \
             (after is None and len(value) >= 4 and digit):
         return start, stop
     return None
@@ -222,7 +226,45 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
                     and CLAUSE.search(s, code.end(), begins[after]) is None
                     and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
                 spans.append(code.span())
-    return spans + _line_codes(s)
+    return spans + _line_codes(s) + _code_list(s)
+
+
+# A list of backup or recovery codes ("Backup codes: 1234 5678 9012 3456", or one per line): every code in it.
+CODE_LIST = re.compile(r"(?i)(?<![A-Za-z0-9])codes[ \t]*:[ \t]*")
+LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
+_LIST_GAP = re.compile(r"[ \t,]*(?:(?:\r\n|\r|\n)[ \t]*)?")
+
+
+def _code_list(s: str) -> list[tuple[int, int]]:
+    """Each code after a list label; across a line break only onto a line made only of codes."""
+    spans = []
+    for label in _not_address(s, CODE_LIST.finditer(s)):
+        pos = label.end()
+        while True:
+            gap = _LIST_GAP.match(s, pos)
+            assert gap is not None                  # it matches the empty string
+            token = LIST_TOKEN.match(s, gap.end())
+            if token is None:
+                break
+            if LINE_BREAK.search(gap.group()):
+                line_end = LINE_BREAK.search(s, token.start())
+                if not _list_line(s[token.start():line_end.start() if line_end else len(s)]):
+                    break
+            spans.append(token.span())
+            pos = token.end()
+    return spans
+
+
+def _list_label_line(line: str) -> bool:
+    """A line that starts a list: its label, then only codes ("Backup codes: 1234 5678")."""
+    labels = _not_address(line, CODE_LIST.finditer(line))
+    return bool(labels) and (not line[labels[-1].end():].strip() or _list_line(line[labels[-1].end():]))
+
+
+def _list_line(line: str) -> bool:
+    """A line of only list codes ("4821-9921", "a1b2c-3d4e5"), as in a recovery-code list."""
+    tokens = re.split(r"[\s,]+", line.strip())
+    return bool(line.strip()) and all(LIST_TOKEN.fullmatch(t) for t in tokens)
 
 
 def _line_codes(s: str) -> list[tuple[int, int]]:
@@ -340,7 +382,8 @@ _PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+)
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
 # Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(?<![+\d])(?<!\d[ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d)")
+# Its gap never reaches over a code already masked, and a "G-" prefixed code is C1's whole.
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
@@ -633,10 +676,17 @@ class RedactionStream:
         tail = self.pending[line_start:]
         contextual = OTP_CONTEXT_START.search(tail)
         numeric = re.search(r"(?<!\d)\d[\d -]*$", tail)
+        if contextual and len(tail) > self.MAX_PENDING // 2:
+            # a line too long to hold whole: only an introducer still within OTP_TEXT's reach of its end matters
+            near = [m for m in OTP_CONTEXT_START.finditer(tail, max(0, len(tail) - 96))]
+            contextual = near[0] if near else None
         if contextual:
             cut = min(cut, line_start + contextual.start())
-        if numeric:
-            cut = min(cut, line_start + numeric.start())
+        if numeric:                         # from its token's start: a card's digits are never split from it
+            start = line_start + numeric.start()
+            while start > line_start and not self.pending[start - 1].isspace():
+                start -= 1
+            cut = min(cut, start)
         # Each guard only moves the cut back, and one can land inside another's region (a class run reaching into a
         # private key block): apply them until none moves it.
         while True:
@@ -694,12 +744,14 @@ class RedactionStream:
 
     @staticmethod
     def _forward(line: str) -> bool:
-        return _label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
+        return (_label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
+                or _list_line(line) or _list_label_line(line))
 
     @staticmethod
     def _related(above: str, below: str) -> bool:
         return ((_code_alone(below) and _label_line(above)) or (_code_alone(above) and _link_line(below))
-                or _secret_colon_end(above))
+                or _secret_colon_end(above)
+                or (_list_line(below) and (_label_line(above) or _list_line(above) or _list_label_line(above))))
 
     @staticmethod
     def _open_run(line: str) -> int:

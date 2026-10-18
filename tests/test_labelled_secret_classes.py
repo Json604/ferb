@@ -217,6 +217,9 @@ STREAMED = [
     "Your verification code is:\n\n482913\n\nIt expires in 10 minutes.\n",
     "482913\nis your verification code\n",
     "my private key = material9\n",
+    "Recovery codes:\n4821-9921\n7731-1123\nKeep them safe.\n",
+    "GitHub recovery codes:\na1b2c-3d4e5\nf6g7h-8i9j0\n",
+    "my PIN is on the card and my password is sunshine\n",
 ]
 
 
@@ -273,7 +276,8 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
     vocab = ["code", "OTP", "PIN", "password", "my", "token", "api key", "api", "key", "is", "to", ":", "-", "(", ")",
              "the", "your", "482913", "4829", "48 29 13", "482-913", "G-482913", "2024", "for", "verification",
              "one-time password", "secret", "=", "sunshine", "hunter2!", "was", "our", "wifi", "port", "54321",
-             "words", "here", "Enter", "\n", "\n\n", "private", "as", ".", ","]
+             "words", "here", "Enter", "\n", "\n\n", "private", "as", ".", ",", "codes:", "a1b2c-3d4e5",
+             "4821-9921", "and", "on"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
@@ -396,3 +400,58 @@ def test_snapshot_nodes_split_into_a_label_and_its_code_are_related() -> None:
     assert below[0]["text"] == REDACTED
     plain = r({"elements": [{"role": "heading", "name": "Order number"}, {"role": "statictext", "value": "482913"}]})
     assert plain["elements"][1]["value"] == "482913"
+
+
+@pytest.mark.parametrize("key", ["code", "access", "otp"])
+def test_a_long_line_with_a_class_word_and_no_secret_is_never_replaced_by_the_oversized_marker(key) -> None:
+    """Review of fix wave 2 (probe p8): a 130 KB JSON line holding "access" came out as the oversized marker."""
+    import json
+    items = [{"id": i, "name": f"pkg{i}", "description": "a library for parsing things quickly"} for i in range(1500)]
+    line = json.dumps({key: 200, "items": items}) + "\n"
+    stream, out, data = Redactor().stream(), b"", line.encode()
+    for i in range(0, len(data), 4096):
+        out += stream.feed(data[i:i + 4096])
+    early = len(out)
+    out += stream.feed(b"", final=True)
+    assert out.decode() == line and early > len(data) // 2          # streamed as it came, not held to the end
+
+
+def test_a_long_line_still_masks_a_code_near_its_end() -> None:
+    text = "word " * 20000 + "your OTP is 482913\n"
+    stream, out, data = Redactor().stream(), b"", text.encode()
+    for i in range(0, len(data), 4096):
+        out += stream.feed(data[i:i + 4096])
+    out += stream.feed(b"", final=True)
+    assert b"482913" not in out and b"oversized" not in out
+
+
+@pytest.mark.parametrize("message,kept", [
+    ("my employee id is 48213 and my PIN is on the card", ["on the card", "48213"]),
+    ("my password is the one we agreed", ["the one we agreed"]),
+])
+def test_my_secret_word_hides_only_a_value_that_looks_like_one(message, kept) -> None:
+    out = Redactor().text(message)
+    for part in kept:
+        assert part in out, out
+
+
+@pytest.mark.parametrize("message,value", [
+    ("my password is sunshine", "sunshine"), ("my password is fluffy, don't tell anyone", "fluffy"),
+    ("our wifi password is bluebird and the router is upstairs", "bluebird"),
+])
+def test_my_secret_word_still_hides_a_plain_word_password(message, value) -> None:
+    assert value not in Redactor().text(message)
+
+
+@pytest.mark.parametrize("message,codes", [
+    ("Backup codes: 1234 5678 9012 3456", ["1234", "5678", "9012", "3456"]),
+    ("Your 2FA backup codes: 1234 5678, 9012 3456", ["1234", "5678", "9012", "3456"]),
+    ("Recovery codes:\n4821-9921\n7731-1123\nKeep them safe.", ["4821-9921", "7731-1123"]),
+    ("GitHub recovery codes:\na1b2c-3d4e5\nf6g7h-8i9j0", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+])
+def test_every_code_in_a_backup_or_recovery_list_is_masked(message, codes) -> None:
+    out = Redactor().text(message)
+    for code in codes:
+        assert code not in out, out
+    if "Keep them safe" in message:
+        assert "Keep them safe." in out
