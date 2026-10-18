@@ -361,21 +361,29 @@ class Learning:
 
     def cards_to_read(self, force: bool = False) -> list[str]:
         """The tasks whose card must be read (again), oldest first: no card yet, or a card read from other inputs (a
-        new verdict, a rebuilt episode, an older composer). A failed read waits for its inputs to change, unless
-        `force` (`ferb memory consolidate`). A card built on forgotten content is never read again."""
+        new verdict, a rebuilt episode, an older composer). A failed read is tried once more on the next pass (a reader
+        may have crashed); failed twice on the same inputs, it waits for them to change, unless `force` (`ferb memory
+        consolidate`). A card built on forgotten content is never read again."""
         current = self.card_inputs()
         recorded = {r[0]: (r[1], r[2]) for r in self.db.conn.execute(
             'SELECT task_id, inputs, status FROM learning_card_inputs')}
         gone = {r[0] for r in self.db.conn.execute("SELECT id FROM learning_forgotten WHERE id LIKE 'key-%'")}
         order = [r[0] for r in self.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')]
         return [t for t in order if self.card_key(t) not in gone and (
-            recorded.get(t, ('', ''))[0] != current.get(t) or (force and recorded[t][1] == 'failed'))]
+            recorded.get(t, ('', ''))[0] != current.get(t) or recorded[t][1] == 'failed' or
+            (force and recorded[t][1] == 'parked'))]
 
     def card_read(self, task_id: str, inputs: str, error: str | None = None) -> None:
-        """Record the inputs a card was read from (or failed to be read from, with the error)."""
+        """Record the inputs a card was read from, or failed to be read from with the error: 'failed' the first time
+        (tried once more), 'parked' when it failed again on the same inputs."""
+        status = 'read'
+        if error:
+            before = self.db.conn.execute('SELECT inputs, status FROM learning_card_inputs WHERE task_id=?',
+                                          (task_id,)).fetchone()
+            status = 'parked' if before and before[0] == inputs and before[1] in ('failed', 'parked') else 'failed'
         self.db.conn.execute('INSERT INTO learning_card_inputs VALUES (?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET '
                              'inputs=excluded.inputs, status=excluded.status, error=excluded.error',
-                             (task_id, inputs, 'failed' if error else 'read', error))
+                             (task_id, inputs, status, error))
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
         """The sources of one recorded tool call's result (memory/lineage.py)."""

@@ -261,3 +261,35 @@ def test_a_rollup_written_while_a_forget_ran_never_keeps_what_was_forgotten(lear
     asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY)).catch_up())
     citing = [n for n in learning.items("summary") if gone["id"] in n["sources"]]
     assert citing == []
+
+
+def test_a_card_read_that_failed_is_tried_once_more_then_waits(learning) -> None:
+    """Review minor: one card-reader crash parked the task until its inputs changed. It is tried once more on the next
+    pass; a second failure on the same inputs waits for a change or `ferb memory consolidate`."""
+    from ferb.memory.learning import LearningRefused
+    learning.db.conn.execute(
+        "INSERT INTO episodes (task_id, request_text, goal, status, answer, conditions_json, steps_json, "
+        "problems_json, tools_json, origins, external_read, usage_json, desktop_json, made_by, built_at, ended_at) "
+        "VALUES ('e1', 'r', 'g', 'done', '', '[]', '[]', '[]', '{}', 'ferb', 0, '{}', '{}', 'x', 'now', 'now')")
+    tried: list[str] = []
+
+    async def crashing(task_id: str) -> Any:
+        tried.append(task_id)
+        raise LearningRefused("the card reader exited -9 without an answer")
+    sleep = consolidator(learning, FakeDistillRuntime(EMPTY), capture=crashing)
+    for _ in range(3):
+        asyncio.run(sleep.catch_up())
+    assert tried == ["e1", "e1"]
+    asyncio.run(sleep.catch_up(force=True))
+    assert tried == ["e1", "e1", "e1"]
+
+
+def test_procedures_too_large_for_the_window_are_named_as_the_reason(learning, monkeypatch) -> None:
+    card(learning, "a")
+    learning.put("procedure", "open pages", {"intent": "open pages", "steps": [{"tool": "browser.open"}],
+                                             "ui_hints": "hint " * 3000, "preconditions": {"apps": {}}}, [],
+                 made_by="model:t", state="candidate")
+    monkeypatch.setattr(FakeDistillRuntime, "limits", ModelLimits("small", 3_500, 1_000, "test double"))
+    out = asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY)).catch_up())
+    assert "procedures" in out["sources"][0]["error"] and "too large for the model's window; sent whole" \
+        not in out["sources"][0]["error"]

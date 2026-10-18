@@ -180,6 +180,10 @@ class Consolidator:
             return True
         room = (window - count_tokens(system) - overhead_tokens(window, count_tokens(system)) -
                 count_tokens(encoded({'episodes': [], **procedures})))
+        if room <= 0:                                # the group's procedures alone fill the window: say that
+            self._record(pending, group, "the group's procedures and the prompt alone don't fit the model's window",
+                         results)
+            return True
         chunks, too_big = _chunks(pending, examples, room)
         for node in too_big:
             self._record([node], group, "too large for the model's window; sent whole or not at all", results)
