@@ -1,6 +1,8 @@
 """C1 (owner decision 2026-10-15, rule 14): a one-time code is a 4-8 digit run with a code word a few words away on
 either side, and a value next to a secret word is masked whatever its shape. Labelled by words, never by digit shape
 alone: an ordinary number with no code or secret word near it stays visible. Every capture path uses the one class."""
+from typing import Any
+
 import pytest
 
 from ferb.sanitize.images import ImageRedactor, TextRegion
@@ -191,6 +193,13 @@ STREAMED = [
     "my wifi password is sunshine and nothing else\n",
     "482913 is your login code w1 w2 w3 w4 w5 w6 w7 w8 w9 w10\n",
     "Enter code\n48 29 13\n",
+    # review of fix wave 2: a complete line ending in its code word kept the code before it visible
+    "123456 is your Instagram code\n",
+    "482913 is your Swiggy OTP\n",
+    "G-482913 is your Google verification code\n",
+    "Your OTP is 482913. Use 739201 as your PIN\n",
+    "api key 482-913\n",
+    "my private key = material9\n",
 ]
 
 
@@ -220,3 +229,38 @@ def test_a_record_with_no_field_kind_is_never_masked_by_its_name() -> None:
     assert r({"name": "secret-santa", "text": "gifts are due friday"})["text"] == "gifts are due friday"
     assert r({"label": "Token budget", "value": "32768"})["value"] == "32768"
     assert r({"role": "AXTextField", "label": "API key", "value": "abc-def"})["value"] == REDACTED
+
+
+
+@pytest.mark.parametrize("raw", STREAMED)
+def test_a_whole_line_in_one_read_is_masked_as_the_text_redactor_masks_it(raw) -> None:
+    redactor = Redactor()
+    stream = redactor.stream()
+    out = stream.feed(raw.encode()) + stream.feed(b"", final=True)
+    assert out.decode() == redactor.text(raw)
+
+
+def _streamed(redactor: Redactor, text: str, sizes: Any) -> str:
+    data, stream, out, pos = text.encode(), redactor.stream(), b"", 0
+    while pos < len(data):
+        n = sizes()
+        out += stream.feed(data[pos:pos + n])
+        pos += n
+    return (out + stream.feed(b"", final=True)).decode()
+
+
+def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
+    """Review of fix wave 2 (probes p9, p11): random owner-like lines, read whole or in random pieces, never come out
+    of the stream with fewer masks than `Redactor.text` gives the same text."""
+    import random
+    vocab = ["code", "OTP", "PIN", "password", "my", "token", "api key", "api", "key", "is", "to", ":", "-", "(", ")",
+             "the", "your", "482913", "4829", "48 29 13", "482-913", "G-482913", "2024", "for", "verification",
+             "one-time password", "secret", "=", "sunshine", "hunter2!", "was", "our", "wifi", "port", "54321",
+             "words", "here", "Enter", "\n", "\n\n", "private", "as", ".", ","]
+    rng = random.Random(11)
+    redactor = Redactor()
+    for _ in range(6000):
+        text = " ".join(rng.choice(vocab) for _ in range(rng.randint(2, 14))) + rng.choice(["", "\n"])
+        whole = redactor.text(text).count(REDACTED)
+        assert _streamed(redactor, text, lambda: 10 ** 9).count(REDACTED) >= whole, text
+        assert _streamed(redactor, text, lambda: rng.randint(1, 8)).count(REDACTED) >= whole, text

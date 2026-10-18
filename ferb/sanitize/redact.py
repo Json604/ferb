@@ -97,10 +97,11 @@ CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-
 # A code before its word is joined to it the way providers write it: "482913 is your code", "Use 482913 to verify",
 # "482913: your code", "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word.
 CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as|to)(?![A-Za-z0-9])|[:=(]|[-–—])")
-# A code after its word comes right after it ("OTP 482913", "Code: 482913", or on the next line under it), after a
-# link on the same line ("… is 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another
-# word, so "code review on 12 Oct 2024" and "Code (3733 recorded uses)" keep their numbers.
-LABEL_DIRECT = re.compile(r"[ \t:=#\-–—]*(?:\r\n|\r|\n)?[ \t]*")
+# A code after its word comes right after it ("OTP 482913", "Code: 482913"), after a link on the same line ("… is
+# 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
+# Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
+# the label line next to it (`_line_codes`).
+LABEL_DIRECT = re.compile(r"[ \t:=#\-–—]*")
 LABEL_LINK = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—])[ \t]*$")
 LINE_BREAK = re.compile(r"\r\n|\r|\n")
 SECRET_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[ _-]?key)?|"
@@ -157,7 +158,7 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         if s.startswith("\\", stop - 1):
             stop -= 1
     value = s[start:stop]
-    if not value or REDACTED[:-1] in s[end:stop + 1]:      # already masked: masking is idempotent
+    if not any(c.isalnum() for c in value) or REDACTED[:-1] in s[end:stop + 1]:   # no value; already masked
         return None
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
@@ -188,11 +189,35 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
             before = bisect.bisect_right(ends, code.start()) - 1
             after = bisect.bisect_left(begins, code.end())
             if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH
+                    and LINE_BREAK.search(s, ends[before], code.start()) is None
                     and _label_joined(s, ends[before], code)) or (
                     after < len(labels) and CODE_LINK.match(s, code.end()) is not None
                     and LINE_BREAK.search(s, code.end(), begins[after]) is None
                     and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
                 spans.append(code.span())
+    return spans + _line_codes(s)
+
+
+def _line_codes(s: str) -> list[tuple[int, int]]:
+    """A code alone on its line with a label line just above it ("Your verification code is:", blank lines between
+    allowed) or a line just below that names it ("482913" over "is your verification code"): an email's layout."""
+    lines, begin = [], 0
+    for m in [*LINE_BREAK.finditer(s), None]:
+        end = m.start() if m is not None else len(s)
+        if s[begin:end].strip():
+            lines.append((begin, end))
+        begin = m.end() if m is not None else len(s)
+    spans = []
+    for i, (a, b) in enumerate(lines):
+        line = s[a:b]
+        if not _code_alone(line):
+            continue
+        above = s[lines[i - 1][0]:lines[i - 1][1]] if i > 0 else ""
+        below = s[lines[i + 1][0]:lines[i + 1][1]] if i + 1 < len(lines) else ""
+        if _label_line(above) or _link_line(below):
+            code = CODE_VALUE.search(line)
+            if code is not None:
+                spans.append((a + code.start(), a + code.end()))
     return spans
 
 
@@ -228,6 +253,45 @@ def _labelled_secret(kind: str, label: str, text: str) -> bool:
     kind (a chat channel called "secret-santa") keeps its text, as with the password rule."""
     return (bool(text.strip()) and bool(kind) and kind.casefold() in TEXT_FIELD_KINDS
             and SECRET_WORD.search(label) is not None)
+
+
+def _code_alone(line: str) -> bool:
+    """A line that is only a code (an email's code on its own line), with its punctuation."""
+    return CODE_VALUE.fullmatch(line.strip().strip(".,;:()[]")) is not None
+
+
+def _label_line(line: str) -> bool:
+    """A line that labels the code under it: it holds a code word near its end and ends with ":", "is"/"are" or the
+    code word ("Your verification code is:", "Use this code to sign in:", "Your OTP is", "Sign-in code")."""
+    words = list(CODE_WORD.finditer(line))
+    if not words:
+        return False
+    text, rest = line.rstrip(), line[words[-1].end():]
+    return (len(rest.split()) <= CODE_REACH and
+            (text.endswith(":") or not rest.strip(" \t.:=#-–—") or
+             re.search(r"(?i)(?<![A-Za-z0-9])(?:is|are)$", text) is not None))
+
+
+def _link_line(line: str) -> bool:
+    """A line that names the code above it: it starts with a link and holds a code word ("is your verification
+    code")."""
+    return CODE_LINK.match(line) is not None and CODE_WORD.search(line) is not None
+
+
+def _secret_colon_end(line: str) -> bool:
+    """A line ending in a secret word and its ":" or "=" ("Password:", "password for gmail:"), whose value may be on
+    the next line."""
+    for word in SECRET_WORD.finditer(line):
+        after = SECRET_AFTER.match(line, word.end())
+        if after is not None and after.end() >= len(line.rstrip()) and re.search("[:=]", after.group("link")):
+            return True
+    return False
+
+
+# The first word of a two-word class word, or "my"/"our", ending what has been read of a line: it can still become one
+# ("api " then "key 482-913", "my wifi " then "password is …").
+_PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+){0,2}|(?<![A-Za-z0-9])(?:api|private|"
+                         r"access|auth|refresh|one|time|pass|backup|recovery|secret)[ \t_-]*\S*)[ \t]*$")
 
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
@@ -527,38 +591,66 @@ class RedactionStream:
         return self._labelled_cut(cut)
 
     def _labelled_cut(self, cut: int) -> int:
-        """C1: the labelled classes relate words on one line (a label or a secret word ending its line may take its
-        value from the next line's first word). So the current line is kept from its first class word, the "my"/"our"
-        before a secret word, a code a link follows (or that ends the text so far) or a trailing "my"/"our" (it can
-        still become "my wifi password is …"); and a line ending in a label or a secret word and its ":" is kept until
-        the line under it is complete. A dev server's "port 54321" line, or one naming "code" with no value
-        following, is never held past its line."""
+        """C1, decided by whole lines, so what is emitted is masked as `Redactor.text` masks the whole (review of fix
+        wave 2: cutting inside a line at its code word left the code before it visible):
+        - the line still being read is held whole while it holds a class word, a code, an OTP introducer, or a word that
+          can still become one ("api ", "my wifi ");
+        - the last complete line is held while what comes next can still relate to it: a label line (its code can be on
+          the next line), a line that is only a code (its label can follow: "482913" then "is your verification
+          code"), or a line ending in "Password:"; and each line before it that relates to a held line is held too.
+        A line too long to hold (MAX_PENDING) is held only from the run of class items still within reach of its end."""
         pending = self.pending
         breaks = [m.end() for m in LINE_BREAK.finditer(pending)]
-        line = breaks[-1] if breaks else 0
-        tail = pending[line:]
-        starts = [m.start() for m in CODE_WORD.finditer(tail)]
-        for m in SECRET_WORD.finditer(tail):
-            own = MINE.search(tail, max(0, m.start() - 40), m.start())
-            starts.append(own.start() if own else m.start())
-        starts += [m.start() for m in CODE_VALUE.finditer(tail)            # a link follows, or may still follow
-                   if CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"[ \t]*\S*", tail[m.end():])]
-        trailing = re.search(r"(?i)(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+){0,2}[ \t]*$", tail)
-        if trailing:
-            starts.append(trailing.start())
-        if breaks:                                     # the line under it isn't complete yet
-            previous = breaks[-2] if len(breaks) > 1 else 0
-            before = pending[previous:line]
-            words = [m for m in CODE_WORD.finditer(before)] + [m for m in SECRET_WORD.finditer(before)]
-            ending = [m for m in words if re.fullmatch(r"[ \t:=#\-–—]*(?:\r\n|\r|\n)", before[m.end():])]
-            if ending:
-                starts.append(previous + min(m.start() for m in ending) - line)
-        if not starts:
-            return cut
-        start = line + min(starts)
-        while start > 0 and not pending[start - 1].isspace():
+        tail_start = breaks[-1] if breaks else 0
+        tail = pending[tail_start:]
+        hold = cut
+        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or CODE_VALUE.search(tail)
+                or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail)):
+            hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
+        lines, begin = [], 0
+        for end in breaks:
+            text = LINE_BREAK.sub("", pending[begin:end])
+            if text.strip():
+                lines.append((begin, text))
+            begin = end
+        if lines and self._forward(lines[-1][1]):
+            at = len(lines) - 1
+            hold = min(hold, lines[at][0])
+            while at > 0 and self._related(lines[at - 1][1], lines[at][1]):
+                at -= 1
+                hold = min(hold, lines[at][0])
+        return hold
+
+    @staticmethod
+    def _forward(line: str) -> bool:
+        return _label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
+
+    @staticmethod
+    def _related(above: str, below: str) -> bool:
+        return ((_code_alone(below) and _label_line(above)) or (_code_alone(above) and _link_line(below))
+                or _secret_colon_end(above))
+
+    @staticmethod
+    def _open_run(line: str) -> int:
+        """Where a very long line still being read must be held from: the start of the run of class items (each within
+        reach of the next) that ends within reach of what has been read; the line's end when there is none."""
+        found = [m.span() for m in CODE_WORD.finditer(line)] + [m.span() for m in CODE_VALUE.finditer(line)]
+        for m in SECRET_WORD.finditer(line):
+            own = MINE.search(line, max(0, m.start() - 40), m.start())
+            found.append((own.start() if own else m.start(), m.end()))
+        if (prefix := _PREFIX_END.search(line)) is not None:
+            found.append(prefix.span())
+        found.sort()
+        starts, reach = _word_starts(line), CODE_REACH + 1
+        if not found or _words_between(starts, found[-1][1], len(line)) > reach:
+            return max(0, line.rfind(" ") + 1)
+        first = len(found) - 1
+        while first > 0 and _words_between(starts, found[first - 1][1], found[first][0]) <= reach:
+            first -= 1
+        start = found[first][0]
+        while start > 0 and not line[start - 1].isspace():
             start -= 1
-        return min(cut, start)
+        return start
 
     def feed(self, chunk: bytes, final: bool = False) -> bytes:
         self.pending += self.decoder.decode(chunk, final=final)
