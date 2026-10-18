@@ -2,7 +2,8 @@
 
 A pass works on what changed (memory review I3): it reads again only the cards whose inputs changed
 (`Learning.cards_to_read`), and sends the episodes not yet consolidated to the model grouped by structure (the same
-tools and apps: `card_shape`), one call per group, with the group's own procedures. A group the model's real window
+tools and apps: `card_shape`), one call per group, with the group's own procedures and only the consolidated cards
+related to the new ones by structure (`_examples`): a cost that follows what changed. A group the model's real window
 can't hold is split into calls that fit; a single card too large for it is never shortened or sent, and its job says
 why. A failed job keeps its error and is tried again when its group changes or on `ferb memory consolidate`
 (`force`), never on every idle hour. No count or size limit of FERB's own decides any of this."""
@@ -155,8 +156,8 @@ class Consolidator:
 
     async def _consolidate(self, members: list[dict[str, Any]], jobs: dict[str, tuple[str, str]], force: bool,
                            results: list[dict[str, Any]]) -> bool:
-        """One group: its cards not yet consolidated, with its already consolidated cards as examples where the window
-        has room, in as many calls as the window needs. False when a task started (the next pass goes on)."""
+        """One group: its cards not yet consolidated, with the already consolidated cards related to them by structure
+        (`_examples`), in as many calls as the window needs. False when a task started (the next pass goes on)."""
         l = self.learning
         group = digest(sorted(n['id'] for n in members))
         pending = [n for n in members if n['id'] not in jobs or
@@ -164,7 +165,8 @@ class Consolidator:
         if not pending:
             return True
         waiting = {n['id'] for n in pending}
-        examples = [n for n in reversed(members) if jobs.get(n['id'], ('',))[0] == 'done']
+        done = [n for n in reversed(members) if jobs.get(n['id'], ('',))[0] == 'done']
+        examples = self._examples(pending, done, members)
         procedures = self._procedures(members)
         system = load_prompt('memory/consolidate.md')
         try:
@@ -206,6 +208,30 @@ class Consolidator:
                 if node['id'] in waiting:
                     self._job(node['id'], group, error)
         return True
+
+    def _examples(self, pending: list[dict[str, Any]], done: list[dict[str, Any]],
+                  members: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The already consolidated cards a call carries beside the new ones, chosen by structure, never to fill the
+        window (fix round, review Q5): those with a new card's action shape (its tools in order, with their argument
+        names) whose request shares a term with that card that most of the group doesn't have (the data-driven rule of
+        `Memory.recall`), and those the group's procedures and lessons are built on."""
+        from ferb.memory.items import query_terms
+
+        def shape(node: dict[str, Any]) -> tuple[Any, ...]:
+            return tuple((str(a.get('tool')), tuple(sorted(a.get('args') or {}))) for a in node['body'].get('actions')
+                         or [] if isinstance(a, dict))
+
+        def terms(node: dict[str, Any]) -> set[str]:
+            return set(query_terms(f"{node['body'].get('request', '')} {node['body'].get('intent', '')}"))
+        counts: dict[str, int] = {}
+        for node in members:
+            for term in terms(node):
+                counts[term] = counts.get(term, 0) + 1
+        telling = {t for t, n in counts.items() if n <= max(2, len(members) / 2)}
+        ids = {n['id'] for n in members}
+        cited = {s for kind in ('procedure', 'lesson') for p in self.learning.items(kind) for s in p['sources']} & ids
+        wanted = [(shape(p), terms(p) & telling) for p in pending]
+        return [n for n in done if n['id'] in cited or any(shape(n) == s and terms(n) & t for s, t in wanted)]
 
     def _record(self, nodes: list[dict[str, Any]], group: str, error: str, results: list[dict[str, Any]]) -> None:
         results.append({'episodes': [n['id'] for n in nodes], 'error': error})
@@ -384,8 +410,8 @@ class Consolidator:
 
 def _chunks(pending: list[dict[str, Any]], examples: list[dict[str, Any]],
             room: int) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
-    """Pending cards in calls that each fit `room` tokens, the last one filled with examples while they fit; and the
-    pending cards no call can hold whole."""
+    """Pending cards in calls that each fit `room` tokens, the last one given the related examples (`_examples`) while
+    they fit (never padded with others); and the pending cards no call can hold whole."""
     chunks: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     used = 0

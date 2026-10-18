@@ -213,3 +213,34 @@ def test_rollups_never_start_once_a_task_has_started(learning, monkeypatch) -> N
     sleep = consolidator(learning, FakeDistillRuntime(EMPTY), idle=lambda: next(checks, False))
     asyncio.run(sleep.catch_up())
     assert built == []
+
+
+# ---------- fix round (review Q5): examples are chosen by structure, never padded to the window ----------
+
+def _carried(rt: FakeDistillRuntime, ids: list[str]) -> list[str]:
+    last = rt.contexts[-1]
+    text = "\n".join(last) if isinstance(last, (list, tuple)) else str(last)
+    return [i for i in ids if i in text]
+
+
+def test_a_new_card_goes_with_only_the_consolidated_cards_related_to_it(learning) -> None:
+    """Q5: after 40 cards of one shape were consolidated, one new card's call carried all 41 (the window's worth)."""
+    def numbered(i: int, request: str) -> Any:
+        return learning.put("episode", f"e{i}", {"task_id": f"e{i}", "verified": True, "request": request,
+                                                 "apps": {}, "slots": {}, "status": "done", "narrative": "x " * 300,
+                                                 "actions": [{"id": f"e{i}-a", "tool": "browser.open",
+                                                              "args": {"n": i}}]},
+                            [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    old = [numbered(i, f"open page {i}") for i in range(40)]
+    related = numbered(41, "open the invoice portal")               # shares "invoice" with the new card
+    rt = FakeDistillRuntime(EMPTY)
+    sleep = consolidator(learning, rt)
+    asyncio.run(sleep.catch_up())
+    procedure = learning.put("procedure", "open pages", {"intent": "open pages", "steps": [{"tool": "browser.open"}],
+                                                         "preconditions": {"apps": {}}}, [old[3]["id"]],
+                             made_by="model:t", state="candidate")
+    assert procedure
+    new = numbered(40, "open the invoice download page")
+    asyncio.run(sleep.catch_up())
+    carried = set(_carried(rt, [c["id"] for c in [*old, related, new]]))
+    assert carried == {new["id"], related["id"], old[3]["id"]}      # itself, its intent, its group's procedure's card
