@@ -543,8 +543,9 @@ class Daemon:
 
     def _hide_code_reply(self, text: str) -> str:
         """Rule 14 for a chat message (typed or spoken) while a question is open: a reply that is wholly a code, to a
-        question that explicitly asks for one, is hidden before any model sees it, as chat.answer hides it
-        (`Redactor.answer`). The planner routes answers now (L3), so the code must not travel with the message."""
+        question that asks for a one-time code or a sign-in password or PIN, is hidden before any model sees it, as
+        chat.answer hides it (`Redactor.answer`); a question merely naming a code word doesn't. The planner routes
+        answers now (L3), so the code must not travel with the message."""
         if not isinstance(self.redact, Redactor):
             return text
         for ap in self.state.approvals.pending():
@@ -3487,7 +3488,8 @@ class Daemon:
                 granted = bool(text)
                 # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
                 # (L18, D28). A picked option is never one; other typed words to a question are hidden for this
-                # answer alone when an explicit code label asks for a code, and never remembered.
+                # answer alone when the question asks for a one-time code or a sign-in password or PIN
+                # (`Redactor.answer`), and never remembered.
                 if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
                         and ap.option_for(text) is None):
                     text = self.redact.answer(text, question=ap.reason)

@@ -274,6 +274,18 @@ def _labelled_code(label: str, text: str) -> bool:
         bool(code_words(label)) and CODE_VALUE.fullmatch(value) is not None)
 
 
+# A password, passcode or PIN a question asks for (signing in, paying); never an address PIN code.
+SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:password|passcode|pin)(?![A-Za-z0-9])")
+
+
+def _asks_for_code(question: str, text: str) -> bool:
+    """A question that asks for a one-time code (an explicit OTP label: any digits answer) or for a password or PIN
+    (a code-shaped answer)."""
+    value = text.strip()
+    return (bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None) or (
+        CODE_VALUE.fullmatch(value) is not None and bool(_not_address(question, SIGN_IN_SECRET.finditer(question))))
+
+
 def _labelled_secret(kind: str, label: str, text: str) -> bool:
     """A text field a secret word names (API key, token, PIN, secret): its value is that secret, whatever its shape
     (C1). Only a record that names a text-entry kind, so a "Pin tab" checkbox keeps its state and a record naming no
@@ -450,9 +462,11 @@ class Redactor:
         return self._str(text)
 
     def answer(self, text: str, *, question: str) -> str:
-        """The owner's typed answer to an ordinary question, which is no field: a code is hidden for this answer
-        when the question carries an explicit code label (rule 14); the question's other words never hide it."""
-        if _labelled_code(question, text):
+        """The owner's typed answer to an ordinary question, which is no field: a code is hidden for this answer only
+        when the question asks for a one-time code (OTP, verification, login code…) or a password or PIN for signing in
+        (rule 14). A question merely naming a code word ("Which port should the code server use?", "the PIN code for
+        the delivery address") never hides the answer."""
+        if _asks_for_code(question, text):
             return REDACTED if text else text
         return self._str(text)
 

@@ -148,9 +148,24 @@ def test_a_secret_word_label_on_a_checkbox_never_hides_its_state() -> None:
     assert Redactor().field("1", role="AXCheckBox", label="Pin tab") == "1"
 
 
-def test_answer_to_a_question_asking_for_a_code_is_hidden() -> None:
-    assert Redactor().answer("4829", question="What's the code on the Uber screen?") == REDACTED
-    assert Redactor().answer("yes", question="Should I reset your password?") == "yes"
+@pytest.mark.parametrize("question,answer", [
+    ("What's the verification code on the Uber screen?", "4829"), ("Please enter the OTP on the Zomato page.", "314159"),
+    ("What's your UPI PIN?", "4821"), ("Which one-time password did the bank send?", "48 29 13"),
+    ("What's the login code?", "482913"),
+])
+def test_an_answer_to_a_question_asking_for_a_one_time_code_or_sign_in_pin_is_hidden(question, answer) -> None:
+    assert Redactor().answer(answer, question=question) == REDACTED
+
+
+@pytest.mark.parametrize("question,answer", [
+    ("What's the PIN code for the delivery address?", "560001"),      # review of fix wave 2 (probe p4)
+    ("Which port should the code server use?", "8080"),
+    ("Which year's tax code should I check?", "2024"),
+    ("How many lines of code should the summary cover?", "5000"),
+    ("Should I reset your password?", "yes"),
+])
+def test_an_answer_to_a_question_merely_naming_a_code_word_stays(question, answer) -> None:
+    assert Redactor().answer(answer, question=question) == answer
 
 
 def _masked(regions: list[TextRegion]) -> list[str]:
