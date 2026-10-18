@@ -58,11 +58,6 @@ def verified_tokenizer() -> bytes | None:
     return None
 
 
-def reload_tokenizer() -> None:
-    """Look for the tokenizer again (after `ferb setup` put FERB's copy in place)."""
-    _encoding.cache_clear()
-
-
 @lru_cache(maxsize=1)
 def _encoding() -> Any:
     try:
