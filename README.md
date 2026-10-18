@@ -578,13 +578,15 @@ uv run python scripts/check_doc_sources.py
 
 `ferb memory dashboard` prints a private localhost link; leave that terminal open while reviewing memories.
 It shows identity, facts, entity summaries, past tasks, procedures, lessons and rollups, with source IDs and history.
-Confirm a pending identity proposal or procedure explicitly, edit a fact, forget a memory and its derived records
-(FERB's own lines that stated it in chat and in its stored model turns go too), or roll back a consolidation batch.
+Confirm a pending identity proposal, procedure or memory, edit a fact, forget a memory and its derived records
+(FERB's own lines that hold its words, and what tasks given it did with it, go too; a paraphrase in other words can
+survive), or roll back a consolidation batch.
 In chat or the notch, "forget my …" asks a Yes/No question naming each item that goes. The link carries a temporary bearer token in its fragment; it is not a public site.
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
-workers the same read-only records, with full paged bodies. "Remember that …" saves as yours only text you typed;
-FERB's rewording, like any inferred fact, waits for `ferb memory confirm ID` before it reaches a prompt. Observed
+workers the same read-only records, with full paged bodies. "Remember that …" saves as yours the whole clause you
+typed it in; FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
+`ferb memory confirm ID`) before it reaches a prompt. Observed
 patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
 proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
 A pending identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal

@@ -1361,17 +1361,27 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   removed by retention, stays an edge and adds `{private, external:unlabeled}` (`memory.episode_refs_expired`). A
   forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
   keys.
-- **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated only content that appears word for word in the
-  owner's typed words (`items.contains_words`); FERB's rewording is an inferred proposal; a quote sharing no word with
-  the content is refused. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
-  "unconfirmed hint", `learning.shown_state`), reach prompts through `sync_facts`.
-- **Forget echoes (I2).** `memory/echoes.py`, after a forget's deletion: FERB's whole answer to a forgotten chat message;
-  in FERB's other rows (`chat.reply`, `chat.clarify`, `task.answer`, `task.outcome`) each line holding an item's or a
-  forgotten message's text word for word, or, in a row whose turn was given the item, a word of the item nothing left
-  holds; every span loses those lines and texts (`attention.scrub_spans`). Append-only journal rows are deleted and
-  written again with the same seq, id, time and origin. Running summaries that folded such a row go
-  (`forget_summaries`); a day narrative written from a forgotten chat message is deleted.
-- **Chat forget (I2).** The planner's `forget` output (item id and the owner's quote, checked with `contains_words`)
+- **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole clause(s) of the owner's typed words
+  that hold the planner's content (`items.owner_clause`; clause marks `, ; : ! ?` and line breaks, never a period);
+  FERB's rewording is an inferred proposal offered by a `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No
+  retracts); a quote sharing no word with the content is refused. An owner preference from a turn that showed
+  outside content (as S4 counts it) is held from identity (`memory_items.identity_held`, migration 0040) and offered as
+  an identity proposal. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
+  "unconfirmed hint", `learning.shown_state`), reach prompts; pending inferred items are indexed as fact nodes in
+  state `proposed`, which `Learning.search` leaves out, so only the dashboard sees and confirms them.
+- **Forget echoes (I2, fix round Q1/Q2).** Each task records the memory items and learned nodes its exposures cite
+  (`task_memory_refs`, migration 0039). `memory/echoes.py`, after a forget's deletion (`finish_at`: a worker thread on
+  its own connection; `Supervisor.settle` makes the next chat turn wait): FERB's whole answer to a forgotten chat
+  message (and the planner turn that wrote it); for tasks given the item (that record, cards citing it, exposures
+  citing a forgotten entry) each line of their answer and outcome rows, stored goal and outcome, saved spec and
+  permanent record holding the item's text or a word of it nothing left holds, and their cards whose body does
+  (forgotten, keys tombstoned); in chat rows whose turn listed the item, a line holding its text or two of its words in
+  a row (one of them a word nothing left holds); elsewhere, its text word for word. Spans lose those lines and texts
+  (`attention.scrub_spans`). Append-only journal rows are deleted and written again with the same seq, id, time and
+  origin. Running summaries that folded such a row go; a day narrative written from a forgotten chat message is
+  deleted. A paraphrase in other words is not found.
+- **Chat forget (I2).** The planner's `forget` output (item id and the owner's quote, whole clause(s) of their words:
+  `items.whole_clauses`)
   makes `Daemon._chat_forget` ask a `memory.forget` FERB check (Yes/No, in `FERB_CHECKS`) naming what goes; the Yes,
   from chat (`Supervisor._answer` → `question_answered`) or the notch (`_resolve_approval`), runs the forget.
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
@@ -1384,12 +1394,15 @@ per-source job completion. Code rollups cite their child cards.
 - **Incremental (fix wave 3, I3).** A pass reads again only cards whose inputs changed (`Learning.cards_to_read`:
   `learning_card_inputs` holds each card's input digest: composer, episode `built_at`/status/verified, latest verdict).
   Pending episodes go to the model grouped by `card_shape` (tools and apps), one call per group with compact
-  `card_digest`s and that group's procedures and owner refusals, split by `_chunks` to fit `runtime_limits(rt)` (a card
-  too large for the window is never sent; its job says why) and by `_within_chars` to fit the runtime's per-input
-  character cap (fix wave 5; a card no input can hold whole is never sent and its job names the cap).
-  `learning_jobs.inputs` holds the group digest: a failed job is retried when its group changes or on `ferb memory
-  consolidate` (`catch_up(force=True)`); a failed distill day waits for its summary row to change
-  (`distill_runs.inputs`) or `ferb memory distill DAY`.
+  `card_digest`s, that group's procedures and owner refusals, and only the consolidated cards related to the new ones
+  (`_examples`: the same action shape and a request term most of the group lacks, as `Memory.recall` filters terms; or
+  cited by the group's procedures and lessons), split by `_chunks` to fit `runtime_limits(rt)` (a card too large for
+  the window is never sent; its job says why; procedures that alone fill it are named) and by `_within_chars` to fit
+  the runtime's per-input character cap (fix wave 5; a card no input can hold whole is never sent and its job names the
+  cap). A failed card read is tried once more, then parked until its inputs change. `learning_jobs.inputs` holds the
+  group digest: a failed job is retried when its group changes or on `ferb memory consolidate`
+  (`catch_up(force=True)`); a failed distill day waits for its summary row to change (`distill_runs.inputs`) or
+  `ferb memory distill DAY`.
 - **Learning calls (fix wave 5).** Each consolidation and distillation call runs through `memory/calls.learning_call`
   (assembly within the window and the character cap, the run, the schema check) and is one `model.learning` span: role,
   call id (`sleep-…`, `distill-<day>`), runtime and model as input; outcome, input characters and estimated tokens and
@@ -1402,6 +1415,8 @@ per-source job completion. Code rollups cite their child cards.
   (`SpanStore._task_rows` matches `call`). A day over the cap fails distillation with `InputTooLarge`.
 - **Rollups off the loop (I4).** `_rollups_off_loop` runs `rollups` in a worker thread on its own `Database`
   connection, never once a task has started, stopping between days; a day summary row already indexed is skipped.
+  Afterwards each node it wrote is checked against the forget tombstones, and one built on a source forgotten
+  meanwhile is forgotten.
 - **Owner refusals (M3).** `Learning.put` refuses a procedure, identity proposal or lesson whose key or text matches
   one the owner retired. **Procedure state (M1, M6):** slot variants count only receipts that supply the declared
   slots; "current" versions are the installed ones, so an update demotes to candidate, and only two consecutive

@@ -192,15 +192,19 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   planner was shown. A forget leaves a tombstone (the ids it deleted, never their content): a card built on forgotten
   content is never written or rebuilt; a source removed by retention stays a link of unknown content. One forget no
   longer deletes the cards of unrelated tasks.
-- Only your own words are saved as yours. "Remember that …" saves the text you typed; FERB's rewording of it waits for
-  your Confirm (`ferb memory confirm`) before it reaches a prompt, and a quote like "the" no longer turns the planner's
-  sentence into an owner rule. Unconfirmed hints read as unconfirmed to the planner.
-- Forget is complete: FERB's "Remembered: …" line, its answer to the forgotten message, and its reply lines that stated
-  the item go too, from the chat and from its stored model turns. You can forget from chat or the notch ("forget my
-  test lab colour"): FERB names everything that goes and deletes only after your Yes. The confirmation names each
-  item.
+- Only your own words are saved as yours. "Remember that …" saves the whole clause you typed it in (so a slice can't
+  drop a "never"); FERB's rewording of it waits until you reply Yes to its question (in chat or the notch) before it
+  reaches a prompt, and a quote like "the" no longer turns the planner's sentence into an owner rule. A preference said
+  while FERB was looking at outside content joins your standing rules only once you confirm it. Unconfirmed hints read
+  as unconfirmed to the planner.
+- Forget goes further: FERB's "Remembered: …" line, its answer to the forgotten message, the lines of its replies that
+  restate the item, and what a task given the item did with it (its answer, outcome, saved plan, permanent record and
+  episode card) go too, from the chat and from its stored model turns; the scrub runs off the event loop and your next
+  message waits for it. It removes lines that hold the item's words, not every paraphrase. You can forget from chat
+  or the notch ("forget my test lab colour"): FERB names everything that goes and deletes only after your Yes.
 - The sleep service works on what changed: a card is read again only when its inputs change; episodes go to the model
-  grouped by the tools and apps they used, one call per group, split to fit the model's window; a failed job waits for
+  grouped by the tools and apps they used, one call per group with only the earlier episodes related to them, split
+  to fit the model's window; a failed job waits for
   a change or `ferb memory consolidate`, and a failed distill day for its evidence to change, instead of retrying every
   hour. The day rollups run off the event loop and never once a task has started; forget no longer rebuilds search
   indexes on it.
