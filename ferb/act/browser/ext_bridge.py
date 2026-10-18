@@ -591,6 +591,8 @@ class _Tab:
     unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
     native_shot: bool = False       # the latest screenshot is the whole browser window (a debugger-proof tab)
     input_note: str = ""            # the latest capture went on although the tab's input readiness failed (round 5)
+    # the page an owner's tab held when the task took it over: the tab is known by its id, wherever it navigates
+    taken_over_from: dict[str, str] = field(default_factory=dict)
 
 
 class _TabDriver:
@@ -1390,6 +1392,12 @@ class _TabDriver:
         """Last known URLs of the task-owned tabs, exposed as verification facts."""
         return [t.url for t in self._tabs.values() if t.owner == owner]
 
+    def task_tabs(self, owner: str) -> list[dict[str, Any]]:
+        """The task's tabs by tab id (owner live use 2026-10-18: a navigated tab counted as missing), each with the
+        page it held when the task took it over, when it was the owner's."""
+        return [{"tab": t.ref.tab_id, **({"taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
+                for t in self._tabs.values() if t.owner == owner]
+
     def tabs_of(self, owner: str) -> list[str]:
         """Existing aliases for verification; ownership stays with the original worker."""
         return [t.ref.tab_id for t in self._tabs.values() if t.owner == owner]
@@ -1509,6 +1517,8 @@ class Router(_TabDriver):
                             "window_id": t.get("window_id")}
                 if mine is not None:
                     entry["taken_over_as"] = mine.ref.tab_id      # already this task's: use this tab id
+                    if mine.taken_over_from:                      # what it held then: navigating never loses it
+                        entry["taken_over_from"] = dict(mine.taken_over_from)
                 out.append(entry)
         return out
 
@@ -1533,7 +1543,9 @@ class Router(_TabDriver):
             raise Refused("that tab isn't open any more")
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
-        self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, str(tab.get("url") or ""), attached=True)
+        self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, str(tab.get("url") or ""), attached=True,
+                                      taken_over_from={"url": str(tab.get("url") or ""),
+                                                       "title": str(tab.get("title") or "")})
         return ref
 
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:

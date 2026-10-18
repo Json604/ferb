@@ -193,6 +193,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   "parallel" is never a success condition, and a task never fails only because of how the work was split.
 - "Are the agents working?" is answered from FERB's own record of the task (running, blocked, finished, the last
   worker report, step counts), never from what the planner imagines.
+- A task's tabs are known by tab id: a tab it took over and then navigated elsewhere is still the same tab (with the
+  page it held when taken over), so it never counts as missing.
 
 Fix wave 3 (2026-10-15, after the memory and learning review):
 - Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own

@@ -2917,11 +2917,13 @@ class Daemon:
         parent = self._inspection_parent(task_id)
         if parent is None:
             return ""
-        tabs = [{"tool_prefix": prefix, "tab": tab}
+        tabs = [{"tool_prefix": prefix, **tab}
                 for prefix, drv in (("browser", self.router), ("ferb_browser", self.ferb_identity))
-                if drv is not None for tab in drv.tabs_of(parent)]
+                if drv is not None for tab in drv.task_tabs(parent)]
         return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
-                "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
+                "the page or guess tab ids). A tab is known by its id: one you navigated elsewhere is still the same "
+                "tab, and taken_over_from is the page it held when the task took it over: " + json.dumps(tabs)) \
+            if tabs else ""
 
     def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
         """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):

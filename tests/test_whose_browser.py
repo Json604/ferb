@@ -246,3 +246,25 @@ def test_find_searches_the_whole_page() -> None:
     br.call = page                                                                   # type: ignore[method-assign]
     got = asyncio.run(r.find(ref, "arpit"))
     assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 25
+
+
+def test_a_held_tab_navigated_elsewhere_is_still_the_same_tab() -> None:
+    """Owner live use 2026-10-18 (task 891b3eaf): the worker navigated t5 through problem pages and later reported "only
+    14 of the required 15 tabs remain open; 'Monitoring, Observability & GitOps_1' is missing". A task's tabs are
+    known by tab id: a held tab lists the page it held when the task took it over, whatever it shows now."""
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+
+    async def moved(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        if op == "list_tabs":                         # the held tab now shows a problem page
+            return {"tabs": [{"tab_id": 11, "host": "www.scaler.com", "url": "https://www.scaler.com/problems/42",
+                              "title": "Problem 42", "active": True},
+                             {"tab_id": 12, "host": "mail.google.com", "url": "https://mail.google.com/mail/",
+                              "title": "Inbox", "active": False}]}
+        return {}
+    br.call = moved                                                                  # type: ignore[method-assign]
+    held = asyncio.run(r.open_tabs(task="task-1"))[0]
+    assert held["taken_over_as"] == ref.tab_id and held["title"] == "Problem 42"
+    assert held["taken_over_from"] == {"url": "https://www.youtube.com/watch?v=fixture", "title": "Lesson"}
+    assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "taken_over_from": {"url": "https://www.youtube.com/watch?v="
+                                                                                 "fixture", "title": "Lesson"}}]
