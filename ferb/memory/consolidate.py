@@ -338,6 +338,12 @@ class Consolidator:
         await asyncio.to_thread(work)
         for event in events:
             l.publish(*event)
+        # A forget on the loop may have deleted a source after the thread read it: what this pass wrote on a forgotten
+        # source goes too, with what is built on it (review minor: rollup/forget race)
+        written = {e[1]['id'] for e in events if len(e) > 1 and e[0] == 'memory.derived' and isinstance(e[1], dict)}
+        doomed = [i for i in sorted(written) if (n := l.get(i)) and any(l.forgotten(s) for s in n['sources'])]
+        if doomed:
+            l.forget(doomed)
 
     def rollups(self, learning: Learning | None = None, stop: Callable[[], bool] = lambda: False) -> None:
         """Index each day summary and narrative, roll episode cards up by day, week, month and year, and summarize facts

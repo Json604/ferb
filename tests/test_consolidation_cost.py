@@ -244,3 +244,20 @@ def test_a_new_card_goes_with_only_the_consolidated_cards_related_to_it(learning
     asyncio.run(sleep.catch_up())
     carried = set(_carried(rt, [c["id"] for c in [*old, related, new]]))
     assert carried == {new["id"], related["id"], old[3]["id"]}      # itself, its intent, its group's procedure's card
+
+
+def test_a_rollup_written_while_a_forget_ran_never_keeps_what_was_forgotten(learning, monkeypatch) -> None:
+    """Review minor: the rollups run in a worker thread; a forget on the loop meanwhile could delete a card after a
+    rollup read it, leaving a day summary citing (and naming) the forgotten card. What a pass's rollups wrote is checked
+    once they finish: a node built on a forgotten source is forgotten too."""
+    gone = card(learning, "gone")
+    real = Consolidator.rollups
+
+    def racing(self: Consolidator, own: Any = None, stop: Any = lambda: False) -> None:
+        real(self, own, stop)                                       # writes the day summary citing the card
+        own.db.conn.execute("DELETE FROM learning_nodes WHERE id = ?", (gone["id"],))     # the forget, meanwhile
+        own.db.conn.execute("INSERT INTO learning_forgotten VALUES (?, 'now')", (gone["id"],))
+    monkeypatch.setattr(Consolidator, "rollups", racing)
+    asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY)).catch_up())
+    citing = [n for n in learning.items("summary") if gone["id"] in n["sources"]]
+    assert citing == []
