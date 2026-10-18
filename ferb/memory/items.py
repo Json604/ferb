@@ -86,6 +86,49 @@ def contains_words(text: str, part: str) -> bool:
     return False
 
 
+_CLAUSE_MARKS = ",;:!?\n"     # where a clause ends; a period isn't one ("Dr. Rao"), so a clause is never cut short
+_EDGE = " \t.\"'“”‘’()[]"
+
+
+def _found(text: str, part: str) -> tuple[int, int] | None:
+    """Where `part` sits in `text` as whole words (case and spacing aside), or None."""
+    words = part.strip(_EDGE + ",;:!?").split()
+    if not words:
+        return None
+    for m in re.finditer(r"\s+".join(re.escape(w) for w in words), text, re.IGNORECASE):
+        before = m.start() == 0 or not _wordlike(text[m.start() - 1])
+        if before and (m.end() == len(text) or not _wordlike(text[m.end()])):
+            return m.start(), m.end()
+    return None
+
+
+def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
+    left = max(text.rfind(c, 0, start) for c in _CLAUSE_MARKS) + 1
+    rights = [i for i in (text.find(c, end) for c in _CLAUSE_MARKS) if i != -1]
+    return left, min(rights) if rights else len(text)
+
+
+def owner_clause(text: str, part: str) -> str | None:
+    """The whole clause(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is saved
+    as their words, so a slice can never drop a word of the clause such as a negation ("never share my links publicly"
+    stays whole). None when `part` isn't in `text` (fix round, review Q3)."""
+    found = _found(text, part)
+    if found is None:
+        return None
+    left, right = _clause_span(text, *found)
+    return text[left:right].strip(_EDGE) or None
+
+
+def whole_clauses(text: str, part: str) -> bool:
+    """Whether `part` is exactly one or more whole clauses of `text`: a meaningful span of the owner's words, never any
+    word they happened to type ("the")."""
+    found = _found(text, part)
+    if found is None:
+        return False
+    left, right = _clause_span(text, *found)
+    return not any(_wordlike(c) for c in text[left:found[0]] + text[found[1]:right])
+
+
 def prompt_ready(item: MemoryItem) -> bool:
     """Whether an item may shape FERB's prompts: a current active item, or an observed pattern still gathering days
     (shown as an unconfirmed hint). An inferred item (model wording: a paraphrase of the owner, a distilled guess) waits
@@ -343,6 +386,16 @@ class Memory:
         out = self.get(item_id)
         assert out is not None
         return out
+
+    def hold_identity(self, item_id: str) -> None:
+        """Keep an owner preference out of the always-loaded identity until the owner confirms it (it was captured in a
+        turn that showed outside content): it is offered as an identity proposal instead."""
+        self.db.conn.execute("UPDATE memory_items SET identity_held = 1 WHERE id = ?", (item_id,))
+        self.on_change()
+
+    def identity_held(self, item_id: str) -> bool:
+        row = self.db.conn.execute("SELECT identity_held FROM memory_items WHERE id = ?", (item_id,)).fetchone()
+        return bool(row and row[0])
 
     def retract(self, item_id: str, reason: str) -> None:
         """Soft: kept for history, never recalled."""

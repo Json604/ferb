@@ -31,7 +31,7 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
-from ferb.memory.items import contains_words
+from ferb.memory.items import whole_clauses
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
@@ -112,7 +112,8 @@ SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older convers
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
 ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
-FORGET_NEEDS_WORDS = "A forget needs your own words asking for it, so I didn't ask about deleting anything."
+FORGET_NEEDS_WORDS = ("A forget needs your own words asking for it (a whole sentence or clause), so I didn't ask about "
+                      "deleting anything.")
 # On an event of `_send`: more of this turn follows that must register before the next message is routed (re-review of
 # M1). `send` removes it; no client sees it.
 TURN_CONTINUES = "_turn_continues"
@@ -427,8 +428,10 @@ class Supervisor(WorkerRuns):
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
-        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; supplied by the daemon
-        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = lambda items, own_words, source: []
+        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; the last argument: the turn showed outside
+        # content (an owner preference then waits for their Confirm before it joins their identity); from the daemon
+        self.remember: Callable[[list[Any], str, str, bool], list[dict[str, str]]] = \
+            lambda items, own_words, source, outside=False: []
         # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
@@ -1128,8 +1131,12 @@ class Supervisor(WorkerRuns):
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[str] = []
+        shown_now = self._env.get(request_id, {})        # did this turn show outside content? (as S4 counts it)
+        outside = any(origins_.stored_outside(origins_.split(e["origin"]))
+                      for e in shown_now.get("context_exposures", [])) \
+            or any(origins_.is_external(o) for o in shown_now.get("message_origin") or set())
         for item in out.remember:           # one at a time, so a refused one is known by name
-            saved_now = self.remember([item], typed, entry.id)
+            saved_now = self.remember([item], typed, entry.id, outside)
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             if not saved_now:
@@ -1138,7 +1145,7 @@ class Supervisor(WorkerRuns):
         for receipt in receipts:             # the owner's words, quote-checked
             yield {"type": "memory", "text": receipt}
         for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
-            saved.append(self.forget_request(wanted.item_id, request_id) if contains_words(typed, wanted.quote)
+            saved.append(self.forget_request(wanted.item_id, request_id) if whole_clauses(typed, wanted.quote)
                          else FORGET_NEEDS_WORDS)
             yield {"type": "memory", "text": saved[-1]}
         changed: list[str] = []          # code's own lines about cancelled reminders and schedules

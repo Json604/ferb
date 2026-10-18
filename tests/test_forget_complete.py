@@ -80,7 +80,7 @@ def test_the_forget_confirmation_names_the_items_that_go(daemon: RunningDaemon) 
     finally:
         c.close()
     assert planned["confirmed"] is False
-    assert any("“my dentist is Dr. Quillfeather”" in line for line in planned["will_delete"]), planned
+    assert any("“remember that my dentist is Dr. Quillfeather”" in line for line in planned["will_delete"]), planned
 
 
 def _forget_question(d: RunningDaemon) -> Any:
@@ -170,3 +170,14 @@ def test_a_reply_sharing_one_word_with_the_item_keeps_its_line(daemon: RunningDa
     _on_loop(daemon, lambda: daemon.daemon.memory.forget(item.id))
     texts = _on_loop(daemon, lambda: [e.data.get("text") for e in daemon.daemon.journal.of_kind("chat.reply")])
     assert "The router light is blue when it updates.\nAnything else?" in texts
+
+
+def test_a_chat_forget_quote_must_be_a_whole_clause_of_the_owners_words(daemon: RunningDaemon) -> None:
+    """Review Q4: a single common word the owner typed ("the") was enough for FERB to ask about deleting a memory."""
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "the"}])])
+    chat(daemon, "summarize the page I'm looking at")
+    assert _forget_question(daemon) is None
+    install(daemon, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "please forget my dentist"}])])
+    chat(daemon, "please forget my dentist, thanks")
+    assert _forget_question(daemon) is not None

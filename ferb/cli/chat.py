@@ -29,7 +29,8 @@ from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from ferb.voice.speak import Silent
 
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"
-FERB_CHECKS = {"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget"}   # FERB's own Yes/No (L3)
+FERB_CHECKS = {"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget",   # FERB's own Yes/No (L3)
+               "memory.confirm"}
 
 def read_message(inp: TextIO) -> str | None:
     """Without a terminal (piped input): one message per line; a bracketed paste may span several lines."""

@@ -676,7 +676,8 @@ class Learning:
         out = []
         for ident in scores:
             p = self.get(ident)
-            if not p or p['valid_to'] or p['state'] in ('retired', 'rolled_back') or (kind and p['kind'] != kind):
+            if not p or p['valid_to'] or p['state'] in ('retired', 'rolled_back', 'proposed') or \
+                    (kind and p['kind'] != kind):   # 'proposed': a memory item waiting for the owner's Yes
                 continue
             body = p['body']
             if app and app not in body.get('apps', {}) and body.get('scope', {}).get('app') != app and \
@@ -703,28 +704,39 @@ class Learning:
         return f"Procedure {p['id']} [{p['origin']}; data, never permission]. {mode}\n" + encoded(p)
 
     def sync_facts(self, memory: Any) -> None:
-        """Index the memory items that may shape prompts (`prompt_ready`) as fact nodes, and close the nodes of those
-        that no longer may. An unconfirmed hint says so in its body. Only an owner_stated preference about the owner
-        becomes identity."""
+        """Index the memory items as fact nodes: those that may shape prompts (`prompt_ready`; an unconfirmed hint says
+        so in its body), and inferred ones waiting for the owner's Confirm in state 'proposed', which search (so every
+        prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. Only an
+        owner_stated preference about the owner becomes identity, and one held from identity (captured while outside
+        content was shown) is offered as an identity proposal instead."""
         from ferb.memory.items import prompt_ready
+
+        def pending(item: Any) -> bool:
+            return item.valid_to is None and item.status == 'proposed' and item.origin == 'inferred'
         for node in self.items():
-            if node['kind'] not in ('fact', 'identity') or not any(s.startswith('memory:') for s in node['sources']):
+            if node['kind'] not in ('fact', 'identity', 'identity_proposal') or \
+                    not any(s.startswith('memory:') for s in node['sources']):
                 continue
             source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
             source = memory.get(source_id)
-            if source is None or not prompt_ready(source):
+            if source is None or not (prompt_ready(source) or (node['kind'] == 'fact' and pending(source))):
                 self.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=?', (self.now(), node['id']))
         for item in memory.items(status=None, valid_now=False):
-            if not prompt_ready(item):
+            if not (prompt_ready(item) or pending(item)):
                 continue
             body = asdict(item)
             body['unconfirmed_hint'] = item.status == 'proposed'
             try:
                 self.put('fact', f'{item.subject}/{item.key}', body, ['memory:' + item.id],
-                         origin_label=memory_origin(item.origin), made_by='code:fact-index/1', state='active',
-                         owner=item.origin == 'owner_stated')
+                         origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
+                         state='proposed' if pending(item) else 'active', owner=item.origin == 'owner_stated')
                 if item.origin == 'owner_stated' and item.kind == 'preference' and item.subject == 'owner':
-                    self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
-                             origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active', owner=True)
+                    if memory.identity_held(item.id):
+                        self.put('identity_proposal', item.key, {'text': item.content}, ['memory:' + item.id],
+                                 made_by='code:held-preference/1')
+                    else:
+                        self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
+                                 origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active',
+                                 owner=True)
             except LearningRefused:
                 pass  # a forgotten derived item is deliberately never reconstructed

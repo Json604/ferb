@@ -267,7 +267,7 @@ class Daemon:
         # Episode cards are read off the loop (L28) by exactly this entry point: the packaged app's stub accepts only
         # exact entry points, so it takes no arguments (the request goes on stdin; the home comes as FERB_HOME).
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
-        self._chat_forgets: dict[str, tuple[str, str]] = {}            # chat forget questions -> what goes (I2)
+        self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -1457,9 +1457,6 @@ class Daemon:
         """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the
         fact node it was shown as, or another learned item). Nothing is deleted now: FERB asks a plain Yes/No question
         naming everything that goes, as `ferb memory forget` does, and `_question_answered` forgets on the Yes."""
-        from ferb.core.types import Identity
-        from ferb.orchestrator.steering import FORGET_ASK
-        from ferb.policy.rules import ActionRequest
         node = self.learning.get(item_id) if self.learning is not None else None
         ident = str(node["body"].get("id", "")) if node and node["kind"] == "fact" else item_id
         if self.memory is not None and self.memory.get(ident) is not None:
@@ -1472,23 +1469,43 @@ class Daemon:
         else:
             return "I couldn't find that memory, so nothing was deleted."
         reason = "Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines)
-        action = ActionRequest(FORGET_ASK, "owner_question", Identity.OWNER, frozenset(), "", "",
-                               "memory-forget-" + request_id, frozenset())
-        ap = self.state.approvals.question(action, reason, ["Yes", "No"])
-        self._chat_forgets[ap.id] = target
-        self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
-                                             "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+        self._ask_owner("forget:" + target[0], target[1], reason, "memory-forget-" + request_id)
         return reason + "\nAnswer Yes or No."
 
+    def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str) -> None:
+        """One of FERB's own Yes/No questions about memory (a FERB check: a plain Yes or No answers it, in chat or with
+        the notch's buttons): `_question_answered` does what its Yes asks."""
+        from ferb.core.types import Identity
+        from ferb.orchestrator.steering import CONFIRM_MEMORY_ASK, FORGET_ASK
+        from ferb.policy.rules import ActionRequest
+        action = ActionRequest(CONFIRM_MEMORY_ASK if kind == "confirm" else FORGET_ASK, "owner_question",
+                               Identity.OWNER, frozenset(), "", "", request_id, frozenset())
+        ap = self.state.approvals.question(action, reason, ["Yes", "No"])
+        self._owner_followups[ap.id] = (kind, ident)
+        self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
+                                             "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+
     def _question_answered(self, ap: Any) -> str:
-        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2). A line for the owner, or ''."""
-        target = self._chat_forgets.pop(ap.id, None)
-        if target is None:
+        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2), keeping FERB's wording of a
+        memory on its Yes (I1). A line for the owner, or ''."""
+        followup = self._owner_followups.pop(ap.id, None)
+        if followup is None:
             return ""
-        if ap.state != "granted" or ap.choice != "Yes":
-            return "Kept: nothing was forgotten."
-        kind, ident = target
+        what, ident = followup
         from ferb.memory.items import MemoryRefused
+        yes = ap.state == "granted" and ap.choice == "Yes"
+        if what == "confirm":
+            try:
+                if yes:
+                    self.memory.confirm(ident)
+                else:
+                    self.memory.retract(ident, "the owner said No")
+            except MemoryRefused:
+                return "That memory isn't waiting any more."
+            return "Kept, in my words." if yes else "Not kept."
+        if not yes:
+            return "Kept: nothing was forgotten."
+        kind = what.removeprefix("forget:")
         try:
             if kind == "memory":
                 gone = len(self.memory.forget(ident).items)
@@ -1518,6 +1535,11 @@ class Daemon:
             return {"item": node, "history": [n for n in l.items(history=True)
                     if node and n["kind"] == node["kind"] and n["key"] == node["key"]]}
         if op == "confirm":
+            node = l.get(ident)
+            if node and node["kind"] == "fact":           # a memory item waiting for the owner (I1): confirm it there
+                self.memory.confirm(str(node["body"]["id"]))
+                l.sync_facts(self.memory)
+                return {"item": self._item_dict(self.memory.get(str(node["body"]["id"])))}
             return {"item": l.confirm(ident)}
         if op == "edit":
             node = l.get(ident)
@@ -1774,21 +1796,23 @@ class Daemon:
         if self.memory is not None:
             export(self.memory, self.home / "memory")
 
-    def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[dict[str, str]]:
+    def _remember(self, items: list[Any], own_words: str, source_id: str,
+                  outside: bool = False) -> list[dict[str, str]]:
         """Chat capture (memory review I1, MP2). `own_words`: what the owner typed (pasted parts left out). The quote must
-        be whole words of it. Saved as owner_stated is only text the owner typed: the planner's content when it appears
-        in their words word for word (`contains_words`). Any other content is FERB's wording of what they said: an
-        inferred proposal that waits for their Confirm before it reaches a prompt; one whose quote shares no word with
-        it rests on nothing the owner said and is refused. Per saved item: its receipt and the line code adds to the
-        reply."""
-        from ferb.memory.items import contains_words, query_terms
+        be whole words of it. Saved as owner_stated is only the owner's own text: the whole clause(s) of their words
+        that hold the planner's content (`owner_clause`), so a slice never drops a negation. Any other content is FERB's
+        wording of what they said: an inferred proposal, out of every prompt until they say Yes to the question that
+        offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. `outside`:
+        the turn showed outside content, so an owner preference waits for their Confirm before it joins their
+        always-loaded identity. Per saved item: its receipt and the line code adds to the reply."""
+        from ferb.memory.items import contains_words, owner_clause, query_terms
         saved: list[dict[str, str]] = []
         for it in items:
             content = str(it.content).strip()
-            owner = contains_words(own_words, content)
+            clause = owner_clause(own_words, content)
             if not contains_words(own_words, str(it.quote)):
                 why = "quote not in the owner's words"
-            elif not owner and not set(query_terms(str(it.quote))) & set(query_terms(content)):
+            elif clause is None and not set(query_terms(str(it.quote))) & set(query_terms(content)):
                 why = "the quote holds nothing of what would be saved"
             else:
                 why = ""
@@ -1796,18 +1820,26 @@ class Daemon:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": why})
                 continue
             try:
-                m = self.memory.propose(it.kind, it.subject, it.key, content, "owner_stated" if owner else "inferred",
-                                        [("journal", source_id)], 1.0 if owner else 0.7)
+                m = self.memory.propose(it.kind, it.subject, it.key, clause or content,
+                                        "owner_stated" if clause else "inferred", [("journal", source_id)],
+                                        1.0 if clause else 0.7)
             except FerbError as e:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
                 continue
             text = " ".join(m.content.split())
             if m.origin == "owner_stated":
-                saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}"})
+                held = outside and m.kind == "preference" and m.subject == "owner"
+                if held:
+                    self.memory.hold_identity(m.id)
+                saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}" + (
+                    " (it becomes one of your standing rules once you confirm it: I was looking at outside content)"
+                    if held else "")})
             else:
+                self._ask_owner("confirm", m.id, f"Keep this, in FERB's words (you didn't say it this way)? “{text}”",
+                                "memory-confirm-" + m.id)
                 saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Confirm)",
-                              "line": f"Saved in my words, not yours, so it waits for your Confirm before I use it: "
-                                      f"{text} (ferb memory confirm {m.id})"})
+                              "line": f"Saved in my words, not yours, so I won't use it until you confirm: “{text}”. "
+                                      "Reply Yes to keep it."})
         return saved
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:

@@ -93,9 +93,10 @@ def test_the_owners_own_words_are_saved_as_theirs(daemon: RunningDaemon) -> None
     item = Remember(kind="person", subject="owner", key="dentist", content="my dentist is Dr. Rao.",
                     quote="my dentist is Dr. Rao")
     saved = run(daemon, lambda: daemon.daemon._remember([item], said, src))
-    assert [s["line"] for s in saved] == ["Remembered: my dentist is Dr. Rao."]
+    # the whole clause of the owner's words that holds it (fix round, review Q3): never a slice of it
+    assert [s["line"] for s in saved] == ["Remembered: remember that my dentist is Dr. Rao"]
     it = run(daemon, lambda: mem(daemon).items("active"))[0]
-    assert (it.origin, it.status, it.content) == ("owner_stated", "active", "my dentist is Dr. Rao.")
+    assert (it.origin, it.status, it.content) == ("owner_stated", "active", "remember that my dentist is Dr. Rao")
 
 
 def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daemon: RunningDaemon) -> None:
@@ -106,7 +107,8 @@ def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daem
     item = Remember(kind="preference", subject="owner", key="work_browser",
                     content="Always use Brave for work and never Safari", quote="I prefer Brave for work")
     saved = run(daemon, lambda: daemon.daemon._remember([item], said, src))
-    assert len(saved) == 1 and "confirm" in saved[0]["line"].lower() and "Remembered" not in saved[0]["line"]
+    assert len(saved) == 1 and "Reply Yes" in saved[0]["line"] and "Remembered" not in saved[0]["line"]
+    assert "ferb memory" not in saved[0]["line"] and "id-" not in saved[0]["line"]   # no command, no id (fix round)
     it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
     assert (it.origin, it.status) == ("inferred", "proposed")
     candidates = daemon.run(daemon.daemon._learning_candidates("Brave for work"))
@@ -115,6 +117,72 @@ def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daem
     candidates = daemon.run(daemon.daemon._learning_candidates("Brave for work"))
     assert [c for c in candidates if "Safari" in c["text"]]
     assert "Safari" not in _identity(daemon)                  # a confirmed inference is still not the owner's rule
+
+
+def test_owner_words_are_saved_as_their_whole_clause_never_a_slice_dropping_a_negation(daemon: RunningDaemon) -> None:
+    """Review Q3: a contiguous slice of the owner's words ("share my links publicly" out of "never share my links
+    publicly, …") was saved as their rule. What is saved as theirs is the whole clause it sits in."""
+    own = "never share my links publicly, just summarize the page"
+    src = journal(daemon, "chat.message", {"text": own})
+    item = Remember(kind="preference", subject="owner", key="links", content="share my links publicly",
+                    quote="share my links publicly")
+    saved = run(daemon, lambda: daemon.daemon._remember([item], own, src))
+    assert [s["line"] for s in saved] == ["Remembered: never share my links publicly"]
+    stored = run(daemon, lambda: [i.content for i in mem(daemon).items(None, valid_now=False)])
+    assert stored == ["never share my links publicly"]
+    assert "never share my links publicly" in _identity(daemon)
+
+
+def test_a_preference_said_while_outside_content_was_shown_waits_for_confirm_before_identity(
+        daemon: RunningDaemon) -> None:
+    """Review minor: a chat-captured owner preference from a turn that showed outside content stays out of the
+    always-loaded identity until the owner confirms it (it is offered as an identity proposal)."""
+    import json as _json
+    daemon.daemon.supervisor.relevant_context = lambda _: ("A page the owner had open.", "external:web")
+    install(daemon, [_json.dumps({"kind": "reply", "text": "Okay.", "remember": [
+        {"kind": "preference", "subject": "owner", "key": "work_browser", "content": "I prefer Brave for work",
+         "quote": "I prefer Brave for work"}]})])
+    chat(daemon, "I prefer Brave for work")
+    assert run(daemon, lambda: mem(daemon).items("active"))[0].origin == "owner_stated"
+    assert "Brave" not in _identity(daemon)
+    proposals = run(daemon, lambda: daemon.daemon.learning.items("identity_proposal"))
+    assert [p["body"]["text"] for p in proposals] == ["I prefer Brave for work"]
+    run(daemon, lambda: daemon.daemon.learning.confirm(proposals[0]["id"]))
+    assert "I prefer Brave for work" in _identity(daemon)
+
+
+def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_yes(daemon: RunningDaemon) -> None:
+    import json as _json
+    install(daemon, [_json.dumps({"kind": "reply", "text": "Okay.", "remember": [
+        {"kind": "preference", "subject": "owner", "key": "work_browser",
+         "content": "Always use Brave for work", "quote": "I prefer Brave for work"}]})])
+    chat(daemon, "I prefer Brave for work")
+    question = run(daemon, lambda: next(q for q in daemon.daemon.state.approvals.pending()
+                                        if q.capability == "memory.confirm"))
+    assert "Always use Brave for work" in question.reason and question.options == ("Yes", "No")
+    install(daemon, [_json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": question.id,
+                                                                                     "answer": "Yes"}})])
+    chat(daemon, "Yes")
+    it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
+    assert (it.origin, it.status) == ("inferred", "active")
+
+
+def test_the_dashboard_lists_and_confirms_a_pending_paraphrase(daemon: RunningDaemon) -> None:
+    from ferb.cli.client import Client
+    said = "I prefer Brave for work"
+    src = journal(daemon, "chat.message", {"text": said})
+    item = Remember(kind="preference", subject="owner", key="work_browser", content="Always use Brave for work",
+                    quote="I prefer Brave for work")
+    run(daemon, lambda: daemon.daemon._remember([item], said, src))
+    c = Client(daemon.sock)
+    try:
+        inventory = c.call("memory.learning", {"op": "inventory"})["items"]
+        [node] = [n for n in inventory if n["kind"] == "fact"]
+        assert node["state"] == "proposed"
+        c.call("memory.learning", {"op": "confirm", "id": node["id"]})
+    finally:
+        c.close()
+    assert run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0].status == "active"
 
 
 def test_an_unconfirmed_observed_pattern_is_labelled_unconfirmed_for_the_planner(daemon: RunningDaemon) -> None:

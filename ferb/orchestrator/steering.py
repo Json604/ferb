@@ -17,8 +17,9 @@ from ferb.sanitize.untrusted import wrap_untrusted
 
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
+CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1: the owner's Yes/No to keeping FERB's wording of what they said
 # FERB's own consequential Yes/No questions: answered only by a plain Yes or No, never by a correction's words (L3)
-FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK})
+FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK})
 
 
 @dataclass

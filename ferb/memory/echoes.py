@@ -5,7 +5,8 @@ the code line "Remembered: …", FERB's answer to the forgotten message, a reply
 the task's stored goal, outcome, saved spec and permanent record, its episode card, and the planner's and workers'
 stored turns and exposures that copied those. After the deletion (`scrub`, on a connection of its own when the daemon
 runs it):
-- FERB's whole answer to a forgotten chat message is removed (it answered words that are gone);
+- FERB's whole answer to a forgotten chat message is removed, in the chat and in the planner turn that wrote it (it
+  answered words that are gone);
 - a task given the item (`task_memory_refs`: its exposures cited the item or a node built on it; or its card cited it;
   or its exposures cited a forgotten entry) loses each line, in its answer and outcome rows, its stored goal, outcome,
   saved spec and permanent record, that holds the item's text word for word or a word of the item nothing left holds
@@ -257,6 +258,13 @@ def scrub(db: Any, forgotten: Forgotten) -> Scrubbed:
                                     (task,)).fetchall():
             if any(lines.mentions(s) for s in _strings(json.loads(card["body_json"]))):
                 out.cards.append(card["id"])
+    for request in sorted(forgotten.requests):           # the planner's own answer to a forgotten message goes whole
+        for span in db.conn.execute("SELECT id, output_json FROM spans WHERE kind = 'model.turn' AND "
+                                    "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall():
+            out_value = json.loads(span["output_json"] or "null")
+            if isinstance(out_value, dict) and out_value.get("text") not in (None, REMOVED):
+                db.conn.execute("UPDATE spans SET output_json = ? WHERE id = ?",
+                                (json.dumps(out_value | {"text": REMOVED}), span["id"]))
     told = {s.strip() for s in [*lines.removed, *phrases] if s.strip()}
     if told:
         from ferb.orchestrator.attention import scrub_spans
