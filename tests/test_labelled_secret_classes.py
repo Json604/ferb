@@ -21,7 +21,6 @@ PROVIDER_CORPUS = [
     ("Enter code 48 29 13 to continue", "48 29 13"),
     ("Your Zomato login OTP is 4829", "4829"),
     ("OTP 482913", "482913"),
-    ("Use 482913 to verify your Swiggy account", "482913"),
     ("Your passcode is 7392", "7392"),
     ("PIN 4821 for your card", "4821"),
     ("Your one-time password is 55 12 90", "55 12 90"),
@@ -37,6 +36,7 @@ def test_provider_codes_are_masked_with_the_code_word_on_either_side(message, co
 def test_masking_twice_changes_nothing() -> None:
     r = Redactor()
     for text in ("my token is ghp_abcdefghijklmnopqrstuvwxyz0123 keep it", "password: hunter2",
+                 "We sent a verification code to +91 98765 43210",
                  "123456 is your Instagram code", "my password is [redacted] ok"):
         once = r.text(text)
         assert r.text(once) == once, once
@@ -264,3 +264,41 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
         whole = redactor.text(text).count(REDACTED)
         assert _streamed(redactor, text, lambda: 10 ** 9).count(REDACTED) >= whole, text
         assert _streamed(redactor, text, lambda: rng.randint(1, 8)).count(REDACTED) >= whole, text
+
+
+
+# Review of fix wave 2 (probe p5): owners' own requests keep their numbers. "verify" is not one of the owner's code
+# words (code, OTP, passcode, PIN, one-time password, verification), and a code never reaches its word across a
+# sentence or clause break.
+OWNER_REQUESTS = [
+    ("check if my Amazon order 4821 is delivered and verify the address", ["4821"]),
+    ("find invoice 48213 - verify the GST amount", ["48213"]),
+    ("flat 1204 - verify the address on Swiggy", ["1204"]),
+    ("the meeting is at 1530 - verify with Rahul", ["1530"]),
+    ("track order 405-1234567 to verify delivery", ["405-1234567"]),
+    ("PR 4821 is ready, please review the code", ["4821"]),
+    ("issue 4821 - code freeze", ["4821"]),
+    ("Build 20241015 is out; verify on staging", ["20241015"]),
+    ("Pay 2500 to Rahul and verify on WhatsApp", ["2500"]),
+    ("send 5000 to mom, verify the UPI PIN prompt yourself", ["5000"]),
+    ("remind me at 1730 to verify the code", ["1730"]),
+    ("set a timer for 1500 to check the OTP", ["1500"]),
+    ("Rs 4999 is the price. Promo code SAVE10 applies.", ["4999"]),
+    ("Server started on port 3000: verify at http://localhost:3000/verify", ["3000"]),
+    ("tests/test_otp.py:1234: AssertionError", ["1234"]),
+    ("Sept 2024: code red", ["2024"]),
+    ("Line 1234: code smell", ["1234"]),
+    ("We sent a verification code to +91 98765 43210", ["91 98765 43210"]),
+]
+
+
+@pytest.mark.parametrize("message,kept", OWNER_REQUESTS)
+def test_owners_requests_keep_their_numbers(message, kept) -> None:
+    out = Redactor().text(message)
+    for number in kept:
+        assert number in out, out
+
+
+def test_a_code_after_a_sentence_break_is_still_masked_by_its_own_word() -> None:
+    out = Redactor().text("Order 4821 is out for delivery. Share OTP 7731 with the agent")
+    assert "4821" in out and "7731" not in out

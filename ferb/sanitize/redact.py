@@ -87,16 +87,21 @@ def password_field(kind: str, *metadata: Any) -> bool:
 # C1 (owner decision 2026-10-15, rule 14): a one-time code is a 4-8 digit run with a code word a few words away on
 # either side, and a value next to a secret word is masked whatever its shape. Labelled by the words providers and
 # people write, never by digit shape alone: a number with no code or secret word near it stays visible.
+# The owner's code words (code, OTP, passcode, PIN, one-time password, verification); never part of a file name
+# ("tests/test_otp.py").
 CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|passcode|code|pin)|otp|totp|2fa|"
-                       r"pass[ _-]?code|pin|codes?|verification|verify)(?![A-Za-z0-9])")
+                       r"pass[ _-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
 CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
                         rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d)")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
-# A code before its word is joined to it the way providers write it: "482913 is your code", "Use 482913 to verify",
-# "482913: your code", "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word.
-CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as|to)(?![A-Za-z0-9])|[:=(]|[-–—])")
+# A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
+# "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
+# OTP", "issue 4821 - code freeze" and "Line 1234: code smell" don't join either.
+CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
+# A sentence or clause break: a code never reaches its word across one ("Order 4821 is out. Share OTP 7731").
+CLAUSE = re.compile(r"[.,;!?](?=\s|$)")
 # A code after its word comes right after it ("OTP 482913", "Code: 482913"), after a link on the same line ("… is
 # 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
 # Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
@@ -190,9 +195,11 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
             after = bisect.bisect_left(begins, code.end())
             if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH
                     and LINE_BREAK.search(s, ends[before], code.start()) is None
+                    and CLAUSE.search(s, ends[before], code.start()) is None
                     and _label_joined(s, ends[before], code)) or (
                     after < len(labels) and CODE_LINK.match(s, code.end()) is not None
                     and LINE_BREAK.search(s, code.end(), begins[after]) is None
+                    and CLAUSE.search(s, code.end(), begins[after]) is None
                     and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
                 spans.append(code.span())
     return spans + _line_codes(s)
@@ -275,7 +282,9 @@ def _label_line(line: str) -> bool:
 def _link_line(line: str) -> bool:
     """A line that names the code above it: it starts with a link and holds a code word ("is your verification
     code")."""
-    return CODE_LINK.match(line) is not None and CODE_WORD.search(line) is not None
+    word = CODE_WORD.search(line)
+    return (CODE_LINK.match(line) is not None and word is not None and CLAUSE.search(line, 0, word.start()) is None
+            and len(line[:word.start()].split()) <= CODE_REACH)
 
 
 def _secret_colon_end(line: str) -> bool:
@@ -297,7 +306,8 @@ _PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+)
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(\d(?:[ -]?\d){3,7})(?!\d)")
+# Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(?<![+\d])(?<!\d[ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d)")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
