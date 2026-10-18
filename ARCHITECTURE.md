@@ -724,6 +724,12 @@ unconfirmed outcome into `failed` for that alone, nor a judged failure into `don
 `done_unverified` neither clears nor adds to its schedule's failure count; the "FERB finished" notification title is
 for `done` only.
 
+**Task status facts (owner live use 2026-10-18).** Each planner turn carries a protected Layer 6 block of FERB's own
+record of the tasks a progress question can be about (`Supervisor._status_facts`): every running tree (running,
+blocked when its latest worker report is blocked or needs an answer, stopping) and this conversation's latest five
+finished ones, with the first line of the latest worker report and the plan's step counts, labelled with those tasks'
+origins. `supervisor.md` answers progress only from it.
+
 **A recurring run sees the one before (fix wave 2, 2026-10-15).** A scheduled run's tree is saved in the schedule's
 conversation (`schedule:<id>`), and a run the planner answers directly is journaled there as `chat.reply`, so the next
 run's planner history and `chat.history` (for its tree) hold every earlier run's answer. `Supervisor._previous_run`

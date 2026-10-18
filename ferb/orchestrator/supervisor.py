@@ -726,6 +726,46 @@ class Supervisor(WorkerRuns):
         self.cancel_tree(tree)
         return True
 
+    def _status_facts(self, conversation: str) -> tuple[list[dict[str, Any]], set[str], list[str]]:
+        """FERB's own record of the tasks a progress question can be about: each running tree (running, blocked when
+        its latest worker report is blocked or needs an answer, stopping), and this conversation's latest finished
+        ones; with the first line of the latest worker report and the plan's step counts. The report lines are
+        model-written, so the block carries those tasks' origins (MP2)."""
+        rows: list[dict[str, Any]] = []
+        origins: set[str] = set()
+        refs: list[str] = []
+
+        def first_line(text: Any) -> str:
+            return str(text or "").strip().split("\n", 1)[0][:300]
+        for key, tree in list(self._tree_of.items()):
+            if key != tree.id:
+                continue
+            last = tree.reports[-1] if tree.reports else None
+            state = ("stopping" if tree.stop else
+                     "blocked" if last is not None and last.get("status") in ("blocked", "needs_user", "failed")
+                     else "running")
+            row: dict[str, Any] = {"task_id": key, "goal": first_line(tree.spec.goal), "state": state,
+                                   "worker_reports": len(tree.reports)}
+            if last is not None:
+                row["last_report"] = first_line(last.get("summary"))
+            if tree.spec.plan:
+                counts: dict[str, int] = {}
+                for step in self.plans.steps(key).values():
+                    counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
+                row["plan_steps"] = counts
+            rows.append(row)
+            origins |= self._task_line_origins(key)
+            refs.append(TASK + key)
+        mine = self.continuity.task_ids(conversation)
+        done = [r for r in self.tasks.recent_roots("") if r["id"] in mine and r["id"] not in self._tree_of]
+        for r in done[-5:]:
+            outcome = json.loads(r.get("outcome_json") or "{}") if isinstance(r.get("outcome_json"), str) else {}
+            rows.append({"task_id": r["id"], "goal": first_line(r["goal"]), "state": r["status"],
+                         "last_report": first_line(outcome.get("summary"))})
+            origins |= self._task_line_origins(r["id"])
+            refs.append(TASK + r["id"])
+        return rows, origins, refs
+
     def running_trees(self) -> list[tuple[str, str]]:
         return [(key, tree.spec.goal) for key, tree in self._tree_of.items() if key == tree.id]
 
@@ -1295,6 +1335,11 @@ class Supervisor(WorkerRuns):
             'standing_scopes': {key: [scope.model_dump() for scope in scopes] for key, tree in self._tree_of.items()
                                 if key == tree.id and (scopes := self.standing.scopes(key))},
         })), 'chat.status', protected=True), {origins_.INFERRED}))
+        status, status_origins, status_refs = self._status_facts(session.id)
+        if status:                   # progress questions are answered from these, never from the chat (owner 2026-10-18)
+            state.append((ContextBlock('Layer 6 — task status (FERB\'s own records of this conversation\'s tasks; data):\n'
+                                       + wrap_untrusted(json.dumps(status, ensure_ascii=False)), 'chat.status',
+                                       protected=True, source_refs=tuple(status_refs)), status_origins))
         if repair:
             state.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
                                        json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))

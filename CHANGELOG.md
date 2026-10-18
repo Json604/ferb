@@ -191,6 +191,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   doesn't recognise music) instead of naming something the speaker mentioned.
 - "Do this for all 15 items in parallel" becomes a plan with one step per item, never one worker told to be parallel;
   "parallel" is never a success condition, and a task never fails only because of how the work was split.
+- "Are the agents working?" is answered from FERB's own record of the task (running, blocked, finished, the last
+  worker report, step counts), never from what the planner imagines.
 
 Fix wave 3 (2026-10-15, after the memory and learning review):
 - Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own
