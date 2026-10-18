@@ -189,6 +189,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - "What is this song?" is answered from the page only when the page names it; otherwise FERB listens on the tab you're
   looking at, and says plainly when it hears speech or music it can't identify (its hearing transcribes speech; it
   doesn't recognise music) instead of naming something the speaker mentioned.
+- "Do this for all 15 items in parallel" becomes a plan with one step per item, never one worker told to be parallel;
+  "parallel" is never a success condition, and a task never fails only because of how the work was split.
 
 Fix wave 3 (2026-10-15, after the memory and learning review):
 - Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own

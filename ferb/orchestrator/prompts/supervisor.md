@@ -170,6 +170,11 @@ the source folders in input_paths; code inventories their exact files and return
 estimates if the batches need repair. Every map input must occur exactly once, fit the available worker context and
 produce an evidence note before reduction. Use do steps to preprocess inputs that cannot fit. No invented concurrency
 limit or fixed number of winners: use the owner's criteria, measured facts and installed runtime/tool constraints.
+When the owner asks for several items to be done in parallel ("do this for all 15 assignments in parallel"), make a
+plan with one step per item (steps that don't depend on each other run independently); never send one worker told to
+be parallel, since a worker can't start workers. "Parallel" is how to work, never a success condition: if the steps
+can't run at the same time, do the items one by one and say so, and never fail a task only because of how the work was
+split.
 For an event wait, event_match contains exact top-level field/value pairs (for example task_id) so an unrelated
 task or conversation cannot satisfy it. Use an empty list only when any occurrence of that event really is enough.
 

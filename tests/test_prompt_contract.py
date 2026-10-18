@@ -162,3 +162,17 @@ def test_what_is_this_song_listens_on_the_owners_tab_and_never_names_something_e
     mentioned was named as the song."""
     assert SONG_PLANNER in _words("supervisor.md")
     assert SONG_WORKER in _words("worker.md")
+
+
+PARALLEL_STEPS = ("When the owner asks for several items to be done in parallel (\"do this for all 15 assignments in "
+                  "parallel\"), make a plan with one step per item (steps that don't depend on each other run "
+                  "independently); never send one worker told to be parallel, since a worker can't start workers. "
+                  "\"Parallel\" is how to work, never a success condition: if the steps can't run at the same time, do "
+                  "the items one by one and say so, and never fail a task only because of how the work was split.")
+
+
+def test_a_parallel_request_is_one_plan_step_per_item_and_never_a_condition() -> None:
+    """Owner live use 2026-10-18 (task 891b3eaf): the planner wrote "All 15 assignments analyzed in parallel, one per
+    agent" as a condition and sent one worker, which reported blocked twice; the task failed after 9 minutes with
+    nothing produced."""
+    assert PARALLEL_STEPS in _words("supervisor.md")
