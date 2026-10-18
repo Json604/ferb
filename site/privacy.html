@@ -23,8 +23,9 @@ In those profiles it does three things:</p>
     over (text, accessibility tree, URL and title, and screenshots of that tab) and clicks, types, scrolls, uploads and
     downloads there.</li>
   <li><strong>Activity history.</strong> It tells the FERB app each time a tab finishes loading a page or becomes the
-    active tab: the page's address (with password, token and similar parameters removed) and its title. FERB keeps
-    these in its activity history on your Mac. Private (incognito) windows are never recorded.</li>
+    active tab (and when a tab is opened or closed): the page's address (with password, token and similar parameters
+    removed) and its title. FERB keeps the page loads and tab switches in its activity history on your Mac. Private
+    (incognito) windows are never recorded.</li>
   <li><strong>Hiding secrets in screenshots.</strong> When FERB takes a screenshot of a browser window (it does this
     each time you send a message while that window is in front, and when a task looks at the window), the extension
     runs its own bundled script in the tab you can see to find where password and one-time-code fields are, so FERB
@@ -41,7 +42,8 @@ In those profiles it does three things:</p>
 <ul>
   <li><strong>Stored on your Mac.</strong> FERB keeps its records in a local database on your Mac: your tasks and
     what it did, its memory, and the activity it notices (the apps and windows you use, tab addresses and titles, text
-    you type in ordinary fields, text you copy, and notifications). Typed and copied text is kept for 7 days, other
+    you type in ordinary fields, text you copy, notifications, apps you install or remove, and changes in folders you
+    asked it to watch). Typed and copied text is kept for 7 days, other
     activity for 30 days. Nothing is uploaded to a FERB server; there isn't one.</li>
   <li><strong>Sent to the AI provider you connect.</strong> FERB sends context to the AI model service you set up in
     FERB (for example OpenAI through Codex, or Anthropic), under that provider's own terms: to carry out the tasks you
@@ -50,7 +52,8 @@ In those profiles it does three things:</p>
     send a message, transcripts of sound FERB listens to during a task, and the parts of your recent activity that
     relate to your message.</li>
   <li><strong>Optional triage service.</strong> If you add a Jev key, FERB also sends batches of redacted activity
-    (app and window names, tab addresses and titles, typed and copied text, notifications) to Jev, a triage service
+    (app and window names, tab addresses and titles, typed and copied text, notifications, apps installed or removed,
+    and file paths in folders you asked it to watch) to Jev, a triage service
     run by typesafe.ai (api.typesafe.ai), which answers whether a moment may be worth telling you about. Without a Jev
     key nothing is sent there. When Jev says yes, the decision and the message to you are made by your AI provider
     (above).</li>

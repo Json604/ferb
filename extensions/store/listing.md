@@ -28,8 +28,9 @@ that involves the web, the extension:
 • takes screenshots of the task's tab when FERB needs to see it.
 
 In paired profiles it also:
-• tells the FERB app when a tab loads a page or becomes active (the address, with password and token parameters
-  removed, and the title), for FERB's activity history on your Mac. Private (incognito) windows are never recorded;
+• tells the FERB app when a tab is opened, loads a page, becomes active or is closed (the address, with password
+  and token parameters removed, and the title), for FERB's activity history on your Mac, which keeps the page loads
+  and tab switches. Private (incognito) windows are never recorded;
 • finds where password and code fields are on the tab you can see when FERB takes a screenshot of the browser window,
   so FERB can paint over them. It reads their position only, never their contents.
 
@@ -61,7 +62,8 @@ current image illustrates the notch UI.
 
 **Single purpose:**
 Lets the FERB assistant app installed on the user's Mac see and operate web pages, in the browser profiles the user
-pairs with it, to carry out tasks the user asks for.
+pairs with it, to carry out tasks the user asks for, and keep the user's tab activity in those profiles in the app's
+activity history on their Mac.
 
 **Permission justifications:**
 
@@ -118,7 +120,8 @@ pairs with it, to carry out tasks the user asks for.
 script-evaluation command, `Page.addScriptToEvaluateOnNewDocument`, and it accepts only one bundled function (FERB's
 page hook, compared character for character); `Runtime.evaluate` and all other evaluation commands are refused.
 
-**Data usage** (tick these; the extension handles them only to perform the user's task):
+**Data usage** (tick these; the extension handles them only to perform the user's tasks and to keep the user's tab
+activity in the FERB app's activity history on their Mac):
 - Personally identifiable information (it can appear on pages a task reads)
 - Authentication information (passwords and codes are filled through the sealed path; never stored by the
   extension)
@@ -146,7 +149,7 @@ page hook, compared character for character); `Runtime.evaluate` and all other e
 
 The extension is idle without the FERB macOS app, which talks to it through native messaging (host
 `com.ferb.native_host`). The source is in the FERB repository (`extensions/chromium/`); the repository becomes public
-on 2026-10-21. The debugger allowlist is in `protocol.js` (`CDP_ALLOWED`).
+on 2026-10-21. The debugger allowlist is in `protocol.js` (`CDP_ALLOW`, 32 commands).
 
 ## After approval
 

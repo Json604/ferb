@@ -338,8 +338,8 @@ send stays unknown until observed or its retry is explicitly approved.
 
 Ordinary activity can produce a sourced owner notice; it cannot create a task. Jev is an optional third-party triage
 service run by typesafe.ai (`api.typesafe.ai`): with a Jev key (`ferb setup --jev`), FERB sends it batches of redacted
-activity (app and window names, tab addresses and titles, typed and copied text, notifications); without one, nothing
-goes there. When Jev flags a moment, FERB considers it once per app, with your relevant memory, the recent chat,
+activity (app and window names, tab addresses and titles, typed and copied text, notifications, apps installed or
+removed, file paths in watched folders); without one, nothing goes there. When Jev flags a moment, FERB considers it once per app, with your relevant memory, the recent chat,
 running tasks and the
 notices already told, and posts what happened and what it means in chat. A macOS banner is used only when no FERB
 client is showing notices. Posting a notice counts as telling it, so it isn't repeated. Notification triage remains in
@@ -353,7 +353,8 @@ shows rules and labelled measurements.
 Memory retrieval, activity search and registry search supply relevant context each turn. Forgetting source-backed
 memory removes its corresponding daily-log copies too. This is single-device context, not cross-device sync.
 
-Sensing records app/window/tab metadata, configured folder events, typed text per field and clipboard text (both
+Sensing records app/window/tab metadata, configured folder events (paths), apps installed or removed, typed text per
+field and clipboard text (both
 redacted, kept seven days), never continuous screenshots. Exclusions and pause apply before storage. On macOS 15.4
 and later, FERB reads the clipboard only when macOS lets it without asking: set FERB to Allow in System Settings →
 Privacy & Security → Paste from Other Apps (setup offers to let macOS ask once so FERB appears there; until then
@@ -386,7 +387,8 @@ included.
 Its only way to the internet is FERB's egress proxy, which records each host, port and byte count per command (never
 the page, path or query). Shell and browser reach any site without asking. The full answer lists "Sites contacted":
 every site the shell reached, the addresses the task opened in its browser tabs, and the pages those tabs loaded
-(clicked links and redirects included); not the requests a page makes on its own, nor a native app's network use.
+(clicked links, and the landing page of a redirect); not the requests a page makes on its own, a native app's network
+use, or pages loaded while sensing is paused (`ferb pause`).
 Output from a command that reached a site is labelled with that site. Programs that ignore the proxy settings
 get no network, and `ssh` doesn't work. FERB's shell can't write any Trash folder: only FERB's own Trash tool and
 `ferb restore` move things in and out.

@@ -819,7 +819,8 @@ live-tested).
 - **Reply to comments in scope.** Delegated conversations with an approved account/site/thread/topic scope and
   hand-over; live acceptance pending.
 - **Research and monitor.** Read pages, search, collect metrics from analytics pages, summarise threads; the sites a
-  task opened, the pages its tabs loaded (clicked results and redirects included) and every site its shell reached are
+  task opened, the pages its tabs loaded (clicked results, and the landing page of a redirect) and every site its
+  shell reached are
   listed under "Sites contacted" in the full answer (**integrated, not live-tested, L2, I6**).
 - **Watch and hear media.** Play a video in a tab, confirm it is playing, listen and get a transcript (L26,
   integrated, not live-tested); record a tab as sampled video for evidence, with a transcript when asked.
