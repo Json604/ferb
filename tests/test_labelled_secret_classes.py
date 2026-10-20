@@ -1038,13 +1038,18 @@ SPACED_TAGS = [
     '482913 <span class="a b">is your code</span>\n',
     '<b>482913</b> <span style="color:#999">is your verification code</span>\n',
     '482913 </span> <i class="q">is</i> your code\n',
+    '<td class="x y">482913</td>\nis your verification code\n',
+    '<td class="x y">482913</td>\r  is your verification code',
+    'Hi\n<span class="a b">482913</span>\nis your code\n',
+    '<td class="x y">\t482913 </td>\n\nis your code\n',
 ]
 
 
 @pytest.mark.parametrize("raw", SPACED_TAGS)
 def test_a_code_next_to_a_tag_with_spaces_inside_stays_masked_at_every_split(raw) -> None:
-    """A read ending inside an unfinished tag after a space released the code before it: the stream allowed only an
-    unfinished tag without whitespace there."""
+    """(a) A read ending inside an unfinished tag after a space released the code before it: the stream allowed only
+    an unfinished tag without whitespace there. (b) After "<td " was released, the code-only line was judged without
+    it, so it was released before its naming line arrived."""
     redactor = Redactor()
     assert "482913" not in redactor.text(raw)
     assert _differing_splits(redactor, raw, pairs=True) == []

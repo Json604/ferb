@@ -1069,6 +1069,14 @@ class RedactionStream:
         pending = self.pending
         tail = pending[tail_start:]
         hold = len(pending)
+        # A line that starts where the last release ended is judged whole, with its released start (re-review 6,
+        # I1b: after '<td ' was released, '<td class="x y">482913</td>' was no code alone without it).
+        released = self.context or self.head
+        breaks = list(LINE_BREAK.finditer(released))
+        start = released[breaks[-1].end():] if breaks else released
+
+        def whole(a: int, b: int) -> str:
+            return (start if a == 0 else "") + pending[a:b]
         # A number alone holds the line only while its link can still follow it ("482913 is your …"): an interactive
         # prompt with a number ("Delete 1234 files? [y/N] ") appears at once (re-review 2, I3).
         urls = [u.span() for u in _urls(tail)]                 # a URL's own digits are never a code
@@ -1081,7 +1089,8 @@ class RedactionStream:
         under = bool(tail.strip()) and (
             "secret" in kinds or ("list" in kinds and _LIST_LINE_START.match(tail) is not None)
             or ("label" in kinds and _code_alone_start(tail)))
-        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail) or under
+        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or under
+                or _code_alone(whole(tail_start, len(pending)))
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         # Of the complete lines only a last line that is only a code is held: its naming line can still follow
@@ -1090,9 +1099,9 @@ class RedactionStream:
         # to the held one is decided with it; code-only lines never hold each other, so number-only output passes one
         # line behind.
         back = _lines_back(pending, list(LINE_BREAK.finditer(pending, 0, tail_start)))
-        if (held := next(back, None)) is not None and _code_alone(pending[held[1]:held[2]]):
+        if (held := next(back, None)) is not None and _code_alone(whole(held[1], held[2])):
             for above in back:
-                if not self._related(pending[above[1]:above[2]], pending[held[1]:held[2]]):
+                if not self._related(whole(above[1], above[2]), whole(held[1], held[2])):
                     break
                 held = above
             hold = min(hold, held[1])
