@@ -406,9 +406,19 @@ def _labelled_secret(kind: str, label: str, text: str) -> bool:
             and bool(secret_words(label)))
 
 
+# A code alone on its line may sit in brackets or parentheses with spaces inside them, or follow a list dash or bullet
+# ("[ 482913 ]", "- 482913", "• 48 29 13": re-review 4, concern 3).
+_CODE_BULLET = re.compile(r"[-*\u2022](?=\s)")
+_CODE_EDGES = re.compile(r"^[\s.,;:()\[\]]+|[\s.,;:()\[\]]+$")
+
+
 def _code_alone(line: str) -> bool:
-    """A line that is only a code (an email's code on its own line), with its punctuation."""
-    return CODE_VALUE.fullmatch(line.strip().strip(".,;:()[]")) is not None
+    """A line that is only a code (an email's code on its own line), with its punctuation and brackets, after a list
+    dash or bullet."""
+    body = line.strip()
+    if _CODE_BULLET.match(body):
+        body = body[1:]
+    return CODE_VALUE.fullmatch(_CODE_EDGES.sub("", body)) is not None
 
 
 def _label_line(line: str) -> bool:
@@ -812,8 +822,9 @@ def _line_head(s: str) -> str:
 # A line being read that starts as a code alone could be one ("  482913", "(G-48"), and one that starts with a list
 # token could be a list line: under a label or list line such a line is decided whole, so a part released alone is
 # never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the text
-# redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C).
-_CODE_ALONE_START = re.compile(r"[\s.,;:()\[\]]*(?:[A-Z]-?)?(?:\d|$)")
+# redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C); a code alone may follow a
+# list dash or bullet (`_code_alone`).
+_CODE_ALONE_START = re.compile(r"[\s.,;:()\[\]]*(?:[-*\u2022](?:\s|$)[\s.,;:()\[\]]*)?(?:[A-Z]-?)?(?:\d|$)")
 _LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
 
 

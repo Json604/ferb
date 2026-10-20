@@ -889,3 +889,33 @@ def test_a_read_relates_its_new_lines_once_and_unmasked_lines_never(label, monke
     assert out.decode() == redactor.text(text)
     assert len(seen) <= reads + 1, len(seen)
     assert all(label.strip() in line for line in seen)
+
+
+# Re-review 4 follow-up (concern 3a): a code alone on its line inside brackets or parentheses, or led by a list dash or
+# bullet, under its code label (or over its naming line).
+WRAPPED_CODES = [
+    ("Sign-in code\n[ 482913 ]\n", "482913"),
+    ("Your OTP:\n(482913)\n", "482913"),
+    ("Your verification code is:\n- 482913\n", "482913"),
+    ("Enter this code\n• 48 29 13\n", "48 29 13"),
+    ("Use this code to sign in\r\n* ( 482913 )\r\n", "482913"),
+    ("Your OTP:\n[\xa0G-482913\xa0]\n", "482913"),
+    ("- 482913\nis your verification code\n", "482913"),
+]
+
+
+@pytest.mark.parametrize("raw,code", WRAPPED_CODES)
+def test_a_code_alone_in_brackets_or_after_a_bullet_under_its_label_is_masked(raw, code) -> None:
+    redactor = Redactor()
+    assert code not in redactor.text(raw)
+    assert _differing_splits(redactor, raw) == []
+    lines = [line for line in re.split(r"\r\n|\n", raw) if line.strip()]
+    assert code not in str(redactor([{"text": line} for line in lines]))         # sibling page nodes
+
+
+@pytest.mark.parametrize("raw", ["PIN code:\n[ 560001 ]\n", "ZIP code\n- 94107\n", "Coupon code:\n( 4455 )\n",
+                                 "Pincode\n• 560001\n", "Steps:\n- 2024\n- 2025\n"])
+def test_a_wrapped_or_bulleted_number_under_an_address_or_ordinary_label_stays(raw) -> None:
+    redactor = Redactor()
+    assert redactor.text(raw) == raw
+    assert _differing_splits(redactor, raw) == []
