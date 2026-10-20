@@ -25,6 +25,11 @@ PROVIDER_CORPUS = [
     ("Your passcode is 7392", "7392"),
     ("PIN 4821 for your card", "4821"),
     ("Your one-time password is 55 12 90", "55 12 90"),
+    # re-review 2 (C2): an abbreviation's dot is no sentence end
+    ("Your OTP for HDFC Bank txn of Rs. 2,000 is 482913. Valid for 10 mins.", "482913"),
+    ("Your OTP for Rs. 500 txn at Swiggy is 482913", "482913"),
+    ("OTP for a/c no. XX1234 is 482913", "482913"),
+    ("Verification code for Ref. No. 4417 is 739201", "739201"),
 ]
 
 
@@ -239,6 +244,11 @@ def test_ocr_leaves_ordinary_numbers_near_no_code_word() -> None:
 
 STREAMED = [
     "482913 is your verification code for WhatsApp\n",
+    "Your OTP for Rs. 500 txn at Swiggy is 482913\n",                   # re-review 2 (C2)
+    "OTP for a/c no. XX1234 is 482913\n",
+    "Verification code for Ref. No. 4417 is 739201\n",
+    "Use this code to sign in\n482913\n",                               # re-review 2 (R2)
+    "[Swiggy] 482913 is your OTP\r\n",                                 # re-review 2 (I1, C1)
     "Your OTP for HDFC Bank txn of Rs 2,000 is 482913. Valid for 10 mins.\n",
     "password: 48291234 and then some more ordinary words follow here\n",
     "my wifi password is sunshine and nothing else\n",
@@ -632,3 +642,9 @@ def test_an_address_code_label_stays_visible_whole_and_streamed(raw) -> None:
     for split in range(len(data) + 1):
         stream = redactor.stream()
         assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == data, split
+
+
+@pytest.mark.parametrize("message", [m for m, _ in PROVIDER_CORPUS if "Rs." in m or "no." in m or "Ref." in m])
+def test_ocr_masks_a_bank_otp_after_an_abbreviation(message) -> None:
+    """Re-review 2 (C2): a screenshot of the SMS masks it as the text path does."""
+    assert _masked([TextRegion(message, (0, 0, 300, 9))]) == [message]
