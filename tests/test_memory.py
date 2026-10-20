@@ -451,7 +451,7 @@ def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemo
             ("If it's a work email, sign it as Kartikey", "sign it as Kartikey",
              "If it's a work email, sign it as Kartikey"),
             ("Thanks. Never share my links publicly! Summarize the page.", "share my links publicly",
-             "Thanks. Never share my links publicly"),             # "Thanks" is capitalised: merged on doubt
+             "Thanks. Never share my links publicly! Summarize the page"),        # only a line break ends one
             ("my dentist is Dr. Rao, he's great\nalso book me in", "my dentist is Dr. Rao",
              "my dentist is Dr. Rao, he's great")]:
         assert owner_sentences(own, part) == saved, own
@@ -513,10 +513,11 @@ def test_a_memory_question_waits_across_a_restart(home) -> None:
 
 
 
-def test_a_dot_never_ends_a_saved_sentence_so_no_negation_is_dropped(daemon: RunningDaemon) -> None:
-    """Re-review R5 (controller ruling: correctness over brevity, never drop a negation): a lowercase abbreviation's dot
-    ("prof.", "vs.", "approx.") still ended the sentence and dropped the "Never" before it. For memory capture a dot
-    never ends a sentence; the saved text may be longer than the part."""
+def test_no_mark_inside_the_owners_words_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
+    """Re-review R5 (controller rulings: correctness over brevity, never drop a negation). A lowercase abbreviation's
+    dot ("prof.", "vs.", "approx.") ended the sentence and dropped the "Never" before it; so did a "!" or "?" ("never!
+    Share my links"). For memory capture no ".", "!" or "?" inside the owner's typed words ends a sentence; the saved
+    text may be longer than the part."""
     from ferb.memory.items import owner_sentences
     for own, part, saved in [
             ("Never email my prof. Zorblat at night", "Zorblat at night", "Never email my prof. Zorblat at night"),
@@ -531,26 +532,20 @@ def test_a_dot_never_ends_a_saved_sentence_so_no_negation_is_dropped(daemon: Run
             ("If it's a work email... Sign it as Kartikey", "Sign it as Kartikey",
              "If it's a work email... Sign it as Kartikey"),
             ("Only on weekdays (not Sat.) Sign as Kartikey", "Sign as Kartikey",
-             "Only on weekdays (not Sat.) Sign as Kartikey")]:
+             "Only on weekdays (not Sat.) Sign as Kartikey"),
+            ("never! Share my links", "Share my links", "never! Share my links"),
+            ("don't!! Share my links publicly", "Share my links publicly", "don't!! Share my links publicly"),
+            ("Don't share my links! Unless I ask", "Unless I ask", "Don't share my links! Unless I ask"),
+            ("Can you check it? Always ask first", "Always ask first", "Can you check it? Always ask first"),
+            ("Never share my links publicly?", "share my links publicly", "Never share my links publicly")]:
         assert owner_sentences(own, part) == saved, own
 
 
-def test_a_saved_sentence_ends_only_at_a_line_break_or_a_single_mark_before_a_capital(daemon: RunningDaemon) -> None:
-    """R5: a sentence ends only at a line break, or at a single "!" or "?" followed by whitespace and an uppercase
-    letter. Each case pins one condition: without it the case is saved differently."""
+def test_a_line_break_ends_a_saved_sentence(daemon: RunningDaemon) -> None:
+    """R5: the one place a saved sentence ends inside the owner's words is a line break."""
     from ferb.memory.items import owner_sentences
-    for own, part, saved in [
-            ("never share my links\nAlso I like tea", "I like tea", "Also I like tea"),            # a line break
-            ("Don't share my links! Unless I ask", "Unless I ask", "Unless I ask"),               # a single "!"
-            ("Can you check it? Always ask first", "Always ask first", "Always ask first"),       # a single "?"
-            ("Never share my links publicly?", "share my links publicly", "Never share my links publicly"),
-            ("don't!! Share my links publicly", "Share my links publicly",                       # repeated: one
-             "don't!! Share my links publicly"),
-            ("Really?! Always ask first", "Always ask first", "Really?! Always ask first"),
-            ("Never share it!... Always ask", "Always ask", "Never share it!... Always ask"),
-            ("Don't share it!Always ask", "Always ask", "Don't share it!Always ask"),             # no whitespace after
-            ("Don't share my links! unless I ask", "unless I ask", "Don't share my links! unless I ask")]:  # lowercase
-        assert owner_sentences(own, part) == saved, own
+    assert owner_sentences("never share my links\nAlso I like tea", "I like tea") == "Also I like tea"
+    assert owner_sentences("Don't share my links!\nunless I ask", "unless I ask") == "unless I ask"
 
 
 def test_memory_read_neither_lists_nor_reads_a_pending_inferred_item(daemon: RunningDaemon) -> None:

@@ -108,30 +108,19 @@ def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
     return left, min(rights) if rights else len(text)
 
 
-# Memory capture's sentence rule (re-review R5, controller ruling: correctness over brevity, never drop a negation). A
-# dot never ends a sentence ("my prof. Zorblat", "Chrome vs. Safari", "10 pm. Don't"). A sentence ends only at a line
-# break, or at a single "!" or "?" (not right after a ".", "!", "?" or "…") followed by whitespace and an uppercase letter;
-# anything else is one sentence, so the saved text may be longer than the part. The redactor lane has its own clause
-# rule (ferb/sanitize/redact.py); the two helpers are to be unified at integration.
-_TERMINATORS = ".!?…"
-
-
+# Memory capture's sentence rule (re-review R5, controller rulings: correctness over brevity, never drop a negation):
+# nothing inside the owner's typed words ends a sentence but a line break. No ".", "!" or "?" splits ("my prof.
+# Zorblat", "never! Share my links"), so the saved text may be longer than the part. The redactor lane has its own
+# clause rule (ferb/sanitize/redact.py); the two helpers are to be unified at integration.
 def _sentence_ends(text: str) -> list[int]:
-    ends = [m.start() for m in re.finditer(r"\n", text)]
-    for m in re.finditer(r"[!?]", text):
-        i = m.start()
-        if i > 0 and text[i - 1] in _TERMINATORS:
-            continue                    # repeated: "!!", "?!", "...!" (a mark before another has no whitespace after)
-        after = re.match(r"\s+(\S)", text[i + 1:])
-        if after is not None and after.group(1).isupper():
-            ends.append(i)
-    return sorted(ends)
+    return [m.start() for m in re.finditer(r"\n", text)]
 
 
 def owner_sentences(text: str, part: str) -> str | None:
     """The whole sentence(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is
-    saved as their words, so a slice can never drop a negation or a condition, whatever its commas ("Never, ever share
-    my links publicly"; "If it's a work email, sign it as Kartikey"). None when `part` isn't in `text` (re-review F4)."""
+    saved as their words, so a slice can never drop a negation or a condition, whatever its commas or marks ("Never,
+    ever share my links publicly"; "never! Share my links"). Only a line break ends one (R5). None when `part` isn't in
+    `text` (re-review F4)."""
     found = _found(text, part)
     if found is None:
         return None
