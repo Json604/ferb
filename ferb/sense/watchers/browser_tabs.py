@@ -98,6 +98,10 @@ AMBIGUOUS = ("more than one of the browser's windows could be the captured one a
              "so FERB can't tell which tab it shows: no URL or tab title")
 
 
+class Ambiguous(LookupError):
+    """More than one of the browser's windows could be the captured one (not: none is)."""
+
+
 @dataclass(frozen=True)
 class ScriptedWindow:
     """One browser window as its AppleScript answers: where it is (x, y, w, h in screen points; None when the browser
@@ -146,7 +150,7 @@ def window_tab(windows: list[ScriptedWindow], bounds: tuple[float, float, float,
         raise LookupError(NO_WINDOW)
     named = [w for w in at + anywhere if title and title in (w.name, w.title)]
     if len(named) != 1:
-        raise LookupError(AMBIGUOUS)
+        raise Ambiguous(AMBIGUOUS)
     return named[0]
 
 

@@ -72,6 +72,7 @@ class Screen:
         self.tab_after_shot = False                     # Automation answers only while the window is captured
         self.sender: int | None = None                  # the app hosting the CLI the message came from
         self.unmatched: str | None = None               # the browser answered, but no single window is the captured one
+        self.ambiguous = False                          # ... because several windows could be it (not none)
         self.masking = ""                               # the capture's note on how its secret fields were found
         self.ext_tab: tuple[str, str] | None = None     # the captured window's tab as the extension named it (B5)
 
@@ -97,7 +98,8 @@ class Screen:
         if self.tab_after_shot and not self.shot:
             return None
         if self.unmatched is not None:
-            raise LookupError(self.unmatched)
+            from ferb.sense.watchers.browser_tabs import Ambiguous
+            raise (Ambiguous if self.ambiguous else LookupError)(self.unmatched)
         return (URL, BRAVE.title) if bundle_id == "com.brave.Browser" else None
 
     def sources(self) -> fw.Sources:
@@ -287,13 +289,28 @@ def test_the_extensions_tab_for_the_captured_window_wins_over_the_applescript_re
     front = asyncio.run(fw.capture(screen.sources()))
     assert front is not None and front.url == GREENHOUSE_URL and front.tab_title == screen.ext_tab[1]
     assert front.origin == "external:web:job-boards.greenhouse.io" and screen.kept[0][1]["url"] == GREENHOUSE_URL
+    assert front.facts()["tab_source"] == "extension"                      # check 67: where the URL came from
     screen = Screen([BRAVE], owners())
-    screen.unmatched = "two windows; FERB can't tell which tab it shows: no URL or tab title"
+    screen.unmatched = "none of the browser's windows is where the captured window is"
     screen.ext_tab = (GREENHOUSE_URL, "Job Application for Software Intern at Panthalassa")
     front = asyncio.run(fw.capture(screen.sources()))
     assert front is not None and front.url == GREENHOUSE_URL and front.tab_note is None
     plain = asyncio.run(fw.capture(Screen([BRAVE], owners()).sources()))
     assert plain is not None and plain.url == URL                          # no extension tab: AppleScript's
+    assert plain.facts()["tab_source"] == "applescript"
+
+
+def test_windows_applescript_cant_tell_apart_keep_their_doubt_over_the_extensions_match() -> None:
+    """Round 3 (m3): two windows at the captured window's place with the same tab title (an unpaired or private window
+    over a paired one) can make the paired profile's extension answer for the wrong one. When the AppleScript read,
+    which sees every window, says several windows could be it, the extension's match doesn't settle it: no URL, and
+    the block says why."""
+    screen = Screen([BRAVE], owners())
+    screen.unmatched, screen.ambiguous = "more than one of the browser's windows could be the captured one", True
+    screen.ext_tab = (GREENHOUSE_URL, "Job Application for Software Intern at Panthalassa")
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.url is None and front.tab_note == screen.unmatched
+    assert "tab_source" not in front.facts()
 
 
 def test_a_tab_that_cant_be_told_is_left_out_and_the_block_says_so() -> None:

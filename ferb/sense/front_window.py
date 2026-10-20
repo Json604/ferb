@@ -10,8 +10,9 @@ owner's. What is kept: app, bundle id, window title, the URL and title of the ac
 and one screenshot of that window only (D29). The tab is the captured window's, found among the browser's windows by
 its place and title, never the browser's own idea of its front window (live case 2026-10-19: that was another
 window); when no single window is the captured one there is no URL or tab title, and the planner is told why. When
-the capture's paired-profile extension matched this window (bounds and title, protocol 15) its tab is used; otherwise
-the AppleScript read is. The tab is read before the shot when it can be; when the browser's Automation check is still
+the capture's paired-profile extension matched this window (bounds and title, protocol 15) its tab is used (not when
+the AppleScript read found several windows that could be it: equal titles can fool the extension's match); otherwise
+the AppleScript read is. `tab_source` says which. The tab is read before the shot when it can be; when the browser's Automation check is still
 answering, it is read again after the shot. The screenshot goes through FERB's screenshot path (secret fields
 the window's tree and the browser extension show are masked in the capture; when neither can locate a page's fields
 the capture says so and the page is masked by text recognition only, never refused), then the F5 on-device redaction;
@@ -55,6 +56,7 @@ class FrontWindow:
     withheld: str | None = None       # why there is no screenshot
     image: bytes | None = field(default=None, repr=False, compare=False)   # those same redacted bytes, in memory
     tab_note: str | None = None       # why a browser window has no URL or tab title (no single window matched)
+    tab_source: str | None = None     # where its URL and tab title came from: "extension" or "applescript"
     masking: str = ""                 # how the screenshot's secret fields were found, when worth saying (L13)
 
     def facts(self) -> dict[str, Any]:
@@ -66,6 +68,8 @@ class FrontWindow:
             out["window_title"] = self.title
         if self.url or self.tab_title:
             out |= {"url": self.url, "tab_title": self.tab_title}
+            if self.tab_source:
+                out["tab_source"] = self.tab_source
         elif self.tab_note:
             out |= {"url": None, "tab_title": None, "tab_note": self.tab_note}
         return out
@@ -161,14 +165,15 @@ def _topmost(src: Sources) -> tuple[Window, str, str] | None:
 
 
 async def _tab(src: Sources, w: Window, bundle: str,
-               after_shot: bool) -> tuple[tuple[str | None, str | None] | None, str | None]:
+               after_shot: bool) -> tuple[tuple[str | None, str | None] | None, str | None, bool]:
     """The captured browser window's active tab (url, title) when it can be read now, or why no window of the browser
-    could be told to be that one."""
+    could be told to be that one, and whether that is because several could be (browser_tabs.Ambiguous)."""
+    from ferb.sense.watchers.browser_tabs import Ambiguous
     try:
         tab = await asyncio.to_thread(src.tab, bundle, w, after_shot)
     except LookupError as e:
-        return None, str(e)
-    return ((tab[0] or None, tab[1] or None) if tab is not None else None), None
+        return None, str(e), isinstance(e, Ambiguous)
+    return ((tab[0] or None, tab[1] or None) if tab is not None else None), None, False
 
 
 async def capture(src: Sources) -> FrontWindow | None:
@@ -181,7 +186,7 @@ async def capture(src: Sources) -> FrontWindow | None:
     if src.excluded(bundle, name, None):               # never named or looked at: no title, tab or pixels (rule 14)
         return FrontWindow(EXCLUDED, "", "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
     browser = is_browser(bundle)
-    tab, tab_note = await _tab(src, w, bundle, False) if browser else (None, None)
+    tab, tab_note, doubt = await _tab(src, w, bundle, False) if browser else (None, None, False)
     image: bytes | None = None
     withheld: str | None = None
     masking = ""
@@ -197,10 +202,11 @@ async def capture(src: Sources) -> FrontWindow | None:
             image = await asyncio.to_thread(src.redact_image, raw)
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
-    if browser and named is not None:                  # the extension matched this very window: its tab (B5)
-        tab, tab_note = (named[0] or None, named[1] or None), None
-    elif browser and tab is None and tab_note is None:   # its Automation check may have answered during the shot
-        tab, tab_note = await _tab(src, w, bundle, True)
+    source = "applescript"
+    if browser and named is not None and not doubt:    # the extension matched this very window: its tab (B5); but
+        tab, tab_note, source = (named[0] or None, named[1] or None), None, "extension"   # not over the AppleScript
+    elif browser and tab is None and tab_note is None:   # read's "several could be it" (round 3, m3: equal titles)
+        tab, tab_note, doubt = await _tab(src, w, bundle, True)
     url, tab_title = tab if tab is not None else (None, None)
     excluded_site = bool(url) and src.excluded(bundle, name, url)
     read = (("web", url),) if url else _sources(bundle)
@@ -216,4 +222,5 @@ async def capture(src: Sources) -> FrontWindow | None:
         except Exception as e:
             image, withheld = None, f"the screenshot couldn't be kept as evidence ({type(e).__name__})"
     return FrontWindow(facts["app"], facts["bundle_id"], facts["title"], facts["url"], facts["tab_title"], ref,
-                       origin, withheld, image, tab_note=tab_note, masking=masking if image is not None else "")
+                       origin, withheld, image, tab_note=tab_note, masking=masking if image is not None else "",
+                       tab_source=source if tab is not None else None)
