@@ -1267,9 +1267,9 @@ OCR line (a code alone under its code word, a value beside a line ending in a se
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
 masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a native capture is withheld only
 when its boxes can't be painted; fields it can't locate are left to the OCR, and its `masking` says so). The
-model-bound start image is the front window captured at send (L12); the first actual app/tab observation adds one only when none was given, then only explicit screenshots return images. Browser snapshots retain
-their
-reference generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
+model-bound start image is the front window captured at send (L12); the first actual app/tab observation adds one
+only when none was given, then only explicit screenshots return images. Browser snapshots retain their reference
+generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
 
 `browser.secret` seals hidden input to the command ID and HTTPS origin; `mac.secret` binds to the app PID and exact AX
 node and uses only AXValue. Optional owner-confirmed handles persist nonsecret target metadata in
