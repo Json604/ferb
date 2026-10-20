@@ -1189,8 +1189,8 @@ Notch app (U8, U9):
 
 Extension (L25):
 47. After `ferb setup --update`, reopen each browser and note which offer FERB from the Web Store request (Chrome
-    expected; Brave and Edge unconfirmed). After the listing is approved, set `[browser] store_extension_id`, run
-    `ferb setup --update` again and record it.
+    expected; Brave and Edge unconfirmed). The live listing's id is built in (2026-10-20); the store copy works with
+    this build once 0.15.6 is approved there.
 
 Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pending):
 48. One-time codes (C1): from your phone send yourself "482913 is your verification code for WhatsApp" and "Your Uber

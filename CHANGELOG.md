@@ -95,8 +95,9 @@ Packaging and setup (L15, L25, L27):
   bundle, ad-hoc signed now with one signing step ready for Developer ID. The daemon runs as the agent app "FERB".
   FERB.app's own code is protected from FERB's tools and shell. Install from source still works.
 - `ferb setup` asks every Chromium browser it finds to install FERB's Chrome Web Store extension where that is
-  documented, registers the native host and reports per profile; the Load-unpacked steps stay until the listing is
-  live.
+  documented, registers the native host and reports per profile. The listing went live on 2026-10-20 and its id
+  (`plbfkifcmgkgnlfgikdeaaglgncdhkma`) is built in (`07b2dd8`); `[browser] store_extension_id = ""` turns the request
+  off and keeps the Load-unpacked steps. The store copy works with this build once 0.15.6 is approved there.
 - The Trash: FERB moves items in and out only between folders it holds open, never moves something out after a
   mismatch, and FERB's shell can't write any Trash.
 - Campaign path: a browser post declared as a send (naming the account it goes out from, no recipients for a public

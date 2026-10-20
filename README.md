@@ -73,19 +73,18 @@ FERB's browser hands are its extension, **0.15.6** (protocol 17); the daemon ref
 notice. `ferb setup` (and `--update`) handles it for every Chromium browser it finds (Chrome and its Beta, Dev and
 Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
-- once FERB's Chrome Web Store listing is live, it asks each browser to install it from the store (documented for
+- it asks each browser to install it from FERB's Chrome Web Store listing (documented for
   Chrome and Chromium; written but unconfirmed for Brave and Edge; not possible for Vivaldi, Arc and Opera). The
   browser installs it at its next start and asks you to turn it on in each profile; setup says which browsers to
   reopen. Setup never restarts a browser, approves its prompt or edits its preferences;
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
-The listing is waiting for Chrome Web Store review (0.15.2 was submitted on 2026-10-14; 0.15.6 has to be uploaded
-before the store copy works with this build). Until then, and in browsers without the store request, setup prints the
-Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers extension path`
-prints it), enable Developer mode in the browser's extensions page and Load unpacked from
-`~/.ferb/extensions/chromium`, once per profile. When the listing is live, put its id in `~/.ferb/config.toml`
-(`[browser] store_extension_id = "<id>"`) and run `ferb setup --update`. `ferb browsers extension package --out DIR`
-builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads
+The listing went live on 2026-10-20 with 0.15.2 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in); 0.15.6 has to be uploaded and
+approved before the store copy works with this build. Until then, and in browsers without the store request, setup
+prints the Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers
+extension path` prints it), enable Developer mode in the browser's extensions page and Load unpacked from
+`~/.ferb/extensions/chromium`, once per profile. `[browser] store_extension_id = ""` in `~/.ferb/config.toml` turns
+the store request off. `ferb browsers extension package --out DIR` builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads
 it when idle. Pair with:
 
 ```sh

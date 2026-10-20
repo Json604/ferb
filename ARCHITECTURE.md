@@ -2029,8 +2029,8 @@ protected FERB state (16.9).
 - Setup registers the native host for the pinned and store ids, reports per profile from Preferences (read only), and
   records the request files it wrote in `~/.ferb/extension-requests.json` (so a changed or cleared id, and uninstall,
   remove them).
-- `STORE_EXTENSION_ID` is empty until the listing is live (`[browser] store_extension_id` overrides); with no id,
-  setup prints the Load-unpacked steps. Setup never restarts a browser or approves its prompt.
+- `STORE_EXTENSION_ID` is the live listing's id (`plbfkifcmgkgnlfgikdeaaglgncdhkma`, 2026-10-20); `[browser] store_extension_id`
+  overrides it, and an empty value opts out: with no id, setup prints the Load-unpacked steps. Setup never restarts a browser or approves its prompt.
 - `ferb browsers extension package` builds the store zip.
 - Discovery, pairing and doctor cover every catalogued browser. Two copies of the extension in one profile aren't
   handled yet.

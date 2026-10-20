@@ -421,9 +421,9 @@ All **Shipped** (`ferb --help`):
   Chrome Web Store install request where it is documented to work (Chrome/Chromium; Edge and Brave "unconfirmed";
   Vivaldi, Arc, Opera manual), and reports per profile whether the extension is installed, enabled and paired. It
   never edits browser preferences or restarts a browser; the owner enables the extension when the browser offers it.
-  Until the store ID exists, setup keeps the Load-unpacked steps.
-- Status: **Landing this week — integrated, not live-tested (L25).** The owner submitted extension 0.15.2 to the
-  Chrome Web Store on 2026-10-14; review is pending (in-depth review expected because of broad host permissions).
+  With the store request turned off (`[browser] store_extension_id = ""`), setup keeps the Load-unpacked steps.
+- Status: **Landing this week — integrated, not live-tested (L25).** The listing went live on 2026-10-20 with 0.15.2
+  (its id is built in).
 - Known limit: the repository now requires extension 0.15.6 / protocol 17, and the daemon refuses an older protocol.
   The store copy must be updated to 0.15.6 before the store install path works with the launch build.
 
@@ -897,8 +897,8 @@ Release and distribution
 - The DMG is ad-hoc signed: first open needs "Open Anyway"; permissions may need re-granting after updates; the
   quarantined-launchd question is untested. Developer ID signing and notarization come after launch.
 - No auto-updates; no in-app onboarding or settings beyond the setup console and sound settings.
-- Chrome Web Store listing is in review (submitted as 0.15.2); the launch build needs 0.15.6 / protocol 17, so the
-  store copy must be updated. Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load
+- The Chrome Web Store listing is live with 0.15.2; the launch build needs 0.15.6 / protocol 17, so the store copy
+  must be updated. Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load
   unpacked.
 - Apple silicon and Python 3.12 only. The app is about 666 MB (bundled Codex and Claude CLIs).
 - The privacy page draft of 2026-10-15 (pending the owner's approval, not deployed) names the optional Jev service at

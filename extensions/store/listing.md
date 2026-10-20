@@ -153,14 +153,15 @@ on 2026-10-21. The debugger allowlist is in `protocol.js` (`CDP_ALLOW`, 32 comma
 
 ## After approval
 
-1. Copy the item ID (32 letters a–p) from the dashboard.
-2. Add it to `~/.ferb/config.toml`:
+1. The item ID is `plbfkifcmgkgnlfgikdeaaglgncdhkma` (live 2026-10-20). It is FERB's built-in `STORE_EXTENSION_ID`; a different
+   ID goes in `~/.ferb/config.toml`:
 
    ```toml
    [browser]
    store_extension_id = "<id>"
    ```
 
+2. Upload each new extension version (`ferb browsers extension package --out DIR`) before a FERB build that needs it.
 3. Run `ferb setup --update`. Setup writes the install request for each supported browser and registers the native
    host for both IDs.
 4. Reopen the browsers setup lists. Turn FERB on in each profile when the browser offers it.
