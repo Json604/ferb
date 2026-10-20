@@ -193,8 +193,9 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   content is never written or rebuilt; a source removed by retention stays a link of unknown content. One forget no
   longer deletes the cards of unrelated tasks.
 - Only your own words are saved as yours. "Remember that …" saves the whole sentence you typed it in (so a slice can't
-  drop a "never" or an "if …"; a dot never ends that sentence, so "never email my prof. Zorblat" stays whole, and a
-  saved memory can be longer than what the planner picked); FERB's rewording of it waits until you reply Yes to its question (in chat or the notch) before it
+  drop a "never" or an "if …"; only a line break ends that sentence, never a dot, "!" or "?", so "never email my prof.
+  Zorblat" or "never! Share my links" stays whole, and a saved memory can be longer than what the planner picked);
+  FERB's rewording of it waits until you reply Yes to its question (in chat or the notch) before it
   reaches a prompt, and a quote like "the" no longer turns the planner's sentence into an owner rule. A preference in
   your own typed words joins your standing rules at once, whatever was on screen (your decision); pasted text never
   does. Unconfirmed hints read as unconfirmed to the planner.
@@ -207,7 +208,9 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   your next message waits for it. It removes lines that hold the item's words, as recorded or as FERB's questions
   showed them, not every paraphrase. You can forget from chat or the notch ("forget my test lab colour"): FERB names
   everything that goes and deletes only after your Yes. Forgetting a learned item (a lesson, a procedure) also removes
-  FERB's naming of it in its question and what it states from its replies and stored turns. A failure to record that
+  FERB's naming of it in its question and what it states from its replies and stored turns; a procedure's steps shown
+  to a worker, records deleted only because they were built on it, a lesson's scope labels and an entity summary's
+  text (unless recorded exactly) can survive. A failure to record that
   a task read a memory is noted in the journal and never fails the read.
 - The sleep service works on what changed: a card is read again only when its inputs change; episodes go to the model
   grouped by the tools and apps they used, one call per group with only the earlier episodes related to them, split

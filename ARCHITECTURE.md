@@ -1362,9 +1362,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
   keys.
 - **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole sentence(s) of the owner's typed words
-  that hold the planner's content (`items.owner_sentences`; a sentence ends only at a line break, or at a single `!`
-  or `?`, not right after another mark, followed by whitespace and a capital; never at a comma or a dot, so "my prof.
-  Zorblat" or "10 pm. Don't" never loses its negation, and the saved text may be longer). FERB's rewording is an inferred proposal offered by a
+  that hold the planner's content (`items.owner_sentences`; inside the owner's words only a line break ends a
+  sentence, never a comma, `.`, `!` or `?`, so "my prof. Zorblat" or "never! Share my links" never loses its negation,
+  and the saved text may be longer). FERB's rewording is an inferred proposal offered by a
   `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No retracts); a quote sharing no word with the content is
   refused. An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
   2026-10-20: "No hold for my typed words"); pasted text never becomes owner_stated, and identity proposals remain only
@@ -1399,7 +1399,10 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   restating the item) goes through `Daemon._forget_nodes`: `Learning.forget`, then the questions about the deleted
   nodes close. An item the owner named (the one asked for, or one a waiting "Forget for good?" names) gets the echo
   pass for FERB's naming of it in that question (`_named_node`) and what it states (body text, a procedure's intent, a
-  lesson's trigger), never its key alone (a key can be a label: "owner", a subject, a task id).
+  lesson's trigger), never its key alone (a key can be a label: "owner", a subject, a task id). What a learned-item
+  forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
+  built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
+  site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.

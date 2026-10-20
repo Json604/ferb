@@ -580,12 +580,15 @@ uv run python scripts/check_doc_sources.py
 It shows identity, facts, entity summaries, past tasks, procedures, lessons and rollups, with source IDs and history.
 Confirm a pending identity proposal, procedure or memory, edit a fact, forget a memory and its derived records
 (FERB's own lines that hold its words, and what tasks given it did with it, go too; a paraphrase in other words can
-survive), or roll back a consolidation batch.
+survive), or roll back a consolidation batch. Forgetting a learned item removes FERB's naming of it and what it
+states from FERB's replies and stored turns; a procedure's steps shown to a worker, records deleted only because they
+were built on it, a lesson's scope labels (app, site, intent) and an entity summary's multi-line text (unless
+recorded exactly) can survive.
 In chat or the notch, "forget my …" asks a Yes/No question naming each item that goes. The link carries a temporary bearer token in its fragment; it is not a public site.
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, with full paged bodies. "Remember that …" saves as yours the whole sentence you
-typed it in; FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
+typed it in (only a line break ends it, never a dot, "!" or "?"); FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
 `ferb memory confirm ID`) before it reaches a prompt. Observed
 patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
 proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
