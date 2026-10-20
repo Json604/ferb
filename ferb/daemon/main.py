@@ -1238,6 +1238,7 @@ class Daemon:
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
+        self.memory.on_settled = self._close_memory_questions
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -1442,7 +1443,7 @@ class Daemon:
         refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
                 ["trail:" + s for s in plan.trail])
         if self.learning:
-            self.learning.forget(refs)
+            self._close_memory_questions(self.learning.forget(refs))     # a node a question was about went too
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
             # a running summary that folded a forgotten entry; one that folded FERB's rows stating it goes in
@@ -1478,7 +1479,7 @@ class Daemon:
         their keys tombstoned so no capture rebuilds them (fix round, review Q1: no partial card)."""
         cards = plan.scrubbed.cards if plan.scrubbed is not None else []
         if cards and self.learning is not None:
-            self.learning.forget(cards)
+            self._close_memory_questions(self.learning.forget(cards))
 
     def _chat_forget(self, item_id: str, request_id: str) -> str:
         """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the
@@ -1514,6 +1515,21 @@ class Daemon:
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+
+    def _close_memory_questions(self, targets: Any) -> None:
+        """FERB's Yes/No questions about memory that stopped waiting (re-review NEW-1): their memory was confirmed,
+        retracted or forgotten another way. Each is closed (superseded: never a No), dropped from what a Yes would do,
+        and deleted from `memory_questions`, so no later turn or restart shows its words again."""
+        gone = set(targets)
+        if not gone:
+            return
+        for approval_id, (_, target) in list(self._owner_followups.items()):
+            if target in gone:
+                self._owner_followups.pop(approval_id, None)
+                if self.state.approvals.supersede(approval_id) is not None:
+                    self._publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
+        marks = ",".join("?" * len(gone))
+        self.db.conn.execute(f"DELETE FROM memory_questions WHERE target IN ({marks})", sorted(gone))
 
     def _restore_memory_questions(self) -> None:
         """At start: FERB's Yes/No questions about memory that were still waiting are asked again, with their ids and
@@ -1557,7 +1573,9 @@ class Daemon:
             elif self.learning.get(ident) is None:
                 raise MemoryRefused(ident)
             else:
-                gone = len(self.learning.forget([ident]))
+                doomed = self.learning.forget([ident])
+                self._close_memory_questions(doomed)
+                gone = len(doomed)
         except MemoryRefused:                            # forgotten another way while the question waited
             return "It was already gone: nothing else was deleted."
         self._journal().append("memory.forgot", {"via": "chat", "items": gone})
@@ -1616,7 +1634,9 @@ class Daemon:
                         "will_delete": plan.describe(self.db)}
             doomed = sorted(l.descendants([ident]))
             if params.get("confirm"):
-                return {"deleted": l.forget([ident])}
+                deleted = l.forget([ident])
+                self._close_memory_questions(deleted)
+                return {"deleted": deleted}
             return {"descendants": doomed}
         if op == "rollback":
             return {"invalidated": l.rollback(str(params.get("batch", "")))}

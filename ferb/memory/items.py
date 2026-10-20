@@ -215,6 +215,9 @@ class Memory:
         self.redact = redact                         # secrets never reach memory or its export
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
         self.on_forget: Callable[[ForgetPlan], None] = lambda plan: None
+        # told the items that stopped waiting for the owner (confirmed, retracted or forgotten, by any path): FERB's
+        # questions about them close (re-review NEW-1)
+        self.on_settled: Callable[[list[str]], None] = lambda ids: None
         # after the echo scrub: the episode cards whose body states the item go, with what is built on them (Q1)
         self.after_forget: Callable[[ForgetPlan], None] = lambda plan: None
 
@@ -383,10 +386,12 @@ class Memory:
         """proposed -> active. A newer version of the same fact supersedes the old (history kept), except that only
         the owner's own statement may supersede one the owner stated."""
         now = self.clock.now().isoformat()
+        settled: list[str] = []
         for item_id in ids:
             it = self.get(item_id)
             if it is None or it.status == "active":
                 continue
+            settled.append(item_id)
             prev = [o for o in self._versions(it.kind, it.subject, it.key) if o.id != it.id]
             closes = [o for o in prev if it.origin == "owner_stated" or o.origin != "owner_stated"]
             for o in closes:
@@ -394,6 +399,8 @@ class Memory:
             self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? "
                                  "WHERE id = ?", (now, closes[-1].id if closes else None, item_id))
             self.publish("memory.committed", {"id": item_id, "reason": reason})
+        if settled:
+            self.on_settled(settled)
         self.on_change()
 
     def confirm(self, item_id: str) -> MemoryItem:
@@ -410,6 +417,7 @@ class Memory:
         if self.get(item_id) is None:
             raise MemoryRefused(f"no item {item_id}")
         self.db.conn.execute("UPDATE memory_items SET status = 'retracted' WHERE id = ?", (item_id,))
+        self.on_settled([item_id])
         self.on_change()
 
     def edit(self, item_id: str, content: str, source: Source) -> MemoryItem:
@@ -516,6 +524,7 @@ class Memory:
             plan.scrubbed = echoes.finish(self.db, plan.echoes)       # what FERB's own records said of it (I2)
             self.after_forget(plan)
             self.db.truncate_wal("memory.forget")                     # no copy left behind in the WAL
+        self.on_settled(plan.items)
         self.on_change()
         return plan
 

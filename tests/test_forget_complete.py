@@ -322,3 +322,65 @@ def test_a_card_goes_only_when_its_body_restates_the_item(daemon: RunningDaemon)
     _on_loop(daemon, lambda: d.memory.forget(item.id))
     assert _on_loop(daemon, lambda: d.learning.current_card(one_word)) is not None
     assert _on_loop(daemon, lambda: d.learning.current_card(restating)) is None
+
+
+# ---------- round 3 (re-review NEW-1, NEW-2, f3, a3) ----------
+
+def _paraphrased(d: RunningDaemon) -> Any:
+    """FERB's wording of what the owner said (an inferred item) with its pending Yes/No question."""
+    from ferb.orchestrator.schemas import Remember
+    dd = d.daemon
+    said = "my manager is Quentarr"
+    src = str(_on_loop(d, lambda: dd._journal().append("chat.message", {"text": said}).id))
+    _on_loop(d, lambda: dd._remember([Remember(kind="person", subject="owner", key="boss",
+                                               content="Owner's boss is Quentarr Vexley", quote=said)], said, src))
+    return _on_loop(d, lambda: next(i for i in dd.memory.items(None, valid_now=False) if i.key == "boss"))
+
+
+def _memory_questions(d: RunningDaemon) -> list[Any]:
+    return _on_loop(d, lambda: [q for q in d.daemon.state.approvals.pending()
+                                if q.capability in ("memory.confirm", "memory.forget")])
+
+
+def test_a_forget_closes_the_pending_question_about_that_memory(daemon: RunningDaemon) -> None:
+    """Re-review NEW-1 (probe a2): the owner forgot FERB's wording from the dashboard/CLI instead of answering its
+    question; the question stayed, kept the forgotten text, and every later planner turn read it again."""
+    item = _paraphrased(daemon)
+    assert len(_memory_questions(daemon)) == 1
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.forget", {"id": item.id, "confirm": True})
+    finally:
+        c.close()
+    assert _memory_questions(daemon) == []
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "what's on today?")
+    assert "Vexley" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    assert _everywhere(daemon, "Vexley") == []
+
+
+def test_a_chat_forget_of_a_pending_proposal_closes_its_question(daemon: RunningDaemon) -> None:
+    """Probe a5: "forget my manager" → Yes removed the item but left the "Keep this…?" question waiting."""
+    item = _paraphrased(daemon)
+    install(daemon, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "forget my manager"}])])
+    chat(daemon, "forget my manager")
+    forget = next(q for q in _memory_questions(daemon) if q.capability == "memory.forget")
+    _on_loop(daemon, lambda: daemon.daemon._resolve_approval(forget.id, True, 1))
+    daemon.run(daemon.daemon._settle_forgets())
+    assert _memory_questions(daemon) == []
+    assert _everywhere(daemon, "Vexley") == []
+
+
+def test_a_dashboard_confirm_closes_the_chat_question(daemon: RunningDaemon) -> None:
+    """The owner confirmed FERB's wording on the dashboard: the chat question goes, so a later No can't retract it."""
+    from ferb.cli.client import Client
+    item = _paraphrased(daemon)
+    c = Client(daemon.sock)
+    try:
+        [node] = [n for n in c.call("memory.learning", {"op": "inventory"})["items"] if n["kind"] == "fact"]
+        c.call("memory.learning", {"op": "confirm", "id": node["id"]})
+    finally:
+        c.close()
+    assert _memory_questions(daemon) == []
+    assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"
