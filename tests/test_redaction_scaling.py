@@ -5,8 +5,9 @@ that can match one run of characters in several ways backtracks exponentially wh
 position of a run is quadratic.
 
 These tests are structural, not wall-clock bounds: each doubles a pathological run (spaces, tabs, no-break spaces,
-markup characters, quote marks, digits) and checks the time per call about doubles.
+markup characters, quote marks, digits, and the shapes the audit found) and checks the time per call about doubles.
 A call cheaper than `FLOOR` is never judged (timer noise), and a suspect ratio is measured again, best of five."""
+import ast
 import pathlib
 import re
 import time
@@ -56,11 +57,24 @@ def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit:
 # (prefix, run unit, suffix): the run repeated n times between them. The suffix ends the text inside a word, so a
 # pattern anchored at the end fails and backtracks.
 RUNS = [" ", "\t", "\xa0", " \t\xa0\u2003", "*", "_", "`", "'", '"', "'\"", " *", "<b>", " <b>", "<b ", "</b> ", "1",
-        "1 ", "1.5,", "4821 ", "4821 is ", "\r\n", " \n", ">\n", "> ", "#", ".", ". ", ":", "-", "(", ")", "["]
+        "1 ", "1.5,", "4821 ", "4821 is ", "\r\n", " \n", ">\n", "> ", "#", ".", ". ", ":", "-", "(", ")", "[", "a.",
+        "a-", "pin/", "PIN code 1234 ", "-----BEGIN ", "-----BEGIN RSA PRIVATE KEY-----\n"]
 PREFIXES = ["", "482913", "one", "backup", "api", "my", "Your code:", "password is", "verification", "bearer"]
 SUFFIX = " ab cd efgh"
 SEARCHING = {"search", "finditer", "findall", "sub", "subn", "split"}
-SOURCE = "\n".join(pathlib.Path(module.__file__ or "").read_text() for module in (redact, images))
+
+
+def _calls() -> dict[str, set[str]]:
+    """The methods the redaction modules call on each name ("URL.match(…)", "self.PRIVATE_END.search(…)")."""
+    calls: dict[str, set[str]] = {}
+    for module in (redact, images):
+        for node in ast.walk(ast.parse(pathlib.Path(module.__file__ or "").read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                owner = node.func.value
+                name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", None)
+                if name:
+                    calls.setdefault(name, set()).add(node.func.attr)
+    return calls
 
 
 def _patterns() -> list[tuple[str, re.Pattern[str], set[str]]]:
@@ -77,12 +91,10 @@ def _patterns() -> list[tuple[str, re.Pattern[str], set[str]]]:
     for name, value in vars(redact.RedactionStream).items():
         if isinstance(value, re.Pattern):
             found.setdefault(id(value), (f"RedactionStream.{name}", value))
-    out = []
+    out, called = [], _calls()
     for name, pattern in found.values():
         short = name.split(".")[-1].split("[")[0]
-        calls = set(re.findall(rf"\b{re.escape(short)}(?:\[\w*\])?\.(\w+)\(", SOURCE))
-        if short == "SECRET_PATTERNS":
-            calls = {"sub", "finditer"}
+        calls = {"sub", "finditer"} if short == "SECRET_PATTERNS" else called.get(short, set())
         ways = ({"search"} if calls & SEARCHING else set()) | (calls & {"match", "fullmatch"})
         out.append((name, pattern, ways or {"search", "match", "fullmatch"}))
     return sorted(out, key=lambda item: item[0])
@@ -112,10 +124,13 @@ TEXTS: list[tuple[str, str, str]] = [
     ("482913", " \t\xa0\u2003", " ab cd"), ("482913 ", "*", " ab cd"), ("482913 ", "_", " ab cd"),
     ("482913 ", "`", " ab cd"), ("482913 ", "'\"", " ab cd"), ("482913", " *", " ab cd"), ("482913", " <b>", " ab cd"),
     ("482913 <span ", "a ", "b"), ("MAX_UNAUTH = 1024", " ", "# connections not yet authenticated held at once"),
-    ("", "1 ", "abc def"), ("", "1.5,", "abc def"), ("", "4821" + " " * 9, "ab cd"),
+    ("", "1 ", "abc def"), ("", "1.5,", "abc def"), ("", "4821" + " " * 9, "ab cd"), ("", "4821 is ", "your code"),
     ("one", " ", "x y zzz"), ("backup", " ", "x y zzz"), ("api", "_", " x yzw"), ("access ", "-", " x yzw"),
     ("my", " ", "wifi x y z"), ("password is", " ", "x y"), ("password:", "\r\n", "x y"), ("Your code:", "\r\n", "x"),
-    ("", "<b ", "482913 x"), ("> Your code:\n", ">\n", "> 482913 x"), ("", "(", "482913) x"), ("", " ", "482913 ab cd"),
+    ("", "a.", " x"), ("", "a-", " x"), ("", "pin/", " x"), ("", "PIN code 1234 ", "x"),
+    ("", "-----BEGIN RSA PRIVATE KEY-----\n", "x"), ("", "https://a.co password: x ", "y"), ("", "<b ", "482913 x"),
+    ("> Your code:\n", ">\n", "> 482913 x"), ("", "(", "482913) x"), ("", " ", "482913 ab cd"),
+    ("", "https://a.co 4821 ", "code"), ("Port ", "<code>8080</code> ", "is the default"),
 ]
 
 

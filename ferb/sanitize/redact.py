@@ -31,8 +31,10 @@ ID_BODY = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12})(
 # (re-review 4, NEW-C): "Code:&nbsp;482913" is "Code: 482913", and "4111&nbsp;1111…" is a card.
 _H = r"\t\x0b\x0c\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
 
+# A private key block runs from its BEGIN line to the first END line after it (`_private_keys`).
+PRIVATE_KEY_START = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+PRIVATE_KEY_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
 SECRET_PATTERNS = [
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bsk-ant-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
@@ -44,6 +46,44 @@ SECRET_PATTERNS = [
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}"),
 ]
 URL = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s\"'<>]+")
+_URL_START = re.compile(r"\b[a-zA-Z]")
+_SCHEME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
+
+
+def _private_keys(s: str) -> list[tuple[int, int]]:
+    """Where each private key block lies: from a BEGIN line to the first END line after it, then on after that END.
+    A BEGIN with no END after it ends the search, since no later one has an END after it either: a run of BEGIN lines
+    is read once (re-review 6, C1: one lazy pattern retried from every BEGIN read to the text's end each time)."""
+    spans, pos = [], 0
+    while (begin := PRIVATE_KEY_START.search(s, pos)) is not None:
+        if (end := PRIVATE_KEY_END.search(s, begin.end())) is None:
+            break
+        spans.append((begin.start(), end.end()))
+        pos = end.end()
+    return spans
+
+
+def _urls(s: str) -> list[re.Match[str]]:
+    """`URL.finditer(s)`, reading the text once. A URL's scheme is a run of scheme characters ending at its "://", and
+    only the run's first start can match: a later start in the run reaches the same "://" and the same rest, so it
+    fails when the first fails (re-review 6, C1: tried from every start of a run, "a.a.a…" cost quadratic time)."""
+    found, pos = [], 0
+    while (sep := s.find("://", pos)) >= 0:
+        run = sep
+        while run > pos and s[run - 1] in _SCHEME_CHARS:
+            run -= 1
+        start = _URL_START.search(s, run, sep)
+        url = URL.match(s, start.start()) if start is not None else None
+        if url is not None:
+            found.append(url)
+        pos = url.end() if url is not None else sep + 1
+    return found
+
+
+def _inside(spans: list[tuple[int, int]], pos: int) -> bool:
+    """Whether `pos` lies in one of `spans` (sorted, not overlapping)."""
+    i = bisect.bisect_right(spans, (pos, float("inf"))) - 1
+    return i >= 0 and pos < spans[i][1]
 SECRET_QUERY = {"token", "code", "key", "sig", "signature", "auth", "session", "access_token", "id_token",
                 "refresh_token", "password", "secret", "otp", "apikey", "api_key", "client_secret", "sessionid"}
 # Signed / pre-authorized URL credentials (S3 X-Amz-*, GCS X-Goog-*, Azure SAS `sig`, CDN `token`/`hmac` params): a
@@ -119,9 +159,17 @@ CODE_LINK = re.compile(rf"(?i){_MARKUP}*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()"
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
 _PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
-# "Pin/Zip code" names the address code once for both words (re-review 2, R3)
-ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[{_H}]*/[{_H}]*{_PLACE})*[{_H}_-]?codes?|"
-                          r"pincodes?|postcodes?|zipcodes?)(?![A-Za-z0-9])")
+# "Pin/Zip code" names the address code once for both words (re-review 2, R3): a chain of places joined by "/", then
+# "code" ("pincode", "ZIP code", "Pin/Zip code", "postal_code").
+_PLACES = re.compile(rf"(?i)(?<![A-Za-z0-9]){_PLACE}(?:[{_H}]*+/[{_H}]*+{_PLACE})*+")
+_ADDRESS_TAIL = re.compile(rf"(?i)[{_H}_-]?codes?(?![A-Za-z0-9])")
+
+
+def _address_codes(s: str) -> list[tuple[int, int]]:
+    """Where the address and coupon codes lie: each chain of places read whole, then its "code". A later place in a
+    chain ends where the whole chain ends, so it is never tried again (re-review 6, C1: "pin/pin/…" was quadratic)."""
+    return [(chain.start(), tail.end()) for chain in _PLACES.finditer(s)
+            if (tail := _ADDRESS_TAIL.match(s, chain.end())) is not None]
 
 
 def _not_address(s: str, found: Any) -> list[re.Match[str]]:
@@ -129,8 +177,8 @@ def _not_address(s: str, found: Any) -> list[re.Match[str]]:
     matches: list[re.Match[str]] = list(found)
     if not matches:
         return matches
-    spans = [m.span() for m in ADDRESS_CODE.finditer(s)]
-    return [m for m in matches if not any(a <= m.start() < b for a, b in spans)]
+    spans = _address_codes(s)
+    return [m for m in matches if not _inside(spans, m.start())] if spans else matches
 
 
 def code_words(s: str) -> list[re.Match[str]]:
@@ -253,10 +301,11 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
 def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
     """Where the C1 classes lie in `s`: codes with their code word near, and values next to a secret word. A URL's
     own words never count (its query credentials are the URL rule's)."""
-    urls = [m.span() for m in URL.finditer(s)]
+    urls = [m.span() for m in _urls(s)]
 
     def in_url(span: tuple[int, int]) -> bool:
-        return any(a <= span[0] and span[1] <= b for a, b in urls)
+        i = bisect.bisect_right(urls, (span[0], float("inf"))) - 1
+        return i >= 0 and span[1] <= urls[i][1]
     spans: list[tuple[int, int]] = []
     words = [m for m in secret_words(s) if not in_url(m.span())]
     for word in words:
@@ -275,9 +324,9 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
                     and not _clause_break(s, ends[before], code.start())
                     and _label_joined(s, ends[before], code)) or (
                     after < len(labels) and CODE_LINK.match(s, code.end()) is not None
+                    and _words_between(starts, code.end(), begins[after]) <= CODE_REACH
                     and LINE_BREAK.search(s, code.end(), begins[after]) is None
-                    and not _clause_break(s, code.end(), begins[after])
-                    and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
+                    and not _clause_break(s, code.end(), begins[after])):
                 spans.append(code.span())
     return spans + _line_codes(s) + _code_list(s)
 
@@ -548,7 +597,7 @@ def _url_id_spans(s: str) -> list[tuple[int, int]]:
     URL pattern also runs on through , | ) or a JSON \\n, so only digits that start a path segment or host label
     there are an id (a post, a message, a snowflake), never a credential."""
     spans = []
-    for m in URL.finditer(s):
+    for m in _urls(s):
         tail = re.search(r"[?#]", m.group())
         spans.append((m.start(), m.start() + tail.start() if tail else m.end()))
     return spans
@@ -756,7 +805,11 @@ class Redactor:
         """The secret classes: key and token patterns, payment cards, one-time codes, URL credentials."""
         s = _before_labels(s)
         s = _mask_spans(s, labelled_secret_spans(s))
-        return URL.sub(lambda m: self._url(m.group(0)), s)
+        out, kept = [], 0
+        for m in _urls(s):
+            out.append(s[kept:m.start()] + self._url(m.group(0)))
+            kept = m.end()
+        return "".join(out) + s[kept:]
 
     def before_labels(self, s: str) -> str:
         """`s` as the labelled classes read it, after the masks applied before them (a stream line's relations)."""
@@ -787,6 +840,7 @@ class Redactor:
 
 def _before_labels(s: str) -> str:
     """The masks applied before the labelled classes: key and token patterns, payment cards, contextual OTPs."""
+    s = _mask_spans(s, _private_keys(s))
     for p in SECRET_PATTERNS:
         s = p.sub(REDACTED, s)
     ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
@@ -916,10 +970,12 @@ class RedactionStream:
     Private-key blocks are suppressed until their end marker, even when they exceed the buffer bound.
     """
     MAX_PENDING = 65536
-    PRIVATE_START = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
-    PRIVATE_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+    PRIVATE_START = PRIVATE_KEY_START
+    PRIVATE_END = PRIVATE_KEY_END
     BEARER_TAIL = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]*$")
-    PRIVATE_HEADER_TAIL = re.compile(r"-----BEGIN [A-Z -]*$")
+    # A key's BEGIN line still being read: the first "-----BEGIN " in the run of header characters that ends the text
+    # (group "header"). Tried only where such a run starts, so a run of BEGIN lines is read once (re-review 6, C1).
+    PRIVATE_HEADER_TAIL = re.compile(r"(?<![A-Z -])(?=[A-Z -]*+$)[A-Z -]*?(?P<header>-----BEGIN )")
 
     def __init__(self, redactor: Redactor) -> None:
         self.redactor = redactor
@@ -931,9 +987,13 @@ class RedactionStream:
         self._kinds: dict[str, frozenset[str]] = {}     # each line's relations, for one read (`_kinds_of`)
 
     def _unfinished_key(self) -> int | None:
+        """Where the first BEGIN line with no END line after it starts. An END found after one BEGIN serves every
+        BEGIN before it, so a run of BEGIN lines is read once (re-review 6, C1)."""
+        end = None
         for opening in self.PRIVATE_START.finditer(self.pending):
-            if self.PRIVATE_END.search(self.pending, opening.end()) is None:
-                return opening.start()
+            if end is None or end.start() < opening.end():
+                if (end := self.PRIVATE_END.search(self.pending, opening.end())) is None:
+                    return opening.start()
         return None
 
     def _kinds_of(self, line: str) -> frozenset[str]:
@@ -950,7 +1010,7 @@ class RedactionStream:
         cut = len(self.pending) - last_space.start() if last_space else 0
         header = self.PRIVATE_HEADER_TAIL.search(self.pending)
         if header:
-            cut = min(cut, header.start())
+            cut = min(cut, header.start("header"))
         opening = self._unfinished_key()
         if opening is not None:
             cut = min(cut, opening)
@@ -989,10 +1049,10 @@ class RedactionStream:
             for length in range(1, min(len(value), len(self.pending) + 1)):
                 if self.pending.endswith(value[:length]):
                     cut = min(cut, len(self.pending) - length)
-        for pattern in SECRET_PATTERNS:
-            for match in pattern.finditer(self.pending):
-                if match.start() < cut < match.end():
-                    cut = match.start()
+        spans = _private_keys(self.pending) + [m.span() for p in SECRET_PATTERNS for m in p.finditer(self.pending)]
+        for start, end in spans:
+            if start < cut < end:
+                cut = start
         return min(cut, labelled)
 
     def _labelled_hold(self, tail_start: int, kinds: set[str]) -> int:
@@ -1011,9 +1071,9 @@ class RedactionStream:
         hold = len(pending)
         # A number alone holds the line only while its link can still follow it ("482913 is your …"): an interactive
         # prompt with a number ("Delete 1234 files? [y/N] ") appears at once (re-review 2, I3).
-        urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
+        urls = [u.span() for u in _urls(tail)]                 # a URL's own digits are never a code
         joinable = any((CODE_LINK.match(tail, m.end()) is not None or _LINK_START.fullmatch(tail, m.end()))
-                       and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
+                       and not _inside(urls, m.start()) for m in CODE_VALUE.finditer(tail))
         # The line under a label, "Password:" or list line is decided with it, so a read ending inside it never
         # releases part of it without that context (re-review 3, NEW-C1): under "Password:" the whole value line,
         # under a list a line that starts with a list token, under a label one that starts as a code alone (a
