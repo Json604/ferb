@@ -341,7 +341,10 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              "\n\u3000\n", "\n\xa0a1b2c-3d4e5",
              # re-review 4 (T1): blank lines under a label, item numbers, next-line values with spaces
              "Backup codes:\n\n", "Password:\n \n", "\n1. a1b2c-3d4e5", "\n2) 4821 9921", "\n\u2022 q2w3e4r5", "1.",
-             "\n  s3cret pass 9", "pwd:", "\xa0codes:"]
+             "\n  s3cret pass 9", "pwd:", "\xa0codes:",
+             # re-review 5: unclosed quotes, markup around a code, quoted mail, comma-led list lines
+             "'hunter2", '"Xk9#mQ2', "it's", "**482913**", "`482913`", "<b>482913</b>", "_4829_", "\n> 482913", "\n>",
+             "\n# 482913", "\n\u00b7 482913", "\n\u2013 482913", "\n, a1b2c-3d4e5", "<b", "id_4829"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
@@ -1020,8 +1023,8 @@ def test_ocr_masks_a_code_after_a_quote_prefix_or_bullet_under_its_label(below) 
     ("Backup codes:\n, 482-913\n, 771-123\n", ["482-913", "771-123"]),
 ])
 def test_a_comma_led_list_line_is_masked(raw, codes) -> None:
-    """Re-review 5 (item 3): a list line that starts with a comma (", 482-913" under "Backup codes:") is a list line, but
-    the list never reached its codes."""
+    """Re-review 5 (item 3): a list line that starts with a comma (", 482-913" under "Backup codes:") is a list line,
+    but the list never reached its codes."""
     redactor = Redactor()
     out = redactor.text(raw)
     for code in codes:
