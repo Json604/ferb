@@ -36,6 +36,12 @@ class TaskRecord:
     tree_id: str | None = None     # the request's root task (None: the task is its own tree)
 
 
+# A conversation's request trees updated since a time: through the conversation's index, then each task by its id;
+# CROSS JOIN keeps that order, so no turn reads the whole task table (re-review 2, R4).
+CONVERSATION_ROOTS = ("SELECT t.* FROM task_context c CROSS JOIN tasks t ON t.id = c.task_id "
+                      "WHERE c.conversation_id = ? AND t.parent_id IS NULL AND t.updated_at >= ? ORDER BY t.created_at")
+
+
 class TaskTree:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
@@ -92,6 +98,12 @@ class TaskTree:
             return []
         return [dict(r) for r in self.db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at",
                                                       (tree_id,)).fetchall()]
+
+    def conversation_roots(self, conversation: str, since_iso: str) -> list[dict[str, Any]]:
+        """A conversation's request trees updated since then (the planner's task status facts)."""
+        if self.db is None:
+            return []
+        return [dict(r) for r in self.db.conn.execute(CONVERSATION_ROOTS, (conversation, since_iso))]
 
     def recent_roots(self, since_iso: str) -> list[dict[str, Any]]:
         """Requests' task trees updated since then (continuity, 14a)."""

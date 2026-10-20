@@ -41,7 +41,7 @@ from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering,
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
-from ferb.orchestrator.plan_store import PlanStore
+from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
@@ -188,6 +188,8 @@ class ChatSession:
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
     payload: str = ""          # complete prior request, including marked source data
+    # when this session started, on the clock task records use: its finished tasks are the status facts' (R4)
+    started_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat())
 
 
 def _bare(text: str) -> str:
@@ -726,11 +728,12 @@ class Supervisor(WorkerRuns):
         self.cancel_tree(tree)
         return True
 
-    def _status_facts(self, conversation: str) -> tuple[list[dict[str, Any]], set[str], list[str]]:
+    def _status_facts(self, session: ChatSession) -> tuple[list[dict[str, Any]], set[str], list[str]]:
         """FERB's own record of the tasks a progress question can be about: each running tree (running, blocked when
-        its latest worker report is blocked or needs an answer, stopping), and this conversation's latest finished
-        ones; with the first line of the latest worker report and the plan's step counts. The report lines are
-        model-written, so the block carries those tasks' origins (MP2)."""
+        its latest worker report or a plan step is blocked, failed or needs an answer, stopping), and this
+        conversation's latest tasks finished since its session started (read through the conversation's index, never
+        the whole task table: re-review 2, R4); with the first line of the latest worker report and the plan's step
+        counts. The report lines are model-written, so the block carries those tasks' origins (MP2)."""
         rows: list[dict[str, Any]] = []
         origins: set[str] = set()
         refs: list[str] = []
@@ -741,23 +744,25 @@ class Supervisor(WorkerRuns):
             if key != tree.id:
                 continue
             last = tree.reports[-1] if tree.reports else None
+            counts: dict[str, int] = {}
+            if tree.spec.plan:              # this plan's steps (a replaced plan's kept results aren't steps: L11)
+                for step_id, step in self.plans.steps(key).items():
+                    if not step_id.startswith(EARLIER):
+                        counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
+            stuck = ("blocked", "needs_user", "failed")
             state = ("stopping" if tree.stop else
-                     "blocked" if last is not None and last.get("status") in ("blocked", "needs_user", "failed")
+                     "blocked" if (last is not None and last.get("status") in stuck) or any(s in counts for s in stuck)
                      else "running")
             row: dict[str, Any] = {"task_id": key, "goal": first_line(tree.spec.goal), "state": state,
                                    "worker_reports": len(tree.reports)}
             if last is not None:
                 row["last_report"] = first_line(last.get("summary"))
             if tree.spec.plan:
-                counts: dict[str, int] = {}
-                for step in self.plans.steps(key).values():
-                    counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
                 row["plan_steps"] = counts
             rows.append(row)
             origins |= self._task_line_origins(key)
             refs.append(TASK + key)
-        mine = self.continuity.task_ids(conversation)
-        done = [r for r in self.tasks.recent_roots("") if r["id"] in mine and r["id"] not in self._tree_of]
+        done = [r for r in self.tasks.conversation_roots(session.id, session.started_at) if r["id"] not in self._tree_of]
         for r in done[-5:]:
             outcome = json.loads(r.get("outcome_json") or "{}") if isinstance(r.get("outcome_json"), str) else {}
             rows.append({"task_id": r["id"], "goal": first_line(r["goal"]), "state": r["status"],
@@ -1335,7 +1340,7 @@ class Supervisor(WorkerRuns):
             'standing_scopes': {key: [scope.model_dump() for scope in scopes] for key, tree in self._tree_of.items()
                                 if key == tree.id and (scopes := self.standing.scopes(key))},
         })), 'chat.status', protected=True), {origins_.INFERRED}))
-        status, status_origins, status_refs = self._status_facts(session.id)
+        status, status_origins, status_refs = self._status_facts(session)
         if status:                   # progress questions are answered from these, never from the chat (owner 2026-10-18)
             state.append((ContextBlock('Layer 6 — task status (FERB\'s own records of this conversation\'s tasks; data):\n'
                                        + wrap_untrusted(json.dumps(status, ensure_ascii=False)), 'chat.status',
