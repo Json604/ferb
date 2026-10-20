@@ -1480,30 +1480,39 @@ class Daemon:
 
     def _forget_nodes(self, refs: list[str], named: bool = True) -> list[str]:
         """Learned items go (`Learning.forget`: every version, what is built on them, tombstones), and FERB's questions
-        about them close. A learned item the owner named has an echo pass, like a memory forget's (re-review R3): the
-        one they asked to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that
-        question (`_named_node`) and what it states (its body's text, a procedure's intent, a lesson's trigger; never
-        its key alone, which can be a label such as "owner" or a task id) leave FERB's replies and every span, in a
-        worker thread (`echoes.finish_at`)."""
+        about them close. A learned item the owner named has an echo pass (re-review R3, round 5): the one they asked
+        to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that question
+        (`_named_node`) goes from FERB's replies and every span; what it states (its body's text, a procedure's intent,
+        a lesson's trigger; never an episode card's goal, which other tasks share, and never its key alone, which can
+        be a label such as "owner") goes only where it was shown or cited (`echoes.finish_node`, in a worker thread):
+        an owner identity statement was in every model turn's prompt since it was recorded."""
         from ferb.memory import echoes
+        from ferb.memory.learning import ID_KEYED
         asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
-        texts: dict[str, list[str]] = {}
-        for ident in (set(refs) if named else set()) | asked:
+        found: dict[str, tuple[set[str], str, list[str], str | None]] = {}
+        for ident in (set(refs) if named else set()) | asked:   # its versions, naming, what it states, in every turn
             node = self.learning.get(ident)
             if node is not None:
-                said = [node["body"].get(k) for k in ("text", "intent", "trigger")]
-                texts[ident] = [_named_node(node), *(t for t in said if isinstance(t, str) and t.strip())]
+                said = [] if node["kind"] in ID_KEYED else [node["body"].get(k) for k in ("text", "intent", "trigger")]
+                versions = self.db.conn.execute("SELECT id, recorded_at FROM learning_nodes WHERE kind = ? AND key = ?",
+                                                (node["kind"], node["key"])).fetchall()
+                since = min(str(r[1]) for r in versions) if node["kind"] == "identity" and versions else None
+                found[ident] = ({r[0] for r in versions} | {ident}, _named_node(node),
+                                [t for t in said if isinstance(t, str) and t.strip()], since)
         deleted = self.learning.forget(refs)
         self._close_memory_questions(deleted)
-        gone = echoes.Forgotten(contents=sorted({t for ident in deleted for t in texts.get(ident, [])}))
-        if gone.contents:
-            self._after_forgets(lambda: self._finish_node_forget(gone))
+        gone = [ident for ident in deleted if ident in found]
+        echo = echoes.NodeEcho({v for i in gone for v in found[i][0]} & set(deleted), sorted({found[i][1] for i in gone}),
+                               sorted({t for i in gone for t in found[i][2]}),
+                               min((s for i in gone if (s := found[i][3])), default=None))
+        if echo.refs:
+            self._after_forgets(lambda: self._finish_node_forget(echo))
         return deleted
 
-    async def _finish_node_forget(self, gone: Any) -> None:
+    async def _finish_node_forget(self, echo: Any) -> None:
         from ferb.memory import echoes
         try:
-            await asyncio.to_thread(echoes.finish_at, self.db.path, gone)
+            await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo)
             self.db.truncate_wal("memory.forget")
         except Exception as e:                       # the deletions stand; what's left is said, never raised
             self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})

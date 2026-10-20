@@ -730,3 +730,71 @@ def test_a_forgotten_lesson_leaves_no_copy_in_a_planner_turn_that_listed_it(daem
     assert _everywhere(daemon, "zentrix") == [("journal", "data_json")]
     assert _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
         "SELECT kind FROM journal WHERE data_json LIKE '%zentrix%'")]) == ["chat.message"]
+
+
+# ---------- round 5 (re-review: NEW-1, NEW-2, test gaps) ----------
+
+def _held_in_spans(d: RunningDaemon, text: str, where: str = "1", *args: Any) -> int:
+    return _on_loop(d, lambda: sum((r[0] or "").count(text) + (r[1] or "").count(text) for r in d.daemon.db.conn.execute(
+        f"SELECT input_json, output_json FROM spans WHERE {where}", args)))
+
+
+def test_forgetting_one_tasks_card_leaves_another_task_with_the_same_goal_alone(daemon: RunningDaemon) -> None:
+    """Round 5 (NEW-1): a learned item's echo took the body's "intent" for every kind, and an episode card's intent is
+    its task's goal, so forgetting task 1's card wiped the same goal from task 2's trace and from every planner turn
+    (a plain substring replace; recurring tasks share goals). An episode card's goal is never scrubbed, not even in a
+    task that was shown the card."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    goal = "check my inbox for new mail"
+    ids = []
+    for answer in ("No new mail in the inbox.", "Two new messages in the inbox."):
+        install(daemon, [sup("task", "Checking.", task(goal))], {"worker": done(answer)})
+        ids.append(outcome(chat(daemon, goal))["task_id"])
+    daemon.run(d.supervisor.finish_episodes())
+    card = _on_loop(daemon, lambda: d.learning.current_card(ids[0]))
+    assert card["body"]["intent"] == goal
+    _on_loop(daemon, lambda: d.db.conn.execute("INSERT OR IGNORE INTO task_memory_refs VALUES (?, ?)",
+                                               (ids[1], card["id"])))     # task 2's planner was shown task 1's card
+    other = "task_id = ? OR task_id LIKE ?"
+    before = (_held_in_spans(daemon, goal), _held_in_spans(daemon, goal, other, ids[1], ids[1] + ".%"))
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": card["id"], "confirm": True})
+    finally:
+        c.close()
+    assert before[1] and (_held_in_spans(daemon, goal), _held_in_spans(daemon, goal, other, ids[1],
+                                                                       ids[1] + ".%")) == before
+    assert _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT goal FROM tasks WHERE id IN (?, ?)", ids)]) == [goal, goal]
+    assert _on_loop(daemon, lambda: d.learning.current_card(ids[1])) is not None
+
+
+def test_a_procedure_forget_scrubs_only_the_spans_that_showed_it(daemon: RunningDaemon) -> None:
+    """Round 5 ruling: what a learned item states is scrubbed only where it was shown or cited (the tasks given it and
+    the planner turns that listed it), never by a substring replace across every span. A later turn whose planner was
+    not shown the procedure keeps the owner's words that happen to repeat its intent."""
+    d = daemon.daemon
+    proc = _on_loop(daemon, lambda: d.learning.put("procedure", "book qindle visit", {
+        "intent": "book qindle visit", "steps": []}, [], made_by="model:t", state="candidate"))
+    script = install(daemon, [_reply("Okay.")])
+    chat(daemon, "how do I book qindle visit?")
+    assert proc["id"] in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    d.supervisor.memory_candidates = lambda words: []                   # the next planner is shown no learned item
+    script = install(daemon, [_reply("Okay.")])
+    chat(daemon, "please book qindle visit for friday")
+    assert proc["id"] not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    requests = _on_loop(daemon, lambda: {e.data["text"]: e.data["request_id"]
+                                         for e in d.journal.of_kind("chat.message")})
+    turn = "kind = 'model.turn' AND json_extract(input_json, '$.request_id') = ?"
+    shown, unshown = requests["how do I book qindle visit?"], requests["please book qindle visit for friday"]
+    assert _held_in_spans(daemon, "qindle", turn, shown) and _held_in_spans(daemon, "qindle", turn, unshown)
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": proc["id"], "confirm": True})
+    finally:
+        c.close()
+    assert _held_in_spans(daemon, "qindle", turn, shown) == 0
+    assert _held_in_spans(daemon, "please book qindle visit for friday", turn, unshown)
