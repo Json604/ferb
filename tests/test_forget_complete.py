@@ -798,3 +798,60 @@ def test_a_procedure_forget_scrubs_only_the_spans_that_showed_it(daemon: Running
         c.close()
     assert _held_in_spans(daemon, "qindle", turn, shown) == 0
     assert _held_in_spans(daemon, "please book qindle visit for friday", turn, unshown)
+
+
+def test_a_cards_naming_in_a_waiting_question_goes_when_the_item_forget_deletes_the_card(daemon: RunningDaemon) -> None:
+    """Round 5 test gap: FERB's naming of a learned item in its question (`_named_node`) is scrubbed with it. Here the
+    owner had asked to forget a task's card and a planner turn showed that question; the item's forget deletes the
+    card after its echo scrub (a scrub queued from inside a running one), and the forget RPC answers only once the
+    card's naming is gone from that turn."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [sup("task", "Emailing.", task("email my dentist to book Monday"))],
+            {"worker": done("Emailed Dr. Zorblat's office to book Monday.")})
+    task_id = outcome(chat(daemon, "email my dentist to book Monday"))["task_id"]
+    daemon.run(d.supervisor.finish_episodes())
+    card = _on_loop(daemon, lambda: d.learning.current_card(task_id))
+    _on_loop(daemon, lambda: d._chat_forget(card["id"], "r-c"))
+    install(daemon, [_reply("Hi.")])
+    chat(daemon, "what's on today?")
+    naming = json.dumps(f"learned item “{task_id}” (episode)")[1:-1]
+
+    def held() -> int:
+        return _on_loop(daemon, lambda: sum(1 for (s,) in d.db.conn.execute("SELECT input_json FROM spans")
+                                            if naming in s or json.dumps(naming)[1:-1] in s))
+    assert held() == 1
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.forget", {"id": item.id, "confirm": True})
+    finally:
+        c.close()
+    assert held() == 0 and not d._forgetting
+
+
+def test_echo_scrubs_run_one_at_a_time(daemon: RunningDaemon) -> None:
+    """Round 5 test gap: echo scrubs are queued one behind another (`_after_forgets`), so two never rewrite the same
+    row from the same old copy."""
+    import time
+    from ferb.memory import echoes
+    d = daemon.daemon
+    a, b = _lesson(daemon, "glorpwax one"), _lesson(daemon, "flinvek two")
+    events: list[tuple[str, str]] = []
+    real = echoes.finish_node_at
+
+    def slow(path: Any, echo: Any) -> Any:
+        events.append(("start", echo.texts[0]))
+        time.sleep(0.3)
+        out = real(path, echo)
+        events.append(("end", echo.texts[0]))
+        return out
+    echoes.finish_node_at = slow                                          # type: ignore[assignment]
+    try:
+        _on_loop(daemon, lambda: (d._forget_nodes([a["id"]]), d._forget_nodes([b["id"]])))
+        daemon.run(d._settle_forgets())
+    finally:
+        echoes.finish_node_at = real                                      # type: ignore[assignment]
+    assert events == [("start", "glorpwax one"), ("end", "glorpwax one"), ("start", "flinvek two"),
+                      ("end", "flinvek two")]
