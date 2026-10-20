@@ -1,6 +1,7 @@
 """C1 (owner decision 2026-10-15, rule 14): a one-time code is a 4-8 digit run with a code word a few words away on
 either side, and a value next to a secret word is masked whatever its shape. Labelled by words, never by digit shape
 alone: an ordinary number with no code or secret word near it stays visible. Every capture path uses the one class."""
+import re
 from typing import Any
 
 import pytest
@@ -564,3 +565,35 @@ def test_number_only_output_streams_through_whole_and_holds_at_most_one_line(tex
 def test_an_ordinary_codes_label_lists_ordinary_data(message) -> None:
     """Re-review 2 (I5): list masking is only for backup, recovery, 2FA and one-time code lists."""
     assert Redactor().text(message) == message
+
+
+@pytest.mark.parametrize("raw", ["Use this code to sign in\n482913\n", "Your Swiggy verification code\n\n739201\n",
+                                 "Here is your one-time password\r\n4829\r\n"])
+def test_a_label_line_without_a_colon_labels_the_code_under_it(raw) -> None:
+    """Re-review 2 (R2): the owner's rule is a code word within a few words on either side; a line break is
+    whitespace. Text, every stream split and sibling nodes agree."""
+    code = re.search(r"\d{4,8}", raw).group(0)
+    redactor = Redactor()
+    assert code not in redactor.text(raw)
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert code.encode() not in stream.feed(data[:split]) + stream.feed(data[split:], final=True), split
+    lines = [line for line in raw.splitlines() if line.strip()]
+    assert code not in str(redactor([{"text": line} for line in lines]))
+
+
+def test_a_sentence_ended_before_the_line_end_labels_nothing() -> None:
+    assert "2024" in Redactor().text("Your code expired. Request a new one\n2024\n")
+
+
+@pytest.mark.parametrize("raw", ["Pin/Zip code: 560001\n", "PIN / ZIP code 560001\n", "Enter your ZIP code 94107\n",
+                                 "Enter your postal code 560001\n"])
+def test_an_address_code_label_stays_visible_whole_and_streamed(raw) -> None:
+    """Re-review 2 (R3): "Pin/Zip code" is an address label; a read ending in "ZIP " or "postal " doesn't over-mask."""
+    redactor = Redactor()
+    assert redactor.text(raw) == raw
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == data, split

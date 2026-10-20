@@ -103,8 +103,10 @@ CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-
 CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
-ADDRESS_CODE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
-                          r"[ _-]?codes?|pincodes?|postcodes?|zipcodes?)(?![A-Za-z0-9])")
+_PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
+# "Pin/Zip code" names the address code once for both words (re-review 2, R3)
+ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[ \t]*/[ \t]*{_PLACE})*[ _-]?codes?|pincodes?|postcodes?|"
+                          r"zipcodes?)(?![A-Za-z0-9])")
 
 
 def _not_address(s: str, found: Any) -> list[re.Match[str]]:
@@ -360,15 +362,15 @@ def _code_alone(line: str) -> bool:
 
 
 def _label_line(line: str) -> bool:
-    """A line that labels the code under it: it holds a code word near its end and ends with ":", "is"/"are" or the
-    code word ("Your verification code is:", "Use this code to sign in:", "Your OTP is", "Sign-in code")."""
+    """A line that labels the code under it: a code word within a few words of its end, with no sentence ending in
+    between ("Your verification code is:", "Use this code to sign in", "Sign-in code"). A line break is whitespace, so
+    the owner's "code word within a few words" reaches the next line (re-review 2, R2)."""
     words = code_words(line)
     if not words:
         return False
-    text, rest = line.rstrip(), line[words[-1].end():]
-    return (len(rest.split()) <= CODE_REACH and
-            (text.endswith(":") or not rest.strip(" \t.:=#-–—") or
-             re.search(r"(?i)(?<![A-Za-z0-9])(?:is|are)$", text) is not None))
+    text = line.rstrip().rstrip(".:=#-–—").rstrip()
+    end = words[-1].end()
+    return len(line[end:].split()) <= CODE_REACH and (end >= len(text) or not _clause_break(text, end, len(text)))
 
 
 def _link_line(line: str) -> bool:
@@ -660,6 +662,44 @@ class Redactor:
         return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
 
 
+def _forward_context(s: str) -> str:
+    """What of the released text `s` a later line can still relate to: its last line when that is a label line, a
+    "Password:" line or a backup list's label (with blank lines after it and the start of the next line while that is
+    only spaces or brackets), or a list line under its label (kept as the label and that line). Empty otherwise. Each
+    is a line or two, so the work per read stays the read's own."""
+    breaks = [m for m in LINE_BREAK.finditer(s)]
+    if not breaks:
+        return ''
+    partial = s[breaks[-1].end():]
+    if not re.fullmatch(r"[ \t(\[]*", partial):
+        return ''
+    lines, begin = [], 0
+    for m in breaks:
+        if s[begin:m.start()].strip():
+            lines.append((begin, m.start()))
+        begin = m.end()
+    if not lines:
+        return ''
+    a, b = lines[-1]
+    last = s[a:b]
+    # the line breaks after it as read (a "\r" may still become "\r\n"); a run of blank lines kept as one
+    gaps = [m for m in breaks if m.start() >= b]
+    blank = len(gaps) > 1
+    after = s[b:] if not blank else gaps[0].group() + s[gaps[-1].start():]
+    if _label_line(last) or _secret_colon_end(last) or _list_label_line(last):
+        return last + after
+    if _list_line(last) and not blank:
+        at = len(lines) - 1
+        while at > 0 and _list_line(s[lines[at - 1][0]:lines[at - 1][1]]) and not _list_label_line(
+                s[lines[at - 1][0]:lines[at - 1][1]]) and LINE_BREAK.fullmatch(s[lines[at - 1][1]:lines[at][0]].strip(" \t") or "-"):
+            at -= 1
+        if at > 0 and LINE_BREAK.fullmatch(s[lines[at - 1][1]:lines[at][0]].strip(" \t") or "-"):
+            label = s[lines[at - 1][0]:lines[at - 1][1]]
+            if _list_label_line(label):
+                return label + "\n" + last + after
+    return ''
+
+
 class RedactionStream:
     """Incremental UTF-8 redaction. Emit complete words, retaining possible secrets across chunks.
 
@@ -677,6 +717,7 @@ class RedactionStream:
         self.decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
         self.pending = ''
         self.suppress: str | None = None
+        self.context = ''         # released text a later line can still relate to (`_forward_context`)
 
     def _unfinished_key(self) -> int | None:
         for opening in self.PRIVATE_START.finditer(self.pending):
@@ -737,9 +778,9 @@ class RedactionStream:
         wave 2: cutting inside a line at its code word left the code before it visible):
         - the line still being read is held whole while it holds a class word, a code, an OTP introducer, or a word that
           can still become one ("api ", "my wifi ");
-        - the last complete line is held while what comes next can still relate to it: a label line (its code can be on
-          the next line), a line that is only a code (its label can follow: "482913" then "is your verification
-          code"), or a line ending in "Password:"; and each line before it that relates to a held line is held too.
+        - the last complete line is held while what comes next can still change it: a line that is only a code (its
+          naming line can follow: "482913" then "is your verification code"), with the lines above that relate to it.
+          A label line is released and kept as context for the lines under it (`_masked`).
         A line too long to hold (MAX_PENDING) is held only from the run of class items still within reach of its end."""
         pending = self.pending
         breaks, tail_start = _line_starts(pending)
@@ -776,28 +817,12 @@ class RedactionStream:
 
     @staticmethod
     def _held_from(lines: list[tuple[int, str]]) -> int | None:
-        """Which complete line (by index) the stream must hold from, given the last one can still relate to what comes
-        next (re-review 2, I2): a list's codes under their backup/recovery label hold from the label; a line that is only
-        a code holds itself (its naming line can follow) and the label line just above it; a naming line holds the code
-        line above it; a label line or one ending in "Password:" holds itself. Neighbouring code-only lines never hold
-        each other, so number-only output passes one line behind."""
+        """Which complete line (by index) the stream must hold from (re-review 2, I2): only a last line that is only a
+        code, whose naming line can still follow ("482913" then "is your verification code"). A label, "Password:"
+        or list line never changes with what follows it, so it is released and kept as context (`_masked`); code-only
+        lines never hold each other, so number-only output passes one line behind."""
         last = len(lines) - 1
-        text = lines[last][1]
-        if _list_line(text):
-            at = last
-            while at > 0 and _list_line(lines[at - 1][1]) and not _list_label_line(lines[at - 1][1]):
-                at -= 1
-            if at > 0 and _list_label_line(lines[at - 1][1]):
-                return at - 1
-            if _list_label_line(lines[at][1]):
-                return at
-        if _code_alone(text):
-            return last - 1 if last > 0 and _label_line(lines[last - 1][1]) else last
-        if _link_line(text):
-            return last - 1 if last > 0 and _code_alone(lines[last - 1][1]) else last
-        if _label_line(text) or _secret_colon_end(text) or _list_label_line(text):
-            return last
-        return None
+        return last if _code_alone(lines[last][1]) else None
 
     @staticmethod
     def _open_run(line: str) -> int:
@@ -822,6 +847,20 @@ class RedactionStream:
             start -= 1
         return start
 
+    def _masked(self, released: str) -> str:
+        """`released` masked as `Redactor.text` masks it after the released lines it can relate to (a label line above
+        its code, "Password:" above its value, a backup list's label above its codes): those lines never change with
+        what follows them, so they are released at once and kept only as context (re-review 2, R2)."""
+        if not released:
+            return ''
+        if self.context:
+            before, whole = self.redactor.text(self.context), self.redactor.text(self.context + released)
+            out = whole[len(before):] if whole.startswith(before) else self.redactor.text(released)
+        else:
+            out = self.redactor.text(released)
+        self.context = _forward_context(self.context + released)
+        return out
+
     def feed(self, chunk: bytes, final: bool = False) -> bytes:
         self.pending += self.decoder.decode(chunk, final=final)
         if self.suppress:
@@ -831,23 +870,23 @@ class RedactionStream:
                 self.pending = self.pending[-128:] if self.suppress == 'private' and not final else ''
                 return b''
             self.pending = self.pending[end.end():]
-            self.suppress = None
+            self.suppress, self.context = None, ''
         if final:
             opening = self._unfinished_key()
             if opening is not None:
                 self.pending = self.pending[:opening] + REDACTED
-            out, self.pending = self.redactor.text(self.pending), ''
+            out, self.pending = self._masked(self.pending), ''
             return out.encode('utf-8')
         cut = self._safe_cut()
-        out = self.redactor.text(self.pending[:cut])
+        out = self._masked(self.pending[:cut])
         self.pending = self.pending[cut:]
         bound = max(self.MAX_PENDING, max((len(v) for v in self.redactor.secret_values()), default=0) + 1)
         if len(self.pending) > bound:
             opening = self._unfinished_key()
             if opening is not None:
-                out += self.redactor.text(self.pending[:opening]) + REDACTED
-                self.pending, self.suppress = self.pending[-128:], 'private'
+                out += self._masked(self.pending[:opening]) + REDACTED
+                self.pending, self.suppress, self.context = self.pending[-128:], 'private', ''
             else:
                 out += '[redacted: oversized unfinished record]\n'
-                self.pending, self.suppress = '', 'record'
+                self.pending, self.suppress, self.context = '', 'record', ''
         return out.encode('utf-8')
