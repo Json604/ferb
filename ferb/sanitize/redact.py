@@ -251,6 +251,11 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
 # Only a backup, recovery, 2FA or one-time code list (re-review 2, I5): "HTTP status codes: 200, 301" is ordinary data.
 CODE_LIST = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[ -]?factor|one[ -]?time|verification|security|"
                        r"login)(?:[ \t]+backup)?[ \t]+codes[ \t]*:[ \t]*")
+# A list label's qualifier with at most two words after it ending what has been read: "codes" can still follow it
+# ("Two ", "Two factor ", "security backup co"); once "codes" is there, the code word holds the line (re-review 3,
+# NEW-I1). Past two words no list label can form from it.
+_LIST_QUALIFIER_END = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two|one|verification|security|login)"
+                                 r"[A-Za-z0-9]*(?:[ \t_-]+[A-Za-z0-9]*){0,2}[ \t]*$")
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
 _LIST_GAP = re.compile(r"[ \t,]*(?:(?:\r\n|\r|\n)[ \t]*)?")
 
@@ -683,23 +688,30 @@ def _before_labels(s: str) -> str:
 
 
 def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> str:
-    """What of the released text `s` a later line can still relate to: its last line when that is a label line, a
-    "Password:" line or a backup list's label (with blank lines after it and the start of the next line while that is
-    only spaces or brackets), or a list line under its label (kept as the label and that line). Empty otherwise. Each
-    is a line or two, so the work per read stays the read's own."""
+    """What of the released text `s` a later line can still relate to (`_forward_relations`)."""
+    return _forward_relations(s, seen)[0]
+
+
+def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -> tuple[str, set[str]]:
+    """What of the text `s` a later line can still relate to, and how: its last line when that is a label line
+    ("label": a code alone can follow), a "Password:" line ("secret": its value starts the next line) or a backup
+    list's label (with blank lines after it and the start of the next line while that is only spaces or brackets), or
+    a list line under its label ("list": kept as the label and that line). Empty otherwise. Each is a line or two, so
+    the work per read stays the read's own."""
+    none: tuple[str, set[str]] = ('', set())
     breaks = [m for m in LINE_BREAK.finditer(s)]
     if not breaks:
-        return ''
+        return none
     partial = s[breaks[-1].end():]
     if not re.fullmatch(r"[ \t(\[]*", partial):
-        return ''
+        return none
     lines, begin = [], 0
     for m in breaks:
         if s[begin:m.start()].strip():
             lines.append((begin, m.start()))
         begin = m.end()
     if not lines:
-        return ''
+        return none
     a, b = lines[-1]
     last = s[a:b]
     # the line breaks after it as read (a "\r" may still become "\r\n"); a run of blank lines kept as one
@@ -709,8 +721,10 @@ def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> 
     # a line's relations as the text redactor decides them: after the masks applied before the labelled classes too
     def either(test: Callable[[str], bool], line: str) -> bool:
         return test(line) or test(seen(line))
-    if either(_label_line, last) or either(_secret_colon_end, last) or either(_list_label_line, last):
-        return last + after
+    kinds = ({"label"} if either(_label_line, last) else set()) | (
+        {"secret"} if either(_secret_colon_end, last) else set()) | ({"list"} if either(_list_label_line, last) else set())
+    if kinds:
+        return last + after, kinds
     if either(_list_line, last) and not blank:
         def joined(i: int) -> bool:              # line i and the one before it are adjacent (no blank line between)
             return LINE_BREAK.fullmatch(s[lines[i - 1][1]:lines[i][0]].strip(" \t") or "-") is not None
@@ -719,8 +733,14 @@ def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> 
                and not either(_list_label_line, s[lines[at - 1][0]:lines[at - 1][1]])):
             at -= 1
         if at > 0 and joined(at) and either(_list_label_line, label := s[lines[at - 1][0]:lines[at - 1][1]]):
-            return label + "\n" + last + after
-    return ''
+            return label + "\n" + last + after, {"list"}
+    return none
+
+
+# What the line being read can still become, under a line that relates to it: a code alone ("  482913", "(G-48"), or
+# a list line (codes, commas and spaces only).
+_CODE_ALONE_START = re.compile(r"[ \t.,;:()\[\]]*(?:[A-Z]-?)?[\d -]*[ \t.,;:()\[\]]*")
+_LIST_LINE_START = re.compile(r"[A-Za-z0-9, \t-]*")
 
 
 class RedactionStream:
@@ -814,8 +834,16 @@ class RedactionStream:
         urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
         joinable = any((CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"\s*\S*", tail[m.end():]))
                        and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
-        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail)
-                or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail)):
+        # The line under a label, "Password:" or list line is decided with it, so a read ending inside it never
+        # releases part of it without that context (re-review 3, NEW-C1): under "Password:" the whole value line,
+        # under a list while it can still be a list line, under a label while it can still be a code alone (a
+        # progress line under "Code server ready (3733 files)" shows at once).
+        _, kinds = _forward_relations(self.context + pending[:tail_start], self.redactor.before_labels)
+        under = bool(tail.strip()) and (
+            "secret" in kinds or ("list" in kinds and _LIST_LINE_START.fullmatch(tail) is not None)
+            or ("label" in kinds and _CODE_ALONE_START.fullmatch(tail) is not None))
+        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail) or under
+                or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         lines, begin = [], 0
         for end in breaks:

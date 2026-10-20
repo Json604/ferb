@@ -665,3 +665,35 @@ def test_the_stream_relates_lines_as_the_text_redactor_does(raw) -> None:
     for split in range(len(data) + 1):
         stream = redactor.stream()
         assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+
+
+@pytest.mark.parametrize("raw", ["Backup codes:\na1b2c-3d4e5 f6g7h-8i9j0\nk1l2m-3n4o5 p6q7r-8s9t0\n",
+                                 'Password:\n"correct horse 22"\n',
+                                 "Here are your backup codes:\r\nq2w3e4r5  t6y7u8i9\r\nz1x2c3v4  b5n6m7k8\r\n",
+                                 "Recovery codes:\n7f3a9-2bc41 a8d02-91fe3\n",
+                                 "Your verification code is:\n  482913  \n"])
+def test_a_read_ending_inside_the_line_under_a_label_keeps_it_masked(raw) -> None:
+    """Re-review 3 (NEW-C1): a released label, "Password:" or list line was kept as context only while the next line
+    was still empty, so a read ending inside that line ("a1b2c-3d4e5 f") showed every later code."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+
+
+@pytest.mark.parametrize("raw", ["Two factor codes:\n4821-9921\n7731-1123\n", "Two-factor codes:\nCS101 MA102\n",
+                                 "Your 2FA backup codes: a1b2c-3d4e5 f6g7h-8i9j0\n",
+                                 "[Swiggy] Share 1000 : , Two-factor codes:\n q2w3e4r5  t6y7u8i9\r\n",
+                                 "Security backup codes:\n7f3a9-2bc41\n"])
+def test_a_list_label_split_anywhere_still_masks_its_codes(raw) -> None:
+    """Re-review 3 (NEW-I1): "two factor" is a list label's first words; a read ending after "Two " or "Two factor "
+    released the line before the label was whole."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    assert expected != raw.encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
