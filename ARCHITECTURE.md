@@ -1362,9 +1362,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
   keys.
 - **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole sentence(s) of the owner's typed words
-  that hold the planner's content (`items.owner_sentences`, merge on doubt: a line break, or a single `.`/`!`/`?`
-  after a lowercase word of 2+ letters with no dot inside and before a space and a capital; never a comma, an
-  abbreviation's dot, a title or a repeated mark). FERB's rewording is an inferred proposal offered by a
+  that hold the planner's content (`items.owner_sentences`; a sentence ends only at a line break, or at a single `!`
+  or `?`, not right after another mark, followed by whitespace and a capital; never at a comma or a dot, so "my prof.
+  Zorblat" or "10 pm. Don't" never loses its negation, and the saved text may be longer). FERB's rewording is an inferred proposal offered by a
   `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No retracts); a quote sharing no word with the content is
   refused. An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
   2026-10-20: "No hold for my typed words"); pasted text never becomes owner_stated, and identity proposals remain only
@@ -1372,27 +1372,34 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   (shown as "unconfirmed hint", `learning.shown_state`), reach prompts; pending inferred items are indexed as fact
   nodes in state `proposed`, which `Learning.search`, the entity rollup, `memory.learned` and `memory.read` all leave
   out, so only the dashboard (inventory `confirmable`) sees and confirms them. FERB's Yes/No memory questions are kept
-  in `memory_questions` (migration 0041) until answered, asked again after a restart (`_restore_memory_questions`),
-  and closed when their memory is confirmed, retracted or forgotten by any path (`Memory.on_settled` →
-  `_close_memory_questions`: superseded, never a No).
+  in `memory_questions` (migration 0041) until answered and asked again after a restart (`_restore_memory_questions`).
+  A memory confirmed or retracted another way closes only its "Keep this?" question; a memory or learned item deleted
+  by any path closes every question about it, the owner's "Forget for good?" too, which nothing else closes
+  (`Memory.on_settled(ids, deleted)` → `_close_memory_questions`: superseded, never a No).
 - **Forget echoes (I2, fix round Q1/Q2).** Each task records the memory items and learned nodes its exposures cite and
-  its workers read through `memory.read`/`memory.learned` (`task_memory_refs`, migration 0039; `Gateway.memory_read`).
-  `memory/echoes.py`, after a forget's deletion (`finish_at`: a worker thread on its own connection;
-  `Supervisor.settle` makes the next chat turn wait): FERB's whole answer to a forgotten chat message (and the planner
+  its workers read through `memory.read`/`memory.learned` (`task_memory_refs`, migration 0039; `Gateway.memory_read`;
+  a failure to record a read is journaled, redacted, as `memory.read_unrecorded` and never costs the read its result
+  or span). `memory/echoes.py`, after a forget's deletion (`finish_at`: a worker thread on its own connection, queued
+  behind any scrub still running, `Daemon._after_forgets`; `Supervisor.settle` makes the next chat turn wait): FERB's whole answer to a forgotten chat message (and the planner
   turn that wrote it); for tasks given the item (shown, read or cited the item itself, its source entries or rows, or
   a learned node whose own body holds its text or one of its rare words: `echoes.settle`, rare words measured once
   against every candidate) each line of their answer and outcome rows, stored goal and outcome, saved spec, permanent
   record, `task_results` row, every span of their tree and the planner turn that planned them, holding the item's text
   or a word of it nothing left holds; their cards are forgotten (keys tombstoned) only when the body restates the
   item; in chat rows whose turn listed the item, a line holding its text or two of its words in a row (one of them a
-  word nothing left holds); elsewhere, its text word for word. Spans lose those lines and texts
-  (`attention.scrub_spans`). Append-only journal rows are deleted and written again with the same seq, id, time and
+  word nothing left holds); elsewhere, its text word for word. Spans lose those lines and texts, as recorded and
+  space-normalised as FERB's questions show them (`echoes.scrub_told` → `attention.scrub_spans`). Append-only journal rows are deleted and written again with the same seq, id, time and
   origin. Running summaries that folded such a row go; a day narrative written from a forgotten chat message is
   deleted. A paraphrase in other words is not found.
 - **Chat forget (I2).** The planner's `forget` output (item id and the owner's quote, whole clause(s) of their words:
   `items.whole_clauses`)
   makes `Daemon._chat_forget` ask a `memory.forget` FERB check (Yes/No, in `FERB_CHECKS`) naming what goes; the Yes,
   from chat (`Supervisor._answer` → `question_answered`) or the notch (`_resolve_approval`), runs the forget.
+- **Learned-item forgets (I2).** Every path (dashboard, chat Yes, what a memory forget deletes, cards forgotten for
+  restating the item) goes through `Daemon._forget_nodes`: `Learning.forget`, then the questions about the deleted
+  nodes close. An item the owner named (the one asked for, or one a waiting "Forget for good?" names) gets the echo
+  pass for FERB's naming of it in that question (`_named_node`) and what it states (body text, a procedure's intent, a
+  lesson's trigger), never its key alone (a key can be a label: "owner", a subject, a task id).
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
