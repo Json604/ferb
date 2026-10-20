@@ -513,9 +513,10 @@ never the request), redacted with the daemon's redactor. An `error` notification
 it itself; "this will not interrupt a turn") is a `retrying` runtime event, recorded as a `model.retry` span under the
 run, and the run goes on; a non-retrying error or a failed turn ends it. A retry is no sign of life: Codex 0.157.1's
 default-on `unbounded_connection_retries` retries a lost connection without end ("Reconnecting... waiting for
-network", 5 s doubling to 60 s), so a worker or checker run that only retries for `STALL_S` (180 s) ends as a stall,
-its outcome naming the last retry (`worker.retry_stall_problem`; the offline sentence with no network route).
-Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeout.
+network", 5 s doubling to 60 s; openai/codex rust-v0.157.1 `features/src/lib.rs:1283-1288`,
+`core/src/responses_retry.rs:16-17, 68-92`), so a worker or checker run that only retries for `STALL_S` (180 s)
+ends as a stall, its outcome naming the last retry (`worker.retry_stall_problem`; the offline sentence with no network
+route). Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeout.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
