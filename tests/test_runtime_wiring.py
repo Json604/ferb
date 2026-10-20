@@ -2,6 +2,8 @@
 import asyncio
 import json
 
+import pytest
+
 from ferb.runtimes.api import ApiRuntime
 from ferb.runtimes.catalog import CATALOG
 from tests.conftest import RunningDaemon
@@ -223,3 +225,23 @@ def test_a_worker_that_only_retries_while_the_mac_is_offline_says_so(daemon: Run
     monkeypatch.setattr(network, "has_route", lambda: False)
     out = outcome(_retrying_worker(daemon, monkeypatch, then_progress=False)["events"])
     assert "seems to be offline" in out["subtasks"]["worker"]["summary"], out
+
+
+@pytest.mark.parametrize("offline", [False, True])
+def test_a_failed_next_attempt_choice_reads_as_one_sentence(daemon: RunningDaemon, monkeypatch, offline) -> None:
+    """The dispatch failure's sentence ended in a doubled period (the service's or the offline sentence's own period
+    before FERB's)."""
+    import ferb.sense.network as network
+    from ferb.orchestrator.worker import ServiceError
+    from tests.conftest import chat, install, outcome, sup, task
+    monkeypatch.setattr(network, "has_route", lambda: not offline)
+
+    async def failing(*_a, **_k):
+        raise ServiceError("You've hit your usage limit.", "codex", network=True)
+    install(daemon, [sup("task", "Working", task("tidy the notes"))], {"worker": json.dumps(
+        {"status": "failed", "summary": "The notes app didn't open.", "artifacts": [], "evidence": []})})
+    monkeypatch.setattr(daemon.daemon.supervisor, "_dispatch", failing)
+    out = outcome(chat(daemon, "tidy the notes"))
+    assert "I couldn't plan the next attempt" in out["summary"], out
+    assert ".." not in out["summary"]
+    assert ("seems to be offline" if offline else "usage limit") in out["summary"]

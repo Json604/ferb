@@ -2415,7 +2415,8 @@ class Supervisor(WorkerRuns):
                 if attempt_revision != len(tree.steering.messages) and not tree.stop:
                     continue
                 # The owner reads the problem in plain words; the details stay in the records (P27).
-                problem = (": " + told(exc, "") if isinstance(exc, (ServiceError, InputTooLarge))
+                # FERB's own sentence ends it: the service's (or the offline) sentence's period isn't doubled
+                problem = (": " + told(exc, "").rstrip(".") if isinstance(exc, (ServiceError, InputTooLarge))
                            else " (a problem on my side)")
                 if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
                     tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."
