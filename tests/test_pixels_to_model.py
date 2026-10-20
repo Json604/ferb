@@ -475,6 +475,28 @@ def test_a_native_window_shot_is_never_pointable_even_after_a_good_snapshot() ->
         asyncio.run(d.point(ref, shot, 10, 10))
 
 
+def test_a_recording_frame_of_a_debugger_proof_tab_follows_the_screenshot_rule() -> None:
+    """Round 4 (item 5): a recording frame of a tab the debugger can't attach to is its window captured natively when
+    the tab is the one its window shows, with the note; otherwise a withheld frame with the honest reason."""
+    from ferb.core.errors import Withheld
+    window = {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False, "title": "Chrome Web Store"}
+    reply = {"withheld": "the browser won't let its debugger attach to this page (Cannot attach to this target.)",
+             "undebuggable": True, "window": window}
+    d, ref, _ = _tab_driver(reply)
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    native = solid_jpeg(300, 200)
+
+    async def capture(pid: int, bounds: Any, title: str) -> Any:
+        return native, "masked from Accessibility only: (…)"
+    d.native_capture = capture
+    _, frames = d.recording_source(ref, "task")
+    frame, note = asyncio.run(frames())
+    assert frame == native and "whole browser window" in note
+    d._tabs["t1"].bridge.call = _replying(dict(reply, window=dict(window, active=False)))
+    with pytest.raises(Withheld, match="isn't the one its window shows"):
+        asyncio.run(frames())
+
+
 def _replying(reply: dict[str, Any]) -> Any:
     async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return reply

@@ -1265,6 +1265,8 @@ class _TabDriver:
             if self._tab(tab) is not t:
                 raise Refused('recording tab identity changed')
             result = await t.bridge.call('record_frame', {'tab_id': t.chrome_id})
+            if result.get('undebuggable'):               # as a screenshot: its window natively, or withheld with the
+                return await self._native_window(t, result)   # honest reason (round 4, item 5)
             if result.get('withheld'):
                 return painted(b'', result)              # raises: this frame only (the recording goes on)
             if 'data' in result:
