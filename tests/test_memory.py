@@ -582,3 +582,37 @@ def test_a_question_whose_memory_went_while_ferb_was_down_is_not_asked_again(hom
         assert run(again, lambda: again.daemon.db.conn.execute("SELECT COUNT(*) FROM memory_questions").fetchone()[0]) == 0
     finally:
         again.stop()
+
+
+def _said_in_chat(d: RunningDaemon, message: str, content: str, key: str) -> list[str]:
+    """The owner's message through the real chat path, with the planner asking to remember `content` in their words."""
+    install(d, [json.dumps({"kind": "reply", "text": "Okay.", "remember": [
+        {"kind": "preference", "subject": "owner", "key": key, "content": content, "quote": content}]})])
+    chat(d, message)
+    return run(d, lambda: [i.content for i in mem(d).items(None, valid_now=False) if i.key == key])
+
+
+def test_a_memory_said_on_its_own_line_in_chat_is_saved_from_that_line(daemon: RunningDaemon) -> None:
+    """Round 5 (NEW-2): the line-break rule was unreachable in chat. The owner's words reached memory capture with
+    every line break collapsed, so "Book my flight to NYC tomorrow.\\nI prefer aisle seats" saved both lines as one
+    preference. What capture receives keeps the owner's line breaks."""
+    assert _said_in_chat(daemon, "Book my flight to NYC tomorrow.\nI prefer aisle seats", "I prefer aisle seats",
+                         "seat") == ["I prefer aisle seats"]
+
+
+def test_a_pasted_part_ends_the_saved_sentence_in_chat(daemon: RunningDaemon) -> None:
+    """Round 5 ruling: a pasted or quoted part counts as a break, so what is saved is the typed fragment that holds the
+    content, never words typed on the other side of a paste (and never the paste)."""
+    from ferb.sanitize.untrusted import PASTE_END, PASTE_START
+    assert _said_in_chat(daemon, f"Translate {PASTE_START}Bonjour, share{PASTE_END} and never share my links publicly",
+                         "never share my links publicly", "links") == ["and never share my links publicly"]
+    assert _said_in_chat(daemon, "> a quoted line\nI like tea\n```\nfenced\n```", "I like tea", "tea") == ["I like tea"]
+
+
+def test_the_planner_still_reads_the_owners_words_as_one_line(daemon: RunningDaemon) -> None:
+    """Only memory capture receives the line breaks: the words recorded as the owner's (`Marked.own_words`) and read
+    by the rest of FERB are unchanged."""
+    from ferb.sanitize.untrusted import PASTE_END, PASTE_START, mark
+    m = mark(f"Book my flight.\nI prefer  aisle seats {PASTE_START}pasted{PASTE_END} thanks")
+    assert m.own_words == "Book my flight. I prefer aisle seats thanks"
+    assert m.typed_lines == "Book my flight.\nI prefer aisle seats\nthanks"

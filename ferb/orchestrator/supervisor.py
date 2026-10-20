@@ -939,6 +939,8 @@ class Supervisor(WorkerRuns):
         # Preserve the question as FERB's context for any answer; the agent interprets the reply.
         owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
         typed = owner_words  # provenance checks use only words the owner actually supplied
+        # memory capture reads them with their line breaks (a paste counts as one): a saved sentence ends there (I1)
+        typed_lines = f"{session.pending}\n{m.typed_lines}" if session.pending else m.typed_lines
         authority = typed    # what the request records as the owner's words (S3): never FERB's text
         words = owner_words  # what recall and the environment search: may add FERB's earlier question
         payload = (session.payload + "\n\n" if session.payload else "") + m.for_model
@@ -1137,7 +1139,7 @@ class Supervisor(WorkerRuns):
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[str] = []
         for item in out.remember:           # one at a time, so a refused one is known by name
-            saved_now = self.remember([item], typed, entry.id)
+            saved_now = self.remember([item], typed_lines, entry.id)
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             if not saved_now:

@@ -23,8 +23,15 @@ _EARLIER = re.compile(r"\n?(?:" + re.escape(EARLIER_QUESTION) + "|" + re.escape(
 @dataclass(frozen=True)
 class Marked:
     for_model: str        # the message with untrusted parts wrapped in tags
-    own_words: str        # only the owner's own words (untrusted parts removed)
+    own_words: str        # only the owner's own words (untrusted parts removed), on one line
     untrusted: list[str]  # the untrusted parts, raw
+    # the owner's own words with their line breaks, each pasted or quoted part counting as one: what memory capture
+    # saves from, so a saved sentence ends at a line break or a paste (re-review round 5)
+    typed_lines: str = ""
+
+
+def _lines(parts: list[str]) -> str:
+    return "\n".join(" ".join(line.split()) for part in parts for line in part.split("\n") if line.strip())
 
 
 def mark(message: str, pasted_is_data: bool = True) -> Marked:
@@ -32,7 +39,7 @@ def mark(message: str, pasted_is_data: bool = True) -> Marked:
     `[policy] pasted_text_is_data = false`, 2026-10-01): everything they send counts as their own words."""
     if not pasted_is_data:
         plain = message.replace(PASTE_START, "").replace(PASTE_END, "")
-        return Marked(plain.strip(), " ".join(plain.split()), [])
+        return Marked(plain.strip(), " ".join(plain.split()), [], _lines([plain]))
     return _mark(message)
 
 
@@ -70,7 +77,7 @@ def _mark(message: str) -> Marked:
         else:
             out.append(text)
             own.append(text)
-    return Marked("".join(out).strip(), " ".join(" ".join(own).split()), bad)
+    return Marked("".join(out).strip(), " ".join(" ".join(own).split()), bad, _lines(own))
 
 
 def _quotes(text: str) -> list[tuple[bool, str]]:
