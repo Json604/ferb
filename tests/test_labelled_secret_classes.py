@@ -1031,3 +1031,20 @@ def test_a_comma_led_list_line_is_masked(raw, codes) -> None:
         assert code not in out, out
     assert _differing_splits(redactor, raw) == []
     assert Redactor().text("HTTP status codes:\n, 200, 301\n") == "HTTP status codes:\n, 200, 301\n"
+
+
+# Re-review 6 (I1): an HTML tag with spaces inside its attributes, next to a code, split anywhere.
+SPACED_TAGS = [
+    '482913 <span class="a b">is your code</span>\n',
+    '<b>482913</b> <span style="color:#999">is your verification code</span>\n',
+    '482913 </span> <i class="q">is</i> your code\n',
+]
+
+
+@pytest.mark.parametrize("raw", SPACED_TAGS)
+def test_a_code_next_to_a_tag_with_spaces_inside_stays_masked_at_every_split(raw) -> None:
+    """A read ending inside an unfinished tag after a space released the code before it: the stream allowed only an
+    unfinished tag without whitespace there."""
+    redactor = Redactor()
+    assert "482913" not in redactor.text(raw)
+    assert _differing_splits(redactor, raw, pairs=True) == []

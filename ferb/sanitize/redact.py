@@ -170,10 +170,12 @@ SECRET_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|p
                          rf"api[{_H}_-]?key|(?:(?:access|auth|api|refresh)[{_H}_-]?)?token|private[{_H}_-]?key)"
                          r"(?![A-Za-z0-9])")
 # What follows a secret word: an optional "for gmail" / "to the wifi", a link (":", "=", "is", "was", " - ") or none.
-# After ":" or "=" the value may start a later line, with blank lines between (re-review 4, T1).
+# After ":" or "=" the value may start a later line, with blank lines between (re-review 4, T1). "\r\n" reads as one
+# break or two, and the spaces around an absent ":" as one run or two: both are taken possessively, one way only
+# (re-review 6, C1).
 SECRET_AFTER = re.compile(rf"""(?ix)(?P<qual>[{_H}]+(?:for|to|of|on|at)[{_H}]+(?:(?:the|my|your)[{_H}]+)?[^\s:=]+)?
-                              (?P<link>(?:\\?["'])?[{_H}]*[:=][{_H}]*(?:(?:\r\n|\r|\n)[{_H}]*)*|
-                                       [{_H}]+(?:is|was)(?![A-Za-z0-9])[{_H}]*:?[{_H}]*|[{_H}]+[-–—][{_H}]+)""")
+                              (?P<link>(?:\\?["'])?[{_H}]*[:=][{_H}]*(?:(?:\r\n|\r|\n)[{_H}]*)*+|
+                                       [{_H}]+(?:is|was)(?![A-Za-z0-9])[{_H}]*+:?[{_H}]*+|[{_H}]+[-–—][{_H}]+)""")
 SECRET_DIRECT = re.compile(rf"[{_H}]+")
 # The owner's own: "my password is sunshine" hides a plain word too (a page's "Your password is incorrect" doesn't).
 MINE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:my|our)[{_H}]+(?:[A-Za-z-]+[{_H}]+)?$")
@@ -286,12 +288,14 @@ CODE_LIST = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[{_H}-]?
                        rf"security|login)(?:[{_H}]+backup)?[{_H}]+codes[{_H}]*:[{_H}]*")
 # A list label's qualifier with at most two words after it ending what has been read: "codes" can still follow it
 # ("Two ", "Two factor ", "security backup co"); once "codes" is there, the code word holds the line (re-review 3,
-# NEW-I1). Past two words no list label can form from it.
+# NEW-I1). Past two words no list label can form from it. Each word and gap is taken whole (possessive), so a long
+# gap is never split between the quantifiers when the match fails (re-review 6, C1).
 _LIST_QUALIFIER_END = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two|one|verification|security|login)"
-                                 rf"[A-Za-z0-9]*(?:[{_H}_-]+[A-Za-z0-9]*){{0,2}}[{_H}]*$")
+                                 rf"[A-Za-z0-9]*+(?:[{_H}_-]++[A-Za-z0-9]*+){{0,2}}+[{_H}]*+$")
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
-# Between codes: spaces or commas, or line breaks with blank (or whitespace-only) lines between (re-review 4, T1).
-_LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)*")
+# Between codes: spaces or commas, or line breaks with blank (or whitespace-only) lines between (re-review 4, T1). A
+# "\r\n" is read one way only (possessive; re-review 6, C1).
+_LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)*+")
 # Commas and spaces leading a list line (", 482-913").
 _LIST_LEAD = re.compile(rf"[{_H},]*")
 # A list item's number or bullet before its codes: "1. ", "2) ", "• ", "- ", "* " (re-review 4, T1).
@@ -503,11 +507,12 @@ def _secret_colon_end(line: str) -> bool:
 
 
 # The first word of a two-word class word, or "my"/"our", ending what has been read of a line: it can still become one
-# ("api " then "key 482-913", "my wifi " then "password is …").
-_PREFIX_END = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[{_H}]+[A-Za-z-]+){{0,2}}|(?<![A-Za-z0-9])(?:api|"
+# ("api " then "key 482-913", "my wifi " then "password is …"). Its gaps and words are taken whole (possessive): "_",
+# "/" and "-" are both gap and word characters, and a long run of them backtracked quadratically (re-review 6, C1).
+_PREFIX_END = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[{_H}]++[A-Za-z-]++){{0,2}}+|(?<![A-Za-z0-9])(?:api|"
                          r"private|access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|"
                          r"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)"
-                         rf"[{_H}_/-]*\S*)[{_H}]*$")
+                         rf"[{_H}_/-]*+\S*+)[{_H}]*+$")
 
 
 def _line_starts(pending: str) -> tuple[list[int], int]:
@@ -882,8 +887,11 @@ def _line_head(s: str) -> str:
 # with a list token could be a list line: under a label or list line such a line is decided whole, so a part released
 # alone is never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the
 # text redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C).
-# What can still become a link after a code at the end of what has been read: marks, then part of a word ("** i").
-_LINK_START = re.compile(rf"(?:\s|{_MARKUP})*\S*")
+# What can still become a link after a code at the end of what has been read: marks, then an unfinished tag (spaces
+# inside its attributes too: '<span class="a b') or part of a word ("** i"). Each mark is read one way only and the
+# marks are taken possessively, so a failing match costs time in proportion to the line (re-review 6, C1: "\s" and the
+# whitespace in `_MARKUP` overlapped, and a run of spaces after a number backtracked exponentially on the event loop).
+_LINK_START = re.compile(rf"(?:[\s*_`'\"]|{_TAG})*+(?:</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?|\S*)")
 _CODE_LEAD_START = re.compile(r"(?:>[\s>]*)?(?:#+(?:\s+|$))?(?:[-*\u2022\u00b7\u2013\u2014](?:\s|$))?")
 _CODE_START = re.compile(r"(?:[A-Z]-?)?(?:\d|$)|</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?)?$")
 
@@ -894,6 +902,11 @@ def _code_alone_start(line: str) -> bool:
     a = _CODE_LEAD_START.match(line, len(line) - len(line.lstrip())).end()   # type: ignore[union-attr]
     return _CODE_START.match(line, _marks_from(line, a, len(line))) is not None
 _LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
+# The digits ending the line being read that may still go on (`RedactionStream._safe_cut`): the first digit of the
+# run of digits, whitespace, ",", "." and "-" that reaches the end (closing marks after it allowed); the match ends at
+# that digit. Tried only where such a run starts, so a long run of numbers is read once, not again from each of its
+# numbers (re-review 6, C1: "1 2 3 … 20000 total" cost quadratic time per read).
+_NUMERIC_TAIL = re.compile(rf"(?<![\d{_H},.-])[{_H},.-]*+(?=\d[\d{_H},.-]*+[;:!?)\]]*+$)")
 
 
 class RedactionStream:
@@ -949,9 +962,9 @@ class RedactionStream:
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
         # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end)
-        numeric = re.search(rf"(?<!\d)\d[\d{_H},.-]*[;:!?)\]]*$", tail)
+        numeric = _NUMERIC_TAIL.search(tail)
         if numeric:                         # from its token's start: a card's digits are never split from it
-            start = line_start + numeric.start()
+            start = line_start + numeric.end()
             while start > line_start and not self.pending[start - 1].isspace():
                 start -= 1
             cut = min(cut, start)
