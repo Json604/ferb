@@ -73,3 +73,41 @@ def test_a_chat_reply_to_an_open_code_question_reaches_the_planner_with_its_code
     ask(daemon, "What's your Gmail password?", [])
     assert daemon.daemon._hide_code_reply("hunter2!") == REDACTED
     assert daemon.daemon._hide_code_reply("use the work account") == "use the work account"
+
+
+def test_a_reply_to_the_planners_own_password_question_is_hidden(daemon) -> None:
+    """Re-review 3 (R1-b): the planner's clarifying question (the conversation's `asked`) gets the same rule as a
+    worker's: a password typed in reply never reaches the planner; a code in reply to a code question is masked."""
+    d = daemon.daemon
+
+    async def reply(asked: str, text: str) -> str:
+        d.supervisor.continuity.ensure("chat-r1b")
+        d.supervisor.continuity.save_pending("chat-r1b", "connect the TV to the wifi", asked)
+        return d._hide_code_reply(text, "chat-r1b")
+    assert daemon.run(reply("What's the Wi-Fi password for the router?", "hunter2!")) == REDACTED
+    assert daemon.run(reply("What's the code on the TV screen?", "4829, then pair it")) == f"{REDACTED}, then pair it"
+    assert daemon.run(reply("Which room is the TV in?", "the bedroom")) == "the bedroom"
+
+
+def test_stop_and_cancel_work_while_a_password_question_is_open(daemon) -> None:
+    """Re-review 3 (R1-c): a typed one-word reply to a password question is hidden from the model, so stopping is the
+    code's: Esc / Ctrl-C / the notch's stop (task.stop) stops the task, and the question's Cancel declines it."""
+    from ferb.core.types import Task
+    from ferb.orchestrator.schemas import TaskSpec
+    from ferb.orchestrator.supervisor import _Tree
+    d = daemon.daemon
+    ap = ask(daemon, "What's the password for the router?", [])
+    assert d._hide_code_reply("stop") == REDACTED                     # never shown to the planner
+    worker = Task("tree-r1c.worker", "tree-r1c", "Connect the TV", "device", Identity.OWNER, set(), "worker",
+                  "req-r1c", [], None)
+    tree = _Tree("tree-r1c", TaskSpec(goal="Connect the TV", identity="owner"), worker)
+
+    async def stop() -> dict:
+        d.supervisor._tree_of[tree.id] = tree
+        try:
+            return await d._task_stop(None, {"task_ids": [tree.id]})
+        finally:
+            d.supervisor._tree_of.pop(tree.id, None)
+    assert daemon.run(stop())["stopped"] == ["tree-r1c"] and tree.stop
+    daemon.run(d._chat_approve(None, {"approval_id": ap.id, "granted": False}))
+    assert ap.state != "pending"

@@ -479,7 +479,7 @@ class Daemon:
         self.voice = Voice(self._voice_turn, self.state.approvals.pending, self.voice_speaker or SaySpeaker(),
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
-                           publish=self._publish, hide=self._hide_code_reply,
+                           publish=self._publish, hide=lambda text: self._hide_code_reply(text, "voice"),
                            enabled=lambda: self._ptt, sounds=lambda: bool(self.config.get("voice", "sounds", True)))
         loop = asyncio.get_running_loop()
 
@@ -541,12 +541,13 @@ class Daemon:
             subprocess.Popen(["/usr/bin/open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
 
-    def _hide_code_reply(self, text: str) -> str:
+    def _hide_code_reply(self, text: str, session_id: str | None = None) -> str:
         """Rule 14 for a chat message (typed or spoken) while a question is open, before any model sees it, as
         chat.answer hides an answer (`Redactor.answer`, re-review 2 R1): its codes are masked when the question asks
         for a code, and a one-word reply to a password or PIN question is hidden whole. The planner routes answers
         now (L3), so the secret must not travel with the message; a longer message may be a steer and keeps its
-        words."""
+        words. The questions: workers' open ones, and the planner's own clarifying question in this conversation
+        (re-review 3, R1-b)."""
         if not isinstance(self.redact, Redactor):
             return text
         for ap in self.state.approvals.pending():
@@ -554,6 +555,10 @@ class Daemon:
             reason = "login code" if ap.kind == "owner_login_code" else ap.reason
             if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(text.strip()) is None:
                 text = self.redact.answer(text, question=reason, reply=True)
+        if session_id is not None and self.supervisor is not None:
+            asked = self.supervisor.continuity.pending(session_id)[1]
+            if asked:
+                text = self.redact.answer(text, question=asked, reply=True)
         return text
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:
@@ -3549,7 +3554,7 @@ class Daemon:
         if self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         session_id = str(params.get("session_id", "default"))
-        text = self._hide_code_reply(self.redact(str(params.get("text", ""))))
+        text = self._hide_code_reply(self.redact(str(params.get("text", ""))), session_id)
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
