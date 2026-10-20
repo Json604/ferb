@@ -1226,6 +1226,14 @@ Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pendin
 59. Sites contacted (I6): "find three recent articles about Apple Intelligence on-device models and summarise them":
     the list includes the article sites the task clicked through to.
 60. Note when macOS's monthly screen-capture prompt appears (M5) and that declining it stops screenshots and hearing.
+61. Terminal output (C1 re-review 2): ask FERB to run `seq 1000 29999 | tail -3` and `printf 'Delete 1234 files? [y/N] '
+    ; read x` in its shell: the numbers come back whole and the prompt shows before it waits. Then have it `cat` a
+    disposable file holding "Your OTP for HDFC Bank txn of Rs. 2,000 is 482913. Valid for 10 mins." and "[Swiggy]
+    482913 is your OTP": the trace shows `[redacted]` for both codes.
+62. Answers (R1): when FERB asks a question about a code, answer "4829, then book it": the trace's planner input has
+    "[redacted], then book it".
+63. Closed tab (R5): during a task holding one of your tabs, close that tab yourself and ask "which tabs is it using?":
+    the answer says you closed it, not that it is missing.
 
 Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far):
 61. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one model call per group of
