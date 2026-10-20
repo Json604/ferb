@@ -227,7 +227,9 @@ Fix wave 5 (2026-10-20, why background learning never worked live; L28, D32):
   `ferb trace distill-2026-10-19` (or a `sleep-…` batch id) shows it. `ferb doctor` names the character cap.
   Consolidation's model usage is recorded as consolidation, not distillation.
 - An error Codex says it is retrying itself (a dropped stream, for example) no longer stops the task or learning call:
-  it is recorded in the trace and the run goes on.
+  it is recorded in the trace and the run goes on. Retries alone don't keep a task alive: Codex retries a lost
+  connection without end, so a worker that only retries for 3 minutes is stopped, and the task says the Mac seems
+  offline or quotes Codex's last retry.
 
 Licensed under Apache-2.0.
 

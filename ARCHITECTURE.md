@@ -511,7 +511,11 @@ from them (L28, section 16). Everything model-specific stays in the adapter. A C
 (`codex_stream.codex_error`: its message, JSON-RPC code or error kind, and for its input cap the count it measured;
 never the request), redacted with the daemon's redactor. An `error` notification with `willRetry: true` (Codex retries
 it itself; "this will not interrupt a turn") is a `retrying` runtime event, recorded as a `model.retry` span under the
-run, and the run goes on; a non-retrying error or a failed turn ends it.
+run, and the run goes on; a non-retrying error or a failed turn ends it. A retry is no sign of life: Codex 0.157.1's
+default-on `unbounded_connection_retries` retries a lost connection without end ("Reconnecting... waiting for
+network", 5 s doubling to 60 s), so a worker or checker run that only retries for `STALL_S` (180 s) ends as a stall,
+its outcome naming the last retry (`worker.retry_stall_problem`; the offline sentence with no network route).
+Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeout.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
