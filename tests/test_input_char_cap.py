@@ -68,6 +68,8 @@ def test_codex_reports_its_documented_input_cap_and_other_runtimes_none(tmp_path
     limits = CodexRuntime(tmp_path / "codex", "supervisor", tmp_path, home).limits
     assert MAX_INPUT_CHARS == limits.max_input_chars == 1_048_576
     assert "rust-v0.157.1" in limits.source and "MAX_USER_INPUT_TEXT_CHARS" in limits.source
+    from ferb.runtimes.codex_exec import CODEX_VERSION, INPUT_CHARS_SOURCE
+    assert f"rust-v{CODEX_VERSION}" in INPUT_CHARS_SOURCE              # a new pin needs the cap read again
     for other in (openai_api.limits_for("gpt-5.6-sol"), anthropic_api.limits_for("claude-sonnet-5-5"),
                   google_api.limits_for("gemini-3.8-flash")):
         assert other.max_input_chars is None
@@ -79,7 +81,11 @@ def test_status_and_doctor_name_the_cap(daemon) -> None:
     (d.home / "codex-home" / "auth.json").write_text("{}")
     (d.home / "codex-home" / "models_cache.json").write_text(json.dumps(
         {"models": [{"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95}]}))
-    assert d._runtime_limits()["orchestrator"]["max_input_chars"] == 1_048_576
+    limits = d._runtime_limits()["orchestrator"]
+    assert limits["max_input_chars"] == 1_048_576
+    from ferb.cli.setup import context_window_check
+    check = context_window_check("orchestrator", limits)                 # the `ferb doctor` line
+    assert check.status == "ok" and "at most 1048576 characters in one input" in check.detail
 
 
 @pytest.mark.anyio
