@@ -168,8 +168,6 @@ def test_an_answer_to_a_question_asking_for_a_one_time_code_or_sign_in_pin_is_hi
     ("Which coupon code should I apply?", "SAVE2024"),
     ("How many tabs should I keep open?", "4000"),
     ("Which port should the code server use?", "the default one"),
-    ("Which password manager do you use?", "Bitwarden"),          # names a password manager, asks for no password
-    ("Should I open the password reset page?", "yes please"),
 ])
 def test_an_answer_with_no_code_to_a_code_or_address_question_stays(question, answer) -> None:
     assert Redactor().answer(answer, question=question) == answer
@@ -179,10 +177,17 @@ def test_an_answer_with_no_code_to_a_code_or_address_question_stays(question, an
     ("What's your Gmail password?", "hunter2!"), ("Enter the passcode for the office door", "correct horse"),
     ("What's your UPI PIN?", "4821"), ("Should I reset your password?", "yes"),
     ("What's the password for Netflix?", "hunter2!"), ("Password to the office wifi?", "sunshine"),
+    # re-review 3 (R1-a): any question with a password word, however it is phrased
+    ("What password do you use for Netflix?", "hunter2!"), ("What's the password you use for Gmail?", "s3cret pass"),
+    ("Can you tell me the Netflix password so I can sign in?", "hunter2!"), ("Type your password here", "hunter2!"),
+    ("Password please", "hunter2!"), ("the password and username for Netflix", "kartikey hunter2!"),
+    ("Do you have a password I can use for the router?", "sunshine"), ("What's the passphrase?", "correct horse"),
+    ("Which password manager do you use?", "Bitwarden"), ("Should I open the password reset page?", "yes please"),
 ])
 def test_an_answer_to_a_password_or_pin_question_is_hidden_whole_whatever_its_shape(question, answer) -> None:
-    """Re-review 2 (R1, rule 14): a question about a sign-in password, passcode or PIN gets the secret itself, whatever
-    its shape ("hunter2!"). A yes/no question about one is asked with options; a picked option is never hidden."""
+    """Re-review 2/3 (R1, R1-a; rule 14 over convenience): a question with a password, passcode or passphrase word or a
+    sign-in PIN hides the typed answer whole, whatever its shape or the question's phrasing. A question that mentions
+    passwords without asking for one is asked with options; a picked option is never hidden."""
     assert Redactor().answer(answer, question=question) == REDACTED
 
 

@@ -1281,10 +1281,13 @@ are ordinary data (owner decision 2026-10-15): "PIN code", "pincode", "ZIP code"
 The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
 (also on the next line), one with a digit or symbol after "is"/"was" (or, after "my/our … is", a plain word that ends
 its clause), one with a digit right after the word. A text field named by a secret word hides its whole value; a code
-word hides a code-shaped one. An answer (`Redactor.answer`) to a question asking for a sign-in password, passcode or
-PIN (the word ends its phrase: "your Gmail password?", not "password manager") is hidden whole whatever its shape; to a question with a code word its 4–8 digit codes are masked; a chat message while
-such a question is open is masked the same way, hidden whole for a password question only when it is one word (it may
-be a steer). A masked code counts as the digits it replaced, so masking twice changes nothing.
+word hides a code-shaped one. A typed answer (`Redactor.answer`) to a question with a password, passcode or
+passphrase word or a sign-in PIN is hidden whole, whatever its shape or the question's phrasing (rule 14 over
+convenience: "Which password manager do you use?" asks with options, and a picked option is never hidden); to a
+question with a code word its 4–8 digit codes are masked. A chat message while such a question is open (a worker's,
+or the planner's own clarifying question) is masked the same way, hidden whole for a password question only when it
+is one word (it may be a steer); stopping stays the code's (`task.stop`, a question's Cancel). A masked code counts
+as the digits it replaced, so masking twice changes nothing.
 `RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
 the line being read is held while it holds a class word, an OTP introducer, a word that can still become one ("api ",
 "sign ", "my wifi ", "coupon "), or a number its link can still follow ("482913 is your …"; a prompt such as

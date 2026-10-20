@@ -92,12 +92,18 @@ def test_password_autocomplete_marks_an_input_of_any_type(kind) -> None:
     assert r({'type': kind, 'autocomplete': 'new-password', 'value': '4821'})['value'] == REDACTED
 
 
-def test_an_answer_to_a_question_about_passwords_is_the_owners_words(daemon) -> None:
-    """A question is no password field: its words never hide the owner's answer."""
+def test_a_picked_option_to_a_question_about_passwords_is_the_owners_words(daemon) -> None:
+    """Re-review 3 (R1-a, rule 14 over convenience): a typed answer to a question with a password word is hidden
+    whole, whatever the question asks; a question that mentions passwords without asking for one offers options,
+    and a picked option is never hidden."""
     action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
-    ap = daemon.daemon.state.approvals.question(action, 'Which password manager do you use?', [])
-    daemon.run(daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': 'Bitwarden'}))
-    assert ap.answer == 'Bitwarden'
+    approvals = daemon.daemon.state.approvals
+    typed = approvals.question(action, 'Which password manager do you use?', [])
+    daemon.run(daemon.daemon._chat_answer(None, {'approval_id': typed.id, 'text': 'Bitwarden'}))
+    assert typed.answer == REDACTED
+    picked = approvals.question(action, 'Which password manager do you use?', ['Bitwarden', '1Password', 'None'])
+    daemon.run(daemon.daemon._chat_answer(None, {'approval_id': picked.id, 'text': 'Bitwarden'}))
+    assert picked.answer == 'Bitwarden'
 
 
 # B. typed text and AX value changes -------------------------------------------------------------------------------------

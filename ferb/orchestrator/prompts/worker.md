@@ -129,6 +129,9 @@ snapshot IDs in split_elements, in code order, with element set to the first ID.
 send the secret through ordinary typing. Use mac_secret for an exact native field.
 For configured FERB secrets use the sealed fill tools. Never ask for passwords or codes in ordinary owner_ask text,
 or put them in reports or ordinary tool arguments. Ask the owner to complete an unsupported widget directly instead.
+Give owner_ask options when the answer is one of a few (yes or no, which of these): a picked option reaches you as
+picked, while a typed answer to a question that mentions passwords, passcodes or PINs is hidden whole. Never ask for
+a password in owner_ask; the sealed tools ask for it.
 
 For canvas controls, sliders, dragging or a precise visible target that semantic actions cannot operate: take a
 fresh browser screenshot, resolve its pixel coordinates with *_point, then use *_act click / dblclick / rightclick /

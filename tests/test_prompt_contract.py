@@ -176,3 +176,16 @@ def test_a_parallel_request_is_one_plan_step_per_item_and_never_a_condition() ->
     agent" as a condition and sent one worker, which reported blocked twice; the task failed after 9 minutes with
     nothing produced."""
     assert PARALLEL_STEPS in _words("supervisor.md")
+
+
+@pytest.mark.parametrize("name, sentence", [
+    ("worker.md", "Give owner_ask options when the answer is one of a few (yes or no, which of these): a picked option "
+                  "reaches you as picked, while a typed answer to a question that mentions passwords, passcodes or "
+                  "PINs is hidden whole. Never ask for a password in owner_ask; the sealed tools ask for it."),
+    ("supervisor.md", "A clarify question never asks for a password, passcode or PIN (FERB's sealed input does), and "
+                      "one that only mentions them offers its answers as choices: a typed reply to it is hidden from "
+                      "you."),
+])
+def test_questions_about_passwords_offer_options_and_never_ask_for_one(name: str, sentence: str) -> None:
+    """Re-review 3 (R1-a, R1-c): a typed answer to a question with a password word is hidden whole."""
+    assert " ".join(sentence.split()) in _words(name)

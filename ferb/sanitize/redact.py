@@ -94,7 +94,8 @@ CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|p
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
 # A masked code counts as the digits it replaced, so masking twice changes nothing.
-CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])(?<!\[redacted\][ -])"
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
+                        rf"(?<!\[redacted\][ -])"
                         rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d|[ -]\[redacted\])")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
@@ -105,8 +106,8 @@ CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
 _PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
 # "Pin/Zip code" names the address code once for both words (re-review 2, R3)
-ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[ \t]*/[ \t]*{_PLACE})*[ _-]?codes?|pincodes?|postcodes?|"
-                          r"zipcodes?)(?![A-Za-z0-9])")
+ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[ \t]*/[ \t]*{_PLACE})*[ _-]?codes?|"
+                          r"pincodes?|postcodes?|zipcodes?)(?![A-Za-z0-9])")
 
 
 def _not_address(s: str, found: Any) -> list[re.Match[str]]:
@@ -342,22 +343,20 @@ def _labelled_code(label: str, text: str) -> bool:
 
 
 # A password, passcode or PIN a question asks for (signing in, paying); never an address PIN code.
-SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:password|passcode|pin)(?![A-Za-z0-9])")
-# A question asks for the secret itself when its word ends the phrase: then punctuation, the end, or "for/to/of/on/at"
-# (the qualifiers SECRET_AFTER takes) or "is/was" ("What's your Gmail password?", "the passcode for the door"); in
-# "Which password manager do you use?" or "the password reset page" the word names something else.
-SECRET_ASKED = re.compile(r"(?i)[ \t]*(?:[?.!:,;)\]]|$)|[ \t]+(?:for|to|of|on|at|is|was)(?![A-Za-z0-9])")
+# A question with one of these words gets the answer hidden whole (re-review 3, R1-a: rule 14 over convenience);
+# an address PIN code is excepted (`_not_address`).
+SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|code|phrase)s?|pins?)(?![A-Za-z0-9])")
 
 
 def _hidden_answer(question: str, text: str, *, reply: bool) -> bool:
-    """An answer hidden whole (rule 14, re-review 2 R1): to a question asking for a sign-in password, passcode or PIN
-    (never an address PIN code; `SECRET_ASKED`), whatever its shape; to an explicit one-time code question, any digits. A chat reply while
-    the question is open may be a steer (L3): it is hidden whole for a password question only with a password's shape,
-    one word."""
+    """An answer hidden whole (rule 14, re-review 2/3 R1, R1-a): to a question with a password, passcode or passphrase
+    word or a sign-in PIN (never an address PIN code), whatever its shape or the question's phrasing; to an explicit
+    one-time code question, any digits. A chat reply while the question is open may be a steer (L3): it is hidden
+    whole for a password question only with a password's shape, one word."""
     value = text.strip()
     if bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None:
         return True
-    asked = any(SECRET_ASKED.match(question, word.end()) for word in _not_address(question, SIGN_IN_SECRET.finditer(question)))
+    asked = bool(_not_address(question, SIGN_IN_SECRET.finditer(question)))
     return asked and (not reply or len(value.split()) == 1)
 
 
@@ -423,10 +422,15 @@ def _line_starts(pending: str) -> tuple[list[int], int]:
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
-OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
+OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|"
+                               r"access|2fa|otp|totp)\b")
 # Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
 # Its gap never reaches over a code already masked, and a "G-" prefixed code is C1's whole.
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\r\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|"
+                      r"security code|login code|sign[ -]?in code|otp)"
+                      r"\b(?:(?!\[redacted\])[^\d\r\n]){0,40})"
+                      r"(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])"
+                      r"(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
@@ -722,7 +726,8 @@ def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -
     def either(test: Callable[[str], bool], line: str) -> bool:
         return test(line) or test(seen(line))
     kinds = ({"label"} if either(_label_line, last) else set()) | (
-        {"secret"} if either(_secret_colon_end, last) else set()) | ({"list"} if either(_list_label_line, last) else set())
+        {"secret"} if either(_secret_colon_end, last) else set()) | (
+        {"list"} if either(_list_label_line, last) else set())
     if kinds:
         return last + after, kinds
     if either(_list_line, last) and not blank:
@@ -797,7 +802,7 @@ class RedactionStream:
         # introducer holds that whole line: `_labelled_cut`).
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
-        # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's last digit)
+        # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end)
         numeric = re.search(r"(?<!\d)\d[\d ,.-]*[;:!?)\]]*$", tail)
         if numeric:                         # from its token's start: a card's digits are never split from it
             start = line_start + numeric.start()
