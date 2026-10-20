@@ -697,3 +697,31 @@ def test_a_list_label_split_anywhere_still_masks_its_codes(raw) -> None:
     for split in range(len(data) + 1):
         stream = redactor.stream()
         assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+
+
+@pytest.mark.parametrize("raw", ["1000 482913 482913. 1234 for is 10 Your to Order",
+                                 "Card 4111 1111 1111 1111. Thanks\n",
+                                 "4829 4821-9921 482913 2,000 Pin/Zip one-time 2002 my passcode: Instagram\r\n"])
+def test_a_card_number_ending_in_a_dot_is_never_split(raw) -> None:
+    """Fuzz find (re-review 3 probes; since a76b076): the numeric tail guard skipped digits followed by a dot, so a
+    read ending at "…482913." released the card's first groups."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+
+
+@pytest.mark.parametrize("raw", ["  \r\n\r\nOrder 778812\r\n\r\n(OTP)\r\n", "Use this code to sign in\nvs. 4821\nas your PIN\n",
+                                 "Swiggy codes: \n\n 482913. is Shah,\r\n",
+                                 "Backup codes:\na1b2c-3d4e5 Keep them safe\n"])
+def test_a_line_released_in_parts_is_masked_as_the_whole_line(raw) -> None:
+    """Fuzz find (re-review 3 probes; since 3cbb440): after a read released "Order ", the rest of the line was masked
+    as a line of its own ("778812" over "(OTP)"), masking what the text redactor keeps."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split

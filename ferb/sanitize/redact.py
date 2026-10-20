@@ -737,10 +737,20 @@ def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -
     return none
 
 
-# What the line being read can still become, under a line that relates to it: a code alone ("  482913", "(G-48"), or
-# a list line (codes, commas and spaces only).
-_CODE_ALONE_START = re.compile(r"[ \t.,;:()\[\]]*(?:[A-Z]-?)?[\d -]*[ \t.,;:()\[\]]*")
-_LIST_LINE_START = re.compile(r"[A-Za-z0-9, \t-]*")
+def _line_head(s: str) -> str:
+    """The start of the line `s` ends inside, as released: its last words, enough that the rest of the line is never
+    masked as a line of its own ("Order " then "778812" over "(OTP)"). It holds no class word (a line with one is
+    held whole), so nothing in the rest reaches further back than these words."""
+    head = s[_line_starts(s)[1]:]
+    head = head[re.search(rf"(?:\S+\s+){{0,{2 * CODE_REACH}}}\S*$", head).start():]   # type: ignore[union-attr]
+    return head[-256:]
+
+
+# A line being read that starts as a code alone could be one ("  482913", "(G-48"), and one that starts with a list
+# token could be a list line: under a label or list line such a line is decided whole, so a part released alone is
+# never judged as a line of its own ("482913. " of "482913. is Shah,").
+_CODE_ALONE_START = re.compile(r"[ \t.,;:()\[\]]*(?:[A-Z]-?)?(?:\d|$)")
+_LIST_LINE_START = re.compile(r"[ \t,]*[A-Za-z0-9-]*(?:[ \t,]|$)")
 
 
 class RedactionStream:
@@ -761,6 +771,7 @@ class RedactionStream:
         self.pending = ''
         self.suppress: str | None = None
         self.context = ''         # released text a later line can still relate to (`_forward_context`)
+        self.head = ''            # the released start of the line being read: the rest is masked as part of it
 
     def _unfinished_key(self) -> int | None:
         for opening in self.PRIVATE_START.finditer(self.pending):
@@ -786,7 +797,8 @@ class RedactionStream:
         # introducer holds that whole line: `_labelled_cut`).
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
-        numeric = re.search(r"(?<!\d)\d[\d -]*$", tail)
+        # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's last digit)
+        numeric = re.search(r"(?<!\d)\d[\d ,.-]*[;:!?)\]]*$", tail)
         if numeric:                         # from its token's start: a card's digits are never split from it
             start = line_start + numeric.start()
             while start > line_start and not self.pending[start - 1].isspace():
@@ -836,12 +848,12 @@ class RedactionStream:
                        and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
         # The line under a label, "Password:" or list line is decided with it, so a read ending inside it never
         # releases part of it without that context (re-review 3, NEW-C1): under "Password:" the whole value line,
-        # under a list while it can still be a list line, under a label while it can still be a code alone (a
+        # under a list a line that starts with a list token, under a label one that starts as a code alone (a
         # progress line under "Code server ready (3733 files)" shows at once).
         _, kinds = _forward_relations(self.context + pending[:tail_start], self.redactor.before_labels)
         under = bool(tail.strip()) and (
-            "secret" in kinds or ("list" in kinds and _LIST_LINE_START.fullmatch(tail) is not None)
-            or ("label" in kinds and _CODE_ALONE_START.fullmatch(tail) is not None))
+            "secret" in kinds or ("list" in kinds and _LIST_LINE_START.match(tail) is not None)
+            or ("label" in kinds and _CODE_ALONE_START.match(tail) is not None))
         if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail) or under
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
@@ -904,12 +916,14 @@ class RedactionStream:
         what follows them, so they are released at once and kept only as context (re-review 2, R2)."""
         if not released:
             return ''
-        if self.context:
-            before, whole = self.redactor.text(self.context), self.redactor.text(self.context + released)
+        prefix = self.context or self.head
+        if prefix:
+            before, whole = self.redactor.text(prefix), self.redactor.text(prefix + released)
             out = whole[len(before):] if whole.startswith(before) else self.redactor.text(released)
         else:
             out = self.redactor.text(released)
-        self.context = _forward_context(self.context + released, self.redactor.before_labels)
+        self.context = _forward_context(prefix + released, self.redactor.before_labels)
+        self.head = '' if self.context else _line_head(prefix + released)
         return out
 
     def feed(self, chunk: bytes, final: bool = False) -> bytes:
@@ -921,7 +935,7 @@ class RedactionStream:
                 self.pending = self.pending[-128:] if self.suppress == 'private' and not final else ''
                 return b''
             self.pending = self.pending[end.end():]
-            self.suppress, self.context = None, ''
+            self.suppress, self.context, self.head = None, '', ''
         if final:
             opening = self._unfinished_key()
             if opening is not None:
@@ -936,8 +950,8 @@ class RedactionStream:
             opening = self._unfinished_key()
             if opening is not None:
                 out += self._masked(self.pending[:opening]) + REDACTED
-                self.pending, self.suppress, self.context = self.pending[-128:], 'private', ''
+                self.pending, self.suppress, self.context, self.head = self.pending[-128:], 'private', '', ''
             else:
                 out += '[redacted: oversized unfinished record]\n'
-                self.pending, self.suppress, self.context = '', 'record', ''
+                self.pending, self.suppress, self.context, self.head = '', 'record', '', ''
         return out.encode('utf-8')
