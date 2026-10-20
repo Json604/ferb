@@ -866,3 +866,23 @@ def test_the_layouts_mask_only_the_value_lines(raw, expected) -> None:
     redactor = Redactor()
     assert redactor.text(raw) == expected
     assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("label", ["", "Backup codes:\n", "Your verification code is:\n"])
+def test_a_read_relates_its_new_lines_once_and_unmasked_lines_never(label, monkeypatch) -> None:
+    """Re-review 4 (P1): each read worked out the relations of every line it held two or three times, each after the
+    masks before the labelled classes (`Redactor.before_labels`), so number-only output cost 8-15 times a76b076. A
+    line's relations are now worked out once per read, and the masks only for a line holding a class word's stem."""
+    seen: list[str] = []
+    real = Redactor.before_labels
+    monkeypatch.setattr(Redactor, "before_labels", lambda self, s: seen.append(s) or real(self, s))
+    redactor = Redactor()
+    text = label + "".join(f"{n}\n" for n in range(1000, 30000))
+    data, stream, out, reads = text.encode(), redactor.stream(), b"", 0
+    for i in range(0, len(data), 1024):
+        out += stream.feed(data[i:i + 1024])
+        reads += 1
+    out += stream.feed(b"", final=True)
+    assert out.decode() == redactor.text(text)
+    assert len(seen) <= reads + 1, len(seen)
+    assert all(label.strip() in line for line in seen)

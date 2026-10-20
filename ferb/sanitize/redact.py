@@ -3,7 +3,7 @@
 import bisect
 import codecs
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REDACTED = "[redacted]"
@@ -117,8 +117,11 @@ ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[{_H}]*/[{_H}]*{_
 
 def _not_address(s: str, found: Any) -> list[re.Match[str]]:
     """The matches of a word class that don't start inside an address or coupon code."""
+    matches: list[re.Match[str]] = list(found)
+    if not matches:
+        return matches
     spans = [m.span() for m in ADDRESS_CODE.finditer(s)]
-    return [m for m in found if not any(a <= m.start() < b for a, b in spans)]
+    return [m for m in matches if not any(a <= m.start() < b for a, b in spans)]
 
 
 def code_words(s: str) -> list[re.Match[str]]:
@@ -726,18 +729,37 @@ def _before_labels(s: str) -> str:
     return OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
 
 
-def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> str:
+# The relations a line can start for the lines under it (`_forward_relations`).
+_LINE_RELATIONS: tuple[tuple[str, Callable[[str], bool]], ...] = (
+    ("label", _label_line), ("secret", _secret_colon_end), ("list label", _list_label_line), ("list line", _list_line))
+# Every code word, secret word and list label holds one of these as written, and a mask (with its brackets) never
+# makes one, so a line without any relates the same after the masks before the labelled classes. A list line never
+# gains a mask's "[redacted]" token. A list's label needs "codes" (re-review 4, P1).
+_CLASS_STEM = re.compile(r"(?i)code|otp|2fa|pin|verification|pass|pwd|secret|key|token")
+_CODES = re.compile(r"(?i)codes")
+
+
+def _line_kinds(line: str, seen: Callable[[str], str] = lambda line: line) -> frozenset[str]:
+    """Which relations `line` can start, raw or as the labelled classes see it (`seen`: after the masks before them),
+    as the text redactor decides them."""
+    kinds = {name for name, test in _LINE_RELATIONS if test(line)}
+    if _CLASS_STEM.search(line) and (shown := seen(line)) != line:
+        kinds |= {name for name, test in _LINE_RELATIONS if test(shown)}
+    return frozenset(kinds)
+
+
+def _forward_context(s: str, kinds_of: Callable[[str], frozenset[str]] = _line_kinds) -> str:
     """What of the released text `s` a later line can still relate to (`_forward_relations`)."""
-    return _forward_relations(s, seen)[0]
+    return _forward_relations(s, kinds_of)[0]
 
 
-def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -> tuple[str, set[str]]:
+def _forward_relations(s: str, kinds_of: Callable[[str], frozenset[str]] = _line_kinds) -> tuple[str, set[str]]:
     """What of the text `s` a later line can still relate to, and how: its last line when that is a label line
     ("label": a code alone can follow), a "Password:" line ("secret": its value starts the next line) or a backup
     list's label (with blank lines after it and the start of the next line while that is only whitespace or brackets),
     or a list line under its label ("list": kept as the label and that line). Empty otherwise. Each is a line or two,
     so the work per read stays the read's own. Whitespace is any the text redactor strips (a no-break space, an em
-    space, \x0b, \x0c: re-review 4, NEW-C)."""
+    space, \x0b, \x0c: re-review 4, NEW-C). `kinds_of` gives a line's relations (`_line_kinds`)."""
     none: tuple[str, set[str]] = ('', set())
     breaks = [m for m in LINE_BREAK.finditer(s)]
     if not breaks:
@@ -745,44 +767,45 @@ def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -
     partial = s[breaks[-1].end():]
     if not re.fullmatch(r"[\s(\[]*", partial):
         return none
-    lines, begin = [], 0
-    for m in breaks:
-        if s[begin:m.start()].strip():
-            lines.append((begin, m.start()))
-        begin = m.end()
-    if not lines:
+    lines = _lines_back(s, breaks)                              # last first, read only as far as needed
+    if (line := next(lines, None)) is None:
         return none
-    a, b = lines[-1]
+    at, a, b = line
     last = s[a:b]
     # the line breaks after it as read (a "\r" may still become "\r\n"); a run of blank lines kept as one
-    gaps = [m for m in breaks if m.start() >= b]
-    blank = len(gaps) > 1
-    after = s[b:] if not blank else gaps[0].group() + s[gaps[-1].start():]
-    # a line's relations as the text redactor decides them: after the masks applied before the labelled classes too
-    def either(test: Callable[[str], bool], line: str) -> bool:
-        return test(line) or test(seen(line))
-    kinds = ({"label"} if either(_label_line, last) else set()) | (
-        {"secret"} if either(_secret_colon_end, last) else set()) | (
-        {"list"} if either(_list_label_line, last) else set())
+    gaps = breaks[at:]
+    after = s[b:] if len(gaps) == 1 else gaps[0].group() + s[gaps[-1].start():]
+    found = kinds_of(last)
+    kinds = (found & {"label", "secret"}) | ({"list"} if "list label" in found else set())
     if kinds:
-        return last + after, kinds
-    if either(_list_line, last):                 # blank lines between a list's lines keep it one list (T1)
-        at = len(lines) - 1
-        while (at > 0 and either(_list_line, s[lines[at - 1][0]:lines[at - 1][1]])
-               and not either(_list_label_line, s[lines[at - 1][0]:lines[at - 1][1]])):
-            at -= 1
-        if at > 0 and either(_list_label_line, label := s[lines[at - 1][0]:lines[at - 1][1]]):
-            return label + "\n" + last + after, {"list"}
+        return last + after, set(kinds)
+    # a list line under its label, list lines (blank lines allowed: T1) between them
+    if "list line" in found and _CODES.search(s, 0, a):
+        for _, begin, end in lines:
+            above = kinds_of(s[begin:end])
+            if "list label" in above:
+                return s[begin:end] + "\n" + last + after, {"list"}
+            if "list line" not in above:
+                break
     return none
+
+
+def _lines_back(s: str, breaks: list[re.Match[str]]) -> Iterator[tuple[int, int, int]]:
+    """The lines of `s` ended by `breaks` that aren't blank, last first: the index of the break ending each, and
+    where it starts and ends."""
+    for i in range(len(breaks) - 1, -1, -1):
+        begin, end = breaks[i - 1].end() if i else 0, breaks[i].start()
+        if s[begin:end].strip():
+            yield i, begin, end
 
 
 def _line_head(s: str) -> str:
     """The start of the line `s` ends inside, as released: its last words, enough that the rest of the line is never
     masked as a line of its own ("Order " then "778812" over "(OTP)"). It holds no class word (a line with one is
-    held whole), so nothing in the rest reaches further back than these words."""
-    head = s[_line_starts(s)[1]:]
-    head = head[re.search(rf"(?:\S+\s+){{0,{2 * CODE_REACH}}}\S*$", head).start():]   # type: ignore[union-attr]
-    return head[-256:]
+    held whole), so nothing in the rest reaches further back than these words. Its last 256 characters are taken
+    before its words are counted, which gives the same head with work bounded per read (re-review 4, P1)."""
+    head = s[_line_starts(s[-257:])[1] + max(0, len(s) - 257):][-256:]
+    return head[re.search(rf"(?:\S+\s+){{0,{2 * CODE_REACH}}}\S*$", head).start():]   # type: ignore[union-attr]
 
 
 # A line being read that starts as a code alone could be one ("  482913", "(G-48"), and one that starts with a list
@@ -812,6 +835,7 @@ class RedactionStream:
         self.suppress: str | None = None
         self.context = ''         # released text a later line can still relate to (`_forward_context`)
         self.head = ''            # the released start of the line being read: the rest is masked as part of it
+        self._kinds: dict[str, frozenset[str]] = {}     # each line's relations, for one read (`_kinds_of`)
 
     def _unfinished_key(self) -> int | None:
         for opening in self.PRIVATE_START.finditer(self.pending):
@@ -819,11 +843,18 @@ class RedactionStream:
                 return opening.start()
         return None
 
+    def _kinds_of(self, line: str) -> frozenset[str]:
+        """A line's relations after this redactor's masks (`_line_kinds`), worked out once per read: each read's work
+        stays its own new lines plus the line or two kept as context (re-review 4, P1)."""
+        if (kinds := self._kinds.get(line)) is None:
+            kinds = self._kinds[line] = _line_kinds(line, self.redactor.before_labels)
+        return kinds
+
     def _safe_cut(self) -> int:
         # A space-terminated prompt must be visible before a child process asks for input.
         # Keep the final word: it may still grow into a token or a URL with credentials.
-        boundaries = list(re.finditer(r'\s', self.pending))
-        cut = boundaries[-1].end() if boundaries else 0
+        last_space = re.search(r'\s', self.pending[::-1])
+        cut = len(self.pending) - last_space.start() if last_space else 0
         header = self.PRIVATE_HEADER_TAIL.search(self.pending)
         if header:
             cut = min(cut, header.start())
@@ -834,7 +865,7 @@ class RedactionStream:
         if bearer:
             cut = min(cut, bearer.start())
         # Grouped card numbers may straddle whitespace: the line still being read keeps its trailing digits (an OTP
-        # introducer holds that whole line: `_labelled_cut`).
+        # introducer holds that whole line: `_labelled_hold`).
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
         # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end)
@@ -844,15 +875,18 @@ class RedactionStream:
             while start > line_start and not self.pending[start - 1].isspace():
                 start -= 1
             cut = min(cut, start)
+        # The C1 lines held, decided once per read from how the lines read so far relate to the line being read (P1).
+        kinds = _forward_relations(self.context + self.pending[:line_start], self._kinds_of)[1]
+        labelled = self._labelled_hold(line_start, kinds)
         # Each guard only moves the cut back, and one can land inside another's region (a class run reaching into a
         # private key block): apply them until none moves it.
         while True:
-            moved = self._guarded_cut(cut)
+            moved = self._guarded_cut(cut, labelled)
             if moved == cut:
                 return cut
             cut = moved
 
-    def _guarded_cut(self, cut: int) -> int:
+    def _guarded_cut(self, cut: int, labelled: int) -> int:
         for value in self.redactor.secret_values():
             start = self.pending.find(value)
             while start >= 0:
@@ -866,9 +900,9 @@ class RedactionStream:
             for match in pattern.finditer(self.pending):
                 if match.start() < cut < match.end():
                     cut = match.start()
-        return self._labelled_cut(cut)
+        return min(cut, labelled)
 
-    def _labelled_cut(self, cut: int) -> int:
+    def _labelled_hold(self, tail_start: int, kinds: set[str]) -> int:
         """C1, decided by whole lines, so what is emitted is masked as `Redactor.text` masks the whole (review of fix
         wave 2: cutting inside a line at its code word left the code before it visible):
         - the line still being read is held whole while it holds a class word, a code, an OTP introducer, or a word that
@@ -876,11 +910,12 @@ class RedactionStream:
         - the last complete line is held while what comes next can still change it: a line that is only a code (its
           naming line can follow: "482913" then "is your verification code"), with the lines above that relate to it.
           A label line is released and kept as context for the lines under it (`_masked`).
-        A line too long to hold (MAX_PENDING) is held only from the run of class items still within reach of its end."""
+        A line too long to hold (MAX_PENDING) is held only from the run of class items still within reach of its end.
+        `tail_start` is where the line being read starts (`_line_starts`); `kinds` how the lines above relate to it
+        (`_forward_relations`). Where the held text starts; the end of what has been read when nothing is held."""
         pending = self.pending
-        breaks, tail_start = _line_starts(pending)
         tail = pending[tail_start:]
-        hold = cut
+        hold = len(pending)
         # A number alone holds the line only while its link can still follow it ("482913 is your …"): an interactive
         # prompt with a number ("Delete 1234 files? [y/N] ") appears at once (re-review 2, I3).
         urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
@@ -890,25 +925,24 @@ class RedactionStream:
         # releases part of it without that context (re-review 3, NEW-C1): under "Password:" the whole value line,
         # under a list a line that starts with a list token, under a label one that starts as a code alone (a
         # progress line under "Code server ready (3733 files)" shows at once).
-        _, kinds = _forward_relations(self.context + pending[:tail_start], self.redactor.before_labels)
         under = bool(tail.strip()) and (
             "secret" in kinds or ("list" in kinds and _LIST_LINE_START.match(tail) is not None)
             or ("label" in kinds and _CODE_ALONE_START.match(tail) is not None))
         if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail) or under
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
-        lines, begin = [], 0
-        for end in breaks:
-            text = LINE_BREAK.sub("", pending[begin:end])
-            if text.strip():
-                lines.append((begin, text))
-            begin = end
-        if lines and (at := self._held_from(lines)) is not None:
-            # a line above that relates to the first held one is decided with it (never code-only lines with each
-            # other: number-only output stays one line behind)
-            while at > 0 and self._related(lines[at - 1][1], lines[at][1]):
-                at -= 1
-            hold = min(hold, lines[at][0])
+        # Of the complete lines only a last line that is only a code is held: its naming line can still follow
+        # ("482913" then "is your verification code"; re-review 2, I2). A label, "Password:" or list line never
+        # changes with what follows it, so it is released and kept as context (`_masked`). A line above that relates
+        # to the held one is decided with it; code-only lines never hold each other, so number-only output passes one
+        # line behind.
+        back = _lines_back(pending, list(LINE_BREAK.finditer(pending, 0, tail_start)))
+        if (held := next(back, None)) is not None and _code_alone(pending[held[1]:held[2]]):
+            for above in back:
+                if not self._related(pending[above[1]:above[2]], pending[held[1]:held[2]]):
+                    break
+                held = above
+            hold = min(hold, held[1])
         return hold
 
     @staticmethod
@@ -917,15 +951,6 @@ class RedactionStream:
         naming line, "Password:" over its value, a list label over its first code."""
         return ((_code_alone(below) and _label_line(above)) or (_code_alone(above) and _link_line(below))
                 or _secret_colon_end(above) or (_list_line(below) and _list_label_line(above)))
-
-    @staticmethod
-    def _held_from(lines: list[tuple[int, str]]) -> int | None:
-        """Which complete line (by index) the stream must hold from (re-review 2, I2): only a last line that is only a
-        code, whose naming line can still follow ("482913" then "is your verification code"). A label, "Password:"
-        or list line never changes with what follows it, so it is released and kept as context (`_masked`); code-only
-        lines never hold each other, so number-only output passes one line behind."""
-        last = len(lines) - 1
-        return last if _code_alone(lines[last][1]) else None
 
     @staticmethod
     def _open_run(line: str) -> int:
@@ -962,12 +987,13 @@ class RedactionStream:
             out = whole[len(before):] if whole.startswith(before) else self.redactor.text(released)
         else:
             out = self.redactor.text(released)
-        self.context = _forward_context(prefix + released, self.redactor.before_labels)
+        self.context = _forward_context(prefix + released, self._kinds_of)
         self.head = '' if self.context else _line_head(prefix + released)
         return out
 
     def feed(self, chunk: bytes, final: bool = False) -> bytes:
         self.pending += self.decoder.decode(chunk, final=final)
+        self._kinds = {}
         if self.suppress:
             end = (self.PRIVATE_END.search(self.pending) if self.suppress == 'private'
                    else re.search(r'\n', self.pending))
