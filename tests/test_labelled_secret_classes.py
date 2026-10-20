@@ -1067,3 +1067,25 @@ def test_the_owners_quoted_plain_word_password_ends_its_clause_after_the_quote(r
     redactor = Redactor()
     assert redactor.text(raw) == expected
     assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("raw", ["Port <code>8080</code> is the default\n", "<code>8080</code> is the default port\n",
+                                 "Set <code>timeout=3000</code> as needed\n", "The year <code>2024</code> (see notes)\n",
+                                 "<pre><code>\n4821\n</code></pre>\n", '<span class="code">2024</span> plan\n'])
+def test_a_code_word_inside_a_tag_is_no_code_word(raw) -> None:
+    """Re-review 6 (M1): the tag name of "<code>" (or a class naming "code") labelled the number next to it. Only text
+    outside tags names a code: "Your code: <code>482913</code>" stays masked."""
+    redactor = Redactor()
+    assert redactor.text(raw) == raw
+    assert _differing_splits(redactor, raw) == []
+    lines = [line for line in raw.splitlines() if line.strip()]
+    assert redactor([{"text": line} for line in lines]) == [{"text": line} for line in lines]   # sibling page nodes
+
+
+@pytest.mark.parametrize("raw", ["Your code: <code>482913</code>\n", "<code>482913</code> is your code\n",
+                                 'Your code: <span class="otp-code">482913</span>\n', "<td>Code</td><td>4821</td>\n",
+                                 "Your code:\n<pre><code>482913</code></pre>\n"])
+def test_a_code_word_outside_tags_still_labels_a_code_in_one(raw) -> None:
+    redactor = Redactor()
+    assert REDACTED in redactor.text(raw)
+    assert _differing_splits(redactor, raw) == []

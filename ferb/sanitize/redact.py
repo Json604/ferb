@@ -182,7 +182,14 @@ def _not_address(s: str, found: Any) -> list[re.Match[str]]:
 
 
 def code_words(s: str) -> list[re.Match[str]]:
-    return _not_address(s, CODE_WORD.finditer(s))
+    """The code words of `s`, outside address codes and HTML tags: a tag's name or attributes ("<code>",
+    'class="otp-code"') name no code (re-review 6, M1: "Port <code>8080</code> is the default" was masked, and the
+    tag's word stood between "Your code:" and its code)."""
+    words = _not_address(s, CODE_WORD.finditer(s))
+    if not words or "<" not in s:
+        return words
+    tags = [m.span() for m in _TAG_RE.finditer(s)]
+    return [m for m in words if not _inside(tags, m.start())] if tags else words
 
 
 def secret_words(s: str) -> list[re.Match[str]]:
