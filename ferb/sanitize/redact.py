@@ -699,15 +699,16 @@ def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> 
 def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -> tuple[str, set[str]]:
     """What of the text `s` a later line can still relate to, and how: its last line when that is a label line
     ("label": a code alone can follow), a "Password:" line ("secret": its value starts the next line) or a backup
-    list's label (with blank lines after it and the start of the next line while that is only spaces or brackets), or
-    a list line under its label ("list": kept as the label and that line). Empty otherwise. Each is a line or two, so
-    the work per read stays the read's own."""
+    list's label (with blank lines after it and the start of the next line while that is only whitespace or brackets),
+    or a list line under its label ("list": kept as the label and that line). Empty otherwise. Each is a line or two,
+    so the work per read stays the read's own. Whitespace is any the text redactor strips (a no-break space, an em
+    space, \x0b, \x0c: re-review 4, NEW-C)."""
     none: tuple[str, set[str]] = ('', set())
     breaks = [m for m in LINE_BREAK.finditer(s)]
     if not breaks:
         return none
     partial = s[breaks[-1].end():]
-    if not re.fullmatch(r"[ \t(\[]*", partial):
+    if not re.fullmatch(r"[\s(\[]*", partial):
         return none
     lines, begin = [], 0
     for m in breaks:
@@ -753,9 +754,10 @@ def _line_head(s: str) -> str:
 
 # A line being read that starts as a code alone could be one ("  482913", "(G-48"), and one that starts with a list
 # token could be a list line: under a label or list line such a line is decided whole, so a part released alone is
-# never judged as a line of its own ("482913. " of "482913. is Shah,").
-_CODE_ALONE_START = re.compile(r"[ \t.,;:()\[\]]*(?:[A-Z]-?)?(?:\d|$)")
-_LIST_LINE_START = re.compile(r"[ \t,]*[A-Za-z0-9-]*(?:[ \t,]|$)")
+# never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the text
+# redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C).
+_CODE_ALONE_START = re.compile(r"[\s.,;:()\[\]]*(?:[A-Z]-?)?(?:\d|$)")
+_LIST_LINE_START = re.compile(r"[\s,]*[A-Za-z0-9-]*(?:[\s,]|$)")
 
 
 class RedactionStream:

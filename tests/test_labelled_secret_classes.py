@@ -332,7 +332,10 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              "one-time password", "secret", "=", "sunshine", "hunter2!", "was", "our", "wifi", "port", "54321",
              "words", "here", "Enter", "\n", "\n\n", "private", "as", ".", ",", "codes:", "a1b2c-3d4e5",
              "4821-9921", "and", "on", "\r\n", "\r", "sign in", "sign", "in", "Rs.", "No.", "a/c no.", "[Swiggy]",
-             "[x]", "1000", "1001", "[y/N]", "Port (default 8080):", "coupon code", "PIN code"]
+             "[x]", "1000", "1001", "[y/N]", "Port (default 8080):", "coupon code", "PIN code",
+             # re-review 4 (NEW-C): lines indented, or blank, by Unicode whitespace
+             "\xa0", "\u2003", "\x0c", "\u3000", "\n\xa0", "\n\xa0482913", "\r\n\u2002482-913", "\n\x0b(G-482913)",
+             "\n\u3000\n", "\n\xa0a1b2c-3d4e5"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
@@ -730,3 +733,46 @@ def test_a_line_released_in_parts_is_masked_as_the_whole_line(raw) -> None:
     for split in range(len(data) + 1):
         stream = redactor.stream()
         assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+
+
+def _differing_splits(redactor: Redactor, raw: str, *, pairs: bool = False) -> list[tuple[int, ...]]:
+    """The read splits (every single one, and every pair when asked) where the stream differs from `Redactor.text`."""
+    expected, data = redactor.text(raw).encode(), raw.encode()
+    cutsets: list[tuple[int, ...]] = [(c,) for c in range(len(data) + 1)]
+    if pairs:
+        cutsets += [(a, b) for a in range(1, len(data)) for b in range(a + 1, len(data))]
+    bad = []
+    for cuts in cutsets:
+        stream, out, prev = redactor.stream(), b"", 0
+        for cut in (*cuts, len(data)):
+            out += stream.feed(data[prev:cut])
+            prev = cut
+        if out + stream.feed(b"", final=True) != expected:
+            bad.append(cuts)
+    return bad
+
+
+UNICODE_INDENTED = [
+    "Your verification code is:\n\xa0482913\n",
+    "Your verification code is:\n 482913\n",
+    "Your verification code is:\n 482913\n",
+    "Your verification code is:\n　482913\n",
+    "Your verification code is:\n\x0b482913\n",
+    "Your verification code is:\n\x0c482913\n",
+    "Use this code to sign in\n\xa0 482913\n",
+    "Sign-in code\r\n\xa0482913\r\n",
+    "[Swiggy] 482913 is your OTP\n\n\xa0482-913\n",
+    "Security backup codes:\r\n\xa02024\r\n",
+    "Your code is:\n\xa0\n482913\n",
+    "Your verification code is:\n　(G-482913)\n",
+]
+
+
+@pytest.mark.parametrize("raw", UNICODE_INDENTED)
+def test_a_code_under_its_label_indented_by_unicode_whitespace_stays_masked(raw) -> None:
+    """Re-review 4 (NEW-C): the text redactor strips any whitespace from a code alone on its line, but the stream kept
+    a label line as context only while the next line held spaces or tabs, so a no-break space, an em space, an
+    ideographic space, \\x0b or \\x0c before the code showed it at a split."""
+    redactor = Redactor()
+    assert redactor.text(raw) != raw
+    assert _differing_splits(redactor, raw, pairs=True) == []
