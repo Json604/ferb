@@ -223,7 +223,9 @@ Fix wave 5 (2026-10-20, why background learning never worked live; L28, D32):
   replies and `ferb trace`.
 - Every learning model call is a `model.learning` span with its size, outcome and error. `ferb stats` counts learning
   calls and failures and names the latest failed one; `ferb trace distill-2026-10-19` (or a `sleep-…` id) shows it.
-  `ferb doctor` names the character cap.
+  `ferb doctor` names the character cap. Consolidation's model usage is recorded as consolidation, not distillation.
+- An error Codex says it is retrying itself (a dropped stream, for example) no longer stops the task or learning call:
+  it is recorded in the trace and the run goes on.
 
 Licensed under Apache-2.0.
 

@@ -509,7 +509,9 @@ items, `codex exec --image`). Each adapter reports `limits` per model (`ModelLim
 limit, the runtime's per-input character cap where it documents one, and their source), and the context budget comes
 from them (L28, section 16). Everything model-specific stays in the adapter. A Codex failure carries Codex's own error
 (`codex_stream.codex_error`: its message, JSON-RPC code or error kind, and for its input cap the count it measured;
-never the request), redacted with the daemon's redactor.
+never the request), redacted with the daemon's redactor. An `error` notification with `willRetry: true` (Codex retries
+it itself; "this will not interrupt a turn") is a `retrying` runtime event, recorded as a `model.retry` span under the
+run, and the run goes on; a non-retrying error or a failed turn ends it.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
@@ -1382,8 +1384,9 @@ per-source job completion. Code rollups cite their child cards.
 - **Learning calls (fix wave 5).** Each consolidation and distillation call runs through `memory/calls.learning_call`
   (assembly within the window and the character cap, the run, the schema check) and is one `model.learning` span: role,
   call id (`sleep-…`, `distill-<day>`), runtime and model as input; outcome, input characters and estimated tokens and
-  the documented limits as output; the runtime's redacted error (Codex's own message) as the error; never the input.
-  No task owns it (aged out as a loose span). `ferb stats` counts the calls and failures with the top errors by role
+  the documented limits as output; the runtime's redacted error (Codex's own message) as the error; never the input;
+  an error Codex retried is a `model.retry` child. No task owns it (aged out as a loose span); its usage spans name
+  the learner's role (`_record_learning_usage`). `ferb stats` counts the calls and failures with the top errors by role
   and names the latest failed call; `ferb trace <call>` shows the span (`SpanStore._task_rows` matches `call`). A day
   over the cap fails distillation with `InputTooLarge`.
 - **Rollups off the loop (I4).** `_rollups_off_loop` runs `rollups` in a worker thread on its own `Database`
