@@ -536,6 +536,16 @@ def painted(jpeg: bytes, reply: dict[str, Any]) -> bytes:
         raise Withheld("pixels withheld: the capture couldn't be painted over") from None
 
 
+def _hidden(window: Any) -> str:
+    """Why a tab's window doesn't show it on screen ("" when it does): minimized (FERB's own window always is), or
+    another tab is the one it shows (round 4, item 2)."""
+    if not isinstance(window, dict):
+        return "the extension didn't say where the tab's window is"
+    if window.get("minimized"):
+        return "its window is minimized"
+    return "" if window.get("active") else "the tab isn't the one its window shows"
+
+
 def _window_bounds(window: dict[str, Any]) -> tuple[float, float, float, float] | None:
     """A tab window's screen bounds as the extension reported them (x, y, w, h), or None when malformed."""
     b = window.get("bounds")
@@ -1194,8 +1204,9 @@ class _TabDriver:
         """Accessibility's secret fields for an unread tab, as image boxes; whether it read the tab's page, whether
         every field it found has a box, and why it couldn't read it (None when it did)."""
         from ferb.act.evidence import mask
-        if not isinstance(window, dict) or window.get("minimized") or not window.get("active"):
-            return [], False, False, "the tab isn't the one its window shows, so Accessibility can't see it"
+        hidden = _hidden(window)
+        if hidden:
+            return [], False, False, f"{hidden}, so Accessibility can't see it"
         if window.get("emulated"):                       # FERB's own window: its viewport isn't the window's layout
             return [], False, False, ("the tab is laid out at FERB's own size, so Accessibility's places in its window "
                                       "don't match the picture")
@@ -1218,9 +1229,9 @@ class _TabDriver:
         with the picture (round 3, I1). Otherwise withheld with the honest reason: the only no-picture case."""
         reason = str(reply.get("withheld") or "the debugger can't attach to this page")[:300]
         window = reply.get("window")
-        if not isinstance(window, dict) or window.get("minimized") or not window.get("active"):
-            raise Withheld(f"pixels withheld: {reason}, and the tab isn't the one its window shows, so its window "
-                           "can't be captured in its place")
+        hidden = _hidden(window)
+        if hidden:
+            raise Withheld(f"pixels withheld: {reason}, and {hidden}, so its window can't be captured in its place")
         pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
         bounds = _window_bounds(window)
         if self.native_capture is None or not isinstance(pid, int) or bounds is None:

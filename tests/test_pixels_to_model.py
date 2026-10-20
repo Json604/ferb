@@ -410,6 +410,25 @@ def test_a_tab_the_debugger_cant_attach_to_is_captured_natively_when_its_window_
         asyncio.run(d.screenshot(ref))
 
 
+def test_a_minimized_window_is_said_to_be_minimized() -> None:
+    """Round 4 (item 2): FERB's own window is always minimized, and so can the owner's be; the reason says the window
+    is minimized, not that the tab isn't the one it shows."""
+    from ferb.core.errors import Withheld
+    window = {"bounds": [0, 25, 1440, 875], "active": True, "minimized": True, "title": "Chrome Web Store"}
+    reply = {"withheld": "the browser won't let its debugger attach to this page (Cannot attach to this target.)",
+             "undebuggable": True, "window": window}
+    d, ref, _ = _tab_driver(reply)
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    with pytest.raises(Withheld, match="its window is minimized") as e:
+        asyncio.run(d.screenshot(ref))
+    assert "isn't the one its window shows" not in str(e.value)
+    unread = {"data": base64.b64encode(solid_jpeg(200, 100)).decode(), "unread": UNREAD, "mask": None,
+              "window": window}
+    d._tabs["t1"].bridge.call = _replying(unread)
+    asyncio.run(d.screenshot(ref))
+    assert "its window is minimized" in d.masking(ref) and "isn't the one" not in d.masking(ref)
+
+
 def _replying(reply: dict[str, Any]) -> Any:
     async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return reply
