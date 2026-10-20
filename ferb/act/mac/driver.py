@@ -89,8 +89,8 @@ class WebSecrets:
         why = f"its profile couldn't read the page: {reason[:160]}" if isinstance(reason, str) and reason else \
             "its profile couldn't read the page"
         t = r.get("tab")
-        tab = (t["url"][:4096], t["title"][:1024]) if isinstance(t, dict) and isinstance(t.get("url"), str) \
-            and isinstance(t.get("title"), str) else None
+        tab = (t["url"][:4096], t["title"]) if isinstance(t, dict) and isinstance(t.get("url"), str) \
+            and isinstance(t.get("title"), str) else None         # the title whole: it is compared (round 3, m2)
         return cls(state, "" if state is not None else why, tab=tab)
 
 
@@ -121,6 +121,13 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
                 masks += rects
                 if not ok:
                     notes.append(PAGE_UNPLACED)
+        if read:                  # the extension's page from a look with no AX window: on a readable look's page area
+            for t, w in ((t1, w1), (t2, w2)):                  # (round 3, m1; painting a little too much is harmless)
+                if (t is None or t.secure is None) and w is not None and w.state is not None:
+                    rects, ok = _placed(_look_items(w.state, None), w.state, read[0][0])
+                    masks += rects
+                    if not ok:
+                        notes.append(PAGE_UNPLACED)
         return masks, "; ".join(dict.fromkeys(notes))
     (ax1, whole1), (ax2, whole2) = _ax_boxes(t1), _ax_boxes(t2)
     notes = [FIELD_UNPLACED] if not (whole1 and whole2) else [FIELD_MOVED] if sorted(ax1) != sorted(ax2) else []
@@ -186,13 +193,14 @@ def _ax_boxes(tree: axm.AxTree) -> tuple[list[Rect], bool]:
     return placed, not (tree.secure and not boxes) and len(placed) == len(boxes)
 
 
-def page_tab(title: str, *looks: Look) -> tuple[str, str] | None:
+def page_tab(titles: tuple[str, ...], *looks: Look) -> tuple[str, str] | None:
     """The captured browser window's active tab as the extension named it (protocol 15), latest look first: only when
-    its title is the captured window's (the extension only sees its own profile's windows; another profile's window can
-    be at the same place). No title from the window server: None (the AppleScript read, which sees every window,
-    decides)."""
+    its title is one the window server gave the captured window (when it was listed, or now: a page can retitle itself
+    mid-capture, round 3 m2). The extension only sees its own profile's windows; another profile's window can be at the
+    same place. No title from the window server: None (the AppleScript read, which sees every window, decides)."""
+    known = [t for t in titles if t]
     for _, web in reversed(looks):
-        if title and web is not None and web.tab is not None and same_title(web.tab[1], title):
+        if web is not None and web.tab is not None and any(same_title(web.tab[1], t) for t in known):
             return web.tab
     return None
 
@@ -434,8 +442,7 @@ class MacComputerDriver:
         the window's bounds (with its title, when several are there, confirmed against the window server's title now).
         None there (it moved, or can't be read): no walk (`window_masks` then uses no page from this look)."""
         def now_titled() -> str:                     # the window server's title for the captured window now (M7)
-            current = self.shots.window(w.id)
-            return current.title if current is not None else ""
+            return self._title_now(w)
 
         async def walk() -> axm.AxTree | None:
             win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None, now_titled)
@@ -458,8 +465,8 @@ class MacComputerDriver:
         # have its fields painted over the wrong picture. Unknown either way (no title from the window server, no tab
         # in the answer): kept, as before protocol 15.
         if web is not None and web.state is not None and w.title and web.tab is not None \
-                and not same_title(web.tab[1], w.title):
-            web = WebSecrets(None, OTHER_PAGE)
+                and not same_title(web.tab[1], w.title) and not same_title(web.tab[1], now_titled()):
+            web = WebSecrets(None, OTHER_PAGE)                # (the window's title now counts too: round 3, m2)
         # a look with no AX window keeps the extension's answer too: its page is never placed (no page area), but
         # `late` must reach the look after the capture (A4)
         return tree, web
@@ -555,7 +562,12 @@ class MacComputerDriver:
         second = await self._look(a, w, first)
         masks, note = window_masks(first, second, browser)
         return (a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note,
-                page_tab(w.title, first, second))
+                page_tab((w.title, self._title_now(w)) if browser else (), first, second))
+
+    def _title_now(self, w: Any) -> str:
+        """The window server's title for this captured window id now ("" when it is gone)."""
+        current = self.shots.window(w.id)
+        return current.title if current is not None else ""
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
         """Pin the window the worker actually saw; repeated captures never replace its action references. Each frame is

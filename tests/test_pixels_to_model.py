@@ -565,6 +565,45 @@ def test_an_ask_nobody_answered_isnt_repeated_even_when_that_look_read_no_window
     assert len(asked) == 1
 
 
+def test_a_field_the_extension_named_in_the_look_with_no_ax_window_is_painted_on_the_other_looks_page(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 3 (m1, rule 14): the look after the capture found no AX window, but the extension named a field in it. That
+    look has no page area of its own, so its field is placed on the readable look's page area (painting a little too
+    much is harmless); it used to be dropped while the note said it was painted."""
+    d, ax, _, _ = _brave(monkeypatch, _page(), _page((20, 40, 100, 20)))
+    looks = iter(["win", None])
+    ax.window_with_frame = lambda *a, **k: next(looks)                     # type: ignore[method-assign]
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and white(pixel(jpeg, 100, 320))
+    assert "in one look around the capture" in shot.masking
+
+
+def test_a_window_retitled_during_the_capture_is_still_the_captured_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 3 (m2): the page's title changed while it was captured ("w" -> "(1) w", a new message). The look after
+    names the new title: it is the same window (the window server's title for the captured window id, read now, is
+    the new one), so its field is painted rather than rejected as another page."""
+    from ferb.act.evidence.mask import PageState
+    from ferb.act.mac.driver import WebSecrets
+    from ferb.act.mac.screenshot import Window
+    a1 = WebSecrets(PageState.parse(_state(viewport=(0, 0, 800, 520))), tab=("https://x/", "w"))
+    a2 = WebSecrets(PageState.parse(_state((20, 40, 100, 20), viewport=(0, 0, 800, 520))), tab=("https://x/", "(1) w"))
+    d, ax, shots, _ = _brave(monkeypatch, a1, a2)
+    shots.window = lambda wid: Window(wid, wid // 10, shots.bounds, "(1) w")   # type: ignore  # listed as "w"
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and "another page" not in shot.masking
+    assert shot.tab == ("https://x/", "(1) w")
+
+
+def test_a_long_title_is_compared_whole() -> None:
+    """Round 3 (m2): a title over 1024 characters was clipped before it was compared with the window's, so the right
+    window looked like another page."""
+    from ferb.act.mac.driver import WebSecrets, same_title
+    long = "T" * 1500
+    w = WebSecrets.from_reply({"matched": True, "complete": True, "state": _state((1, 2, 3, 4)),
+                               "tab": {"url": "https://x/", "title": long}})
+    assert w.tab is not None and same_title(w.tab[1], long)
+
+
 def test_a_page_that_moved_keeps_the_fields_of_the_look_that_can_be_placed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Review I1, probe 2: the page moved during the capture and the look after it shows no page area: the look
     before still places its field, and the note says the other look's couldn't be placed."""
