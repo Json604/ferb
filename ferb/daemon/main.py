@@ -830,7 +830,7 @@ class Daemon:
 
     async def _native_window_capture(self, pid: int, bounds: tuple[float, float, float, float], title: str) -> Any:
         """Round 3 (I1): for a task tab the debugger can't attach to, which is the one its window shows: that on-screen
-        browser window (at `bounds`, with its title `title` when several are there) captured natively, as mac.screenshot
+        browser window (at `bounds`, carrying the tab's title `title`) captured natively, as mac.screenshot
         captures (masked from AX and the extension where they can read it, `Shot.masking`). (JPEG, note), or None: no
         Mac driver, screenshots switched off ([mac] snapshot_image), no single such window on screen, or the capture
         failed (journaled by type)."""
@@ -841,8 +841,8 @@ class Daemon:
         try:
             near = [w for w in await asyncio.to_thread(screenshot.normal_windows)
                     if w.pid == pid and all(abs(a - b) <= 2 for a, b in zip(w.bounds, bounds))]
-            if len(near) > 1 and title:
-                near = [w for w in near if same_title(w.title, title)]
+            if title:                          # the window showing the tab carries its title, even when it is the only
+                near = [w for w in near if same_title(w.title, title)]   # one there (round 4: rule 5, the right window)
             if len(near) != 1:
                 return None
             _, shot, jpeg = await mac.window_image(f"pid:{pid}", window=str(near[0].id))

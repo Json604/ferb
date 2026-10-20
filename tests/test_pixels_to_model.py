@@ -311,6 +311,12 @@ def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: Runni
     assert jpeg == shots.jpeg and shots.captured == [121] and "Accessibility only" in note
     windows.clear()                                                        # not on screen
     assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    # round 4 (rule 5): the tab's window is on another Space; another window of the browser sits at the same place on
+    # this one, titled differently ("My bank - Private"). One window there isn't enough: it must carry the tab's title.
+    windows.append(Window(122, 12, BOUNDS, "My bank - Private"))
+    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    assert shots.captured == [121]                                         # nothing more was captured
+    windows.clear()
     windows.append(Window(121, 12, BOUNDS, "Chrome Web Store"))
     daemon.daemon.mac.snapshot_images = lambda: False                      # type: ignore[union-attr]
     assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
