@@ -1323,20 +1323,33 @@ test (CRLF and lone "\r" splits, abbreviations, bracketed prefixes, number-only 
 quoted values on the next line, Unicode indents and blank lines, long whitespace runs, tags with spaces in their
 attributes) checks that the stream masks every code `Redactor.text` masks, shows no word it hid or any word twice and
 drops none; agreement is tested, not proved.
-Both redactors run on the daemon's event loop, so every pattern and scan takes time in proportion to its input
-(re-review 6, C1: `_LINK_START` read a space two ways and backtracked exponentially on a long run of spaces after a
-number; FERB's own `proxy.py` line 69 stalled a read past 20 s). Quantifiers that could split one run several ways are
-possessive, and scans that would restart at every position of a run read it once: `_urls` tries only a scheme run's
-first start, `_address_codes` reads a chain of places whole, `_private_keys` stops at a BEGIN line with no END after
-it, `_NUMERIC_TAIL` is tried only where its run starts, span lookups bisect. `tests/test_redaction_scaling.py` doubles
-pathological runs (spaces, tabs, no-break spaces, markup, quotes, digits, dotted and slashed runs, BEGIN lines) through
-every pattern of `redact.py` and `images.py` (as the modules call it) and through `Redactor.text` and a stream read, and
-fails when the time per call grows faster than the input.
+Both redactors run on the daemon's event loop, so their patterns and scans are kept linear in their input (re-review 6,
+C1 and its final fix: `_LINK_START` read a space two ways, and a self-closing "<br />" matched `_TAG` two ways, so
+runs of them backtracked exponentially; FERB's own `proxy.py` line 69 stalled a read past 20 s). Quantifiers that could
+split one run several ways are possessive and a tag reads one way. Scans that would restart at every position of a run
+read it once: `_urls` tries only a scheme run's first start, `_address_codes` reads a chain of places whole,
+`_private_keys` stops at a BEGIN line with no END after it, `_jwts` skips the rest of a run once a start in it fails,
+`_prefix_end` and `_numeric_tail` read only the line's end, a secret word's value is read within the value with its
+text's facts worked out once (`_Values`), span lookups bisect, and a read finds its key and token spans once.
+`tests/test_redaction_scaling.py` checks this by measurement, not proof. It doubles a run of each shape it builds:
+whitespace (spaces, tabs, no-break and mixed Unicode spaces, line breaks), markup (`*`, `_`, backticks, quote marks,
+tags, unfinished and self-closing tags), digits and number lists, numbers ending at marks, dotted, slashed and hyphenated
+runs, BEGIN lines, minified JSON with secret keys, prose with unclosed quotes, and first words or "eyJ" repeated inside
+one space-free token. Each run goes through every compiled pattern of `redact.py` and `images.py`, called the way the
+modules call them (searched, or matched at a position; from 10 prefixes; runs up to 8 KB), and as whole texts through
+`Redactor.text` (up to 32 KB) and one stream read (up to 16 KB, short of the long-line path). The test fails when a
+call's time grows faster than its input: thread CPU time, nothing judged under 0.2 ms, a suspect ratio re-measured.
+Shapes it doesn't build are not covered.
 Residuals (re-review 6, parked): a quoted mail's password or backup codes with a ">"-only line between label and value
 ("> Password:" over ">" over "> hunter2!"; "> Backup codes:" over "> a1b2c-…") and HTML source with tag-only lines
-between a label and its code show the value; over-masking: "the password is 'not set yet" masks "'not", and
-`.split("#token=")[1]` masks its tail. A line held whole is examined again at every read, so a long held line arriving a
-few bytes per read costs time growing with its length squared (bounded by `MAX_PENDING`). URL words never count (query credentials are the URL rule's).
+between a label and its code show the value. Text in angle brackets that reads as a tag names no code
+("<Your code is 482913>" shows its code). In the stream, a code alone in a tag whose attributes run past the released
+line head (16 words, 256 characters) can show at a split before its naming line arrives. Over-masking: "the password is
+'not set yet" masks "'not", and `.split("#token=")[1]` masks its tail. Costs: a line held whole is examined again at
+every read, so a long held line arriving a few bytes per read costs time growing with its length squared (each read
+stays bounded by `MAX_PENDING`); a card candidate is checked against every URL path span (quadratic with many of both);
+some small per-line slices remain.
+URL words never count (query credentials are the URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word), with the text redactor's
 code-alone and whitespace rules (`_code_alone`, `_H`).
