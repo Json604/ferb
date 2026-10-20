@@ -1003,3 +1003,126 @@ def test_each_version_of_a_forgotten_lesson_leaves_where_it_was_shown(daemon: Ru
     assert v1["id"] != v2["id"] and ("spans", "output_json") in _everywhere(daemon, "wait for zorbleck")
     _dashboard_forget(daemon, v2["id"])
     assert _everywhere(daemon, "wait for zorbleck") == []
+
+
+# ---------- final adjudicated fix ----------
+
+def _rows_of(d: RunningDaemon, *kinds: str) -> list[tuple[str, Any]]:
+    return _on_loop(d, lambda: [(r[0], json.loads(r[1]).get("text")) for r in d.daemon.db.conn.execute(
+        f"SELECT kind, data_json FROM journal WHERE kind IN ({','.join('?' * len(kinds))}) ORDER BY seq", kinds)])
+
+
+def _span_texts(d: RunningDaemon) -> str:
+    return _on_loop(d, lambda: "\n".join((r[0] or "") + (r[1] or "") for r in d.daemon.db.conn.execute(
+        "SELECT input_json, output_json FROM spans")))
+
+
+def test_a_one_word_trigger_never_removes_unrelated_lines(daemon: RunningDaemon) -> None:
+    """Final fix (I-1, probe q1): the closing round's reply rule had no minimum. A lesson whose trigger is "Gmail"
+    removed "I opened Gmail and found 3 new emails." and a choice line "Gmail" from replies of turns never shown it,
+    and the span scrub then replaced "Gmail" as a plain substring everywhere ("check my [removed: …] inbox please").
+    Only an item's statement (two words or more, whole) leaves replies wherever written; a trigger stays scoped, and
+    the span scrub matches whole words only, never a single word."""
+    d = daemon.daemon
+    install(daemon, [_reply("I opened Gmail and found 3 new emails.\nAll done.")])
+    chat(daemon, "check my Gmail inbox please")
+    install(daemon, [_reply("Which one?\nGmail\nOutlook")])
+    chat(daemon, "send it from my mail app")
+    node = _on_loop(daemon, lambda: d.learning.put(
+        "lesson", '{"app":"Gmail"}:Gmail', {"scope": {"app": "Gmail", "site": "", "intent": ""}, "trigger": "Gmail",
+                                             "text": "wait for the compose window before typing",
+                                             "failure": "e1", "success": "e2", "helpful": 0, "harmful": 0},
+        [], made_by="model:t", state="active"))
+    rows, spans = _rows_of(daemon, "chat.reply", "chat.clarify", "chat.message"), _span_texts(daemon)
+    _dashboard_forget(daemon, node["id"])
+    assert _rows_of(daemon, "chat.reply", "chat.clarify", "chat.message") == rows
+    assert _span_texts(daemon) == spans and "check my Gmail inbox please" in spans
+
+
+def test_a_procedure_intent_never_removes_a_reply_it_was_not_shown_to(daemon: RunningDaemon) -> None:
+    """Final fix (I-1, probe q2): forgetting a procedure "send report" removed "Sure, I'll send report drafts…" from a
+    reply its turn was never shown it in. A procedure's intent stays scoped."""
+    d = daemon.daemon
+    install(daemon, [_reply("Sure, I'll send report drafts to you first from now on.\nAnything else?")])
+    chat(daemon, "show me drafts before sending")
+    node = _on_loop(daemon, lambda: d.learning.put("procedure", "send report", {
+        "intent": "send report", "slots": {}, "steps": []}, [], made_by="model:t", state="candidate"))
+    _dashboard_forget(daemon, node["id"])
+    assert ("chat.reply", "Sure, I'll send report drafts to you first from now on.\nAnything else?") in \
+        _rows_of(daemon, "chat.reply")
+
+
+def test_a_forgotten_identity_statement_leaves_every_task_record_since(daemon: RunningDaemon) -> None:
+    """Final fix (I-2, probe q3): a forgotten identity statement stayed in the records of tasks run while it was in
+    the system prompt (the answer row, the task's outcome, the "while you were away" result, the episode, the task's
+    spans) and flowed back to the planner through chat history. In spans only the statement goes, never a whole
+    single-line output."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    node = _identity(daemon, "I sign emails as Kestrovan")
+    install(daemon, [_reply("Okay: I sign emails as Kestrovan.\nAlso, your 3pm meeting moved to 4pm.")])
+    chat(daemon, "how do I sign?")
+    install(daemon, [sup("task", "Checking.", task("check the weather"))],
+            {"worker": done("Sunny. I sign emails as Kestrovan\nRain later.")})
+    tid = outcome(chat(daemon, "check the weather"))["task_id"]
+    daemon.run(d.supervisor.finish_episodes())
+    _dashboard_forget(daemon, node["id"])
+    assert _everywhere(daemon, "Kestrovan") == []
+    held = _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT output_json FROM spans WHERE kind IN ('model.turn', 'worker') AND output_json IS NOT NULL")])
+    assert any("your 3pm meeting moved to 4pm" in s for s in held) and any("Rain later." in s for s in held)
+    assert "Rain later." in _on_loop(daemon, lambda: d.db.conn.execute(
+        "SELECT answer FROM task_results WHERE task_id = ?", (tid,)).fetchone()[0])
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "anything else?")
+    assert "Kestrovan" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+
+
+def test_a_notice_restating_a_forgotten_lesson_loses_it(daemon: RunningDaemon) -> None:
+    """Final fix (4): a notice from the attention check that restated a lesson kept it, in its chat.notice row and
+    in attention_notices. Its statement goes wherever a notice holds it; a trigger goes from the notices of a check
+    that was shown the lesson."""
+    d = daemon.daemon
+    node = _on_loop(daemon, lambda: d.learning.put("lesson", '{"app":"Mail"}:glimmorax menu', {
+        "text": "always cc the trelloquin team", "trigger": "glimmorax menu"}, [], made_by="model:t", state="active"))
+    _attention_run(daemon, "glimmorax menu")            # the check is shown the lesson (its memory layer names it)
+    for ident, text, rows in (("batch:a", "Reminder: always cc the trelloquin team.", ["trail:y"]),  # another check
+                              ("batch:b", "The glimmorax menu opened in Mail.", ["trail:x"])):      # the shown one
+        notice = _on_loop(daemon, lambda: d.attention_notices.add(ident, rows, text, [], rows))
+        daemon.run(d._post_notice(notice))
+    _dashboard_forget(daemon, node["id"])
+    for word in ("trelloquin", "glimmorax"):
+        assert not [hit for hit in _everywhere(daemon, word) if hit[0] in ("attention_notices", "spans")], word
+    assert not [t for _, t in _rows_of(daemon, "chat.notice") if "trelloquin" in t or "glimmorax" in t]
+    assert _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT text FROM attention_notices WHERE id = 'batch:b'")]) == [
+        "The [removed: it held something the owner asked FERB to forget] opened in Mail."]   # whole words, not the line
+
+
+def test_a_single_word_line_removed_in_scope_is_never_scrubbed_elsewhere(daemon: RunningDaemon) -> None:
+    """Final fix (I-1): a reply of a turn shown the lesson lost its choice line "Gmail" (the trigger, in scope); that
+    one-word line was then told to every span, so another turn's owner message lost "Gmail". A removed line of one
+    word is never told."""
+    d = daemon.daemon
+    node = _on_loop(daemon, lambda: d.learning.put(
+        "lesson", "Gmail", {"text": "wait for the compose window before typing", "trigger": "Gmail"}, [],
+        made_by="model:t", state="active"))
+    install(daemon, [_reply("Which one?\nGmail\nOutlook")])
+    chat(daemon, "which Gmail should I use?")
+    d.supervisor.memory_candidates = lambda words: []
+    install(daemon, [_reply("Done.")])
+    chat(daemon, "check my Gmail inbox please")
+    held = _held_in_spans(daemon, "check my Gmail inbox please")
+    _dashboard_forget(daemon, node["id"])
+    assert "Gmail" not in str(_rows_of(daemon, "chat.reply")[0][1])                       # in scope: the line went
+    assert held and _held_in_spans(daemon, "check my Gmail inbox please") == held
+
+
+def test_the_span_scrub_matches_whole_words_case_and_spacing_aside() -> None:
+    """Final fix (I-1): the span scrub never replaces a plain substring: a phrase inside a longer word stays; a phrase
+    in other case or spacing, or inside a JSON document a recorded string holds, goes."""
+    from ferb.memory.echoes import REMOVED, _Words
+    words = _Words(["my Gmail inbox"])
+    assert words.text("in mymy Gmail inboxes and myGmail inbox") == "in mymy Gmail inboxes and myGmail inbox"
+    assert words.text("check MY  gmail\ninbox now") == f"check {REMOVED} now"
+    assert words.text(json.dumps({"text": "“my Gmail inbox”"})) == json.dumps({"text": f"“{REMOVED}”"})

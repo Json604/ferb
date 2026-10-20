@@ -1485,32 +1485,39 @@ class Daemon:
         one they asked to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that
         question (`_named_node`) goes from FERB's replies and every span; what each of its versions states (its body's
         text, a procedure's intent, a lesson's trigger; never an episode card's goal, which other tasks share, and
-        never its key alone, which can be a label such as "owner") goes where that version was shown or cited, and
-        from FERB's chat replies word for word (`echoes.finish_node`, in a worker thread)."""
+        never its key alone, which can be a label such as "owner") goes where that version was shown or cited; its
+        statement (a lesson's or identity's text, two words or more) also from FERB's chat replies and notices word for
+        word (`echoes.finish_node`, in a worker thread)."""
         from ferb.memory import echoes
         from ferb.memory.learning import ID_KEYED
         asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
-        found: dict[str, tuple[str, dict[str, list[str]], dict[str, str]]] = {}
-        for ident in (set(refs) if named else set()) | asked:   # its naming; each version's statement; identity times
+        # each named item: its naming; each version's texts; an identity version's time; a version's statement
+        found: dict[str, tuple[str, dict[str, list[str]], dict[str, str], dict[str, str]]] = {}
+        for ident in (set(refs) if named else set()) | asked:
             node = self.learning.get(ident)
             if node is None:
                 continue
             versions: dict[str, list[str]] = {}
             since: dict[str, str] = {}
+            statements: dict[str, str] = {}
             for row in self.db.conn.execute("SELECT id, body_json, recorded_at FROM learning_nodes WHERE kind = ? AND "
                                             "key = ?", (node["kind"], node["key"])).fetchall():
                 body = json.loads(row["body_json"])
                 said = [] if node["kind"] in ID_KEYED else [body.get(k) for k in ("text", "intent", "trigger")]
                 versions[row["id"]] = [t for t in said if isinstance(t, str) and t.strip()]
+                text = body.get("text")
+                if node["kind"] not in ID_KEYED and isinstance(text, str) and len(text.split()) >= 2:
+                    statements[row["id"]] = text
                 if node["kind"] == "identity":
                     since[row["id"]] = str(row["recorded_at"])
-            found[ident] = (_named_node(node), versions, since)
+            found[ident] = (_named_node(node), versions, since, statements)
         deleted = self.learning.forget(refs)
         self._close_memory_questions(deleted)
         gone = [found[ident] for ident in deleted if ident in found]
-        echo = echoes.NodeEcho(sorted({naming for naming, _, _ in gone}),
-                               {v: said for _, versions, _ in gone for v, said in versions.items() if v in deleted},
-                               {v: at for _, _, since in gone for v, at in since.items() if v in deleted})
+        echo = echoes.NodeEcho(sorted({g[0] for g in gone}),
+                               {v: said for g in gone for v, said in g[1].items() if v in deleted},
+                               {v: at for g in gone for v, at in g[2].items() if v in deleted},
+                               {v: text for g in gone for v, text in g[3].items() if v in deleted})
         if echo.naming:
             self._after_forgets(lambda: self._finish_node_forget(echo))
         return deleted
@@ -1518,7 +1525,9 @@ class Daemon:
     async def _finish_node_forget(self, echo: Any) -> None:
         from ferb.memory import echoes
         try:
-            await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo)
+            scrubbed = await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo)
+            if scrubbed.cards and self.learning is not None:      # cards that state it go too (no partial card)
+                self._forget_nodes(scrubbed.cards, named=False)
             self.db.truncate_wal("memory.forget")
         except Exception as e:                       # the deletions stand; what's left is said, never raised
             self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})

@@ -15,10 +15,14 @@ runs it):
 - a chat reply whose turn was given the item (its recorded source refs cite it) loses a line that holds the item's
   text word for word, or two of its words in a row of which one nothing left holds: one shared word is not a mention;
 - any other FERB row loses a line holding the item's or a forgotten message's text word for word;
-- every span loses those lines and texts.
+- the given tasks' spans lose those lines; every span loses the item's text and each removed line of two words or
+  more, matched as whole words, case and spacing aside (`scrub_told`; never a plain substring, never a single word).
+A forgotten learned item has its own, scoped pass (`finish_node`).
 Journal rows are append-only (they are only ever deleted, for a forget): a changed row is deleted and written again
 with the same sequence number, id, time, kind and origin. The owner's own messages are never rewritten."""
 import json
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -301,8 +305,11 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
-    for task in sorted(forgotten.tasks):                 # the task's own records, and its card
-        _scrub_task(db, task, lines, lines.mentions)
+    index = _Index(db, set())                            # the tasks' own records, spans and planner turns, at once
+    change = (lambda text: lines.text(text, lines.mentions), lambda value: lines.value(value, lines.mentions))
+    _scrub_records(db, {task: change for task in forgotten.tasks})
+    _rewrite_spans(db, [{"id": i} for i in index.task_spans(forgotten.tasks)], change[1])
+    for task in sorted(forgotten.tasks):                 # its card
         for card in db.conn.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'episode' AND key = ?",
                                     (task,)).fetchall():
             # a card goes only when its body restates the item, never on one rare word (re-review F2)
@@ -327,17 +334,17 @@ def _rewrite(db: Any, row: Any, data: dict[str, Any]) -> None:
                     (row["seq"], row["id"], row["at"], row["kind"], json.dumps(data), row["origin"]))
 
 
-def _scrub_spans(db: Any, spans: list[Any], lines: "_Lines", rule: Callable[[str], bool]) -> None:
-    """These spans lose each line `rule` holds."""
-    _rewrite_spans(db, spans, lambda value: lines.value(value, rule))
-
-
-def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any]) -> None:
-    """Each span once, read as it is now (a span listed twice is never rewritten from an old copy)."""
+def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any], needles: Any = None) -> None:
+    """Each span once, read as it is now (a span listed twice is never rewritten from an old copy). `needles`: a span
+    whose stored text (lowercased) holds none of them can't change, and isn't decoded."""
     for ident in dict.fromkeys(span["id"] for span in spans):
         row = db.conn.execute("SELECT input_json, output_json FROM spans WHERE id = ?", (ident,)).fetchone()
         if row is None:
             continue
+        if needles is not None:
+            stored = (row["input_json"] + (row["output_json"] or "")).lower()
+            if not any(n in stored for n in needles):
+                continue
         before_in, before_out = json.loads(row["input_json"]), json.loads(row["output_json"] or "null")
         new_in, new_out = change(before_in), change(before_out)
         if new_in != before_in or new_out != before_out:
@@ -345,94 +352,124 @@ def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any]) -> N
                             (json.dumps(new_in), None if new_out is None else json.dumps(new_out), ident))
 
 
-def _turns(db: Any, request: str) -> list[Any]:
-    """The planner turns of one request."""
-    return list(db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
-                                "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall())
+Change = tuple[Callable[[str], str], Callable[[Any], Any]]      # how one task's records change: a text, a JSON value
 
 
-def _scrub_task(db: Any, task: str, lines: "_Lines", rule: Callable[[str], bool]) -> None:
-    """A task's own records lose each line `rule` holds: its stored goal and outcome, saved spec, permanent record,
-    "while you were away" result, every span of its tree and the planner turn that planned it."""
-    for row in db.conn.execute("SELECT id, goal, outcome_json FROM tasks WHERE id = ? OR id LIKE ?",
-                               (task, task + ".%")).fetchall():
-        goal = lines.text(row["goal"], rule)
-        outcome = json.dumps(lines.value(json.loads(row["outcome_json"] or "{}"), rule))
-        if goal != row["goal"] or outcome != (row["outcome_json"] or "{}"):
-            db.conn.execute("UPDATE tasks SET goal = ?, outcome_json = ? WHERE id = ?", (goal, outcome, row["id"]))
-    for row in db.conn.execute("SELECT task_id, spec_json FROM task_context WHERE task_id = ?", (task,)).fetchall():
-        spec = json.dumps(lines.value(json.loads(row["spec_json"]), rule))   # its saved plan, to resume
-        if spec != row["spec_json"]:
-            db.conn.execute("UPDATE task_context SET spec_json = ? WHERE task_id = ?", (spec, row["task_id"]))
-    episode = db.conn.execute(f"SELECT {', '.join(EPISODE_FIELDS)} FROM episodes WHERE task_id = ?",
-                              (task,)).fetchone()
-    if episode is not None:
-        new_values = [lines.text(episode[k], rule) if not k.endswith("_json") else
-                      json.dumps(lines.value(json.loads(episode[k]), rule), ensure_ascii=False)
-                      for k in EPISODE_FIELDS]
-        if new_values != [episode[k] for k in EPISODE_FIELDS]:
-            db.conn.execute(f"UPDATE episodes SET {', '.join(k + ' = ?' for k in EPISODE_FIELDS)} WHERE task_id = ?",
-                            (*new_values, task))
-    for row in db.conn.execute("SELECT task_id, goal, answer FROM task_results WHERE task_id = ?", (task,)).fetchall():
-        goal, answer = lines.text(row["goal"], rule), lines.text(row["answer"], rule)
-        if (goal, answer) != (row["goal"], row["answer"]):      # the "while you were away" result
-            db.conn.execute("UPDATE task_results SET goal = ?, answer = ? WHERE task_id = ?", (goal, answer, task))
-    _scrub_spans(db, _task_spans(db, task), lines, rule)   # every record of its tree: tool calls, turns, evidence
+def _scrub_records(db: Any, changes: dict[str, Change]) -> None:
+    """The tasks' own records, each changed by its root task's rule, one pass per table (never a scan per task): their
+    stored goal and outcome, saved spec, permanent record and "while you were away" result."""
+    if not changes:
+        return
+    for row in db.conn.execute("SELECT id, goal, outcome_json FROM tasks").fetchall():
+        if (change := changes.get(_root(str(row["id"])))) is not None:
+            goal, outcome = change[0](row["goal"]), json.dumps(change[1](json.loads(row["outcome_json"] or "{}")))
+            if goal != row["goal"] or outcome != (row["outcome_json"] or "{}"):
+                db.conn.execute("UPDATE tasks SET goal = ?, outcome_json = ? WHERE id = ?", (goal, outcome, row["id"]))
+    for row in db.conn.execute("SELECT task_id, spec_json FROM task_context").fetchall():
+        if (change := changes.get(str(row["task_id"]))) is not None:
+            spec = json.dumps(change[1](json.loads(row["spec_json"])))       # its saved plan, to resume
+            if spec != row["spec_json"]:
+                db.conn.execute("UPDATE task_context SET spec_json = ? WHERE task_id = ?", (spec, row["task_id"]))
+    for row in db.conn.execute(f"SELECT task_id, {', '.join(EPISODE_FIELDS)} FROM episodes").fetchall():
+        if (change := changes.get(str(row["task_id"]))) is not None:
+            new_values = [change[0](row[k]) if not k.endswith("_json") else
+                          json.dumps(change[1](json.loads(row[k])), ensure_ascii=False) for k in EPISODE_FIELDS]
+            if new_values != [row[k] for k in EPISODE_FIELDS]:
+                db.conn.execute(f"UPDATE episodes SET {', '.join(k + ' = ?' for k in EPISODE_FIELDS)} "
+                                "WHERE task_id = ?", (*new_values, row["task_id"]))
+    for row in db.conn.execute("SELECT task_id, goal, answer FROM task_results").fetchall():
+        if (change := changes.get(str(row["task_id"]))) is not None:
+            goal, answer = change[0](row["goal"]), change[0](row["answer"])
+            if (goal, answer) != (row["goal"], row["answer"]):
+                db.conn.execute("UPDATE task_results SET goal = ?, answer = ? WHERE task_id = ?",
+                                (goal, answer, row["task_id"]))
 
 
-def _task_spans(db: Any, task: str) -> list[Any]:
-    """Every span of a task's tree, and the planner turn that planned it."""
-    spans = list(db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE task_id = ? OR task_id LIKE ?",
-                                 (task, task + ".%")).fetchall())
-    for (request,) in db.conn.execute("SELECT DISTINCT request_id FROM tasks WHERE id = ? OR id LIKE ?",
-                                      (task, task + ".%")).fetchall():
-        spans += _turns(db, request)
-    return spans
+def _wordlike(ch: str) -> bool:
+    return unicodedata.category(ch)[0] in "LNM" or unicodedata.category(ch) == "Co"
 
 
-def _replace_in_spans(db: Any, spans: list[Any], pairs: list[tuple[str, str]]) -> None:
-    """These spans lose each paired text wherever a string holds it (a text spanning lines too)."""
-    def replaced(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: replaced(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [replaced(v) for v in value]
-        if isinstance(value, str):
-            for old, new in pairs:
-                value = value.replace(old, new)
+_ESCAPED = re.compile(r'\\(?:u([0-9a-fA-F]{4})|[nrtbf"/\\])$')
+
+
+def _before(value: str, at: int) -> str:
+    """The character before `at` as written: inside a JSON document held in a string, an escape (`\\n`, `\\u201c`)
+    stands for one character, which is what decides a word's edge."""
+    if at == 0:
+        return " "
+    m = _ESCAPED.search(value, max(0, at - 6), at)
+    if m is None:
+        return value[at - 1]
+    return chr(int(m.group(1), 16)) if m.group(1) else " "
+
+
+class _Words:
+    """Removes phrases from text as whole words, case and spacing aside (final fix: never a plain substring, so
+    "Gmail" never takes a piece of "my Gmail inbox", and a single-line JSON output loses the phrase, not the line);
+    also as a JSON document inside a recorded string holds them."""
+
+    def __init__(self, phrases: Any) -> None:
+        forms = {f for p in phrases if p.strip() for f in (p.strip(), json.dumps(p.strip())[1:-1],
+                                                             json.dumps(p.strip(), ensure_ascii=False)[1:-1])}
+        self.patterns = [re.compile(r"\s+".join(re.escape(w) for w in f.split()), re.IGNORECASE)
+                         for f in sorted(forms, key=len, reverse=True)]
+        # what a stored row must hold for any form to be there (its longest word, lowercased, as stored)
+        longest = {max(p.split(), key=len).lower() for p in phrases if p.strip()}
+        self.needles = sorted({n for w in longest for n in (json.dumps(w)[1:-1], json.dumps(json.dumps(w)[1:-1])[1:-1])})
+
+    def text(self, value: str) -> str:
+        for pattern in self.patterns:
+            out, pos = [], 0
+            for m in pattern.finditer(value):
+                a, b = m.start(), m.end()
+                if (_wordlike(value[a]) and _wordlike(_before(value, a))) or \
+                        (b < len(value) and _wordlike(value[b]) and _wordlike(value[b - 1])):
+                    continue                              # part of a longer word
+                out += [value[pos:a], REMOVED]
+                pos = b
+            value = "".join(out) + value[pos:] if out else value
         return value
-    _rewrite_spans(db, spans, replaced)
+
+    def value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return self.text(value)
+        if isinstance(value, dict):
+            return {k: self.value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.value(v) for v in value]
+        return value
 
 
 def scrub_told(db: Any, told: set[str]) -> None:
-    """Every span loses each told text (`_told_pairs`)."""
-    pairs = _told_pairs(told)
-    if pairs:
-        from ferb.orchestrator.attention import scrub_spans
-        scrub_spans(db, pairs, every_kind=True)
-
-
-def _told_pairs(told: set[str]) -> list[tuple[str, str]]:
-    """Each told text and its replacement: as recorded, space-normalised (FERB's questions show a memory's text so:
-    re-review R2), and as a JSON document inside a recorded string holds either; longest first."""
-    texts = {t.strip() for t in told if t.strip()}
-    texts |= {" ".join(t.split()) for t in texts}
-    pairs = {(t, REMOVED) for t in texts}
-    for ascii_only in (True, False):
-        pairs |= {(json.dumps(t, ensure_ascii=ascii_only)[1:-1], json.dumps(REMOVED, ensure_ascii=ascii_only)[1:-1])
-                  for t in texts}
-    return sorted(pairs, key=lambda p: -len(p[0]))
+    """Every span loses each told text of two words or more, matched as whole words (`_Words`); a single word is
+    never told (final fix)."""
+    texts = {t.strip() for t in told if len(t.split()) >= 2}
+    if not texts:
+        return
+    words = _Words(texts)
+    db.conn.execute("CREATE TEMP TABLE IF NOT EXISTS told_needles (needle TEXT PRIMARY KEY)")
+    try:
+        db.conn.executemany("INSERT OR IGNORE INTO told_needles VALUES (?)", [(n,) for n in words.needles])
+        ids = [r[0] for r in db.conn.execute(
+            "SELECT id FROM spans s WHERE EXISTS (SELECT 1 FROM told_needles n WHERE instr(lower(s.input_json), "
+            "n.needle) > 0 OR instr(lower(COALESCE(s.output_json, '')), n.needle) > 0)").fetchall()]
+    finally:
+        db.conn.execute("DELETE FROM told_needles")
+    _rewrite_spans(db, [{"id": i} for i in ids], words.value)
 
 
 @dataclass
 class NodeEcho:
-    """A forgotten learned item's echo (re-review R3, rounds 5 and closing): `naming` FERB's naming of each named item
-    in its "Forget for good?" question (FERB's own wording, naming only that item); `versions` each forgotten
-    version's id and what it states; `in_prompts_since` an owner identity statement's version id and when it was
-    recorded: from then on it is in every model run's system prompt (Layer 1)."""
+    """A forgotten learned item's echo (re-review R3, round 5, closing round, final fix): `naming` FERB's naming of each
+    named item in its "Forget for good?" question (FERB's own wording, naming only that item); `versions` each
+    forgotten version's id and what it states (body text, a procedure's intent, a lesson's trigger); `in_prompts_since`
+    an owner identity statement's version id and when it was recorded (from then on it is in every model run's system
+    prompt, Layer 1); `statements` a version's id and its statement (a lesson's or an identity's text) when it is two
+    words or more: FERB's chat replies and notices lose it word for word wherever they were written."""
     naming: list[str] = field(default_factory=list)
     versions: dict[str, list[str]] = field(default_factory=dict)
     in_prompts_since: dict[str, str] = field(default_factory=dict)
+    statements: dict[str, str] = field(default_factory=dict)
 
     @property
     def refs(self) -> set[str]:
@@ -444,75 +481,152 @@ def _utc(at: str) -> datetime:
     return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when.astimezone(timezone.utc)
 
 
-def _shown(db: Any, ref: str, since: str | None) -> tuple[set[str], list[Any]]:
-    """Where one learned item was shown or cited: the tasks given it (`task_memory_refs`), and the spans that showed
-    it: those tasks' trees and planner turns, the planner turns of the chat turns that listed it (chat rows whose
-    source refs cite it), every span naming it by its id (a run with no request, such as the attention check, records
-    no exposure), and, for an identity statement, every model run's record since `since` (its system prompt held it;
-    compared in UTC)."""
-    tasks = {_root(str(r[0])) for r in db.conn.execute("SELECT DISTINCT task_id FROM task_memory_refs WHERE ref = ?",
-                                                        (ref,))}
-    spans = [span for task in sorted(tasks) for span in _task_spans(db, task)]
-    for (request,) in db.conn.execute(
-            f"SELECT DISTINCT json_extract(j.data_json, '$.request_id') FROM journal j, json_each(j.data_json, "
-            f"'$.source_refs') r WHERE j.kind IN ({','.join('?' * len(CHAT_KINDS))}) AND json_type(j.data_json, "
-            "'$.source_refs') = 'array' AND r.value = ?", (*CHAT_KINDS, ref)).fetchall():
-        if request:
-            spans += _turns(db, str(request))
-    spans += db.conn.execute("SELECT id FROM spans WHERE instr(input_json, ?) > 0 OR "
-                             "instr(COALESCE(output_json, ''), ?) > 0", (ref, ref)).fetchall()
-    if since is not None:
-        start = _utc(since)
-        spans += [row for row in db.conn.execute("SELECT id, started_at FROM spans WHERE "
-                                                 "json_type(input_json, '$.system_prompt') IS NOT NULL").fetchall()
-                  if _utc(str(row["started_at"])) >= start]
-    return tasks, spans
+NOTICE_KIND = "chat.notice"
+
+
+class _Index:
+    """What a forget's scopes are read from, each read once: the tasks (id, request, created), the spans' metadata
+    (task, kind, start, whether they record a model run's system prompt, a planner turn's request, an attention check's
+    rows), the spans naming each ref by its id, and the notices with the rows they saw."""
+
+    def __init__(self, db: Any, refs: set[str]) -> None:
+        self.tasks = db.conn.execute("SELECT id, request_id, created_at FROM tasks").fetchall()
+        self.spans = db.conn.execute(
+            "SELECT id, task_id, kind, started_at, json_type(input_json, '$.system_prompt') IS NOT NULL AS prompt, "
+            "CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END AS request, "
+            "CASE WHEN kind = 'attention.consider' THEN json_extract(input_json, '$.source_refs') END AS saw "
+            "FROM spans").fetchall()
+        self.naming: dict[str, set[str]] = {}
+        for span, ref in _with_refs(db, refs, "SELECT s.id, f.ref FROM spans s JOIN forgetting_refs f ON "
+                                              "instr(s.input_json, f.ref) > 0 OR instr(COALESCE(s.output_json, ''), "
+                                              "f.ref) > 0") if refs else []:
+            self.naming.setdefault(str(ref), set()).add(str(span))
+        self.given: dict[str, set[str]] = {}
+        for task, ref in _with_refs(db, refs, "SELECT t.task_id, t.ref FROM task_memory_refs t JOIN forgetting_refs f "
+                                              "ON t.ref = f.ref") if refs else []:
+            self.given.setdefault(str(ref), set()).add(_root(str(task)))
+        self.listed: dict[str, list[tuple[str, str]]] = {}
+        for row, request, ref in _with_refs(
+                db, refs, f"SELECT j.id, json_extract(j.data_json, '$.request_id'), f.ref FROM journal j, "
+                          "json_each(j.data_json, '$.source_refs') r JOIN forgetting_refs f ON r.value = f.ref WHERE "
+                          f"j.kind IN ({','.join('?' * len(CHAT_KINDS))}) AND json_type(j.data_json, "
+                          "'$.source_refs') = 'array'", CHAT_KINDS) if refs else []:
+            self.listed.setdefault(str(ref), []).append((str(row), str(request or "")))
+        self.notices = [(str(r["id"]), set(json.loads(r["source_refs_json"])) | set(json.loads(r["considered_refs_json"])))
+                        for r in db.conn.execute("SELECT id, source_refs_json, considered_refs_json FROM "
+                                                 "attention_notices").fetchall()]
+
+    def turns(self, requests: set[str]) -> set[str]:
+        return {str(s["id"]) for s in self.spans if s["request"] is not None and str(s["request"]) in requests}
+
+    def task_spans(self, roots: set[str]) -> set[str]:
+        """Every span of these tasks' trees, and the planner turns that planned them."""
+        if not roots:
+            return set()
+        requests = {str(t["request_id"]) for t in self.tasks if _root(str(t["id"])) in roots}
+        return {str(s["id"]) for s in self.spans if s["task_id"] and _root(str(s["task_id"])) in roots} | \
+            self.turns(requests)
+
+    def shown(self, ref: str, since: str | None) -> tuple[set[str], set[str], set[str], set[str]]:
+        """Where one learned item was shown or cited: (tasks, spans, chat rows, notices). The tasks given it
+        (`task_memory_refs`); the chat rows whose source refs cite it; spans: those tasks' trees and planner turns, the
+        planner turns of those chat rows, and every span naming it by its id (a run with no request, such as the
+        attention check, records no exposure). For an identity statement, from `since` on (compared in UTC): every task
+        created and every span of a task or recording a model run's system prompt. Notices: those made by an
+        attention check among those spans (the rows it saw)."""
+        tasks = set(self.given.get(ref, set()))
+        rows = {row for row, _ in self.listed.get(ref, [])}
+        spans = set(self.naming.get(ref, set())) | self.turns({request for _, request in self.listed.get(ref, [])})
+        if since is not None:
+            start = _utc(since)
+            tasks |= {_root(str(t["id"])) for t in self.tasks if _utc(str(t["created_at"])) >= start}
+            spans |= {str(s["id"]) for s in self.spans if (s["task_id"] or s["prompt"]) and
+                      _utc(str(s["started_at"])) >= start}
+        spans |= self.task_spans(tasks)
+        saw = {r for s in self.spans if str(s["id"]) in spans and s["saw"] for r in json.loads(s["saw"])}
+        notices = {ident for ident, refs in self.notices if refs & saw}
+        return tasks, spans, rows, notices
 
 
 def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
-    """A learned item's echo pass, after its deletion. FERB's naming of it goes from FERB's conversation rows (each
-    line holding it) and every span. What each forgotten version states goes where that version was shown or cited
-    (`_shown`), never by a substring replace across every span: those tasks' answer and outcome rows and records lose
-    each line holding it, and those spans lose each such line and the text itself (a text spanning lines too).
-    FERB's chat replies lose a line holding any version's text word for word, wherever they were written (a reply
-    can copy it in a turn that wasn't shown it). Copies of the FERB lines removed go from every span, as a memory
-    forget's do: from the turns that wrote those replies and from the chat history later turns were shown (closing
-    round)."""
+    """A learned item's echo pass, after its deletion (final adjudicated fix).
+    - FERB's naming of it goes from FERB's conversation rows (each line holding it) and every span.
+    - What each forgotten version states goes where that version was shown or cited (`_Index.shown`), never across
+      every span: those tasks' answer and outcome rows and records lose each line holding it; the chat rows that
+      listed it and the notices of a check shown it lose it (lines in journal rows, whole words in a notice's text);
+      those spans lose it as whole words, so a single-line output keeps the rest.
+    - A version's statement (a lesson's or an identity's text, two words or more) also goes, word for word, from
+      every FERB chat reply and notice wherever written; a trigger, an intent or a key never does.
+    - Copies of the FERB lines removed (two words or more) go from every span, as whole words.
+    - The cards of those tasks whose body states it are returned (`Scrubbed.cards`), for the daemon to forget."""
     out = Scrubbed()
-    texts = {ref: [t for t in said if t.strip()] for ref, said in echo.versions.items()}
     naming = [t for t in echo.naming if t.strip()]
-    everything = sorted({t for said in texts.values() for t in said})
-    if not naming and not everything:
+    said = {ref: [t for t in texts if t.strip()] for ref, texts in echo.versions.items()}
+    statements = sorted({t.strip() for t in echo.statements.values() if len(t.split()) >= 2})
+    if not naming and not statements and not any(said.values()):
         return out
-    named, replies = _Lines(naming, [], set()), _Lines(everything, [], set())
-    scopes = {ref: _shown(db, ref, echo.in_prompts_since.get(ref)) for ref, said in texts.items() if said}
-    by_task: dict[str, set[str]] = {}
-    for ref, (tasks, _) in scopes.items():
-        for task in tasks:
-            by_task.setdefault(task, set()).update(texts[ref])
-    task_lines = {task: _Lines(sorted(said), [], set()) for task, said in by_task.items()}
-    for row in _ferb_rows(db):
+    index = _Index(db, {ref for ref, texts in said.items() if texts})
+    in_tasks: dict[str, set[str]] = {}
+    in_spans: dict[str, set[str]] = {}
+    in_rows: dict[str, set[str]] = {}
+    in_notices: dict[str, set[str]] = {}
+    for ref, texts in said.items():
+        if not texts:
+            continue
+        tasks, spans, rows, notices = index.shown(ref, echo.in_prompts_since.get(ref))
+        for scope, keys in ((in_tasks, tasks), (in_spans, spans), (in_rows, rows), (in_notices, notices)):
+            for key in keys:
+                scope.setdefault(key, set()).update(texts)
+    lines: dict[frozenset[str], _Lines] = {}
+
+    def lines_of(phrases: set[str]) -> _Lines:
+        return lines.setdefault(frozenset(phrases), _Lines(sorted(phrases), [], set()))
+    named, stated = _Lines(naming, [], set()), _Lines(statements, [], set())
+    for row in db.conn.execute(f"SELECT seq, id, at, kind, data_json, origin FROM journal WHERE kind IN "
+                               f"({','.join('?' * (len(FERB_KINDS) + 1))}) ORDER BY seq",
+                               (*FERB_KINDS, NOTICE_KIND)).fetchall():
         data = json.loads(row["data_json"])
-        lines = task_lines.get(_root(str(data.get("task_id", "")))) if row["kind"] in TASK_KINDS else None
+        chat = row["kind"] in CHAT_KINDS or row["kind"] == NOTICE_KIND
+        scoped = (in_tasks.get(_root(str(data.get("task_id", "")))) if row["kind"] in TASK_KINDS else
+                  in_notices.get(str(data.get("id"))) if row["kind"] == NOTICE_KIND else in_rows.get(row["id"]))
+        own = lines_of(scoped) if scoped else None
         new = {}
         for key, value in data.items():
-            if lines is not None and key not in IDS:          # a task given it: its outcome's summary and subtasks too
-                value = lines.value(named.value(value, named.verbatim), lines.verbatim)
+            if row["kind"] in TASK_KINDS and key not in IDS:   # a task's outcome: its summary and subtasks too
+                value = named.value(value, named.verbatim)
+                value = own.value(value, own.verbatim) if own is not None else value
             elif key in FIELDS and isinstance(value, str) and value:
                 value = named.text(value, named.verbatim)
-                value = replies.text(value, replies.verbatim) if row["kind"] in CHAT_KINDS else value
+                value = stated.text(value, stated.verbatim) if chat else value
+                value = own.text(value, own.verbatim) if own is not None else value
             new[key] = value
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
-    for ref, (tasks, spans) in scopes.items():
-        in_spans = _Lines(texts[ref], [], set())
-        for task in sorted(tasks):
-            _scrub_task(db, task, in_spans, in_spans.verbatim)
-        _scrub_spans(db, spans, in_spans, in_spans.verbatim)      # each line holding it, then a text across lines
-        _replace_in_spans(db, spans, _told_pairs(set(texts[ref])))
-    scrub_told(db, {*named.removed, *named.phrases, *replies.removed,
-                    *(line for lines in task_lines.values() for line in lines.removed)})
+    _scrub_records(db, {task: ((lambda own: (lambda t: own.text(t, own.verbatim), lambda v: own.value(v, own.verbatim)))
+                               (lines_of(phrases))) for task, phrases in in_tasks.items()})
+    for task, phrases in sorted(in_tasks.items()):     # its card goes when its body states it (no partial card)
+        own = lines_of(phrases)
+        for card in db.conn.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'episode' AND key = ?",
+                                    (task,)).fetchall():
+            if any(own.verbatim(s) for s in _strings(json.loads(card["body_json"]))):
+                out.cards.append(card["id"])
+    words: dict[frozenset[str], _Words] = {}
+
+    def words_of(phrases: set[str]) -> _Words:
+        return words.setdefault(frozenset(phrases), _Words(phrases))
+    by_phrases: dict[frozenset[str], list[dict[str, str]]] = {}
+    for span, phrases in in_spans.items():
+        by_phrases.setdefault(frozenset(phrases), []).append({"id": span})
+    for phrases, spans in by_phrases.items():       # whole words, never a whole line (a one-line output keeps the rest)
+        _rewrite_spans(db, spans, words_of(set(phrases)).value, words_of(set(phrases)).needles)
+    for row in db.conn.execute("SELECT id, text FROM attention_notices").fetchall():
+        phrases = set(statements) | in_notices.get(str(row["id"]), set())
+        text = words_of(phrases).text(row["text"]) if phrases else row["text"]
+        if text != row["text"]:
+            db.conn.execute("UPDATE attention_notices SET text = ? WHERE id = ?", (text, row["id"]))
+    scrub_told(db, {*named.removed, *named.phrases, *stated.removed,
+                    *(line for own in lines.values() for line in own.removed)})
     _drop_folded(db, set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     return out
