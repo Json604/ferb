@@ -77,10 +77,24 @@ def test_episodes_of_different_shapes_never_share_a_call(learning) -> None:
     assert len(rt.contexts) == 2 and shown(rt, a["id"]) == shown(rt, b["id"]) == 1
 
 
+def _window_for(cards_room: int) -> ModelLimits:
+    """A window that leaves room for about `cards_room` tokens of cards beside the consolidation prompt, measured with
+    the same count FERB uses (o200k, or its byte ceiling when the tokenizer is missing)."""
+    from ferb.core.context import count_tokens, overhead_tokens
+    from ferb.core.prompts import load_prompt
+    system = count_tokens(load_prompt("memory/consolidate.md"))
+    budget = system + overhead_tokens(10 ** 6, system) + count_tokens('{"episodes":[],"existing_procedures":[],'
+                                                                       '"rejected_by_owner":[]}') + cards_room
+    return ModelLimits("small", budget + 1_000, 1_000, "test double")
+
+
 def test_a_group_the_window_cannot_hold_is_split_never_failed(learning, monkeypatch) -> None:
+    from ferb.core.context import count_tokens
+    from ferb.memory.learning import card_digest, encoded
     cards = [card(learning, f"t{i}", request="open the page " + "word " * 300) for i in range(12)]
     rt = FakeDistillRuntime(EMPTY)
-    monkeypatch.setattr(FakeDistillRuntime, "limits", ModelLimits("small", 3_500, 1_000, "test double"))
+    one = count_tokens(encoded(card_digest(cards[0])))
+    monkeypatch.setattr(FakeDistillRuntime, "limits", _window_for(4 * one))        # about four cards per call
     out = asyncio.run(consolidator(learning, rt).catch_up())
     assert len(rt.contexts) > 1 and all(shown(rt, c["id"]) == 1 for c in cards)
     assert not [r for r in out["sources"] if "error" in r]
@@ -289,7 +303,7 @@ def test_procedures_too_large_for_the_window_are_named_as_the_reason(learning, m
     learning.put("procedure", "open pages", {"intent": "open pages", "steps": [{"tool": "browser.open"}],
                                              "ui_hints": "hint " * 3000, "preconditions": {"apps": {}}}, [],
                  made_by="model:t", state="candidate")
-    monkeypatch.setattr(FakeDistillRuntime, "limits", ModelLimits("small", 3_500, 1_000, "test double"))
+    monkeypatch.setattr(FakeDistillRuntime, "limits", _window_for(200))          # far less than the procedure
     out = asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY)).catch_up())
     assert "procedures" in out["sources"][0]["error"] and "too large for the model's window; sent whole" \
         not in out["sources"][0]["error"]
