@@ -222,3 +222,22 @@ def test_a_cancelled_learning_call_is_recorded_as_cancelled_not_failed(daemon) -
     stats(d.home, out, days=36500)
     assert "Learning model calls: 1, failed: 0" in out.getvalue()
 
+
+def test_a_consolidation_calls_id_is_its_batch_id(daemon) -> None:
+    """`ferb trace <batch>` (the id on what the call proposed) finds the call's span."""
+    from ferb.memory.learning import digest
+    d = daemon.daemon
+
+    async def put() -> list[str]:
+        ids = []
+        for i in range(6):                   # recorded one after another: the group's order is not the ids' order
+            ids.append(_card(d, f"e{i}")["id"])
+            d.clock.advance(1)
+        return ids
+    ids = daemon.run(put())
+    assert ids != sorted(ids)
+    d.consolidator.make_runtime = lambda *a, **k: Answers({"procedures": [], "lessons": [], "identity": [],
+                                                           "episodes": []})
+    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
+    [span] = _learning_spans(daemon)
+    assert span["input"]["call"] == "sleep-" + digest(sorted(ids))

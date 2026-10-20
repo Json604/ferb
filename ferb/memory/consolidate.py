@@ -373,7 +373,7 @@ class Consolidator:
     async def _model(self, cards: list[dict[str, Any]], procedures: dict[str, Any], system: str,
                      rt: Any) -> tuple[dict[str, Any], str]:
         ctx = encoded({'episodes': [card_digest(c) for c in cards], **procedures})
-        task = Task('sleep-' + digest([c['id'] for c in cards]), None, 'memory consolidation', 'local',
+        task = Task('sleep-' + digest(sorted(c['id'] for c in cards)), None, 'memory consolidation', 'local',
                     Identity.OWNER, set(), 'verifier', 'sleep', [], None)
         # within the model's window and the runtime's character cap (L28); recorded as a model.learning span
         out = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence', PROPOSAL_SCHEMA,
