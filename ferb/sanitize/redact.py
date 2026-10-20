@@ -3,7 +3,7 @@
 import bisect
 import codecs
 import re
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REDACTED = "[redacted]"
@@ -282,9 +282,9 @@ def _list_label_line(line: str) -> bool:
 
 
 def _list_line(line: str) -> bool:
-    """A line of only list codes ("4821-9921", "a1b2c-3d4e5"), as in a recovery-code list."""
-    tokens = re.split(r"[\s,]+", line.strip())
-    return bool(line.strip()) and all(LIST_TOKEN.fullmatch(t) for t in tokens)
+    """A line of only list codes ("4821-9921", "a1b2c-3d4e5", ", 482-913"), as in a recovery-code list."""
+    tokens = [t for t in re.split(r"[\s,]+", line) if t]
+    return bool(tokens) and all(LIST_TOKEN.fullmatch(t) for t in tokens)
 
 
 def _line_codes(s: str) -> list[tuple[int, int]]:
@@ -636,14 +636,13 @@ class Redactor:
 
     def _patterns(self, s: str) -> str:
         """The secret classes: key and token patterns, payment cards, one-time codes, URL credentials."""
-        for p in SECRET_PATTERNS:
-            s = p.sub(REDACTED, s)
-        ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
-        s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
-                     any(a <= m.start() and m.end() <= b for a, b in ids) else REDACTED, s)
-        s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
+        s = _before_labels(s)
         s = _mask_spans(s, labelled_secret_spans(s))
         return URL.sub(lambda m: self._url(m.group(0)), s)
+
+    def before_labels(self, s: str) -> str:
+        """`s` as the labelled classes read it, after the masks applied before them (a stream line's relations)."""
+        return _before_labels(self._registered(s))
 
     def _url(self, url: str) -> str:
         try:
@@ -668,7 +667,17 @@ class Redactor:
         return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
 
 
-def _forward_context(s: str) -> str:
+def _before_labels(s: str) -> str:
+    """The masks applied before the labelled classes: key and token patterns, payment cards, contextual OTPs."""
+    for p in SECRET_PATTERNS:
+        s = p.sub(REDACTED, s)
+    ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
+    s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
+                 any(a <= m.start() and m.end() <= b for a, b in ids) else REDACTED, s)
+    return OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
+
+
+def _forward_context(s: str, seen: Callable[[str], str] = lambda line: line) -> str:
     """What of the released text `s` a later line can still relate to: its last line when that is a label line, a
     "Password:" line or a backup list's label (with blank lines after it and the start of the next line while that is
     only spaces or brackets), or a list line under its label (kept as the label and that line). Empty otherwise. Each
@@ -692,17 +701,20 @@ def _forward_context(s: str) -> str:
     gaps = [m for m in breaks if m.start() >= b]
     blank = len(gaps) > 1
     after = s[b:] if not blank else gaps[0].group() + s[gaps[-1].start():]
-    if _label_line(last) or _secret_colon_end(last) or _list_label_line(last):
+    # a line's relations as the text redactor decides them: after the masks applied before the labelled classes too
+    def either(test: Callable[[str], bool], line: str) -> bool:
+        return test(line) or test(seen(line))
+    if either(_label_line, last) or either(_secret_colon_end, last) or either(_list_label_line, last):
         return last + after
-    if _list_line(last) and not blank:
+    if either(_list_line, last) and not blank:
+        def joined(i: int) -> bool:              # line i and the one before it are adjacent (no blank line between)
+            return LINE_BREAK.fullmatch(s[lines[i - 1][1]:lines[i][0]].strip(" \t") or "-") is not None
         at = len(lines) - 1
-        while at > 0 and _list_line(s[lines[at - 1][0]:lines[at - 1][1]]) and not _list_label_line(
-                s[lines[at - 1][0]:lines[at - 1][1]]) and LINE_BREAK.fullmatch(s[lines[at - 1][1]:lines[at][0]].strip(" \t") or "-"):
+        while (at > 0 and joined(at) and either(_list_line, s[lines[at - 1][0]:lines[at - 1][1]])
+               and not either(_list_label_line, s[lines[at - 1][0]:lines[at - 1][1]])):
             at -= 1
-        if at > 0 and LINE_BREAK.fullmatch(s[lines[at - 1][1]:lines[at][0]].strip(" \t") or "-"):
-            label = s[lines[at - 1][0]:lines[at - 1][1]]
-            if _list_label_line(label):
-                return label + "\n" + last + after
+        if at > 0 and joined(at) and either(_list_label_line, label := s[lines[at - 1][0]:lines[at - 1][1]]):
+            return label + "\n" + last + after
     return ''
 
 
@@ -864,7 +876,7 @@ class RedactionStream:
             out = whole[len(before):] if whole.startswith(before) else self.redactor.text(released)
         else:
             out = self.redactor.text(released)
-        self.context = _forward_context(self.context + released)
+        self.context = _forward_context(self.context + released, self.redactor.before_labels)
         return out
 
     def feed(self, chunk: bytes, final: bool = False) -> bytes:

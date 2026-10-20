@@ -648,3 +648,16 @@ def test_an_address_code_label_stays_visible_whole_and_streamed(raw) -> None:
 def test_ocr_masks_a_bank_otp_after_an_abbreviation(message) -> None:
     """Re-review 2 (C2): a screenshot of the SMS masks it as the text path does."""
     assert _masked([TextRegion(message, (0, 0, 300, 9))]) == [message]
+
+
+@pytest.mark.parametrize("raw", ["Your OTP (y/n) wifi 48 29 13 my 1234 5678 token \n1002\n1003\n",
+                                 "Backup codes: , 482-913 \n1002\n1003\nKeep them safe.\n"])
+def test_the_stream_relates_lines_as_the_text_redactor_does(raw) -> None:
+    """Fuzz finds (re-review 2): the text redactor reads a label line after its earlier masks (a masked OTP shortens
+    the line into a label's reach), and a list's first code may follow a comma; the stream judged the raw line."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
