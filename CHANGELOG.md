@@ -200,7 +200,8 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
 - Forget goes further: FERB's "Remembered: …" line, its answer to the forgotten message, the lines of its replies that
   restate the item, and what a task given the item did with it (its answer, outcome, saved plan, permanent record,
   "while you were away" result, its tool calls and turns, and its episode card when that restates the item) go too,
-  from the chat and from FERB's stored records; a task shown only something built on the item's source isn't touched; the scrub runs off the event loop and your next
+  from the chat and from FERB's stored records; a task shown only something built on the item's source that doesn't
+  mention it isn't touched; a question FERB was still asking about the item closes; the scrub runs off the event loop and your next
   message waits for it. It removes lines that hold the item's words, not every paraphrase. You can forget from chat
   or the notch ("forget my test lab colour"): FERB names everything that goes and deletes only after your Yes.
 - The sleep service works on what changed: a card is read again only when its inputs change; episodes go to the model
