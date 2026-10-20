@@ -174,13 +174,15 @@ class ModelImage:
 
 @dataclass(frozen=True)
 class ModelLimits:
-    """A model's documented token limits (L28): provider facts, each adapter citing where it found them. FERB never
-    picks or guesses these; a runtime that can't report them fails explicitly (ModelLimitsUnknown)."""
+    """A model's documented limits (L28): its token window and reply limit, and the runtime's per-input character cap
+    where it documents one; provider facts, each adapter citing where it found them. FERB never picks or guesses these;
+    a runtime that can't report its window fails explicitly (ModelLimitsUnknown)."""
     model: str
     context_window: int                  # tokens the model holds
     max_output: int                      # the longest reply it can write
     source: str                          # where the numbers are documented
     window_includes_output: bool = True  # False: the provider documents an input limit, with the reply counted apart
+    max_input_chars: int | None = None   # characters one input may hold, where the runtime documents a cap (Codex)
 
     @property
     def context_budget(self) -> int:

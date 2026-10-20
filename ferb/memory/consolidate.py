@@ -13,7 +13,7 @@ import hashlib
 import json
 from typing import Any, Awaitable, Callable
 
-from ferb.core.context import ContextBlock, assemble_parts, count_tokens, overhead_tokens, runtime_limits
+from ferb.core.context import ContextBlock, assemble_parts, count_tokens, overhead_chars, overhead_tokens, runtime_limits
 from ferb.core.errors import Deferred
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
@@ -168,7 +168,8 @@ class Consolidator:
         system = load_prompt('memory/consolidate.md')
         try:
             rt = self.make_runtime('worker', mode='supervisor', tool_names=[], schema=PROPOSAL_SCHEMA)
-            window = runtime_limits(rt).context_budget
+            limits = runtime_limits(rt)
+            window = limits.context_budget
         except asyncio.CancelledError:
             raise
         except Exception as e:                       # no runtime or no documented window: every pending job says so
@@ -179,6 +180,13 @@ class Consolidator:
         chunks, too_big = _chunks(pending, examples, room)
         for node in too_big:
             self._record([node], group, "too large for the model's window; sent whole or not at all", results)
+        if limits.max_input_chars is not None:       # and the runtime's per-input character cap (Codex, L28)
+            chunks, too_long = _within_chars(chunks, waiting, limits.max_input_chars -
+                                             overhead_chars(window, count_tokens(system)) -
+                                             len(encoded({'episodes': [], **procedures})))
+            for node in too_long:
+                self._record([node], group, f"too long for one {rt.name} input ({limits.max_input_chars} characters "
+                             "at most); sent whole or not at all", results)
         for chunk in chunks:
             if not self.idle():
                 return False
@@ -366,9 +374,10 @@ class Consolidator:
         ctx = encoded({'episodes': [card_digest(c) for c in cards], **procedures})
         task = Task('sleep-' + digest([c['id'] for c in cards]), None, 'memory consolidation', 'local',
                     Identity.OWNER, set(), 'verifier', 'sleep', [], None)
+        limits = runtime_limits(rt)                  # the model's window and the runtime's character cap (L28)
         parts, cacheable = assemble_parts([ContextBlock(ctx, 'redacted learning evidence', protected=True)],
-                                          budget_tokens=runtime_limits(rt).context_budget,   # the model's window (L28)
-                                          reserved_tokens=count_tokens(system))
+                                          budget_tokens=limits.context_budget, reserved_tokens=count_tokens(system),
+                                          max_chars=limits.max_input_chars)
         run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), '')
         final = ''
         try:
@@ -414,3 +423,29 @@ def _chunks(pending: list[dict[str, Any]], examples: list[dict[str, Any]],
     if current:
         chunks.append(current)
     return chunks, too_big
+
+
+def _within_chars(chunks: list[list[dict[str, Any]]], waiting: set[str],
+                  room: int) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
+    """`_chunks`' calls split again so each call's cards also fit `room` characters (a runtime's per-input cap, L28);
+    and the pending cards (`waiting`) no call can hold whole. An example that doesn't fit is left out; a call left with
+    examples only is not made."""
+    out: list[list[dict[str, Any]]] = []
+    too_long = []
+    for chunk in chunks:
+        current: list[dict[str, Any]] = []
+        used = 0
+        for node in chunk:
+            cost = len(encoded(card_digest(node))) + len(',')
+            if cost > room:
+                if node['id'] in waiting:
+                    too_long.append(node)
+                continue
+            if current and used + cost > room:
+                out.append(current)
+                current, used = [], 0
+            current.append(node)
+            used += cost
+        if current:
+            out.append(current)
+    return [c for c in out if any(n['id'] in waiting for n in c)], too_long

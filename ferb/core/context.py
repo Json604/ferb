@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from ferb.core.errors import ModelLimitsUnknown
+from ferb.core.errors import InputTooLarge, ModelLimitsUnknown
 from ferb.core.types import ModelLimits
 
 _ENCODING_URL = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
@@ -121,17 +121,23 @@ class Assembly:
     cacheable: int                       # leading parts that repeat across this role's calls
     shown: tuple[bool, ...]              # per non-empty block, in order: handed to the model in full
     omitted_history: int                 # older conversation entries that did not fit
+    tokens: int = 0                      # the body's token estimate, before the budget report
+    chars: int = 0                       # characters of the whole text the parts make, the report included
 
 
-def assemble(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0) -> Assembly:
+def assemble(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
+             max_chars: int | None = None) -> Assembly:
     """Reserve prompts/tools first; then every protected block; then the conversation entries newest-first while they
     fit, the older ones reported in one omission note; then optional blocks by priority (omitted whole, their retrieval
     references kept visible). Each block is counted once (L28); the report counts the final body once.
 
 Protected source text can exceed the budget. Reporting that fact is preferable to changing it.
 The budget is a context allocation (the model's window minus room for its reply), not a task/output/token-spend limit.
+`max_chars`: the runtime's documented per-input character cap (ModelLimits.max_input_chars), for the whole text the
+parts make (they are sent as one input; instructions go apart). Chat and optional blocks are kept only while both fit;
+protected text over the cap is refused (InputTooLarge) rather than sent to be rejected.
 """
-    if budget_tokens <= 0 or reserved_tokens < 0:
+    if budget_tokens <= 0 or reserved_tokens < 0 or (max_chars is not None and max_chars <= 0):
         raise ValueError("context budget must be positive and reserve nonnegative")
     active = [block for block in blocks if block.text]
     omission = [f"[Context omitted; fetch full text: {block.reference}]" for block in active]
@@ -147,16 +153,25 @@ The budget is a context allocation (the model's window minus room for its reply)
     report_cost = count_tokens(_report(budget_tokens, reserved_tokens, 10 ** 9, True, len(active))) + separator
     used = (reserved_tokens + report_cost + note_cost + sum(cost[index] + separator for index in kept) +
             sum(gap[index] + separator for index in gap))
+    # characters, as the runtime counts them (Unicode code points), each part with its separator; the report and the
+    # history note at their longest
+    cap = max_chars if max_chars is not None else float("inf")
+    note_chars = len(_note(len(history), active[history[0]].reference.split(" ", 1)[0])) + 2 if history else 0
+    used_chars = (len(_report(budget_tokens, reserved_tokens, 10 ** 9, True, len(active))) + 2 + note_chars +
+                  sum(len(active[index].text) + 2 for index in kept) + sum(len(omission[index]) + 2 for index in gap))
     for index in reversed(history):
-        if used + cost[index] + separator > budget_tokens:
+        chars = len(active[index].text) + 2
+        if used + cost[index] + separator > budget_tokens or used_chars + chars > cap:
             break
         kept.add(index)
         used += cost[index] + separator
+        used_chars += chars
     for index, block in sorted(((i, active[i]) for i in gap), key=lambda pair: -pair[1].priority):
-        extra = count_tokens(block.text) - gap[index]
-        if used + extra <= budget_tokens:
+        extra, extra_chars = count_tokens(block.text) - gap[index], len(block.text) - len(omission[index])
+        if used + extra <= budget_tokens and used_chars + extra_chars <= cap:
             kept.add(index)
             used += extra
+            used_chars += extra_chars
     omitted_history = sum(1 for index in history if index not in kept)
     parts: list[str] = []
     repeats: list[bool] = []             # per part: repeats across this role's calls
@@ -182,12 +197,16 @@ The budget is a context allocation (the model's window minus room for its reply)
     if not over and content + count_tokens(report) + separator + reserved_tokens > budget_tokens:
         report = _report(budget_tokens, reserved_tokens, content, True, len(active) - len(kept))
     parts.append(report)
+    chars = len("\n\n".join(parts))
+    if max_chars is not None and chars > max_chars:     # protected text alone is over the cap: refused, never sent
+        raise InputTooLarge(chars, max_chars)
     cacheable = 0
     for repeat in repeats:
         if not repeat:
             break
         cacheable += 1
-    return Assembly(parts, cacheable, tuple(index in kept for index in range(len(active))), omitted_history)
+    return Assembly(parts, cacheable, tuple(index in kept for index in range(len(active))), omitted_history,
+                    content, chars)
 
 
 def _note(count: int, reference: str) -> str:
@@ -206,13 +225,20 @@ def overhead_tokens(budget_tokens: int, reserved_tokens: int = 0) -> int:
     return count_tokens(_report(budget_tokens, reserved_tokens, 10 ** 9, True, 1)) + 2 * count_tokens("\n\n")
 
 
-def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int,
-                   reserved_tokens: int = 0) -> tuple[list[str], int]:
+def overhead_chars(budget_tokens: int, reserved_tokens: int = 0) -> int:
+    """`overhead_tokens` in characters: what a caller splitting work to fit a per-input character cap keeps free."""
+    return len(_report(budget_tokens, reserved_tokens, 10 ** 9, True, 1)) + 2 * len("\n\n")
+
+
+def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
+                   max_chars: int | None = None) -> tuple[list[str], int]:
     """`assemble` as (ordered parts with the budget report last, how many leading parts repeat across calls)."""
-    out = assemble(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens)
+    out = assemble(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens, max_chars=max_chars)
     return out.parts, out.cacheable
 
 
-def assemble_context(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0) -> str:
+def assemble_context(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens: int = 0,
+                     max_chars: int | None = None) -> str:
     """The assembled context as one text (`assemble_parts` joined)."""
-    return "\n\n".join(assemble_parts(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens)[0])
+    return "\n\n".join(assemble_parts(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens,
+                                       max_chars=max_chars)[0])

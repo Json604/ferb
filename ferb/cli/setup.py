@@ -648,7 +648,9 @@ def doctor(env: Env) -> int:
             add(Check(f"context window {role}", "fail", f"{lim.get('runtime')} {lim.get('model')}: {lim['problem']}",
                       "set a documented model in config.toml [models]") if "problem" in lim else
                 Check(f"context window {role}", "ok", f"{lim.get('runtime')} {lim.get('model')}: "
-                      f"{lim['context_window']} tokens, {lim['max_output']} for the reply"))
+                      f"{lim['context_window']} tokens, {lim['max_output']} for the reply" +
+                      (f", at most {lim['max_input_chars']} characters in one input"
+                       if lim.get("max_input_chars") else "")))
         if rs:
             add(Check("roles", "ok", f"supervisor {rs.get('orchestrator')}, worker {rs.get('worker')}"))
         for name, why in rs.get("unregistered", {}).items():

@@ -168,9 +168,12 @@ class Distiller:
         system = load_prompt("memory/distill.md")
         # Distillation has no read tools. Preserve its evidence in full and disclose an overage
         # rather than silently cut a source it cannot fetch back during the run.
+        # A day over the runtime's per-input character cap is refused by name (InputTooLarge), never sent to be
+        # rejected; the day stays failed until its evidence changes or `ferb memory distill DAY`.
+        limits = runtime_limits(rt)                  # the model's window and the runtime's character cap (L28)
         parts, cacheable = assemble_parts([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
-                                          budget_tokens=runtime_limits(rt).context_budget,   # the model's window (L28)
-                                          reserved_tokens=count_tokens(system))
+                                          budget_tokens=limits.context_budget, reserved_tokens=count_tokens(system),
+                                          max_chars=limits.max_input_chars)
         run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), "")
         final = ""
         try:

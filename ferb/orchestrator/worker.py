@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from ferb.clock import context
 from ferb.core.context import ContextBlock, assemble, count_tokens, runtime_limits
-from ferb.core.errors import ModelLimitsUnknown, RuntimeUnavailable
+from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, RuntimeUnavailable
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.interfaces import AgentRuntime
@@ -238,9 +238,13 @@ class WorkerRuns:
         tool_schemas = self.gateway.tools_for(self.tokens.validate(token)) if token else []
         output_schema = getattr(rt, "output_schema", None)
         limits = model_limits(rt)
-        assembly = assemble(ctx, budget_tokens=limits.context_budget,
-                            reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
-                                            count_tokens(json.dumps(output_schema)) + 1024)
+        try:                                    # the model's window and its runtime's per-input character cap (L28)
+            assembly = assemble(ctx, budget_tokens=limits.context_budget,
+                                reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
+                                                count_tokens(json.dumps(output_schema)) + 1024,
+                                max_chars=limits.max_input_chars)
+        except InputTooLarge as exc:            # refused by name, never sent to be rejected
+            raise ServiceError(str(exc), rt.name) from None
         exposure = getattr(self, '_context_exposure', None)
         if exposure is not None:
             exposure(task, ctx, assembly, tree)
@@ -249,7 +253,9 @@ class WorkerRuns:
                                              "context_budget_tokens": limits.context_budget,
                                              "model_limits": {"model": limits.model,
                                                               "context_window": limits.context_window,
-                                                              "max_output": limits.max_output, "source": limits.source},
+                                                              "max_output": limits.max_output,
+                                                              "max_input_chars": limits.max_input_chars,
+                                                              "source": limits.source},
                                              "cacheable_parts": assembly.cacheable,
                                              # the images' evidence rows, never their bytes (L12)
                                              **({"image_evidence": [i.ref for i in images]} if images else {})})

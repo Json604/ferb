@@ -22,6 +22,16 @@ class ModelLimitsUnknown(Unsupported):
     """A runtime can't report its model's documented context window and reply limit (L28); never guessed."""
 
 
+class InputTooLarge(Unsupported):
+    """Text FERB must send whole is longer than the runtime's documented per-input character cap (L28, Codex's
+    MAX_USER_INPUT_TEXT_CHARS): refused before anything is sent, never cut and never sent only to be rejected."""
+
+    def __init__(self, chars: int, max_chars: int, what: str = "this call's context") -> None:
+        self.chars, self.max_chars = chars, max_chars
+        super().__init__(f"{what} is {chars} characters, more than the {max_chars} characters the model runtime "
+                         "accepts in one input; nothing was sent")
+
+
 class AuthError(FerbError):
     """A connection or run token failed authentication or asked for a method its role doesn't allow."""
 

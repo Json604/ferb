@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
-from ferb.core.errors import ModelLimitsUnknown, Unsupported
+from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, Unsupported
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
@@ -38,6 +38,17 @@ from ferb.sanitize.redact import Redactor
 
 CODEX_VERSION = "0.157.1"
 MODEL = "gpt-5.6-sol"                 # owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
+# L28: Codex refuses a turn whose text input items together hold more characters (Unicode scalar values) than this,
+# before any model sees it ("Input exceeds the maximum length of 1048576 characters."). It counts per turn/start (and
+# per turn/steer), the instructions FERB gives thread/start apart; `codex exec` sends its prompt through the same check.
+MAX_INPUT_CHARS = 1 << 20
+INPUT_CHARS_SOURCE = (
+    "openai/codex tag rust-v0.157.1: MAX_USER_INPUT_TEXT_CHARS = 1 << 20 (codex-rs/protocol/src/user_input.rs:10), "
+    "compared with the sum of a turn's text input items' chars().count() by turn/start and turn/steer "
+    "(codex-rs/app-server/src/request_processors/turn_processor.rs:502-519, 551-571, 1045; UserInput::text_char_count, "
+    "codex-rs/app-server-protocol/src/protocol/v2/turn.rs:517-527); codex exec's prompt goes through the same "
+    "turn/start (codex-rs/exec/src/lib.rs:908, 1152); thread/start's baseInstructions/developerInstructions are not "
+    "counted")
 _NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
@@ -181,8 +192,16 @@ def limits_for(ferb_home: Path, model: str) -> ModelLimits:
                                  f"{sorted(LIMITS)} in config.toml [models] codex")
     return ModelLimits(model, int(window * percent / 100), LIMITS[model][1],
                        f"Codex {CODEX_VERSION} model catalog ({label}): context_window {window} x "
-                       f"effective_context_window_percent {percent}; max output: {LIMITS_SOURCE}",
-                       window_includes_output=False)
+                       f"effective_context_window_percent {percent}; max output: {LIMITS_SOURCE}; max input "
+                       f"characters: {INPUT_CHARS_SOURCE}",
+                       window_includes_output=False, max_input_chars=MAX_INPUT_CHARS)
+
+
+def check_input(text: str) -> None:
+    """The text Codex will count against MAX_INPUT_CHARS, refused here by name rather than sent to be rejected
+    (context assembly already fits it; this is the transport's own guard)."""
+    if len(text) > MAX_INPUT_CHARS:
+        raise InputTooLarge(len(text), MAX_INPUT_CHARS, "this Codex input")
 
 
 def codex_binary(ferb_home: Path, repo: Path | None = None) -> Path:
@@ -264,8 +283,12 @@ class CodexRuntime:
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         system, context = request.system, request.context
+        app_server = self.mode == "worker" or self.output_schema is not None
+        # the text Codex counts: the context alone where the instructions go apart (thread/start, or a supervisor's
+        # instructions file); otherwise the prompt carries them
+        check_input(context if app_server or (self.mode == "supervisor" and system) else f"{system}\n\n{context}")
         await check_version(self.binary)
-        if self.mode == "worker" or self.output_schema is not None:
+        if app_server:
             from ferb.runtimes.codex_stream import start
             return await start(self, task, request, run_token)
         self.workdir.mkdir(parents=True, exist_ok=True)

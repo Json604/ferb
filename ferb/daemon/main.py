@@ -3550,7 +3550,8 @@ class Daemon:
             await asyncio.to_thread(bundled_catalog, self.home)
 
     def _runtime_limits(self) -> dict[str, dict[str, Any]]:
-        """Each role's runtime and model with its documented context window and reply limit (L28), or the problem."""
+        """Each role's runtime and model with its documented context window, reply limit and per-input character cap
+        (L28), or the problem."""
         from ferb.core.errors import ModelLimitsUnknown
         from ferb.runtimes.catalog import CATALOG, ROLES
         out: dict[str, dict[str, Any]] = {}
@@ -3563,7 +3564,8 @@ class Daemon:
                     raise ModelLimitsUnknown(f"unknown runtime {name!r}")
                 limits = CATALOG[name].limits(model, self.home)
                 entry.update(model=limits.model, context_window=limits.context_window, max_output=limits.max_output,
-                             context_budget=limits.context_budget, source=limits.source)
+                             context_budget=limits.context_budget, max_input_chars=limits.max_input_chars,
+                             source=limits.source)
             except ModelLimitsUnknown as exc:
                 entry["problem"] = str(exc)
             out[role] = entry
