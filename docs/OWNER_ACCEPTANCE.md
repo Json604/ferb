@@ -1281,8 +1281,11 @@ Fix wave 4 rounds 2–3 (extension 0.15.5 / protocol 16; reload the extension fi
     it keeps its frames, with the note.
     (b) The Chrome Web Store (the debugger can't attach at all): with its tab in front of its window and the window on
     screen, `browser.screenshot` gives a picture of the whole browser window, and `masking` says so; with the tab in
-    the background it is withheld, and the reason says the tab isn't the one its window shows. Recording frames there
-    are skipped with that reason.
+    the background it is withheld, and the reason says the tab isn't the one its window shows (in FERB's own,
+    minimized window: that the window is minimized). A short `browser.record` there gives frames of the whole window
+    with the note, or withheld frames with the reason. Also open the Web Store in a second window of the same browser
+    on another Space, with a different page in a window at the same place on this Space: the reason says no window
+    showing that tab is on screen, and nothing of the other window is captured.
     (c) Box placement: if you have a borrowed tab of your own browser (`browser.use_tab`) on a page the extension
     can't script that shows a throwaway password field, put it in front of its window and take `browser.screenshot`:
     the black box covers the field (Accessibility's place scaled onto the tab picture). In FERB's own window this

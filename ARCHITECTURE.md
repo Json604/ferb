@@ -1680,10 +1680,13 @@ protected FERB state (16.9).
 - A page the debugger can't attach to at all (the Chrome Web Store, `chrome://` and other extensions' pages: no tab
   capture possible) answers `withheld` with `undebuggable` and its window (protocol 16). When the tab is the one its
   window shows and that window is on screen, the daemon captures the window natively (`_native_window_capture`, the
-  router's `native_capture` hook: `mac.window_image` of the one on-screen window there, by title when several; AX
-  and the extension's masking and note, then text recognition) and says it is the whole browser window; otherwise it
-  stays withheld with the honest reason: the only tab capture that gives no picture, besides a secret the extension
-  found but can't cover. Recording frames of such a tab are skipped with that reason.
+  router's `native_capture` hook: `mac.window_image` of the one on-screen window there that carries the tab's title,
+  even when it is the only window there, round 4 rule 5; AX and the extension's masking and note, then text
+  recognition) and says it is the whole browser window; such a shot resolves no `browser_point`
+  (`_TabDriver.pointable`), and `browser.screenshot`'s `next` says so. Otherwise it stays withheld with the actual
+  reason (the window minimized, another tab shown, no window with that title on screen, screenshots switched off, the
+  app excluded, the capture failed): the only tab capture that gives no picture, besides a secret the extension found
+  but can't cover. Recording frames of such a tab follow the same rule (round 4).
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
   area; AX-only masking is recorded as `masking`. When no profile can tell, `_web_secrets` says why
   (`WebSecrets.why`: no paired profile of that browser connected, none of a profile's windows or more than one at
