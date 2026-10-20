@@ -1011,3 +1011,20 @@ def test_markup_around_an_address_code_or_an_ordinary_number_keeps_it(raw) -> No
 def test_ocr_masks_a_code_after_a_quote_prefix_or_bullet_under_its_label(below) -> None:
     assert _masked([TextRegion("Enter the code we sent you", (0, 0, 90, 9)),
                     TextRegion(below, (0, 12, 40, 9))]) == [below]
+
+
+@pytest.mark.parametrize("raw,codes", [
+    ("Backup codes:\n, a1b2c-3d4e5\n", ["a1b2c-3d4e5"]),
+    ("Backup codes:\na1b2c-3d4e5\n, f6g7h-8i9j0\n", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+    ("Recovery codes:\n4821-9921,\n, 7731-1123, q2w3e4r5\n", ["4821-9921", "7731-1123", "q2w3e4r5"]),
+    ("Backup codes:\n, 482-913\n, 771-123\n", ["482-913", "771-123"]),
+])
+def test_a_comma_led_list_line_is_masked(raw, codes) -> None:
+    """Re-review 5 (item 3): a list line that starts with a comma (", 482-913" under "Backup codes:") is a list line, but
+    the list never reached its codes."""
+    redactor = Redactor()
+    out = redactor.text(raw)
+    for code in codes:
+        assert code not in out, out
+    assert _differing_splits(redactor, raw) == []
+    assert Redactor().text("HTTP status codes:\n, 200, 301\n") == "HTTP status codes:\n, 200, 301\n"

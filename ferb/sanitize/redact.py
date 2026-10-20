@@ -292,6 +292,8 @@ _LIST_QUALIFIER_END = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|tw
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
 # Between codes: spaces or commas, or line breaks with blank (or whitespace-only) lines between (re-review 4, T1).
 _LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)*")
+# Commas and spaces leading a list line (", 482-913").
+_LIST_LEAD = re.compile(rf"[{_H},]*")
 # A list item's number or bullet before its codes: "1. ", "2) ", "• ", "- ", "* " (re-review 4, T1).
 _LIST_MARKER = re.compile(rf"(?:\d+[.)]|[-*\u2022])[{_H}]+")
 
@@ -311,6 +313,8 @@ def _code_list(s: str) -> list[tuple[int, int]]:
                 line_end = LINE_BREAK.search(s, start)
                 if not _list_line(s[pos + breaks[-1].end():line_end.start() if line_end else len(s)]):
                     break
+            if breaks:                              # a comma leading the list line (re-review 5)
+                start = _LIST_LEAD.match(s, start).end()   # type: ignore[union-attr]
             if (breaks or pos == label.end()) and (marker := _LIST_MARKER.match(s, start)) is not None:
                 start = marker.end()
             token = LIST_TOKEN.match(s, start)
