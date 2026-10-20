@@ -141,6 +141,8 @@ CODE_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:one[{_H}_-]?time[{_H}_-]?(?:pas
 # sit between a code and its label or link on one line besides whitespace: markdown emphasis and code marks, quote
 # marks, tags.
 _TAG = r"</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?/?>"
+# A tag the read ends inside ("<", "</", "<b", "<br/", '<span class="a'): the stream's view of one still coming.
+_UNFINISHED = r"</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?/?)?"
 _TAG_RE = re.compile(_TAG)
 _MARKUP = rf"(?:[{_H}*_`'\"]|{_TAG})"
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
@@ -954,9 +956,10 @@ def _line_head(s: str) -> str:
 # inside its attributes too: '<span class="a b') or part of a word ("** i"). Each mark is read one way only and the
 # marks are taken possessively, so a failing match costs time in proportion to the line (re-review 6, C1: "\s" and the
 # whitespace in `_MARKUP` overlapped, and a run of spaces after a number backtracked exponentially on the event loop).
-_LINK_START = re.compile(rf"(?:[\s*_`'\"]|{_TAG})*+(?:</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?|\S*)")
+_LINK_START = re.compile(rf"(?:[\s*_`'\"]|{_TAG})*+(?:{_UNFINISHED}|\S*)")
 _CODE_LEAD_START = re.compile(r"(?:>[\s>]*)?(?:#+(?:\s+|$))?(?:[-*\u2022\u00b7\u2013\u2014](?:\s|$))?")
-_CODE_START = re.compile(r"(?:[A-Z]-?)?(?:\d|$)|</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?)?$")
+_CODE_START = re.compile(rf"(?:[A-Z]-?)?(?:\d|$)|{_UNFINISHED}$")
+_UNFINISHED_TAG = re.compile(_UNFINISHED)
 
 
 def _code_alone_start(line: str) -> bool:
@@ -964,6 +967,15 @@ def _code_alone_start(line: str) -> bool:
     digit, a "G-" prefix, an unfinished tag or nothing yet."""
     a = _CODE_LEAD_START.match(line, len(line) - len(line.lstrip())).end()   # type: ignore[union-attr]
     return _CODE_START.match(line, _marks_from(line, a, len(line))) is not None
+
+
+def _code_alone_so_far(line: str) -> bool:
+    """Whether the line being read is a code alone (`_code_alone`) so far, an unfinished tag at its end allowed: its
+    naming line can still follow ("(482913) <b" then ">" and "is your code": re-review 6, I1)."""
+    lt = line.rfind("<")
+    return _code_alone(line[:lt] if lt >= 0 and _UNFINISHED_TAG.fullmatch(line, lt) else line)
+
+
 _LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
 # The digits ending the line being read that may still go on (`RedactionStream._safe_cut`): the first digit of the
 # run of digits, whitespace, ",", "." and "-" that reaches the end (closing marks after it allowed); the match ends at
@@ -1099,7 +1111,7 @@ class RedactionStream:
             "secret" in kinds or ("list" in kinds and _LIST_LINE_START.match(tail) is not None)
             or ("label" in kinds and _code_alone_start(tail)))
         if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or under
-                or _code_alone(whole(tail_start, len(pending)))
+                or _code_alone_so_far(whole(tail_start, len(pending)))
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         # Of the complete lines only a last line that is only a code is held: its naming line can still follow

@@ -1042,6 +1042,11 @@ SPACED_TAGS = [
     '<td class="x y">482913</td>\r  is your verification code',
     'Hi\n<span class="a b">482913</span>\nis your code\n',
     '<td class="x y">\t482913 </td>\n\nis your code\n',
+    # a code alone in marks, then a tag the read ends inside (the in-repo fuzz, seed 13)
+    '(482913) <b>\nis your code\n',
+    '[482913] <span class="a">\nis your code\n',
+    '482913, <i>\nis your code\n',
+    '**482913**. <br/>\nis your verification code\n',
 ]
 
 
@@ -1049,7 +1054,8 @@ SPACED_TAGS = [
 def test_a_code_next_to_a_tag_with_spaces_inside_stays_masked_at_every_split(raw) -> None:
     """(a) A read ending inside an unfinished tag after a space released the code before it: the stream allowed only
     an unfinished tag without whitespace there. (b) After "<td " was released, the code-only line was judged without
-    it, so it was released before its naming line arrived."""
+    it, so it was released before its naming line arrived. (c) A line that was a code alone in marks so far, then
+    a tag the read ended inside ("(482913) <b"), was released before its naming line arrived."""
     redactor = Redactor()
     assert "482913" not in redactor.text(raw)
     assert _differing_splits(redactor, raw, pairs=True) == []
