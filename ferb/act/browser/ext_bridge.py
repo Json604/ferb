@@ -31,7 +31,7 @@ from ferb.act.fs.recovery import sha256_fd
 from ferb.identity.mailbox import FEED_URL, GmailFeedMailbox
 from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
-from ferb.core.errors import DriverError, Refused, StaleRef, Withheld
+from ferb.core.errors import DriverError, FerbError, Refused, StaleRef, Withheld
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
@@ -536,6 +536,15 @@ def painted(jpeg: bytes, reply: dict[str, Any]) -> bytes:
         raise Withheld("pixels withheld: the capture couldn't be painted over") from None
 
 
+def _window_bounds(window: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    """A tab window's screen bounds as the extension reported them (x, y, w, h), or None when malformed."""
+    b = window.get("bounds")
+    if not (isinstance(b, list) and len(b) == 4 and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                                        for v in b)):
+        return None
+    return float(b[0]), float(b[1]), float(b[2]), float(b[3])
+
+
 class _NoSecrets:
     """Owner profiles never get FERB's secrets."""
 
@@ -569,6 +578,7 @@ class _Tab:
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
     media: dict[int, tuple[int, int]] = field(default_factory=dict)   # snapshot media index -> frame, local index
     masking: str = ""               # how the latest screenshot's secret fields were found, when worth saying (L13)
+    unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
 
 
 class _TabDriver:
@@ -592,11 +602,15 @@ class _TabDriver:
         self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
-        # daemon supplied (B6): (browser pid, window bounds) -> the secret fields Accessibility finds in that window's
-        # one page area, that area, and whether every field it found has a box; None: it can't tell
-        self.native_secrets: Callable[[int, tuple[float, float, float, float]],
+        # daemon supplied (B6): (browser pid, window bounds, tab title) -> the secret fields Accessibility finds in that
+        # window's one page area, that area, and whether every field it found has a box; None: it can't tell
+        self.native_secrets: Callable[[int, tuple[float, float, float, float], str],
                                       Awaitable[tuple[list[tuple[float, float, float, float]],
                                                       tuple[float, float, float, float], bool] | None]] | None = None
+        # daemon supplied (round 3, I1): (browser pid, window bounds, tab title) -> a native capture of that on-screen
+        # browser window (JPEG, its masking note), for a tab the debugger can't attach to; None: it can't
+        self.native_capture: Callable[[int, tuple[float, float, float, float], str],
+                                      Awaitable[tuple[bytes, str] | None]] | None = None
         self._n = 0
         if isinstance(getattr(hub, "drivers", None), list):
             hub.drivers.append(self)
@@ -1114,6 +1128,9 @@ class _TabDriver:
         t = self._tab(tab)
         t.masking = ""
         v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
+        if v.get("undebuggable"):                        # protocol 16: no tab capture at all; maybe its window (I1)
+            jpeg, t.masking = await self._native_window(t, v)
+            return jpeg
         if v.get("withheld"):
             return painted(b"", v)                       # raises: nothing was captured
         if "data" in v:
@@ -1134,53 +1151,87 @@ class _TabDriver:
 
     async def _unread(self, t: _Tab, jpeg: bytes, reply: dict[str, Any]) -> tuple[bytes, str]:
         """A capture of a page the extension couldn't read (protocol 15, B6; owner: no screenshot refused): painted
-        where it can be, the rest left to the gateway's text recognition, and a note saying which. Painted: the look
-        before the capture's fields when only the look after failed, and, when the tab is the one its window shows,
-        the secret fields Accessibility finds in that window's page area, read just after the capture, scaled from the
-        area onto the picture. Withheld only when the picture can't be painted."""
+        where it can be, the rest left to the gateway's text recognition, and a note saying what was painted. Painted:
+        the look before the capture's fields when only the look after failed, and, when the tab is the one its window
+        shows, the secret fields Accessibility finds in that window's page area, read just after the capture, scaled
+        from the area onto the picture. Withheld when the picture can't be painted, or the look before is malformed
+        (as the normal path, round 3 m5)."""
         from ferb.act.evidence import mask
         why = str(reply.get("unread"))[:200]
         try:
             size = mask.size(jpeg)
         except ValueError:
             raise Withheld("pixels withheld: the capture couldn't be painted over") from None
-        boxes: list[mask.Box] = []
         m = reply.get("mask")
-        before = mask.PageState.parse(m.get("before")) if isinstance(m, dict) else None
-        if before is not None:
-            boxes += mask.to_image_boxes([i.rect for i in before.items if i.paint], before.viewport, size)
-        ax_boxes, ax_why = await self._native_boxes(t, reply.get("window"), size)
-        boxes += ax_boxes
+        before_boxes: list[mask.Box] = []
+        if m is not None:
+            before = mask.PageState.parse(m.get("before")) if isinstance(m, dict) else None
+            if before is None:
+                raise Withheld("pixels withheld: the extension didn't say where the page's secret fields are")
+            before_boxes = mask.to_image_boxes([i.rect for i in before.items if i.paint], before.viewport, size)
+        ax_boxes, read, whole, ax_why = await self._native_boxes(t, reply.get("window"), size)
+        boxes = before_boxes + ax_boxes
         if boxes:
             try:
                 jpeg = mask.mask_secret_fields(jpeg, boxes)
             except (ValueError, RuntimeError):
                 raise Withheld("pixels withheld: the capture couldn't be painted over") from None
-        if ax_why is None:
-            return jpeg, (f"the browser extension couldn't locate the page's secret fields ({why}): masked from "
-                          "Accessibility, read just after the capture, and by text recognition (a secret neither can "
-                          "find could show)")
-        return jpeg, (f"the page's secret fields couldn't be located (the browser extension couldn't read it: {why}; "
-                      f"{ax_why}); masked by text recognition only (a secret it can't read as text could show)")
+        done = []                                        # the note says what was painted (round 3, m7)
+        if read:
+            done.append("masked from Accessibility (the secret fields it finds in the tab's window, read just after "
+                        "the capture" + ("; one it found has no box to paint" if not whole else "") + ")")
+        if before_boxes:
+            done.append("the fields the look before the capture found are painted")
+        ext = f"the browser extension couldn't read the page ({why})"
+        if done:
+            return jpeg, (f"{ext}: " + "; ".join(done) + ("" if read else f" ({ax_why})") +
+                          "; anything else is left to text recognition (a secret neither can find could show)")
+        return jpeg, (f"the page's secret fields couldn't be located ({ext}; {ax_why}); masked by text recognition "
+                      "only (a secret it can't read as text could show)")
 
-    async def _native_boxes(self, t: _Tab, window: Any, size: tuple[int, int]) -> tuple[list[Any], str | None]:
-        """Accessibility's secret fields for an unread tab, as image boxes, and why there are none (None: it read the
-        page; a field it found with no box is reported as a reason too)."""
+    async def _native_boxes(self, t: _Tab, window: Any,
+                            size: tuple[int, int]) -> tuple[list[Any], bool, bool, str | None]:
+        """Accessibility's secret fields for an unread tab, as image boxes; whether it read the tab's page, whether
+        every field it found has a box, and why it couldn't read it (None when it did)."""
         from ferb.act.evidence import mask
         if not isinstance(window, dict) or window.get("minimized") or not window.get("active"):
-            return [], "the tab isn't the one its window shows, so Accessibility can't see it"
+            return [], False, False, "the tab isn't the one its window shows, so Accessibility can't see it"
+        if window.get("emulated"):                       # FERB's own window: its viewport isn't the window's layout
+            return [], False, False, ("the tab is laid out at FERB's own size, so Accessibility's places in its window "
+                                      "don't match the picture")
         pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
         if self.native_secrets is None or not isinstance(pid, int):
-            return [], "Accessibility can't be asked about this browser"
-        b = window.get("bounds")
-        if not (isinstance(b, list) and len(b) == 4 and all(isinstance(v, (int, float)) for v in b)):
-            return [], "the extension didn't say where the tab's window is"
-        found = await self.native_secrets(pid, (float(b[0]), float(b[1]), float(b[2]), float(b[3])))
+            return [], False, False, "Accessibility can't be asked about this browser"
+        bounds = _window_bounds(window)
+        if bounds is None:
+            return [], False, False, "the extension didn't say where the tab's window is"
+        found = await self.native_secrets(pid, bounds, str(window.get("title") or ""))   # its window by title (m6)
         if found is None:
-            return [], "Accessibility couldn't read the page in its window"
+            return [], False, False, "Accessibility couldn't read the page in its window"
         rects, area, whole = found
-        boxes = mask.to_image_boxes(rects, area, size)
-        return boxes, None if whole else "a secret field Accessibility found has no place to paint"
+        return mask.to_image_boxes(rects, area, size), True, whole, None
+
+    async def _native_window(self, t: _Tab, reply: dict[str, Any]) -> tuple[bytes, str]:
+        """A tab the debugger can't attach to (the Web Store, chrome:// and other extensions' pages: no tab capture
+        is possible, protocol 16): when it is the one its window shows, that browser window captured natively like a
+        mac.screenshot (AX and the extension where they can read it, its note; the gateway's text recognition), said
+        with the picture (round 3, I1). Otherwise withheld with the honest reason: the only no-picture case."""
+        reason = str(reply.get("withheld") or "the debugger can't attach to this page")[:300]
+        window = reply.get("window")
+        if not isinstance(window, dict) or window.get("minimized") or not window.get("active"):
+            raise Withheld(f"pixels withheld: {reason}, and the tab isn't the one its window shows, so its window "
+                           "can't be captured in its place")
+        pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
+        bounds = _window_bounds(window)
+        if self.native_capture is None or not isinstance(pid, int) or bounds is None:
+            raise Withheld(f"pixels withheld: {reason}, and its window can't be captured from here")
+        got = await self.native_capture(pid, bounds, str(window.get("title") or ""))
+        if got is None:
+            raise Withheld(f"pixels withheld: {reason}, and its window isn't on screen to be captured in its place")
+        jpeg, note = got
+        return jpeg, (f"{reason}: this is a picture of the whole browser window showing it, masked as a mac.screenshot "
+                      f"({note or 'the secret fields Accessibility and the browser extension found are painted'}) "
+                      "and by text recognition")
 
     def browser_pid(self, tab: TabRef) -> int | None:
         """The process of the browser showing this tab (its native host's parent), so hearing the tab (L26) captures
@@ -1215,19 +1266,36 @@ class _TabDriver:
                 'tab': tab.tab_id}, capture
 
     async def visual_snapshot(self, tab: TabRef) -> tuple[str, bytes, int, int]:
+        """browser.screenshot: the snapshot generation the shot's points resolve against, then the picture. On a page
+        the extension can't script, the snapshot fails first; the picture is asked for anyway (round 3, I1): when the
+        page couldn't be read (its note says so) it comes back as a shot no point resolves on; otherwise the snapshot's
+        failure stands."""
         import Quartz
-        await self.snapshot(tab)            # the generation the shot's points resolve against
+        failed: FerbError | None = None
+        try:
+            await self.snapshot(tab)
+        except FerbError as e:
+            failed = e
         jpeg = await self.screenshot(tab)   # secret fields painted from the extension's own rects, not this list (L13)
+        t = self._tab(tab)
+        if failed is not None and not t.masking:
+            raise failed
         image = Quartz.CGImageSourceCreateWithData(jpeg, None)
         props = Quartz.CGImageSourceCopyPropertiesAtIndex(image, 0, None)
         width, height = int(props["PixelWidth"]), int(props["PixelHeight"])
-        t = self._tab(tab)
         shot = "bs-" + secrets.token_hex(8)
-        t.visual = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width, height)
+        if failed is not None:              # no element can be resolved on a page FERB can't read
+            t.visual, t.unread_shot = None, shot
+        else:
+            t.visual, t.unread_shot = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width,
+                                       height), None
         return shot, jpeg, width, height
 
     async def point(self, tab: TabRef, shot: str, x: float, y: float) -> PageElement:
         t = self._tab(tab)
+        if shot == t.unread_shot:
+            raise Refused("that screenshot shows a page the browser extension can't read, so no element can be "
+                          "resolved at a point on it")
         v = t.visual
         if not v or v[0] != shot or v[1] != t.snap_gen or v[2] != t.bridge.navs.get(t.chrome_id, 0) \
                 or asyncio.get_running_loop().time() - v[3] > 30:

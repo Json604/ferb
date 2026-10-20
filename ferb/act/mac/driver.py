@@ -457,7 +457,7 @@ class MacComputerDriver:
         except BaseException:                        # the walk failed or was cancelled: so is the ask beside it (A3)
             ask.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await ask
+                await ask                            # (a second cancel arriving during this wait is swallowed: accepted)
             raise
         web = await ask
         # The answering window must be the captured one (B5): its active tab carries the captured window's title. A
@@ -467,8 +467,8 @@ class MacComputerDriver:
         if web is not None and web.state is not None and w.title and web.tab is not None \
                 and not same_title(web.tab[1], w.title) and not same_title(web.tab[1], now_titled()):
             web = WebSecrets(None, OTHER_PAGE)                # (the window's title now counts too: round 3, m2)
-        # a look with no AX window keeps the extension's answer too: its page is never placed (no page area), but
-        # `late` must reach the look after the capture (A4)
+        # a look with no AX window keeps the extension's answer too: `late` must reach the look after the capture (A4),
+        # and its page is placed on the readable look's page area (round 3, m1)
         return tree, web
 
     async def screenshot(self, name_or_bundle: str,
@@ -496,14 +496,16 @@ class MacComputerDriver:
         a, w, jpeg, size, note, tab = await self._capture(name_or_bundle, None, window, False)
         return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note, tab=tab), jpeg
 
-    async def page_secrets(self, pid: int, bounds: Rect) -> tuple[list[Rect], Rect, bool] | None:
+    async def page_secrets(self, pid: int, bounds: Rect, title: str = "") -> tuple[list[Rect], Rect, bool] | None:
         """For a browser tab capture whose page the extension couldn't read (B6): the secret fields the Accessibility
         tree of that browser process's window at `bounds` shows inside its page area, that area (screen points), and
-        whether every secret field it found has a box. None: no single AX window there, the walk can't say, or not
-        exactly one page area (docked tools or a split view: which one is the tab can't be told)."""
+        whether every secret field it found has a box. The window is the one showing the tab: picked by the tab's
+        `title` among windows at those bounds, and its own title must be the tab's (round 3, m6: a Chromium window is
+        named after the tab it shows). None: no such single AX window, the walk can't say, or not exactly one page
+        area (docked tools or a split view: which one is the tab can't be told)."""
         a = self.app(f"pid:{pid}")
-        win = await asyncio.to_thread(self.ax.window_with_frame, pid, bounds)
-        if win is None:
+        win = await asyncio.to_thread(self.ax.window_with_frame, pid, bounds, title or None)
+        if win is None or (title and not same_title(await asyncio.to_thread(self.ax.window_title, win), title)):
             return None
         tree = await self._walk(a, win)
         areas = axm.outermost(tree.web_areas)

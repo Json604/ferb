@@ -381,17 +381,30 @@ async function inFrame(tabId, frameId, func, args) {
 }
 
 // A capture's mask fields (protocol 15): both looks when the page was read; when it wasn't, `unread` (why), the look
-// before if only the look after failed (`mask.after` null), and the tab's window: its screen bounds, whether the tab
-// is the one it shows, and whether it is minimized (the daemon can place Accessibility's secret fields only then).
+// before if only the look after failed (`mask.after` null), and the tab's window (`tabWindow`).
 async function unreadCapture(tabId, first, last) {
   if (!first.withheld && !last.withheld) return {mask: {before: first, after: last}};
-  let window = null;
+  return {unread: (first.withheld || last.withheld), mask: first.withheld ? null : {before: first, after: null},
+          window: await tabWindow(tabId)};
+}
+
+// Where a tab's window is, for the daemon's own look at it (protocol 16): screen bounds, whether the tab is the one it
+// shows, whether it is minimized, the tab's title (to find that very window), and whether FERB lays the tab out at its
+// own size in it (then Accessibility's places don't match a tab capture). null: the tab or window went.
+async function tabWindow(tabId) {
   try {
     const tab = await chrome.tabs.get(tabId);
     const w = await chrome.windows.get(tab.windowId);
-    window = {bounds: [w.left, w.top, w.width, w.height], active: !!tab.active, minimized: w.state === "minimized"};
-  } catch (_) { /* the tab or window went: no placement */ }
-  return {unread: (first.withheld || last.withheld), mask: first.withheld ? null : {before: first, after: null}, window};
+    return {bounds: [w.left, w.top, w.width, w.height], active: !!tab.active, minimized: w.state === "minimized",
+            title: String(tab.title || ""), ...(tabState(tabId).emulated ? {emulated: true} : {})};
+  } catch (_) { return null; }
+}
+
+// A tab the browser won't let its debugger attach to (the Web Store, chrome:// and other extensions' pages) can't be
+// captured as a tab at all (protocol 16): said honestly, with its window, for the daemon's native window capture.
+async function undebuggable(tabId, e) {
+  return {withheld: `the browser won't let its debugger attach to this page (${String(e && e.message || e)}), so ` +
+                    "the tab itself can't be captured", undebuggable: true, window: await tabWindow(tabId)};
 }
 
 // One look at a time per tab: a recording's frames (two looks each) and a worker's screenshot or a native capture
@@ -526,8 +539,10 @@ async function attach(tabId) {
     await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
     await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
     const s = await session(), tab = await chrome.tabs.get(tabId);
-    if (s.windowId != null && tab.windowId === s.windowId)     // FERB's own window: layout independent of its size.
+    if (s.windowId != null && tab.windowId === s.windowId) {   // FERB's own window: layout independent of its size.
       await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
+      t.emulated = true;                                       // its captures aren't the window's layout (unreadCapture)
+    }
     await ready(tabId);                                        // the owner's own tab keeps its real viewport
     t.ready = true;
     return t;
@@ -1424,10 +1439,12 @@ const commands = {
   // and the daemon paints the secret fields over before anything else sees the picture. A page that can't be read
   // is still captured (protocol 15, owner: no screenshot refused): `unread` says why, `mask` keeps the look before
   // when only the look after failed, and `window` says where the tab's window is, for the daemon's Accessibility and
-  // text-recognition masking. `withheld` (no picture) only for a secret field it found but can't cover.
+  // text-recognition masking. `withheld` (no picture) for a secret field it found but can't cover, and (with
+  // `undebuggable` and `window`) for a page the debugger can't attach to, which the daemon may capture natively.
   async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
     const deadline = Date.now() + _timeout_ms;
-    await attach(tab_id);
+    try { await arm(tab_id); }           // the debugger only: a capture needs no input readiness (round 3, I1)
+    catch (e) { return await undebuggable(tab_id, e); }
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
     const first = await maskState(tab_id, deadline);
@@ -1456,7 +1473,8 @@ const commands = {
       if ((part+1)*SHOT_PART >= saved.data.length) st.recordFrame = null;
       return {data};
     }
-    await attach(tab_id);
+    try { await arm(tab_id); }           // the debugger only, as a screenshot
+    catch (e) { return await undebuggable(tab_id, e); }
     const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or unread
     if (first.withheld && !first.unread) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',

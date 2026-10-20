@@ -701,6 +701,8 @@ class Daemon:
         self.identity_browser = driver
         if hasattr(driver, "native_secrets"):          # B6: an unread tab's fields from Accessibility, as the router's
             driver.native_secrets = self._native_page_secrets
+        if hasattr(driver, "native_capture"):          # I1: a tab the debugger can't attach to, as the router's
+            driver.native_capture = self._native_window_capture
         from ferb.identity.helper import seal as helper_seal
         driver.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         add_identity_browser(self.registry, driver, self.recordings)
@@ -812,17 +814,42 @@ class Daemon:
         return WebSecrets(None, "no paired profile has a window at this window's place (another profile, or a "
                                 "private window)")
 
-    async def _native_page_secrets(self, pid: int, bounds: tuple[float, float, float, float]) -> Any:
+    async def _native_page_secrets(self, pid: int, bounds: tuple[float, float, float, float], title: str) -> Any:
         """B6: for a task tab's capture whose page the extension couldn't read, the secret fields Accessibility finds in
-        the page area of that browser process's window at `bounds` (`MacComputerDriver.page_secrets`). None: no Mac
-        driver, or it can't tell (a failure is journaled by type; the capture then goes to text recognition)."""
+        the page area of that browser process's window at `bounds` showing the tab titled `title`
+        (`MacComputerDriver.page_secrets`). None: no Mac driver, or it can't tell (a failure is journaled by type; the
+        capture then goes to text recognition)."""
         if self.mac is None:
             return None
         try:
-            return await self.mac.page_secrets(pid, bounds)
+            return await self.mac.page_secrets(pid, bounds, title)
         except Exception as e:
             from ferb.daemon.gateway import error_name
             self._journal().append("screen.page_secrets_failed", {"error": error_name(e)})
+            return None
+
+    async def _native_window_capture(self, pid: int, bounds: tuple[float, float, float, float], title: str) -> Any:
+        """Round 3 (I1): for a task tab the debugger can't attach to, which is the one its window shows: that on-screen
+        browser window (at `bounds`, with its title `title` when several are there) captured natively, as mac.screenshot
+        captures (masked from AX and the extension where they can read it, `Shot.masking`). (JPEG, note), or None: no
+        Mac driver, screenshots switched off ([mac] snapshot_image), no single such window on screen, or the capture
+        failed (journaled by type)."""
+        mac = self.mac
+        if mac is None or not mac.snapshot_images():
+            return None
+        from ferb.act.mac import screenshot
+        try:
+            near = [w for w in await asyncio.to_thread(screenshot.normal_windows)
+                    if w.pid == pid and all(abs(a - b) <= 2 for a, b in zip(w.bounds, bounds))]
+            if len(near) > 1 and title:
+                near = [w for w in near if same_title(w.title, title)]
+            if len(near) != 1:
+                return None
+            _, shot, jpeg = await mac.window_image(f"pid:{pid}", window=str(near[0].id))
+            return jpeg, shot.masking
+        except Exception as e:
+            from ferb.daemon.gateway import error_name
+            self._journal().append("screen.native_capture_failed", {"error": error_name(e)})
             return None
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
@@ -2871,6 +2898,7 @@ class Daemon:
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.native_secrets = self._native_page_secrets      # B6: an unread tab's fields from Accessibility
+        self.router.native_capture = self._native_window_capture    # I1: a tab the debugger can't attach to
         # D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog.
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),

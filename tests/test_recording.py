@@ -143,7 +143,7 @@ def test_window_recording_keeps_a_frame_whose_secret_inventory_is_unknown_and_sa
 
 def test_extension_record_frame_preserves_action_references_and_never_activates():
     out = worker('''(async () => {
-      attach = async id => tabState(id);
+      attach = async id => tabState(id); arm = async id => tabState(id);
       maskState = async id => ({top: 'doc', viewport: [0, 0, 100, 50], items: []});
       let calls = []; cdp = async (id, method, args) => {calls.push({id,method,args}); return {data:'jpeg'};};
       const st = tabState(19); st.visual = {snap:7}; st.shot = 'other screenshot';
@@ -198,7 +198,7 @@ def test_browser_recording_source_preserves_refs_and_checks_ownership():
 
 def test_extension_recording_chunks_do_not_consume_click_screenshot():
     out=worker('''(async () => {
-      attach=async id=>tabState(id);
+      attach=async id=>tabState(id); arm=async id=>tabState(id);
       maskState=async()=>({top:'doc',viewport:[0,0,100,50],items:[]});
       cdp=async()=>({data:'x'.repeat(SHOT_PART+10)});
       const st=tabState(8); st.shot='click image';

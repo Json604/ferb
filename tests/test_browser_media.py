@@ -213,6 +213,6 @@ def test_protocol_14_adds_the_media_op_in_python_and_javascript_together() -> No
     js = subprocess.run([_node(), "-e", f"const p=require({json.dumps(str(EXT / 'protocol.js'))});"
                          "console.log(JSON.stringify({v:p.FERB_PROTOCOL, media:p.OPS.includes('media')}))"],
                         capture_output=True, text=True, timeout=10)
-    assert json.loads(js.stdout) == {"v": 15, "media": True}
-    assert ext_protocol.PROTOCOL_VERSION == 15 and "media" in ext_protocol.Op.__args__
-    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.4"            # protocol 15 (fix wave 4) ships with 0.15.4
+    assert json.loads(js.stdout) == {"v": 16, "media": True}
+    assert ext_protocol.PROTOCOL_VERSION == 16 and "media" in ext_protocol.Op.__args__
+    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.5"            # protocol 16 (fix wave 4 round 3) ships with 0.15.5

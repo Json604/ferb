@@ -166,7 +166,7 @@ def test_a_tab_the_extension_cant_read_is_sent_masked_by_text_recognition_and_sa
     d, ref, _ = _tab_driver(reply)
     asked: list[Any] = []
 
-    async def native(pid: int, bounds: Any) -> Any:
+    async def native(pid: int, bounds: Any, title: str) -> Any:
         asked.append(bounds)
         return None
     d.native_secrets = native
@@ -186,22 +186,59 @@ def test_an_unread_tab_its_window_shows_is_masked_from_accessibility_too() -> No
     page = solid_jpeg(1600, 1040)                               # the page area (800 x 520 pt) at 2x
     before = _state((300, 300, 100, 20), viewport=(0, 0, 800, 520))
     reply = {"data": base64.b64encode(page).decode(), "unread": UNREAD, "mask": {"before": before, "after": None},
-             "window": {"bounds": [100, 50, 800, 600], "active": True, "minimized": False}}
+             "window": {"bounds": [100, 50, 800, 600], "active": True, "minimized": False, "title": "Sign in"}}
     d, ref, _ = _tab_driver(reply)
     asked: list[Any] = []
 
-    async def native(pid: int, bounds: Any) -> Any:
-        asked.append((pid, bounds))
+    async def native(pid: int, bounds: Any, title: str) -> Any:
+        asked.append((pid, bounds, title))
         return [(150.0, 200.0, 100.0, 20.0)], (100.0, 130.0, 800.0, 520.0), True
     d.native_secrets = native
     d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
     jpeg = asyncio.run(d.screenshot(ref))
-    assert asked == [(4242, (100.0, 50.0, 800.0, 600.0))]
+    assert asked == [(4242, (100.0, 50.0, 800.0, 600.0), "Sign in")]          # round 3 m6: its window by title
     assert black(pixel(jpeg, 150, 150))                          # AX: (150-100, 200-130) pt -> (100, 140) px
     assert black(pixel(jpeg, 650, 610))                          # the look before: (300, 300) css -> (600, 600) px
     assert white(pixel(jpeg, 20, 20)) and white(pixel(jpeg, 1200, 900))
     note = d.masking(ref)
     assert "masked from Accessibility" in note and "text recognition" in note and "only" not in note
+
+
+def test_an_unread_capture_with_a_malformed_look_before_is_withheld() -> None:
+    """Round 3 (m5): the look before the capture says where its secret fields were, but malformed: like the normal
+    path, the picture is withheld rather than sent as if that look had shown none."""
+    from ferb.core.errors import Withheld
+    reply = {"data": base64.b64encode(solid_jpeg(200, 100)).decode(), "unread": UNREAD,
+             "mask": {"before": {"top": "d", "viewport": [0, 0, 0, 0], "items": []}, "after": None}, "window": None}
+    d, ref, _ = _tab_driver(reply)
+    with pytest.raises(Withheld, match="didn't say where"):
+        asyncio.run(d.screenshot(ref))
+
+
+def test_an_unread_captures_note_says_what_was_painted() -> None:
+    """Round 3 (m7): the look before's fields were painted and Accessibility couldn't add anything: the note says that,
+    not "masked by text recognition only". A tab FERB lays out at its own size (its own window's viewport) is never
+    masked from Accessibility: the window's places don't match the picture."""
+    page = solid_jpeg(1600, 1040)
+    before = _state((300, 300, 100, 20), viewport=(0, 0, 800, 520))
+    window = {"bounds": [100, 50, 800, 600], "active": False, "minimized": False, "title": "Sign in"}
+    reply = {"data": base64.b64encode(page).decode(), "unread": UNREAD, "mask": {"before": before, "after": None},
+             "window": window}
+    d, ref, _ = _tab_driver(reply)
+    jpeg = asyncio.run(d.screenshot(ref))
+    note = d.masking(ref)
+    assert black(pixel(jpeg, 650, 610)) and "only" not in note
+    assert "the fields the look before the capture found are painted" in note and "text recognition" in note
+    asked: list[Any] = []
+
+    async def native(pid: int, bounds: Any, title: str) -> Any:
+        asked.append(bounds)
+        return [(150.0, 200.0, 100.0, 20.0)], (100.0, 130.0, 800.0, 520.0), True
+    d.native_secrets = native
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    d._tabs["t1"].bridge.call = _replying(dict(reply, mask=None, window=dict(window, active=True, emulated=True)))
+    asyncio.run(d.screenshot(ref))
+    assert asked == [] and "laid out at FERB's own size" in d.masking(ref)
 
 
 def test_browser_screenshot_says_how_an_unread_tab_was_masked() -> None:
@@ -232,12 +269,17 @@ def test_the_mac_driver_gives_an_unread_tabs_secret_fields_from_its_window(monke
     d, ax, _, _ = _brave(monkeypatch)
     ax.tree.secret_rects = [(150.0, 200.0, 100.0, 20.0), (150.0, 60.0, 100.0, 20.0)]   # one in the page, one in the UI
     ax.secure = [True, True]
-    rects, area, whole = asyncio.run(d.page_secrets(12, BOUNDS))
+    titled: list[Any] = []
+    ax.window_with_frame = lambda pid, bounds, title=None, *a, **k: titled.append(title) or "win"   # type: ignore
+    ax.window_title = lambda win: "Sign in"                                # type: ignore[method-assign]
+    rects, area, whole = asyncio.run(d.page_secrets(12, BOUNDS, "Sign in"))
     assert rects == [(150.0, 200.0, 100.0, 20.0)] and area == (100.0, 130.0, 800.0, 520.0) and whole
+    assert titled == ["Sign in"]                                           # round 3 m6: the tie-break by title
+    assert asyncio.run(d.page_secrets(12, BOUNDS, "Another page")) is None  # that window shows another tab: none
     ax.tree.web_areas = [(100.0, 130.0, 400.0, 520.0), (500.0, 130.0, 400.0, 520.0)]
-    assert asyncio.run(d.page_secrets(12, BOUNDS)) is None
+    assert asyncio.run(d.page_secrets(12, BOUNDS, "Sign in")) is None
     ax.window_with_frame = lambda *a, **k: None                            # type: ignore[method-assign]
-    assert asyncio.run(d.page_secrets(12, BOUNDS)) is None
+    assert asyncio.run(d.page_secrets(12, BOUNDS, "Sign in")) is None
 
 
 def test_the_daemon_wires_accessibility_for_unread_tabs(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -246,10 +288,31 @@ def test_the_daemon_wires_accessibility_for_unread_tabs(daemon: RunningDaemon, m
     daemon.daemon.mac.ax.tree = AxTree(secret_rects=[(150.0, 200.0, 100.0, 20.0)], has_web=True,  # type: ignore
                                        web_areas=[(100.0, 130.0, 800.0, 520.0)])
     daemon.daemon.mac.ax.secure = [True]                                    # type: ignore[union-attr]
-    got = daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS))
+    got = daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS, ""))
     assert got == ([(150.0, 200.0, 100.0, 20.0)], (100.0, 130.0, 800.0, 520.0), True)
     daemon.daemon.config.set("privacy", "exclude_apps", ["com.brave.Browser"])   # an app FERB doesn't look at
-    assert daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS)) is None
+    assert daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS, "")) is None
+
+
+def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: RunningDaemon,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 3 (I1): the router's native_capture hook takes the on-screen browser window at the tab window's bounds
+    (by title when several are there) through the Mac driver, as mac.screenshot does; none on screen, or screenshots
+    switched off: None (the tab capture is then withheld with the reason)."""
+    from ferb.act.mac import screenshot
+    from ferb.act.mac.screenshot import Window
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    assert daemon.daemon.router.native_capture == daemon.daemon._native_window_capture    # type: ignore[union-attr]
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True, web_areas=[(100.0, 130.0, 800.0, 520.0)])  # type: ignore
+    windows = [Window(121, 12, BOUNDS, "Chrome Web Store"), Window(122, 12, BOUNDS, "Other page")]
+    monkeypatch.setattr(screenshot, "normal_windows", lambda: list(windows))
+    jpeg, note = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert jpeg == shots.jpeg and shots.captured == [121] and "Accessibility only" in note
+    windows.clear()                                                        # not on screen
+    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    windows.append(Window(121, 12, BOUNDS, "Chrome Web Store"))
+    daemon.daemon.mac.snapshot_images = lambda: False                      # type: ignore[union-attr]
+    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
 
 
 def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningDaemon) -> None:
@@ -267,6 +330,83 @@ def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningD
                                             SimpleNamespace(tab="t1"), SimpleNamespace(target=SimpleNamespace(site=None)),
                                             grant, ToolResult({"ok": True})))
     assert out.image is not None and "couldn't be located" in out.content["initial_image"]["masking"]
+
+
+def _failing_snapshot_driver(reply: dict[str, Any]) -> tuple[Any, Any, list[str]]:
+    """A tab driver whose bridge answers `snapshot` with the extension's error for a page scripts can't reach (as
+    Bridge.call raises it) and `screenshot` with `reply`."""
+    from ferb.core.errors import DriverError
+    d, ref, ops = _tab_driver(reply)
+    t = d._tabs["t1"]
+    answer = t.bridge.call
+
+    async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        if op == "snapshot":
+            ops.append(op)
+            raise DriverError("Cannot access contents of the page. Extension manifest must request permission")
+        return await answer(op, args, **kw)
+    t.bridge.call = call
+    return d, ref, ops
+
+
+def test_browser_screenshot_of_a_page_scripts_cant_reach_still_gives_the_picture() -> None:
+    """Round 3 (I1): browser.screenshot snapshots first, and the extension's snapshot fails on the very pages B6 is
+    for, so the screenshot was never asked for. It is asked for anyway; the page couldn't be read, so the picture comes
+    back with its note, as a shot browser_point refuses (no element can be resolved on a page FERB can't read)."""
+    page = solid_jpeg(200, 100)
+    reply = {"data": base64.b64encode(page).decode(), "unread": UNREAD, "mask": None,
+             "window": {"bounds": [100, 50, 800, 600], "active": False, "minimized": False, "title": "x"}}
+    d, ref, ops = _failing_snapshot_driver(reply)
+    shot, jpeg, width, height = asyncio.run(d.visual_snapshot(ref))
+    assert ops == ["snapshot", "screenshot"] and jpeg == page and (width, height) == (200, 100)
+    assert "couldn't be located" in d.masking(ref)
+    from ferb.core.errors import Refused
+    with pytest.raises(Refused, match="can't read"):
+        asyncio.run(d.point(ref, shot, 10, 10))
+
+
+def test_a_snapshot_failure_on_a_readable_page_is_still_the_snapshots_error() -> None:
+    from ferb.core.errors import DriverError
+    reply = {"data": base64.b64encode(solid_jpeg(200, 100)).decode(), "mask": _same(_state())}
+    d, ref, _ = _failing_snapshot_driver(reply)
+    with pytest.raises(DriverError, match="Cannot access contents"):
+        asyncio.run(d.visual_snapshot(ref))
+
+
+def test_a_tab_the_debugger_cant_attach_to_is_captured_natively_when_its_window_shows_it() -> None:
+    """Round 3 (I1): the extension can't take a tab capture of the Web Store; the tab is the one its window shows, so
+    the daemon captures that browser window natively (AX + text recognition + its note, like mac.screenshot) and says
+    so. A background tab, or no way to capture, is withheld with the honest reason: the only no-picture case."""
+    from ferb.core.errors import Withheld
+    window = {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False, "title": "Chrome Web Store"}
+    reply = {"withheld": "the browser won't let its debugger attach to this page (Cannot attach to this target.)",
+             "undebuggable": True, "window": window}
+    d, ref, _ = _tab_driver(reply)
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    native = solid_jpeg(300, 200)
+    asked: list[Any] = []
+
+    async def capture(pid: int, bounds: Any, title: str) -> Any:
+        asked.append((pid, bounds, title))
+        return native, "masked from Accessibility only: the browser extension couldn't read this page (…)"
+    d.native_capture = capture
+    assert asyncio.run(d.screenshot(ref)) == native
+    assert asked == [(4242, (0.0, 25.0, 1440.0, 875.0), "Chrome Web Store")]
+    note = d.masking(ref)
+    assert "whole browser window" in note and "debugger" in note and "Accessibility only" in note
+    d._tabs["t1"].bridge.call = _replying(dict(reply, window=dict(window, active=False)))
+    with pytest.raises(Withheld, match="isn't the one its window shows"):
+        asyncio.run(d.screenshot(ref))
+    d.native_capture = None
+    d._tabs["t1"].bridge.call = _replying(reply)
+    with pytest.raises(Withheld, match="debugger"):
+        asyncio.run(d.screenshot(ref))
+
+
+def _replying(reply: dict[str, Any]) -> Any:
+    async def call(op: str, args: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        return reply
+    return call
 
 
 def test_a_screenshot_in_parts_is_masked_once_whole() -> None:
@@ -1185,7 +1325,7 @@ def test_a_stuck_look_holds_its_tab_only_until_its_deadline() -> None:
 def test_every_look_waits_only_until_its_commands_deadline() -> None:
     """The deadline is the command's own (executeCommand's _timeout_ms), not a new number."""
     out = worker('''(async () => {
-      attach = async id => tabState(id);
+      attach = async id => tabState(id); arm = async id => tabState(id);   // captures arm the debugger only
       cdp = async () => ({data: 'jpeg'});
       const left = [];
       maskState = async (tab, deadline) => {
@@ -1420,7 +1560,7 @@ def test_extension_captures_carry_the_page_before_and_after(op: str, case: str) 
     its window's place (for the daemon's Accessibility and text recognition masking); a page whose secret field it
     found but can't cover still sends no picture."""
     out = worker('''(async () => {
-      attach = async id => tabState(id); let reads = 0, captures = 0;
+      attach = async id => tabState(id); arm = async id => tabState(id); let reads = 0, captures = 0;
       maskState = async () => {
         reads++;
         if (CASE === 'unreadable' || (CASE === 'unread_after' && reads > 1))
@@ -1443,10 +1583,59 @@ def test_extension_captures_carry_the_page_before_and_after(op: str, case: str) 
         assert "data" not in out["out"] and out["out"]["withheld"] and out["captures"] == 0
     else:
         assert out["out"]["data"] == "jpeg-bytes" and out["out"]["unread"].startswith("the page can't be read")
-        assert out["out"]["window"] == {"bounds": [10, 20, 800, 600], "active": True, "minimized": False}
+        assert out["out"]["window"] == {"bounds": [10, 20, 800, 600], "active": True, "minimized": False,
+                                        "title": ""}
         before = out["out"]["mask"] and out["out"]["mask"]["before"]
         assert (before["items"][0]["rect"] == [1, 1, 2, 2]) if case == "unread_after" else out["out"]["mask"] is None
     assert out["captures"] == (0 if case == "uncoverable" else 1)
+
+
+_UNSCRIPTABLE = '''
+      const sent = [];
+      chrome.debugger.attach = async () => { if (UNDEBUGGABLE) throw new Error('Cannot attach to this target.'); };
+      chrome.debugger.detach = async () => {};
+      chrome.debugger.sendCommand = async (t, method) => { sent.push(method);
+        return method === 'Page.captureScreenshot' ? {data: 'jpeg'} :
+               method === 'Page.addScriptToEvaluateOnNewDocument' ? {identifier: 'h'} : {}; };
+      chrome.scripting = {executeScript: async () => { throw new Error('Cannot access contents of the page'); }};
+      chrome.tabs.get = async id => ({id, windowId: 5, active: true, title: 'Chrome Web Store - Extensions'});
+      chrome.windows = {get: async id => ({id, left: 0, top: 25, width: 1440, height: 875, state: 'normal'})};
+'''
+
+
+@pytest.mark.parametrize("op", ["screenshot", "record_frame"])
+def test_a_tab_scripts_cant_reach_is_captured_through_the_real_attach_path(op: str) -> None:
+    """Round 3 (I1): nothing of FERB's own is mocked, only Chrome's APIs: the debugger attaches but the page can't be
+    scripted (as on an error page or a data: URL), on a tab FERB hasn't driven yet. The capture arms the debugger only
+    (no input-readiness probe, which needs scripting and failed first) and sends the picture marked `unread`, with the
+    window's place and the tab's title."""
+    out = worker('''(async () => {''' + _UNSCRIPTABLE.replace("UNDEBUGGABLE", "false") + '''
+      let reply; try { reply = await commands[OP]({tab_id: 19, _timeout_ms: 3000}); }
+      catch (e) { reply = {error: String(e.message || e)}; }
+      return {reply, sent};
+    })()'''.replace("OP", json.dumps(op)))
+    reply = out["reply"]
+    assert reply.get("data") == "jpeg" and reply["unread"].startswith("the page can't be read"), reply
+    assert reply["window"] == {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False,
+                               "title": "Chrome Web Store - Extensions"}
+    assert "Input.dispatchMouseEvent" not in out["sent"]          # no readiness probe: that needs a scriptable page
+
+
+@pytest.mark.parametrize("op", ["screenshot", "record_frame"])
+def test_a_tab_the_debugger_cant_attach_to_answers_with_its_window_for_a_native_capture(op: str) -> None:
+    """Round 3 (I1): the Web Store, chrome:// and other extensions' pages can't take the debugger at all. No tab
+    capture is possible; the answer says so honestly and gives the tab's window, so the daemon can capture that window
+    natively when the tab is the one it shows."""
+    out = worker('''(async () => {''' + _UNSCRIPTABLE.replace("UNDEBUGGABLE", "true") + '''
+      let reply; try { reply = await commands[OP]({tab_id: 19, _timeout_ms: 3000}); }
+      catch (e) { reply = {error: String(e.message || e)}; }
+      return {reply, sent};
+    })()'''.replace("OP", json.dumps(op)))
+    reply = out["reply"]
+    assert reply.get("undebuggable") is True and "data" not in reply, reply
+    assert "debugger" in reply["withheld"] and "Cannot attach to this target" in reply["withheld"]
+    assert reply["window"]["title"] == "Chrome Web Store - Extensions" and reply["window"]["active"] is True
+    assert "Page.captureScreenshot" not in out["sent"]
 
 
 def test_the_extension_reports_a_windows_page_for_native_captures() -> None:

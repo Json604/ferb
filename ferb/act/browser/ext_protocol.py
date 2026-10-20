@@ -22,7 +22,11 @@ one can't mask an older extension's, so neither side accepts the other.
 Protocol 15 (fix wave 4, extension 0.15.4): `window_secrets` takes the captured window's `title`, tells windows at the
 same bounds apart by their active tab's title, and answers with that tab (`tab`: URL with secret parameters masked,
 title), which the daemon checks against the captured window and the front window uses as its tab. An older daemon
-would ignore the check; an older extension can't break ties or name the tab."""
+would ignore the check; an older extension can't break ties or name the tab.
+Protocol 16 (fix wave 4 round 3, extension 0.15.5): `screenshot` and `record_frame` arm the debugger only (no
+input-readiness probe, which needs a scriptable page) and send a page they can't read with `unread`, its look before
+and `window` ({bounds, active, minimized, title, emulated?}); a page the debugger can't attach to answers `withheld`
+with `undebuggable` and `window`, for the daemon's native window capture."""
 
 import base64
 import hashlib
@@ -32,8 +36,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 15
-MIN_EXTENSION_VERSION = "0.15.4"
+PROTOCOL_VERSION = 16
+MIN_EXTENSION_VERSION = "0.15.5"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
