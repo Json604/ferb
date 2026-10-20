@@ -64,7 +64,8 @@ def secret_param(name: str) -> bool:
             or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})
 # Explicit credential-field metadata, never broad login/security/access language in an ordinary owner question.
 OTP_LABEL = re.compile(rf"(?i)\b(?:otp|totp|2fa|one[{_H}_-]?time(?:[{_H}_-]+(?:code|password|pin))?|"
-                       rf"(?:verification|authentication|security|login|sign[{_H}_-]?in|access)[{_H}_-]+(?:code|pin))\b")
+                       rf"(?:verification|authentication|security|login|sign[{_H}_-]?in|access)[{_H}_-]+"
+                       r"(?:code|pin))\b")
 # A password field, also while a site's "Show password" makes it plain text (type=text, AXTextField): its own
 # metadata says so (autocomplete current-password/new-password, or a name, id, label, placeholder or title holding
 # "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. The name and
@@ -445,8 +446,8 @@ def _secret_colon_end(line: str) -> bool:
 # ("api " then "key 482-913", "my wifi " then "password is …").
 _PREFIX_END = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[{_H}]+[A-Za-z-]+){{0,2}}|(?<![A-Za-z0-9])(?:api|"
                          r"private|access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|"
-                         rf"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)[{_H}_/-]*\S*)"
-                         rf"[{_H}]*$")
+                         r"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)"
+                         rf"[{_H}_/-]*\S*)[{_H}]*$")
 
 
 def _line_starts(pending: str) -> tuple[list[int], int]:
