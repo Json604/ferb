@@ -733,8 +733,9 @@ for `done` only.
 record of the tasks a progress question can be about (`Supervisor._status_facts`): every running tree (running,
 blocked when its latest worker report or a plan step is blocked, failed or needs an answer, stopping) and this
 conversation's latest five tasks recorded since its chat session started (`CONVERSATION_ROOTS`: the tasks above
-the session's rowid floor by key, each matched to its conversation by key), with the first line of the latest worker report and the plan's
-step counts, labelled with those tasks' origins. `supervisor.md` answers progress only from it.
+the session's rowid floor by key, each matched to its conversation by key), with the first line of the latest
+worker report and the plan's step counts, labelled with those tasks' origins. `supervisor.md` answers progress only
+from it.
 
 **A recurring run sees the one before (fix wave 2, 2026-10-15).** A scheduled run's tree is saved in the schedule's
 conversation (`schedule:<id>`), and a run the planner answers directly is journaled there as `chat.reply`, so the next
@@ -1290,14 +1291,19 @@ is one word (it may be a steer); stopping stays the code's (`task.stop`, a quest
 as the digits it replaced, so masking twice changes nothing.
 `RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
 the line being read is held while it holds a class word, an OTP introducer, a word that can still become one ("api ",
-"sign ", "my wifi ", "coupon "), or a number its link can still follow ("482913 is your …"; a prompt such as
-"Delete 1234 files? [y/N] " appears at once). Of the complete lines only a last line that is only a code is held (its
-naming line can follow), with the related lines above it; code-only lines never hold each other, so number-only output
-passes one line behind. A label line, "Password:" or a list's label never changes with what follows, so it is released
-at once and kept as context (`_forward_context`, a line or two) that the next release is masked with. A line too long
-to hold is held only from the class items still within reach of its end. A fuzz test (CRLF and lone "\r" splits,
-abbreviations, bracketed prefixes, number-only lines, prompts) checks that the stream masks every code
-`Redactor.text` masks; agreement is tested, not proved. URL words never count (query credentials are the URL rule's).
+"sign ", "my wifi ", "coupon ", a list qualifier such as "Two factor "), or a number its link can still follow
+("482913 is your …"; a prompt such as "Delete 1234 files? [y/N] " appears at once); a trailing digit run is held
+from its token's start, through "." and "," too, so a card is never split. Of the complete lines only a last line that
+is only a code is held (its naming line can follow), with the related lines above it; code-only lines never hold each
+other, so number-only output passes one line behind. A label line, "Password:" or a list's label never changes with
+what follows, so it is released at once and kept as context (`_forward_relations`, a line or two) that the next
+release is masked with; the line under it is held while it can still relate (under "Password:" the whole value line,
+under a list a line starting with a list token, under a label one starting as a code alone). When a read releases the
+start of a line, its last words are kept (`_line_head`) so the rest is masked as part of that line. A line too long to
+hold is held only from the class items still within reach of its end. A fuzz test (CRLF and lone "\r" splits,
+abbreviations, bracketed prefixes, number-only lines, prompts, real list labels, quoted values on the next line)
+checks that the stream masks every code `Redactor.text` masks; agreement is tested, not proved. URL words never
+count (query credentials are the URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
