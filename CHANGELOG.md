@@ -194,9 +194,9 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   longer deletes the cards of unrelated tasks.
 - Only your own words are saved as yours. "Remember that …" saves the whole sentence you typed it in (so a slice can't
   drop a "never" or an "if …"); FERB's rewording of it waits until you reply Yes to its question (in chat or the notch) before it
-  reaches a prompt, and a quote like "the" no longer turns the planner's sentence into an owner rule. A preference said
-  while FERB was looking at outside content joins your standing rules only once you confirm it. Unconfirmed hints read
-  as unconfirmed to the planner.
+  reaches a prompt, and a quote like "the" no longer turns the planner's sentence into an owner rule. A preference in
+  your own typed words joins your standing rules at once, whatever was on screen (your decision); pasted text never
+  does. Unconfirmed hints read as unconfirmed to the planner.
 - Forget goes further: FERB's "Remembered: …" line, its answer to the forgotten message, the lines of its replies that
   restate the item, and what a task given the item did with it (its answer, outcome, saved plan, permanent record,
   "while you were away" result, its tool calls and turns, and its episode card when that restates the item) go too,

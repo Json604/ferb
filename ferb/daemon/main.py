@@ -1844,15 +1844,14 @@ class Daemon:
         if self.memory is not None:
             export(self.memory, self.home / "memory")
 
-    def _remember(self, items: list[Any], own_words: str, source_id: str,
-                  outside: bool = False) -> list[dict[str, str]]:
+    def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[dict[str, str]]:
         """Chat capture (memory review I1, MP2). `own_words`: what the owner typed (pasted parts left out). The quote must
         be whole words of it. Saved as owner_stated is only the owner's own text: the whole sentence(s) of their words
         that hold the planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is FERB's
         wording of what they said: an inferred proposal, out of every prompt until they say Yes to the question that
-        offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. `outside`:
-        the turn showed outside content, so an owner preference waits for their Confirm before it joins their
-        always-loaded identity. Per saved item: its receipt and the line code adds to the reply."""
+        offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. A preference
+        in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20: "No hold for
+        my typed words"). Per saved item: its receipt and the line code adds to the reply."""
         from ferb.memory.items import contains_words, owner_sentences, query_terms
         saved: list[dict[str, str]] = []
         for it in items:
@@ -1876,12 +1875,7 @@ class Daemon:
                 continue
             text = " ".join(m.content.split())
             if m.origin == "owner_stated":
-                held = outside and m.kind == "preference" and m.subject == "owner"
-                if held:
-                    self.memory.hold_identity(m.id)
-                saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}" + (
-                    " (it becomes one of your standing rules once you confirm it: I was looking at outside content)"
-                    if held else "")})
+                saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}"})
             else:
                 self._ask_owner("confirm", m.id, f"Keep this, in FERB's words (you didn't say it this way)? “{text}”",
                                 "memory-confirm-" + m.id)

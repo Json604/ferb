@@ -133,10 +133,10 @@ def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_
     assert "never share my links publicly" in _identity(daemon)
 
 
-def test_a_preference_said_while_outside_content_was_shown_waits_for_confirm_before_identity(
-        daemon: RunningDaemon) -> None:
-    """Review minor: a chat-captured owner preference from a turn that showed outside content stays out of the
-    always-loaded identity until the owner confirms it (it is offered as an identity proposal)."""
+def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_screen(daemon: RunningDaemon) -> None:
+    """Owner decision 2026-10-20 (O2): "No hold for my typed words." A preference saved from the owner's own typed
+    sentence goes straight into their identity even when the turn showed outside content (a web page, the front
+    window); no identity proposal is made for it. Pasted text never becomes theirs, and FERB's wording still waits."""
     import json as _json
     daemon.daemon.supervisor.relevant_context = lambda _: ("A page the owner had open.", "external:web")
     install(daemon, [_json.dumps({"kind": "reply", "text": "Okay.", "remember": [
@@ -144,11 +144,8 @@ def test_a_preference_said_while_outside_content_was_shown_waits_for_confirm_bef
          "quote": "I prefer Brave for work"}]})])
     chat(daemon, "I prefer Brave for work")
     assert run(daemon, lambda: mem(daemon).items("active"))[0].origin == "owner_stated"
-    assert "Brave" not in _identity(daemon)
-    proposals = run(daemon, lambda: daemon.daemon.learning.items("identity_proposal"))
-    assert [p["body"]["text"] for p in proposals] == ["I prefer Brave for work"]
-    run(daemon, lambda: daemon.daemon.learning.confirm(proposals[0]["id"]))
     assert "I prefer Brave for work" in _identity(daemon)
+    assert run(daemon, lambda: daemon.daemon.learning.items("identity_proposal")) == []
 
 
 def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_yes(daemon: RunningDaemon) -> None:

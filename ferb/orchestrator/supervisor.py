@@ -432,10 +432,8 @@ class Supervisor(WorkerRuns):
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
-        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; the last argument: the turn showed outside
-        # content (an owner preference then waits for their Confirm before it joins their identity); from the daemon
-        self.remember: Callable[[list[Any], str, str, bool], list[dict[str, str]]] = \
-            lambda items, own_words, source, outside=False: []
+        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; supplied by the daemon
+        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = lambda items, own_words, source: []
         # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
@@ -1138,12 +1136,8 @@ class Supervisor(WorkerRuns):
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[str] = []
-        shown_now = self._env.get(request_id, {})        # did this turn show outside content? (as S4 counts it)
-        outside = any(origins_.stored_outside(origins_.split(e["origin"]))
-                      for e in shown_now.get("context_exposures", [])) \
-            or any(origins_.is_external(o) for o in shown_now.get("message_origin") or set())
         for item in out.remember:           # one at a time, so a refused one is known by name
-            saved_now = self.remember([item], typed, entry.id, outside)
+            saved_now = self.remember([item], typed, entry.id)
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             if not saved_now:

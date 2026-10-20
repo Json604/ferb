@@ -1365,9 +1365,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   that hold the planner's content (`items.owner_sentences`: a line break, `!`/`?` before a space, or a dot starting a
   new sentence after a word that isn't abbreviation-shaped, the redactor's rule; never a comma);
   FERB's rewording is an inferred proposal offered by a `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No
-  retracts); a quote sharing no word with the content is refused. An owner preference from a turn that showed
-  outside content (as S4 counts it) is held from identity (`memory_items.identity_held`, migration 0040) and offered as
-  an identity proposal. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
+  retracts); a quote sharing no word with the content is refused. An owner_stated preference about the owner joins
+  identity whatever the turn showed (owner decision 2026-10-20: "No hold for my typed words"); pasted text never
+  becomes owner_stated, and identity proposals remain only for inferred and derived items. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
   "unconfirmed hint", `learning.shown_state`), reach prompts; pending inferred items are indexed as fact nodes in
   state `proposed`, which `Learning.search`, the entity rollup, `memory.learned` and `memory.read` all leave out, so
   only the dashboard (inventory `confirmable`) sees and confirms them. FERB's Yes/No memory questions are kept in

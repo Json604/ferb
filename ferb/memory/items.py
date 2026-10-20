@@ -405,16 +405,6 @@ class Memory:
         assert out is not None
         return out
 
-    def hold_identity(self, item_id: str) -> None:
-        """Keep an owner preference out of the always-loaded identity until the owner confirms it (it was captured in a
-        turn that showed outside content): it is offered as an identity proposal instead."""
-        self.db.conn.execute("UPDATE memory_items SET identity_held = 1 WHERE id = ?", (item_id,))
-        self.on_change()
-
-    def identity_held(self, item_id: str) -> bool:
-        row = self.db.conn.execute("SELECT identity_held FROM memory_items WHERE id = ?", (item_id,)).fetchone()
-        return bool(row and row[0])
-
     def retract(self, item_id: str, reason: str) -> None:
         """Soft: kept for history, never recalled."""
         if self.get(item_id) is None:

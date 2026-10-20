@@ -715,15 +715,14 @@ class Learning:
         """Index the memory items as fact nodes: those that may shape prompts (`prompt_ready`; an unconfirmed hint says
         so in its body), and inferred ones waiting for the owner's Confirm in state 'proposed', which search (so every
         prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. Only an
-        owner_stated preference about the owner becomes identity, and one held from identity (captured while outside
-        content was shown) is offered as an identity proposal instead."""
+        owner_stated preference about the owner becomes identity (whatever was on screen when they typed it: owner
+        decision 2026-10-20)."""
         from ferb.memory.items import prompt_ready
 
         def pending(item: Any) -> bool:
             return item.valid_to is None and item.status == 'proposed' and item.origin == 'inferred'
         for node in self.items():
-            if node['kind'] not in ('fact', 'identity', 'identity_proposal') or \
-                    not any(s.startswith('memory:') for s in node['sources']):
+            if node['kind'] not in ('fact', 'identity') or not any(s.startswith('memory:') for s in node['sources']):
                 continue
             source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
             source = memory.get(source_id)
@@ -739,12 +738,7 @@ class Learning:
                          origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
                          state='proposed' if pending(item) else 'active', owner=item.origin == 'owner_stated')
                 if item.origin == 'owner_stated' and item.kind == 'preference' and item.subject == 'owner':
-                    if memory.identity_held(item.id):
-                        self.put('identity_proposal', item.key, {'text': item.content}, ['memory:' + item.id],
-                                 made_by='code:held-preference/1')
-                    else:
-                        self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
-                                 origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active',
-                                 owner=True)
+                    self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
+                             origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active', owner=True)
             except LearningRefused:
                 pass  # a forgotten derived item is deliberately never reconstructed
