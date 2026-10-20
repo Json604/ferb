@@ -54,6 +54,22 @@ def problem_of(e: "ServiceError") -> str:
     return service_problem(str(e), e.runtime, e.network)
 
 
+def too_large_problem(e: InputTooLarge) -> str:
+    """The owner-facing sentence for a call FERB didn't send: over the runtime's documented per-input character cap
+    (L28). FERB refused it; the service reported nothing."""
+    service = f"the AI service I use ({e.runtime})" if e.runtime else "the AI service I use"
+    return (f"I didn't send this to {service}: its context is {e.chars:,} characters, over that service's limit of "
+            f"{e.max_chars:,} characters for one input.")
+
+
+def told(e: BaseException, fallback: str) -> str:
+    """What the owner reads for a failed model call: the service's own error, a call FERB didn't send, else
+    `fallback`."""
+    if isinstance(e, ServiceError):
+        return problem_of(e)
+    return too_large_problem(e) if isinstance(e, InputTooLarge) else fallback
+
+
 
 class RuntimeViolation(Exception):
     pass
@@ -200,6 +216,9 @@ class WorkerRuns:
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
             result = Outcome(task.id, "blocked", problem_of(e), [], [])
+        except InputTooLarge as e:              # refused before sending (L28): not the service's error
+            failure = f"{type(e).__name__}: {e}"
+            result = Outcome(task.id, "blocked", too_large_problem(e), [], [])
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
@@ -244,7 +263,14 @@ class WorkerRuns:
                                                 count_tokens(json.dumps(output_schema)) + 1024,
                                 max_chars=limits.max_input_chars)
         except InputTooLarge as exc:            # refused by name, never sent to be rejected
-            raise ServiceError(str(exc), rt.name) from None
+            exc.runtime = rt.name
+            # which block was too big: each one's retrieval reference and size, never its text
+            refused = self.spans.start("context.too_large", task_id=task.id if task.id != task.request_id else None,
+                                       parent_id=parent_span, input={"runtime": rt.name, "blocks": [
+                                           {"reference": block.reference, "chars": len(block.text)}
+                                           for block in ctx if block.text]})
+            self.spans.finish(refused, output={"chars": exc.chars, "max_input_chars": exc.max_chars}, error=str(exc))
+            raise
         exposure = getattr(self, '_context_exposure', None)
         if exposure is not None:
             exposure(task, ctx, assembly, tree)

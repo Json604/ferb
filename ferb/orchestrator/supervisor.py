@@ -24,7 +24,7 @@ from ferb.act.fs.files import normalize_path
 from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
-from ferb.core.errors import Deferred
+from ferb.core.errors import Deferred, InputTooLarge
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens
 from ferb.core.prompts import load_prompt
@@ -52,7 +52,7 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, problem_of
+from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, told
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -634,10 +634,10 @@ class Supervisor(WorkerRuns):
         try:                    # the run's per-request context goes when it ends, however it ends (final review M4)
             try:
                 out = await self._decide(session, sched.request + note, request_id)
-            except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
-                self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,
+            except (RuntimeViolation, ValidationError, ValueError, InputTooLarge) as e:   # the cause is kept and told
+                self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # (L21)
                                                     "detail": str(e)})
-                answer = problem_of(e) if isinstance(e, ServiceError) else SCHEDULED_SORRY
+                answer = told(e, SCHEDULED_SORRY)
                 return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
                         "goal": sched.request}
             if out.kind != "task" or out.task is None:
@@ -964,12 +964,11 @@ class Supervisor(WorkerRuns):
             self._env.pop(request_id, None)
             yield self._failure_reply(session_id, request_id, SORRY)
             return
-        except (ValidationError, ValueError) as e:              # the reason is kept, and told plainly when it's the
-            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # service's
-                                                "detail": str(e)})
+        except (ValidationError, ValueError, InputTooLarge) as e:   # the reason is kept, and told plainly when it's
+            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # the service's
+                                                "detail": str(e)})                                  # or FERB's refusal
             self._env.pop(request_id, None)
-            yield self._failure_reply(session_id, request_id,
-                                      problem_of(e) if isinstance(e, ServiceError) else SORRY)
+            yield self._failure_reply(session_id, request_id, told(e, SORRY))
             return
         authority_id = request_id
         turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw
@@ -2373,7 +2372,7 @@ class Supervisor(WorkerRuns):
                 if attempt_revision != len(tree.steering.messages) and not tree.stop:
                     continue
                 # The owner reads the problem in plain words; the details stay in the records (P27).
-                problem = (": " + problem_of(exc) if isinstance(exc, ServiceError)
+                problem = (": " + told(exc, "") if isinstance(exc, (ServiceError, InputTooLarge))
                            else " (a problem on my side)")
                 if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
                     tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."

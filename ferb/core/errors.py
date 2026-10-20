@@ -28,6 +28,7 @@ class InputTooLarge(Unsupported):
 
     def __init__(self, chars: int, max_chars: int, what: str = "this call's context") -> None:
         self.chars, self.max_chars = chars, max_chars
+        self.runtime = ""                # the runtime it wasn't sent to, where the caller knows it
         super().__init__(f"{what} is {chars} characters, more than the {max_chars} characters the model runtime "
                          "accepts in one input; nothing was sent")
 

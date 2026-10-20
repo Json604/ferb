@@ -120,17 +120,40 @@ def test_the_planner_fits_chat_to_the_character_cap(daemon, monkeypatch) -> None
     assert "older entries not shown" in request.context
 
 
+def _refusals(daemon) -> list[dict[str, Any]]:
+    async def go() -> list[dict[str, Any]]:
+        return [{"input": json.loads(r[0]), "error": r[1], "parent": r[2]} for r in daemon.daemon.db.conn.execute(
+            "SELECT s.input_json, s.error, p.kind FROM spans s LEFT JOIN spans p ON p.id = s.parent_id "
+            "WHERE s.kind = 'context.too_large' ORDER BY s.rowid")]
+    return daemon.run(go())
+
+
 def test_a_planner_context_over_the_character_cap_is_refused_by_name_never_sent(daemon, monkeypatch) -> None:
+    """Refused by FERB, not reported by the service; the screenshot (0 characters) is not blamed and not retried; the
+    trace names each block's size."""
+    from ferb.sense import front_window as fw
+
+    async def front(request_id: str, client_pid: int | None = None) -> Any:     # a screenshot goes with the turn
+        return fw.FrontWindow("Brave Browser", "com.brave.Browser", "notes", "https://example.com/", "notes",
+                              "ev-" + request_id, "external:web:example.com", image=b"\xff\xd8\xff redacted")
+    daemon.daemon.front_window = front
     script = install(daemon, [sup("reply", "never used")])
     monkeypatch.setattr(FakeRuntime, "limits", capped(2_000))
-    events = chat(daemon, "please read this: " + "q" * 3_000)
-    reply = next(e for e in events if e["type"] == "reply")
-    assert "characters" in reply["text"] and "2000" in reply["text"]
+    message = "please read this: " + "q" * 3_000
+    events = chat(daemon, message)
+    reply = next(e for e in events if e["type"] == "reply")["text"]
+    assert "didn't send" in reply and "2,000" in reply and "reported an error" not in reply
     assert not script.requests                                          # nothing was sent to be rejected
 
-    async def failed() -> list[Any]:
-        return [e.data for e in daemon.daemon.journal.of_kind("chat.failed")]
-    assert any("characters" in str(row.get("detail")) for row in daemon.run(failed()))
+    async def journal(kind: str) -> list[Any]:
+        return [e.data for e in daemon.daemon.journal.of_kind(kind)]
+    assert any("characters" in str(row.get("detail")) for row in daemon.run(journal("chat.failed")))
+    assert not daemon.run(journal("screen.image_refused"))
+    [refusal] = _refusals(daemon)                                        # one assembly, no image-less retry
+    blocks = refusal["input"]["blocks"]
+    assert refusal["parent"] == "model.turn" and "2000" in refusal["error"]
+    assert all(set(b) == {"reference", "chars"} for b in blocks)
+    assert max(blocks, key=lambda b: b["chars"])["chars"] >= len(message)
 
 
 def test_a_worker_context_over_the_character_cap_is_refused_by_name_never_sent(daemon, monkeypatch) -> None:
@@ -141,10 +164,12 @@ def test_a_worker_context_over_the_character_cap_is_refused_by_name_never_sent(d
     chat(daemon, "tidy the notes", timeout=60)
     assert not [key for _, key, _ in script.requests if key == "worker"]
 
-    async def worker_errors() -> list[str]:
-        return [r[0] for r in daemon.daemon.db.conn.execute(
-            "SELECT error FROM spans WHERE kind = 'worker' AND error IS NOT NULL")]
-    assert any("characters" in e and "500" in e for e in daemon.run(worker_errors()))
+    async def worker_runs() -> list[tuple[str, str]]:
+        return [(r[0], r[1]) for r in daemon.daemon.db.conn.execute(
+            "SELECT error, output_json FROM spans WHERE kind = 'worker' AND error IS NOT NULL")]
+    runs = daemon.run(worker_runs())
+    assert any("InputTooLarge" in e and "500" in e and "didn't send" in out for e, out in runs)
+    assert any(r["parent"] == "worker" for r in _refusals(daemon))
 
 
 # ---------- the learner and the distiller ----------
