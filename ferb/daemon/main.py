@@ -808,10 +808,11 @@ class Daemon:
             return None
         exclusions, daemon_pid = self._exclusions(), os.getpid()
 
-        async def shoot(w: Any) -> bytes:
+        async def shoot(w: Any) -> tuple[bytes, str]:
             if not mac.snapshot_images():                    # the owner's `[mac] snapshot_image` switch
                 raise Refused("screenshots are switched off ([mac] snapshot_image)")
-            return (await mac.window_image(f"pid:{w.pid}", window=str(w.id)))[2]
+            _, shot, jpeg = await mac.window_image(f"pid:{w.pid}", window=str(w.id))
+            return jpeg, shot.masking
 
         async def keep(image: bytes, facts: dict[str, Any], origin: str) -> str:
             return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)

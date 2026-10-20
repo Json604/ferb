@@ -32,8 +32,11 @@ Rect = tuple[float, float, float, float]          # x, y, w, h
 # L13: a capture is never refused for what it shows; it is withheld only when its secret fields can't be painted over.
 INVENTORY_INCOMPLETE = "the window's secret-field inventory is incomplete; pixels withheld"
 MOVED = "a secret field moved, appeared or went during capture; pixels withheld"
-PAGE_UNREAD = ("neither the browser extension nor Accessibility could read the page this window shows, so its secret "
-               "fields can't be found; pixels withheld")
+# Owner, 2026-10-14: "no screenshots should be refused; go with redacted stuff". Where the secret fields can't be
+# located at all, the picture goes on to the F5 sanitizer's text recognition (every image path runs it) with this note.
+OCR_ONLY = "masked by text recognition only (a secret it can't read as text could show)"
+PAGE_UNREAD = ("the page's secret fields couldn't be located (neither the browser extension nor Accessibility could "
+               "read the page this window shows); " + OCR_ONLY)
 PAGE_UNPLACED = ("the page's secret fields can't be placed on the window (Accessibility shows no page area); pixels "
                  "withheld")
 UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
@@ -64,11 +67,13 @@ Look = tuple[axm.AxTree | None, WebSecrets | None]      # one look at a window: 
 
 def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], str]:
     """Screen-point boxes to paint over on one capture of a window (L13), from the looks before and after it, and a
-    note when they come from Accessibility alone for a browser page. Painted: the secret fields the AX walks found
-    (AXSecureTextField, and text fields whose metadata names a password field) and, for a browser, the fields the
-    extension marks secret in its page (mask.page_masks), placed on the AX web area that draws it. Withheld when that
-    can't be done: Accessibility can't read the window, a secret field has no box, something moved, appeared or went
-    during the capture, or neither the extension nor Accessibility read the browser's page."""
+    note when a browser page's fields come from Accessibility alone, or couldn't be located at all. Painted: the
+    secret fields the AX walks found (AXSecureTextField, and text fields whose metadata names a password field) and,
+    for a browser, the fields the extension marks secret in its page (mask.page_masks), placed on the AX web area that
+    draws it. When neither the extension nor Accessibility read the browser's page, its fields can't be located: the
+    picture is masked by text recognition only (`PAGE_UNREAD`), never refused. Withheld when the fields found can't be
+    painted: Accessibility can't read the window, a secret field has no box, something moved, appeared or went during
+    the capture."""
     (t1, w1), (t2, w2) = before, after
     if t1 is None or t2 is None or t1.secure is None or t2.secure is None:
         raise Withheld(INVENTORY_INCOMPLETE)
@@ -85,7 +90,7 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
     if not browser:
         return ax2, ""
     if any(not t.has_web or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas)) for t in (t1, t2)):
-        raise Withheld(PAGE_UNREAD)
+        return ax2, PAGE_UNREAD
     return ax2, AX_ONLY
 
 

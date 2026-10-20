@@ -291,12 +291,37 @@ def test_a_shown_password_in_a_native_browser_capture_is_masked_from_ax_and_says
     assert "Accessibility only" in shot.masking
 
 
-def test_a_browser_page_nobody_read_is_withheld(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_browser_page_nobody_read_is_sent_masked_by_text_recognition_and_says_so(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner, 2026-10-14 ("no screenshots should be refused; go with redacted stuff") and the live case of 2026-10-19
+    (a Greenhouse page in Brave, "pixels withheld"): when neither the extension nor Accessibility can read the page,
+    its secret fields can't be located, so the capture goes on to the OCR layer with a note saying so; the secret
+    fields Accessibility found elsewhere in the window are still painted."""
     d, ax, shots, _ = _brave(monkeypatch)
     ax.tree.empty_web_areas = [(100.0, 130.0, 800.0, 520.0)]    # Accessibility shows the page area, empty
-    with pytest.raises(Withheld, match="neither"):
-        asyncio.run(d.screenshot("Brave"))
-    assert shots.captured == []
+    ax.tree.secret_rects = [(150.0, 60.0, 100.0, 20.0)]         # a password field in the browser's own toolbar UI
+    ax.secure = [True, True]
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert shots.captured == [120] and black(pixel(jpeg, 150, 30)) and white(pixel(jpeg, 600, 600))
+    assert "couldn't be located" in shot.masking and "text recognition only" in shot.masking
+    assert "neither the browser extension nor Accessibility" in shot.masking
+    ax.tree.empty_web_areas, ax.tree.has_web = [], False        # no page area at all
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert "text recognition only" in shot.masking and shots.captured == [120, 120]
+
+
+def test_a_mac_screenshot_of_a_page_nobody_read_reaches_the_model_through_text_recognition(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    seen = _ocr_log(monkeypatch)
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True, web_areas=[(100.0, 130.0, 800.0, 520.0)],
+                                       empty_web_areas=[(100.0, 130.0, 800.0, 520.0)])  # type: ignore[union-attr]
+    g = grant_task(daemon, "n", Identity.OWNER, {"screen"}, {"use_app"})
+    r = gateway_call(daemon, g, "mac.screenshot", app="Brave")
+    assert not r["is_error"] and "image_withheld" not in r["content"], r
+    assert base64.b64decode(r["image"]["data"]) == shots.jpeg and seen == [shots.jpeg]   # OCR looked first
+    assert "text recognition only" in r["content"]["masking"]
+    assert daemon.run(_evidence(daemon, "n")) == [("screenshot", True)]
 
 
 def test_a_secret_field_appearing_during_capture_withholds_it(monkeypatch: pytest.MonkeyPatch) -> None:

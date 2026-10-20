@@ -1652,6 +1652,13 @@ protected FERB state (16.9).
   (box-reflect, SVG `url()` filters, `::details-content`) withhold.
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
   area; AX-only masking is recorded as `masking`.
+- A page neither the extension nor Accessibility could read (no answering profile and no AX page area, or an empty
+  one) is no longer withheld (owner: "no screenshots should be refused; go with redacted stuff"; live case
+  2026-10-19, where the front-window block said "pixels withheld" and FERB asked which internship): the AX secret
+  fields elsewhere in the window are painted, the page is left to the F5 text recognition every image path runs, and
+  `masking` says so ("the page's secret fields couldn't be located … masked by text recognition only"): in
+  `mac.screenshot`'s content, the front-window block and evidence facts (`FrontWindow.masking`), and a recording's
+  `masking` list. Residual: a secret the OCR can't recognise as one (an unlabelled shown password) can show.
 - The AX inventory also masks text fields whose title, description, placeholder or identifier says passw/pwd, and
   walks the whole tree for secret fields.
 - Recordings paint each frame; an unmaskable frame is skipped (`frames_withheld`, `withheld_reason`).

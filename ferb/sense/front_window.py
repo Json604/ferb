@@ -12,8 +12,9 @@ its place and title, never the browser's own idea of its front window (live case
 window); when no single window is the captured one there is no URL or tab title, and the planner is told why. The tab
 is read before the shot when it can be; when the browser's Automation check is still answering, it is read again
 after the shot. The screenshot goes through FERB's screenshot path (secret fields
-the window's tree shows are masked in the capture), then the F5 on-device redaction; when either fails the image is
-withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).
+the window's tree and the browser extension show are masked in the capture; when neither can locate a page's fields
+the capture says so and the page is masked by text recognition only, never refused), then the F5 on-device redaction;
+when either fails the image is withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).
 
 The owner's exclusion list governs perception recording, not what FERB sees when asked (owner, fix round 2: "no
 exceptions"): a site on it is still seen, title and pixels, but its origin never names the host
@@ -53,6 +54,7 @@ class FrontWindow:
     withheld: str | None = None       # why there is no screenshot
     image: bytes | None = field(default=None, repr=False, compare=False)   # those same redacted bytes, in memory
     tab_note: str | None = None       # why a browser window has no URL or tab title (no single window matched)
+    masking: str = ""                 # how the screenshot's secret fields were found, when worth saying (L13)
 
     def facts(self) -> dict[str, Any]:
         """The labelled facts the planner is given (a browser's tab only when it was read)."""
@@ -78,7 +80,8 @@ class Sources:
     # (bundle id, the captured window, after the shot): that window's active tab (url, title); None: not read now;
     # LookupError(why): the browser answered, but no single window of it is the captured one
     tab: Callable[[str, Window, bool], tuple[str, str] | None]
-    shoot: Callable[[Window], Awaitable[bytes]]           # that window's JPEG, its tree's secret fields masked
+    # that window's JPEG, the secret fields found masked, and the capture's note on how they were found ("": none)
+    shoot: Callable[[Window], Awaitable[tuple[bytes, str]]]
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
     keep: Callable[[bytes, dict[str, Any], str], Awaitable[str]]   # (image, facts, origin) -> evidence id
@@ -179,8 +182,9 @@ async def capture(src: Sources) -> FrontWindow | None:
     tab, tab_note = await _tab(src, w, bundle, False) if browser else (None, None)
     image: bytes | None = None
     withheld: str | None = None
+    masking = ""
     try:
-        raw = await src.shoot(w)
+        raw, masking = await src.shoot(w)
     except Refused as e:                               # FERB's own words: why this window gave no picture
         withheld = str(e)
     except Exception as e:
@@ -198,7 +202,8 @@ async def capture(src: Sources) -> FrontWindow | None:
     origin = origins.external("web", "excluded") if excluded_site else \
         origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
     facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": EXCLUDED if excluded_site else url,
-                        "tab_title": tab_title} | ({"tab_note": tab_note} if tab_note else {}))
+                        "tab_title": tab_title} | ({"tab_note": tab_note} if tab_note else {})
+                       | ({"masking": masking} if masking and image is not None else {}))
     ref: str | None = None
     if image is not None:
         try:
@@ -206,4 +211,4 @@ async def capture(src: Sources) -> FrontWindow | None:
         except Exception as e:
             image, withheld = None, f"the screenshot couldn't be kept as evidence ({type(e).__name__})"
     return FrontWindow(facts["app"], facts["bundle_id"], facts["title"], facts["url"], facts["tab_title"], ref,
-                       origin, withheld, image, tab_note=tab_note)
+                       origin, withheld, image, tab_note=tab_note, masking=masking if image is not None else "")

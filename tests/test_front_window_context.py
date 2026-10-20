@@ -72,12 +72,13 @@ class Screen:
         self.tab_after_shot = False                     # Automation answers only while the window is captured
         self.sender: int | None = None                  # the app hosting the CLI the message came from
         self.unmatched: str | None = None               # the browser answered, but no single window is the captured one
+        self.masking = ""                               # the capture's note on how its secret fields were found
 
-    async def _shoot(self, w: Window) -> bytes:
+    async def _shoot(self, w: Window) -> tuple[bytes, str]:
         self.shot.append(w)
         if self.fail_shot is not None:
             raise self.fail_shot
-        return b"raw " + JPEG
+        return b"raw " + JPEG, self.masking
 
     def _redact_image(self, image: bytes) -> bytes:
         if self.fail_redaction:
@@ -352,6 +353,20 @@ def test_a_capture_refusal_says_why_and_keeps_the_facts() -> None:
     assert front.withheld == "a password field is on screen; no screenshot"
 
 
+def test_how_the_screenshot_was_masked_reaches_the_planner_with_it() -> None:
+    from ferb.orchestrator.supervisor import FRONT_WINDOW, front_window_block
+    screen = Screen([BRAVE], owners())
+    screen.masking = "the page's secret fields couldn't be located; masked by text recognition only"
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.image == JPEG and front.masking == screen.masking
+    assert screen.kept[0][1]["masking"] == screen.masking                   # the evidence row says it too
+    block = front_window_block(front, IMAGE, FRONT_WINDOW)[0].text
+    assert "attached to this request as an image" in block and "masked by text recognition only" in block
+    plain = asyncio.run(fw.capture(Screen([BRAVE], owners()).sources()))
+    assert plain is not None and plain.masking == "" and "masking" not in front_window_block(plain, IMAGE,
+                                                                                            FRONT_WINDOW)[0].text
+
+
 def test_text_facts_are_redacted_at_capture() -> None:
     windows = [Window(7, 40, (0.0, 0.0, 800.0, 600.0), "Reset link https://x.test/r?token=abcd1234secret")]
     front = asyncio.run(fw.capture(Screen(windows, owners()).sources()))
@@ -551,6 +566,29 @@ def test_the_daemon_reads_the_tab_of_the_window_it_captured_not_applescripts_fro
     assert GREENHOUSE_URL in blocks[0] and KAGGLE_URL not in blocks[0] and "kaggle" not in blocks[0].lower()
     assert GREENHOUSE_URL not in blocks[1] and KAGGLE_URL not in blocks[1] and "can't tell which tab" in blocks[1]
     assert title in blocks[1]                                       # the window's own title still reaches the planner
+
+
+def test_a_browser_page_neither_the_extension_nor_accessibility_read_still_reaches_the_planner(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live case 2026-10-19: the block said "screenshot": "withheld: neither the browser extension nor Accessibility
+    could read the page…", and FERB asked which internship. Owner: no screenshot is refused. The picture goes to the
+    planner through text recognition, and the block says its secret fields couldn't be located."""
+    from ferb.act.mac.accessibility import AxTree
+    seen: list[bytes] = []
+    monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda image: seen.append(image) or [])
+    shots = fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, GREENHOUSE.title)],
+                            {12: ("Brave", "com.brave.Browser")})
+    area = (100.0, 130.0, 800.0, 520.0)
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True, web_areas=[area],      # type: ignore[union-attr]
+                                       empty_web_areas=[area])          # the page area stays empty, no extension
+    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle, window, after_shot=False: None)
+    script = install(daemon, [sup("reply", "Panthalassa's internship is in the US; on an F-1, CPT covers it.")])
+    chat(daemon, "can I get a visa to work for the duration of this internship?")
+    request = planner_requests(script)[0]
+    block = next(p for p in request.parts if p.startswith("Layer 2 — the owner's front window"))
+    assert shots.captured == [121] and seen == [shots.jpeg] and request.images      # pixels, through OCR
+    assert "withheld" not in block and "attached to this request as an image" in block
+    assert "couldn't be located" in block and "text recognition only" in block
 
 
 def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
