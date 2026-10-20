@@ -619,12 +619,39 @@ def _secret_colon_end(line: str) -> bool:
 
 
 # The first word of a two-word class word, or "my"/"our", ending what has been read of a line: it can still become one
-# ("api " then "key 482-913", "my wifi " then "password is …"). Its gaps and words are taken whole (possessive): "_",
-# "/" and "-" are both gap and word characters, and a long run of them backtracked quadratically (re-review 6, C1).
-_PREFIX_END = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[{_H}]++[A-Za-z-]++){{0,2}}+|(?<![A-Za-z0-9])(?:api|"
-                         r"private|access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|"
-                         r"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)"
-                         rf"[{_H}_/-]*+\S*+)[{_H}]*+$")
+# ("api " then "key 482-913", "my wifi " then "password is …"; `_prefix_end`). Its gaps and words are taken whole
+# (possessive): "_", "/" and "-" are both gap and word characters, and a long run of them backtracked quadratically
+# (re-review 6, C1).
+_MINE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:my|our)")
+_MINE_END = re.compile(rf"(?i)(?:my|our)(?:[{_H}]++[A-Za-z-]++){{0,2}}+[{_H}]*+$")
+_PREFIX_WORDS = (r"(?:api|private|access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|"
+                 r"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)")
+_PREFIX_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9]){_PREFIX_WORDS}")
+_PREFIX_WORD_END = re.compile(rf"(?i){_PREFIX_WORDS}[{_H}_/-]*+\S*+[{_H}]*+$")
+# Read backwards from a line's end: its last three groups ("my" ends one of them), and its last run with the gap and
+# the letters before it (a first word starts in that run, or ends those letters).
+_LAST_GROUPS = re.compile(rf"[{_H}]*+(?:[^{_H}]++[{_H}]*+){{0,3}}+")
+_LAST_RUN = re.compile(rf"[{_H}]*+\S*+[{_H}_/-]*+[A-Za-z]*+")
+
+
+def _prefix_end(line: str) -> re.Match[str] | None:
+    """The first word of a two-word class word, or "my"/"our" with up to two words after it, that ends `line` (its
+    leftmost such match). Only the line's end is read: "my" ends one of its last three groups, and a first word starts
+    in its last run (where the first one matches) or ends the letters just before that run's gap, so a space-free
+    token full of first words ("api/api/…") is read once, not again from each of them (re-review 6, final)."""
+    size = len(line) - line.endswith("\n")                          # "$" also matches before a last "\n"
+    reverse, found = line[size - 1::-1] if size else "", []
+    start = size - _LAST_GROUPS.match(reverse).end()               # type: ignore[union-attr]
+    for word in _MINE_WORD.finditer(line, start):
+        if (end := _MINE_END.match(line, word.start())) is not None:
+            found.append(end)
+            break
+    start = size - _LAST_RUN.match(reverse).end()                  # type: ignore[union-attr]
+    for word in _PREFIX_WORD.finditer(line, start):
+        if (end := _PREFIX_WORD_END.match(line, word.start())) is not None:
+            found.append(end)
+            break
+    return min(found, key=lambda m: m.start(), default=None)
 
 
 def _line_starts(pending: str) -> tuple[list[int], int]:
@@ -1164,7 +1191,7 @@ class RedactionStream:
             or ("label" in kinds and _code_alone_start(tail)))
         if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or under
                 or _code_alone_so_far(whole(tail_start, len(pending)))
-                or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
+                or OTP_CONTEXT_START.search(tail) or _prefix_end(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         # Of the complete lines only a last line that is only a code is held: its naming line can still follow
         # ("482913" then "is your verification code"; re-review 2, I2). A label, "Password:" or list line never
@@ -1196,7 +1223,7 @@ class RedactionStream:
         for m in SECRET_WORD.finditer(line):
             own = MINE.search(line, max(0, m.start() - 40), m.start())
             found.append((own.start() if own else m.start(), m.end()))
-        if (prefix := _PREFIX_END.search(line)) is not None:
+        if (prefix := _prefix_end(line)) is not None:
             found.append(prefix.span())
         found.sort()
         starts, reach = _word_starts(line), CODE_REACH + 1

@@ -69,7 +69,11 @@ RUNS = [" ", "\t", "\xa0", " \t\xa0\u2003", "*", "_", "`", "'", '"', "'\"", " *"
         "1 ", "1.5,", "4821 ", "4821 is ", "\r\n", " \n", ">\n", "> ", "#", ".", ". ", ":", "-", "(", ")", "[", "a.",
         "a-", "pin/", "PIN code 1234 ", "-----BEGIN ", "-----BEGIN RSA PRIVATE KEY-----\n",
         # re-review 6, final: self-closing tags (a tag's "/" could be read two ways)
-        "<a />", " <br />", "<a b/>", "<img src='x' />"]
+        "<a />", " <br />", "<a b/>", "<img src='x' />",
+        # minified JSON with secret keys (quoted and unquoted values), prose with unclosed quotes
+        '{"token":"abc","n":1}', '{"has_password":true}', "password: 'x ",
+        # prefix words inside one space-free token
+        "api/", "time.", "one-", "my/"]
 PREFIXES = ["", "482913", "one", "backup", "api", "my", "Your code:", "password is", "verification", "bearer"]
 SUFFIX = " ab cd efgh"
 SEARCHING = {"search", "finditer", "findall", "sub", "subn", "split"}
@@ -148,6 +152,8 @@ TEXTS: list[tuple[str, str, str]] = [
     # minified JSON with secret keys, quoted and unquoted values (a file read whole), prose with unclosed quotes
     ("", '{"token":"abc","n":1}', "\n"), ("", '{"pin":1234,"x":"y"}', "\n"), ("", '{"user":"a","has_password":true}', "\n"),
     ("", "password: 'x ", "y z"), ("", "pwd: 'a' ", "x y"),
+    # prefix words inside one space-free token, a read ending after the next words
+    ("", "api/", " x yz"), ("", "a.post(b).time=c;", " x yz"), ("my ", "api_", " x y zz"),
 ]
 
 
