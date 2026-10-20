@@ -1240,7 +1240,8 @@ class Daemon:
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
-        self.memory.on_settled = self._close_memory_questions
+        self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
+                                                                                  ("confirm",))
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -1518,20 +1519,24 @@ class Daemon:
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
 
-    def _close_memory_questions(self, targets: Any) -> None:
-        """FERB's Yes/No questions about memory that stopped waiting (re-review NEW-1): their memory was confirmed,
-        retracted or forgotten another way. Each is closed (superseded: never a No), dropped from what a Yes would do,
-        and deleted from `memory_questions`, so no later turn or restart shows its words again."""
+    def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
+        """FERB's Yes/No questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind)
+        about `targets`. A memory confirmed or retracted another way closes its "Keep this?" question only; a memory or
+        learned item deleted closes every question about it, the owner's "Forget for good?" too, which nothing else
+        closes (re-review R1). Each is closed (superseded: never a No), dropped from what a Yes would do, and deleted
+        from `memory_questions`, so no later turn or restart shows its words again."""
         gone = set(targets)
         if not gone:
             return
-        for approval_id, (_, target) in list(self._owner_followups.items()):
-            if target in gone:
+        for approval_id, (kind, target) in list(self._owner_followups.items()):
+            if target in gone and (kinds is None or kind in kinds):
                 self._owner_followups.pop(approval_id, None)
                 if self.state.approvals.supersede(approval_id) is not None:
                     self._publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
         marks = ",".join("?" * len(gone))
-        self.db.conn.execute(f"DELETE FROM memory_questions WHERE target IN ({marks})", sorted(gone))
+        which = f" AND kind IN ({','.join('?' * len(kinds))})" if kinds is not None else ""
+        self.db.conn.execute(f"DELETE FROM memory_questions WHERE target IN ({marks}){which}",
+                             [*sorted(gone), *(kinds or ())])
 
     def _restore_memory_questions(self) -> None:
         """At start: FERB's Yes/No questions about memory that were still waiting are asked again, with their ids and

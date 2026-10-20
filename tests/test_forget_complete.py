@@ -327,14 +327,14 @@ def test_a_card_goes_only_when_its_body_restates_the_item(daemon: RunningDaemon)
 
 # ---------- round 3 (re-review NEW-1, NEW-2, f3, a3) ----------
 
-def _paraphrased(d: RunningDaemon) -> Any:
+def _paraphrased(d: RunningDaemon, content: str = "Owner's boss is Quentarr Vexley") -> Any:
     """FERB's wording of what the owner said (an inferred item) with its pending Yes/No question."""
     from ferb.orchestrator.schemas import Remember
     dd = d.daemon
     said = "my manager is Quentarr"
     src = str(_on_loop(d, lambda: dd._journal().append("chat.message", {"text": said}).id))
     _on_loop(d, lambda: dd._remember([Remember(kind="person", subject="owner", key="boss",
-                                               content="Owner's boss is Quentarr Vexley", quote=said)], said, src))
+                                               content=content, quote=said)], said, src))
     return _on_loop(d, lambda: next(i for i in dd.memory.items(None, valid_now=False) if i.key == "boss"))
 
 
@@ -437,3 +437,60 @@ def test_a_task_that_read_the_item_with_a_memory_tool_is_given_it(daemon: Runnin
     _on_loop(daemon, lambda: d.memory.forget(item.id))
     answers = _on_loop(daemon, lambda: [e.data.get("text") for e in d.journal.of_kind("task.answer")])
     assert answers and "Zorblat" not in answers[-1] and "The office confirmed." in answers[-1]
+
+
+# ---------- round 4 (re-review R1-R5) ----------
+
+def _asked_to_forget(d: RunningDaemon, item: Any) -> Any:
+    """The owner's "forget my manager" in chat: FERB's "Forget for good?" question about the item, now waiting."""
+    install(d, [_reply("Okay.", forget=[{"item_id": item.id, "quote": "forget my manager"}])])
+    chat(d, "forget my manager")
+    return next(q for q in _memory_questions(d) if q.capability == "memory.forget")
+
+
+def _forget_still_answers(d: RunningDaemon, item: Any, forget: Any) -> None:
+    """The owner's forget question still waits after the other answer, and its Yes leaves nothing of the item."""
+    assert [q.id for q in _memory_questions(d)] == [forget.id]
+    assert _on_loop(d, lambda: [r[0] for r in d.daemon.db.conn.execute("SELECT kind FROM memory_questions")]) == [
+        "forget:memory"]
+    _on_loop(d, lambda: d.daemon._resolve_approval(forget.id, True, 1))
+    d.run(d.daemon._settle_forgets())
+    assert _on_loop(d, lambda: d.daemon.memory.get(item.id)) is None
+    assert _memory_questions(d) == []
+    assert _everywhere(d, "Vexley") == []
+
+
+def test_a_no_to_keep_this_leaves_the_owners_forget_question_waiting(daemon: RunningDaemon) -> None:
+    """Re-review R1 (probe h1): with both "Keep this?" and the owner's "Forget for good?" waiting, a No to "Keep this?"
+    closed the forget question too; the item stayed, retracted, with its text in memory, search, learning, the journal
+    and spans. A confirm or a retract closes only the "Keep this?" question; a forget question closes only when its
+    memory is deleted."""
+    item = _paraphrased(daemon)
+    forget = _asked_to_forget(daemon, item)
+    keep = next(q for q in _memory_questions(daemon) if q.capability == "memory.confirm")
+    _on_loop(daemon, lambda: daemon.daemon._resolve_approval(keep.id, False, None))
+    assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "retracted"
+    _forget_still_answers(daemon, item, forget)
+
+
+def test_a_dashboard_retract_leaves_the_owners_forget_question_waiting(daemon: RunningDaemon) -> None:
+    """Probe h1b: the same through the dashboard's Retract."""
+    from ferb.cli.client import Client
+    item = _paraphrased(daemon)
+    forget = _asked_to_forget(daemon, item)
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.retract", {"id": item.id})
+    finally:
+        c.close()
+    _forget_still_answers(daemon, item, forget)
+
+
+def test_a_yes_to_keep_this_leaves_the_owners_forget_question_waiting(daemon: RunningDaemon) -> None:
+    """Probe h1c: a Yes to "Keep this?" confirms the wording and closes that question only."""
+    item = _paraphrased(daemon)
+    forget = _asked_to_forget(daemon, item)
+    keep = next(q for q in _memory_questions(daemon) if q.capability == "memory.confirm")
+    _on_loop(daemon, lambda: daemon.daemon._resolve_approval(keep.id, True, 1))
+    assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"
+    _forget_still_answers(daemon, item, forget)
