@@ -208,11 +208,14 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   mention it isn't touched; a question FERB was still asking about the item closes (answering "Keep this?" never
   closes your own "Forget for good?", which waits until the item is deleted); the scrub runs off the event loop and
   your next message waits for it. It removes lines that hold the item's words, as recorded or as FERB's questions
-  showed them, not every paraphrase. You can forget from chat or the notch ("forget my test lab colour"): FERB names
-  everything that goes and deletes only after your Yes. Forgetting a learned item (a lesson, a procedure) also removes
-  FERB's naming of it in its question, what each of its versions states from the records of the tasks, chat turns,
-  background checks and model runs that were shown it, and any FERB reply that repeated it word for word (another
-  task with the same goal is never touched); a procedure's steps shown
+  showed them, not every paraphrase; in FERB's stored turns it matches whole words, so "Gmail" never takes a piece of
+  another word or a one-word line elsewhere. You can forget from chat or the notch ("forget my test lab colour"): FERB
+  names everything that goes and deletes only after your Yes. Forgetting a learned item (a lesson, a procedure) also
+  removes FERB's naming of it in its question; what each of its versions states, from the records of the tasks, chat
+  turns, background checks, notices and model runs that were shown it (an identity statement: every task and model run
+  since you set it), as whole words in stored turns; and a lesson's or identity's own text (two words or more) from
+  any FERB reply or notice that repeated it word for word. A trigger or a procedure's name never touches a reply it
+  wasn't shown in, and another task with the same goal is never touched; a procedure's steps shown
   to a worker, records deleted only because they were built on it, a lesson's scope labels and an entity summary's
   text (unless recorded exactly) can survive. A failure to record that
   a task read a memory is noted in the journal and never fails the read.

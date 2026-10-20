@@ -1390,8 +1390,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   record, `task_results` row, every span of their tree and the planner turn that planned them, holding the item's text
   or a word of it nothing left holds; their cards are forgotten (keys tombstoned) only when the body restates the
   item; in chat rows whose turn listed the item, a line holding its text or two of its words in a row (one of them a
-  word nothing left holds); elsewhere, its text word for word. Spans lose those lines and texts, as recorded and
-  space-normalised as FERB's questions show them (`echoes.scrub_told` → `attention.scrub_spans`). Append-only journal rows are deleted and written again with the same seq, id, time and
+  word nothing left holds); elsewhere, its text word for word. The given tasks' spans lose those lines; every span
+  loses the item's text and each removed line of two words or more, matched as whole words, case and spacing aside,
+  inside JSON a span holds too (`echoes.scrub_told`, `_Words`: never a plain substring, never a single word). Append-only journal rows are deleted and written again with the same seq, id, time and
   origin. Running summaries that folded such a row go; a day narrative written from a forgotten chat message is
   deleted. A paraphrase in other words is not found.
 - **Chat forget (I2).** The planner's `forget` output (item id and the owner's quote, whole clause(s) of their words:
@@ -1404,13 +1405,17 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   (the one asked for, or one a waiting "Forget for good?" names) gets an echo pass (`echoes.finish_node`, queued like
   a memory forget's). FERB's naming of it in that question (`_named_node`) goes from FERB's rows and every span. What
   each forgotten version states (body text, a procedure's intent, a lesson's trigger) goes where that version was
-  shown or cited, never by a replace across every span (`echoes._shown`): the tasks given it (`task_memory_refs`),
-  the chat turns that listed it (chat rows whose source refs cite it, and those requests' planner turns), every span
-  naming it by its node id (the attention check has no request, so no exposure), and for an owner identity statement
-  every span recording a model run's system prompt since that version was recorded (compared in UTC). FERB's chat
-  replies also lose a line holding it word for word wherever they were written, and copies of the lines removed go
-  from every span. An episode card's goal is never scrubbed (other tasks share it), nor a key alone (a key can be a
-  label: "owner", a subject, a task id). What a learned-item
+  shown or cited, never across every span (`echoes._Index.shown`, each table read once): the tasks given it
+  (`task_memory_refs`: answer and outcome rows, records, tree spans and planner turns), the chat turns that listed it
+  (chat rows whose source refs cite it, and those requests' planner turns), every span naming it by its node id (the
+  attention check has no request, so no exposure), the notices of an attention check among those spans, and for an
+  owner identity statement every task created and every span of a task or recording a model run's system prompt since
+  that version was recorded (compared in UTC). Journal rows in scope lose each line holding it; spans and notices
+  lose it as whole words, so a one-line output keeps the rest; cards of those tasks that state it are forgotten. Only
+  a version's statement (a lesson's or identity's text, two words or more, whole) also leaves every FERB chat reply
+  and notice wherever written; a trigger, an intent or a key never does unscoped. Copies of the FERB lines removed
+  (two words or more) go from every span as whole words. An episode card's goal is never scrubbed (other tasks share
+  it), nor a key alone (a key can be a label: "owner", a subject, a task id). What a learned-item
   forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
   built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
   site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.
