@@ -139,10 +139,11 @@ CODE_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:one[{_H}_-]?time[{_H}_-]?(?:pas
                        rf"2fa|pass[{_H}_-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
 # Markup around a code (re-review 5): a simple inline HTML tag ("<b>", "</code>", '<span style="…">'), and what may
 # sit between a code and its label or link on one line besides whitespace: markdown emphasis and code marks, quote
-# marks, tags.
-_TAG = r"</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?/?>"
+# marks, tags. A tag reads one way only: a self-closing "/" is part of its attributes ("<br />") or stands alone
+# ("<br/>"), never either (re-review 6, final: "<br />" read two ways made a run of them exponential).
+_TAG = r"</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*|/)?>"
 # A tag the read ends inside ("<", "</", "<b", "<br/", '<span class="a'): the stream's view of one still coming.
-_UNFINISHED = r"</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?/?)?"
+_UNFINISHED = r"</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*|/)?)?"
 _TAG_RE = re.compile(_TAG)
 _MARKUP = rf"(?:[{_H}*_`'\"]|{_TAG})"
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
@@ -157,7 +158,7 @@ CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=(?<![0-9A-Za-z])_)|(?<=\\[n
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
 # "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
 # OTP", "issue 4821 - code freeze" and "Line 1234: code smell" don't join either.
-CODE_LINK = re.compile(rf"(?i){_MARKUP}*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
+CODE_LINK = re.compile(rf"(?i){_MARKUP}*+(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
 _PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
@@ -220,8 +221,9 @@ def _clause_break(s: str, a: int, b: int) -> bool:
 # 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
 # Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
 # the label line next to it (`_line_codes`).
-LABEL_DIRECT = re.compile(rf"(?:{_MARKUP}|[:=#\-–—])*")
-LABEL_LINK = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—]){_MARKUP}*$")
+# The marks are taken possessively: each reads one way, so a failing match never retries them (re-review 6, final).
+LABEL_DIRECT = re.compile(rf"(?:{_MARKUP}|[:=#\-–—])*+")
+LABEL_LINK = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—]){_MARKUP}*+$")
 LINE_BREAK = re.compile(r"\r\n|\r|\n")
 SECRET_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[{_H}_-]?key)?|"
                          rf"api[{_H}_-]?key|(?:(?:access|auth|api|refresh)[{_H}_-]?)?token|private[{_H}_-]?key)"

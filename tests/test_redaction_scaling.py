@@ -62,7 +62,9 @@ def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit:
 # pattern anchored at the end fails and backtracks.
 RUNS = [" ", "\t", "\xa0", " \t\xa0\u2003", "*", "_", "`", "'", '"', "'\"", " *", "<b>", " <b>", "<b ", "</b> ", "1",
         "1 ", "1.5,", "4821 ", "4821 is ", "\r\n", " \n", ">\n", "> ", "#", ".", ". ", ":", "-", "(", ")", "[", "a.",
-        "a-", "pin/", "PIN code 1234 ", "-----BEGIN ", "-----BEGIN RSA PRIVATE KEY-----\n"]
+        "a-", "pin/", "PIN code 1234 ", "-----BEGIN ", "-----BEGIN RSA PRIVATE KEY-----\n",
+        # re-review 6, final: self-closing tags (a tag's "/" could be read two ways)
+        "<a />", " <br />", "<a b/>", "<img src='x' />"]
 PREFIXES = ["", "482913", "one", "backup", "api", "my", "Your code:", "password is", "verification", "bearer"]
 SUFFIX = " ab cd efgh"
 SEARCHING = {"search", "finditer", "findall", "sub", "subn", "split"}
@@ -135,6 +137,9 @@ TEXTS: list[tuple[str, str, str]] = [
     ("", "-----BEGIN RSA PRIVATE KEY-----\n", "x"), ("", "https://a.co password: x ", "y"), ("", "<b ", "482913 x"),
     ("> Your code:\n", ">\n", "> 482913 x"), ("", "(", "482913) x"), ("", " ", "482913 ab cd"),
     ("", "https://a.co 4821 ", "code"), ("Port ", "<code>8080</code> ", "is the default"),
+    # re-review 6, final: self-closing tags between a code and its link, in minified HTML, under a code-alone line
+    ("482913", " <br />", " x is your code"), ("<td>12345</td>", '<meta name="a" content="b"/>', "<p>Enter the code</p>"),
+    ("Order 482913", "<img src='a' />", "x"), ("482913\n", "<br />", "x code"),
 ]
 
 
