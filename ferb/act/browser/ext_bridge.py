@@ -1212,7 +1212,7 @@ class _TabDriver:
         every field it found has a box, and why it couldn't read it (None when it did)."""
         from ferb.act.evidence import mask
         hidden = _hidden(window)
-        if hidden:
+        if hidden or not isinstance(window, dict):
             return [], False, False, f"{hidden}, so Accessibility can't see it"
         if window.get("emulated"):                       # FERB's own window: its viewport isn't the window's layout
             return [], False, False, ("the tab is laid out at FERB's own size, so Accessibility's places in its window "
@@ -1237,7 +1237,7 @@ class _TabDriver:
         reason = str(reply.get("withheld") or "the debugger can't attach to this page")[:300]
         window = reply.get("window")
         hidden = _hidden(window)
-        if hidden:
+        if hidden or not isinstance(window, dict):
             raise Withheld(f"pixels withheld: {reason}, and {hidden}, so its window can't be captured in its place")
         pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
         bounds = _window_bounds(window)
