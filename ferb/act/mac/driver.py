@@ -122,8 +122,8 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
                 if not ok:
                     notes.append(PAGE_UNPLACED)
         if read:                  # the extension's page from a look with no AX window: on a readable look's page area
-            for t, w in ((t1, w1), (t2, w2)):                  # (round 3, m1; painting a little too much is harmless)
-                if (t is None or t.secure is None) and w is not None and w.state is not None:
+            for unread_tree, w in ((t1, w1), (t2, w2)):        # (round 3, m1; painting a little too much is harmless)
+                if (unread_tree is None or unread_tree.secure is None) and w is not None and w.state is not None:
                     rects, ok = _placed(_look_items(w.state, None), w.state, read[0][0])
                     masks += rects
                     if not ok:
