@@ -1278,7 +1278,8 @@ Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension fi
     (a) `http://127.0.0.1:9/` (nothing listens: the browser shows its own error page, which extensions can't script
     but its debugger can attach to), then `browser.screenshot`: a picture arrives with `masking` saying the extension
     couldn't read the page; a `browser_point` on that shot is refused ("can't read"). A short `browser.record` across
-    it keeps its frames, with the note.
+    it keeps its frames, with the note; take a `browser.screenshot` while it records: neither fails, and the browser's
+    "is debugging this browser" bar doesn't flicker (round 5: such a page stays armed, never re-attached).
     (b) The Chrome Web Store (the debugger can't attach at all): with its tab in front of its window and the window on
     screen, `browser.screenshot` gives a picture of the whole browser window, and `masking` says so; with the tab in
     the background it is withheld, and the reason says the tab isn't the one its window shows (in FERB's own,
@@ -1290,6 +1291,9 @@ Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension fi
     can't script that shows a throwaway password field, put it in front of its window and take `browser.screenshot`:
     the black box covers the field (Accessibility's place scaled onto the tab picture). In FERB's own window this
     isn't attempted (its tabs are laid out at FERB's size; the note says so). Record if no such page was reachable.
+    (d) A full-page PDF (a disposable PDF link, e.g. on kartikey.xyz) in a FERB tab: `browser.screenshot` gives the
+    picture; if `input` says input readiness failed, note it (the capture goes on regardless, round 5). A download
+    FERB is holding in a tab (D35) is still there after a screenshot of that tab.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture

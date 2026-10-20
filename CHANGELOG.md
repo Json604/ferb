@@ -260,7 +260,9 @@ with "Which internship is this?"; not installed or live-tested):
   `browser.screenshot` included: painted from Accessibility when it is the tab its window shows, masked by text
   recognition, with a note saying what was painted. A page the debugger can't attach to (the Chrome Web Store) gives
   a picture of the whole browser window when its tab is in front and its window on screen; otherwise it is withheld
-  with the reason.
+  with the reason. Captures of a page scripts can't reach keep the debugger attached as it is (no re-attach per
+  capture, so a recording and a screenshot of it don't collide and a held download stays held), and a tab's input
+  readiness failing never refuses a capture: the result says so.
 
 Licensed under Apache-2.0.
 
