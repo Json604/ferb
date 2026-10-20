@@ -277,10 +277,11 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.4 / protocol 15** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.5 / protocol 16** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
-name the matched window's tab). Task
+name the matched window's tab; protocol 16 lets tab captures arm the debugger only and answer for pages it can't
+read or attach to, see section 16.4). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
@@ -908,7 +909,7 @@ pins the sentences).
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
 the `downloads` table (migration 0025); `browser.downloads` is an observation tool; built on extension 0.15.1,
-protocol 12 (now 0.15.4, protocol 15). The
+protocol 12 (now 0.15.5, protocol 16). The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -1631,8 +1632,10 @@ protected FERB state (16.9).
   block's `tab_note` says why. (Live case 2026-10-19: AppleScript's `front window` is the browser's own frontmost
   window, which was another Brave window, so the planner got a Kaggle URL for a Greenhouse page.) When the capture's
   paired-profile extension matched the window (protocol 15: bounds, ties broken by the active tab's title, and the
-  answering tab's title equal to the captured window's), its tab (`Shot.tab`, `driver.page_tab`) is used instead;
-  the AppleScript read stays the fallback. An answer whose tab title isn't the captured window's is rejected for
+  answering tab's title equal to the captured window's, or to its title now, after a retitle), its tab (`Shot.tab`,
+  `driver.page_tab`) is used instead, unless the AppleScript read found several windows that could be the captured
+  one (`browser_tabs.Ambiguous`: two windows at one place with the same tab title can fool the extension's match;
+  round 3, m3); the AppleScript read stays the fallback. The block's `tab_source` says which read gave the URL. An answer whose tab title isn't the captured window's is rejected for
   masking too (`OTHER_PAGE`: a paired profile's window at the same place showing another page, e.g. over an
   unpaired capture), so its fields are never painted over the wrong picture. The tab watcher
   still reads the front window (M1, two lines). One screenshot of that window by window id, masked and
@@ -1659,15 +1662,25 @@ protected FERB state (16.9).
   a child frame holding secrets is painted whole; a transformed host is painted whole; mirrored or filtered secrets
   (box-reflect, SVG `url()` filters, `::details-content`) withhold, as does a frame with secret fields no host
   accounts for: a secret the extension found but can't cover.
-- A tab whose page the extension can't read (page or top frame unreadable, or the look ran out of time:
-  `maskState`'s `unread`) is still captured (protocol 15, round 2 B6; owner: no screenshot refused). The reply
-  carries `unread`, the look before the capture when only the look after failed, and the tab's window (bounds,
-  whether the tab is the one it shows, minimized). `_TabDriver._unread` paints that look's fields and, when the tab
-  is the one its window shows, the secret fields Accessibility finds in that window's one page area
-  (`MacComputerDriver.page_secrets` through the daemon's `native_secrets` hook; read just after the capture, scaled
-  from the area onto the picture). The gateway's text recognition runs as on every image. The note (`masking` in
-  `browser.screenshot`'s result and a browser.snapshot first look; a recording frame's note) says which. Withheld
-  only when the picture can't be painted.
+- A tab whose page the extension can't read (page or top frame unreadable, e.g. a browser error page, or the look
+  ran out of time: `maskState`'s `unread`) is still captured (protocols 15–16; owner: no screenshot refused). Tab
+  captures arm the debugger only (`arm`, no input-readiness probe, which needs a scriptable page: round 3, I1), and
+  `browser.screenshot` asks for the picture even when its snapshot failed. The reply carries `unread`, the look before
+  the capture when only the look after failed (malformed: withheld, m5), and the tab's window (`tabWindow`: bounds,
+  whether the tab is the one it shows, minimized, the tab's title, `emulated` when FERB lays it out at its own size).
+  `_TabDriver._unread` paints that look's fields and, when the tab is the one its window shows and isn't emulated,
+  the secret fields Accessibility finds in the page area of the window showing that tab (`MacComputerDriver.
+  page_secrets` through the daemon's `native_secrets` hook: the window by the tab's title, its own title the tab's,
+  m6; read just after the capture, scaled from the area onto the picture). The gateway's text recognition runs as on
+  every image. The note (`masking` in `browser.screenshot`'s result and a browser.snapshot first look; a recording
+  frame's note) says what was painted (m7). Such a shot resolves no `browser_point` (`_Tab.unread_shot`).
+- A page the debugger can't attach to at all (the Chrome Web Store, `chrome://` and other extensions' pages: no tab
+  capture possible) answers `withheld` with `undebuggable` and its window (protocol 16). When the tab is the one its
+  window shows and that window is on screen, the daemon captures the window natively (`_native_window_capture`, the
+  router's `native_capture` hook: `mac.window_image` of the one on-screen window there, by title when several; AX
+  and the extension's masking and note, then text recognition) and says it is the whole browser window; otherwise it
+  stays withheld with the honest reason: the only tab capture that gives no picture, besides a secret the extension
+  found but can't cover. Recording frames of such a tab are skipped with that reason.
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
   area; AX-only masking is recorded as `masking`. When no profile can tell, `_web_secrets` says why
   (`WebSecrets.why`: no paired profile of that browser connected, none of a profile's windows or more than one at
@@ -1906,7 +1919,7 @@ protected FERB state (16.9).
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
-`screen.page_secrets_failed`, `screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
+`screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
 `memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
 `memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.

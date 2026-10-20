@@ -252,11 +252,15 @@ with "Which internship is this?"; not installed or live-tested):
 - A browser capture asks the extension while Accessibility reads the window, and doesn't ask again after an ask
   nobody answered, so even its slowest case (~6–8 s) fits inside the planner's 10 s wait for the front window; it
   could take 12 s, and the message then went on with no picture, URL or title.
-- Extension 0.15.4 (protocol 15): the extension tells same-place windows apart by title and names the matched window's
-  tab, which the front window now uses (AppleScript stays the fallback); an answer from another page's window (a
-  paired profile's window behind an unpaired capture) is rejected rather than painted over the wrong picture. A task
-  tab whose page the extension can't read is captured instead of refused: painted from Accessibility when it is the
-  tab its window shows, masked by text recognition, with a note.
+- Extension 0.15.5 (protocol 16): the extension tells same-place windows apart by title and names the matched window's
+  tab, which the front window now uses (AppleScript stays the fallback, and its "several windows could be it" stands
+  over the extension's match); the block says where the URL came from (`tab_source`). An answer from another page's
+  window (a paired profile's window behind an unpaired capture) is rejected rather than painted over the wrong
+  picture. A task tab whose page the extension can't script (a browser error page) is captured instead of refused,
+  `browser.screenshot` included: painted from Accessibility when it is the tab its window shows, masked by text
+  recognition, with a note saying what was painted. A page the debugger can't attach to (the Chrome Web Store) gives
+  a picture of the whole browser window when its tab is in front and its window on screen; otherwise it is withheld
+  with the reason.
 
 Licensed under Apache-2.0.
 

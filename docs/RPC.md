@@ -50,6 +50,11 @@ the reply carries the picture, `unread` (why), `mask` (`{before, after: null}` w
 null) and `window` (`{bounds, active, minimized}` of the tab's window); `withheld` with no picture remains only for a
 secret field the extension found but can't cover.
 
+Extension protocol 16 (fix wave 4 round 3, 0.15.5): `screenshot` and `record_frame` arm the debugger only (no
+input-readiness probe). `window` also carries the tab's `title` and `emulated` (FERB lays the tab out at its own size).
+A page the debugger can't attach to answers `{withheld, undebuggable: true, window}`, for the daemon's native window
+capture.
+
 Extension protocol 14 (L26) adds the `media` command: play, pause, mute, unmute or seek one video/audio element of
 the latest snapshot, by frame and index, through the content script (no script evaluation, no click); it answers with
 that element's state (`playing`, `current_time`, `duration`, `muted`, `volume`, `in_view`, and the page's `error` when

@@ -1078,7 +1078,7 @@ Install (you run these):
 1. `ferb setup --update` (or FERB.app, checks 38–44), then `ferb doctor`: the context-window lines for each role
    (Codex `gpt-5.6-sol`, 258,400 input tokens), the hearing line, and the local-connections line if you pinned ports.
    Rebuild the notch app with `./build.sh` in `ui/mac/FERBNotch` (if the build fails on a stale module cache, remove
-   `.build` once). Reload the extension so the browser runs 0.15.4 / protocol 15 (fix wave 4).
+   `.build` once). Reload the extension so the browser runs 0.15.5 / protocol 16 (fix wave 4).
 
 Chat (L6–L8, L19, L20):
 2. The acknowledgement appears at once in the app, before the plan line; `ferb chat` shows the daemon's phrase too.
@@ -1263,26 +1263,41 @@ all pending; Brave with Automation already allowed):
 66. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
     page area appears late is now read again for up to ~2 s.
 
-Fix wave 4 round 2 (extension 0.15.4 / protocol 15; reload the extension first, and record the version `ferb doctor`
-shows):
-67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's (the
-    extension's match: `ferb trace TASK --full` shows no `tab_note`) and B's password field (a disposable sign-in page)
-    is black. Then maximize a window of an **unpaired** profile over a maximized paired-profile window and ask about
+Fix wave 4 rounds 2–3 (extension 0.15.5 / protocol 16; reload the extension first, and record the version
+`ferb doctor` shows):
+67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's and its
+    `tab_source` is `extension` (`ferb trace TASK --full`; `applescript` means the extension didn't match), with no
+    `tab_note`, and B's password field (a disposable sign-in page) is black. Then maximize a window of an **unpaired** profile over a maximized paired-profile window and ask about
     it: the block's `masking` says the paired profile's window "shows another page" and the picture is still masked
     (Accessibility and text recognition); no black boxes in odd places.
 68. With a paired window in front whose page title has extra spaces or a long title, the URL still comes from the
     extension (no `tab_note`, no "shows another page"). If every paired capture says "shows another page", the
     browser names its windows differently from its tabs: record the window title and tab title.
-69. A FERB task opens the Chrome Web Store (a page extensions can't script) and takes `browser.screenshot`: a picture
-    arrives with `masking` saying the extension couldn't read the page; with that tab in front of its window the note
-    says "masked from Accessibility", in a background tab "text recognition only". Repeat with a short
-    `browser.record` across it: frames are kept, with the note.
+69. Pages the extension can't script, through a FERB task's own tab (FERB's tools open only http(s) pages):
+    (a) `http://127.0.0.1:9/` (nothing listens: the browser shows its own error page, which extensions can't script
+    but its debugger can attach to), then `browser.screenshot`: a picture arrives with `masking` saying the extension
+    couldn't read the page; a `browser_point` on that shot is refused ("can't read"). A short `browser.record` across
+    it keeps its frames, with the note.
+    (b) The Chrome Web Store (the debugger can't attach at all): with its tab in front of its window and the window on
+    screen, `browser.screenshot` gives a picture of the whole browser window, and `masking` says so; with the tab in
+    the background it is withheld, and the reason says the tab isn't the one its window shows. Recording frames there
+    are skipped with that reason.
+    (c) Box placement: if you have a borrowed tab of your own browser (`browser.use_tab`) on a page the extension
+    can't script that shows a throwaway password field, put it in front of its window and take `browser.screenshot`:
+    the black box covers the field (Accessibility's place scaled onto the tab picture). In FERB's own window this
+    isn't attempted (its tabs are laid out at FERB's size; the note says so). Record if no such page was reachable.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
   password) can show. A field moving during a capture is painted at both places, not between them. A task tab
-  whose page the extension can't read is masked from Accessibility only when it is the tab its window shows.
+  whose page the extension can't read is masked from Accessibility only when it is the tab its window shows (not in
+  FERB's own window); a page the debugger can't attach to is captured as its whole window only when its tab is in
+  front and its window on screen, otherwise withheld with the reason.
+- Two windows at the same place showing pages with the same title (an unpaired or private window over a paired one):
+  when the AppleScript read can't tell them apart the front window has no URL; when it can't be read at all, the paired
+  profile's extension may answer for the other window, naming its tab and painting its page's fields over the picture
+  (round 3, m3).
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
 - A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.
 - An undeclared browser post or payment click gets no question; the prompts carry the declaration.
