@@ -270,7 +270,8 @@ def test_forget_leaves_nothing_of_the_item_in_what_a_task_did_with_it(daemon: Ru
     assert _everywhere(daemon, "Zorblat") == []
 
 
-def _procedure_scene(d: RunningDaemon, answer: str) -> tuple[Any, str, Any]:
+def _procedure_scene(d: RunningDaemon, answer: str, steps: list[Any] | None = None,
+                     request: str = "email Carol to book Tuesday") -> tuple[Any, str, Any]:
     """The item captured from a chat message E1, a card citing E1, a procedure built on that card, and a task T3 shown
     only that procedure (review probe f)."""
     from tests.conftest import done, outcome, sup, task
@@ -284,11 +285,11 @@ def _procedure_scene(d: RunningDaemon, answer: str) -> tuple[Any, str, Any]:
                                                                "actions": []}, ["journal:" + e1],
                                              origin_label="ferb", made_by="code:evidence-card/2", state="active"))
     procedure = _on_loop(d, lambda: dd.learning.put("procedure", "book appointment", {
-        "intent": "book appointment", "steps": [{"tool": "gmail.send"}], "preconditions": {"apps": {}}},
+        "intent": "book appointment", "steps": steps or [{"tool": "gmail.send"}], "preconditions": {"apps": {}}},
         [c1["id"]], made_by="model:t", state="candidate"))
     dd.supervisor.memory_candidates = lambda words: []                      # T3's planner sees no fact
-    install(d, [sup("task", "Booking.", task("email Carol to book Tuesday"))], {"worker": done(answer)})
-    t3 = outcome(chat(d, "email Carol to book Tuesday"))["task_id"]
+    install(d, [sup("task", "Booking.", task(request))], {"worker": done(answer)})
+    t3 = outcome(chat(d, request))["task_id"]
     _on_loop(d, lambda: dd.db.conn.execute("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
                                            (t3, procedure["id"])))
     d.run(dd.supervisor.finish_episodes())
@@ -384,3 +385,32 @@ def test_a_dashboard_confirm_closes_the_chat_question(daemon: RunningDaemon) -> 
         c.close()
     assert _memory_questions(daemon) == []
     assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"
+
+
+
+def test_a_task_shown_a_node_naming_a_rare_word_of_the_item_is_given_it_for_its_lines(daemon: RunningDaemon) -> None:
+    """Re-review f3 and NEW-2 (probe f5, controller ruling): T5 was shown only a procedure, built on the item's source,
+    whose body names "Zorblat office"; T1 was shown the fact itself. Both wrote "Emailed Zorblat…". A node holding
+    the item's text or one of its rare words makes a task given the item for line scrubbing, and the rare words are
+    measured once against every candidate (they no longer change with who was kept): both lose the line. A card still
+    goes only when its body restates the item."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item, t5, _ = _procedure_scene(daemon, "Emailed Zorblat to book Tuesday.\nUsed the booking template.",
+                                   [{"tool": "gmail.send", "args": {"to": "Zorblat office"}}],
+                                   "email my dentist to book Tuesday")
+    d.supervisor.memory_candidates = None                                     # T1's planner is shown the fact
+    _on_loop(daemon, lambda: d.learning.sync_facts(d.memory))
+    install(daemon, [sup("task", "Booking.", task("email my dentist to book Friday"))],
+            {"worker": done("Emailed Zorblat to book Friday.\nDone.")})
+    t1 = outcome(chat(daemon, "email my dentist to book Friday"))["task_id"]
+    fact = _on_loop(daemon, lambda: [n["id"] for n in d.learning.items("fact")])
+    _on_loop(daemon, lambda: d.db.conn.executemany("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
+                                                   [(t1, f) for f in fact]))
+    daemon.run(d.supervisor.finish_episodes())
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    answers = _on_loop(daemon, lambda: {e.data.get("task_id"): e.data.get("text")
+                                        for e in d.journal.of_kind("task.answer")})
+    assert "Zorblat" not in answers[t5] and "Used the booking template." in answers[t5]
+    assert "Zorblat" not in answers[t1] and "Done." in answers[t1]
+    assert _on_loop(daemon, lambda: d.learning.current_card(t5)) is not None      # one rare word: the card stays

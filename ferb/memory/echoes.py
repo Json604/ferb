@@ -7,8 +7,8 @@ stored turns and exposures that copied those. After the deletion (`scrub`, on a 
 runs it):
 - FERB's whole answer to a forgotten chat message is removed, in the chat and in the planner turn that wrote it (it
   answered words that are gone);
-- a task given the item (`task_memory_refs`: its exposures cited the item or a node built on it; or its card cited it;
-  or its exposures cited a forgotten entry) loses each line, in its answer and outcome rows, its stored goal, outcome,
+- a task given the item (`task_memory_refs`: its exposures or memory reads cited the item, or a node built on it that
+  holds the item's text or a rare word of it; or its card cited it; or its exposures cited a forgotten entry) loses each line, in its answer and outcome rows, its stored goal, outcome,
   saved spec and permanent record, that holds the item's text word for word or a word of the item nothing left holds
   (no remaining owner message, memory item or FERB row not given the item: data-driven, no word list); its episode card
   is deleted, and never rebuilt, when its body does (`Scrubbed.cards`; no partial card);
@@ -255,18 +255,16 @@ def _ferb_rows(db: Any) -> list[Any]:
 
 
 def settle(db: Any, forgotten: Forgotten) -> "_Lines":
-    """The line rules for this forget, and the tasks it reaches: a candidate task was given the item only when it was
-    shown or cited the item itself (its text, source entries or rows) or a learned node whose own body restates it; a
-    node merely built on the item's sources (a procedure on a card that cites the source message) doesn't count
-    (re-review F2). The item's rare words are first measured against every candidate, then against the tasks kept."""
-    ferb = _ferb_rows(db)
-
-    def rules() -> _Lines:
-        return _Lines(forgotten.phrases, forgotten.contents, _rare(db, forgotten, given(db, forgotten), ferb))
-    lines = rules()
+    """The line rules for this forget, and the tasks it reaches. A candidate task was given the item when it was
+    shown or cited the item itself (its text, source entries or rows) or a learned node whose own body holds the
+    item's text or one of its rare words (`mentions`); a node merely built on the item's sources that says nothing of
+    it (a procedure on a card that cites the source message) doesn't count (re-review F2, f3). The rare words are
+    measured once, against every candidate: they never change with which tasks are kept (re-review NEW-2). Being
+    given the item scrubs a task's lines; its card still goes only when the body restates the item (`scrub`)."""
+    lines = _Lines(forgotten.phrases, forgotten.contents, _rare(db, forgotten, given(db, forgotten), _ferb_rows(db)))
     forgotten.tasks = {task for task, refs in forgotten.through.items() if any(
-        _direct(ref) or any(lines.restates(text) for text in forgotten.node_texts.get(ref, [])) for ref in refs)}
-    return rules()
+        _direct(ref) or any(lines.mentions(text) for text in forgotten.node_texts.get(ref, [])) for ref in refs)}
+    return lines
 
 
 def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrubbed:
@@ -280,7 +278,7 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
     written_with = given(db, forgotten)
     for row in ferb:
         data = json.loads(row["data_json"])
-        answer = row["kind"] in CHAT_KINDS and data.get("request_id") in forgotten.requests
+        answers_forgotten = row["kind"] in CHAT_KINDS and data.get("request_id") in forgotten.requests
         of_task = row["kind"] in TASK_KINDS and _root(str(data.get("task_id", ""))) in forgotten.tasks
         rule = (lines.mentions if of_task else lines.restates if row["id"] in written_with else lines.verbatim)
         new = dict(data)
@@ -289,7 +287,7 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
                 new[key] = lines.value(value, rule)
             elif key not in FIELDS or not isinstance(value, str) or not value:
                 continue
-            elif answer:
+            elif answers_forgotten:
                 new[key] = REMOVED
                 lines.removed += [line for line in value.split("\n") if lines.restates(line)]
             else:
