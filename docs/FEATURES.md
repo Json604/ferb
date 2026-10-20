@@ -567,7 +567,8 @@ This section matters most for an automated campaign. It says exactly what runs u
 
 #### Owner memory
 - What: "remember that …" saves as the owner's words the whole sentence they typed it in (pasted parts left out;
-  only a line break or a pasted part ends it, never a dot, "!" or "?", so a "never" is never dropped);
+  only a line break or a pasted part ends it, never a dot, "!" or "?", so a "never" is never dropped; a paste inside
+  a sentence splits it too: "I don't [paste] like tea" saves "like tea");
   FERB's rewording waits for the owner's Yes (asked in chat and the notch, or the dashboard) before it reaches a
   prompt. Inferred facts never reach a prompt unconfirmed; observed patterns not yet seen on 3 days show as unconfirmed
   hints; only the owner's own stated preferences become identity (straight away, whatever was on screen when they

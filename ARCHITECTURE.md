@@ -1366,7 +1366,8 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   their line breaks, each pasted or quoted part counting as one (`own_words`, which the rest of FERB reads, stays one
   line). Only a line break or a paste ends a sentence, never a comma, `.`, `!` or `?`, so "my prof. Zorblat" or "never!
   Share my links" never loses its negation, the saved text may be longer, and "Book my flight.\nI prefer aisle seats"
-  or "Translate [paste] and never share my links publicly" saves just the typed fragment. FERB's rewording is an inferred proposal offered by a
+  or "Translate [paste] and never share my links publicly" saves just the typed fragment. Accepted residual: a paste
+  inside a sentence splits it too, so "I don't [paste] like tea" saves "like tea". FERB's rewording is an inferred proposal offered by a
   `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No retracts); a quote sharing no word with the content is
   refused. An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
   2026-10-20: "No hold for my typed words"); pasted text never becomes owner_stated, and identity proposals remain only
@@ -1402,11 +1403,14 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   `Daemon._forget_nodes`: `Learning.forget`, then the questions about the deleted nodes close. An item the owner named
   (the one asked for, or one a waiting "Forget for good?" names) gets an echo pass (`echoes.finish_node`, queued like
   a memory forget's). FERB's naming of it in that question (`_named_node`) goes from FERB's rows and every span. What
-  it states (body text, a procedure's intent, a lesson's trigger) goes only where it was shown or cited, never by a
-  replace across every span: the tasks given it (`task_memory_refs`), the chat turns that listed it (chat rows whose
-  source refs cite it, and those requests' planner turns), and for an owner identity statement every model turn
-  since it was recorded (it is in each prompt). An episode card's goal is never scrubbed (other tasks share it), nor
-  a key alone (a key can be a label: "owner", a subject, a task id). What a learned-item
+  each forgotten version states (body text, a procedure's intent, a lesson's trigger) goes where that version was
+  shown or cited, never by a replace across every span (`echoes._shown`): the tasks given it (`task_memory_refs`),
+  the chat turns that listed it (chat rows whose source refs cite it, and those requests' planner turns), every span
+  naming it by its node id (the attention check has no request, so no exposure), and for an owner identity statement
+  every span recording a model run's system prompt since that version was recorded (compared in UTC). FERB's chat
+  replies also lose a line holding it word for word wherever they were written, and copies of the lines removed go
+  from every span. An episode card's goal is never scrubbed (other tasks share it), nor a key alone (a key can be a
+  label: "owner", a subject, a task id). What a learned-item
   forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
   built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
   site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.

@@ -195,7 +195,8 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
 - Only your own words are saved as yours. "Remember that …" saves the whole sentence you typed it in (so a slice can't
   drop a "never" or an "if …"; only a line break or a pasted part ends that sentence, never a dot, "!" or "?", so
   "never email my prof. Zorblat" or "never! Share my links" stays whole, "Book my flight tomorrow.\nI prefer aisle
-  seats" saves just "I prefer aisle seats", and a saved memory can be longer than what the planner picked);
+  seats" saves just "I prefer aisle seats" (a paste mid-sentence splits it too: "I don't [paste] like tea" saves
+  "like tea"), and a saved memory can be longer than what the planner picked);
   FERB's rewording of it waits until you reply Yes to its question (in chat or the notch) before it
   reaches a prompt, and a quote like "the" no longer turns the planner's sentence into an owner rule. A preference in
   your own typed words joins your standing rules at once, whatever was on screen (your decision); pasted text never
@@ -209,8 +210,9 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   your next message waits for it. It removes lines that hold the item's words, as recorded or as FERB's questions
   showed them, not every paraphrase. You can forget from chat or the notch ("forget my test lab colour"): FERB names
   everything that goes and deletes only after your Yes. Forgetting a learned item (a lesson, a procedure) also removes
-  FERB's naming of it in its question, and what it states from the replies and stored turns that were shown it
-  (another task with the same goal is never touched); a procedure's steps shown
+  FERB's naming of it in its question, what each of its versions states from the records of the tasks, chat turns,
+  background checks and model runs that were shown it, and any FERB reply that repeated it word for word (another
+  task with the same goal is never touched); a procedure's steps shown
   to a worker, records deleted only because they were built on it, a lesson's scope labels and an entity summary's
   text (unless recorded exactly) can survive. A failure to record that
   a task read a memory is noted in the journal and never fails the read.

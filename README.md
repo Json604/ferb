@@ -589,7 +589,8 @@ In chat or the notch, "forget my …" asks a Yes/No question naming each item th
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, with full paged bodies. "Remember that …" saves as yours the whole sentence you
-typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"); FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
+typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"
+saves "like tea"); FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
 `ferb memory confirm ID`) before it reaches a prompt. Observed
 patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
 proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
