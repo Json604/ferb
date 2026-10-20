@@ -216,14 +216,16 @@ Fix wave 5 (2026-10-20, why background learning never worked live; L28, D32):
   turn/start"). Codex refuses a turn whose text holds more than 1,048,576 characters (its `MAX_USER_INPUT_TEXT_CHARS`,
   openai/codex rust-v0.157.1), and a consolidation call sent about 97.6 million. FERB now knows that cap from Codex's
   source and fits every call to it as well as to the model's token window: the planner, workers and checker keep
-  chat and optional context only while both fit, the learner splits its calls to fit, and anything that must go
-  whole but can't is refused by name before sending instead of being rejected by Codex.
+  chat and optional context only while both fit, the learner and the running chat summary split their calls to fit,
+  and anything that must go whole but can't is refused before sending instead of being rejected by Codex: the reply
+  says FERB didn't send it and how far over the limit it was, and the trace names each part's size.
 - A Codex failure now says what Codex said, e.g. "Input exceeds the maximum length of 1048576 characters. (code
-  -32602; input_too_large, 1100000 characters sent)", redacted, never with what FERB sent; in learning jobs, spans,
-  replies and `ferb trace`.
-- Every learning model call is a `model.learning` span with its size, outcome and error. `ferb stats` counts learning
-  calls and failures and names the latest failed one; `ferb trace distill-2026-10-19` (or a `sleep-…` id) shows it.
-  `ferb doctor` names the character cap. Consolidation's model usage is recorded as consolidation, not distillation.
+  -32602; input_too_large, 1100000 characters sent)", redacted, never with what FERB sent: in learning jobs, spans
+  and `ferb trace`, and in the reply when it happens inside a running turn.
+- Every learning model call is a `model.learning` span with its size, outcome and error (a stop is "cancelled", not a
+  failure). `ferb stats` counts learning calls and failures, groups the errors and names the latest failed one;
+  `ferb trace distill-2026-10-19` (or a `sleep-…` batch id) shows it. `ferb doctor` names the character cap.
+  Consolidation's model usage is recorded as consolidation, not distillation.
 - An error Codex says it is retrying itself (a dropped stream, for example) no longer stops the task or learning call:
   it is recorded in the trace and the run goes on.
 

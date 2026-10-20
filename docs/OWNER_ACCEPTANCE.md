@@ -1234,8 +1234,8 @@ Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far
     (e.g. "Input exceeds the maximum length of 1048576 characters."), "too long for one codex input", or "too large
     for the model's window", never a bare "Codex could not complete turn/start". `ferb trace <the call it names>`
     shows that call's span. Then check that procedures and lessons appear (`ferb memory search <a word from a
-    repeated task> --kind procedure`, `--kind lesson`, or the memory dashboard) and record what appeared. Also `ferb doctor`: the context window lines end "at most 1048576 characters in
-    one input".
+    repeated task> --kind procedure`, `--kind lesson`, or the memory dashboard) and record what appeared. Also
+    `ferb doctor`: the context window lines end "at most 1048576 characters in one input".
 
 Residuals to know during the week (accepted or recorded, not checks):
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
