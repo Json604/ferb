@@ -316,11 +316,15 @@ def test_a_first_look_waits_for_the_window_but_a_withheld_picture_counts(daemon:
     del shots.front_window                                          # the window appeared
     gateway_call(daemon, g, "mac.menu", app="Notes")
     assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "w"))] == ["app_window"]
-    daemon.daemon.mac.ax.secure = [True]       # type: ignore[union-attr]   # a password field with no box to paint
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[(150.0, 100.0, 100.0, 20.0)])   # type: ignore[union-attr]
+
+    def broken(image: bytes, boxes: Any) -> bytes:                # a password field it can't paint over
+        raise ValueError("not an image Quartz can decode")
+    monkeypatch.setattr(mask, "mask_secret_fields", broken)
     p = grant_task(daemon, "p", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
     first = gateway_call(daemon, p, "mac.menu", app="Notes")
     second = gateway_call(daemon, p, "mac.menu", app="Notes")
-    assert first["content"]["image_withheld"] == "the window's secret-field inventory is incomplete; pixels withheld"
+    assert first["content"]["image_withheld"] == "the capture couldn't be painted over; pixels withheld"
     assert "image_withheld" not in second["content"]             # attempted only once
 
 

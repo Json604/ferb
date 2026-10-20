@@ -1,6 +1,7 @@
 """L13 (owner, 2026-10-14: "no screenshots should be refused and go with redacted stuff"): browser windows, tab
 screenshots and recording frames reach the model with every secret field painted over, and through the F5 sanitizer.
-An image is withheld only when that masking or sanitizing itself fails. Offline: fake windows, a fake extension
+Where a native capture's secret fields can't be located or placed, the picture is left to the sanitizer's text
+recognition and says so (live case 2026-10-19). An image is withheld only when painting or sanitizing itself fails. Offline: fake windows, a fake extension
 bridge, the extension's own JavaScript in node (with Chromium's chrome.runtime: no getFrameId); no real screen or
 browser is captured."""
 
@@ -324,27 +325,52 @@ def test_a_mac_screenshot_of_a_page_nobody_read_reaches_the_model_through_text_r
     assert daemon.run(_evidence(daemon, "n")) == [("screenshot", True)]
 
 
-def test_a_secret_field_appearing_during_capture_withholds_it(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_secret_field_appearing_during_capture_is_painted_where_it_appeared_and_says_so(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner: no screenshot is refused. A field whose place during the capture isn't certain is painted wherever a
+    look saw it, and the note says the rest is left to text recognition (it used to withhold the capture)."""
     d, ax, shots, _ = _brave(monkeypatch, _page(), _page())
     ax.secure = [False, True]
 
     def appears() -> None:
         ax.tree.secret_rects = [(150.0, 200.0, 100.0, 20.0)]
     shots.on_capture = appears
-    with pytest.raises(Withheld, match="during capture"):
-        asyncio.run(d.screenshot("Brave"))
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 150, 310)) and white(pixel(jpeg, 150, 360)) and white(pixel(jpeg, 20, 20))
+    assert "appeared or went during the capture" in shot.masking and "text recognition" in shot.masking
 
 
-def test_a_field_moving_during_capture_withholds_it(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_field_moving_during_capture_is_painted_where_it_was_before_and_after(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, shots, *_ = vision(monkeypatch)
+    shots.jpeg = solid_jpeg(*IMG)
     ax.tree = AxTree(secret_rects=[(150.0, 200.0, 100.0, 20.0)])
     ax.secure = [True, True]
 
     def moves() -> None:
-        ax.tree.secret_rects = [(150.0, 210.0, 100.0, 20.0)]
+        ax.tree.secret_rects = [(150.0, 230.0, 100.0, 20.0)]
     shots.on_capture = moves
-    with pytest.raises(Withheld, match="during capture"):
-        asyncio.run(d.screenshot("Notes"))
+    _, shot, jpeg = asyncio.run(d.screenshot("Notes"))
+    assert black(pixel(jpeg, 150, 310)) and black(pixel(jpeg, 150, 370))         # (100..300, 300..340) and 360..400
+    assert white(pixel(jpeg, 150, 350)) and white(pixel(jpeg, 150, 420))
+    assert "moved, appeared or went during the capture" in shot.masking
+
+
+def test_a_page_field_moving_during_a_native_capture_is_painted_where_each_look_saw_it(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    d, _, shots, _ = _brave(monkeypatch, _page((20, 40, 100, 20)), _page((20, 100, 100, 20)))
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and black(pixel(jpeg, 100, 375)) and white(pixel(jpeg, 100, 320))
+    assert "the page changed during the capture" in shot.masking and shots.captured == [120]
+
+
+def test_a_window_accessibility_cant_read_is_left_to_text_recognition_and_says_so(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    d, ax, shots, *_ = vision(monkeypatch)
+    ax.window_with_frame = lambda pid, bounds, title=None: None            # type: ignore[method-assign]
+    _, shot, jpeg = asyncio.run(d.screenshot("Notes"))
+    assert shots.captured == [110] and jpeg == shots.jpeg
+    assert "couldn't be located" in shot.masking and "Accessibility couldn't read" in shot.masking
+    assert "text recognition only" in shot.masking
 
 
 def test_the_ax_inventory_is_walked_fresh_and_exposed_before_each_capture(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -364,12 +390,26 @@ def test_the_ax_inventory_is_walked_fresh_and_exposed_before_each_capture(monkey
     assert len(walks) == 2                                       # its own, before and after: never the snapshot's
 
 
-def test_page_fields_that_cant_be_placed_on_the_window_withhold_the_frame(monkeypatch: pytest.MonkeyPatch) -> None:
-    d, ax, shots, _ = _brave(monkeypatch, _page((20, 40, 100, 20)))
+def test_page_fields_that_cant_be_placed_on_the_window_are_left_to_text_recognition(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    page = _page((20, 40, 100, 20))
+    d, ax, shots, _ = _brave(monkeypatch, page, page)
     ax.tree.web_areas = []                                       # Accessibility shows no page area to map onto
-    with pytest.raises(Withheld, match="withheld"):
-        asyncio.run(d.screenshot("Brave"))
-    assert shots.captured == []
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert shots.captured == [120] and "couldn't be placed" in shot.masking and "text recognition only" in shot.masking
+
+
+def test_a_capture_that_cant_be_painted_is_still_withheld(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What is left of withholding in a native capture: the picture exists but the boxes can't be painted on it."""
+    d, ax, shots, *_ = vision(monkeypatch)
+    ax.tree = AxTree(secret_rects=[(150.0, 200.0, 100.0, 20.0)])
+    ax.secure = [True, True]
+
+    def broken(image: bytes, boxes: Any) -> bytes:
+        raise ValueError("not an image Quartz can decode")
+    monkeypatch.setattr("ferb.act.evidence.mask.mask_secret_fields", broken)
+    with pytest.raises(Withheld, match="couldn't be painted"):
+        asyncio.run(d.screenshot("Notes"))
 
 
 def test_window_recording_frames_are_masked_not_dropped(monkeypatch: pytest.MonkeyPatch) -> None:

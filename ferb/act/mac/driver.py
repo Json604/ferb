@@ -29,16 +29,23 @@ UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "
 
 Rect = tuple[float, float, float, float]          # x, y, w, h
 
-# L13: a capture is never refused for what it shows; it is withheld only when its secret fields can't be painted over.
-INVENTORY_INCOMPLETE = "the window's secret-field inventory is incomplete; pixels withheld"
-MOVED = "a secret field moved, appeared or went during capture; pixels withheld"
-# Owner, 2026-10-14: "no screenshots should be refused; go with redacted stuff". Where the secret fields can't be
-# located at all, the picture goes on to the F5 sanitizer's text recognition (every image path runs it) with this note.
+# L13: a capture is never refused for what it shows. Owner, 2026-10-14: "no screenshots should be refused; go with
+# redacted stuff" (and "no exceptions"). The secret fields found are painted; where they can't be located or placed,
+# the picture goes on to the F5 sanitizer's text recognition (every image path runs it) and its note says so. It is
+# withheld only when the boxes found can't be painted on it at all.
 OCR_ONLY = "masked by text recognition only (a secret it can't read as text could show)"
+OCR_REST = "anything else is left to text recognition (a secret it can't read as text could show)"
 PAGE_UNREAD = ("the page's secret fields couldn't be located (neither the browser extension nor Accessibility could "
                "read the page this window shows); " + OCR_ONLY)
-PAGE_UNPLACED = ("the page's secret fields can't be placed on the window (Accessibility shows no page area); pixels "
-                 "withheld")
+WINDOW_UNREAD = ("the window's secret fields couldn't be located (Accessibility couldn't read this window when it was "
+                 "captured); " + OCR_ONLY)
+FIELD_UNPLACED = "a secret field Accessibility found has no place on screen to paint; " + OCR_ONLY
+FIELD_MOVED = ("a secret field moved, appeared or went during the capture: painted where it was before and after; "
+               + OCR_REST)
+PAGE_MOVED = ("the page changed during the capture: its secret fields are painted where they were before and after; "
+              + OCR_REST)
+PAGE_UNPLACED = ("the page's secret fields couldn't be placed on the window (Accessibility shows no page area); "
+                 + OCR_ONLY)
 UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
 AX_ONLY = ("masked from Accessibility only: the browser extension couldn't read this page (not paired with this "
            "window's profile, an incognito window, or a page scripts can't reach)")
@@ -67,38 +74,55 @@ Look = tuple[axm.AxTree | None, WebSecrets | None]      # one look at a window: 
 
 def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], str]:
     """Screen-point boxes to paint over on one capture of a window (L13), from the looks before and after it, and a
-    note when a browser page's fields come from Accessibility alone, or couldn't be located at all. Painted: the
-    secret fields the AX walks found (AXSecureTextField, and text fields whose metadata names a password field) and,
-    for a browser, the fields the extension marks secret in its page (mask.page_masks), placed on the AX web area that
-    draws it. When neither the extension nor Accessibility read the browser's page, its fields can't be located: the
-    picture is masked by text recognition only (`PAGE_UNREAD`), never refused. Withheld when the fields found can't be
-    painted: Accessibility can't read the window, a secret field has no box, something moved, appeared or went during
-    the capture."""
+    note on how its secret fields were found when that is worth saying. Painted: the secret fields the AX walks found
+    (AXSecureTextField, and text fields whose metadata names a password field) and, for a browser, the fields the
+    extension marks secret in its page (mask.page_masks), placed on the AX web area that draws it. A field whose place
+    during the capture isn't certain (it moved, appeared or went between the looks) is painted where each look saw
+    it. Where they can't be located (Accessibility can't read the window, neither the extension nor Accessibility
+    read the browser's page) or placed (a field with no box, a page with no area), the note says the picture is left
+    to text recognition. Never refused: only `painted` withholds, when the boxes can't be painted at all."""
     (t1, w1), (t2, w2) = before, after
     if t1 is None or t2 is None or t1.secure is None or t2.secure is None:
-        raise Withheld(INVENTORY_INCOMPLETE)
-    ax1, ax2 = _ax_boxes(t1), _ax_boxes(t2)
-    if sorted(ax1) != sorted(ax2):
-        raise Withheld(MOVED)
+        read = [t for t in (t1, t2) if t is not None and t.secure is not None]
+        return _union(*(_ax_boxes(t)[0] for t in read)), WINDOW_UNREAD
+    (ax1, whole1), (ax2, whole2) = _ax_boxes(t1), _ax_boxes(t2)
+    notes = [FIELD_UNPLACED] if not (whole1 and whole2) else [FIELD_MOVED] if sorted(ax1) != sorted(ax2) else []
+    masks = _union(ax1, ax2)
     p1, p2 = (w1.state if w1 else None), (w2.state if w2 else None)
     if p1 is not None and p2 is not None:
-        areas = axm.outermost(t2.web_areas)
-        if sorted(axm.outermost(t1.web_areas)) != sorted(areas):
-            raise Withheld(MOVED)
-        rects, viewport = page_masks(p1, p2)
-        return ax2 + page_on_screen(rects, viewport, areas), ""
-    if not browser:
-        return ax2, ""
-    if any(not t.has_web or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas)) for t in (t1, t2)):
-        return ax2, PAGE_UNREAD
-    return ax2, AX_ONLY
+        page, note = _page_on_screen(p1, p2, axm.outermost(t1.web_areas), axm.outermost(t2.web_areas))
+        return masks + page, "; ".join(notes + [note] if note else notes)
+    if browser:
+        unread = any(not t.has_web or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas)) for t in (t1, t2))
+        notes.append(PAGE_UNREAD if unread else AX_ONLY)
+    return masks, "; ".join(notes)
 
 
-def _ax_boxes(tree: axm.AxTree) -> list[Rect]:
+def _page_on_screen(p1: PageState, p2: PageState, a1: list[Rect], a2: list[Rect]) -> tuple[list[Rect], str]:
+    """The page's secret fields on screen for one capture, from the extension's looks before and after it and the AX
+    page areas each look saw; a note when they weren't still (painted where each look saw them) or can't be placed."""
+    still: tuple[list[Rect], Rect] | None = None
+    if sorted(a1) == sorted(a2):
+        with contextlib.suppress(Withheld):          # something moved, appeared or went, or the page changed
+            still = page_masks(p1, p2)
+    try:
+        if still is not None:
+            return page_on_screen(*still, a2), ""
+        return (page_on_screen([i.rect for i in p1.items], p1.viewport, a1)
+                + page_on_screen([i.rect for i in p2.items], p2.viewport, a2)), PAGE_MOVED
+    except Withheld:                                 # fields, and no page area to place them on
+        return [], PAGE_UNPLACED
+
+
+def _ax_boxes(tree: axm.AxTree) -> tuple[list[Rect], bool]:
+    """The secret-field boxes an AX walk found that can be painted, and whether that is every one it found."""
     boxes = list(tree.secret_rects) if tree.secret_rects is not None else [n.rect for n in tree.nodes if n.secret]
-    if (tree.secure and not boxes) or any(w <= 0 or h <= 0 for _, _, w, h in boxes):
-        raise Withheld(INVENTORY_INCOMPLETE)
-    return boxes
+    placed = [b for b in boxes if b[2] > 0 and b[3] > 0]
+    return placed, not (tree.secure and not boxes) and len(placed) == len(boxes)
+
+
+def _union(*boxes: list[Rect]) -> list[Rect]:
+    return list(dict.fromkeys(b for group in boxes for b in group))
 
 
 def page_on_screen(rects: list[Rect], viewport: Rect, areas: list[Rect]) -> list[Rect]:
@@ -341,9 +365,10 @@ class MacComputerDriver:
                          ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory, with every secret field painted over (L13): the password fields
         the Accessibility tree shows (and, for a browser, the fields the extension marks secret in the tab on screen),
-        found before and after the capture. Withheld only when they can't be painted over (`window_masks`). The capture
-        becomes the app's latest shot (mac.click / pointer / record); its `masking` says when a browser page was
-        masked from Accessibility alone."""
+        found before and after the capture (`window_masks`; where they can't be located or placed, the picture is left
+        to text recognition, never refused). Withheld only when the boxes can't be painted on it. The capture becomes
+        the app's latest shot (mac.click / pointer / record); its `masking` says how a browser page's fields were found
+        (Accessibility alone, or not at all) and when the rest is left to text recognition."""
         a, w, jpeg, size, note = await self._capture(name_or_bundle, marks, window, native_resolution)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
@@ -401,14 +426,14 @@ class MacComputerDriver:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
         first = await self._look(a, w.bounds)
-        window_masks(first, first, browser)              # nothing is captured when it couldn't be masked anyway
         jpeg, width, height = await asyncio.to_thread(grab, w)
         masks, note = window_masks(first, await self._look(a, w.bounds), browser)
         return a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
         """Pin the window the worker actually saw; repeated captures never replace its action references. Each frame is
-        painted over like a screenshot (L13); a frame that can't be is withheld (Withheld), never the recording."""
+        painted over like a screenshot (L13), its note returned with it; a frame that can't be painted is withheld
+        (Withheld), never the recording."""
         a = self.app(name)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
@@ -426,10 +451,9 @@ class MacComputerDriver:
             await self._expose(a)
             browser = a.bundle_id in BROWSER_BUNDLES
             first = await self._look(a, w.bounds)
-            window_masks(first, first, browser)
             image, width, height = await asyncio.to_thread(self.shots.capture, w)
             await current()
-            masks, note = window_masks(first, await self._look(a, w.bounds), browser)   # moved: no window, withheld
+            masks, note = window_masks(first, await self._look(a, w.bounds), browser)   # moved: no window, OCR only
             frame = await painted(image, masks, w.bounds, (width, height))
             return (frame, note) if note else frame
         return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture

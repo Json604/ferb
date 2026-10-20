@@ -1,6 +1,7 @@
 """Build step 9, offline: screenshot + click on fake window / capture layers. Only apps on [privacy] exclude_apps
 are refused (default: password managers; the owner may edit or empty it); a password field the Accessibility tree
-shows is masked only with complete geometry; unknown inventories withhold pixels. Clicks map image
+shows is masked where its geometry says; a field with no box or a tree that can't say leaves the picture to the
+F5 text recognition, with a note. Clicks map image
 pixels to the window, refuse a stale shot / moved window / something on top (checked before each event), and yield
 to the owner. The image reaches the model and FERB's evidence store (V1, ~/.ferb/evidence, 7 days) and nothing else:
 not spans, journal, logs or any other file.
@@ -48,19 +49,21 @@ def test_only_excluded_apps_are_refused_and_the_list_is_the_owners(monkeypatch: 
     assert c.exclude_apps() == frozenset()                               # an emptied list stays empty
 
 
-def test_password_without_geometry_or_unknown_inventory_withholds_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_password_without_geometry_or_unknown_inventory_is_left_to_text_recognition(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner, L13: no screenshot is refused. A password field with no box, or a tree that can't say, can't be
+    painted: the picture goes on to the F5 sanitizer's text recognition, and its note says so."""
     d, ax, shots, *_ = vision(monkeypatch)
-    ax.secure = [True]
-    with pytest.raises(Refused, match="secret-field inventory"):
-        asyncio.run(d.screenshot("Notes"))
-    assert shots.captured == []                                          # seen before: never captured
+    ax.secure = [True, True]
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))
+    assert shots.captured == [110] and "has no place" in shot.masking and "text recognition" in shot.masking
+    assert d._state["com.apple.Notes"].shot is shot                      # a shot to click on
     ax.secure = [False, True]
-    with pytest.raises(Refused, match="secret-field inventory"):
-        asyncio.run(d.screenshot("Notes"))                               # appeared during capture: dropped
-    assert d._state["com.apple.Notes"].shot is None                      # no shot recorded to click on
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))                      # appeared during capture, with no box
+    assert "has no place" in shot.masking
     ax.secure = [None, None]
-    with pytest.raises(Refused, match="secret-field inventory"):
-        asyncio.run(d.screenshot("Notes"))
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))
+    assert "couldn't be located" in shot.masking and len(shots.captured) == 3
 
 
 def test_a_node_list_cut_at_depth_still_masks_the_secret_fields_found(monkeypatch):
@@ -302,14 +305,32 @@ def test_no_image_without_the_screen_scope_for_browsers_or_when_switched_off(dae
     assert shots.captured == []
 
 
-def test_a_password_field_still_means_no_image_but_the_tree_comes_back(daemon: RunningDaemon,
-                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_picture_that_cant_be_painted_means_no_image_but_the_tree_comes_back(daemon: RunningDaemon,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.mac.accessibility import AxNode
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    ax = daemon.daemon.mac.ax                                                   # type: ignore[union-attr]
+    _tree_with_controls(ax)
+    ax.tree.nodes.append(AxNode(None, "textbox", "Password", "filled", (150.0, 100.0, 100.0, 20.0), True, True))
+    ax.secure = [True, True]
+
+    def broken(image: bytes, boxes: Any) -> bytes:
+        raise ValueError("not an image Quartz can decode")
+    monkeypatch.setattr("ferb.act.evidence.mask.mask_secret_fields", broken)
+    g = task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
+    r = call(daemon, g, "mac.snapshot", app="Notes")
+    assert not r["is_error"] and "image" not in r and "couldn't be painted" in r['content']['image_withheld']
+    assert len(r["content"]["elements"]) == 3 and shots.captured == [110]
+    assert _evidence_files(daemon) == []
+
+
+def test_a_password_field_without_a_box_gives_an_image_left_to_text_recognition(daemon: RunningDaemon,
+                                                                               monkeypatch: pytest.MonkeyPatch) -> None:
     shots, _ = _fake_mac(daemon, monkeypatch)
     ax = daemon.daemon.mac.ax                                                   # type: ignore[union-attr]
     _tree_with_controls(ax)
     ax.secure = [True, True]                    # the field is still there when FERB looks for its evidence (D26)
     g = task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
     r = call(daemon, g, "mac.snapshot", app="Notes")
-    assert not r["is_error"] and "image" not in r and r['content']['image_withheld']
-    assert len(r["content"]["elements"]) == 2 and shots.captured == []
-    assert _evidence_files(daemon) == []
+    assert not r["is_error"] and base64.b64decode(r["image"]["data"]) == shots.jpeg
+    assert "has no place" in r["content"]["initial_image"]["masking"] and len(r["content"]["elements"]) == 2

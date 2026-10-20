@@ -793,7 +793,7 @@ file without its row; the cancelled call's span still ends, with `evidence_error
 before, and the span's output names it (`evidence: <id>`, or `evidence_error`). Since the launch week (L13) the
 evidence keeps exactly the image the model got, masked where captured and then sanitized; browser windows, hostless
 pages, excluded sites and recording contact sheets keep their pixels. Facts only, with `image_withheld` saying why,
-remain only where masking or the F5 redaction failed ("image redaction unavailable", a `Withheld` reason). When a
+remain only where painting or the F5 redaction failed ("image redaction unavailable", a `Withheld` reason). When a
 worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
 app's window, after the call has answered and outside its resource lock (`_look_later` starts `_first_look` as its own
 job, in `Gateway.looks`; a stop or shutdown cancels it, while a task that just ended lets it finish, bounded by its
@@ -1262,8 +1262,8 @@ server's "port 54321" line is never held. URL words never count (query credentia
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
-masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a capture is withheld only when
-masking fails). The model-bound start image is the front window captured at send (L12); the first actual app/tab
+masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a native capture is withheld only
+when its boxes can't be painted; fields it can't locate are left to the OCR, and its `masking` says so). The model-bound start image is the front window captured at send (L12); the first actual app/tab
 observation adds one only when none was given, then only explicit screenshots return images. Browser snapshots retain
 their
 reference generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
@@ -1644,7 +1644,8 @@ protected FERB state (16.9).
 
 **Redacted, not refused (L13).**
 - `pixels_withheld` is gone. Every image goes through masking and the `ImageRedactor`; `Withheld` (a `Refused`)
-  is raised only when masking fails.
+  is raised only when masking fails: on a native capture (`driver.window_masks`), only when the boxes found can't be
+  painted on the picture (`UNPAINTABLE`); on a tab capture, the extension's own cases below.
 - Browser tabs: the extension's `maskState` reads secret-field rects before and after the capture, one look per tab
   at a time; `mask.page_masks` paints fields that stayed put and withholds a field that moved, appeared or vanished,
   or a page that navigated or resized. A child frame is linked to its host only by a trusted per-round announcement;
@@ -1652,16 +1653,24 @@ protected FERB state (16.9).
   (box-reflect, SVG `url()` filters, `::details-content`) withhold.
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
   area; AX-only masking is recorded as `masking`.
-- A page neither the extension nor Accessibility could read (no answering profile and no AX page area, or an empty
-  one) is no longer withheld (owner: "no screenshots should be refused; go with redacted stuff"; live case
-  2026-10-19, where the front-window block said "pixels withheld" and FERB asked which internship): the AX secret
-  fields elsewhere in the window are painted, the page is left to the F5 text recognition every image path runs, and
-  `masking` says so ("the page's secret fields couldn't be located … masked by text recognition only"): in
-  `mac.screenshot`'s content, the front-window block and evidence facts (`FrontWindow.masking`), and a recording's
-  `masking` list. Residual: a secret the OCR can't recognise as one (an unlabelled shown password) can show.
+- Native captures are never refused for where their secret fields are (owner: "no screenshots should be refused; go
+  with redacted stuff", "no exceptions"; live case 2026-10-19, where the front-window block said "pixels withheld"
+  and FERB asked which internship). `window_masks` paints what it found and says the rest in `masking`:
+  - a page neither the extension nor Accessibility could read (no answering profile, and no AX page area or an empty
+    one): the AX fields elsewhere are painted, the page is "masked by text recognition only" (`PAGE_UNREAD`);
+  - a window Accessibility can't read in a look (`WINDOW_UNREAD`), a secret field with no box (`FIELD_UNPLACED`),
+    page fields with no page area (`PAGE_UNPLACED`): left to text recognition;
+  - a field or page item that moved, appeared or went between the looks, or a page that navigated or resized
+    (`FIELD_MOVED`, `PAGE_MOVED`): painted where each look saw it, the rest left to text recognition.
+  The picture always goes through the F5 `ImageRedactor`, which every image path runs. `masking` reaches
+  `mac.screenshot`'s content, a first look's facts, the front-window block and its evidence facts
+  (`FrontWindow.masking`), and a recording's `masking` list. Residual (accepted by the directive): where fields can't
+  be located or placed, a secret the OCR can't recognise as one (an unlabelled shown password, a code with no label)
+  can show; a field moving during the capture could be caught between its two places.
 - The AX inventory also masks text fields whose title, description, placeholder or identifier says passw/pwd, and
   walks the whole tree for secret fields.
-- Recordings paint each frame; an unmaskable frame is skipped (`frames_withheld`, `withheld_reason`).
+- Recordings paint each frame (notes as above); a frame whose boxes can't be painted is skipped (`frames_withheld`,
+  `withheld_reason`).
   `recording.inspect` returns its contact sheet to the model.
 - Accepted residuals: other CSS pixel-copy effects (drop-shadow on transparent fields, view transitions) rely on the
   OCR layer; a hostile parent page timing its looks could expose an embedded frame's field to the model provider.

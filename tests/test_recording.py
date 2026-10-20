@@ -113,32 +113,31 @@ def test_window_recording_stays_on_observed_window_without_invalidating_pointer(
     asyncio.run(check())
 
 
-def test_window_recording_withholds_a_frame_whose_new_password_field_has_no_box(monkeypatch):
+def test_window_recording_keeps_a_frame_whose_new_password_field_has_no_box_and_says_so(monkeypatch):
     """L13: a field that appears while capturing is painted over from the walk after it; one with no box to paint
-    withholds that frame (tests/test_pixels_to_model.py: frames are masked, and the recording goes on)."""
-    from ferb.core.errors import Withheld
+    leaves that frame to the F5 text recognition, with the note (owner: no screenshot is refused)."""
     from tests.mackit import vision
     d, ax, shots, *_ = vision(monkeypatch)
     async def check():
         _, shot, _ = await d.screenshot('Notes')
         _, capture = d.recording_source('Notes', shot.id)
         ax.secure = [False, True]
-        with pytest.raises(Withheld, match='inventory'):
-            await capture()
+        frame, note = await capture()
+        assert frame == shots.jpeg and 'has no place' in note
     asyncio.run(check())
 
 
 @pytest.mark.parametrize('unknown_after_capture', [False, True])
-def test_window_recording_withholds_unknown_secret_inventory(monkeypatch, unknown_after_capture):
+def test_window_recording_keeps_a_frame_whose_secret_inventory_is_unknown_and_says_so(monkeypatch,
+                                                                                      unknown_after_capture):
     from tests.mackit import vision
     d, ax, shots, *_ = vision(monkeypatch)
     async def check():
         _, shot, _ = await d.screenshot('Notes')
         _, capture = d.recording_source('Notes', shot.id)
         ax.secure = [False, None] if unknown_after_capture else [None]
-        with pytest.raises(Refused, match='inventory'):
-            await capture()
-        assert len(shots.captured) == (2 if unknown_after_capture else 1)
+        frame, note = await capture()
+        assert frame == shots.jpeg and "couldn't be located" in note and len(shots.captured) == 2
     asyncio.run(check())
 
 
