@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
-from ferb.act.browser.ext_bridge import Router
-from ferb.core.errors import Refused
+from ferb.act.browser.ext_bridge import Hub, Router
+from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.tree import TaskRecord
 
@@ -295,3 +295,21 @@ def test_the_checkers_browser_context_is_redacted(daemon: Any, monkeypatch: pyte
         monkeypatch.setattr(d.ferb_identity, "task_tabs", lambda parent: [])
     context = d._browser_context("check-1")
     assert "t1" in context and "123456" not in context
+
+
+def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
+    """Re-review 2 (R5): the inventory says the owner closed a held tab (the extension's removed event), so a task
+    never reports it as missing or acts on it; reopening it is a new tab."""
+    r, br = router()
+    hub = SimpleNamespace(drivers=[r])
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    Hub.tab_removed(hub, br, 11)                                                    # type: ignore[arg-type]
+    assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "closed": "the owner closed this tab",
+                                      "taken_over_from": {"url": "https://www.youtube.com/watch?v=fixture",
+                                                          "title": "Lesson"}}]
+    with pytest.raises(StaleRef):
+        r._tab(ref)
+    assert r.task_tab(br, 11) is None                                       # no downloads are held for it
+    br.calls.clear()
+    assert asyncio.run(r.release("task-1"))[0]["closed"] is True
+    assert br.calls == [] and r.task_tabs("task-1") == []                     # nothing to ask the browser to let go of

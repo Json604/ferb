@@ -253,6 +253,11 @@ class Hub:
         """The live task that drives this tab now, in any driver; None: the extension must not hold its downloads."""
         return next((tt for d in self.drivers if (tt := d.task_tab(br, chrome_id)) is not None), None)
 
+    def tab_removed(self, br: "Bridge", chrome_id: int) -> None:
+        """A tab closed in the browser: a task tab is marked closed in its driver (re-review 2, R5)."""
+        for d in self.drivers:
+            d.tab_closed(br, chrome_id)
+
     def _spawn(self, coro: Awaitable[Any]) -> None:
         async def quiet() -> None:
             try:
@@ -438,8 +443,10 @@ class Hub:
                 e = TabEvent.model_validate(body)
             except ValueError:
                 return
-            if e.event == "removed" and (job := self.on_tab_closed(br, e.tab_id)) is not None:
-                self._spawn(job)
+            if e.event == "removed":
+                self.tab_removed(br, e.tab_id)
+                if (job := self.on_tab_closed(br, e.tab_id)) is not None:
+                    self._spawn(job)
             if self.paused() and not self.owned(br, e.tab_id):
                 return                                       # paused: the owner's tabs aren't watched at all
             self.on_tab(br, e)
@@ -594,6 +601,7 @@ class _Tab:
     input_note: str = ""            # the latest capture went on although the tab's input readiness failed (round 5)
     # the page an owner's tab held when the task took it over: the tab is known by its id, wherever it navigates
     taken_over_from: dict[str, str] = field(default_factory=dict)
+    closed: bool = False            # closed in the browser (the owner): listed as closed, never driven again
 
 
 class _TabDriver:
@@ -695,7 +703,13 @@ class _TabDriver:
     def _live(self, br: Bridge, chrome_id: int) -> _Tab | None:
         """This driver's tab with that browser id, driven by a task that is still running (opened or borrowed)."""
         return next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id and t.owner
-                     and self.task_running(t.owner)), None)
+                     and not t.closed and self.task_running(t.owner)), None)
+
+    def tab_closed(self, br: Bridge, chrome_id: int) -> None:
+        """The browser closed this tab (the owner did): the task's inventory says so; a reopened tab is a new one."""
+        for t in self._tabs.values():
+            if t.bridge is br and t.chrome_id == chrome_id:
+                t.closed = True
 
     def task_tab(self, br: Bridge, chrome_id: int) -> TaskTab | None:
         """The live task that drives this tab now, for a download caught in it. A tab whose task ended, or whose
@@ -822,9 +836,11 @@ class _TabDriver:
         t = self._tabs.get(tab.tab_id)
         if t is None:
             return {"tab": tab.tab_id, "released": True, "closed": False, "already_released": True}
-        if t.bridge.conn is None:
+        if t.closed:                                   # the browser already closed it: nothing to let go of
+            v: dict[str, Any] = {"closed": True, "released": True}
+        elif t.bridge.conn is None:
             raise DriverError(f"cannot confirm cleanup of {tab.tab_id}: {t.bridge.name} is disconnected")
-        if t.attached or t.keep_open:
+        elif t.attached or t.keep_open:
             v = await t.bridge.call("release_tab", {"tab_id": t.chrome_id, "keep_open": t.keep_open}, timeout=10)
             if not v.get("released") or (t.keep_open and not v.get("kept_open")):
                 raise DriverError(f"browser did not confirm releasing {tab.tab_id}")
@@ -1376,6 +1392,8 @@ class _TabDriver:
         t = self._tabs.get(ref.tab_id)
         if t is None:
             raise StaleRef(f"tab {ref.tab_id} is gone")
+        if t.closed:
+            raise StaleRef(f"tab {ref.tab_id} was closed in the browser")
         if t.bridge.gen != ref.generation or t.bridge.conn is None:
             raise StaleRef(f"tab {ref.tab_id} belongs to an older browser connection")
         return t
@@ -1397,7 +1415,8 @@ class _TabDriver:
     def task_tabs(self, owner: str) -> list[dict[str, Any]]:
         """The task's tabs by tab id (owner live use 2026-10-18: a navigated tab counted as missing), each with the
         page it held when the task took it over, when it was the owner's."""
-        return [{"tab": t.ref.tab_id, **({"taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
+        return [{"tab": t.ref.tab_id, **({"closed": "the owner closed this tab"} if t.closed else {}),
+                 **({"taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
                 for t in self._tabs.values() if t.owner == owner]
 
     def tabs_of(self, owner: str) -> list[str]:
@@ -1534,7 +1553,7 @@ class Router(_TabDriver):
         br = self.hub.bridge(browser, folder)
         if br is None or br.conn is None or br.binding.identity is not Identity.OWNER:
             raise Refused("that profile isn't one of the owner's connected profiles")
-        existing = next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == cid), None)
+        existing = next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == cid and not t.closed), None)
         if existing is not None:
             if not self._accessible(existing, owner):
                 raise Refused("another task is using that tab")
