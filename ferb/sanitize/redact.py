@@ -736,11 +736,20 @@ class RedactionStream:
             begin = end
         if lines and self._forward(lines[-1][1]):
             at = len(lines) - 1
-            hold = min(hold, lines[at][0])
             while at > 0 and self._related(lines[at - 1][1], lines[at][1]):
                 at -= 1
+            # Lines of list codes matter only under a list's label: without one in the run, nothing relates them
+            # (40000 lines "line0".."line39999" are no list)
+            run = [text for _, text in lines[at:]]
+            if not all(_list_line(t) and not self._forward_alone(t) for t in run):
                 hold = min(hold, lines[at][0])
         return hold
+
+    @staticmethod
+    def _forward_alone(line: str) -> bool:
+        """A line that can relate to the next without a list's label."""
+        return (_label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
+                or _list_label_line(line))
 
     @staticmethod
     def _forward(line: str) -> bool:

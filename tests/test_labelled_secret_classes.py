@@ -455,3 +455,16 @@ def test_every_code_in_a_backup_or_recovery_list_is_masked(message, codes) -> No
         assert code not in out, out
     if "Keep them safe" in message:
         assert "Keep them safe." in out
+
+
+def test_many_short_lines_with_digits_stream_through_whole() -> None:
+    """Full suite on the review round: 40000 lines "line0".."line39999" each looked like a list code, so the stream held
+    them all and dropped them as oversized (test_mac_shell's paging tests). A list is held only under its label."""
+    import time
+    text = "".join(f"line{i}\n" for i in range(40000))
+    stream, out, data = Redactor().stream(), b"", text.encode()
+    started = time.monotonic()
+    for i in range(0, len(data), 1024):
+        out += stream.feed(data[i:i + 1024])
+    out += stream.feed(b"", final=True)
+    assert out.decode() == text and time.monotonic() - started < 10
