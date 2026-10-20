@@ -1495,20 +1495,34 @@ const commands = {
     return { sealed: await seal(st.key, (r && r.result) || "", id, FEED_URL) };   // email content never in clear
   },
   // A native capture of this browser's window (L13): the mask state (maskState) of the active tab of this profile's
-  // window at exactly these screen bounds, for the daemon to paint over. A minimized window is never the one on
-  // screen. Geometry only, never page content. complete:false: the page can't be read.
-  async window_secrets({ bounds, _timeout_ms }) {
+  // window at exactly these screen bounds, for the daemon to paint over, and that tab's URL (secret parameters
+  // masked) and title (protocol 15: the daemon checks the title against the captured window's, and the front window
+  // takes its tab from here). With several such windows (maximized ones share bounds), the one whose active tab's
+  // title is the captured window's `title`: the window server names a Chromium window after its active tab. A
+  // minimized window is never the one on screen. Geometry, URL and title only, never page content. complete:false:
+  // the page can't be read.
+  async window_secrets({ bounds, title, _timeout_ms }) {
     const deadline = Date.now() + _timeout_ms;
     const [x, y, w, h] = bounds;
     const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
-    const matches = wins.filter((v) => v.state !== "minimized" && Math.abs(v.left - x) <= 2 &&
-                                 Math.abs(v.top - y) <= 2 && Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
+    let matches = wins.filter((v) => v.state !== "minimized" && Math.abs(v.left - x) <= 2 &&
+                               Math.abs(v.top - y) <= 2 && Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
+    const shown = (s) => String(s || "").replace(/\s+/g, " ").trim();
+    if (matches.length > 1 && shown(title)) {
+      const named = [];
+      for (const v of matches) {
+        const [t] = await chrome.tabs.query({ active: true, windowId: v.id });
+        if (t && shown(t.title) === shown(title)) named.push(v);
+      }
+      matches = named.length === 1 ? named : matches;
+    }
     if (matches.length !== 1) return {matched: false, reason: matches.length ? "ambiguous_window" : "window_not_found"};
     const [tab] = await chrome.tabs.query({ active: true, windowId: matches[0].id });
     if (!tab) return {matched: true, complete: false, reason: "no_active_tab"};
+    const page = {url: maskUrl(tab.url || tab.pendingUrl || ""), title: String(tab.title || "")};
     const state = await maskState(tab.id, deadline);
-    if (state.withheld) return {matched: true, complete: false, reason: state.withheld};
-    return {matched: true, complete: true, state};
+    if (state.withheld) return {matched: true, complete: false, reason: state.withheld, tab: page};
+    return {matched: true, complete: true, state, tab: page};
   },
   async wake_close({ url }) {            // close exactly the unique wake page (spike 13)
     const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || t.pendingUrl) === url);

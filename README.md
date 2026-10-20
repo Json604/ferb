@@ -69,7 +69,7 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.3** (protocol 14); the daemon refuses an older protocol with a reload
+FERB's browser hands are its extension, **0.15.4** (protocol 15); the daemon refuses an older protocol with a reload
 notice. `ferb setup` (and `--update`) handles it for every Chromium browser it finds (Chrome and its Beta, Dev and
 Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
@@ -79,7 +79,7 @@ Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
   reopen. Setup never restarts a browser, approves its prompt or edits its preferences;
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
-The listing is waiting for Chrome Web Store review (0.15.2 was submitted on 2026-10-14; 0.15.3 has to be uploaded
+The listing is waiting for Chrome Web Store review (0.15.2 was submitted on 2026-10-14; 0.15.4 has to be uploaded
 before the store copy works with this build). Until then, and in browsers without the store request, setup prints the
 Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers extension path`
 prints it), enable Developer mode in the browser's extensions page and Load unpacked from
@@ -520,7 +520,7 @@ These are sampled videos: 2 captures/second by default, configurable from 0.2–
 not high-frame-rate video. With `with_audio`, FERB transcribes the app's sound on this Mac and attaches a redacted,
 time-aligned transcript; the video itself keeps no audio track and the sound is deleted once transcribed. They need
 `ffmpeg` and `ffprobe` installed; FERB searches PATH and the usual Homebrew/user binary folders. Browser capture
-requires extension 0.15.3 / protocol 14; native capture requires macOS Screen Recording access and the target window
+requires extension 0.15.4 / protocol 15; native capture requires macOS Screen Recording access and the target window
 to remain capturable. A frame whose secret fields can't be painted over is skipped, and the result says how many.
 
 ### Hearing during tasks

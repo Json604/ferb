@@ -9,9 +9,10 @@ window of the app hosting it (a terminal running `ferb chat`) is skipped while i
 owner's. What is kept: app, bundle id, window title, the URL and title of the active tab of that very browser window,
 and one screenshot of that window only (D29). The tab is the captured window's, found among the browser's windows by
 its place and title, never the browser's own idea of its front window (live case 2026-10-19: that was another
-window); when no single window is the captured one there is no URL or tab title, and the planner is told why. The tab
-is read before the shot when it can be; when the browser's Automation check is still answering, it is read again
-after the shot. The screenshot goes through FERB's screenshot path (secret fields
+window); when no single window is the captured one there is no URL or tab title, and the planner is told why. When
+the capture's paired-profile extension matched this window (bounds and title, protocol 15) its tab is used; otherwise
+the AppleScript read is. The tab is read before the shot when it can be; when the browser's Automation check is still
+answering, it is read again after the shot. The screenshot goes through FERB's screenshot path (secret fields
 the window's tree and the browser extension show are masked in the capture; when neither can locate a page's fields
 the capture says so and the page is masked by text recognition only, never refused), then the F5 on-device redaction;
 when either fails the image is withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).
@@ -80,8 +81,9 @@ class Sources:
     # (bundle id, the captured window, after the shot): that window's active tab (url, title); None: not read now;
     # LookupError(why): the browser answered, but no single window of it is the captured one
     tab: Callable[[str, Window, bool], tuple[str, str] | None]
-    # that window's JPEG, the secret fields found masked, and the capture's note on how they were found ("": none)
-    shoot: Callable[[Window], Awaitable[tuple[bytes, str]]]
+    # that window's JPEG, the secret fields found masked, the capture's note on how they were found ("": none), and a
+    # browser window's active tab (url, title) when the paired profile's extension named it for this window (B5)
+    shoot: Callable[[Window], Awaitable[tuple[bytes, str, tuple[str, str] | None]]]
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
     keep: Callable[[bytes, dict[str, Any], str], Awaitable[str]]   # (image, facts, origin) -> evidence id
@@ -183,8 +185,9 @@ async def capture(src: Sources) -> FrontWindow | None:
     image: bytes | None = None
     withheld: str | None = None
     masking = ""
+    named: tuple[str, str] | None = None
     try:
-        raw, masking = await src.shoot(w)
+        raw, masking, named = await src.shoot(w)
     except Refused as e:                               # FERB's own words: why this window gave no picture
         withheld = str(e)
     except Exception as e:
@@ -194,7 +197,9 @@ async def capture(src: Sources) -> FrontWindow | None:
             image = await asyncio.to_thread(src.redact_image, raw)
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
-    if browser and tab is None and tab_note is None:   # its Automation check may have answered during the shot
+    if browser and named is not None:                  # the extension matched this very window: its tab (B5)
+        tab, tab_note = (named[0] or None, named[1] or None), None
+    elif browser and tab is None and tab_note is None:   # its Automation check may have answered during the shot
         tab, tab_note = await _tab(src, w, bundle, True)
     url, tab_title = tab if tab is not None else (None, None)
     excluded_site = bool(url) and src.excluded(bundle, name, url)

@@ -43,6 +43,10 @@ text is never prefix-truncated and executed. This is a message boundary, not a d
 artifact work can use multiple file edits or shell/file operations. Native messaging has its own framing and the
 browser bridge pages large observations; client RPC and extension protocol versions are distinct.
 
+Extension protocol 15 (fix wave 4, 0.15.4): `window_secrets` takes the captured window's `title` (to tell windows
+at the same bounds apart by their active tab's title) and answers with that tab (`tab: {url, title}`, URL with secret
+parameters masked).
+
 Extension protocol 14 (L26) adds the `media` command: play, pause, mute, unmute or seek one video/audio element of
 the latest snapshot, by frame and index, through the content script (no script evaluation, no click); it answers with
 that element's state (`playing`, `current_time`, `duration`, `muted`, `volume`, `in_view`, and the page's `error` when

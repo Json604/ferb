@@ -366,7 +366,7 @@ All **Shipped** (`ferb --help`):
   element's state (playing, paused, time, duration, muted); "playing" means the media's time is moving, so FERB
   confirms a video is really playing before recording or listening. (In a real task FERB recorded a reel that never
   played; this fixes that.)
-- Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.3 / protocol 14.
+- Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.4 / protocol 15.
 
 #### Always-on hearing
 - Status: **After launch / not decided.** The owner chose hearing during tasks only, not 24/7.
@@ -374,7 +374,7 @@ All **Shipped** (`ferb --help`):
 ### 3.6 Browser control (Chromium extension)
 
 #### Extension, pairing and profiles
-- What: FERB's MV3 extension (`extensions/chromium`, version 0.15.3, protocol 14) is FERB's hands in Chrome, Brave,
+- What: FERB's MV3 extension (`extensions/chromium`, version 0.15.4, protocol 15) is FERB's hands in Chrome, Brave,
   Edge, Chromium and other Chromium browsers. It talks only to the FERB app through native messaging, only in paired
   profiles. On tabs a FERB task opened or claimed it reads pages (text and accessibility tree), clicks, types,
   scrolls, uploads, downloads, handles dialogs and takes tab screenshots. In paired profiles it also reports every
@@ -421,8 +421,8 @@ All **Shipped** (`ferb --help`):
   Until the store ID exists, setup keeps the Load-unpacked steps.
 - Status: **Landing this week — integrated, not live-tested (L25).** The owner submitted extension 0.15.2 to the
   Chrome Web Store on 2026-10-14; review is pending (in-depth review expected because of broad host permissions).
-- Known limit: the repository now requires extension 0.15.3 / protocol 14, and the daemon refuses an older protocol.
-  The store copy must be updated to 0.15.3 before the store install path works with the launch build.
+- Known limit: the repository now requires extension 0.15.4 / protocol 15, and the daemon refuses an older protocol.
+  The store copy must be updated to 0.15.4 before the store install path works with the launch build.
 
 ### 3.7 Mac app control
 
@@ -885,7 +885,7 @@ Release and distribution
 - The DMG is ad-hoc signed: first open needs "Open Anyway"; permissions may need re-granting after updates; the
   quarantined-launchd question is untested. Developer ID signing and notarization come after launch.
 - No auto-updates; no in-app onboarding or settings beyond the setup console and sound settings.
-- Chrome Web Store listing is in review (submitted as 0.15.2); the launch build needs 0.15.3 / protocol 14, so the
+- Chrome Web Store listing is in review (submitted as 0.15.2); the launch build needs 0.15.4 / protocol 15, so the
   store copy must be updated. Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load
   unpacked.
 - Apple silicon and Python 3.12 only. The app is about 666 MB (bundled Codex and Claude CLIs).

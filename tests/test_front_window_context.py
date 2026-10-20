@@ -73,12 +73,13 @@ class Screen:
         self.sender: int | None = None                  # the app hosting the CLI the message came from
         self.unmatched: str | None = None               # the browser answered, but no single window is the captured one
         self.masking = ""                               # the capture's note on how its secret fields were found
+        self.ext_tab: tuple[str, str] | None = None     # the captured window's tab as the extension named it (B5)
 
-    async def _shoot(self, w: Window) -> tuple[bytes, str]:
+    async def _shoot(self, w: Window) -> tuple[bytes, str, tuple[str, str] | None]:
         self.shot.append(w)
         if self.fail_shot is not None:
             raise self.fail_shot
-        return b"raw " + JPEG, self.masking
+        return b"raw " + JPEG, self.masking, self.ext_tab
 
     def _redact_image(self, image: bytes) -> bytes:
         if self.fail_redaction:
@@ -276,6 +277,23 @@ def test_the_applescript_read_lists_every_window_with_its_bounds_and_active_tab(
     monkeypatch.setattr(bt.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "denied"))
     assert bt.applescript_windows("com.brave.Browser") is None
     assert set(bt.WINDOW_SCRIPTS) == set(bt.SCRIPTS)              # the same browsers as the tab watcher's read
+
+
+def test_the_extensions_tab_for_the_captured_window_wins_over_the_applescript_read() -> None:
+    """Round 2 (B5): when the paired profile's extension matched the captured window (by bounds and title), its tab is
+    the front window's; the AppleScript read stays the fallback, including when it couldn't tell the windows apart."""
+    screen = Screen([BRAVE], owners())
+    screen.ext_tab = (GREENHOUSE_URL, "Job Application for Software Intern at Panthalassa")
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.url == GREENHOUSE_URL and front.tab_title == screen.ext_tab[1]
+    assert front.origin == "external:web:job-boards.greenhouse.io" and screen.kept[0][1]["url"] == GREENHOUSE_URL
+    screen = Screen([BRAVE], owners())
+    screen.unmatched = "two windows; FERB can't tell which tab it shows: no URL or tab title"
+    screen.ext_tab = (GREENHOUSE_URL, "Job Application for Software Intern at Panthalassa")
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.url == GREENHOUSE_URL and front.tab_note is None
+    plain = asyncio.run(fw.capture(Screen([BRAVE], owners()).sources()))
+    assert plain is not None and plain.url == URL                          # no extension tab: AppleScript's
 
 
 def test_a_tab_that_cant_be_told_is_left_out_and_the_block_says_so() -> None:
@@ -594,6 +612,32 @@ def test_a_browser_page_neither_the_extension_nor_accessibility_read_still_reach
     assert shots.captured == [121] and seen == [shots.jpeg] and request.images      # pixels, through OCR
     assert "withheld" not in block and "attached to this request as an image" in block
     assert "couldn't be located" in block and "text recognition only" in block
+
+
+def test_the_daemon_takes_the_tab_the_extension_named_for_the_captured_window(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (B5), end to end over the fake Mac: the paired profile's extension answers for the captured window
+    (bounds, and its active tab carries the window's title), so its tab is the front window's, even though the
+    AppleScript read would point at another window."""
+    from ferb.act.evidence.mask import PageState
+    from ferb.act.mac.driver import WebSecrets
+    import ferb.sense.watchers.browser_tabs as browser_tabs
+    title = GREENHOUSE.title
+    fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, title)], {12: ("Brave", "com.brave.Browser")})
+    monkeypatch.setattr(daemon.daemon, "_automation_granted", lambda bundle: True)
+    monkeypatch.setattr(browser_tabs, "applescript_windows", lambda bundle: [scripted(BOUNDS, title, KAGGLE_URL)])
+    page = PageState.parse({"top": "d", "viewport": [0, 0, 800, 520], "items": []})
+    seen: list[str] = []
+
+    async def secrets(browser: str, bounds: Any, asked_title: str = "") -> Any:
+        seen.append(asked_title)
+        return WebSecrets(page, tab=(GREENHOUSE_URL, title))
+    daemon.daemon.mac.web_secrets = secrets                                 # type: ignore[union-attr]
+    daemon.daemon.mac.shots.window = lambda wid: Window(wid, 12, BOUNDS, title)   # type: ignore[union-attr]
+    script = install(daemon, [sup("reply", "It's a US internship.")])
+    chat(daemon, "can I get a visa to work for the duration of this internship?")
+    block = next(p for p in planner_requests(script)[0].parts if p.startswith("Layer 2 — the owner's front window"))
+    assert GREENHOUSE_URL in block and KAGGLE_URL not in block and seen and set(seen) == {title}
 
 
 def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:

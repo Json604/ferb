@@ -1078,7 +1078,7 @@ Install (you run these):
 1. `ferb setup --update` (or FERB.app, checks 38–44), then `ferb doctor`: the context-window lines for each role
    (Codex `gpt-5.6-sol`, 258,400 input tokens), the hearing line, and the local-connections line if you pinned ports.
    Rebuild the notch app with `./build.sh` in `ui/mac/FERBNotch` (if the build fails on a stale module cache, remove
-   `.build` once). Reload the extension so the browser runs 0.15.3 / protocol 14.
+   `.build` once). Reload the extension so the browser runs 0.15.4 / protocol 15 (fix wave 4).
 
 Chat (L6–L8, L19, L20):
 2. The acknowledgement appears at once in the app, before the plan line; `ferb chat` shows the daemon's phrase too.

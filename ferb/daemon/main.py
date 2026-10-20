@@ -777,15 +777,17 @@ class Daemon:
         return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
                                             and br.binding.identity is Identity.OWNER for br in self.hub.bridges.values())
 
-    async def _web_secrets(self, browser: str, bounds: tuple[float, float, float, float]) -> WebSecrets | None:
+    async def _web_secrets(self, browser: str, bounds: tuple[float, float, float, float],
+                           title: str = "") -> WebSecrets | None:
         """For a native capture of a browser window (L13): ask every connected profile of this browser, together, for
-        the mask state of the active tab of its (not minimized) window at these bounds. Exactly one profile must own
+        the mask state of the active tab of its (not minimized) window at these bounds (with the captured window's
+        `title`, when several of its windows are there, protocol 15), and that tab. Exactly one profile must own
         such a window, and its answer is the WebSecrets. Otherwise nobody could tell, and the WebSecrets has no page
         and says why (no paired profile connected, none or two of a profile's windows there, more than one profile,
         no answer), for the capture's note (fix wave 4: the live case's "neither read" couldn't be explained)."""
         async def ask(br: Any) -> Any:
             try:
-                return await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
+                return await br.call("window_secrets", {"bounds": list(bounds), "title": title}, timeout=4)
             except FerbError:
                 return None
         bridges = [br for br in (self.hub.bridges.values() if self.hub else []) if br.conn is not None
@@ -820,11 +822,11 @@ class Daemon:
             return None
         exclusions, daemon_pid = self._exclusions(), os.getpid()
 
-        async def shoot(w: Any) -> tuple[bytes, str]:
+        async def shoot(w: Any) -> tuple[bytes, str, tuple[str, str] | None]:
             if not mac.snapshot_images():                    # the owner's `[mac] snapshot_image` switch
                 raise Refused("screenshots are switched off ([mac] snapshot_image)")
             _, shot, jpeg = await mac.window_image(f"pid:{w.pid}", window=str(w.id))
-            return jpeg, shot.masking
+            return jpeg, shot.masking, shot.tab
 
         async def keep(image: bytes, facts: dict[str, Any], origin: str) -> str:
             return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)

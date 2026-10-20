@@ -243,8 +243,8 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_masked(lab:
 
     answers: list[WebSecrets] = []
 
-    async def secrets(browser: str, bounds: Any) -> WebSecrets | None:
-        result = await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
+    async def secrets(browser: str, bounds: Any, title: str = "") -> WebSecrets | None:
+        result = await br.call("window_secrets", {"bounds": list(bounds), "title": title}, timeout=4)
         answers.append(WebSecrets.from_reply(result))
         return answers[-1] if result.get("matched") else None
 

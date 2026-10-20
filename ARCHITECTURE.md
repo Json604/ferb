@@ -277,8 +277,10 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.3 / protocol 14** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
-`media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields). Task
+Extension **0.15.4 / protocol 15** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+`media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
+protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
+name the matched window's tab). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
@@ -906,7 +908,7 @@ pins the sentences).
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
 the `downloads` table (migration 0025); `browser.downloads` is an observation tool; built on extension 0.15.1,
-protocol 12 (now 0.15.3, protocol 14). The
+protocol 12 (now 0.15.4, protocol 15). The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -1627,7 +1629,12 @@ protected FERB state (16.9).
   when several could be (maximized windows share bounds; a browser that won't give bounds), the one whose title or
   active tab's title is the captured window's window-server title. No single match: no URL or tab title, and the
   block's `tab_note` says why. (Live case 2026-10-19: AppleScript's `front window` is the browser's own frontmost
-  window, which was another Brave window, so the planner got a Kaggle URL for a Greenhouse page.) The tab watcher
+  window, which was another Brave window, so the planner got a Kaggle URL for a Greenhouse page.) When the capture's
+  paired-profile extension matched the window (protocol 15: bounds, ties broken by the active tab's title, and the
+  answering tab's title equal to the captured window's), its tab (`Shot.tab`, `driver.page_tab`) is used instead;
+  the AppleScript read stays the fallback. An answer whose tab title isn't the captured window's is rejected for
+  masking too (`OTHER_PAGE`: a paired profile's window at the same place showing another page, e.g. over an
+  unpaired capture), so its fields are never painted over the wrong picture. The tab watcher
   still reads the front window (M1, two lines). One screenshot of that window by window id, masked and
   through the F5 `ImageRedactor`, stored as evidence kind `front_window` under the request id.
 - An excluded site is captured under `external:web:excluded` with the URL shown as `[excluded]`; an excluded app gives

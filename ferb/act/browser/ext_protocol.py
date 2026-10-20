@@ -18,7 +18,11 @@ picture with a `mask`, the page's mask state before and after the capture (the t
 its frame-host boxes, a host holding a secret painted whole, top-viewport CSS px), that the daemon paints over before
 anything else sees it, or `withheld` when they can't be known; `window_secrets` (was `window_password`) returns that
 mask state for the active tab of a window a native capture shows. An older daemon would pass such a picture on unpainted, and a newer
-one can't mask an older extension's, so neither side accepts the other."""
+one can't mask an older extension's, so neither side accepts the other.
+Protocol 15 (fix wave 4, extension 0.15.4): `window_secrets` takes the captured window's `title`, tells windows at the
+same bounds apart by their active tab's title, and answers with that tab (`tab`: URL with secret parameters masked,
+title), which the daemon checks against the captured window and the front window uses as its tab. An older daemon
+would ignore the check; an older extension can't break ties or name the tab."""
 
 import base64
 import hashlib
@@ -28,8 +32,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 14
-MIN_EXTENSION_VERSION = "0.15.3"
+PROTOCOL_VERSION = 15
+MIN_EXTENSION_VERSION = "0.15.4"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 

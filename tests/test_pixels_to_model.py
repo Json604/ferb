@@ -247,7 +247,7 @@ def _brave(monkeypatch: pytest.MonkeyPatch, *answers: Any) -> tuple[Any, Any, An
     asked: list[Any] = []
     queue = list(answers)
 
-    async def secrets(browser: str, bounds: Any) -> Any:
+    async def secrets(browser: str, bounds: Any, title: str = "") -> Any:
         asked.append((browser, bounds))
         return queue.pop(0) if queue else None
     d.web_secrets = secrets
@@ -416,7 +416,7 @@ def test_a_failed_walk_stops_the_extension_ask_it_ran_beside(monkeypatch: pytest
     d, ax, _, _ = _brave(monkeypatch)
     state: list[str] = []
 
-    async def secrets(browser: str, bounds: Any) -> Any:
+    async def secrets(browser: str, bounds: Any, title: str = "") -> Any:
         try:
             await asyncio.sleep(30)
         except asyncio.CancelledError:
@@ -493,7 +493,7 @@ def test_a_browser_capture_fits_inside_the_planners_wait_for_the_front_window(mo
     d, ax, shots, _ = _brave(monkeypatch)
     asked: list[float] = []
 
-    async def secrets(browser: str, bounds: Any) -> Any:
+    async def secrets(browser: str, bounds: Any, title: str = "") -> Any:
         asked.append(asyncio.get_running_loop().time())
         if first_answers and len(asked) == 1:
             await asyncio.sleep(3.9)                      # answered just in time, the second ask then times out
@@ -1295,11 +1295,72 @@ def test_the_extension_reports_a_windows_page_for_native_captures() -> None:
       const unreadable = await commands.window_secrets({bounds: [0, 0, 500, 400]});
       return {one, ambiguous, missing, unreadable, queried, page};
     })()''')
-    assert out["one"] == {"matched": True, "complete": True, "state": out["page"]}   # the minimized one is no match
+    assert out["one"] == {"matched": True, "complete": True, "state": out["page"],   # the minimized one is no match
+                          "tab": {"url": "", "title": ""}}
     assert out["ambiguous"] == {"matched": False, "reason": "ambiguous_window"}
     assert out["missing"] == {"matched": False, "reason": "window_not_found"}
     assert out["unreadable"]["matched"] and out["unreadable"]["complete"] is False
     assert out["queried"] == [1, 4]                              # an ambiguous window's tabs are never looked at
+
+
+def test_the_extension_tells_same_place_windows_apart_by_title_and_names_the_matched_tab() -> None:
+    """Round 2 (B5, protocol 15): two windows of the profile at the captured bounds (both maximized): the one whose
+    active tab's title is the captured window's title (the window server names a Chromium window after its active
+    tab) answers, with that tab's URL (secret parameters masked) and title. No title, or no single match: no answer."""
+    out = worker('''(async () => {
+      chrome.windows = {getAll: async () => [{id: 2, left: 0, top: 0, width: 500, height: 400},
+                                             {id: 3, left: 0, top: 0, width: 500, height: 400}]};
+      const tabs = {2: {id: 20, title: 'RSNA Knee  Abnormality | Kaggle', url: 'https://www.kaggle.com/c/rsna'},
+                    3: {id: 30, title: 'Job Application – Panthalassa', url: 'https://job-boards.greenhouse.io/p?token=s3cr3t'}};
+      chrome.tabs.query = async ({windowId}) => [tabs[windowId]];
+      const page = {top: 'd', viewport: [0, 0, 500, 320], items: []};
+      maskState = async tab => tab === 30 ? page : {withheld: 'wrong tab'};
+      const picked = await commands.window_secrets({bounds: [0, 0, 500, 400], title: ' Job Application –  Panthalassa'});
+      const kaggle = await commands.window_secrets({bounds: [0, 0, 500, 400], title: 'RSNA Knee Abnormality | Kaggle'});
+      const neither = await commands.window_secrets({bounds: [0, 0, 500, 400], title: 'Something else'});
+      const untitled = await commands.window_secrets({bounds: [0, 0, 500, 400], title: ''});
+      return {picked, kaggle, neither, untitled};
+    })()''')
+    assert out["picked"]["matched"] and out["picked"]["complete"]
+    assert out["picked"]["tab"]["title"] == "Job Application – Panthalassa"
+    assert out["picked"]["tab"]["url"].startswith("https://job-boards.greenhouse.io/p?token=")
+    assert "s3cr3t" not in out["picked"]["tab"]["url"]                     # maskUrl: a secret parameter never leaves
+    assert out["kaggle"]["matched"] and out["kaggle"]["tab"]["title"] == "RSNA Knee  Abnormality | Kaggle"
+    assert out["kaggle"]["complete"] is False                              # that tab's page couldn't be read
+    assert out["neither"] == {"matched": False, "reason": "ambiguous_window"}
+    assert out["untitled"] == {"matched": False, "reason": "ambiguous_window"}
+
+
+def test_a_page_of_another_window_is_rejected_by_its_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (B5): the answering window's active tab must carry the captured window's title. A paired profile's
+    maximized window at the same bounds answering for a capture of another (unpaired) window has another title: its
+    page fields would be painted over the wrong picture, so it is rejected, the capture is masked from Accessibility
+    and text recognition, and the note says why. A matching answer's tab is kept for the front window."""
+    from ferb.act.evidence.mask import PageState
+    from ferb.act.mac.driver import WebSecrets
+    other = WebSecrets(PageState.parse(_state((20, 40, 100, 20), viewport=(0, 0, 800, 520))),
+                       tab=("https://www.kaggle.com/c/rsna", "RSNA Knee Abnormality | Kaggle"))
+    d, _, _, _ = _brave(monkeypatch, other, other)
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))           # FakeShots' captured window is titled "w"
+    assert white(pixel(jpeg, 100, 255)) and shot.tab is None
+    assert "another page" in shot.masking and "Accessibility only" in shot.masking
+    same = WebSecrets(PageState.parse(_state((20, 40, 100, 20), viewport=(0, 0, 800, 520))),
+                      tab=("https://job-boards.greenhouse.io/p", " w "))
+    d, _, _, _ = _brave(monkeypatch, same, same)
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and shot.masking == "" and shot.tab == ("https://job-boards.greenhouse.io/p", " w ")
+
+
+def test_the_driver_asks_the_extension_with_the_captured_windows_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    d, _, _, _ = _brave(monkeypatch)
+    titles: list[Any] = []
+
+    async def secrets(browser: str, bounds: Any, title: str = "") -> Any:
+        titles.append(title)
+        return None
+    d.web_secrets = secrets
+    asyncio.run(d.screenshot("Brave"))
+    assert titles == ["w", "w"]
 
 
 def test_a_windows_answer_is_read_strictly() -> None:

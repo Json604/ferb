@@ -96,8 +96,8 @@ U7b, U8 and U9 are reviewed and integrated; Task 19 is these docs. What landed, 
 2. The owner installs: `ferb setup --update` (run by the owner) and a rebuilt notch app, or FERB.app from a DMG.
 3. The live week: the owner runs the checks in `docs/OWNER_ACCEPTANCE.md` ("0.27 launch week") and records
    `ferb verdict TASK pass|fail`; the campaign's first posts run supervised under test mode.
-4. Chrome Web Store approval of the extension (0.15.2 was submitted on 2026-10-14; the launch build needs 0.15.3 /
-   protocol 14 uploaded, then `[browser] store_extension_id` or `STORE_EXTENSION_ID` set).
+4. Chrome Web Store approval of the extension (0.15.2 was submitted on 2026-10-14; the launch build needs 0.15.4 /
+   protocol 15 uploaded, then `[browser] store_extension_id` or `STORE_EXTENSION_ID` set).
 5. After launch (2026-10-21): git cleanup, `astra_resume` becomes `main` and the other branches go, with the exact
    commands confirmed with the owner (L14); then the phase-2 security design (spec section 6).
 

@@ -57,6 +57,13 @@ UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
 AX_ONLY = "masked from Accessibility only: the browser extension couldn't read this page ({why})"
 EXTENSION_UNREAD = "not paired with this window's profile, an incognito window, or a page scripts can't reach"
 AX_NO_AREA, AX_EMPTY = "Accessibility shows no page area", "Accessibility's page area is empty"
+OTHER_PAGE = ("the paired profile's window at this place shows another page (its active tab's title isn't the "
+              "captured window's)")
+
+
+def same_title(a: str, b: str) -> bool:
+    """Two window/tab titles as the same text, whitespace runs aside (the window server trims and folds them)."""
+    return " ".join(a.split()) == " ".join(b.split())
 
 
 @dataclass(frozen=True)
@@ -67,6 +74,7 @@ class WebSecrets:
     state: PageState | None = None
     why: str = ""
     late: bool = False             # a profile didn't answer (timed out or failed): not asked again for this capture
+    tab: tuple[str, str] | None = None   # the answering window's active tab (URL, title), protocol 15
 
     @property
     def complete(self) -> bool:
@@ -80,7 +88,10 @@ class WebSecrets:
         reason = r.get("reason")
         why = f"its profile couldn't read the page: {reason[:160]}" if isinstance(reason, str) and reason else \
             "its profile couldn't read the page"
-        return cls(state, "" if state is not None else why)
+        t = r.get("tab")
+        tab = (t["url"][:4096], t["title"][:1024]) if isinstance(t, dict) and isinstance(t.get("url"), str) \
+            and isinstance(t.get("title"), str) else None
+        return cls(state, "" if state is not None else why, tab=tab)
 
 
 Look = tuple[axm.AxTree | None, WebSecrets | None]      # one look at a window: its AX walk, the extension's page
@@ -175,6 +186,17 @@ def _ax_boxes(tree: axm.AxTree) -> tuple[list[Rect], bool]:
     return placed, not (tree.secure and not boxes) and len(placed) == len(boxes)
 
 
+def page_tab(title: str, *looks: Look) -> tuple[str, str] | None:
+    """The captured browser window's active tab as the extension named it (protocol 15), latest look first: only when
+    its title is the captured window's (the extension only sees its own profile's windows; another profile's window can
+    be at the same place). No title from the window server: None (the AppleScript read, which sees every window,
+    decides)."""
+    for _, web in reversed(looks):
+        if title and web is not None and web.tab is not None and same_title(web.tab[1], title):
+            return web.tab
+    return None
+
+
 def _union(*boxes: list[Rect]) -> list[Rect]:
     return list(dict.fromkeys(b for group in boxes for b in group))
 
@@ -227,6 +249,7 @@ class Shot:
     at: float = field(default_factory=time.monotonic)
     signature: tuple[Any, ...] | None = None
     masking: str = ""                              # how its secret fields were found, when that is worth saying (L13)
+    tab: tuple[str, str] | None = None             # a browser window's active tab (URL, title) from the extension
 
 
 @dataclass
@@ -245,7 +268,7 @@ class MacComputerDriver:
 
     def __init__(self, device_id: str, real_input: RealInput, excluded: Callable[[], Collection[str]] = frozenset,
                  ax: Any = axm, apps: Any = appsm, shots: Any = shotm,
-                 web_secrets: Callable[[str, Rect], Awaitable[WebSecrets | None]] | None = None,
+                 web_secrets: Callable[[str, Rect, str], Awaitable[WebSecrets | None]] | None = None,
                  profiles: Profiles | None = None) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
         self.shots, self.web_secrets = shots, web_secrets       # web_secrets: the extension's page inventory (L13)
@@ -421,7 +444,7 @@ class MacComputerDriver:
         earlier = before[1] if before is not None else None
         if not (browser and self.web_secrets) or (earlier is not None and earlier.late):
             return await walk(), earlier
-        ask = asyncio.ensure_future(self.web_secrets(browser, w.bounds))
+        ask = asyncio.ensure_future(self.web_secrets(browser, w.bounds, w.title))
         try:
             tree = await walk()
         except BaseException:                        # the walk failed or was cancelled: so is the ask beside it (A3)
@@ -429,9 +452,17 @@ class MacComputerDriver:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await ask
             raise
+        web = await ask
+        # The answering window must be the captured one (B5): its active tab carries the captured window's title. A
+        # paired profile's window at the same bounds showing another page (an unpaired window captured over it) would
+        # have its fields painted over the wrong picture. Unknown either way (no title from the window server, no tab
+        # in the answer): kept, as before protocol 15.
+        if web is not None and web.state is not None and w.title and web.tab is not None \
+                and not same_title(web.tab[1], w.title):
+            web = WebSecrets(None, OTHER_PAGE)
         # a look with no AX window keeps the extension's answer too: its page is never placed (no page area), but
         # `late` must reach the look after the capture (A4)
-        return tree, await ask
+        return tree, web
 
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,
@@ -443,19 +474,20 @@ class MacComputerDriver:
         to text recognition, never refused). Withheld only when the boxes can't be painted on it. The capture becomes
         the app's latest shot (mac.click / pointer / record); its `masking` says how a browser page's fields were found
         (Accessibility alone, or not at all) and when the rest is left to text recognition."""
-        a, w, jpeg, size, note = await self._capture(name_or_bundle, marks, window, native_resolution)
+        a, w, jpeg, size, note, tab = await self._capture(name_or_bundle, marks, window, native_resolution)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
         st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, size, pid=a.pid,
-                       signature=st.tree.signature() if st.tree else None, masking=note)
+                       signature=st.tree.signature() if st.tree else None, masking=note, tab=tab)
         return a, st.shot, jpeg
 
     async def window_image(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, Shot, bytes]:
         """FERB's own picture of the app's front window for the evidence store (D26, D29), or of the exact window id
         `window` (L12: the owner's front window at send): the same capture and masking as `screenshot`, but it
-        never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own."""
-        a, w, jpeg, size, note = await self._capture(name_or_bundle, None, window, False)
-        return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note), jpeg
+        never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own. Its
+        `tab` is the browser window's active tab as the extension named it, when its title is the window's (B5)."""
+        a, w, jpeg, size, note, tab = await self._capture(name_or_bundle, None, window, False)
+        return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note, tab=tab), jpeg
 
     def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
         """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
@@ -468,7 +500,8 @@ class MacComputerDriver:
         return [n.rect for n in st.tree.nodes if n.secret]
 
     async def _capture(self, name_or_bundle: str, marks: list[tuple[str, tuple[float, float, float, float]]] | None,
-                       window: str | None, native_resolution: bool) -> tuple[Any, Any, bytes, tuple[int, int], str]:
+                       window: str | None, native_resolution: bool
+                       ) -> tuple[Any, Any, bytes, tuple[int, int], str, tuple[str, str] | None]:
         a = self.app(name_or_bundle)
         await self._expose(a)                         # an Electron app builds its full tree only when asked
         browser = a.bundle_id in BROWSER_BUNDLES
@@ -501,8 +534,10 @@ class MacComputerDriver:
         w = await asyncio.to_thread(find)
         first = await self._look(a, w)
         jpeg, width, height = await asyncio.to_thread(grab, w)
-        masks, note = window_masks(first, await self._look(a, w, first), browser)
-        return a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note
+        second = await self._look(a, w, first)
+        masks, note = window_masks(first, second, browser)
+        return (a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note,
+                page_tab(w.title, first, second))
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
         """Pin the window the worker actually saw; repeated captures never replace its action references. Each frame is

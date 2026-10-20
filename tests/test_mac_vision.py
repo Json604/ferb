@@ -94,7 +94,7 @@ def test_a_browser_tab_the_extension_reports_with_a_password_field_is_painted_no
     answers: list[Any] = []
     asked: list[tuple[str, Any]] = []
 
-    async def web(browser: str, bounds: Any) -> Any:
+    async def web(browser: str, bounds: Any, title: str = "") -> Any:
         asked.append((browser, bounds))
         return answers.pop(0) if answers else None
     d.web_secrets = web
