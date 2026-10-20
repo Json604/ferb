@@ -5,6 +5,7 @@ input's size in characters and estimated tokens, and the runtime's documented li
 runtime reported it (Codex's own message, redacted by the runtime and again by the span store). No task owns it
 (task_id None), so it ages out with the other loose spans; `ferb trace <call>` finds it by `call`, and `ferb stats`
 counts the calls and their errors."""
+import asyncio
 from typing import Any, Callable
 
 from ferb.core.context import ContextBlock, assemble, count_tokens, runtime_limits
@@ -45,9 +46,15 @@ async def learning_call(rt: Any, task: Task, system: str, ctx: str, reference: s
                     spans.finish(retry, error=str(event.data.get("message", "")))
                 elif event.kind in ("error", "violation"):
                     raise RuntimeError(str(event.data.get("message") or event.data))
+                elif event.kind == "invalid_answer":     # the runtime's own schema check: its reason, not "not JSON"
+                    raise ValueError(str(event.data.get("message", "")))
         finally:
             await rt.cancel(run)
         answer = check_final(final, schema)
+    except asyncio.CancelledError:           # FERB stopping (shutdown), not a failure of the learner
+        if span is not None:
+            spans.finish(span, output={"outcome": "cancelled", **facts})
+        raise
     except BaseException as e:
         if span is not None:
             spans.finish(span, output={"outcome": "failed", **facts}, error=f"{type(e).__name__}: {e}")

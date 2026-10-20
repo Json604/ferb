@@ -1,6 +1,7 @@
 """L28, D32: every learning model call (consolidation, distillation) is one `model.learning` span: its role, runtime,
 model and input size (never the input), its outcome and the redacted error, so `ferb stats` and `ferb trace` show a
 failing learner. Live 2026-10-11 to 10-20: 226 learning jobs failed and no trace showed a learning call at all."""
+import asyncio
 import io
 import json
 from typing import Any
@@ -174,3 +175,50 @@ def test_stats_and_trace_show_failing_learning_calls(daemon) -> None:
     assert any("model.learning" in line for line in lines)
     assert any("Input exceeds the maximum length" in line for line in lines)
     assert "model.learning" in story.getvalue() and "Input exceeds the maximum length" in story.getvalue()
+
+
+class AnswersOutsideTheSchema(FakeDistillRuntime):
+    async def events(self, run: RunHandle) -> Any:
+        yield RuntimeEvent("invalid_answer", {"message": "the answer has no 'narrative'"})
+
+
+def test_an_answer_outside_the_schema_is_recorded_with_its_reason(daemon) -> None:
+    d = daemon.daemon
+    trail_row(daemon, "2025-12-30")
+    d.distiller.make_runtime = lambda *a, **k: AnswersOutsideTheSchema({})
+    assert daemon.run(d.distiller.run_day("2025-12-30"), timeout=30)["status"] == "failed"
+    [span] = _learning_spans(daemon)
+    assert "the answer has no 'narrative'" in span["error"]
+
+    async def detail() -> str:
+        return str(d.db.conn.execute("SELECT detail FROM distill_runs WHERE day = '2025-12-30'").fetchone()[0])
+    assert "the answer has no 'narrative'" in daemon.run(detail())
+
+
+class CancelledAtStart(FakeDistillRuntime):
+    async def start(self, task: Any, request: ModelRequest, token: str) -> RunHandle:
+        raise asyncio.CancelledError()
+
+
+def test_a_cancelled_learning_call_is_recorded_as_cancelled_not_failed(daemon) -> None:
+    """FERB stopping mid-call (shutdown) is no failure of the learner."""
+    from ferb.cli.admin import stats
+    from ferb.core.types import Identity, Task
+    from ferb.memory.calls import learning_call
+    d = daemon.daemon
+    task = Task("distill-2025-12-30", None, "distill", "dev", Identity.OWNER, set(), "verifier", "x", [], None)
+
+    async def call() -> str:
+        try:
+            await learning_call(CancelledAtStart({}), task, "system", "evidence", "daily evidence",
+                                {"type": "object"}, role="distill", spans=d.spans)
+        except asyncio.CancelledError:
+            return "cancelled"
+        return "answered"
+    assert daemon.run(call()) == "cancelled"
+    [span] = _learning_spans(daemon)
+    assert span["output"]["outcome"] == "cancelled" and span["error"] is None
+    out = io.StringIO()
+    stats(d.home, out, days=36500)
+    assert "Learning model calls: 1, failed: 0" in out.getvalue()
+
