@@ -1227,6 +1227,16 @@ Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pendin
     the list includes the article sites the task clicked through to.
 60. Note when macOS's monthly screen-capture prompt appears (M5) and that declining it stops screenshots and hearing.
 
+Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far):
+61. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one model call per group of
+    episodes). Then `ferb stats`: the "Learning model calls" line counts the calls; record how many failed and the
+    errors it lists. Every new `learning_jobs` row is `done`, or `failed` with a named reason: Codex's own words
+    (e.g. "Input exceeds the maximum length of 1048576 characters."), "too long for one codex input", or "too large
+    for the model's window", never a bare "Codex could not complete turn/start". `ferb trace <the call it names>`
+    shows that call's span. Then check that procedures and lessons appear (`ferb memory search <a word from a
+    repeated task> --kind procedure`, `--kind lesson`, or the memory dashboard) and record what appeared. Also `ferb doctor`: the context window lines end "at most 1048576 characters in
+    one input".
+
 Residuals to know during the week (accepted or recorded, not checks):
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
 - A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.

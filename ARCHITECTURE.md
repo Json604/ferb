@@ -506,8 +506,10 @@ calls ([`supervisor.py`](ferb/orchestrator/supervisor.py)). `ModelRequest.images
 evidence ref, mime) after the text parts, so the cacheable prefix is unchanged; every adapter accepts them (L12:
 Anthropic image blocks, OpenAI `input_image`, Gemini `inlineData`, Claude SDK streaming input, Codex app-server image
 items, `codex exec --image`). Each adapter reports `limits` per model (`ModelLimits`: documented context window, reply
-limit and their source), and the context budget comes from them (L28, section 16). Everything model-specific stays in
-the adapter.
+limit, the runtime's per-input character cap where it documents one, and their source), and the context budget comes
+from them (L28, section 16). Everything model-specific stays in the adapter. A Codex failure carries Codex's own error
+(`codex_stream.codex_error`: its message, JSON-RPC code or error kind, and for its input cap the count it measured;
+never the request), redacted with the daemon's redactor.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
@@ -1373,9 +1375,17 @@ per-source job completion. Code rollups cite their child cards.
   `learning_card_inputs` holds each card's input digest: composer, episode `built_at`/status/verified, latest verdict).
   Pending episodes go to the model grouped by `card_shape` (tools and apps), one call per group with compact
   `card_digest`s and that group's procedures and owner refusals, split by `_chunks` to fit `runtime_limits(rt)` (a card
-  too large for the window is never sent; its job says why). `learning_jobs.inputs` holds the group digest: a failed
+  too large for the window is never sent; its job says why) and by `_within_chars` to fit the runtime's per-input
+  character cap (fix wave 5; a card no input can hold whole is never sent and its job names the cap). `learning_jobs.inputs` holds the group digest: a failed
   job is retried when its group changes or on `ferb memory consolidate` (`catch_up(force=True)`); a failed distill day
   waits for its summary row to change (`distill_runs.inputs`) or `ferb memory distill DAY`.
+- **Learning calls (fix wave 5).** Each consolidation and distillation call runs through `memory/calls.learning_call`
+  (assembly within the window and the character cap, the run, the schema check) and is one `model.learning` span: role,
+  call id (`sleep-…`, `distill-<day>`), runtime and model as input; outcome, input characters and estimated tokens and
+  the documented limits as output; the runtime's redacted error (Codex's own message) as the error; never the input.
+  No task owns it (aged out as a loose span). `ferb stats` counts the calls and failures with the top errors by role
+  and names the latest failed call; `ferb trace <call>` shows the span (`SpanStore._task_rows` matches `call`). A day
+  over the cap fails distillation with `InputTooLarge`.
 - **Rollups off the loop (I4).** `_rollups_off_loop` runs `rollups` in a worker thread on its own `Database`
   connection, never once a task has started, stopping between days; a day summary row already indexed is skipped.
 - **Owner refusals (M3).** `Learning.put` refuses a procedure, identity proposal or lesson whose key or text matches
@@ -1702,6 +1712,16 @@ protected FERB state (16.9).
 - **Unknown window.** A `ServiceError` in chat, `runtime.limits_unknown` at start (only for a role whose window is
   unknown, for example with no pinned Codex catalog reachable), and a `context window <role>` line in `ferb doctor`
   (`doctor.check.runtimes.limits`). A Claude runtime with no `[models] claude` fails explicitly.
+- **Character cap (fix wave 5).** Codex 0.157.1's app-server refuses a turn whose text input items together hold more
+  than `MAX_USER_INPUT_TEXT_CHARS = 1 << 20` characters (Rust `chars()`, i.e. code points), before any model sees it
+  ("Input exceeds the maximum length of 1048576 characters."); `codex exec` goes through the same `turn/start`, and
+  `thread/start`'s instructions are not counted. `codex_exec.MAX_INPUT_CHARS` holds it, `INPUT_CHARS_SOURCE` cites the
+  tag, files and lines, and `limits_for` reports it as `ModelLimits.max_input_chars` (None for runtimes that document
+  no cap). `assemble(..., max_chars=)` fits the whole text sent as one input to it as well as to the token budget: chat
+  and optional blocks are kept only while both fit, and protected text over the cap raises `InputTooLarge` (refused by
+  name, never sent to be rejected). `WorkerRuns._run` (planner, dispatch, worker, checker, summaries) turns that into a
+  `ServiceError`; `CodexRuntime.start` guards the text it sends too (`check_input`). The cap is in the daemon status
+  and `ferb doctor`.
 - **Order.**
   - Stable: Layer 1, then the conversation (a header with FERB's running summary when one exists, then one cacheable
     block per entry).

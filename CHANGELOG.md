@@ -211,6 +211,20 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
 - FERB keeps its own pinned tokenizer copy under its home (setup puts it there; `ferb doctor` checks it), so token
   counts no longer fall back to a byte ceiling when macOS cleans the temporary folder.
 
+Fix wave 5 (2026-10-20, why background learning never worked live; L28, D32):
+- Learning failed on every job since 2026-10-11 (226 of 226 on the owner's Mac, 210 as "Codex could not complete
+  turn/start"). Codex refuses a turn whose text holds more than 1,048,576 characters (its `MAX_USER_INPUT_TEXT_CHARS`,
+  openai/codex rust-v0.157.1), and a consolidation call sent about 97.6 million. FERB now knows that cap from Codex's
+  source and fits every call to it as well as to the model's token window: the planner, workers and checker keep
+  chat and optional context only while both fit, the learner splits its calls to fit, and anything that must go
+  whole but can't is refused by name before sending instead of being rejected by Codex.
+- A Codex failure now says what Codex said, e.g. "Input exceeds the maximum length of 1048576 characters. (code
+  -32602; input_too_large, 1100000 characters sent)", redacted, never with what FERB sent; in learning jobs, spans,
+  replies and `ferb trace`.
+- Every learning model call is a `model.learning` span with its size, outcome and error. `ferb stats` counts learning
+  calls and failures and names the latest failed one; `ferb trace distill-2026-10-19` (or a `sleep-…` id) shows it.
+  `ferb doctor` names the character cap.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
