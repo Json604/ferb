@@ -24,7 +24,7 @@ from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.config import Config
 
 WEB_STORE_UPDATE_URL = "https://clients2.google.com/service/update2/crx"
-STORE_EXTENSION_ID = ""          # FERB's Web Store id once the listing is live; `[browser] store_extension_id` overrides
+STORE_EXTENSION_ID = "plbfkifcmgkgnlfgikdeaaglgncdhkma"   # FERB on the Chrome Web Store (live 2026-10-20); `[browser] store_extension_id` overrides
 REQUEST_RECORD = "extension-requests.json"      # in FERB's home: the request files FERB wrote
 _EXTENSION_ID = re.compile(r"[a-p]{32}")
 

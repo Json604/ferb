@@ -143,6 +143,7 @@ def test_setup_never_changes_a_browsers_preferences(world: dict[str, Any]) -> No
 
 
 def test_an_empty_store_id_writes_no_request_and_prints_the_manual_steps(world: dict[str, Any]) -> None:
+    Config(world["home"]).set("browser", "store_extension_id", "")   # the owner can still opt out of the store copy
     text = run_setup(world)
     assert not list(world["support"].rglob("External Extensions"))
     assert manifest(world["support"] / "Google" / "Chrome")["allowed_origins"] == [f"chrome-extension://{PINNED}/"]
@@ -412,9 +413,16 @@ def test_the_identity_prompt_offers_the_store_copy_once_listed(world: dict[str, 
         prompts.append(prompt)
         return ""
     env = S.Env(inst, Pairs, ask, io.StringIO())  # type: ignore[arg-type]
+    Config(world["home"]).set("browser", "store_extension_id", "")    # not listed: the manual steps
     assert S._identity_pair(env, "FERB")
     assert "Load unpacked" in prompts[-1]
     Config(world["home"]).set("browser", "store_extension_id", STORE)
     assert S._identity_pair(env, "FERB")
     assert "Load unpacked" not in prompts[-1] and "turn ferb on" in prompts[-1].lower()
     assert f"chromewebstore.google.com/detail/{STORE}" in prompts[-1]
+
+
+def test_the_built_in_store_id_is_ferbs_live_listing() -> None:
+    """FERB's Chrome Web Store listing went live on 2026-10-20: a fresh install uses it without any config."""
+    assert autoinstall.STORE_EXTENSION_ID == "plbfkifcmgkgnlfgikdeaaglgncdhkma"
+    assert autoinstall.valid_id(autoinstall.STORE_EXTENSION_ID)
