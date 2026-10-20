@@ -158,8 +158,9 @@ SECRET_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|p
                          rf"api[{_H}_-]?key|(?:(?:access|auth|api|refresh)[{_H}_-]?)?token|private[{_H}_-]?key)"
                          r"(?![A-Za-z0-9])")
 # What follows a secret word: an optional "for gmail" / "to the wifi", a link (":", "=", "is", "was", " - ") or none.
+# After ":" or "=" the value may start a later line, with blank lines between (re-review 4, T1).
 SECRET_AFTER = re.compile(rf"""(?ix)(?P<qual>[{_H}]+(?:for|to|of|on|at)[{_H}]+(?:(?:the|my|your)[{_H}]+)?[^\s:=]+)?
-                              (?P<link>(?:\\?["'])?[{_H}]*[:=][{_H}]*(?:\r\n|\r|\n)?[{_H}]*|
+                              (?P<link>(?:\\?["'])?[{_H}]*[:=][{_H}]*(?:(?:\r\n|\r|\n)[{_H}]*)*|
                                        [{_H}]+(?:is|was)(?![A-Za-z0-9])[{_H}]*:?[{_H}]*|[{_H}]+[-–—][{_H}]+)""")
 SECRET_DIRECT = re.compile(rf"[{_H}]+")
 # The owner's own: "my password is sunshine" hides a plain word too (a page's "Your password is incorrect" doesn't).
@@ -180,11 +181,15 @@ def _words_between(starts: list[int], a: int, b: int) -> int:
 
 def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
     """Where the value after a secret word lies, when one is there: after ":"/"=" any value, after "is"/"was"/" - "
-    one with a digit or a symbol (or any, when it is the owner's own), and right after the word one with a digit."""
+    one with a digit or a symbol (or any, when it is the owner's own), and right after the word one with a digit.
+    A value on a later line than its label is that whole line, unless quoted ("password for gmail:" over
+    "  s3cret pass 9": re-review 4, T1)."""
     end, strong, mine = word.end(), False, MINE.search(s, max(0, word.start() - 40), word.start()) is not None
     after = SECRET_AFTER.match(s, end)
+    next_line = False
     if after is not None:
         end, strong = after.end(), ":" in after.group("link") or "=" in after.group("link")
+        next_line = LINE_BREAK.search(after.group("link")) is not None
     else:
         direct = SECRET_DIRECT.match(s, end)
         if direct is None:
@@ -195,9 +200,14 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
     quote = s[end] if s[end] in "\"'" else ("\\" + s[end + 1] if s.startswith(("\\\"", "\\'"), end) else "")
     if quote:
         close = s.find(quote, end + len(quote))
-        if close < 0 or "\n" in s[end:close]:
+        if close < 0 or LINE_BREAK.search(s, end, close):
             return None
         start, stop = end + len(quote), close
+    elif next_line:
+        line_end = LINE_BREAK.search(s, end)
+        start, stop = end, line_end.start() if line_end else len(s)
+        while s[stop - 1].isspace():
+            stop -= 1
     else:
         stop = end
         while stop < len(s) and not s[stop].isspace():
@@ -208,7 +218,10 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         if s.startswith("\\", stop - 1):
             stop -= 1
     value = s[start:stop]
-    if not any(c.isalnum() for c in value) or REDACTED[:-1] in s[end:stop + 1]:   # no value; already masked
+    if next_line and not quote:                     # the whole line, unless only masks are left of it
+        if not any(c.isalnum() for c in value.replace(REDACTED, "")):
+            return None
+    elif not any(c.isalnum() for c in value) or REDACTED[:-1] in s[end:stop + 1]:   # no value; already masked
         return None
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
@@ -263,24 +276,32 @@ CODE_LIST = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[{_H}-]?
 _LIST_QUALIFIER_END = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two|one|verification|security|login)"
                                  rf"[A-Za-z0-9]*(?:[{_H}_-]+[A-Za-z0-9]*){{0,2}}[{_H}]*$")
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
-_LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)?")
+# Between codes: spaces or commas, or line breaks with blank (or whitespace-only) lines between (re-review 4, T1).
+_LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)*")
+# A list item's number or bullet before its codes: "1. ", "2) ", "• ", "- ", "* " (re-review 4, T1).
+_LIST_MARKER = re.compile(rf"(?:\d+[.)]|[-*\u2022])[{_H}]+")
 
 
 def _code_list(s: str) -> list[tuple[int, int]]:
-    """Each code after a list label; across a line break only onto a line made only of codes."""
+    """Each code after a list label; across line breaks only onto a line made only of codes (after its item
+    marker), blank lines between allowed."""
     spans = []
     for label in _not_address(s, CODE_LIST.finditer(s)):
         pos = label.end()
         while True:
             gap = _LIST_GAP.match(s, pos)
             assert gap is not None                  # it matches the empty string
-            token = LIST_TOKEN.match(s, gap.end())
+            start = gap.end()
+            breaks = list(LINE_BREAK.finditer(gap.group()))
+            if breaks:
+                line_end = LINE_BREAK.search(s, start)
+                if not _list_line(s[pos + breaks[-1].end():line_end.start() if line_end else len(s)]):
+                    break
+            if (breaks or pos == label.end()) and (marker := _LIST_MARKER.match(s, start)) is not None:
+                start = marker.end()
+            token = LIST_TOKEN.match(s, start)
             if token is None:
                 break
-            if LINE_BREAK.search(gap.group()):
-                line_end = LINE_BREAK.search(s, token.start())
-                if not _list_line(s[token.start():line_end.start() if line_end else len(s)]):
-                    break
             spans.append(token.span())
             pos = token.end()
     return spans
@@ -294,8 +315,12 @@ def _list_label_line(line: str) -> bool:
 
 
 def _list_line(line: str) -> bool:
-    """A line of only list codes ("4821-9921", "a1b2c-3d4e5", ", 482-913"), as in a recovery-code list."""
-    tokens = [t for t in re.split(r"[\s,]+", line) if t]
+    """A line of only list codes ("4821-9921", "a1b2c-3d4e5", ", 482-913"), after an item marker ("1. a1b2c-3d4e5"),
+    as in a recovery-code list."""
+    body = line.lstrip()
+    if (marker := _LIST_MARKER.match(body)) is not None:
+        body = body[marker.end():]
+    tokens = [t for t in re.split(r"[\s,]+", body) if t]
     return bool(tokens) and all(LIST_TOKEN.fullmatch(t) for t in tokens)
 
 
@@ -331,9 +356,11 @@ def _label_joined(s: str, label_end: int, code: re.Match[str]) -> bool:
 
 
 def _mask_spans(s: str, spans: list[tuple[int, int]]) -> str:
+    """`s` with each span masked; overlapping spans masked as one (a value line holding a code)."""
     out, kept = [], 0
     for start, end in sorted(spans):
         if start < kept:
+            kept = max(kept, end)
             continue
         out.append(s[kept:start] + REDACTED)
         kept = end
@@ -738,14 +765,12 @@ def _forward_relations(s: str, seen: Callable[[str], str] = lambda line: line) -
         {"list"} if either(_list_label_line, last) else set())
     if kinds:
         return last + after, kinds
-    if either(_list_line, last) and not blank:
-        def joined(i: int) -> bool:              # line i and the one before it are adjacent (no blank line between)
-            return LINE_BREAK.fullmatch(s[lines[i - 1][1]:lines[i][0]].strip(" \t") or "-") is not None
+    if either(_list_line, last):                 # blank lines between a list's lines keep it one list (T1)
         at = len(lines) - 1
-        while (at > 0 and joined(at) and either(_list_line, s[lines[at - 1][0]:lines[at - 1][1]])
+        while (at > 0 and either(_list_line, s[lines[at - 1][0]:lines[at - 1][1]])
                and not either(_list_label_line, s[lines[at - 1][0]:lines[at - 1][1]])):
             at -= 1
-        if at > 0 and joined(at) and either(_list_label_line, label := s[lines[at - 1][0]:lines[at - 1][1]]):
+        if at > 0 and either(_list_label_line, label := s[lines[at - 1][0]:lines[at - 1][1]]):
             return label + "\n" + last + after, {"list"}
     return none
 
@@ -764,7 +789,7 @@ def _line_head(s: str) -> str:
 # never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the text
 # redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C).
 _CODE_ALONE_START = re.compile(r"[\s.,;:()\[\]]*(?:[A-Z]-?)?(?:\d|$)")
-_LIST_LINE_START = re.compile(r"[\s,]*[A-Za-z0-9-]*(?:[\s,]|$)")
+_LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
 
 
 class RedactionStream:

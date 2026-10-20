@@ -812,3 +812,54 @@ def test_in_line_whitespace_is_every_whitespace_but_a_line_break() -> None:
     from ferb.sanitize import redact
     every = "".join(map(chr, range(0x110000)))
     assert set(re.findall(rf"[{redact._H}]", every)) == {c for c in every if c.isspace()} - {"\r", "\n"}
+
+
+# Re-review 4 (T1, rule 14): layouts the text redactor and the stream both missed.
+T1_LAYOUTS = [
+    # a blank line, whitespace-only or no-break-space-only too, between a list's label and its codes (or between codes)
+    ("Backup codes:\n\na1b2c-3d4e5 f6g7h-8i9j0\n", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+    ("Recovery codes:\n \n4821-9921\n7731-1123\n", ["4821-9921", "7731-1123"]),
+    ("Your 2FA backup codes:\r\n\xa0\r\nq2w3e4r5  t6y7u8i9\r\n", ["q2w3e4r5", "t6y7u8i9"]),
+    ("Two-factor codes:\n\n\n7f3a9-2bc41\n\n8i9j0-k1l2m\n", ["7f3a9-2bc41", "8i9j0-k1l2m"]),
+    ("Backup codes:\n\xa0a1b2c-3d4e5\n　f6g7h-8i9j0\n", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+    # "Password:", a blank line, then its value
+    ("Password:\n\nhunter2!\n", ["hunter2"]),
+    ('Password:\r\n\xa0\r\n"correct horse 22"\r\n', ["correct horse 22"]),
+    ("token =\n\n  abc123def\n", ["abc123def"]),
+    # numbered or bulleted items under a backup, recovery or 2FA list's label
+    ("Backup codes:\n1. a1b2c-3d4e5\n2. f6g7h-8i9j0\n", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+    ("Recovery codes:\n1) 4821 9921\n2) 7731 1123\n10) 5522 8833\n", ["4821", "9921", "7731", "1123", "5522", "8833"]),
+    ("Your backup codes:\n• q2w3e4r5\n• t6y7u8i9\n", ["q2w3e4r5", "t6y7u8i9"]),
+    ("2FA recovery codes:\n\n  1. a1b2c-3d4e5\n\n  2. f6g7h-8i9j0\n", ["a1b2c-3d4e5", "f6g7h-8i9j0"]),
+    ("Security backup codes:\n- 7f3a9-2bc41\n* a8d02-91fe3\n", ["7f3a9-2bc41", "a8d02-91fe3"]),
+    # an unquoted value with spaces on the line after a password label: the whole value line
+    ("password for gmail:\n  s3cret pass 9\n", ["s3cret", "pass 9"]),
+    ("Password:\ncorrect horse battery staple\n", ["correct", "horse", "battery", "staple"]),
+    ("Your temporary password:\r\n\r\nTr0ub4dor &3\r\n", ["Tr0ub4dor", "&3"]),
+]
+
+
+@pytest.mark.parametrize("raw,secrets", T1_LAYOUTS)
+def test_list_and_password_layouts_with_blank_lines_markers_and_spaces_are_masked(raw, secrets) -> None:
+    """Re-review 4 (T1): a blank line under "Backup codes:" or "Password:", numbered list items, and a next-line
+    password with spaces showed the secret in text and in the stream; both now mask it at every split."""
+    redactor = Redactor()
+    out = redactor.text(raw)
+    for secret in secrets:
+        assert secret not in out, out
+    assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("password for gmail:\n  s3cret pass 9\n", "password for gmail:\n  [redacted]\n"),
+    ("Password:\nhunter2!\nUsername: kartikey\n", "Password:\n[redacted]\nUsername: kartikey\n"),
+    ("Backup codes:\n1. a1b2c-3d4e5\n2. f6g7h-8i9j0\n\nKeep them safe.\n",
+     "Backup codes:\n1. [redacted]\n2. [redacted]\n\nKeep them safe.\n"),
+    ("HTTP status codes:\n\n200, 301\n", "HTTP status codes:\n\n200, 301\n"),
+    ("Backup codes:\n1. Open Settings\n2. Tap Security\n", "Backup codes:\n1. Open Settings\n2. Tap Security\n"),
+    ("1000\n\n1001\n\n1002\n", "1000\n\n1001\n\n1002\n"),
+])
+def test_the_layouts_mask_only_the_value_lines(raw, expected) -> None:
+    redactor = Redactor()
+    assert redactor.text(raw) == expected
+    assert _differing_splits(redactor, raw) == []
