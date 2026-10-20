@@ -289,8 +289,10 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         return None
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
-    # "my password is sunshine" hides a plain word that ends its clause; "my PIN is on the card" is no value
-    ends_clause = re.match(rf"(?i)[{_H}]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))", s[stop:]) is not None
+    # "my password is sunshine" hides a plain word that ends its clause; "my PIN is on the card" is no value. A quoted
+    # word's clause is read after its closing quote ("my password is 'sunshine'": re-review 6, I2).
+    ends_clause = re.match(rf"(?i)[{_H}]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))",
+                           s[stop + len(quote):]) is not None
     if strong or (after is not None and ((mine and (digit or symbol or ends_clause))
                                          or (len(value) >= 4 and (digit or symbol)))) or \
             (after is None and len(value) >= 4 and digit):

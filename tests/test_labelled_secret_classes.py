@@ -1053,3 +1053,17 @@ def test_a_code_next_to_a_tag_with_spaces_inside_stays_masked_at_every_split(raw
     redactor = Redactor()
     assert "482913" not in redactor.text(raw)
     assert _differing_splits(redactor, raw, pairs=True) == []
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("my password is 'sunshine'\n", "my password is '[redacted]'\n"),
+    ('my password is "sunshine".\n', 'my password is "[redacted]".\n'),
+    ("my password is 'sunshine' and that's it\n", "my password is '[redacted]' and that's it\n"),
+    ("my password is 'sunshine' ok\n", "my password is 'sunshine' ok\n"),
+])
+def test_the_owners_quoted_plain_word_password_ends_its_clause_after_the_quote(raw, expected) -> None:
+    """Re-review 6 (I2, a regression from the unclosed-quote rule): whether a plain word ends its clause was read from
+    the closing quote itself, so "my password is 'sunshine'" was shown."""
+    redactor = Redactor()
+    assert redactor.text(raw) == expected
+    assert _differing_splits(redactor, raw) == []
