@@ -149,7 +149,7 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   code on its own line (under "Use this code to sign in", colon or not) and every code in a backup, recovery or 2FA
   code list are masked, while other "codes:" lists ("HTTP status codes: 200, 301") stay; your own requests keep their
   numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code"); address and coupon codes
-  (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your answer to a question about a
+  (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your answer to a question asking for a
   sign-in password, passcode or PIN is hidden whole, and the code in your answer to a question about a code is
   masked.
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"

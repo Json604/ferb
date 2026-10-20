@@ -1281,8 +1281,8 @@ are ordinary data (owner decision 2026-10-15): "PIN code", "pincode", "ZIP code"
 The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
 (also on the next line), one with a digit or symbol after "is"/"was" (or, after "my/our … is", a plain word that ends
 its clause), one with a digit right after the word. A text field named by a secret word hides its whole value; a code
-word hides a code-shaped one. An answer (`Redactor.answer`) to a question about a sign-in password, passcode or PIN is
-hidden whole whatever its shape; to a question with a code word its 4–8 digit codes are masked; a chat message while
+word hides a code-shaped one. An answer (`Redactor.answer`) to a question asking for a sign-in password, passcode or
+PIN (the word ends its phrase: "your Gmail password?", not "password manager") is hidden whole whatever its shape; to a question with a code word its 4–8 digit codes are masked; a chat message while
 such a question is open is masked the same way, hidden whole for a password question only when it is one word (it may
 be a steer). A masked code counts as the digits it replaced, so masking twice changes nothing.
 `RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
