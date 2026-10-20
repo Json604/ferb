@@ -1237,7 +1237,33 @@ Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far
     repeated task> --kind procedure`, `--kind lesson`, or the memory dashboard) and record what appeared. Also
     `ferb doctor`: the context window lines end "at most 1048576 characters in one input".
 
+Fix wave 4 — front window (2026-10-19, after the visa question on a Greenhouse page got "Which internship is this?";
+all pending; Brave with Automation already allowed):
+61. Two Brave windows, different pages and places: click into window B (B in front), then send "what page is this?"
+    from the notch. `ferb trace TASK --full`: the planner input's front-window block has B's URL and tab title, never
+    A's. Then make A FERB's frontmost Brave window in Brave's own order (use it, then click back into B without
+    touching A) and repeat: still B's.
+62. Maximize both windows (same place, different pages) with B in front: the block has B's URL (told apart by its
+    title). Then open the same page in both: the block has no URL and a `tab_note` saying FERB can't tell which tab;
+    the window title is still there. Note anything in the block that names the other window.
+63. The live case again: in a Brave profile that is **not** paired with FERB, open a job page (and a disposable
+    sign-in page with "Show password" ticked and a throwaway value typed) and ask about it. The planner gets the
+    screenshot (no "withheld"), and the block's `masking` says the page's secret fields couldn't be located, why
+    (e.g. "no paired profile has a window at this window's place"; "Accessibility shows no page area" or "page area
+    is empty"), and that it was masked by text recognition only. Look at the stored evidence image (`ferb trace TASK
+    --full` names it): record whether the throwaway password field is black (label "Password" next to it) or shows.
+64. Same page in your paired profile: the block has no `masking` (or "masked from Accessibility only" with a reason),
+    and the password field is black.
+65. `mac.screenshot` of that unpaired-profile window and a short `mac.record` across typing into its field: both
+    return pictures; the result and the recording carry the same `masking` note.
+66. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
+    page area appears late is now read again for up to ~2 s.
+
 Residuals to know during the week (accepted or recorded, not checks):
+- Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
+  reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
+  password) can show. A field moving during a capture is painted at both places, not between them. A task tab's
+  `browser.screenshot` the extension can't read is still withheld (fixing it needs an extension update).
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
 - A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.
 - An undeclared browser post or payment click gets no question; the prompts carry the declaration.

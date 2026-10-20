@@ -231,6 +231,23 @@ Fix wave 5 (2026-10-20, why background learning never worked live; L28, D32):
   connection without end, so a worker that only retries for 3 minutes is stopped, and the task says the Mac seems
   offline or quotes Codex's last retry.
 
+Fix wave 4 — front window (2026-10-19, after the owner's visa question about a Greenhouse internship page was answered
+with "Which internship is this?"; not installed or live-tested):
+- The front window's URL and tab title are those of the browser window FERB captured. AppleScript's `front window` is
+  the browser's own frontmost window, which was another Brave window (a Kaggle discussion). FERB now lists every
+  window and takes the one at the captured window's place, ties broken by its title; when it can't tell, it sends no
+  URL or tab title and says why.
+- No window picture is refused for where its secret fields are (owner: "no screenshots should be refused; go with
+  redacted stuff"). When neither the browser extension nor Accessibility can read the page, or a field has no box, or
+  Accessibility can't read the window, the picture goes to the model masked by on-device text recognition only, with
+  a note saying so and why (which extension or Accessibility step failed); a field that moved during the capture is
+  painted where it was before and after. Only a picture the masks can't be painted on is withheld. Text recognition
+  also paints a field it reads as a row of password dots. Residual: where fields can't be located, a secret the OCR
+  doesn't recognise as one can show.
+- With two windows at the same place (maximized), Accessibility's window is the one with the captured window's
+  title; a browser window is read again for ~2 s while its page area hasn't appeared yet. Brave and Chrome ignore
+  `AXManualAccessibility` (it only helps Electron apps).
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
