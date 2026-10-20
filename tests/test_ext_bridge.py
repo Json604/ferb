@@ -513,6 +513,12 @@ def test_the_profile_that_owns_a_window_gives_its_tabs_page(bd: Any) -> None:
     work.windows[(10, 20, 800, 600)] = []                                    # two profiles, same bounds
     both = d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0)))
     assert not both.complete and "more than one paired profile" in both.why
+    # round 3 (m4): both maximized, each showing its own page: the captured window's title picks the profile
+    work.window_titles[(10, 20, 800, 600)] = "Work inbox"
+    personal.window_titles[(10, 20, 800, 600)] = "Job Application – Panthalassa"
+    picked = d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0), "Job Application –  Panthalassa"))
+    assert picked.complete and [i.rect for i in picked.state.items] == [(20.0, 40.0, 100.0, 20.0)]
+    assert not d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0), "Neither page")).complete
 
 
 @pytest.mark.parametrize("driver_name", ["router", "ferb_identity"])

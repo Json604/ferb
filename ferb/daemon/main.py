@@ -28,7 +28,7 @@ from ferb.act.fs import recovery
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
-from ferb.act.mac.driver import MacComputerDriver, WebSecrets, profiles_dir
+from ferb.act.mac.driver import MacComputerDriver, WebSecrets, profiles_dir, same_title
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ProcInfo, ShellManager
@@ -798,6 +798,9 @@ class Daemon:
             return WebSecrets(None, f"no paired profile of {browser} is connected")
         answers = await asyncio.gather(*(ask(br) for br in bridges))
         owners = [r for r in answers if isinstance(r, dict) and r.get("matched")]
+        if len(owners) > 1 and title:          # each profile's own window there: the one showing the captured page
+            owners = [r for r in owners if isinstance(r.get("tab"), dict) and isinstance(r["tab"].get("title"), str)
+                      and same_title(r["tab"]["title"], title)] or owners      # (two maximized profiles, m4)
         if len(owners) == 1:
             return WebSecrets.from_reply(owners[0])
         if owners:

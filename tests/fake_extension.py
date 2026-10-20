@@ -97,6 +97,7 @@ class FakeExtension:
         self.fills: list[dict[str, Any]] = []
         # window bounds -> its active tab's secret-field rects (CSS px of a 1280 x 900 viewport); None: can't be read
         self.windows: dict[tuple[int, int, int, int], list[list[float]] | None] = {}
+        self.window_titles: dict[tuple[int, int, int, int], str] = {}   # their active tab's title (protocol 15)
         # background-by-construction model
         self.ferb_window: int | None = None               # FERB's minimized window (one per browser session)
         self.windows_created = 0
@@ -476,7 +477,8 @@ class FakeExtension:
         if rects is None:
             return {"matched": True, "complete": False, "reason": "the page can't be read"}
         return {"matched": True, "complete": True, "state": {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [
-            {"key": f"field|doc|{i}", "rect": r, "paint": True} for i, r in enumerate(rects)]}}
+            {"key": f"field|doc|{i}", "rect": r, "paint": True} for i, r in enumerate(rects)]},
+            "tab": {"url": "https://fake.test/", "title": self.window_titles.get(b, "")}}
 
     def op_frame_origin(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         url = self.tabs[a["tab_id"]]
