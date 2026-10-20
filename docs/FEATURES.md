@@ -566,14 +566,14 @@ This section matters most for an automated campaign. It says exactly what runs u
 ### 3.12 Memory and learning (F8)
 
 #### Owner memory
-- What: "remember that …" saves as the owner's words the whole clause they typed it in (pasted parts left out);
+- What: "remember that …" saves as the owner's words the whole sentence they typed it in (pasted parts left out);
   FERB's rewording waits for the owner's Yes (asked in chat and the notch, or the dashboard) before it reaches a
   prompt. Inferred facts never reach a prompt unconfirmed; observed patterns not yet seen on 3 days show as unconfirmed
   hints; only the owner's own stated preferences become identity, and one said while outside content was shown waits
   for their Confirm. Search, edit (versions kept), retract, forget: the item, its versions, sources, derived records,
   summary entries and vectors, FERB's own lines that hold its words (its "Remembered" line, its answer to the forgotten
   message, reply lines that restate it), and what a task given it did with it (its answer, outcome, saved plan,
-  permanent record and episode card); a tombstone keeps the deleted ids, never their content. A paraphrase in other
+  permanent record, stored tool calls and turns, and its episode card when that restates it); a tombstone keeps the deleted ids, never their content. A paraphrase in other
   words can survive. Forget from the CLI, the dashboard or chat: FERB names each item that goes and deletes only after
   a Yes.
 - Status: **Shipped**; the chat forget and the scrub of FERB's own lines are **landing this week — integrated, not

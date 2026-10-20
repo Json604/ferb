@@ -1361,21 +1361,25 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   removed by retention, stays an edge and adds `{private, external:unlabeled}` (`memory.episode_refs_expired`). A
   forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
   keys.
-- **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole clause(s) of the owner's typed words
-  that hold the planner's content (`items.owner_clause`; clause marks `, ; : ! ?` and line breaks, never a period);
+- **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole sentence(s) of the owner's typed words
+  that hold the planner's content (`items.owner_sentences`: a line break, `!`/`?` before a space, or a dot starting a
+  new sentence after a word that isn't abbreviation-shaped, the redactor's rule; never a comma);
   FERB's rewording is an inferred proposal offered by a `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No
   retracts); a quote sharing no word with the content is refused. An owner preference from a turn that showed
   outside content (as S4 counts it) is held from identity (`memory_items.identity_held`, migration 0040) and offered as
   an identity proposal. `items.prompt_ready`: only active items, and observed patterns still gathering days (shown as
   "unconfirmed hint", `learning.shown_state`), reach prompts; pending inferred items are indexed as fact nodes in
-  state `proposed`, which `Learning.search` leaves out, so only the dashboard sees and confirms them.
+  state `proposed`, which `Learning.search`, the entity rollup, `memory.learned` and `memory.read` all leave out, so
+  only the dashboard (inventory `confirmable`) sees and confirms them. FERB's Yes/No memory questions are kept in
+  `memory_questions` (migration 0041) until answered and asked again after a restart (`_restore_memory_questions`).
 - **Forget echoes (I2, fix round Q1/Q2).** Each task records the memory items and learned nodes its exposures cite
   (`task_memory_refs`, migration 0039). `memory/echoes.py`, after a forget's deletion (`finish_at`: a worker thread on
   its own connection; `Supervisor.settle` makes the next chat turn wait): FERB's whole answer to a forgotten chat
-  message (and the planner turn that wrote it); for tasks given the item (that record, cards citing it, exposures
-  citing a forgotten entry) each line of their answer and outcome rows, stored goal and outcome, saved spec and
-  permanent record holding the item's text or a word of it nothing left holds, and their cards whose body does
-  (forgotten, keys tombstoned); in chat rows whose turn listed the item, a line holding its text or two of its words in
+  message (and the planner turn that wrote it); for tasks given the item (shown or cited the item itself, its source
+  entries or rows, or a learned node whose own body restates it: `echoes.settle`, re-review F2) each line of their
+  answer and outcome rows, stored goal and outcome, saved spec, permanent record, `task_results` row, every span of
+  their tree and the planner turn that planned them, holding the item's text or a word of it nothing left holds; their
+  cards are forgotten (keys tombstoned) only when the body restates the item; in chat rows whose turn listed the item, a line holding its text or two of its words in
   a row (one of them a word nothing left holds); elsewhere, its text word for word. Spans lose those lines and texts
   (`attention.scrub_spans`). Append-only journal rows are deleted and written again with the same seq, id, time and
   origin. Running summaries that folded such a row go; a day narrative written from a forgotten chat message is
