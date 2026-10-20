@@ -10,12 +10,15 @@ import math
 import re
 from typing import Callable
 from ferb.act.evidence.mask import Box, mask_secret_fields
-from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, CODE_VALUE, OTP_LABEL, Redactor, code_words,
+from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, OTP_LABEL, Redactor, _H, _code_alone, code_words,
                                   payment_card, secret_words)
 
+# Any whitespace but a line break reads as a space here too, as in the text redactor's classes (`_H`; re-review 4).
 # OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
 # glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
-CARD_DIGITS = re.compile(r"\d(?:[ -]?\d){12,18}")
+CARD_DIGITS = re.compile(rf"\d(?:[{_H}-]?\d){{12,18}}")
+# A number in a frame that shows an OTP label (`ImageRedactor`).
+FRAME_CODE = re.compile(rf"(?<!\d)\d(?:[{_H}-]?\d){{3,7}}(?!\d)")
 # A region that reads as nothing but four or more bullets or asterisks (spaces aside) is painted: a password field's
 # dots. Measured on offline renders (fix wave 4 round 1, review M3): Vision reads a row of asterisks this way about
 # half the time (10/18) but a row of bullets almost never (1/72: it returns '........•', '..•••••', '.......', or
@@ -28,19 +31,20 @@ def neighbour_spans(lines: list[str]) -> set[int]:
     """The OCR lines (by index) that hold a labelled secret only with their neighbour (C1): a code alone on its line
     under a line with a code word near its end ("Enter the code we sent you" over "48 29 13"), a value alone beside or
     under a line ending in a secret word ("Password:" by "sunshine2024"), or a code alone on its line over a line that
-    starts with its link and code word ("482913" over "is your verification code"). Single lines are the text
+    starts with its link and code word ("482913" over "is your verification code"). A code alone is the text
+    redactor's (`_code_alone`: brackets, punctuation or a list bullet around it). Single lines are the text
     redactor's."""
     out: set[int] = set()
     for i in range(len(lines) - 1):
         a, b = lines[i].strip(), lines[i + 1].strip()
-        code_b = CODE_VALUE.fullmatch(b.strip(" .:()")) is not None
+        code_b = _code_alone(b)
         near_end = [m for m in code_words(a) if len(a[m.end():].split()) <= CODE_REACH]
         if code_b and near_end:
             out.add(i + 1)
-        secret = [m for m in secret_words(a) if re.fullmatch(r"[ \t:=]*", a[m.end():])]
+        secret = [m for m in secret_words(a) if re.fullmatch(rf"[{_H}:=]*", a[m.end():])]
         if secret and b and len(b.split()) == 1 and (a.endswith((":", "=")) or any(c.isdigit() for c in b)):
             out.add(i + 1)
-        if CODE_VALUE.fullmatch(a.strip(" .:()")) and CODE_LINK.match(b) and any(
+        if _code_alone(a) and CODE_LINK.match(b) and any(
                 len(b[:m.start()].split()) <= CODE_REACH for m in code_words(b)):
             out.add(i)
     return out
@@ -96,7 +100,7 @@ class ImageRedactor:
             for i, region in enumerate(regions):
                 text = region.text
                 if (self.redactor.text(text) != text or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
-                        or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text))
+                        or (code_frame and FRAME_CODE.search(text))
                         or i in labelled or PASSWORD_DOTS.fullmatch(re.sub(r"\s", "", text))):
                     boxes.append(region.box)
             return self.mask(image, boxes) if boxes else image

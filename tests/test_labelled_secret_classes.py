@@ -919,3 +919,29 @@ def test_a_wrapped_or_bulleted_number_under_an_address_or_ordinary_label_stays(r
     redactor = Redactor()
     assert redactor.text(raw) == raw
     assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("space", IN_LINE_SPACES)
+def test_ocr_reads_unicode_spaces_as_the_text_redactor_does(space) -> None:
+    """Re-review 4 follow-up (concern 3b): the OCR path's own patterns (a card glued to a word, a number in a frame
+    with an OTP label, a secret word's colon) took only ASCII spaces; it reads any whitespace but a line break as a
+    space, as the text redactor's classes do (`_H`)."""
+    card = f"visa-4111{space}1111{space}1111{space}1111"
+    assert _masked([TextRegion(card, (0, 0, 90, 9))]) == [card]
+    code = f"48{space}29{space}13 sent"
+    regions = [TextRegion("Your OTP", (0, 0, 40, 9)), TextRegion("Resend", (0, 20, 40, 9)),
+               TextRegion(code, (0, 40, 40, 9))]
+    assert _masked(regions) == [code]
+    regions = [TextRegion(f"Password{space}:", (0, 0, 40, 9)), TextRegion("sunshine2024", (50, 0, 60, 9))]
+    assert _masked(regions) == ["sunshine2024"]
+
+
+@pytest.mark.parametrize("above,below,masked", [
+    ("Sign-in code", "[ 482913 ]", ["[ 482913 ]"]), ("Enter the code we sent you", "- 482913", ["- 482913"]),
+    ("Your OTP:", "• 48 29 13", ["• 48 29 13"]), ("- 482913", "is your verification code", ["- 482913"]),
+    ("PIN code", "[ 560001 ]", []), ("Steps", "- 2024", []),
+])
+def test_ocr_masks_a_wrapped_or_bulleted_code_alone_next_to_its_label(above, below, masked) -> None:
+    """Concern 3a on the OCR path: the line pair rule (`neighbour_spans`) reads a code alone as the text redactor
+    does (`_code_alone`)."""
+    assert _masked([TextRegion(above, (0, 0, 90, 9)), TextRegion(below, (0, 12, 40, 9))]) == masked
