@@ -408,6 +408,36 @@ def test_a_clean_frame_is_not_painted_when_the_page_moved_or_was_read_once(monke
     assert white(pixel(jpeg, 700, 850))
 
 
+@pytest.mark.parametrize("first_answers", [False, True])
+def test_a_browser_capture_fits_inside_the_planners_wait_for_the_front_window(monkeypatch: pytest.MonkeyPatch,
+                                                                             first_answers: bool) -> None:
+    """Review M6: worst cases, in virtual time (no sleeps): each AX walk re-reads for its full ~2 s (a page area that
+    never appears) and each extension ask waits out its 4 s. Asked one after the other, the two looks took 2+4+2+4 =
+    12 s, past the planner's 10 s wait for the front window (it then goes on with no image, URL or title). The
+    extension is asked while the AX walk runs, and not again after a first ask nobody answered."""
+    import ferb.act.mac.driver as drv
+    from ferb.act.mac.driver import WebSecrets
+    from ferb.orchestrator.supervisor import CAPTURE_TIMEOUT_S
+    from tests.support.virtual_time import charged_to_thread, run_virtual
+    d, ax, shots, _ = _brave(monkeypatch)
+    asked: list[float] = []
+
+    async def secrets(browser: str, bounds: Any) -> Any:
+        asked.append(asyncio.get_running_loop().time())
+        if first_answers and len(asked) == 1:
+            await asyncio.sleep(3.9)                      # answered just in time, the second ask then times out
+            return _page()
+        await asyncio.sleep(4.0)
+        return WebSecrets(None, "a paired profile didn't answer", late=True)
+    d.web_secrets = secrets
+    monkeypatch.setattr(drv.asyncio, "to_thread", charged_to_thread({"read_tree": 2.0}))
+    (_, shot, _), took = run_virtual(d.window_image("Brave"))
+    assert took < CAPTURE_TIMEOUT_S, took
+    assert asked[0] == 0.0                                # asked together with the first walk, not after it
+    assert len(asked) == (2 if first_answers else 1)      # nobody answered the first: not asked again
+    assert took <= (8.0 if first_answers else 6.0)
+
+
 def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two maximized windows share bounds: Accessibility's window is the one with the captured window's title."""
     d, ax, shots, *_ = vision(monkeypatch)

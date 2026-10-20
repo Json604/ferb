@@ -66,6 +66,7 @@ class WebSecrets:
     and `why` says why when known (FERB's words, or the extension's own fixed reason; never page content)."""
     state: PageState | None = None
     why: str = ""
+    late: bool = False             # a profile didn't answer (timed out or failed): not asked again for this capture
 
     @property
     def complete(self) -> bool:
@@ -394,16 +395,23 @@ class MacComputerDriver:
 
     # ---------- screenshots ----------
 
-    async def _look(self, a: Any, bounds: Rect, title: str = "") -> Look:
-        """One look at the window at `bounds` now, for its capture masks (`window_masks`): a fresh Accessibility walk
-        (never an earlier one: a field may have moved since) and, for a browser, the extension's page. The AX window
-        is the one there (with the captured window's `title`, when several are). None there (it moved, or can't be
-        read): no walk."""
-        win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds, title or None)
-        tree = await self._walk(a, win) if win is not None else None
+    async def _look(self, a: Any, w: Any, before: Look | None = None) -> Look:
+        """One look at the captured window `w` now, for its capture masks (`window_masks`): a fresh Accessibility walk
+        (never an earlier one: a field may have moved since) and, for a browser, the extension's page, asked while the
+        walk runs (review M6: one after the other, two looks could outlast the planner's wait for the front window).
+        After a look `before` whose ask nobody answered, the extension isn't asked again. The AX window is the one at
+        the window's bounds (with its title, when several are there). None there (it moved, or can't be read): no
+        walk, and no page."""
+        async def walk() -> axm.AxTree | None:
+            win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None)
+            return await self._walk(a, win) if win is not None else None
         browser = BROWSER_BUNDLES.get(a.bundle_id)
-        web = await self.web_secrets(browser, bounds) if tree is not None and browser and self.web_secrets else None
-        return tree, web
+        earlier = before[1] if before is not None else None
+        if not (browser and self.web_secrets) or (earlier is not None and earlier.late):
+            tree, web = await walk(), earlier
+        else:
+            tree, web = await asyncio.gather(walk(), self.web_secrets(browser, w.bounds))
+        return tree, (web if tree is not None else None)
 
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,
@@ -471,9 +479,9 @@ class MacComputerDriver:
             except (RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
-        first = await self._look(a, w.bounds, w.title)
+        first = await self._look(a, w)
         jpeg, width, height = await asyncio.to_thread(grab, w)
-        masks, note = window_masks(first, await self._look(a, w.bounds, w.title), browser)
+        masks, note = window_masks(first, await self._look(a, w, first), browser)
         return a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
@@ -496,10 +504,10 @@ class MacComputerDriver:
             w = await current()
             await self._expose(a)
             browser = a.bundle_id in BROWSER_BUNDLES
-            first = await self._look(a, w.bounds, w.title)
+            first = await self._look(a, w)
             image, width, height = await asyncio.to_thread(self.shots.capture, w)
             await current()
-            masks, note = window_masks(first, await self._look(a, w.bounds, w.title), browser)   # moved: OCR only
+            masks, note = window_masks(first, await self._look(a, w, first), browser)   # moved: OCR only
             frame = await painted(image, masks, w.bounds, (width, height))
             return (frame, note) if note else frame
         return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture

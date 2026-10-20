@@ -471,6 +471,8 @@ class FakeExtension:
         rects = self.windows[b]
         if rects == "ambiguous":                       # two of this profile's windows at those bounds
             return {"matched": False, "reason": "ambiguous_window"}
+        if rects == "fails":                           # the ask fails (as a timeout does): an error reply
+            raise RuntimeError("window_secrets failed")
         if rects is None:
             return {"matched": True, "complete": False, "reason": "the page can't be read"}
         return {"matched": True, "complete": True, "state": {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [

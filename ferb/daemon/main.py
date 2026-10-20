@@ -800,8 +800,8 @@ class Daemon:
             return WebSecrets(None, "more than one paired profile has a window at this window's place")
         if any(isinstance(r, dict) and r.get("reason") == "ambiguous_window" for r in answers):
             return WebSecrets(None, "a paired profile has more than one window at this window's place")
-        if any(not isinstance(r, dict) for r in answers):
-            return WebSecrets(None, "a paired profile didn't answer")
+        if any(not isinstance(r, dict) for r in answers):      # timed out or failed: the driver won't ask again
+            return WebSecrets(None, "a paired profile didn't answer", late=True)
         return WebSecrets(None, "no paired profile has a window at this window's place (another profile, or a "
                                 "private window)")
 

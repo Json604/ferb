@@ -505,7 +505,11 @@ def test_the_profile_that_owns_a_window_gives_its_tabs_page(bd: Any) -> None:
     assert not unpaired.complete and "no paired profile of brave is connected" in unpaired.why
     work.windows[(7, 7, 400, 300)] = "ambiguous"                             # two of its windows at that place
     twice = d.run(ask("chrome", (7.0, 7.0, 400.0, 300.0)))
-    assert not twice.complete and "more than one window" in twice.why
+    assert not twice.complete and "more than one window" in twice.why and not twice.late
+    work.windows[(8, 8, 400, 300)] = "fails"                                 # no answer (review M6)
+    silent = d.run(ask("chrome", (8.0, 8.0, 400.0, 300.0)))
+    assert not silent.complete and "didn't answer" in silent.why and silent.late   # the capture won't ask again
+    assert not nowhere.late and not unread.late
     work.windows[(10, 20, 800, 600)] = []                                    # two profiles, same bounds
     both = d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0)))
     assert not both.complete and "more than one paired profile" in both.why

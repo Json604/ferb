@@ -1658,6 +1658,12 @@ protected FERB state (16.9).
   Accessibility showed ("no page area" / "page area is empty"), so a live trace explains itself.
 - Each look's AX window is the app's window at the captured bounds; when several are there (maximized windows share
   bounds) the one with the captured window's window-server title (`accessibility.window_with_frame(…, title)`).
+- Each look asks the extension while its AX walk runs, and the look after a capture doesn't ask again when nobody
+  answered the first (`WebSecrets.late`): the worst case (a ~2 s re-read and a 4 s ask per look) is ~6 s (~8 s when
+  only the second ask times out), inside the planner's 10 s wait for the front window; one after the other it was
+  12 s, and the planner went on with no image, URL or title (review M6;
+  `test_a_browser_capture_fits_inside_the_planners_wait_for_the_front_window`, virtual time). The front window's
+  AppleScript tab reads (5 s timeout each) are outside this bound.
 - Chromium builds its web AX tree when an Accessibility client asks; Brave 1.97 and Chrome 155 don't contain the
   string `AXManualAccessibility` (checked in their framework binaries, fix wave 4; spike 06 saw the same on Chrome
   154 / Brave 151), so `expose_tree` only helps Electron apps. `read_tree` re-reads a browser's window for ~2 s while
