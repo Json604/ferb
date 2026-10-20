@@ -589,6 +589,7 @@ class _Tab:
     media: dict[int, tuple[int, int]] = field(default_factory=dict)   # snapshot media index -> frame, local index
     masking: str = ""               # how the latest screenshot's secret fields were found, when worth saying (L13)
     unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
+    native_shot: bool = False       # the latest screenshot is the whole browser window (a debugger-proof tab)
 
 
 class _TabDriver:
@@ -1136,10 +1137,11 @@ class _TabDriver:
         the masking can't be done."""
         import base64
         t = self._tab(tab)
-        t.masking = ""
+        t.masking, t.native_shot = "", False
         v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
         if v.get("undebuggable"):                        # protocol 16: no tab capture at all; maybe its window (I1)
             jpeg, t.masking = await self._native_window(t, v)
+            t.native_shot = True
             return jpeg
         if v.get("withheld"):
             return painted(b"", v)                       # raises: nothing was captured
@@ -1158,6 +1160,11 @@ class _TabDriver:
     def masking(self, tab: TabRef) -> str:
         """How the latest screenshot of this tab had its secret fields found, when worth saying ("" otherwise)."""
         return self._tab(tab).masking
+
+    def pointable(self, tab: TabRef, shot: str) -> bool:
+        """Whether browser_point can resolve elements on this screenshot (not one of a page the extension can't read,
+        nor a picture of the whole browser window)."""
+        return shot != self._tab(tab).unread_shot
 
     async def _unread(self, t: _Tab, jpeg: bytes, reply: dict[str, Any]) -> tuple[bytes, str]:
         """A capture of a page the extension couldn't read (protocol 15, B6; owner: no screenshot refused): painted
@@ -1294,7 +1301,8 @@ class _TabDriver:
         props = Quartz.CGImageSourceCopyPropertiesAtIndex(image, 0, None)
         width, height = int(props["PixelWidth"]), int(props["PixelHeight"])
         shot = "bs-" + secrets.token_hex(8)
-        if failed is not None:              # no element can be resolved on a page FERB can't read
+        if failed is not None or t.native_shot:   # no element resolves on a page FERB can't read, nor on the whole
+                                                  # browser window's picture (round 4, item 4)
             t.visual, t.unread_shot = None, shot
         else:
             t.visual, t.unread_shot = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width,
@@ -1304,8 +1312,8 @@ class _TabDriver:
     async def point(self, tab: TabRef, shot: str, x: float, y: float) -> PageElement:
         t = self._tab(tab)
         if shot == t.unread_shot:
-            raise Refused("that screenshot shows a page the browser extension can't read, so no element can be "
-                          "resolved at a point on it")
+            raise Refused("a point on that screenshot can't be resolved to an element: it shows a page the browser "
+                          "extension can't read, or the whole browser window around it")
         v = t.visual
         if not v or v[0] != shot or v[1] != t.snap_gen or v[2] != t.bridge.navs.get(t.chrome_id, 0) \
                 or asyncio.get_running_loop().time() - v[3] > 30:

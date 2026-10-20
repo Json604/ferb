@@ -257,10 +257,14 @@ def test_browser_screenshot_says_how_an_unread_tab_was_masked() -> None:
 
         def masking(self, ref: Any) -> str:
             return "the page's secret fields couldn't be located (…); masked by text recognition only (…)"
+
+        def pointable(self, ref: Any, shot: str) -> bool:
+            return False
     tool = BrowserScreenshot.__new__(BrowserScreenshot)
     tool.driver, tool.family = Driver(), SimpleNamespace(identity=Identity.FERB)
     result = asyncio.run(tool._run(SimpleNamespace(tab="t1"), SimpleNamespace(task_id="task")))
     assert result.image is not None and "text recognition only" in result.content["masking"]
+    assert "browser_point" not in result.content["next"]                   # round 4 (item 4): no point resolves
 
 
 def test_the_mac_driver_gives_an_unread_tabs_secret_fields_from_its_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -445,6 +449,30 @@ def test_a_minimized_window_is_said_to_be_minimized() -> None:
     d._tabs["t1"].bridge.call = _replying(unread)
     asyncio.run(d.screenshot(ref))
     assert "its window is minimized" in d.masking(ref) and "isn't the one" not in d.masking(ref)
+
+
+def test_a_native_window_shot_is_never_pointable_even_after_a_good_snapshot() -> None:
+    """Round 4 (item 4): the snapshot worked (content scripts reach the page) but the debugger can't attach (another
+    debugger, DevTools open), so the picture is the whole browser window: its points aren't the page's, so
+    browser_point refuses it."""
+    from ferb.core.errors import Refused
+    window = {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False, "title": "x"}
+    reply = {"withheld": "the browser won't let its debugger attach to this page (Another debugger is attached)",
+             "undebuggable": True, "window": window}
+    d, ref, _ = _tab_driver(reply)
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+
+    async def capture(pid: int, bounds: Any, title: str) -> Any:
+        return solid_jpeg(300, 200), ""
+    d.native_capture = capture
+
+    async def snapshot(tab: Any) -> Any:
+        return None
+    d.snapshot = snapshot
+    shot, _, _, _ = asyncio.run(d.visual_snapshot(ref))
+    assert d._tabs["t1"].visual is None and not d.pointable(ref, shot)
+    with pytest.raises(Refused, match="can't be resolved"):
+        asyncio.run(d.point(ref, shot, 10, 10))
 
 
 def _replying(reply: dict[str, Any]) -> Any:

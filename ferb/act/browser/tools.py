@@ -408,7 +408,10 @@ class BrowserScreenshot(_Base):
         sources = (("web", self.driver.tab_url(tab.tab_id) or ""),)
         if self.family.identity is Identity.OWNER:
             sources += (("owner_account", f"{self._site(args) or ''}|"),)
-        out = {"shot": shot, "width": w, "height": h, "next": "use browser_point to resolve a visible target"}
+        pointable = getattr(self.driver, "pointable", lambda ref, s: True)(tab, shot)
+        out = {"shot": shot, "width": w, "height": h,
+               "next": "use browser_point to resolve a visible target" if pointable else
+               "no point resolves on this shot (see masking): read it from the image, or use the snapshot tools"}
         note = getattr(self.driver, "masking", lambda ref: "")(tab)
         if note:                                     # a page the extension couldn't read (B6)
             out["masking"] = note
