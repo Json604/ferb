@@ -6,7 +6,8 @@ position of a run is quadratic.
 
 These tests are structural, not wall-clock bounds: each doubles a pathological run (spaces, tabs, no-break spaces,
 markup characters, quote marks, digits, and the shapes the audit found) and checks the time per call about doubles.
-A call cheaper than `FLOOR` is never judged (timer noise), and a suspect ratio is measured again, best of five."""
+Time is the calling thread's CPU time (other processes on the Mac don't count), a call cheaper than `FLOOR` is never
+judged (timer noise), and a suspect ratio is measured again, best of five, up to three times."""
 import ast
 import pathlib
 import re
@@ -26,9 +27,9 @@ MAX_CHARS = 8192            # the longest run built per case
 def _best(call: Callable[[], object], repeat: int) -> float:
     best = float("inf")
     for _ in range(repeat):
-        start = time.perf_counter()
+        start = time.thread_time()
         call()
-        best = min(best, time.perf_counter() - start)
+        best = min(best, time.thread_time() - start)
     return best
 
 
@@ -44,9 +45,12 @@ def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit:
         for back in (2, 4):
             if n // back in times and n % back == 0 and t > FLOOR and t > 8 * times[n // back]:
                 small = make(n // back)
-                t = times[n] = _best(lambda: run(text), 5)
-                before = times[n // back] = _best(lambda: run(small), 5)
-                if t > FLOOR and t > 8 * before:
+                for _ in range(3):
+                    t = times[n] = _best(lambda: run(text), 5)
+                    before = times[n // back] = _best(lambda: run(small), 5)
+                    if t <= FLOOR or t <= 8 * before:
+                        break
+                else:
                     return f"{n // back} -> {n} units: {before * 1000:.3f} ms -> {t * 1000:.3f} ms"
         if t > GIVE_UP:
             return f"{n} units: {t:.1f} s"
