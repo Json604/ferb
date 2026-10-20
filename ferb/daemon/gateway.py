@@ -386,6 +386,9 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
+        # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds
+        # the tasks that were given an item (re-review a3); the daemon records it in task_memory_refs
+        self.memory_read: Callable[[str, list[str]], None] = lambda task_id, refs: None
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._waiting: dict[str, int] = {}             # owner question id -> calls waiting on it now
@@ -1611,6 +1614,11 @@ class Gateway:
         summary only; `output` is what the span records (None on error paths). No origins: none is recorded. The event
         carries only the arguments a step line shows (`lines.ARG_KEYS`), redacted then clipped; the span keeps all."""
         args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
+        if name in ("memory.read", "memory.learned") and not is_error and isinstance(output, dict) and span.task_id:
+            from ferb.memory.lineage import call_sources
+            read = sorted(r for r in call_sources({"tool": name, "args": args}, output) if r.startswith(("memory:", "m-")))
+            if read:
+                self.memory_read(str(span.task_id).split(".", 1)[0], read)
         summary = lines.summarize(name, args, self.redact(content), is_error)   # redact before clip cuts a secret
         self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins is not None else None,
                           summary=summary)

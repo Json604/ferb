@@ -650,6 +650,8 @@ class Daemon:
             self.gateway.test_send_allowlist = (set(allowed) if isinstance(allowed, list) and
                 all(isinstance(item, str) and item.strip() for item in allowed) else set())
         self.gateway.disturbance = self.disturbance
+        self.gateway.memory_read = lambda task_id, refs: self.db.conn.executemany(   # re-review a3
+            "INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)", [(task_id, ref) for ref in refs])
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots

@@ -414,3 +414,26 @@ def test_a_task_shown_a_node_naming_a_rare_word_of_the_item_is_given_it_for_its_
     assert "Zorblat" not in answers[t5] and "Used the booking template." in answers[t5]
     assert "Zorblat" not in answers[t1] and "Done." in answers[t1]
     assert _on_loop(daemon, lambda: d.learning.current_card(t5)) is not None      # one rare word: the card stays
+
+
+def test_a_task_that_read_the_item_with_a_memory_tool_is_given_it(daemon: RunningDaemon) -> None:
+    """Re-review a3 (probe a3): a worker's memory.read of the item wasn't recorded on the task (only its exposures
+    were), so a task that read the item before its card existed wasn't given it. The read is recorded when it
+    happens, and the forget reaches the task's answer."""
+    from tests.conftest import done, outcome, sup, task, tool
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    d.supervisor.memory_candidates = lambda words: []                       # the planner is shown no memory
+    d.supervisor.on_episode = lambda task_id: None                          # and no card is built
+
+    def act(token: str) -> str:
+        tool(daemon.sock, token, "memory.read", item_id=item.id)
+        return done("Booked with Zorblat for Monday.\nThe office confirmed.")
+    install(daemon, [sup("task", "Booking.", task("book my usual appointment for Monday"))], {"worker": act})
+    task_id = outcome(chat(daemon, "book my usual appointment for Monday"))["task_id"]
+    refs = _on_loop(daemon, lambda: [tuple(r) for r in d.db.conn.execute(
+        "SELECT task_id, ref FROM task_memory_refs WHERE task_id = ?", (task_id,))])
+    assert (task_id, "memory:" + item.id) in refs
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    answers = _on_loop(daemon, lambda: [e.data.get("text") for e in d.journal.of_kind("task.answer")])
+    assert answers and "Zorblat" not in answers[-1] and "The office confirmed." in answers[-1]
