@@ -246,8 +246,12 @@ with "Which internship is this?"; not installed or live-tested):
   the OCR doesn't recognise as one can show (text recognition reads a row of password bullets almost never, so a
   shown-as-dots field is not something it covers).
 - With two windows at the same place (maximized), Accessibility's window is the one with the captured window's
-  title; a browser window is read again for ~2 s while its page area hasn't appeared yet. Brave and Chrome ignore
+  title, confirmed against the window server's title at that moment (a retitle can't make FERB read the other
+  window); a browser window is read again for ~2 s while its page area hasn't appeared yet. Brave and Chrome ignore
   `AXManualAccessibility` (it only helps Electron apps).
+- A browser capture asks the extension while Accessibility reads the window, and doesn't ask again after an ask
+  nobody answered, so even its slowest case (~6–8 s) fits inside the planner's 10 s wait for the front window; it
+  could take 12 s, and the message then went on with no picture, URL or title.
 
 Licensed under Apache-2.0.
 
