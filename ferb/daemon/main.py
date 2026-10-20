@@ -1446,7 +1446,7 @@ class Daemon:
         refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
                 ["trail:" + s for s in plan.trail])
         if self.learning:
-            self._close_memory_questions(self.learning.forget(refs))     # a node a question was about went too
+            self._forget_nodes(refs, named=False)        # what is built on it; a node a question was about went too
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
             # a running summary that folded a forgotten entry; one that folded FERB's rows stating it goes in
@@ -1457,10 +1457,51 @@ class Daemon:
         """A forget's deletions, now, on the event loop; its echo scrub then runs in a worker thread on a connection of
         its own (`_finish_forget`, review minor), and a chat turn waits for it first (`_settle_forgets`)."""
         plan = self.memory.forget(item_id, keep_sources, finish=False)
-        job = asyncio.get_running_loop().create_task(self._finish_forget(plan))
+        self._after_forgets(lambda: self._finish_forget(plan))
+        return plan
+
+    def _after_forgets(self, work: Callable[[], Awaitable[None]]) -> None:
+        """A forget's echo scrub, queued behind those still running: one at a time, so two never rewrite the same row
+        from the same old copy. A chat turn and the forget RPCs wait for it (`_settle_forgets`)."""
+        prior = list(self._forgetting)
+
+        async def run() -> None:
+            await asyncio.gather(*prior, return_exceptions=True)
+            await work()
+        job = asyncio.get_running_loop().create_task(run())
         self._forgetting.add(job)
         job.add_done_callback(self._forgetting.discard)
-        return plan
+
+    def _forget_nodes(self, refs: list[str], named: bool = True) -> list[str]:
+        """Learned items go (`Learning.forget`: every version, what is built on them, tombstones), and FERB's questions
+        about them close. A learned item the owner named has an echo pass, like a memory forget's (re-review R3): the
+        one they asked to forget (`named`) and any a waiting "Forget for good?" names. Its text (its key, unless that
+        is a task id, and the text it states) leaves FERB's replies and every span, in a worker thread
+        (`echoes.finish_at`); the question that quoted it goes with it."""
+        from ferb.memory import echoes
+        from ferb.memory.learning import ID_KEYED
+        asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
+        texts: dict[str, list[str]] = {}
+        for ident in (set(refs) if named else set()) | asked:
+            node = self.learning.get(ident)
+            if node is not None:
+                said = node["body"].get("text")
+                texts[ident] = [t for t in ("" if node["kind"] in ID_KEYED else str(node["key"]),
+                                            said if isinstance(said, str) else "") if t.strip()]
+        deleted = self.learning.forget(refs)
+        self._close_memory_questions(deleted)
+        gone = echoes.Forgotten(contents=sorted({t for ident in deleted for t in texts.get(ident, [])}))
+        if gone.contents:
+            self._after_forgets(lambda: self._finish_node_forget(gone))
+        return deleted
+
+    async def _finish_node_forget(self, gone: Any) -> None:
+        from ferb.memory import echoes
+        try:
+            await asyncio.to_thread(echoes.finish_at, self.db.path, gone)
+            self.db.truncate_wal("memory.forget")
+        except Exception as e:                       # the deletions stand; what's left is said, never raised
+            self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
 
     async def _finish_forget(self, plan: Any) -> None:
         from ferb.memory import echoes
@@ -1482,7 +1523,7 @@ class Daemon:
         their keys tombstoned so no capture rebuilds them (fix round, review Q1: no partial card)."""
         cards = plan.scrubbed.cards if plan.scrubbed is not None else []
         if cards and self.learning is not None:
-            self._close_memory_questions(self.learning.forget(cards))
+            self._forget_nodes(cards, named=False)
 
     def _chat_forget(self, item_id: str, request_id: str) -> str:
         """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the
@@ -1580,9 +1621,7 @@ class Daemon:
             elif self.learning.get(ident) is None:
                 raise MemoryRefused(ident)
             else:
-                doomed = self.learning.forget([ident])
-                self._close_memory_questions(doomed)
-                gone = len(doomed)
+                gone = len(self._forget_nodes([ident]))
         except MemoryRefused:                            # forgotten another way while the question waited
             return "It was already gone: nothing else was deleted."
         self._journal().append("memory.forgot", {"via": "chat", "items": gone})
@@ -1641,8 +1680,8 @@ class Daemon:
                         "will_delete": plan.describe(self.db)}
             doomed = sorted(l.descendants([ident]))
             if params.get("confirm"):
-                deleted = l.forget([ident])
-                self._close_memory_questions(deleted)
+                deleted = self._forget_nodes([ident])
+                await self._settle_forgets()             # the RPC answers once its echo pass is done (R3)
                 return {"deleted": deleted}
             return {"descendants": doomed}
         if op == "rollback":

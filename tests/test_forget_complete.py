@@ -512,3 +512,44 @@ def test_a_question_showing_ferbs_wording_space_normalised_leaves_no_copy_in_a_s
         finally:
             c.close()
         assert _everywhere(daemon, word) == [], content
+
+
+def _lesson(d: RunningDaemon, text: str) -> Any:
+    return _on_loop(d, lambda: d.daemon.learning.put("lesson", text, {"text": text}, [], made_by="model:t",
+                                                     state="active"))
+
+
+def test_forgetting_a_learned_item_leaves_no_copy_of_its_question_in_a_span(daemon: RunningDaemon) -> None:
+    """Re-review R3 (probe h9): learned-item forgets had no echo pass. The owner's "Forget for good?" question about a
+    lesson, shown in a later planner turn, stayed in that turn's span after the dashboard forgot the lesson."""
+    from ferb.cli.client import Client
+    node = _lesson(daemon, "use brave zentrix")
+    _on_loop(daemon, lambda: daemon.daemon._chat_forget(node["id"], "r-x"))
+    install(daemon, [_reply("Hi.")])
+    chat(daemon, "what's on today?")
+    assert ("spans", "input_json") in _everywhere(daemon, "zentrix")
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": node["id"], "confirm": True})
+    finally:
+        c.close()
+    assert _memory_questions(daemon) == []
+    assert _everywhere(daemon, "zentrix") == []
+
+
+def test_a_learned_item_forgotten_from_chat_leaves_no_copy_in_ferbs_replies_or_spans(daemon: RunningDaemon) -> None:
+    """R3, from chat: FERB's question naming the lesson is its reply in the conversation record; after the owner's
+    Yes, neither that reply nor any span holds the lesson's text. The owner's own words stay as they typed them."""
+    node = _lesson(daemon, "use brave zentrix")
+    install(daemon, [_reply("Okay.", forget=[{"item_id": node["id"], "quote": "forget that lesson"}])])
+    asked = chat(daemon, "forget that lesson")
+    assert any("zentrix" in str(e.get("text")) for e in asked)
+    question = _forget_question(daemon)
+    install(daemon, [json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": question.id,
+                                                                                    "answer": "Yes"}})])
+    chat(daemon, "Yes")
+    daemon.run(daemon.daemon._settle_forgets())
+    assert _on_loop(daemon, lambda: daemon.daemon.learning.get(node["id"])) is None
+    assert _everywhere(daemon, "zentrix") == []
+    texts = _on_loop(daemon, lambda: [e.data.get("text") for e in daemon.daemon.journal.of_kind("chat.message")])
+    assert "forget that lesson" in texts
