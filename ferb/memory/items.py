@@ -108,19 +108,27 @@ def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
     return left, min(rights) if rights else len(text)
 
 
-# A sentence ends at a line break, at "!" or "?" before a space or the end, and at a dot when a new sentence follows (a
-# space and a capital, or the end) and the word before it isn't abbreviation-shaped ("Dr.", "Rs.", "a/c"): the
-# redactor's sentence rule (re-review F4). A comma, semicolon or colon never ends one.
-_SENTENCE_DOT = re.compile(r"\.(?=\s+[A-Z]|\s*$)")
-_ABBREVIATION = re.compile(r"[A-Za-z]{1,3}|[A-Za-z]/[A-Za-z]")
+# Memory capture's sentence rule: merge on doubt, never drop a word (re-review F4 residual, controller ruling). A line
+# break ends a sentence. Otherwise a sentence ends only at a single ".", "!" or "?" (not repeated, not "...") that
+# follows a lowercase word of 2+ letters with no dot inside (not "e.g.", "a.m." or a capitalised title such as "Prof."
+# or "Dr.") and comes before a space and a capital letter; anything else joins the two into one sentence. The
+# redactor lane has its own clause rule (ferb/sanitize/redact.py); the two helpers are to be unified at integration.
+_TERMINATORS = ".!?…"
 
 
 def _sentence_ends(text: str) -> list[int]:
-    ends = [m.start() for m in re.finditer(r"\n|[!?](?=\s|$)", text)]
-    for dot in _SENTENCE_DOT.finditer(text):
-        before = re.search(r"(\S+)$", text[max(0, dot.start() - 24):dot.start()])
-        if before is None or not _ABBREVIATION.fullmatch(before.group(1)):
-            ends.append(dot.start())
+    ends = [m.start() for m in re.finditer(r"\n", text)]
+    for m in re.finditer(r"[.!?]", text):
+        i = m.start()
+        if (i > 0 and text[i - 1] in _TERMINATORS) or (i + 1 < len(text) and text[i + 1] in _TERMINATORS):
+            continue                                   # repeated: "!!", "..."
+        after = re.match(r"\s+(\S)", text[i + 1:])
+        before = re.search(r"(\S+)$", text[:i])
+        if after is None or not after.group(1).isupper() or before is None:
+            continue
+        word = before.group(1)
+        if word[0].islower() and "." not in word and sum(c.isalpha() for c in word) >= 2:
+            ends.append(i)
     return sorted(ends)
 
 
