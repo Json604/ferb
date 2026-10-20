@@ -34,6 +34,7 @@ from ferb.core.errors import ModelLimitsUnknown, Unsupported
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
+from ferb.sanitize.redact import Redactor
 
 CODEX_VERSION = "0.157.1"
 MODEL = "gpt-5.6-sol"                 # owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
@@ -210,8 +211,12 @@ class CodexRuntime:
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
                  output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900,
-                 on_abandoned: Callable[[str, str], None] | None = None) -> None:
+                 on_abandoned: Callable[[str, str], None] | None = None,
+                 redact: Callable[[Any], Any] | None = None) -> None:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
+        # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
+        # which knows the values the owner stored, else the secret pattern classes
+        self.redact = redact or Redactor()
         self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
         # Told (task id, "<thread>/<call id>") when Codex gives up a FERB tool call on its own: it sends the shim no
         # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
@@ -352,7 +357,9 @@ class CodexRuntime:
                             completed = True                     # Codex to exit (workers wait, so the tool-list
                             break                                # check sees the whole trace)
                     elif ev.get("type") in ("error", "turn.failed"):
-                        yield RuntimeEvent("error", {"message": str(ev.get("message") or ev.get("error"))})
+                        error = ev.get("error")
+                        message = ev.get("message") or (error.get("message") if isinstance(error, dict) else error)
+                        yield RuntimeEvent("error", {"message": str(self.redact(str(message)))})
             if completed and not run.state["violation"]:
                 asyncio.get_running_loop().create_task(self._reap(proc, watcher))
             else:

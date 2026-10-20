@@ -12,25 +12,25 @@ from tests.support.runtime_fakes import Process
 CODEX_START = CodexRuntime.start
 
 
-def runtime(tmp_path):
+def runtime(tmp_path, **kw):
     home = tmp_path / 'codex-home'
     home.mkdir()
     (home / 'auth.json').write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
     return CodexRuntime(Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path,
                         output_schema={'type': 'object', 'properties': {'text': {'type': 'string'}}},
-                        model='test-model', timeout_s=None)
+                        model='test-model', timeout_s=None, **kw)
 
 
-async def begin(tmp_path, monkeypatch, proc):
+async def begin(tmp_path, monkeypatch, proc, context='context', **kw):
     import ferb.runtimes.codex_stream as stream
     seen = {}
     async def spawn(*cmd, **kw):
         seen.update(cmd=cmd, **kw)
         return proc
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
-    rt = runtime(tmp_path)
+    rt = runtime(tmp_path, **kw)
     task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
-    run = await stream.start(rt, task, ModelRequest('FERB instructions', ('context',)))
+    run = await stream.start(rt, task, ModelRequest('FERB instructions', (context,)))
     return stream, rt, run, seen
 
 
@@ -93,7 +93,75 @@ async def test_failed_turn_does_not_emit_final(tmp_path, monkeypatch):
     proc.complete()
     got = [ev async for ev in stream.events(rt, run)]
     assert got[-1].kind == 'error'
+    assert 'interrupted' in got[-1].data['message']          # the failed turn's own error, as Codex wrote it
     assert not any(ev.kind == 'final' for ev in got)
+
+
+INPUT_CAP_ERROR = {'code': -32602, 'message': 'Input exceeds the maximum length of 1048576 characters.',
+                   'data': {'input_error_code': 'input_too_large', 'max_chars': 1048576, 'actual_chars': 1100000}}
+
+
+@pytest.mark.anyio
+async def test_a_rejected_turn_start_carries_codexs_own_error_and_code_never_the_request(tmp_path, monkeypatch):
+    """Live 2026-10-11 to 10-20: 210 learning jobs failed as a bare "Codex could not complete turn/start"; Codex's own
+    reason (its app-server input cap) was dropped. The error now carries Codex's message and code, never what FERB
+    sent (L28, D32)."""
+    import ferb.runtimes.codex_stream as stream
+    proc = Process(errors={'turn/start': INPUT_CAP_ERROR})
+    with pytest.raises(stream.ProtocolError) as caught:
+        await begin(tmp_path, monkeypatch, proc, context='REQUEST-CONTENT-MARKER')
+    text = str(caught.value)
+    assert 'turn/start' in text and 'Input exceeds the maximum length of 1048576 characters.' in text
+    assert '-32602' in text and 'input_too_large' in text and '1100000' in text
+    assert 'REQUEST-CONTENT-MARKER' not in text and 'FERB instructions' not in text
+    assert proc.returncode is not None                       # the run is closed
+
+
+@pytest.mark.anyio
+async def test_codex_error_text_passes_through_ferb_redaction(tmp_path, monkeypatch):
+    """Rule 14: Codex's error text reaches learning_jobs, spans and `ferb trace` only after FERB's secret redaction:
+    the pattern classes by default, and the daemon's own redactor (its registered values) when it builds the runtime."""
+    import ferb.runtimes.codex_stream as stream
+    from ferb.sanitize.redact import Redactor
+    proc = Process(errors={'thread/start': {'code': -32603,
+                                            'message': 'upstream refused Bearer abcdefghijklmnop0123456789'}})
+    with pytest.raises(stream.ProtocolError) as caught:
+        await begin(tmp_path, monkeypatch, proc)
+    assert 'thread/start' in str(caught.value) and 'upstream refused' in str(caught.value)
+    assert 'abcdefghijklmnop0123456789' not in str(caught.value)
+    redact = Redactor()
+    redact.add_secret_value('owner-stored-value-1234')
+    proc = Process(errors={'turn/start': {'code': -32603, 'message': 'echoed owner-stored-value-1234'}})
+    (tmp_path / 'second').mkdir()
+    with pytest.raises(stream.ProtocolError) as caught:
+        await begin(tmp_path / 'second', monkeypatch, proc, redact=redact)
+    assert 'echoed' in str(caught.value) and 'owner-stored-value-1234' not in str(caught.value)
+
+
+@pytest.mark.anyio
+async def test_a_turn_error_event_carries_codexs_message(tmp_path, monkeypatch):
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.notify('error', {'error': {'message': 'stream disconnected before completion',
+                                    'codexErrorInfo': 'responseStreamDisconnected'}, 'willRetry': False})
+    got = [ev async for ev in stream.events(rt, run)]
+    assert got[-1].kind == 'error'
+    assert 'stream disconnected before completion' in got[-1].data['message']
+    assert 'responseStreamDisconnected' in got[-1].data['message']
+
+
+@pytest.mark.anyio
+async def test_exec_error_events_pass_through_redaction(tmp_path):
+    import sys
+    from ferb.core.types import RunHandle
+    failed = json.dumps({'type': 'turn.failed', 'error': {'message': 'refused Bearer abcdefghijklmnop0123456789'}})
+    proc = await asyncio.create_subprocess_exec(sys.executable, '-c', f'import sys; print({failed!r}, flush=True); sys.exit(1)',
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    rt = CodexRuntime(Path('/unused'), 'worker', tmp_path, tmp_path, timeout_s=None)
+    handle = RunHandle('test', rt.name, 'test.worker', {'proc': proc, 'violation': None, 'seen': set()})
+    errors = [e.data['message'] for e in [e async for e in rt.events(handle)] if e.kind == 'error']
+    assert any('refused' in m for m in errors)
+    assert not any('abcdefghijklmnop0123456789' in m for m in errors)
 
 
 @pytest.mark.anyio

@@ -121,3 +121,13 @@ def test_a_usage_events_cost_lands_in_the_span_cost_column(daemon: RunningDaemon
         daemon.daemon._record_distill_usage("fake", {"input_tokens": 1, "cost_usd": 0.5})
         return await rows("SELECT cost_usd FROM spans WHERE input_json LIKE '%distill%'")
     assert daemon.run(distill())[0]["cost_usd"] == 0.5
+
+
+def test_the_codex_runtime_redacts_its_errors_with_the_daemons_redactor(daemon: RunningDaemon, monkeypatch) -> None:
+    """Codex's error text is redacted with the daemon's own redactor, which knows the values the owner stored (rule 14)."""
+    d = daemon.daemon
+    (d.home / 'codex-home').mkdir(exist_ok=True)
+    (d.home / 'codex-home' / 'auth.json').write_text('{}')
+    monkeypatch.setattr('ferb.runtimes.codex_exec.codex_binary', lambda *_: d.home / 'fake-codex')
+    rt = d._make_runtime('orchestrator', mode='supervisor', tool_names=[], schema={'type': 'object'})
+    assert rt.redact is d.redact

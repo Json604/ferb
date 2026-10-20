@@ -104,9 +104,10 @@ class Pipe:
 
 class Process:
     """A Codex app-server stand-in on the pinned stdio protocol: answers initialize, account/read, thread/start and
-    turn/start (streaming a final answer's deltas); complete() ends the turn and kill() ends the process."""
+    turn/start (streaming a final answer's deltas); complete() ends the turn and kill() ends the process. `errors`:
+    a JSON-RPC error object to answer a method with instead (Codex's own error, e.g. its input cap on turn/start)."""
 
-    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True):
+    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True, errors=None):
         self.stdout, self.stderr = Pipe(), Pipe()
         self.stdin = self
         self.returncode = None
@@ -115,12 +116,15 @@ class Process:
         self.tools = tools if tools is not None else [{'type': 'function', 'name': 'apply_patch'}]
         self.finished = asyncio.Event()
         self.catalog = catalog
+        self.errors = errors or {}
 
     def write(self, data):
         msg = json.loads(data)
         self.requests.append(msg)
         method, ident = msg['method'], msg.get('id')
-        if method == 'initialize':
+        if method in self.errors:
+            self.stdout.put({'id': ident, 'error': self.errors[method]})
+        elif method == 'initialize':
             self.stdout.put({'id': ident, 'result': {}})
         elif method == 'account/read':
             self.stdout.put({'id': ident, 'result': {'account': {'type': self.account}}})

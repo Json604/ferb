@@ -15,7 +15,7 @@ import tempfile
 from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from ferb.core.errors import RuntimeUnavailable, Unsupported
 from ferb.core.structured import check_final
@@ -50,6 +50,25 @@ def _account_error(error: Any) -> AccountError:
     markers = r'(?<![a-z_])(?:refresh_token_(?:reused|expired|invalidated)|invalid_grant)(?![a-z_])'
     reason = 'auth_required' if re.search(markers, json.dumps(error).lower()) else 'account_unavailable'
     return AccountError(reason, error.get('code'))
+
+
+def codex_error(prefix: str, error: Any, redact: Callable[[Any], Any]) -> str:
+    """`prefix` and Codex's own error as Codex wrote it: its message, its JSON-RPC code or error kind, and for its input
+    cap the input code and the count it measured; through FERB's secret redaction (rule 14). Only those fields: never
+    the request, and nothing else the error object holds (L28, D32)."""
+    error = error if isinstance(error, dict) else {}
+    message, facts = error.get('message'), []
+    if type(error.get('code')) is int:
+        facts.append(f"code {error['code']}")
+    info = error.get('codexErrorInfo')
+    if isinstance(info, (str, dict)):
+        facts.append(info if isinstance(info, str) else json.dumps(info))
+    data = error.get('data')
+    if isinstance(data, dict) and isinstance(data.get('input_error_code'), str):
+        sent = data.get('actual_chars')
+        facts.append(data['input_error_code'] + (f', {sent} characters sent' if type(sent) is int else ''))
+    text = prefix + (f': {message}' if isinstance(message, str) and message else '')
+    return str(redact(text + (f" ({'; '.join(facts)})" if facts else '')))
 
 
 def _private_write(path: Path, data: bytes) -> None:
@@ -113,7 +132,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'seen': set(), 'violation': None, 'catalog_checked': asyncio.Event(), 'catalog_observed': False,
         'notifications': asyncio.Queue(), 'waiters': {}, 'reader': None, 'closed': False,
         'turn_completed': False, 'request_id': 0, 'auth_source': home / 'auth.json',
-        'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False}
+        'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False, 'redact': runtime.redact}
     run = RunHandle('run-' + secrets.token_hex(6), runtime.name, task.id, state)
     checking_account = False
     try:
@@ -269,7 +288,7 @@ async def _rpc(run: RunHandle, method: str, params: dict[str, Any]) -> dict[str,
         if 'error' in obj or not isinstance(result, dict):
             if method == 'account/read':
                 raise _account_error(obj.get('error'))
-            raise ProtocolError('Codex could not complete ' + method)
+            raise ProtocolError(codex_error('Codex could not complete ' + method, obj.get('error'), state['redact']))
         return result
     finally:
         state['waiters'].pop(ident, None)
@@ -382,7 +401,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     await _finish_trace(run)
                     await _check_catalog(run)
                     if turn.get('status') != 'completed' or turn.get('error') or not final:
-                        raise ProtocolError('Codex runtime did not complete its final answer')
+                        raise ProtocolError(codex_error('Codex runtime did not complete its final answer',
+                                                        turn.get('error'), runtime.redact))
                     try:
                         check_final(final, runtime.output_schema)
                     except ValueError as exc:      # the model answered outside the schema: repair, not a failed call
@@ -429,7 +449,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         'reasoning_output_tokens': usage.get('reasoningOutputTokens', 0)}
                     yield RuntimeEvent('usage', asdict(from_codex(runtime.model, mapped)))
                 elif method == 'error':
-                    raise ProtocolError('Codex runtime reported an error')
+                    raise ProtocolError(codex_error('Codex runtime reported an error', params.get('error'),
+                                                    runtime.redact))
     except (ProtocolError, TimeoutError) as exc:
         if state['violation']:
             yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])})
