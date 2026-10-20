@@ -651,7 +651,8 @@ def test_ocr_masks_a_bank_otp_after_an_abbreviation(message) -> None:
 
 
 @pytest.mark.parametrize("raw", ["Your OTP (y/n) wifi 48 29 13 my 1234 5678 token \n1002\n1003\n",
-                                 "Backup codes: , 482-913 \n1002\n1003\nKeep them safe.\n"])
+                                 "Backup codes: , 482-913 \n1002\n1003\nKeep them safe.\n",
+                                 "Recovery codes: , \n1002\n1003\n"])
 def test_the_stream_relates_lines_as_the_text_redactor_does(raw) -> None:
     """Fuzz finds (re-review 2): the text redactor reads a label line after its earlier masks (a masked OTP shortens
     the line into a label's reach), and a list's first code may follow a comma; the stream judged the raw line."""

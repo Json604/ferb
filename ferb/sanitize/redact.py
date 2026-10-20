@@ -278,7 +278,7 @@ def _code_list(s: str) -> list[tuple[int, int]]:
 def _list_label_line(line: str) -> bool:
     """A line that starts a list: its label, then only codes ("Backup codes: 1234 5678")."""
     labels = _not_address(line, CODE_LIST.finditer(line))
-    return bool(labels) and (not line[labels[-1].end():].strip() or _list_line(line[labels[-1].end():]))
+    return bool(labels) and (not line[labels[-1].end():].strip(" \t,") or _list_line(line[labels[-1].end():]))
 
 
 def _list_line(line: str) -> bool:
