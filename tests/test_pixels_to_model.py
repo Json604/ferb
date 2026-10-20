@@ -1,8 +1,8 @@
 """L13 (owner, 2026-10-14: "no screenshots should be refused and go with redacted stuff"): browser windows, tab
 screenshots and recording frames reach the model with every secret field painted over, and through the F5 sanitizer.
 Where a native capture's secret fields can't be located or placed, the picture is left to the sanitizer's text
-recognition and says so (live case 2026-10-19). An image is withheld only when painting or sanitizing itself fails. Offline: fake windows, a fake extension
-bridge, the extension's own JavaScript in node (with Chromium's chrome.runtime: no getFrameId); no real screen or
+recognition and says so (live case 2026-10-19). An image is withheld only when painting or sanitizing itself fails.
+Offline: fake windows, a fake extension bridge, the extension's own JavaScript in node (with Chromium's chrome.runtime: no getFrameId); no real screen or
 browser is captured."""
 
 import asyncio
@@ -303,7 +303,8 @@ def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: Runni
     from ferb.act.mac.screenshot import Window
     shots, _ = _fake_mac(daemon, monkeypatch)
     assert daemon.daemon.router.native_capture == daemon.daemon._native_window_capture    # type: ignore[union-attr]
-    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True, web_areas=[(100.0, 130.0, 800.0, 520.0)])  # type: ignore
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True,              # type: ignore[union-attr]
+                                       web_areas=[(100.0, 130.0, 800.0, 520.0)])
     windows = [Window(121, 12, BOUNDS, "Chrome Web Store"), Window(122, 12, BOUNDS, "Other page")]
     monkeypatch.setattr(screenshot, "normal_windows", lambda: list(windows))
     jpeg, note = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))

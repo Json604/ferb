@@ -457,7 +457,7 @@ class MacComputerDriver:
         except BaseException:                        # the walk failed or was cancelled: so is the ask beside it (A3)
             ask.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await ask                            # (a second cancel arriving during this wait is swallowed: accepted)
+                await ask                            # (a second cancel arriving during this wait is swallowed)
             raise
         web = await ask
         # The answering window must be the captured one (B5): its active tab carries the captured window's title. A

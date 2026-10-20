@@ -1267,8 +1267,9 @@ Fix wave 4 rounds 2–3 (extension 0.15.5 / protocol 16; reload the extension fi
 `ferb doctor` shows):
 67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's and its
     `tab_source` is `extension` (`ferb trace TASK --full`; `applescript` means the extension didn't match), with no
-    `tab_note`, and B's password field (a disposable sign-in page) is black. Then maximize a window of an **unpaired** profile over a maximized paired-profile window and ask about
-    it: the block's `masking` says the paired profile's window "shows another page" and the picture is still masked
+    `tab_note`, and B's password field (a disposable sign-in page) is black. Then maximize a window of an
+    **unpaired** profile over a maximized paired-profile window and ask about it: the block's `masking` says the
+    paired profile's window "shows another page" and the picture is still masked
     (Accessibility and text recognition); no black boxes in odd places.
 68. With a paired window in front whose page title has extra spaces or a long title, the URL still comes from the
     extension (no `tab_note`, no "shows another page"). If every paired capture says "shows another page", the

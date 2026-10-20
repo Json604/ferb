@@ -12,8 +12,9 @@ its place and title, never the browser's own idea of its front window (live case
 window); when no single window is the captured one there is no URL or tab title, and the planner is told why. When
 the capture's paired-profile extension matched this window (bounds and title, protocol 15) its tab is used (not when
 the AppleScript read found several windows that could be it: equal titles can fool the extension's match); otherwise
-the AppleScript read is. `tab_source` says which. The tab is read before the shot when it can be; when the browser's Automation check is still
-answering, it is read again after the shot. The screenshot goes through FERB's screenshot path (secret fields
+the AppleScript read is. `tab_source` says which. The tab is read before the shot when it can be; when the browser's
+Automation check is still answering, it is read again after the shot. The screenshot goes through FERB's screenshot
+path (secret fields
 the window's tree and the browser extension show are masked in the capture; when neither can locate a page's fields
 the capture says so and the page is masked by text recognition only, never refused), then the F5 on-device redaction;
 when either fails the image is withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).

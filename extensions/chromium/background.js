@@ -541,7 +541,7 @@ async function attach(tabId) {
     const s = await session(), tab = await chrome.tabs.get(tabId);
     if (s.windowId != null && tab.windowId === s.windowId) {   // FERB's own window: layout independent of its size.
       await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
-      t.emulated = true;                                       // its captures aren't the window's layout (unreadCapture)
+      t.emulated = true;                                       // its captures aren't the window's layout (tabWindow)
     }
     await ready(tabId);                                        // the owner's own tab keeps its real viewport
     t.ready = true;

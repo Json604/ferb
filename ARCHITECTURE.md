@@ -1266,8 +1266,8 @@ server's "port 54321" line is never held. URL words never count (query credentia
 OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
 masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a native capture is withheld only
-when its boxes can't be painted; fields it can't locate are left to the OCR, and its `masking` says so). The model-bound start image is the front window captured at send (L12); the first actual app/tab
-observation adds one only when none was given, then only explicit screenshots return images. Browser snapshots retain
+when its boxes can't be painted; fields it can't locate are left to the OCR, and its `masking` says so). The
+model-bound start image is the front window captured at send (L12); the first actual app/tab observation adds one only when none was given, then only explicit screenshots return images. Browser snapshots retain
 their
 reference generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
 
@@ -1635,10 +1635,11 @@ protected FERB state (16.9).
   answering tab's title equal to the captured window's, or to its title now, after a retitle), its tab (`Shot.tab`,
   `driver.page_tab`) is used instead, unless the AppleScript read found several windows that could be the captured
   one (`browser_tabs.Ambiguous`: two windows at one place with the same tab title can fool the extension's match;
-  round 3, m3); the AppleScript read stays the fallback. The block's `tab_source` says which read gave the URL. An answer whose tab title isn't the captured window's is rejected for
-  masking too (`OTHER_PAGE`: a paired profile's window at the same place showing another page, e.g. over an
-  unpaired capture), so its fields are never painted over the wrong picture. The tab watcher
-  still reads the front window (M1, two lines). One screenshot of that window by window id, masked and
+  round 3, m3); the AppleScript read stays the fallback. The block's `tab_source` says which read gave the URL. An
+  answer whose tab title isn't the captured window's is rejected for masking too (`OTHER_PAGE`: a paired profile's
+  window at the same place showing another page, e.g. over an unpaired capture), so its fields are never painted
+  over the wrong picture. The tab watcher still reads the front window (M1, two lines). One screenshot of that
+  window by window id, masked and
   through the F5 `ImageRedactor`, stored as evidence kind `front_window` under the request id.
 - An excluded site is captured under `external:web:excluded` with the URL shown as `[excluded]`; an excluded app gives
   only `[excluded]` (not named, not looked at); `[mac] snapshot_image = false` keeps the facts only.
@@ -1919,7 +1920,8 @@ protected FERB state (16.9).
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
-`screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
+`screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`,
+`shell.local_reports_stopped`, `memory.consolidate_failed`,
 `memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
 `memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
