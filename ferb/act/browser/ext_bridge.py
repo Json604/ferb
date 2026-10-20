@@ -1247,8 +1247,11 @@ class _TabDriver:
             raise Withheld(f"pixels withheld: {reason}, and {hidden}, so its window can't be captured in its place")
         pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
         bounds = _window_bounds(window)
-        if self.native_capture is None or not isinstance(pid, int) or bounds is None:
-            raise Withheld(f"pixels withheld: {reason}, and its window can't be captured from here")
+        missing = ("the browser's process isn't known" if not isinstance(pid, int) else
+                   "the extension didn't say where the tab's window is" if bounds is None else
+                   "no native window capture is connected" if self.native_capture is None else "")
+        if missing or bounds is None or not isinstance(pid, int) or self.native_capture is None:   # (round 5)
+            raise Withheld(f"pixels withheld: {reason}, and its window can't be captured in its place: {missing}")
         jpeg, note = await self.native_capture(pid, bounds, str(window.get("title") or ""))
         if jpeg is None:                                 # the actual reason (round 4, item 3)
             raise Withheld(f"pixels withheld: {reason}, and its window couldn't be captured in its place: {note}")

@@ -311,6 +311,7 @@ def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: Runni
                                        web_areas=[(100.0, 130.0, 800.0, 520.0)])
     windows = [Window(121, 12, BOUNDS, "Chrome Web Store"), Window(122, 12, BOUNDS, "Other page")]
     monkeypatch.setattr(screenshot, "normal_windows", lambda: list(windows))
+    monkeypatch.setattr(screenshot, "window", lambda wid: next((w for w in windows if w.id == wid), None))
     jpeg, note = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
     assert jpeg == shots.jpeg and shots.captured == [121] and "Accessibility only" in note
     windows.clear()                                                        # not on screen
@@ -335,6 +336,59 @@ def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: Runni
     daemon.daemon.mac.snapshot_images = lambda: False                      # type: ignore[union-attr]
     none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
     assert none is None and "snapshot_image" in why
+
+
+def test_the_native_capture_says_exactly_why_it_gave_no_picture(daemon: RunningDaemon,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 5 (item 4): the window gone between the listing and the capture says so (not "choose an exact window
+    id"); a capture whose masks couldn't be painted says "pixels withheld" once in the end; and the window's title is
+    checked again after the capture: a window that now shows another page gives no picture."""
+    from ferb.act.mac import screenshot
+    from ferb.act.mac.screenshot import Window
+    from ferb.core.errors import NoTarget, Withheld
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[], has_web=True,              # type: ignore[union-attr]
+                                       web_areas=[(100.0, 130.0, 800.0, 520.0)])
+    monkeypatch.setattr(screenshot, "normal_windows", lambda: [Window(121, 12, BOUNDS, "Chrome Web Store")])
+    mac = daemon.daemon.mac
+    real = mac.window_image                                                # type: ignore[union-attr]
+
+    async def gone(*a: Any, **k: Any) -> Any:
+        raise NoTarget("Brave has no unique capture target; choose an exact window id from mac.snapshot")
+    mac.window_image = gone                                                # type: ignore[union-attr]
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "went away" in why and "window id" not in why
+
+    async def unpaintable(*a: Any, **k: Any) -> Any:
+        raise Withheld("the capture couldn't be painted over; pixels withheld")
+    mac.window_image = unpaintable                                         # type: ignore[union-attr]
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "painted over" in why and "pixels withheld" not in why
+    mac.window_image = real                                                # type: ignore[union-attr]
+    monkeypatch.setattr(screenshot, "window", lambda wid: Window(wid, 12, BOUNDS, "My bank - Private"))
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "changed while it was captured" in why and shots.captured == [121]
+
+
+def test_why_a_tabs_window_cant_be_captured_from_here_is_named() -> None:
+    """Round 5 (item 4): no hook, an unknown browser process or no window bounds each say which."""
+    from ferb.core.errors import Withheld
+    window = {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False, "title": "Chrome Web Store"}
+    reply = {"withheld": "the browser won't let its debugger attach to this page (Cannot attach to this target.)",
+             "undebuggable": True, "window": window}
+    d, ref, _ = _tab_driver(reply)
+    with pytest.raises(Withheld, match="browser's process isn't known"):    # conn has no browser_pid
+        asyncio.run(d.screenshot(ref))
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    with pytest.raises(Withheld, match="no native window capture is connected"):
+        asyncio.run(d.screenshot(ref))
+
+    async def capture(pid: int, bounds: Any, title: str) -> Any:
+        return solid_jpeg(10, 10), ""
+    d.native_capture = capture
+    d._tabs["t1"].bridge.call = _replying(dict(reply, window=dict(window, bounds=[0, 25])))
+    with pytest.raises(Withheld, match="didn't say where the tab's window is"):
+        asyncio.run(d.screenshot(ref))
 
 
 def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningDaemon) -> None:

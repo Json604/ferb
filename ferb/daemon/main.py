@@ -45,7 +45,7 @@ from ferb.clock.context import ago as context_ago
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core import origin as origin_
-from ferb.core.errors import Deferred, FerbError, Refused
+from ferb.core.errors import Deferred, FerbError, NoTarget, Refused, Withheld
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
@@ -851,8 +851,15 @@ class Daemon:
             if len(near) > 1:
                 return None, "more than one window of the browser at that place shows that tab's title"
             _, shot, jpeg = await mac.window_image(f"pid:{pid}", window=str(near[0].id))
+            now = await asyncio.to_thread(screenshot.window, near[0].id)
+            if title and (now is None or not same_title(now.title, title)):     # checked again (round 5): it may
+                return None, "the window's page changed while it was captured (its title isn't the tab's now)"
             return jpeg, shot.masking
-        except Refused as e:                   # FERB's own words (an excluded app, the window gone)
+        except NoTarget:                       # gone between the listing and the capture
+            return None, "the window went away before it could be captured"
+        except Withheld as e:                  # its masks couldn't be painted: said once, by the caller
+            return None, str(e).replace("; pixels withheld", "").removeprefix("pixels withheld: ")
+        except Refused as e:                   # FERB's own words (an excluded app)
             return None, str(e)
         except Exception as e:
             from ferb.daemon.gateway import error_name
