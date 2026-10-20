@@ -17,11 +17,10 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock
-from ferb.core.context import ContextBlock, assemble_parts, count_tokens, runtime_limits
 from ferb.core.prompts import load_prompt
-from ferb.core.structured import check_final
-from ferb.core.types import Identity, ModelRequest, Task
+from ferb.core.types import Identity, Task
 from ferb.memory import summary
+from ferb.memory.calls import learning_call
 from ferb.memory.items import KINDS, Memory, MemoryRefused
 from ferb.store.db import Database
 
@@ -61,10 +60,11 @@ def check(item: dict[str, Any], ev: summary.DayEvidence) -> list[tuple[str, str]
 class Distiller:
     def __init__(self, db: Database, journal: Any, memory: Memory, make_runtime: Callable[..., Any], clock: Clock,
                  purge: Callable[[], Any] = lambda: None, device_id: str = "dev",
-                 record_usage: Callable[[str, dict[str, Any]], None] = lambda runtime, data: None) -> None:
+                 record_usage: Callable[[str, dict[str, Any]], None] = lambda runtime, data: None,
+                 spans: Any = None) -> None:
         self.db, self.journal, self.memory, self.make_runtime = db, journal, memory, make_runtime
         self.clock, self.purge, self.device_id = clock, purge, device_id
-        self.record_usage = record_usage
+        self.record_usage, self.spans = record_usage, spans   # spans: where each model call is recorded
         self.jev: Any = None                          # memory.worth_keeping: may only drop
 
     def pending_days(self, today: date | None = None) -> list[str]:
@@ -169,25 +169,9 @@ class Distiller:
         # Distillation has no read tools. Preserve its evidence in full and disclose an overage
         # rather than silently cut a source it cannot fetch back during the run.
         # A day over the runtime's per-input character cap is refused by name (InputTooLarge), never sent to be
-        # rejected; the day stays failed until its evidence changes or `ferb memory distill DAY`.
-        limits = runtime_limits(rt)                  # the model's window and the runtime's character cap (L28)
-        parts, cacheable = assemble_parts([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
-                                          budget_tokens=limits.context_budget, reserved_tokens=count_tokens(system),
-                                          max_chars=limits.max_input_chars)
-        run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), "")
-        final = ""
-        try:
-            async for e in rt.events(run):
-                if e.kind == "final":
-                    final = str(e.data.get("text", ""))
-                elif e.kind == "usage":
-                    self.record_usage(rt.name, dict(e.data))
-                elif e.kind in ("error", "violation"):
-                    raise RuntimeError(str(e.data))
-        finally:
-            await rt.cancel(run)
-        final = check_final(final, DISTILL_SCHEMA)
-        parsed = json.loads(final)
+        # rejected (L28); the day stays failed until its evidence changes or `ferb memory distill DAY`.
+        parsed = json.loads(await learning_call(rt, task, system, ctx, f"daily evidence {day}", DISTILL_SCHEMA,
+                                                role="distill", spans=self.spans, usage=self.record_usage))
         if not isinstance(parsed, dict):
             raise ValueError("not an object")
         parsed["made_by"] = (f"model:{getattr(rt, 'name', 'unknown')}:{getattr(rt, 'model', None) or 'default'}"

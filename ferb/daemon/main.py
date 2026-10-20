@@ -1153,14 +1153,14 @@ class Daemon:
         self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
             usage=self._record_distill_usage, capture=lambda task_id: self._capture_card(task_id, None),
-            cards_refreshed=self._replay_deferred_receipts)
+            cards_refreshed=self._replay_deferred_receipts, spans=self.spans)
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
-                                   record_usage=self._record_distill_usage)
+                                   record_usage=self._record_distill_usage, spans=self.spans)
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.running_apps = self._running_apps
@@ -3383,7 +3383,8 @@ class Daemon:
             if row is not None and row[0] != '{}':
                 outcome['result'] = json.loads(row[0])
         episode = episodes.get(self.db, task_id)
-        if episode is None and spans:                    # running, or written before F3: compose it live
+        # running, or written before F3: compose it live; a learning model call is no task and has no story
+        if episode is None and spans and not all(s["kind"] == "model.learning" for s in spans):
             episode = compose.compose({"task_id": task_id, "spans": spans, "outcome": outcome})
         return {"task_id": task_id, "spans": spans, "outcome": outcome, "episode": episode}
 

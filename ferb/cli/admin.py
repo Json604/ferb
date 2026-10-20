@@ -716,6 +716,20 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                          (since,)).fetchall()
         for kind, n, avg in runs:
             print(f"Model runs ({kind}): {n}, avg {avg or 0} s", file=out)
+        # each learning model call is one model.learning span (memory/calls.py): consolidation and distillation
+        learned, failed = c.execute("SELECT COUNT(*), SUM(error IS NOT NULL) FROM spans WHERE kind = 'model.learning' "
+                                    "AND started_at >= ?", (since,)).fetchone()
+        print(f"Learning model calls: {learned or 0}, failed: {failed or 0}", file=out)
+        for role, reason, n in c.execute(
+                "SELECT json_extract(input_json, '$.role'), substr(error, 1, 160), COUNT(*) FROM spans WHERE "
+                "kind = 'model.learning' AND error IS NOT NULL AND started_at >= ? GROUP BY 1, 2 ORDER BY 3 DESC "
+                "LIMIT 10", (since,)):
+            print(f"  {n:>4}  {role}: {reason}", file=out)
+        latest = c.execute("SELECT json_extract(input_json, '$.call') FROM spans WHERE kind = 'model.learning' AND "
+                           "error IS NOT NULL AND started_at >= ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                           (since,)).fetchone()
+        if latest and latest[0]:
+            print(f"  latest failed call: ferb trace {latest[0]}", file=out)
     finally:
         c.close()
     return 0

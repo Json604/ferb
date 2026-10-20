@@ -291,13 +291,16 @@ class SpanStore:
 
     def _task_rows(self, task_id: str) -> list[Any]:
         """Include the intake planner by exact request ID; it ran before the task ID existed. Then every descendant
-        of a selected span (e.g. the planner's model.usage, which has no task ID), in start order."""
+        of a selected span (e.g. the planner's model.usage, which has no task ID), in start order. An id that is no
+        task's may be a learning model call's (`memory/calls.py`: no task ID, the call's id as `call`)."""
         root = self._db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
         request_id = root[0] if root else None
         where, params = self._tree_where(task_id)
         rows = self._db.conn.execute(
             f"SELECT rowid AS row_order, * FROM spans WHERE {where} "
-            "OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?)", (*params, request_id)).fetchall()
+            "OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?) "
+            "OR (task_id IS NULL AND kind = 'model.learning' AND json_extract(input_json, '$.call') = ?)",
+            (*params, request_id, None if root else task_id)).fetchall()
         seen = {r["id"] for r in rows}
         frontier = list(seen)
         while frontier:

@@ -13,11 +13,11 @@ import hashlib
 import json
 from typing import Any, Awaitable, Callable
 
-from ferb.core.context import ContextBlock, assemble_parts, count_tokens, overhead_chars, overhead_tokens, runtime_limits
+from ferb.core.context import count_tokens, overhead_chars, overhead_tokens, runtime_limits
 from ferb.core.errors import Deferred
 from ferb.core.prompts import load_prompt
-from ferb.core.structured import check_final
-from ferb.core.types import Identity, ModelRequest, Task
+from ferb.core.types import Identity, Task
+from ferb.memory.calls import learning_call
 from ferb.memory.learning import Learning, LearningRefused, card_digest, card_shape, digest, encoded
 
 
@@ -95,12 +95,13 @@ class Consolidator:
                  idle: Callable[[], bool] = lambda: True,
                  usage: Callable[[str, dict[str, Any]], None] = lambda *args: None,
                  capture: Callable[[str], Awaitable[Any]] | None = None,
-                 cards_refreshed: Callable[[], None] = lambda: None) -> None:
+                 cards_refreshed: Callable[[], None] = lambda: None, spans: Any = None) -> None:
         """`capture`: refreshes one task's episode card. The daemon's reads it in the card reader process, off the event
         loop (L28); without one, the card is refreshed in-process. `cards_refreshed`: told once every card has been
-        refreshed (the daemon then records procedure receipts a shutdown deferred)."""
+        refreshed (the daemon then records procedure receipts a shutdown deferred). `spans`: where each model call is
+        recorded (`learning_call`)."""
         self.learning, self.memory, self.make_runtime = learning, memory, make_runtime
-        self.idle, self.usage, self.lock = idle, usage, asyncio.Lock()
+        self.idle, self.usage, self.lock, self.spans = idle, usage, asyncio.Lock(), spans
         self.capture = capture or self._capture_here
         self.cards_refreshed = cards_refreshed
 
@@ -374,23 +375,9 @@ class Consolidator:
         ctx = encoded({'episodes': [card_digest(c) for c in cards], **procedures})
         task = Task('sleep-' + digest([c['id'] for c in cards]), None, 'memory consolidation', 'local',
                     Identity.OWNER, set(), 'verifier', 'sleep', [], None)
-        limits = runtime_limits(rt)                  # the model's window and the runtime's character cap (L28)
-        parts, cacheable = assemble_parts([ContextBlock(ctx, 'redacted learning evidence', protected=True)],
-                                          budget_tokens=limits.context_budget, reserved_tokens=count_tokens(system),
-                                          max_chars=limits.max_input_chars)
-        run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), '')
-        final = ''
-        try:
-            async for event in rt.events(run):
-                if event.kind == 'final':
-                    final = str(event.data.get('text', ''))
-                elif event.kind == 'usage':
-                    self.usage(rt.name, dict(event.data))
-                elif event.kind in ('error', 'violation'):
-                    raise RuntimeError(str(event.data))
-        finally:
-            await rt.cancel(run)
-        out = json.loads(check_final(final, PROPOSAL_SCHEMA))
+        # within the model's window and the runtime's character cap (L28); recorded as a model.learning span
+        out = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence', PROPOSAL_SCHEMA,
+                                             role='consolidate', spans=self.spans, usage=self.usage))
         maker = f'model:{rt.name}:{getattr(rt, "model", None) or "default"}|prompt:consolidate@{hashlib.sha256(system.encode()).hexdigest()}'
         return out, maker
 
