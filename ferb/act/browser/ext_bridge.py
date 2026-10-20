@@ -568,6 +568,7 @@ class _Tab:
     containers: dict[str, tuple[int, str]] = field(default_factory=dict)
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
     media: dict[int, tuple[int, int]] = field(default_factory=dict)   # snapshot media index -> frame, local index
+    masking: str = ""               # how the latest screenshot's secret fields were found, when worth saying (L13)
 
 
 class _TabDriver:
@@ -591,6 +592,11 @@ class _TabDriver:
         self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
+        # daemon supplied (B6): (browser pid, window bounds) -> the secret fields Accessibility finds in that window's
+        # one page area, that area, and whether every field it found has a box; None: it can't tell
+        self.native_secrets: Callable[[int, tuple[float, float, float, float]],
+                                      Awaitable[tuple[list[tuple[float, float, float, float]],
+                                                      tuple[float, float, float, float], bool] | None]] | None = None
         self._n = 0
         if isinstance(getattr(hub, "drivers", None), list):
             hub.drivers.append(self)
@@ -1106,15 +1112,75 @@ class _TabDriver:
         the masking can't be done."""
         import base64
         t = self._tab(tab)
+        t.masking = ""
         v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
         if v.get("withheld"):
             return painted(b"", v)                       # raises: nothing was captured
         if "data" in v:
-            return painted(base64.b64decode(v["data"]), v)
-        parts = []
-        for i in range(int(v.get("parts", 0))):
-            parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
-        return painted(base64.b64decode("".join(parts)), v)
+            jpeg = base64.b64decode(v["data"])
+        else:
+            parts = []
+            for i in range(int(v.get("parts", 0))):
+                parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
+            jpeg = base64.b64decode("".join(parts))
+        if v.get("unread"):                              # protocol 15: a page it couldn't read, sent anyway (B6)
+            jpeg, t.masking = await self._unread(t, jpeg, v)
+            return jpeg
+        return painted(jpeg, v)
+
+    def masking(self, tab: TabRef) -> str:
+        """How the latest screenshot of this tab had its secret fields found, when worth saying ("" otherwise)."""
+        return self._tab(tab).masking
+
+    async def _unread(self, t: _Tab, jpeg: bytes, reply: dict[str, Any]) -> tuple[bytes, str]:
+        """A capture of a page the extension couldn't read (protocol 15, B6; owner: no screenshot refused): painted
+        where it can be, the rest left to the gateway's text recognition, and a note saying which. Painted: the look
+        before the capture's fields when only the look after failed, and, when the tab is the one its window shows,
+        the secret fields Accessibility finds in that window's page area, read just after the capture, scaled from the
+        area onto the picture. Withheld only when the picture can't be painted."""
+        from ferb.act.evidence import mask
+        why = str(reply.get("unread"))[:200]
+        try:
+            size = mask.size(jpeg)
+        except ValueError:
+            raise Withheld("pixels withheld: the capture couldn't be painted over") from None
+        boxes: list[mask.Box] = []
+        m = reply.get("mask")
+        before = mask.PageState.parse(m.get("before")) if isinstance(m, dict) else None
+        if before is not None:
+            boxes += mask.to_image_boxes([i.rect for i in before.items if i.paint], before.viewport, size)
+        ax_boxes, ax_why = await self._native_boxes(t, reply.get("window"), size)
+        boxes += ax_boxes
+        if boxes:
+            try:
+                jpeg = mask.mask_secret_fields(jpeg, boxes)
+            except (ValueError, RuntimeError):
+                raise Withheld("pixels withheld: the capture couldn't be painted over") from None
+        if ax_why is None:
+            return jpeg, (f"the browser extension couldn't locate the page's secret fields ({why}): masked from "
+                          "Accessibility, read just after the capture, and by text recognition (a secret neither can "
+                          "find could show)")
+        return jpeg, (f"the page's secret fields couldn't be located (the browser extension couldn't read it: {why}; "
+                      f"{ax_why}); masked by text recognition only (a secret it can't read as text could show)")
+
+    async def _native_boxes(self, t: _Tab, window: Any, size: tuple[int, int]) -> tuple[list[Any], str | None]:
+        """Accessibility's secret fields for an unread tab, as image boxes, and why there are none (None: it read the
+        page; a field it found with no box is reported as a reason too)."""
+        from ferb.act.evidence import mask
+        if not isinstance(window, dict) or window.get("minimized") or not window.get("active"):
+            return [], "the tab isn't the one its window shows, so Accessibility can't see it"
+        pid = getattr(t.bridge.conn, "browser_pid", None) if t.bridge.conn is not None else None
+        if self.native_secrets is None or not isinstance(pid, int):
+            return [], "Accessibility can't be asked about this browser"
+        b = window.get("bounds")
+        if not (isinstance(b, list) and len(b) == 4 and all(isinstance(v, (int, float)) for v in b)):
+            return [], "the extension didn't say where the tab's window is"
+        found = await self.native_secrets(pid, (float(b[0]), float(b[1]), float(b[2]), float(b[3])))
+        if found is None:
+            return [], "Accessibility couldn't read the page in its window"
+        rects, area, whole = found
+        boxes = mask.to_image_boxes(rects, area, size)
+        return boxes, None if whole else "a secret field Accessibility found has no place to paint"
 
     def browser_pid(self, tab: TabRef) -> int | None:
         """The process of the browser showing this tab (its native host's parent), so hearing the tab (L26) captures
@@ -1134,13 +1200,17 @@ class _TabDriver:
             if result.get('withheld'):
                 return painted(b'', result)              # raises: this frame only (the recording goes on)
             if 'data' in result:
-                return painted(base64.b64decode(result['data']), result)
-            parts = []
-            for i in range(int(result['parts'])):
-                part = await t.bridge.call('record_frame', {'tab_id': t.chrome_id, 'part': i,
-                                                           'capture_id': result['capture_id']})
-                parts.append(part['data'])
-            return painted(base64.b64decode(''.join(parts)), result)
+                frame = base64.b64decode(result['data'])
+            else:
+                parts = []
+                for i in range(int(result['parts'])):
+                    part = await t.bridge.call('record_frame', {'tab_id': t.chrome_id, 'part': i,
+                                                               'capture_id': result['capture_id']})
+                    parts.append(part['data'])
+                frame = base64.b64decode(''.join(parts))
+            if result.get('unread'):                     # protocol 15 (B6): masked where it can be, said with it
+                return await self._unread(t, frame, result)
+            return painted(frame, result)
         return {'kind': 'tab', 'browser': tab.browser, 'profile': tab.profile, 'tab_id': t.chrome_id,
                 'tab': tab.tab_id}, capture
 

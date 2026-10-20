@@ -699,6 +699,8 @@ class Daemon:
     def use_identity_browser(self, driver: IdentityDriver) -> None:
         """Attach FERB's own browser: registers the browser.* tools; its tabs close with their task and on stop."""
         self.identity_browser = driver
+        if hasattr(driver, "native_secrets"):          # B6: an unread tab's fields from Accessibility, as the router's
+            driver.native_secrets = self._native_page_secrets
         from ferb.identity.helper import seal as helper_seal
         driver.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         add_identity_browser(self.registry, driver, self.recordings)
@@ -806,6 +808,19 @@ class Daemon:
             return WebSecrets(None, "a paired profile didn't answer", late=True)
         return WebSecrets(None, "no paired profile has a window at this window's place (another profile, or a "
                                 "private window)")
+
+    async def _native_page_secrets(self, pid: int, bounds: tuple[float, float, float, float]) -> Any:
+        """B6: for a task tab's capture whose page the extension couldn't read, the secret fields Accessibility finds in
+        the page area of that browser process's window at `bounds` (`MacComputerDriver.page_secrets`). None: no Mac
+        driver, or it can't tell (a failure is journaled by type; the capture then goes to text recognition)."""
+        if self.mac is None:
+            return None
+        try:
+            return await self.mac.page_secrets(pid, bounds)
+        except Exception as e:
+            from ferb.daemon.gateway import error_name
+            self._journal().append("screen.page_secrets_failed", {"error": error_name(e)})
+            return None
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that
@@ -2852,6 +2867,7 @@ class Daemon:
         resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
+        self.router.native_secrets = self._native_page_secrets      # B6: an unread tab's fields from Accessibility
         # D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog.
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),

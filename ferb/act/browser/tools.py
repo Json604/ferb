@@ -395,8 +395,8 @@ class BrowserScreenshot(_Base):
     verb = "screenshot"
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     blurb = ("See this exact task tab as an image. Use when the AX/DOM snapshot misses a visible control. "
-             "Returns a shot id for {p}_point. Password and code fields are painted over; the image is withheld "
-             "only when they can't be located.")
+             "Returns a shot id for {p}_point. Password and code fields are painted over; when the page can't be "
+             "read, `masking` says how the image was masked instead (Accessibility and text recognition).")
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -408,8 +408,11 @@ class BrowserScreenshot(_Base):
         sources = (("web", self.driver.tab_url(tab.tab_id) or ""),)
         if self.family.identity is Identity.OWNER:
             sources += (("owner_account", f"{self._site(args) or ''}|"),)
-        return ToolResult({"shot": shot, "width": w, "height": h, "next": "use browser_point to resolve a visible target"},
-                          read_sources=sources, image=jpeg)
+        out = {"shot": shot, "width": w, "height": h, "next": "use browser_point to resolve a visible target"}
+        note = getattr(self.driver, "masking", lambda ref: "")(tab)
+        if note:                                     # a page the extension couldn't read (B6)
+            out["masking"] = note
+        return ToolResult(out, read_sources=sources, image=jpeg)
 
 
 class BrowserRecord(_Base):

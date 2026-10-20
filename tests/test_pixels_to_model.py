@@ -153,6 +153,122 @@ def test_a_pinch_zoomed_page_is_masked_where_the_visual_viewport_shows_it() -> N
     assert white(pixel(jpeg, 30, 15)) and white(pixel(jpeg, 100, 60))
 
 
+UNREAD = "the page can't be read, so its secret fields can't be found"
+
+
+def test_a_tab_the_extension_cant_read_is_sent_masked_by_text_recognition_and_says_so() -> None:
+    """Round 2 (B6; owner: no screenshot refused): the extension couldn't read the task tab's page, so it sent the
+    picture marked `unread`. It reaches the model through the gateway's text recognition, with a note; the tab isn't
+    the one its window shows, so Accessibility can't add anything."""
+    page = solid_jpeg(200, 100)
+    reply = {"data": base64.b64encode(page).decode(), "unread": UNREAD, "mask": None,
+             "window": {"bounds": [100, 50, 800, 600], "active": False, "minimized": False}}
+    d, ref, _ = _tab_driver(reply)
+    asked: list[Any] = []
+
+    async def native(pid: int, bounds: Any) -> Any:
+        asked.append(bounds)
+        return None
+    d.native_secrets = native
+    assert asyncio.run(d.screenshot(ref)) == page and asked == []
+    note = d.masking(ref)
+    assert "couldn't be located" in note and "can't be read" in note and "text recognition only" in note
+    assert "isn't the one its window shows" in note
+    _, capture = d.recording_source(ref, "task")
+    frame, frame_note = asyncio.run(capture())                  # a recording frame carries the same note
+    assert frame == page and "text recognition only" in frame_note
+
+
+def test_an_unread_tab_its_window_shows_is_masked_from_accessibility_too() -> None:
+    """Round 2 (B6): the unread tab is the one its window shows, so the secret fields Accessibility finds in that
+    window's page area are painted, scaled from the area onto the capture; and fields the look before the capture
+    gave (only the look after failed) are painted too."""
+    page = solid_jpeg(1600, 1040)                               # the page area (800 x 520 pt) at 2x
+    before = _state((300, 300, 100, 20), viewport=(0, 0, 800, 520))
+    reply = {"data": base64.b64encode(page).decode(), "unread": UNREAD, "mask": {"before": before, "after": None},
+             "window": {"bounds": [100, 50, 800, 600], "active": True, "minimized": False}}
+    d, ref, _ = _tab_driver(reply)
+    asked: list[Any] = []
+
+    async def native(pid: int, bounds: Any) -> Any:
+        asked.append((pid, bounds))
+        return [(150.0, 200.0, 100.0, 20.0)], (100.0, 130.0, 800.0, 520.0), True
+    d.native_secrets = native
+    d._tabs["t1"].bridge.conn = SimpleNamespace(browser_pid=4242)
+    jpeg = asyncio.run(d.screenshot(ref))
+    assert asked == [(4242, (100.0, 50.0, 800.0, 600.0))]
+    assert black(pixel(jpeg, 150, 150))                          # AX: (150-100, 200-130) pt -> (100, 140) px
+    assert black(pixel(jpeg, 650, 610))                          # the look before: (300, 300) css -> (600, 600) px
+    assert white(pixel(jpeg, 20, 20)) and white(pixel(jpeg, 1200, 900))
+    note = d.masking(ref)
+    assert "masked from Accessibility" in note and "text recognition" in note and "only" not in note
+
+
+def test_browser_screenshot_says_how_an_unread_tab_was_masked() -> None:
+    from ferb.act.browser.tools import BrowserScreenshot
+    from ferb.core.types import Identity
+
+    class Driver:
+        def owned_by(self, tab: str, task: str) -> Any:
+            return SimpleNamespace(tab_id=tab)
+
+        async def visual_snapshot(self, ref: Any) -> Any:
+            return "bs-1", solid_jpeg(20, 10), 20, 10
+
+        def tab_url(self, tab: Any) -> str:
+            return "https://chromewebstore.google.com/"
+
+        def masking(self, ref: Any) -> str:
+            return "the page's secret fields couldn't be located (…); masked by text recognition only (…)"
+    tool = BrowserScreenshot.__new__(BrowserScreenshot)
+    tool.driver, tool.family = Driver(), SimpleNamespace(identity=Identity.FERB)
+    result = asyncio.run(tool._run(SimpleNamespace(tab="t1"), SimpleNamespace(task_id="task")))
+    assert result.image is not None and "text recognition only" in result.content["masking"]
+
+
+def test_the_mac_driver_gives_an_unread_tabs_secret_fields_from_its_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (B6): the AX side: the secret fields inside the one page area of the browser window at those bounds,
+    and that area; none when the window shows more than one page area (which is the tab can't be told)."""
+    d, ax, _, _ = _brave(monkeypatch)
+    ax.tree.secret_rects = [(150.0, 200.0, 100.0, 20.0), (150.0, 60.0, 100.0, 20.0)]   # one in the page, one in the UI
+    ax.secure = [True, True]
+    rects, area, whole = asyncio.run(d.page_secrets(12, BOUNDS))
+    assert rects == [(150.0, 200.0, 100.0, 20.0)] and area == (100.0, 130.0, 800.0, 520.0) and whole
+    ax.tree.web_areas = [(100.0, 130.0, 400.0, 520.0), (500.0, 130.0, 400.0, 520.0)]
+    assert asyncio.run(d.page_secrets(12, BOUNDS)) is None
+    ax.window_with_frame = lambda *a, **k: None                            # type: ignore[method-assign]
+    assert asyncio.run(d.page_secrets(12, BOUNDS)) is None
+
+
+def test_the_daemon_wires_accessibility_for_unread_tabs(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_mac(daemon, monkeypatch)
+    assert daemon.daemon.router.native_secrets == daemon.daemon._native_page_secrets   # type: ignore[union-attr]
+    daemon.daemon.mac.ax.tree = AxTree(secret_rects=[(150.0, 200.0, 100.0, 20.0)], has_web=True,  # type: ignore
+                                       web_areas=[(100.0, 130.0, 800.0, 520.0)])
+    daemon.daemon.mac.ax.secure = [True]                                    # type: ignore[union-attr]
+    got = daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS))
+    assert got == ([(150.0, 200.0, 100.0, 20.0)], (100.0, 130.0, 800.0, 520.0), True)
+    daemon.daemon.config.set("privacy", "exclude_apps", ["com.brave.Browser"])   # an app FERB doesn't look at
+    assert daemon.run(daemon.daemon._native_page_secrets(12, BOUNDS)) is None
+
+
+def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningDaemon) -> None:
+    """Round 2 (B6): a browser.snapshot's first-look picture of a page the extension couldn't read carries the same
+    note as browser.screenshot's."""
+    from ferb.core.types import ToolResult
+
+    async def screenshot(ref: Any) -> bytes:
+        return solid_jpeg(20, 10)
+    driver = SimpleNamespace(owned_by=lambda tab, task: "ref", screenshot=screenshot,
+                             masking=lambda ref: "the page's secret fields couldn't be located (…)")
+    gateway = daemon.daemon.gateway
+    grant = SimpleNamespace(observe_only=False, task_id="t-unread", scopes={"screen"})
+    out = daemon.run(gateway._initial_image("browser.snapshot", SimpleNamespace(driver=driver),
+                                            SimpleNamespace(tab="t1"), SimpleNamespace(target=SimpleNamespace(site=None)),
+                                            grant, ToolResult({"ok": True})))
+    assert out.image is not None and "couldn't be located" in out.content["initial_image"]["masking"]
+
+
 def test_a_screenshot_in_parts_is_masked_once_whole() -> None:
     page = base64.b64encode(solid_jpeg(200, 100)).decode()
     half = len(page) // 2
@@ -926,6 +1042,7 @@ topNodes.push(el("EMBED", [100, 100, 300, 100], {}));
 console.log(JSON.stringify({secret: capture([page, inside.kid]), plain: capture([page, plain.kid])}));
 ''')
     assert "withheld" in _mask_state(out["secret"])
+    assert "unread" not in _mask_state(out["secret"])     # a known secret it can't cover: no picture (not B6's case)
     plain = _mask_state(out["plain"])
     assert "withheld" not in plain and _painted(plain) == [[100, 100, 300, 100]]   # the <embed> box itself
     rows = _frames(rects=[("lost", "tL", [1, 1, 5, 5])])                          # nobody heard it at all
@@ -947,6 +1064,8 @@ def test_the_mask_state_is_withheld_only_when_the_page_cant_be_read() -> None:
       return {noTop, unreadable: await maskState(9, Date.now() + 5000)};
     })()''')
     assert "withheld" in out["noTop"] and "withheld" in out["unreadable"]
+    # round 2 (B6, protocol 15): a page that couldn't be read is marked so, and its capture still sends the picture
+    assert out["noTop"]["unread"] is True and out["unreadable"]["unread"] is True
 
 
 def test_overlapping_rounds_each_keep_their_own_links() -> None:
@@ -1255,28 +1374,40 @@ console.log(JSON.stringify([page.__ferb.captureState()]));
     assert rows[0]["viewport"] == [40, 20, 500, 400]
 
 
-@pytest.mark.parametrize("case", ["secret", "unreadable"])
+@pytest.mark.parametrize("case", ["secret", "unreadable", "uncoverable", "unread_after"])
 @pytest.mark.parametrize("op", ["screenshot", "record_frame"])
 def test_extension_captures_carry_the_page_before_and_after(op: str, case: str) -> None:
+    """Round 2 (B6, protocol 15): a page the extension can't read is still captured and sent, marked `unread` with
+    its window's place (for the daemon's Accessibility and text recognition masking); a page whose secret field it
+    found but can't cover still sends no picture."""
     out = worker('''(async () => {
       attach = async id => tabState(id); let reads = 0, captures = 0;
       maskState = async () => {
         reads++;
-        if (CASE === 'unreadable') return {withheld: "the page can't be read, so its secret fields can't be found"};
+        if (CASE === 'unreadable' || (CASE === 'unread_after' && reads > 1))
+          return {withheld: "the page can't be read, so its secret fields can't be found", unread: true};
+        if (CASE === 'uncoverable') return {withheld: "a frame's secret fields can't be covered"};
         return {top: 'doc', viewport: [0, 0, 100, 50],
                 items: [{key: 'field|doc|f', rect: [reads, 1, 2, 2], paint: true}]};
       };
+      chrome.tabs.get = async id => ({id, windowId: 5, active: true});
+      chrome.windows = {get: async id => ({id, left: 10, top: 20, width: 800, height: 600, state: 'normal'})};
       cdp = async () => { captures++; return {data: 'jpeg-bytes'}; };
       const st = tabState(19); st.shot = 'previous'; st.visual = {snap: 7};
       const out = await commands[OP]({tab_id: 19});
       return {out, captures};
     })()'''.replace("CASE", json.dumps(case)).replace("OP", json.dumps(op)))
     if case == "secret":
-        assert out["out"]["data"] == "jpeg-bytes"
+        assert out["out"]["data"] == "jpeg-bytes" and "unread" not in out["out"]
         assert [out["out"]["mask"][k]["items"][0]["rect"] for k in ("before", "after")] == [[1, 1, 2, 2], [2, 1, 2, 2]]
+    elif case == "uncoverable":
+        assert "data" not in out["out"] and out["out"]["withheld"] and out["captures"] == 0
     else:
-        assert "data" not in out["out"] and out["out"]["withheld"]
-    assert out["captures"] == (0 if case == "unreadable" else 1)
+        assert out["out"]["data"] == "jpeg-bytes" and out["out"]["unread"].startswith("the page can't be read")
+        assert out["out"]["window"] == {"bounds": [10, 20, 800, 600], "active": True, "minimized": False}
+        before = out["out"]["mask"] and out["out"]["mask"]["before"]
+        assert (before["items"][0]["rect"] == [1, 1, 2, 2]) if case == "unread_after" else out["out"]["mask"] is None
+    assert out["captures"] == (0 if case == "uncoverable" else 1)
 
 
 def test_the_extension_reports_a_windows_page_for_native_captures() -> None:

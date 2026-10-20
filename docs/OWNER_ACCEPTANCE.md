@@ -1263,11 +1263,26 @@ all pending; Brave with Automation already allowed):
 66. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
     page area appears late is now read again for up to ~2 s.
 
+Fix wave 4 round 2 (extension 0.15.4 / protocol 15; reload the extension first, and record the version `ferb doctor`
+shows):
+67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's (the
+    extension's match: `ferb trace TASK --full` shows no `tab_note`) and B's password field (a disposable sign-in page)
+    is black. Then maximize a window of an **unpaired** profile over a maximized paired-profile window and ask about
+    it: the block's `masking` says the paired profile's window "shows another page" and the picture is still masked
+    (Accessibility and text recognition); no black boxes in odd places.
+68. With a paired window in front whose page title has extra spaces or a long title, the URL still comes from the
+    extension (no `tab_note`, no "shows another page"). If every paired capture says "shows another page", the
+    browser names its windows differently from its tabs: record the window title and tab title.
+69. A FERB task opens the Chrome Web Store (a page extensions can't script) and takes `browser.screenshot`: a picture
+    arrives with `masking` saying the extension couldn't read the page; with that tab in front of its window the note
+    says "masked from Accessibility", in a background tab "text recognition only". Repeat with a short
+    `browser.record` across it: frames are kept, with the note.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
-  password) can show. A field moving during a capture is painted at both places, not between them. A task tab's
-  `browser.screenshot` the extension can't read is still withheld (fixing it needs an extension update).
+  password) can show. A field moving during a capture is painted at both places, not between them. A task tab
+  whose page the extension can't read is masked from Accessibility only when it is the tab its window shows.
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
 - A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.
 - An undeclared browser post or payment click gets no question; the prompts carry the declaration.

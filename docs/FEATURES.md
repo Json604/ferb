@@ -320,8 +320,9 @@ All **Shipped** (`ferb --help`):
   fields FERB can't all locate (the window's browser profile isn't paired, Accessibility can't read the page) is no
   longer withheld: the fields it did locate are painted, the rest is masked by on-device text recognition only, and
   the picture says so with the reason. A window picture is withheld only when the masks can't be painted on it.
-  Not live-tested. (A `browser.screenshot` of a task tab the extension can't read is still withheld: that needs an
-  extension update.)
+  Not live-tested. Round 2 (extension 0.15.4): a `browser.screenshot` (or recording frame) of a task tab whose page
+  the extension can't read is sent too, painted from Accessibility when the tab is the one its window shows, and
+  masked by text recognition, with a note. Only a secret the extension found but can't cover still withholds.
 - Limits: OCR can miss unreadable or obscured text; this is class-based redaction, not removal of all private text.
   Where fields couldn't be located, a secret the OCR doesn't recognise as one (an unlabelled shown password) can
   show.

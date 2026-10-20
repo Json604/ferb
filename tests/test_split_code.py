@@ -128,13 +128,14 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
 @pytest.mark.parametrize('failure', ['before_secret', 'after_secret', 'unreadable'])
 def test_screenshot_carries_the_page_before_and_after_and_publishes_no_bytes_for_an_unreadable_page(failure):
     """L13: a page with a secret field (before or after the capture) is captured with both looks in the mask (the
-    daemon paints, or withholds a capture whose fields moved: tests/test_pixels_to_model.py); a page that can't be
-    read publishes no bytes."""
+    daemon paints, or withholds a capture whose fields moved: tests/test_pixels_to_model.py); a page with a secret
+    field the extension can't cover publishes no bytes (one it can't read at all is captured for the daemon's
+    masking since protocol 15: tests/test_pixels_to_model.py)."""
     result = worker('''(async () => {
       attach = async id => tabState(id); let reads=0, captures=0;
       maskState = async () => {
         reads++;
-        if (CASE==='unreadable') return {withheld: "the page's top frame can't be read"};
+        if (CASE==='unreadable') return {withheld: "a secret field is drawn again elsewhere on the page"};
         const secret = CASE==='before_secret' && reads===1 || CASE==='after_secret' && reads>1;
         return {top: 'doc', viewport: [0, 0, 100, 50],
                 items: secret ? [{key: 'field|doc|f', rect: [1, 2, 3, 4], paint: true}] : []};

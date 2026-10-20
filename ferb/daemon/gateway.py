@@ -1395,8 +1395,10 @@ class Gateway:
             # screenshot() uses the existing snapshot generation, preserving the element ids returned by this call.
             image = await cap.driver.screenshot(tab)
             shot, width, height = None, None, None
+            masking = getattr(cap.driver, "masking", lambda ref: "")(tab)   # a page the extension couldn't read (B6)
             return dataclasses.replace(result, image=image, content={**result.content,
-                "initial_image": {"shot": shot, "width": width, "height": height}})
+                "initial_image": {"shot": shot, "width": width, "height": height}
+                | ({"masking": masking} if masking else {})})
         except NoTarget:
             looked.clear()  # no window yet; first actual working window can still supply the initial image
             return result

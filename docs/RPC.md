@@ -45,7 +45,10 @@ browser bridge pages large observations; client RPC and extension protocol versi
 
 Extension protocol 15 (fix wave 4, 0.15.4): `window_secrets` takes the captured window's `title` (to tell windows
 at the same bounds apart by their active tab's title) and answers with that tab (`tab: {url, title}`, URL with secret
-parameters masked).
+parameters masked). `screenshot` and `record_frame` capture a page the extension can't read instead of refusing:
+the reply carries the picture, `unread` (why), `mask` (`{before, after: null}` when only the look after failed, else
+null) and `window` (`{bounds, active, minimized}` of the tab's window); `withheld` with no picture remains only for a
+secret field the extension found but can't cover.
 
 Extension protocol 14 (L26) adds the `media` command: play, pause, mute, unmute or seek one video/audio element of
 the latest snapshot, by frame and index, through the content script (no script evaluation, no click); it answers with

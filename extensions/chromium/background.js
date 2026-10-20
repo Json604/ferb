@@ -380,6 +380,20 @@ async function inFrame(tabId, frameId, func, args) {
   return r.result;
 }
 
+// A capture's mask fields (protocol 15): both looks when the page was read; when it wasn't, `unread` (why), the look
+// before if only the look after failed (`mask.after` null), and the tab's window: its screen bounds, whether the tab
+// is the one it shows, and whether it is minimized (the daemon can place Accessibility's secret fields only then).
+async function unreadCapture(tabId, first, last) {
+  if (!first.withheld && !last.withheld) return {mask: {before: first, after: last}};
+  let window = null;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const w = await chrome.windows.get(tab.windowId);
+    window = {bounds: [w.left, w.top, w.width, w.height], active: !!tab.active, minimized: w.state === "minimized"};
+  } catch (_) { /* the tab or window went: no placement */ }
+  return {unread: (first.withheld || last.withheld), mask: first.withheld ? null : {before: first, after: null}, window};
+}
+
 // One look at a time per tab: a recording's frames (two looks each) and a worker's screenshot or a native capture
 // of the same tab can overlap, and their rounds must not interleave in the page. `deadline` is the command's own
 // (Date.now() + its _timeout_ms): a look holds its tab until it ends or its deadline passes, waits for its turn only
@@ -392,7 +406,8 @@ function maskState(tabId, deadline) {
   const prev = maskLooks.get(tabId) || Promise.resolve();
   const turn = Promise.race([prev.then(() => true), expired.then(() => false)]);
   const look = turn.then(mine => mine && Date.now() < deadline ? readMaskState(tabId)
-    : {withheld: "this look at the page ran out of time waiting for its turn, so its secret fields can't be found"});
+    : {withheld: "this look at the page ran out of time waiting for its turn, so its secret fields can't be found",
+       unread: true});
   const done = Promise.all([prev, Promise.race([look.catch(() => {}), expired]).then(() => clearTimeout(timer))]);
   maskLooks.set(tabId, done);
   done.then(() => { if (maskLooks.get(tabId) === done) maskLooks.delete(tabId); });
@@ -423,10 +438,10 @@ async function readMaskState(tabId) {
     await chrome.scripting.executeScript({target, args, func: r => window.__ferb.listenForFrames(r)});
     await chrome.scripting.executeScript({target, args, func: r => window.__ferb.announceFrame(r)});
     results = await chrome.scripting.executeScript({target, args, func: r => window.__ferb.captureState(r)});
-  } catch (_) { return {withheld: "the page can't be read, so its secret fields can't be found"}; }
+  } catch (_) { return {withheld: "the page can't be read, so its secret fields can't be found", unread: true}; }
   const frames = results.filter(r => r && r.result).map(r => ({frameId: r.frameId, ...r.result}));
   const top = frames.find(f => f.frameId === 0);
-  if (!top) return {withheld: "the page's top frame can't be read, so its secret fields can't be found"};
+  if (!top) return {withheld: "the page's top frame can't be read, so its secret fields can't be found", unread: true};
   const times = new Map(), owners = new Map();     // token -> how often any host heard it; -> the frame owning it
   for (const f of frames) for (const c of f.frames) for (const t of c.heard) times.set(t, (times.get(t) || 0) + 1);
   for (const f of frames) if (f !== top && f.own) owners.set(f.own, owners.has(f.own) ? null : f);
@@ -1406,27 +1421,29 @@ const commands = {
   },
   // jpeg, and split into parts when one message would come near the 1 MB native-messaging line. Never refused for
   // what the page shows (L13): the reply's `mask` is the page's mask state before and after the capture (maskState)
-  // and the daemon paints the secret fields over before anything else sees the picture, or withholds it when it
-  // can't tell where they were. `withheld` (no picture) only when the page can't be read.
+  // and the daemon paints the secret fields over before anything else sees the picture. A page that can't be read
+  // is still captured (protocol 15, owner: no screenshot refused): `unread` says why, `mask` keeps the look before
+  // when only the look after failed, and `window` says where the tab's window is, for the daemon's Accessibility and
+  // text-recognition masking. `withheld` (no picture) only for a secret field it found but can't cover.
   async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
     const deadline = Date.now() + _timeout_ms;
     await attach(tab_id);
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
     const first = await maskState(tab_id, deadline);
-    if (first.withheld) return {withheld: first.withheld};
-    const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
+    if (first.withheld && !first.unread) return {withheld: first.withheld};
+    const before = snap == null || first.withheld ? null : JSON.stringify(await visualStates(tab_id));
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
-    const last = await maskState(tab_id, deadline);
-    if (last.withheld) return {withheld: last.withheld};
-    const mask = {before: first, after: last};
-    if (before !== null) {
+    const last = first.withheld ? first : await maskState(tab_id, deadline);
+    if (last.withheld && !last.unread) return {withheld: last.withheld};
+    const extra = await unreadCapture(tab_id, first, last);
+    if (before !== null && !extra.unread) {
       if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
       st.visual = {at: Date.now(), snap, states: before, points: new Map()};
     }
-    if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg", mask }; }
+    if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg", ...extra }; }
     st.shot = data;
-    return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", mask };
+    return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", ...extra };
   },
   async record_frame({tab_id, part, capture_id, _timeout_ms}) {
     const deadline = Date.now() + _timeout_ms;
@@ -1440,16 +1457,16 @@ const commands = {
       return {data};
     }
     await attach(tab_id);
-    const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or withheld
-    if (first.withheld) return {withheld: first.withheld};
+    const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or unread
+    if (first.withheld && !first.unread) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',
       {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
-    const last = await maskState(tab_id, deadline);
-    if (last.withheld) return {withheld: last.withheld};
-    const mask = {before: first, after: last};
-    if (data.length <= SHOT_PART) return {data, mask};
+    const last = first.withheld ? first : await maskState(tab_id, deadline);
+    if (last.withheld && !last.unread) return {withheld: last.withheld};
+    const extra = await unreadCapture(tab_id, first, last);
+    if (data.length <= SHOT_PART) return {data, ...extra};
     const id = crypto.randomUUID(); st.recordFrame = {id, data};
-    return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, mask};
+    return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, ...extra};
   },
   async screenshot_part({ tab_id, part }) {
     const st = TABS.get(tab_id);

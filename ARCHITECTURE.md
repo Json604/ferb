@@ -1657,7 +1657,17 @@ protected FERB state (16.9).
   at a time; `mask.page_masks` paints fields that stayed put and withholds a field that moved, appeared or vanished,
   or a page that navigated or resized. A child frame is linked to its host only by a trusted per-round announcement;
   a child frame holding secrets is painted whole; a transformed host is painted whole; mirrored or filtered secrets
-  (box-reflect, SVG `url()` filters, `::details-content`) withhold.
+  (box-reflect, SVG `url()` filters, `::details-content`) withhold, as does a frame with secret fields no host
+  accounts for: a secret the extension found but can't cover.
+- A tab whose page the extension can't read (page or top frame unreadable, or the look ran out of time:
+  `maskState`'s `unread`) is still captured (protocol 15, round 2 B6; owner: no screenshot refused). The reply
+  carries `unread`, the look before the capture when only the look after failed, and the tab's window (bounds,
+  whether the tab is the one it shows, minimized). `_TabDriver._unread` paints that look's fields and, when the tab
+  is the one its window shows, the secret fields Accessibility finds in that window's one page area
+  (`MacComputerDriver.page_secrets` through the daemon's `native_secrets` hook; read just after the capture, scaled
+  from the area onto the picture). The gateway's text recognition runs as on every image. The note (`masking` in
+  `browser.screenshot`'s result and a browser.snapshot first look; a recording frame's note) says which. Withheld
+  only when the picture can't be painted.
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
   area; AX-only masking is recorded as `masking`. When no profile can tell, `_web_secrets` says why
   (`WebSecrets.why`: no paired profile of that browser connected, none of a profile's windows or more than one at
@@ -1896,7 +1906,7 @@ protected FERB state (16.9).
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
-`screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
+`screen.page_secrets_failed`, `screen.image_refused`, `runtime.limits_unknown`, `shell.local_reports_stopped`, `memory.consolidate_failed`,
 `memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
 `memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.

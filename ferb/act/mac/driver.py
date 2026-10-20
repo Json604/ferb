@@ -489,6 +489,24 @@ class MacComputerDriver:
         a, w, jpeg, size, note, tab = await self._capture(name_or_bundle, None, window, False)
         return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid, masking=note, tab=tab), jpeg
 
+    async def page_secrets(self, pid: int, bounds: Rect) -> tuple[list[Rect], Rect, bool] | None:
+        """For a browser tab capture whose page the extension couldn't read (B6): the secret fields the Accessibility
+        tree of that browser process's window at `bounds` shows inside its page area, that area (screen points), and
+        whether every secret field it found has a box. None: no single AX window there, the walk can't say, or not
+        exactly one page area (docked tools or a split view: which one is the tab can't be told)."""
+        a = self.app(f"pid:{pid}")
+        win = await asyncio.to_thread(self.ax.window_with_frame, pid, bounds)
+        if win is None:
+            return None
+        tree = await self._walk(a, win)
+        areas = axm.outermost(tree.web_areas)
+        if tree.secure is None or len(areas) != 1 or areas[0][2] <= 0 or areas[0][3] <= 0:
+            return None
+        boxes, whole = _ax_boxes(tree)
+        ax, ay, aw, ah = areas[0]
+        inside = [b for b in boxes if b[0] < ax + aw and b[0] + b[2] > ax and b[1] < ay + ah and b[1] + b[3] > ay]
+        return inside, areas[0], whole
+
     def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
         """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
         window), for masking a stored picture."""
