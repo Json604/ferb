@@ -776,3 +776,39 @@ def test_a_code_under_its_label_indented_by_unicode_whitespace_stays_masked(raw)
     redactor = Redactor()
     assert redactor.text(raw) != raw
     assert _differing_splits(redactor, raw, pairs=True) == []
+
+
+ADDRESS_MESSAGES = ["Bangalore PIN code: 560001", "PIN code 560001", "ZIP code 94107", "postal code 94103",
+                    "Use coupon code 4455 at checkout", "Pin/Zip code: 560001", "PIN / ZIP code 560001"]
+IN_LINE_SPACES = ["\xa0", " ", " ", " ", "　", "\x0b", "\x0c"]
+
+
+@pytest.mark.parametrize("space", IN_LINE_SPACES)
+def test_unicode_whitespace_inside_a_line_reads_as_a_space(space) -> None:
+    """Re-review 4 (NEW-C, the text side): a page's "Code:&nbsp;482913" or "Use 482913 as your PIN" with no-break
+    spaces showed the code, since the class patterns took only spaces and tabs between their words. Any whitespace but
+    a line break now reads as a space: each corpus line masks the same with its spaces swapped, and ordinary lines,
+    address codes and the owner's requests stay."""
+    r = Redactor()
+    corpus = ([m for m, _ in PROVIDER_CORPUS + SECRET_WORD_CASES + OWNER_REQUESTS] + NEGATIVES + ADDRESS_MESSAGES
+              + ["Card 4111 1111 1111 1111", "Backup codes: 1234 5678, 9012 3456", "Two factor codes: a1b2c-3d4e5",
+                 "my wifi password is sunshine", "Your one-time password is 482913", "api key 482-913"])
+    for message in corpus:
+        assert r.text(message.replace(" ", space)) == r.text(message).replace(" ", space), message
+
+
+@pytest.mark.parametrize("raw", ["Code:\xa0482913\n", "Use\xa0482913\xa0as\xa0your\xa0PIN\n",
+                                 "Card\xa04111\xa01111\xa01111\xa01111\n", "password: hunter2!\n",
+                                 "my\xa0wifi\xa0password\xa0is\xa0sunshine\n", "Backup codes:\xa01234\xa05678\n",
+                                 "Two\xa0factor\xa0codes:\n4821-9921\n", "api\xa0key\xa0482-913\n",
+                                 "482913　is your code\n", "one\xa0time\xa0password\xa0482913\n"])
+def test_a_line_with_unicode_spaces_streams_as_the_text_redactor_masks_it(raw) -> None:
+    redactor = Redactor()
+    assert REDACTED in redactor.text(raw)
+    assert _differing_splits(redactor, raw) == []
+
+
+def test_in_line_whitespace_is_every_whitespace_but_a_line_break() -> None:
+    from ferb.sanitize import redact
+    every = "".join(map(chr, range(0x110000)))
+    assert set(re.findall(rf"[{redact._H}]", every)) == {c for c in every if c.isspace()} - {"\r", "\n"}

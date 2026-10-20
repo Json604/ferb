@@ -26,6 +26,11 @@ INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id", "request
 # (learning nodes, m-/key-) or a 6-byte token hex (chat sessions, chat-).
 ID_BODY = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12})(?![0-9A-Za-z])")
 
+# In-line whitespace, as a character class's body: every whitespace character but a line break. A no-break space (a
+# page's &nbsp;), an en, em or ideographic space, \x0b or \x0c reads as a space wherever a class pattern takes one
+# (re-review 4, NEW-C): "Code:&nbsp;482913" is "Code: 482913", and "4111&nbsp;1111…" is a card.
+_H = r"\t\x0b\x0c\x1c-\x1f \x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bsk-ant-[A-Za-z0-9_-]{16,}"),
@@ -58,8 +63,8 @@ def secret_param(name: str) -> bool:
     return (k in SECRET_QUERY or any(w in k or w.replace("_", "") in flat for w in SECRET_QUERY_WORDS)
             or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})
 # Explicit credential-field metadata, never broad login/security/access language in an ordinary owner question.
-OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|password|pin))?|"
-                       r"(?:verification|authentication|security|login|sign[ _-]?in|access)[ _-]+(?:code|pin))\b")
+OTP_LABEL = re.compile(rf"(?i)\b(?:otp|totp|2fa|one[{_H}_-]?time(?:[{_H}_-]+(?:code|password|pin))?|"
+                       rf"(?:verification|authentication|security|login|sign[{_H}_-]?in|access)[{_H}_-]+(?:code|pin))\b")
 # A password field, also while a site's "Show password" makes it plain text (type=text, AXTextField): its own
 # metadata says so (autocomplete current-password/new-password, or a name, id, label, placeholder or title holding
 # "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. The name and
@@ -89,24 +94,24 @@ def password_field(kind: str, *metadata: Any) -> bool:
 # people write, never by digit shape alone: a number with no code or secret word near it stays visible.
 # The owner's code words (code, OTP, passcode, PIN, one-time password, verification); never part of a file name
 # ("tests/test_otp.py").
-CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|passcode|code|pin)|otp|totp|2fa|"
-                       r"pass[ _-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
+CODE_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:one[{_H}_-]?time[{_H}_-]?(?:password|passcode|code|pin)|otp|totp|"
+                       rf"2fa|pass[{_H}_-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
 # A masked code counts as the digits it replaced, so masking twice changes nothing.
-CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
-                        rf"(?<!\[redacted\][ -])"
-                        rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d|[ -]\[redacted\])")
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[{_H}-])"
+                        rf"(?<!\[redacted\][{_H}-])"
+                        rf"(?:[A-Z]-)?\d(?:[{_H}-]?\d){{3,7}}(?![0-9A-Za-z_]|[{_H}-]\d|[{_H}-]\[redacted\])")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
 # "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
 # OTP", "issue 4821 - code freeze" and "Line 1234: code smell" don't join either.
-CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
+CODE_LINK = re.compile(rf"(?i)[{_H}]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
 _PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
 # "Pin/Zip code" names the address code once for both words (re-review 2, R3)
-ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[ \t]*/[ \t]*{_PLACE})*[ _-]?codes?|"
+ADDRESS_CODE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:{_PLACE}(?:[{_H}]*/[{_H}]*{_PLACE})*[{_H}_-]?codes?|"
                           r"pincodes?|postcodes?|zipcodes?)(?![A-Za-z0-9])")
 
 
@@ -146,19 +151,19 @@ def _clause_break(s: str, a: int, b: int) -> bool:
 # 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
 # Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
 # the label line next to it (`_line_codes`).
-LABEL_DIRECT = re.compile(r"[ \t:=#\-–—]*")
-LABEL_LINK = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—])[ \t]*$")
+LABEL_DIRECT = re.compile(rf"[{_H}:=#\-–—]*")
+LABEL_LINK = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—])[{_H}]*$")
 LINE_BREAK = re.compile(r"\r\n|\r|\n")
-SECRET_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[ _-]?key)?|"
-                         r"api[ _-]?key|(?:(?:access|auth|api|refresh)[ _-]?)?token|private[ _-]?key)"
+SECRET_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[{_H}_-]?key)?|"
+                         rf"api[{_H}_-]?key|(?:(?:access|auth|api|refresh)[{_H}_-]?)?token|private[{_H}_-]?key)"
                          r"(?![A-Za-z0-9])")
 # What follows a secret word: an optional "for gmail" / "to the wifi", a link (":", "=", "is", "was", " - ") or none.
-SECRET_AFTER = re.compile(r"""(?ix)(?P<qual>[ \t]+(?:for|to|of|on|at)[ \t]+(?:the[ \t]+|my[ \t]+|your[ \t]+)?[^\s:=]+)?
-                              (?P<link>(?:\\?["'])?[ \t]*[:=][ \t]*(?:\r\n|\r|\n)?[ \t]*|
-                                       [ \t]+(?:is|was)(?![A-Za-z0-9])[ \t]*:?[ \t]*|[ \t]+[-–—][ \t]+)""")
-SECRET_DIRECT = re.compile(r"[ \t]+")
+SECRET_AFTER = re.compile(rf"""(?ix)(?P<qual>[{_H}]+(?:for|to|of|on|at)[{_H}]+(?:(?:the|my|your)[{_H}]+)?[^\s:=]+)?
+                              (?P<link>(?:\\?["'])?[{_H}]*[:=][{_H}]*(?:\r\n|\r|\n)?[{_H}]*|
+                                       [{_H}]+(?:is|was)(?![A-Za-z0-9])[{_H}]*:?[{_H}]*|[{_H}]+[-–—][{_H}]+)""")
+SECRET_DIRECT = re.compile(rf"[{_H}]+")
 # The owner's own: "my password is sunshine" hides a plain word too (a page's "Your password is incorrect" doesn't).
-MINE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:my|our)[ \t]+(?:[A-Za-z-]+[ \t]+)?$")
+MINE = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:my|our)[{_H}]+(?:[A-Za-z-]+[{_H}]+)?$")
 # "A few words": how many words may lie between a code word and its code. Eight reaches the farthest code in the
 # owner's provider corpus ("Your OTP for HDFC Bank txn of Rs 2,000 is 482913").
 CODE_REACH = 8
@@ -208,7 +213,7 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
     # "my password is sunshine" hides a plain word that ends its clause; "my PIN is on the card" is no value
-    ends_clause = re.match(r"(?i)[ \t]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))", s[stop:]) is not None
+    ends_clause = re.match(rf"(?i)[{_H}]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))", s[stop:]) is not None
     if strong or (after is not None and ((mine and (digit or symbol or ends_clause))
                                          or (len(value) >= 4 and (digit or symbol)))) or \
             (after is None and len(value) >= 4 and digit):
@@ -250,15 +255,15 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
 
 # A list of backup or recovery codes ("Backup codes: 1234 5678 9012 3456", or one per line): every code in it.
 # Only a backup, recovery, 2FA or one-time code list (re-review 2, I5): "HTTP status codes: 200, 301" is ordinary data.
-CODE_LIST = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[ -]?factor|one[ -]?time|verification|security|"
-                       r"login)(?:[ \t]+backup)?[ \t]+codes[ \t]*:[ \t]*")
+CODE_LIST = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[{_H}-]?factor|one[{_H}-]?time|verification|"
+                       rf"security|login)(?:[{_H}]+backup)?[{_H}]+codes[{_H}]*:[{_H}]*")
 # A list label's qualifier with at most two words after it ending what has been read: "codes" can still follow it
 # ("Two ", "Two factor ", "security backup co"); once "codes" is there, the code word holds the line (re-review 3,
 # NEW-I1). Past two words no list label can form from it.
 _LIST_QUALIFIER_END = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two|one|verification|security|login)"
-                                 r"[A-Za-z0-9]*(?:[ \t_-]+[A-Za-z0-9]*){0,2}[ \t]*$")
+                                 rf"[A-Za-z0-9]*(?:[{_H}_-]+[A-Za-z0-9]*){{0,2}}[{_H}]*$")
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
-_LIST_GAP = re.compile(r"[ \t,]*(?:(?:\r\n|\r|\n)[ \t]*)?")
+_LIST_GAP = re.compile(rf"[{_H},]*(?:(?:\r\n|\r|\n)[{_H}]*)?")
 
 
 def _code_list(s: str) -> list[tuple[int, int]]:
@@ -284,7 +289,8 @@ def _code_list(s: str) -> list[tuple[int, int]]:
 def _list_label_line(line: str) -> bool:
     """A line that starts a list: its label, then only codes ("Backup codes: 1234 5678")."""
     labels = _not_address(line, CODE_LIST.finditer(line))
-    return bool(labels) and (not line[labels[-1].end():].strip(" \t,") or _list_line(line[labels[-1].end():]))
+    rest = line[labels[-1].end():] if labels else ""
+    return bool(labels) and (not rest.replace(",", " ").strip() or _list_line(rest))
 
 
 def _list_line(line: str) -> bool:
@@ -321,7 +327,7 @@ def _label_joined(s: str, label_end: int, code: re.Match[str]) -> bool:
     if LABEL_DIRECT.fullmatch(gap):
         return True
     return LINE_BREAK.search(gap) is None and (LABEL_LINK.search(gap) is not None or (
-        gap.rstrip(" \t").endswith("(") and s.startswith(")", code.end())))
+        gap.rstrip().endswith("(") and s.startswith(")", code.end())))
 
 
 def _mask_spans(s: str, spans: list[tuple[int, int]]) -> str:
@@ -338,7 +344,7 @@ def _labelled_code(label: str, text: str) -> bool:
     """A code typed or given for a code label: an explicit OTP label hides any digit answer (as before), and any
     code word hides a code-shaped one (C1)."""
     value = text.strip()
-    return (bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d -]+", value) is not None) or (
+    return (bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d\s-]+", value) is not None) or (
         bool(code_words(label)) and CODE_VALUE.fullmatch(value) is not None)
 
 
@@ -354,7 +360,7 @@ def _hidden_answer(question: str, text: str, *, reply: bool) -> bool:
     one-time code question, any digits. A chat reply while the question is open may be a steer (L3): it is hidden
     whole for a password question only with a password's shape, one word."""
     value = text.strip()
-    if bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None:
+    if bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d\s-]+", value) is not None:
         return True
     asked = bool(_not_address(question, SIGN_IN_SECRET.finditer(question)))
     return asked and (not reply or len(value.split()) == 1)
@@ -406,9 +412,10 @@ def _secret_colon_end(line: str) -> bool:
 
 # The first word of a two-word class word, or "my"/"our", ending what has been read of a line: it can still become one
 # ("api " then "key 482-913", "my wifi " then "password is …").
-_PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+){0,2}|(?<![A-Za-z0-9])(?:api|private|"
-                         r"access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|authentication|"
-                         r"coupon|zip|postal|post|promo|promotional|discount|voucher|area)[ \t_/-]*\S*)[ \t]*$")
+_PREFIX_END = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[{_H}]+[A-Za-z-]+){{0,2}}|(?<![A-Za-z0-9])(?:api|"
+                         r"private|access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|"
+                         rf"authentication|coupon|zip|postal|post|promo|promotional|discount|voucher|area)[{_H}_/-]*\S*)"
+                         rf"[{_H}]*$")
 
 
 def _line_starts(pending: str) -> tuple[list[int], int]:
@@ -422,21 +429,21 @@ def _line_starts(pending: str) -> tuple[list[int], int]:
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
-OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|"
-                               r"access|2fa|otp|totp)\b")
+OTP_CONTEXT_START = re.compile(rf"(?i)\b(?:one[{_H}_-]?time|verification|authentication|security|login|"
+                               rf"sign[{_H}_-]?in|access|2fa|otp|totp)\b")
 # Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
 # Its gap never reaches over a code already masked, and a "G-" prefixed code is C1's whole.
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|"
-                      r"security code|login code|sign[ -]?in code|otp)"
+OTP_TEXT = re.compile(rf"(?i)(\b(?:one[{_H}-]?time(?:[{_H}](?:password|code))?|"
+                      rf"(?:verification|authentication|security|login|sign[{_H}-]?in)[{_H}]code|otp)"
                       r"\b(?:(?!\[redacted\])[^\d\r\n]){0,40})"
-                      r"(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])"
-                      r"(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
+                      rf"(?<![+\d])(?<!\d[{_H}-])(?<![A-Za-z]-)(?<!\[redacted\][{_H}-])"
+                      rf"(\d(?:[{_H}-]?\d){{3,7}})(?![{_H}-]?\d|[{_H}-]\[redacted\])")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
 _ID_CHAR = "[0-9A-Za-z_]"
 CARD = re.compile(rf"(?:(?<!{_ID_CHAR})|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!{_ID_CHAR}-)"
-                  rf"(?:\d[ -]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
+                  rf"(?:\d[{_H}-]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
 
 
 def _url_id_spans(s: str) -> list[tuple[int, int]]:
@@ -805,7 +812,7 @@ class RedactionStream:
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
         # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end)
-        numeric = re.search(r"(?<!\d)\d[\d ,.-]*[;:!?)\]]*$", tail)
+        numeric = re.search(rf"(?<!\d)\d[\d{_H},.-]*[;:!?)\]]*$", tail)
         if numeric:                         # from its token's start: a card's digits are never split from it
             start = line_start + numeric.start()
             while start > line_start and not self.pending[start - 1].isspace():
@@ -908,7 +915,7 @@ class RedactionStream:
         found.sort()
         starts, reach = _word_starts(line), CODE_REACH + 1
         if not found or _words_between(starts, found[-1][1], len(line)) > reach:
-            return max(0, line.rfind(" ") + 1)
+            return (last.end() if (last := re.search(r"\s(?=\S*$)", line)) else 0)
         first = len(found) - 1
         while first > 0 and _words_between(starts, found[first - 1][1], found[first][0]) <= reach:
             first -= 1
