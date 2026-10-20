@@ -101,10 +101,16 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
         # fields on its own page area (review I1)
         read = [(t, w) for t, w in ((t1, w1), (t2, w2)) if t is not None and t.secure is not None]
         masks = _union(*(_ax_boxes(t)[0] for t, _ in read))
+        notes = [WINDOW_HALF_READ if read else WINDOW_UNREAD]
+        if not all(_ax_boxes(t)[1] for t, _ in read):        # what that look found isn't all painted either (A1)
+            notes.append(FIELD_UNPLACED)
         for t, w in read:
             if w is not None and w.state is not None:
-                masks += _placed(_look_items(w.state, None), w.state, t)[0]
-        return masks, WINDOW_HALF_READ if read else WINDOW_UNREAD
+                rects, ok = _placed(_look_items(w.state, None), w.state, t)
+                masks += rects
+                if not ok:
+                    notes.append(PAGE_UNPLACED)
+        return masks, "; ".join(dict.fromkeys(notes))
     (ax1, whole1), (ax2, whole2) = _ax_boxes(t1), _ax_boxes(t2)
     notes = [FIELD_UNPLACED] if not (whole1 and whole2) else [FIELD_MOVED] if sorted(ax1) != sorted(ax2) else []
     masks = _union(ax1, ax2)
@@ -145,11 +151,13 @@ def _page_on_screen(p1: PageState, p2: PageState, t1: axm.AxTree, t2: axm.AxTree
 
 
 def _look_items(p: PageState, other: PageState | None) -> list[Rect]:
-    """What one look of a page must paint when the looks can't be merged: its secret fields and the frame hosts it
-    paints whole, and a frame host whose frame changed document since the other look (a reload); a clean frame (no
-    secret field in it, `paint` False) stays visible (review M4)."""
+    """What one look of a page must paint when the looks can't be merged, as page_masks would: its secret fields and
+    the frame hosts it paints whole, and a frame host the other look painted whole or whose frame changed document
+    since (a reload): painted wherever either look saw it (round 2, A2). A frame clean in both looks (no secret field
+    in it, `paint` False) stays visible (review M4)."""
     then = {i.key: i for i in other.items} if other is not None else {}
-    return [i.rect for i in p.items if i.paint or (i.key in then and then[i.key].child != i.child)]
+    return [i.rect for i in p.items
+            if i.paint or (i.key in then and (then[i.key].paint or then[i.key].child != i.child))]
 
 
 def _placed(rects: list[Rect], p: PageState, t: axm.AxTree) -> tuple[list[Rect], bool]:
@@ -401,7 +409,7 @@ class MacComputerDriver:
         walk runs (review M6: one after the other, two looks could outlast the planner's wait for the front window).
         After a look `before` whose ask nobody answered, the extension isn't asked again. The AX window is the one at
         the window's bounds (with its title, when several are there, confirmed against the window server's title now).
-        None there (it moved, or can't be read): no walk, and no page."""
+        None there (it moved, or can't be read): no walk (`window_masks` then uses no page from this look)."""
         def now_titled() -> str:                     # the window server's title for the captured window now (M7)
             current = self.shots.window(w.id)
             return current.title if current is not None else ""
@@ -412,10 +420,18 @@ class MacComputerDriver:
         browser = BROWSER_BUNDLES.get(a.bundle_id)
         earlier = before[1] if before is not None else None
         if not (browser and self.web_secrets) or (earlier is not None and earlier.late):
-            tree, web = await walk(), earlier
-        else:
-            tree, web = await asyncio.gather(walk(), self.web_secrets(browser, w.bounds))
-        return tree, (web if tree is not None else None)
+            return await walk(), earlier
+        ask = asyncio.ensure_future(self.web_secrets(browser, w.bounds))
+        try:
+            tree = await walk()
+        except BaseException:                        # the walk failed or was cancelled: so is the ask beside it (A3)
+            ask.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await ask
+            raise
+        # a look with no AX window keeps the extension's answer too: its page is never placed (no page area), but
+        # `late` must reach the look after the capture (A4)
+        return tree, await ask
 
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,

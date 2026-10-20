@@ -378,6 +378,77 @@ def test_a_field_one_look_located_is_painted_when_accessibility_cant_read_the_ot
     assert "couldn't be located" not in shot.masking
 
 
+def test_the_one_look_note_says_when_that_look_couldnt_place_everything(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (A1): with one look unreadable, the note claims the other look's fields were painted; when that look had
+    a secret field with no box, or page fields with no page area, the note says so too."""
+    import dataclasses
+    page = _page((20, 40, 100, 20))
+    d, ax, _, _ = _brave(monkeypatch, page, page)
+    ax.secure = [True, True]                                   # a password field the walk found, with no box
+    looks = iter(["win", None])
+    ax.window_with_frame = lambda *a, **k: next(looks)                     # type: ignore[method-assign]
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert "in one look around the capture" in shot.masking and "has no place on screen" in shot.masking
+    d, ax, _, _ = _brave(monkeypatch, page, page)
+    ax.tree = dataclasses.replace(ax.tree, web_areas=[])       # page fields, and no page area to place them on
+    looks = iter(["win", None])
+    ax.window_with_frame = lambda *a, **k: next(looks)                     # type: ignore[method-assign]
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert "in one look around the capture" in shot.masking and "couldn't be placed" in shot.masking
+
+
+def test_a_frame_secret_in_one_look_and_clean_in_the_other_is_painted_in_both_places(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (A2): the same linked frame (same child) holds a secret field in the look before (painted whole) and none
+    in the look after, at another place (the page scrolled). page_masks paints a frame painted in either look; look by
+    look, it is painted where each look saw it, not only where it was dirty."""
+    dirty = {"key": "frame|doc|t3", "rect": [50, 300, 100, 100], "paint": True, "child": "x"}
+    clean_now = {"key": "frame|doc|t3", "rect": [300, 300, 100, 100], "paint": False, "child": "x"}
+    d, _, _, _ = _brave(monkeypatch, _frames_page(frames=[dirty]), _frames_page(frames=[clean_now]))
+    _, _, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 150, 850)) and black(pixel(jpeg, 650, 850))     # R1 and R2
+    assert white(pixel(jpeg, 1000, 850))
+
+
+def test_a_failed_walk_stops_the_extension_ask_it_ran_beside(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (A3): the AX walk and the extension ask run together; when the walk fails, the ask is cancelled with it
+    rather than left running after the capture gave up."""
+    d, ax, _, _ = _brave(monkeypatch)
+    state: list[str] = []
+
+    async def secrets(browser: str, bounds: Any) -> Any:
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state.append("cancelled")
+            raise
+    d.web_secrets = secrets
+
+    def broken(*a: Any) -> Any:
+        raise RuntimeError("the AX walk failed")
+    ax.read_tree = broken                                                  # type: ignore[method-assign]
+
+    async def go() -> list[str]:
+        with pytest.raises(RuntimeError, match="AX walk failed"):
+            await d.screenshot("Brave")
+        await asyncio.sleep(0)
+        return list(state)
+    assert asyncio.run(go()) == ["cancelled"]
+
+
+def test_an_ask_nobody_answered_isnt_repeated_even_when_that_look_read_no_window(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 2 (A4): the first look found no AX window and its extension ask went unanswered: the look after the
+    capture doesn't ask again (`late` is kept even when the look has no tree)."""
+    from ferb.act.mac.driver import WebSecrets
+    d, ax, _, asked = _brave(monkeypatch, WebSecrets(None, "a paired profile didn't answer", late=True),
+                             WebSecrets(None, "a paired profile didn't answer", late=True))
+    looks = iter([None, "win"])
+    ax.window_with_frame = lambda *a, **k: next(looks)                     # type: ignore[method-assign]
+    asyncio.run(d.screenshot("Brave"))
+    assert len(asked) == 1
+
+
 def test_a_page_that_moved_keeps_the_fields_of_the_look_that_can_be_placed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Review I1, probe 2: the page moved during the capture and the look after it shows no page area: the look
     before still places its field, and the note says the other look's couldn't be placed."""

@@ -1662,8 +1662,9 @@ protected FERB state (16.9).
   by its id), the picked window is still there with it, and no other window there has it; otherwise the look reads
   no window (the capture's note says Accessibility couldn't read it) rather than walking a possibly wrong one.
 - Each look asks the extension while its AX walk runs, and the look after a capture doesn't ask again when nobody
-  answered the first (`WebSecrets.late`): the worst case (a ~2 s re-read and a 4 s ask per look) is ~6 s (~8 s when
-  only the second ask times out), inside the planner's 10 s wait for the front window; one after the other it was
+  answered the first (`WebSecrets.late`, kept even by a look that found no AX window): the worst case (a ~2 s
+  re-read and a 4 s ask per look) is ~6 s, ~8 s when the first ask answers slowly and the second then times out,
+  inside the planner's 10 s wait for the front window; one after the other it was
   12 s, and the planner went on with no image, URL or title (review M6;
   `test_a_browser_capture_fits_inside_the_planners_wait_for_the_front_window`, virtual time). The front window's
   AppleScript tab reads (5 s timeout each) are outside this bound.
@@ -1678,16 +1679,19 @@ protected FERB state (16.9).
   and FERB asked which internship). `window_masks` paints what it found and says the rest in `masking`:
   - a page neither the extension nor Accessibility could read (no answering profile, and no AX page area or an empty
     one): the AX fields elsewhere are painted, the page is "masked by text recognition only" (`PAGE_UNREAD`);
-  - a window Accessibility can't read in a look (`WINDOW_UNREAD`), a secret field with no box (`FIELD_UNPLACED`),
-    page fields with no page area (`PAGE_UNPLACED`): left to text recognition;
+  - a window Accessibility can't read in either look (`WINDOW_UNREAD`), a secret field with no box
+    (`FIELD_UNPLACED`), page fields with no page area (`PAGE_UNPLACED`): left to text recognition;
   - a field or page item that moved, appeared or went between the looks, or a page that navigated or resized
     (`FIELD_MOVED`, `PAGE_MOVED`): painted where each look saw it, the rest left to text recognition;
   - whatever one look located stays painted when the other look can't be used (review I1): a look that couldn't read
-    the window (`WINDOW_HALF_READ`; `WINDOW_UNREAD` only when neither could), a moved page whose other look had no
+    the window (`WINDOW_HALF_READ`, plus `FIELD_UNPLACED` / `PAGE_UNPLACED` when the readable look couldn't place
+    everything either; `WINDOW_UNREAD` only when neither could), a moved page whose other look had no
     page area (`PAGE_PART_PLACED`), the extension answering one look only (`ONE_LOOK`: a field only the other look
     could show is left to text recognition, review M5);
-  - painting a page look by look paints its secret fields, the frame hosts it paints whole and frames that reloaded
-    between the looks, never a clean frame (`_look_items`, review M4).
+  - painting a page look by look paints its secret fields, the frame hosts either look paints whole and frames that
+    reloaded between the looks, wherever each look saw them; never a frame clean in both (`_look_items`, review M4,
+    round 2).
+  - the AX walk and the extension ask run together; a walk that fails cancels the ask (round 2).
   The picture always goes through the F5 `ImageRedactor`, which every image path runs. `masking` reaches
   `mac.screenshot`'s content, a first look's facts, the front-window block and its evidence facts
   (`FrontWindow.masking`), and a recording's `masking` list. Residual (accepted by the directive): where fields can't
