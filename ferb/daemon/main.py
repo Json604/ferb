@@ -1242,7 +1242,8 @@ class Daemon:
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
             usage=self._record_learning_usage("consolidate"),
             capture=lambda task_id: self._capture_card(task_id, None),
-            cards_refreshed=self._replay_deferred_receipts, spans=self.spans)
+            cards_refreshed=self._replay_deferred_receipts, spans=self.spans,
+            forget=lambda ids: self._forget_nodes(ids, named=False))
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards

@@ -272,9 +272,14 @@ def test_a_rollup_written_while_a_forget_ran_never_keeps_what_was_forgotten(lear
         own.db.conn.execute("DELETE FROM learning_nodes WHERE id = ?", (gone["id"],))     # the forget, meanwhile
         own.db.conn.execute("INSERT INTO learning_forgotten VALUES (?, 'now')", (gone["id"],))
     monkeypatch.setattr(Consolidator, "rollups", racing)
-    asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY)).catch_up())
+    forgot: list[list[str]] = []
+
+    def forget(ids: list[str]) -> list[str]:                     # the daemon's forget path (round 5 re-review)
+        forgot.append(list(ids))
+        return learning.forget(ids)
+    asyncio.run(consolidator(learning, FakeDistillRuntime(EMPTY), forget=forget).catch_up())
     citing = [n for n in learning.items("summary") if gone["id"] in n["sources"]]
-    assert citing == []
+    assert citing == [] and forgot
 
 
 def test_a_card_read_that_failed_is_tried_once_more_then_waits(learning) -> None:

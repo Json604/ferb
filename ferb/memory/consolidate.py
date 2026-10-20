@@ -96,15 +96,18 @@ class Consolidator:
                  idle: Callable[[], bool] = lambda: True,
                  usage: Callable[[str, dict[str, Any]], None] = lambda *args: None,
                  capture: Callable[[str], Awaitable[Any]] | None = None,
-                 cards_refreshed: Callable[[], None] = lambda: None, spans: Any = None) -> None:
+                 cards_refreshed: Callable[[], None] = lambda: None, spans: Any = None,
+                 forget: Callable[[list[str]], Any] | None = None) -> None:
         """`capture`: refreshes one task's episode card. The daemon's reads it in the card reader process, off the event
         loop (L28); without one, the card is refreshed in-process. `cards_refreshed`: told once every card has been
         refreshed (the daemon then records procedure receipts a shutdown deferred). `spans`: where each model call is
-        recorded (`learning_call`)."""
+        recorded (`learning_call`). `forget`: how learned nodes are forgotten (the daemon's path also closes FERB's
+        questions about them); `Learning.forget` without one."""
         self.learning, self.memory, self.make_runtime = learning, memory, make_runtime
         self.idle, self.usage, self.lock, self.spans = idle, usage, asyncio.Lock(), spans
         self.capture = capture or self._capture_here
         self.cards_refreshed = cards_refreshed
+        self.forget: Callable[[list[str]], Any] = forget or learning.forget
 
     async def _capture_here(self, task_id: str) -> Any:
         return self.learning.capture_episode(task_id)
@@ -347,7 +350,7 @@ class Consolidator:
         written = {e[1]['id'] for e in events if len(e) > 1 and e[0] == 'memory.derived' and isinstance(e[1], dict)}
         doomed = [i for i in sorted(written) if (n := l.get(i)) and any(l.forgotten(s) for s in n['sources'])]
         if doomed:
-            l.forget(doomed)
+            self.forget(doomed)
 
     def rollups(self, learning: Learning | None = None, stop: Callable[[], bool] = lambda: False) -> None:
         """Index each day summary and narrative, roll episode cards up by day, week, month and year, and summarize facts

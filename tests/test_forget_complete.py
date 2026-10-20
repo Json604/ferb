@@ -855,3 +855,16 @@ def test_echo_scrubs_run_one_at_a_time(daemon: RunningDaemon) -> None:
         echoes.finish_node_at = real                                      # type: ignore[assignment]
     assert events == [("start", "glorpwax one"), ("end", "glorpwax one"), ("start", "flinvek two"),
                       ("end", "flinvek two")]
+
+
+def test_the_consolidators_clean_up_forgets_through_the_daemons_path(daemon: RunningDaemon) -> None:
+    """Round 5 (docs said "by any path"): the consolidator's clean-up of what its rollups wrote on a source forgotten
+    meanwhile called Learning.forget directly, so a waiting question about a node it deleted stayed open. It forgets
+    through `_forget_nodes`."""
+    d = daemon.daemon
+    node = _lesson(daemon, "brindlewax rule")
+    _on_loop(daemon, lambda: d._chat_forget(node["id"], "r-n"))
+    _on_loop(daemon, lambda: d.consolidator.forget([node["id"]]))
+    daemon.run(d._settle_forgets())
+    assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
+    assert _everywhere(daemon, "brindlewax") == []
