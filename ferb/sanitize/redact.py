@@ -187,7 +187,8 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
     """Where the value after a secret word lies, when one is there: after ":"/"=" any value, after "is"/"was"/" - "
     one with a digit or a symbol (or any, when it is the owner's own), and right after the word one with a digit.
     A value on a later line than its label is that whole line, unless quoted ("password for gmail:" over
-    "  s3cret pass 9": re-review 4, T1)."""
+    "  s3cret pass 9": re-review 4, T1). A quote that doesn't close on its line quotes nothing: the value is read as
+    unquoted, its quote mark included ("password: 'Tr0ub4dor&3": re-review 5)."""
     end, strong, mine = word.end(), False, MINE.search(s, max(0, word.start() - 40), word.start()) is not None
     after = SECRET_AFTER.match(s, end)
     next_line = False
@@ -203,9 +204,10 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         return None
     quote = s[end] if s[end] in "\"'" else ("\\" + s[end + 1] if s.startswith(("\\\"", "\\'"), end) else "")
     if quote:
-        close = s.find(quote, end + len(quote))
-        if close < 0 or LINE_BREAK.search(s, end, close):
-            return None
+        line_end = LINE_BREAK.search(s, end)
+        close = s.find(quote, end + len(quote), line_end.start() if line_end else len(s))
+        quote = quote if close >= 0 else ""         # a quote that doesn't close on its line quotes nothing
+    if quote:
         start, stop = end + len(quote), close
     elif next_line:
         line_end = LINE_BREAK.search(s, end)

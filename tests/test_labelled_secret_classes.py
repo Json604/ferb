@@ -945,3 +945,22 @@ def test_ocr_masks_a_wrapped_or_bulleted_code_alone_next_to_its_label(above, bel
     """Concern 3a on the OCR path: the line pair rule (`neighbour_spans`) reads a code alone as the text redactor
     does (`_code_alone`)."""
     assert _masked([TextRegion(above, (0, 0, 90, 9)), TextRegion(below, (0, 12, 40, 9))]) == masked
+
+
+# Re-review 5 (item 1): a value that starts with a quote that doesn't close on its line was shown whole.
+@pytest.mark.parametrize("raw,expected", [
+    ("password: 'pa\rss'\n", "password: [redacted]\rss'\n"),
+    ("password: 'hunter2\rit's fine\n", "password: [redacted]\rit's fine\n"),
+    ("Password: 'Tr0ub4dor&3\n", "Password: [redacted]\n"),
+    ("my password is 'sunshine\n", "my password is [redacted]\n"),
+    ("PIN: '4821\n", "PIN: [redacted]\n"),
+    ('Your temporary password: "Xk9#mQ2\n', "Your temporary password: [redacted]\n"),
+    ("Password:\n'correct horse 22\n", "Password:\n[redacted]\n"),
+    ("password: 'pa ss 9'\n", "password: '[redacted]'\n"),
+])
+def test_a_value_whose_quote_does_not_close_on_its_line_is_masked_as_unquoted(raw, expected) -> None:
+    """Ruling (re-review 5): the value is masked as unquoted, its quote mark included: to the token's end, or the whole
+    line for a value on a later line than its label. Line-local, so the stream masks it the same at every split."""
+    redactor = Redactor()
+    assert redactor.text(raw) == expected
+    assert _differing_splits(redactor, raw) == []
