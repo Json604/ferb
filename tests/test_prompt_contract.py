@@ -184,8 +184,8 @@ def test_a_parallel_request_is_one_plan_step_per_item_and_never_a_condition() ->
                   "PINs is hidden whole. Never ask for a password in owner_ask; the sealed tools ask for it."),
     # re-review 4 (M3): the planner's clarify has no options field, so it never uses the words at all
     ("supervisor.md", "A clarify question never asks for a secret (FERB's sealed input does) and never uses the words "
-                      "password, passcode, passphrase or PIN: a typed reply to a question with them is hidden from "
-                      "you."),
+                      "password, passcode, passphrase, PIN, pwd or passwd: a typed reply to a question with them is "
+                      "hidden from you."),
 ])
 def test_questions_about_passwords_offer_options_and_never_ask_for_one(name: str, sentence: str) -> None:
     """Re-review 3 (R1-a, R1-c): a typed answer to a question with a password word is hidden whole."""
