@@ -338,7 +338,10 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              "[x]", "1000", "1001", "[y/N]", "Port (default 8080):", "coupon code", "PIN code",
              # re-review 4 (NEW-C): lines indented, or blank, by Unicode whitespace
              "\xa0", "\u2003", "\x0c", "\u3000", "\n\xa0", "\n\xa0482913", "\r\n\u2002482-913", "\n\x0b(G-482913)",
-             "\n\u3000\n", "\n\xa0a1b2c-3d4e5"]
+             "\n\u3000\n", "\n\xa0a1b2c-3d4e5",
+             # re-review 4 (T1): blank lines under a label, item numbers, next-line values with spaces
+             "Backup codes:\n\n", "Password:\n \n", "\n1. a1b2c-3d4e5", "\n2) 4821 9921", "\n\u2022 q2w3e4r5", "1.",
+             "\n  s3cret pass 9", "pwd:", "\xa0codes:"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
