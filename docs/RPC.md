@@ -52,8 +52,8 @@ secret field the extension found but can't cover.
 
 Extension protocol 16 (fix wave 4 round 3, 0.15.5): `screenshot` and `record_frame` attach fully when the page can be
 scripted, and with the debugger alone (no input-readiness probe) when it can't. `window` also carries the tab's
-`title` and `emulated` (FERB lays the tab out at its own size). A page the debugger can't attach to answers `{withheld, undebuggable: true, window}`, for the daemon's native window
-capture.
+`title` and `emulated` (FERB lays the tab out at its own size). A page the debugger can't attach to answers
+`{withheld, undebuggable: true, window}`, for the daemon's native window capture.
 
 Extension protocol 17 (fix wave 4 round 5, 0.15.6): a capture of a page scripts can't reach stays armed (no full
 attach and detach per capture), a tab already attached fully isn't attached again, and a scriptable page's input setup
