@@ -720,11 +720,15 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
         learned, failed = c.execute("SELECT COUNT(*), SUM(error IS NOT NULL) FROM spans WHERE kind = 'model.learning' "
                                     "AND started_at >= ?", (since,)).fetchone()
         print(f"Learning model calls: {learned or 0}, failed: {failed or 0}", file=out)
-        for role, reason, n in c.execute(
-                "SELECT json_extract(input_json, '$.role'), substr(error, 1, 160), COUNT(*) FROM spans WHERE "
-                "kind = 'model.learning' AND error IS NOT NULL AND started_at >= ? GROUP BY 1, 2 ORDER BY 3 DESC "
-                "LIMIT 10", (since,)):
-            print(f"  {n:>4}  {role}: {reason}", file=out)
+        # grouped with their numbers set aside (a count Codex measured differs per call); the latest wording shown
+        groups: dict[tuple[str, str], list[Any]] = {}
+        for role, error in c.execute("SELECT json_extract(input_json, '$.role'), error FROM spans WHERE "
+                                     "kind = 'model.learning' AND error IS NOT NULL AND started_at >= ? "
+                                     "ORDER BY started_at, rowid", (since,)):
+            seen = groups.setdefault((str(role), re.sub(r"\d+", "#", str(error))), [0, ""])
+            seen[0], seen[1] = seen[0] + 1, str(error)
+        for (role, _), (n, latest) in sorted(groups.items(), key=lambda item: -item[1][0])[:10]:
+            print(f"  {n:>4}  {role}: {latest[:160]}", file=out)
         latest = c.execute("SELECT json_extract(input_json, '$.call') FROM spans WHERE kind = 'model.learning' AND "
                            "error IS NOT NULL AND started_at >= ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
                            (since,)).fetchone()

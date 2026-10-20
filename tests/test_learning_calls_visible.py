@@ -241,3 +241,21 @@ def test_a_consolidation_calls_id_is_its_batch_id(daemon) -> None:
     daemon.run(d.consolidator.catch_up(force=True), timeout=30)
     [span] = _learning_spans(daemon)
     assert span["input"]["call"] == "sleep-" + digest(sorted(ids))
+
+
+def test_stats_groups_learning_errors_that_differ_only_in_numbers(tmp_path) -> None:
+    from ferb.cli.admin import stats
+    from ferb.store.db import Database
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    for i, sent in enumerate((1_100_000, 2_300_000)):
+        db.conn.execute("INSERT INTO spans (id, kind, started_at, input_json, error) VALUES (?, 'model.learning', ?, ?, ?)",
+                        (f"s{i}", f"2099-01-01T00:00:0{i}+00:00", json.dumps({"role": "consolidate", "call": f"sleep-{i}"}),
+                         f"{CODEX_REFUSAL.replace('1100000', str(sent))}"))
+    db.conn.commit()
+    db.close()
+    out = io.StringIO()
+    stats(tmp_path, out, days=36500)
+    lines = [line for line in out.getvalue().splitlines() if "Input exceeds" in line]
+    assert len(lines) == 1 and lines[0].split()[0] == "2" and "consolidate:" in lines[0]
+    assert "ferb trace sleep-1" in out.getvalue()                       # the latest failed call
