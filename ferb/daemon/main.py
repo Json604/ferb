@@ -542,18 +542,18 @@ class Daemon:
                              stderr=subprocess.DEVNULL)
 
     def _hide_code_reply(self, text: str) -> str:
-        """Rule 14 for a chat message (typed or spoken) while a question is open: a reply that is wholly a code, to a
-        question that asks for a one-time code or a sign-in password or PIN, is hidden before any model sees it, as
-        chat.answer hides it (`Redactor.answer`); a question merely naming a code word doesn't. The planner routes
-        answers now (L3), so the code must not travel with the message."""
+        """Rule 14 for a chat message (typed or spoken) while a question is open, before any model sees it, as
+        chat.answer hides an answer (`Redactor.answer`, re-review 2 R1): its codes are masked when the question asks
+        for a code, and a one-word reply to a password or PIN question is hidden whole. The planner routes answers
+        now (L3), so the secret must not travel with the message; a longer message may be a steer and keeps its
+        words."""
         if not isinstance(self.redact, Redactor):
             return text
         for ap in self.state.approvals.pending():
             # a login-code prompt asks for a code by its kind, whatever its words say
             reason = "login code" if ap.kind == "owner_login_code" else ap.reason
             if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(text.strip()) is None:
-                if self.redact.answer(text, question=reason) == REDACTED:
-                    return REDACTED
+                text = self.redact.answer(text, question=reason, reply=True)
         return text
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:

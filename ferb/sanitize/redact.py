@@ -340,12 +340,15 @@ def _labelled_code(label: str, text: str) -> bool:
 SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:password|passcode|pin)(?![A-Za-z0-9])")
 
 
-def _asks_for_code(question: str, text: str) -> bool:
-    """A question that asks for a one-time code (an explicit OTP label: any digits answer) or for a password or PIN
-    (a code-shaped answer)."""
+def _hidden_answer(question: str, text: str, *, reply: bool) -> bool:
+    """An answer hidden whole (rule 14, re-review 2 R1): to a question about a sign-in password, passcode or PIN (never
+    an address PIN code), whatever its shape; to an explicit one-time code question, any digits. A chat reply while
+    the question is open may be a steer (L3): it is hidden whole for a password question only with a password's shape,
+    one word."""
     value = text.strip()
-    return (bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None) or (
-        CODE_VALUE.fullmatch(value) is not None and bool(_not_address(question, SIGN_IN_SECRET.finditer(question))))
+    if bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None:
+        return True
+    return bool(_not_address(question, SIGN_IN_SECRET.finditer(question))) and (not reply or len(value.split()) == 1)
 
 
 def _labelled_secret(kind: str, label: str, text: str) -> bool:
@@ -536,14 +539,17 @@ class Redactor:
             return REDACTED if text else text
         return self._str(text)
 
-    def answer(self, text: str, *, question: str) -> str:
-        """The owner's typed answer to an ordinary question, which is no field: a code is hidden for this answer only
-        when the question asks for a one-time code (OTP, verification, login code…) or a password or PIN for signing in
-        (rule 14). A question merely naming a code word ("Which port should the code server use?", "the PIN code for
-        the delivery address") never hides the answer."""
-        if _asks_for_code(question, text):
-            return REDACTED if text else text
-        return self._str(text)
+    def answer(self, text: str, *, question: str, reply: bool = False) -> str:
+        """The owner's typed answer to a question, which is no field (rule 14, re-review 2 R1): to a question about a
+        sign-in password, passcode or PIN it is hidden whole ("hunter2!"); to a question with a code word (code, OTP,
+        passcode, PIN, one-time password, verification; never an address or coupon code) its 4-8 digit codes are
+        masked. `reply`: a chat message while the question is open (`_hidden_answer`)."""
+        if not text.strip():
+            return text
+        if _hidden_answer(question, text, reply=reply):
+            return REDACTED
+        out = self._str(text)
+        return CODE_VALUE.sub(REDACTED, out) if code_words(question) else out
 
     def excluded_host(self, host: str) -> bool:
         """A host on the owner's exclusion list (a domain covers its subdomains)."""

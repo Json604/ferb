@@ -160,13 +160,48 @@ def test_an_answer_to_a_question_asking_for_a_one_time_code_or_sign_in_pin_is_hi
 
 @pytest.mark.parametrize("question,answer", [
     ("What's the PIN code for the delivery address?", "560001"),      # review of fix wave 2 (probe p4)
-    ("Which port should the code server use?", "8080"),
-    ("Which year's tax code should I check?", "2024"),
-    ("How many lines of code should the summary cover?", "5000"),
-    ("Should I reset your password?", "yes"),
+    ("Which coupon code should I apply?", "SAVE2024"),
+    ("How many tabs should I keep open?", "4000"),
+    ("Which port should the code server use?", "the default one"),
 ])
-def test_an_answer_to_a_question_merely_naming_a_code_word_stays(question, answer) -> None:
+def test_an_answer_with_no_code_to_a_code_or_address_question_stays(question, answer) -> None:
     assert Redactor().answer(answer, question=question) == answer
+
+
+@pytest.mark.parametrize("question,answer", [
+    ("What's your Gmail password?", "hunter2!"), ("Enter the passcode for the office door", "correct horse"),
+    ("What's your UPI PIN?", "4821"), ("Should I reset your password?", "yes"),
+])
+def test_an_answer_to_a_password_or_pin_question_is_hidden_whole_whatever_its_shape(question, answer) -> None:
+    """Re-review 2 (R1, rule 14): a question about a sign-in password, passcode or PIN gets the secret itself, whatever
+    its shape ("hunter2!"). A yes/no question about one is asked with options; a picked option is never hidden."""
+    assert Redactor().answer(answer, question=question) == REDACTED
+
+
+@pytest.mark.parametrize("question,answer,expected", [
+    ("What 6-digit code did Swiggy send you?", "482913", REDACTED),
+    ("What's the code on the Uber screen?", "4829", REDACTED),
+    ("What's the code on the Uber screen?", "it says 4829", f"it says {REDACTED}"),
+    ("Which port should the code server use?", "8080", REDACTED),
+    ("Which year's tax code should I check?", "2024", REDACTED),
+])
+def test_the_code_in_an_answer_to_a_code_question_is_masked(question, answer, expected) -> None:
+    """Re-review 2 (R1): a question with the owner's code words (code, OTP, passcode, PIN, one-time password,
+    verification; never an address or coupon code) masks the 4-8 digit code in the answer, as a code beside its word
+    is masked everywhere. A port or year answered to such a question is masked too: the owner's rule is by words."""
+    assert Redactor().answer(answer, question=question) == expected
+
+
+@pytest.mark.parametrize("question,reply,expected", [
+    ("What's your Gmail password?", "hunter2!", REDACTED),
+    ("What's your Gmail password?", "wait, use the work account instead", "wait, use the work account instead"),
+    ("What's the code on the Uber screen?", "4829 and then book it", f"{REDACTED} and then book it"),
+])
+def test_a_chat_reply_while_a_password_question_is_open_is_hidden_when_it_is_one_word(question, reply,
+                                                                                      expected) -> None:
+    """A chat message while a question is open may be a steer, not the answer (L3): a password question hides it whole
+    when it has a password's shape (one word); its codes are masked either way."""
+    assert Redactor().answer(reply, question=question, reply=True) == expected
 
 
 def _masked(regions: list[TextRegion]) -> list[str]:

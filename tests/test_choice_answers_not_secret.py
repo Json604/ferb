@@ -63,3 +63,13 @@ def test_a_typed_superscript_digit_is_no_option_number(daemon) -> None:
     ap = ask(daemon, TWO_FA, ['SMS', 'Authenticator app'])
     answer(daemon, ap, '²')
     assert (ap.choice, ap.answer) == (None, '²')
+
+
+def test_a_chat_reply_to_an_open_code_question_reaches_the_planner_with_its_code_masked(daemon) -> None:
+    """Re-review 2 (R1): the chat path masks the code in a reply ("4829, then book it") instead of passing it whole,
+    and hides a one-word reply to a password question; a longer message keeps its words (it may be a steer)."""
+    ask(daemon, "What's the code on the Uber screen?", [])
+    assert daemon.daemon._hide_code_reply("4829, then book it") == f"{REDACTED}, then book it"
+    ask(daemon, "What's your Gmail password?", [])
+    assert daemon.daemon._hide_code_reply("hunter2!") == REDACTED
+    assert daemon.daemon._hide_code_reply("use the work account") == "use the work account"
