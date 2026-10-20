@@ -964,3 +964,50 @@ def test_a_value_whose_quote_does_not_close_on_its_line_is_masked_as_unquoted(ra
     redactor = Redactor()
     assert redactor.text(raw) == expected
     assert _differing_splits(redactor, raw) == []
+
+
+# Re-review 5 (item 2, rule 14): markup around a code. Markdown emphasis and code marks, quote marks, a mail quote
+# prefix (">", repeated, quote-only lines between label and code too), "#" headings, "·"/"–"/"—" bullets and simple
+# inline HTML tags around or before a code, on its label's line or alone on the next one.
+MARKUP_CODES = [
+    ("Your code is: **482913**\n", "482913"),
+    ("Your code: `482913`\n", "482913"),
+    ("Code: <b>482913</b>\n", "482913"),
+    ("Your code is: _482913_\n", "482913"),
+    ("Your verification code is:\n\n**482913**\n", "482913"),
+    ("> Your verification code is:\n> 482913\n", "482913"),
+    ("> Your verification code is:\n>\n> 482913\n", "482913"),
+    (">> Your code:\n>> **4829**\n", "4829"),
+    ("code:\n'4821\n", "4821"),
+    ("Your code:\n· 482913\n", "482913"),
+    ("Your code:\n– 482913\n", "482913"),
+    ("Your code:\n— 482913\n", "482913"),
+    ("Your verification code is:\n# 482913\n", "482913"),
+    ("Your code is:\n<b>482913</b>\n", "482913"),
+    ('Your code is:\r\n<span style="font-size:20px">482913</span>\r\n', "482913"),
+    ("Your code is:\n__482913__\n", "482913"),
+    ("**482913** is your verification code\n", "482913"),
+    ("`482913`\nis your verification code\n", "482913"),
+]
+
+
+@pytest.mark.parametrize("raw,code", MARKUP_CODES)
+def test_a_code_in_markup_next_to_its_label_is_masked(raw, code) -> None:
+    redactor = Redactor()
+    assert code not in redactor.text(raw), redactor.text(raw)
+    assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("raw", ["PIN code: **560001**\n", "Coupon code:\n`4455`\n", "> ZIP code:\n> 94107\n",
+                                 "Pincode:\n<b>560001</b>\n", "Steps:\n**2024**\n", "Promo code\n· 4455\n",
+                                 "> Notes:\n>\n> 2024\n", "<b>Total</b> 4999\n"])
+def test_markup_around_an_address_code_or_an_ordinary_number_keeps_it(raw) -> None:
+    redactor = Redactor()
+    assert redactor.text(raw) == raw
+    assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("below", ["· 482913", "– 482913", "> 482913", "'4821"])
+def test_ocr_masks_a_code_after_a_quote_prefix_or_bullet_under_its_label(below) -> None:
+    assert _masked([TextRegion("Enter the code we sent you", (0, 0, 90, 9)),
+                    TextRegion(below, (0, 12, 40, 9))]) == [below]

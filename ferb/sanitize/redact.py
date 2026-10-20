@@ -97,17 +97,25 @@ def password_field(kind: str, *metadata: Any) -> bool:
 # ("tests/test_otp.py").
 CODE_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:one[{_H}_-]?time[{_H}_-]?(?:password|passcode|code|pin)|otp|totp|"
                        rf"2fa|pass[{_H}_-]?code|pin|codes?|verification)(?![A-Za-z0-9]|\.[A-Za-z0-9])")
+# Markup around a code (re-review 5): a simple inline HTML tag ("<b>", "</code>", '<span style="…">'), and what may
+# sit between a code and its label or link on one line besides whitespace: markdown emphasis and code marks, quote
+# marks, tags.
+_TAG = r"</?[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?/?>"
+_TAG_RE = re.compile(_TAG)
+_MARKUP = rf"(?:[{_H}*_`'\"]|{_TAG})"
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
-# longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
+# longer token or digit group (an id, a phone number); a JSON escape before it still separates it, and so does a
+# markdown "_" that isn't inside a word ("_482913_", never "id_4821").
 # A masked code counts as the digits it replaced, so masking twice changes nothing.
-CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[{_H}-])"
-                        rf"(?<!\[redacted\][{_H}-])"
-                        rf"(?:[A-Z]-)?\d(?:[{_H}-]?\d){{3,7}}(?![0-9A-Za-z_]|[{_H}-]\d|[{_H}-]\[redacted\])")
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=(?<![0-9A-Za-z])_)|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))"
+                        rf"(?<!\d[{_H}-])(?<!\[redacted\][{_H}-])"
+                        rf"(?:[A-Z]-)?\d(?:[{_H}-]?\d){{3,7}}"
+                        rf"(?![0-9A-Za-z]|_[0-9A-Za-z]|[{_H}-]\d|[{_H}-]\[redacted\])")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
 # "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word; "1500 to check the
 # OTP", "issue 4821 - code freeze" and "Line 1234: code smell" don't join either.
-CODE_LINK = re.compile(rf"(?i)[{_H}]*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
+CODE_LINK = re.compile(rf"(?i){_MARKUP}*(?:(?:is|are|was|as)(?![A-Za-z0-9])|\()")
 # Owner decision 2026-10-15: address and coupon codes are ordinary data. A code word or "PIN" inside one of these is
 # no code or secret word: "PIN code 560001", "pincode", "ZIP code", "postal_code", "coupon code", "promo code".
 _PLACE = r"(?:pin|zip|postal|post|area|coupon|promo(?:tional)?|discount|voucher)"
@@ -155,8 +163,8 @@ def _clause_break(s: str, a: int, b: int) -> bool:
 # 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
 # Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
 # the label line next to it (`_line_codes`).
-LABEL_DIRECT = re.compile(rf"[{_H}:=#\-–—]*")
-LABEL_LINK = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—])[{_H}]*$")
+LABEL_DIRECT = re.compile(rf"(?:{_MARKUP}|[:=#\-–—])*")
+LABEL_LINK = re.compile(rf"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—]){_MARKUP}*$")
 LINE_BREAK = re.compile(r"\r\n|\r|\n")
 SECRET_WORD = re.compile(rf"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[{_H}_-]?key)?|"
                          rf"api[{_H}_-]?key|(?:(?:access|auth|api|refresh)[{_H}_-]?)?token|private[{_H}_-]?key)"
@@ -332,7 +340,8 @@ def _list_line(line: str) -> bool:
 
 def _line_codes(s: str) -> list[tuple[int, int]]:
     """A code alone on its line with a label line just above it ("Your verification code is:", blank lines between
-    allowed) or a line just below that names it ("482913" over "is your verification code"): an email's layout."""
+    allowed, and a quoted mail's ">" lines) or a line just below that names it ("482913" over "is your verification
+    code"): an email's layout."""
     lines, begin = [], 0
     for m in [*LINE_BREAK.finditer(s), None]:
         end = m.start() if m is not None else len(s)
@@ -341,16 +350,22 @@ def _line_codes(s: str) -> list[tuple[int, int]]:
         begin = m.end() if m is not None else len(s)
     spans = []
     for i, (a, b) in enumerate(lines):
-        line = s[a:b]
-        if not _code_alone(line):
+        code = _code_alone_span(s[a:b])
+        if code is None:
             continue
-        above = s[lines[i - 1][0]:lines[i - 1][1]] if i > 0 else ""
+        j = i - 1
+        while j >= 0 and _quote_only(s[lines[j][0]:lines[j][1]]):
+            j -= 1
+        above = s[lines[j][0]:lines[j][1]] if j >= 0 else ""
         below = s[lines[i + 1][0]:lines[i + 1][1]] if i + 1 < len(lines) else ""
         if _label_line(above) or _link_line(below):
-            code = CODE_VALUE.search(line)
-            if code is not None:
-                spans.append((a + code.start(), a + code.end()))
+            spans.append((a + code[0], a + code[1]))
     return spans
+
+
+def _quote_only(line: str) -> bool:
+    """A quoted mail's blank line: only ">" marks."""
+    return not line.replace(">", "").strip()
 
 
 def _label_joined(s: str, label_end: int, code: re.Match[str]) -> bool:
@@ -408,19 +423,48 @@ def _labelled_secret(kind: str, label: str, text: str) -> bool:
             and bool(secret_words(label)))
 
 
-# A code alone on its line may sit in brackets or parentheses with spaces inside them, or follow a list dash or bullet
-# ("[ 482913 ]", "- 482913", "• 48 29 13": re-review 4, concern 3).
-_CODE_BULLET = re.compile(r"[-*\u2022](?=\s)")
-_CODE_EDGES = re.compile(r"^[\s.,;:()\[\]]+|[\s.,;:()\[\]]+$")
+# A code alone on its line may follow a quoted mail's ">" marks, a heading's "#"s and a list dash or bullet, and sit in
+# marks: whitespace, punctuation, brackets, quote marks, markdown emphasis and code marks, inline HTML tags
+# ("[ 482913 ]", "- 482913", "> **482913**", "<b>482913</b>": re-review 4 concern 3, re-review 5).
+_CODE_LEAD = re.compile(r"(?:>[\s>]*)?(?:#+(?=\s)\s*)?(?:[-*\u2022\u00b7\u2013\u2014](?=\s))?")
+_MARK_CHARS = frozenset(".,;:()[]'\"*_`")
+
+
+def _marks_from(s: str, a: int, b: int) -> int:
+    """Where s[a:b] starts past the marks before it."""
+    while a < b:
+        if s[a].isspace() or s[a] in _MARK_CHARS:
+            a += 1
+        elif s[a] == "<" and (tag := _TAG_RE.match(s, a, b)) is not None:
+            a = tag.end()
+        else:
+            break
+    return a
+
+
+def _marks_to(s: str, a: int, b: int) -> int:
+    """Where s[a:b] ends before the marks after it."""
+    while b > a:
+        if s[b - 1].isspace() or s[b - 1] in _MARK_CHARS:
+            b -= 1
+        elif s[b - 1] == ">" and (lt := s.rfind("<", a, b)) >= 0 and _TAG_RE.fullmatch(s, lt, b) is not None:
+            b = lt
+        else:
+            break
+    return b
+
+
+def _code_alone_span(line: str) -> tuple[int, int] | None:
+    """Where the code lies in a line that is only a code (an email's code on its own line) and its marks."""
+    a = _CODE_LEAD.match(line, len(line) - len(line.lstrip())).end()   # type: ignore[union-attr]
+    a = _marks_from(line, a, len(line))
+    b = _marks_to(line, a, len(line))
+    return (a, b) if a < b and CODE_VALUE.fullmatch(line[a:b]) is not None else None
 
 
 def _code_alone(line: str) -> bool:
-    """A line that is only a code (an email's code on its own line), with its punctuation and brackets, after a list
-    dash or bullet."""
-    body = line.strip()
-    if _CODE_BULLET.match(body):
-        body = body[1:]
-    return CODE_VALUE.fullmatch(_CODE_EDGES.sub("", body)) is not None
+    """A line that is only a code with its marks (`_code_alone_span`)."""
+    return _code_alone_span(line) is not None
 
 
 def _label_line(line: str) -> bool:
@@ -778,7 +822,7 @@ def _forward_relations(s: str, kinds_of: Callable[[str], frozenset[str]] = _line
     if not breaks:
         return none
     partial = s[breaks[-1].end():]
-    if not re.fullmatch(r"[\s(\[]*", partial):
+    if not _code_alone_start(partial):
         return none
     lines = _lines_back(s, breaks)                              # last first, read only as far as needed
     if (line := next(lines, None)) is None:
@@ -792,6 +836,15 @@ def _forward_relations(s: str, kinds_of: Callable[[str], frozenset[str]] = _line
     kinds = (found & {"label", "secret"}) | ({"list"} if "list label" in found else set())
     if kinds:
         return last + after, set(kinds)
+    # A quoted mail's ">" lines under a label line (re-review 5): kept as one ">" line, which still ends a list or a
+    # "Password:" value as it does in the text.
+    if _quote_only(last):
+        for _, begin, end in lines:
+            if not _quote_only(s[begin:end]):
+                if "label" in kinds_of(s[begin:end]):
+                    return s[begin:end] + "\n>" + after, {"label"}
+                break
+        return none
     # a list line under its label, list lines (blank lines allowed: T1) between them
     if "list line" in found and _CODES.search(s, 0, a):
         for _, begin, end in lines:
@@ -821,12 +874,21 @@ def _line_head(s: str) -> str:
     return head[re.search(rf"(?:\S+\s+){{0,{2 * CODE_REACH}}}\S*$", head).start():]   # type: ignore[union-attr]
 
 
-# A line being read that starts as a code alone could be one ("  482913", "(G-48"), and one that starts with a list
-# token could be a list line: under a label or list line such a line is decided whole, so a part released alone is
-# never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the text
-# redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C); a code alone may follow a
-# list dash or bullet (`_code_alone`).
-_CODE_ALONE_START = re.compile(r"[\s.,;:()\[\]]*(?:[-*\u2022](?:\s|$)[\s.,;:()\[\]]*)?(?:[A-Z]-?)?(?:\d|$)")
+# A line being read that starts as a code alone could be one ("  482913", "(G-48", "> **4", "<b"), and one that starts
+# with a list token could be a list line: under a label or list line such a line is decided whole, so a part released
+# alone is never judged as a line of its own ("482913. " of "482913. is Shah,"). Its indent is any whitespace, as the
+# text redactor strips it from a code alone and splits a list line on it (re-review 4, NEW-C).
+# What can still become a link after a code at the end of what has been read: marks, then part of a word ("** i").
+_LINK_START = re.compile(rf"(?:\s|{_MARKUP})*\S*")
+_CODE_LEAD_START = re.compile(r"(?:>[\s>]*)?(?:#+(?:\s+|$))?(?:[-*\u2022\u00b7\u2013\u2014](?:\s|$))?")
+_CODE_START = re.compile(r"(?:[A-Z]-?)?(?:\d|$)|</?(?:[A-Za-z][A-Za-z0-9]*(?:[ \t][^<>\r\n]*)?)?$")
+
+
+def _code_alone_start(line: str) -> bool:
+    """Whether the line being read can still become a code alone (`_code_alone_span`): its lead and marks, then a
+    digit, a "G-" prefix, an unfinished tag or nothing yet."""
+    a = _CODE_LEAD_START.match(line, len(line) - len(line.lstrip())).end()   # type: ignore[union-attr]
+    return _CODE_START.match(line, _marks_from(line, a, len(line))) is not None
 _LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
 
 
@@ -933,7 +995,7 @@ class RedactionStream:
         # A number alone holds the line only while its link can still follow it ("482913 is your …"): an interactive
         # prompt with a number ("Delete 1234 files? [y/N] ") appears at once (re-review 2, I3).
         urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
-        joinable = any((CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"\s*\S*", tail[m.end():]))
+        joinable = any((CODE_LINK.match(tail, m.end()) is not None or _LINK_START.fullmatch(tail, m.end()))
                        and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
         # The line under a label, "Password:" or list line is decided with it, so a read ending inside it never
         # releases part of it without that context (re-review 3, NEW-C1): under "Password:" the whole value line,
@@ -941,7 +1003,7 @@ class RedactionStream:
         # progress line under "Code server ready (3733 files)" shows at once).
         under = bool(tail.strip()) and (
             "secret" in kinds or ("list" in kinds and _LIST_LINE_START.match(tail) is not None)
-            or ("label" in kinds and _CODE_ALONE_START.match(tail) is not None))
+            or ("label" in kinds and _code_alone_start(tail)))
         if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail) or under
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail) or _LIST_QUALIFIER_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
