@@ -442,9 +442,14 @@ def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeyp
     """Two maximized windows share bounds: Accessibility's window is the one with the captured window's title."""
     d, ax, shots, *_ = vision(monkeypatch)
     asked: list[Any] = []
-    ax.window_with_frame = lambda pid, bounds, title=None: asked.append(title) or "win"   # type: ignore[method-assign]
+
+    def with_frame(pid: int, bounds: Any, title: Any = None, current_title: Any = None) -> Any:
+        asked.append((title, current_title() if current_title else None))
+        return "win"
+    ax.window_with_frame = with_frame                                  # type: ignore[method-assign]
     asyncio.run(d.screenshot("Notes"))
-    assert asked == ["w", "w"]                                       # FakeShots' window title, both looks
+    # FakeShots' window title, both looks; and the window server's title for it now, read again by its id (review M7)
+    assert asked == [("w", "w"), ("w", "w")]
 
 
 def test_an_ax_window_at_a_shared_place_is_told_apart_by_its_title(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -457,6 +462,30 @@ def test_an_ax_window_at_a_shared_place_is_told_apart_by_its_title(monkeypatch: 
     assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "Something else") is None
     monkeypatch.setattr(axm, "ax_windows", lambda pid: ["greenhouse"])
     assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "renamed meanwhile") == "greenhouse"
+
+
+def test_a_title_pick_that_a_retitle_could_have_misled_reads_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M7: the captured window was "A" when the window list was read, then retitled "B"; another window at the
+    same place is still "A". Picking by "A" would walk that other window. The pick is confirmed: the captured window
+    still has that title (the window server, read again), the picked window is still there with it, and no other
+    window has it. Otherwise no window: the capture is left to text recognition with a note."""
+    from ferb.act.mac import accessibility as axm
+    bounds = (0.0, 30.0, 1400.0, 900.0)
+    titles = {"captured": "B", "other": "A"}
+    monkeypatch.setattr(axm, "ax_windows", lambda pid: ["captured", "other"])
+    monkeypatch.setattr(axm, "frame", lambda win: bounds)
+    monkeypatch.setattr(axm, "window_title", lambda win: titles[win])
+    assert axm.window_with_frame(1, bounds, "A", current_title=lambda: "B") is None        # retitled since the list
+    titles["captured"] = "A"
+    titles["other"] = "K"
+    assert axm.window_with_frame(1, bounds, "A", current_title=lambda: "A") == "captured"
+    flips = iter(["A", "K", "A", "A"])                        # the other window takes the title between the reads
+    monkeypatch.setattr(axm, "window_title", lambda win: next(flips))
+    assert axm.window_with_frame(1, bounds, "A", current_title=lambda: "A") is None
+    monkeypatch.setattr(axm, "window_title", lambda win: titles[win])
+    moved = iter([bounds, (5.0, 30.0, 1400.0, 900.0)])       # the picked window moved before it was confirmed
+    monkeypatch.setattr(axm, "frame", lambda win: next(moved, bounds) if win == "captured" else bounds)
+    assert axm.window_with_frame(1, bounds, "A", current_title=lambda: "A") is None
 
 
 def test_a_browser_page_area_that_hasnt_appeared_yet_is_read_again(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -533,7 +562,7 @@ def test_a_page_field_moving_during_a_native_capture_is_painted_where_each_look_
 def test_a_window_accessibility_cant_read_is_left_to_text_recognition_and_says_so(
         monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, shots, *_ = vision(monkeypatch)
-    ax.window_with_frame = lambda pid, bounds, title=None: None            # type: ignore[method-assign]
+    ax.window_with_frame = lambda *a, **k: None                            # type: ignore[method-assign]
     _, shot, jpeg = asyncio.run(d.screenshot("Notes"))
     assert shots.captured == [110] and jpeg == shots.jpeg
     assert "couldn't be located" in shot.masking and "Accessibility couldn't read" in shot.masking

@@ -22,7 +22,7 @@ AXManualAccessibility, so `expose_tree` does nothing for them: spike 06, fix wav
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from ferb.core.errors import FerbError
 
@@ -259,15 +259,29 @@ def frame(win: Any) -> tuple[float, float, float, float] | None:
     return (x, y, w, h) if w and h else None
 
 
-def window_with_frame(pid: int, bounds: tuple[float, float, float, float], title: str | None = None) -> Any:
+def window_with_frame(pid: int, bounds: tuple[float, float, float, float], title: str | None = None,
+                      current_title: Callable[[], str] | None = None) -> Any:
     """The app's Accessibility window at these screen bounds (the captured window), or None. When several are there
     (maximized windows share bounds), the one whose title is `title` (the captured window's, as the window server
-    names it); never the first of several."""
-    matches = [win for win in ax_windows(pid) if (f := frame(win)) is not None and
-               all(abs(a - b) <= 2 for a, b in zip(f, bounds))]
-    if len(matches) > 1 and title:
-        matches = [win for win in matches if window_title(win) == title.strip("‎ ")]
-    return matches[0] if len(matches) == 1 else None
+    named it); never the first of several. That pick is confirmed (review M7: a retitle between the window list and
+    this read could point at another window still showing the old title): the window server still names the captured
+    window `title` (`current_title`), the picked window is still at these bounds with it, and no other window there
+    has it. Unconfirmed: None, a window Accessibility can't read for this capture."""
+    def at(win: Any) -> bool:
+        return (f := frame(win)) is not None and all(abs(a - b) <= 2 for a, b in zip(f, bounds))
+    matches = [win for win in ax_windows(pid) if at(win)]
+    if len(matches) == 1:
+        return matches[0]
+    want = (title or "").strip("‎ ")
+    named = [win for win in matches if want and window_title(win) == want]
+    if len(named) != 1:
+        return None
+    again = [win for win in matches if window_title(win) == want]
+    if len(again) != 1 or not _same(again[0], named[0]) or not at(named[0]):
+        return None
+    if current_title is not None and current_title().strip("‎ ") != want:
+        return None
+    return named[0]
 
 
 

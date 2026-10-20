@@ -1658,6 +1658,9 @@ protected FERB state (16.9).
   Accessibility showed ("no page area" / "page area is empty"), so a live trace explains itself.
 - Each look's AX window is the app's window at the captured bounds; when several are there (maximized windows share
   bounds) the one with the captured window's window-server title (`accessibility.window_with_frame(…, title)`).
+  A pick by title is confirmed (review M7): the window server still gives the captured window that title (read again
+  by its id), the picked window is still there with it, and no other window there has it; otherwise the look reads
+  no window (the capture's note says Accessibility couldn't read it) rather than walking a possibly wrong one.
 - Each look asks the extension while its AX walk runs, and the look after a capture doesn't ask again when nobody
   answered the first (`WebSecrets.late`): the worst case (a ~2 s re-read and a 4 s ask per look) is ~6 s (~8 s when
   only the second ask times out), inside the planner's 10 s wait for the front window; one after the other it was

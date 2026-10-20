@@ -400,10 +400,14 @@ class MacComputerDriver:
         (never an earlier one: a field may have moved since) and, for a browser, the extension's page, asked while the
         walk runs (review M6: one after the other, two looks could outlast the planner's wait for the front window).
         After a look `before` whose ask nobody answered, the extension isn't asked again. The AX window is the one at
-        the window's bounds (with its title, when several are there). None there (it moved, or can't be read): no
-        walk, and no page."""
+        the window's bounds (with its title, when several are there, confirmed against the window server's title now).
+        None there (it moved, or can't be read): no walk, and no page."""
+        def now_titled() -> str:                     # the window server's title for the captured window now (M7)
+            current = self.shots.window(w.id)
+            return current.title if current is not None else ""
+
         async def walk() -> axm.AxTree | None:
-            win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None)
+            win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds, w.title or None, now_titled)
             return await self._walk(a, win) if win is not None else None
         browser = BROWSER_BUNDLES.get(a.bundle_id)
         earlier = before[1] if before is not None else None
