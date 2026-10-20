@@ -1246,6 +1246,10 @@ all pending; Brave with Automation already allowed):
 62. Maximize both windows (same place, different pages) with B in front: the block has B's URL (told apart by its
     title). Then open the same page in both: the block has no URL and a `tab_note` saying FERB can't tell which tab;
     the window title is still there. Note anything in the block that names the other window.
+62a. Second display (review M8): move window B to a second display (left of or above the main one, so its
+    coordinates are negative or offset), keep A on the main display, click into B and send "what page is this?".
+    The block has B's URL; the screenshot is B's. Repeat with B maximized on the second display and A maximized on
+    the main one (same size, different places): still B's.
 63. The live case again: in a Brave profile that is **not** paired with FERB, open a job page (and a disposable
     sign-in page with "Show password" ticked and a throwaway value typed) and ask about it. The planner gets the
     screenshot (no "withheld"), and the block's `masking` says the page's secret fields couldn't be located, why

@@ -29,8 +29,9 @@ In those profiles it does three things:</p>
     each time you send a message while that window is in front, and when a task looks at the window), the extension
     runs its own bundled script in the tab you can see to find where password and one-time-code fields are, so FERB
     can paint over them. It reads where those fields are, never what's in them. When it can't (the window's profile
-    isn't paired with FERB, or the page can't be read), the screenshot is still used, with secrets hidden only by
-    on-device text recognition, which can miss a secret it doesn't recognise as one.</li>
+    isn't paired with FERB, or the page can't be read), the screenshot is still used: password fields macOS
+    Accessibility can see are still painted over, and other secrets are hidden by on-device text recognition, which
+    can miss a secret it doesn't recognise as one.</li>
 </ul>
 <p>It passes what it reads to the FERB app, and to nothing else.</p>
 

@@ -1681,7 +1681,13 @@ protected FERB state (16.9).
   - a window Accessibility can't read in a look (`WINDOW_UNREAD`), a secret field with no box (`FIELD_UNPLACED`),
     page fields with no page area (`PAGE_UNPLACED`): left to text recognition;
   - a field or page item that moved, appeared or went between the looks, or a page that navigated or resized
-    (`FIELD_MOVED`, `PAGE_MOVED`): painted where each look saw it, the rest left to text recognition.
+    (`FIELD_MOVED`, `PAGE_MOVED`): painted where each look saw it, the rest left to text recognition;
+  - whatever one look located stays painted when the other look can't be used (review I1): a look that couldn't read
+    the window (`WINDOW_HALF_READ`; `WINDOW_UNREAD` only when neither could), a moved page whose other look had no
+    page area (`PAGE_PART_PLACED`), the extension answering one look only (`ONE_LOOK`: a field only the other look
+    could show is left to text recognition, review M5);
+  - painting a page look by look paints its secret fields, the frame hosts it paints whole and frames that reloaded
+    between the looks, never a clean frame (`_look_items`, review M4).
   The picture always goes through the F5 `ImageRedactor`, which every image path runs. `masking` reaches
   `mac.screenshot`'s content, a first look's facts, the front-window block and its evidence facts
   (`FrontWindow.masking`), and a recording's `masking` list. Residual (accepted by the directive): where fields can't

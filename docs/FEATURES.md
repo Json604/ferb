@@ -317,9 +317,9 @@ All **Shipped** (`ferb --help`):
   passwords are masked too. **Landing this week — integrated, not live-tested (L13).** Before it, browser windows and
   recording frames were withheld from the model.
 - Fix wave 4 (2026-10-19): a window picture (`mac.screenshot`, the front window, a recording frame) whose secret
-  fields FERB can't locate (the window's browser profile isn't paired, Accessibility can't read the page) is no
-  longer withheld: it goes to the model masked by on-device text recognition only, and says so with the reason. A
-  window picture is withheld only when the masks can't be painted on it. Not live-tested. (A `browser.screenshot` of a
+  fields FERB can't all locate (the window's browser profile isn't paired, Accessibility can't read the page) is no
+  longer withheld: the fields it did locate are painted, the rest is masked by on-device text recognition only, and
+  the picture says so with the reason. A window picture is withheld only when the masks can't be painted on it. Not live-tested. (A `browser.screenshot` of a
   task tab the extension can't read is still withheld: that needs an extension update.)
 - Limits: OCR can miss unreadable or obscured text; this is class-based redaction, not removal of all private text.
   Where fields couldn't be located, a secret the OCR doesn't recognise as one (an unlabelled shown password) can

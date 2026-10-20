@@ -365,9 +365,10 @@ hosted model therefore sees your front window, redacted, with every message. An 
 looked at or named; a site on it is still seen, under an "excluded" label. Later pictures need an explicit screenshot
 request. Browser windows, task-tab screenshots and recording frames all go to the model redacted: password and code
 fields (shown passwords included) are painted over, and on-device Vision OCR masks classified secrets before an image
-reaches a model, evidence file or recording. When FERB can't locate a window's secret fields (a browser profile that
-isn't paired, a page Accessibility can't read), the picture is masked by the OCR only, and says so; an image is
-withheld only when masking or redaction fails. OCR can miss unreadable/obscured text; this is class-based redaction,
+reaches a model, evidence file or recording. When FERB can't locate some of a window's secret fields (a browser
+profile that isn't paired, a page Accessibility can't read), the fields it did locate are still painted, the rest of
+the picture is masked by the OCR only, and the picture says so; an image is withheld only when masking or redaction
+fails. OCR can miss unreadable/obscured text; this is class-based redaction,
 not a guarantee that all private text is removed. A browser's URL is read from the window actually in front, or not
 sent.
 `browser.secret` and `mac.secret` ask through hidden CLI input and fill only the exact origin/app and element.
