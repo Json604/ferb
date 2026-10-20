@@ -338,17 +338,22 @@ def _labelled_code(label: str, text: str) -> bool:
 
 # A password, passcode or PIN a question asks for (signing in, paying); never an address PIN code.
 SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:password|passcode|pin)(?![A-Za-z0-9])")
+# A question asks for the secret itself when its word ends the phrase: then punctuation, the end, or "for/to/of/on/at"
+# (the qualifiers SECRET_AFTER takes) or "is/was" ("What's your Gmail password?", "the passcode for the door"); in
+# "Which password manager do you use?" or "the password reset page" the word names something else.
+SECRET_ASKED = re.compile(r"(?i)[ \t]*(?:[?.!:,;)\]]|$)|[ \t]+(?:for|to|of|on|at|is|was)(?![A-Za-z0-9])")
 
 
 def _hidden_answer(question: str, text: str, *, reply: bool) -> bool:
-    """An answer hidden whole (rule 14, re-review 2 R1): to a question about a sign-in password, passcode or PIN (never
-    an address PIN code), whatever its shape; to an explicit one-time code question, any digits. A chat reply while
+    """An answer hidden whole (rule 14, re-review 2 R1): to a question asking for a sign-in password, passcode or PIN
+    (never an address PIN code; `SECRET_ASKED`), whatever its shape; to an explicit one-time code question, any digits. A chat reply while
     the question is open may be a steer (L3): it is hidden whole for a password question only with a password's shape,
     one word."""
     value = text.strip()
     if bool(OTP_LABEL.search(question)) and re.fullmatch(r"[\d -]+", value) is not None:
         return True
-    return bool(_not_address(question, SIGN_IN_SECRET.finditer(question))) and (not reply or len(value.split()) == 1)
+    asked = any(SECRET_ASKED.match(question, word.end()) for word in _not_address(question, SIGN_IN_SECRET.finditer(question)))
+    return asked and (not reply or len(value.split()) == 1)
 
 
 def _labelled_secret(kind: str, label: str, text: str) -> bool:
