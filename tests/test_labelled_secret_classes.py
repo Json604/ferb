@@ -354,7 +354,9 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              # re-review 6: long whitespace runs, tags with spaces in their attributes, <code> tags, quoted words
              " " * 24, "\t" * 12, "\xa0" * 16, " \t\xa0\u2003" * 6, '<span class="a b">', "</span>",
              '<td class="x y">', "</td>", '<i class="q">', '<span style="color:#999">', "<code>", "</code>",
-             "<pre><code>", "'sunshine'", '<td class="x', "1 2 3 4 5 total"]
+             "<pre><code>", "'sunshine'", '<td class="x', "1 2 3 4 5 total",
+             # re-review 6 final: cards followed directly by markup
+             "4111 1111 1111 1111**", "|4111 1111 1111 1111|", "<td>4111 1111 1111 1111</td>", "`4111 1111 1111 1111`"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
@@ -1108,3 +1110,29 @@ def test_a_code_word_outside_tags_still_labels_a_code_in_one(raw) -> None:
     redactor = Redactor()
     assert REDACTED in redactor.text(raw)
     assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("after", ["<", "</td>", "*", "**", "`", "'", '"', "|", "}", ">", "/", "&", "~", "]", ")", "."])
+def test_a_card_followed_directly_by_markup_is_never_split_by_a_read(after) -> None:
+    """Re-review 6 final (NEW-6, the stream masked less than the text): a read ending right after a card and the mark
+    after it ("4111 1111 1111 1111**") released the card's first groups alone, since only ";:!?)]" were held after
+    a digit run. The text redactor masks a card followed by any mark."""
+    raw = "Card on file 4111 1111 1111 1111" + after + " thanks\n"
+    redactor = Redactor()
+    assert "4111" not in redactor.text(raw)
+    assert _differing_splits(redactor, raw) == []
+
+
+@pytest.mark.parametrize("fragments", [
+    ["Your card is **", "4111", " 1111", " 1111", " 1111", "**", "\n"],
+    ["| Card | 4111 1111", " 1111 1111|", " x |\n"],
+    ["|4111 1111 1111 1111|", "\n"],
+    ["<td>4111 1111 1111 ", "1111</t", "d>\n"],
+    ["Card: `4111 1111 1111 1111", "` saved\n"],
+])
+def test_streamed_reply_fragments_with_a_card_in_markup_stay_masked(fragments) -> None:
+    redactor = Redactor()
+    stream = redactor.stream()
+    out = b"".join(stream.feed(f.encode()) for f in fragments) + stream.feed(b"", final=True)
+    assert out.decode() == redactor.text("".join(fragments))
+    assert "4111" not in out.decode()

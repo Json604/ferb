@@ -1074,11 +1074,27 @@ def _code_alone_so_far(line: str) -> bool:
 
 
 _LIST_LINE_START = re.compile(r"[\s,]*(?:(?:\d+[.)]|[*\u2022])(?:\s|$)\s*)?[A-Za-z0-9-]*(?:[\s,]|$)")
-# The digits ending the line being read that may still go on (`RedactionStream._safe_cut`): the first digit of the
-# run of digits, whitespace, ",", "." and "-" that reaches the end (closing marks after it allowed); the match ends at
-# that digit. Tried only where such a run starts, so a long run of numbers is read once, not again from each of its
-# numbers (re-review 6, C1: "1 2 3 … 20000 total" cost quadratic time per read).
-_NUMERIC_TAIL = re.compile(rf"(?<![\d{_H},.-])[{_H},.-]*+(?=\d[\d{_H},.-]*+[;:!?)\]]*+$)")
+# The digits ending the line being read that a read must not split (`_numeric_tail`): the first digit of a run of
+# digits, whitespace, ",", "." and "-" that reaches the end, or that ends in the line's last word at a mark a card can
+# end at (anything but a letter, digit or "_", as `CARD` reads it: "4111 1111 1111 1111**", "…1111</td"); the match
+# ends at that digit (re-review 6, final: only ";:!?)]" were held, so a card followed by markup was split).
+_NUMERIC_TAIL = re.compile(rf"[{_H},.-]*+(?=\d[\d{_H},.-]*+(?:[^\s0-9A-Za-z_]\S*+)?$)")
+_NUMERIC_START = re.compile(rf"(?<![\d{_H},.-])[\d{_H},.-]")
+_NUMERIC_RUN = re.compile(rf"[\d{_H},.-]*+")
+_LAST_WORD = re.compile(r"\S*+")
+
+
+def _numeric_tail(tail: str) -> int | None:
+    """Where the digits that end `tail` (`_NUMERIC_TAIL`) start. Only the runs that reach the line's last word are
+    tried, each where it starts, so a long run of numbers is read once, not again from each of its numbers
+    (re-review 6, C1: "1 2 3 … 20000 total" cost quadratic time per read)."""
+    reverse = tail[::-1]
+    word = len(tail) - _LAST_WORD.match(reverse).end()              # type: ignore[union-attr]
+    start = word - _NUMERIC_RUN.match(reverse, len(tail) - word).end()   # type: ignore[union-attr]
+    for run in _NUMERIC_START.finditer(tail, start):
+        if (digits := _NUMERIC_TAIL.match(tail, run.start())) is not None:
+            return digits.end()
+    return None
 
 
 class RedactionStream:
@@ -1139,10 +1155,11 @@ class RedactionStream:
         # introducer holds that whole line: `_labelled_hold`).
         _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
-        # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end)
-        numeric = _NUMERIC_TAIL.search(tail)
-        if numeric:                         # from its token's start: a card's digits are never split from it
-            start = line_start + numeric.end()
+        # a digit run may still go on, through "." or "," too: "… 1111. Thanks", "… 482913 2,000" (a card's end), or
+        # end at a mark in the last word ("… 1111**")
+        numeric = _numeric_tail(tail)
+        if numeric is not None:             # from its token's start: a card's digits are never split from it
+            start = line_start + numeric
             while start > line_start and not self.pending[start - 1].isspace():
                 start -= 1
             cut = min(cut, start)

@@ -73,7 +73,9 @@ RUNS = [" ", "\t", "\xa0", " \t\xa0\u2003", "*", "_", "`", "'", '"', "'\"", " *"
         # minified JSON with secret keys (quoted and unquoted values), prose with unclosed quotes
         '{"token":"abc","n":1}', '{"has_password":true}', "password: 'x ",
         # prefix words inside one space-free token
-        "api/", "time.", "one-", "my/", "eyJ-", "eyJabcdefgh."]
+        "api/", "time.", "one-", "my/", "eyJ-", "eyJabcdefgh.",
+        # numbers ending at marks
+        "1/", "1*", "4111 1111**"]
 PREFIXES = ["", "482913", "one", "backup", "api", "my", "Your code:", "password is", "verification", "bearer"]
 SUFFIX = " ab cd efgh"
 SEARCHING = {"search", "finditer", "findall", "sub", "subn", "split"}
@@ -156,6 +158,8 @@ TEXTS: list[tuple[str, str, str]] = [
     ("", "api/", " x yz"), ("", "a.post(b).time=c;", " x yz"), ("my ", "api_", " x y zz"),
     # token starts inside one space-free token
     ("", "eyJ-", " x yz"), ("", "eyJabcdefgh.", " x yz"),
+    # numbers ending at marks in the last word, or not
+    ("", "1/", " x yz"), ("", "1/", "1"), ("", "1 ", "1** yz"), ("", "4111 1111 1111 1111** ", "x yz"),
 ]
 
 
