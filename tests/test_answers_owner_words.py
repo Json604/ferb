@@ -450,7 +450,8 @@ def test_a_reply_turn_names_what_was_set_and_saved_in_code_built_lines(daemon: R
         lines = reply[field].split('\n')
         assert lines[0] == 'Okay.'
         assert f'⏰ Reminder set for {at:%a %d %b %H:%M}: call Mom' in lines
-        assert 'Remembered: and remember that my dentist is Dr. Rao' in lines   # their whole clause, as saved (I1)
+        # their whole sentence, as saved (I1; re-review F4: never split at a comma)
+        assert 'Remembered: remind me in 10 minutes to call Mom, and remember that my dentist is Dr. Rao' in lines
     assert [e['type'] for e in events if e['type'] in ('memory', 'timer')] == ['memory', 'timer']   # still sent
 
 

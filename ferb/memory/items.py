@@ -108,20 +108,38 @@ def _clause_span(text: str, start: int, end: int) -> tuple[int, int]:
     return left, min(rights) if rights else len(text)
 
 
-def owner_clause(text: str, part: str) -> str | None:
-    """The whole clause(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is saved
-    as their words, so a slice can never drop a word of the clause such as a negation ("never share my links publicly"
-    stays whole). None when `part` isn't in `text` (fix round, review Q3)."""
+# A sentence ends at a line break, at "!" or "?" before a space or the end, and at a dot when a new sentence follows (a
+# space and a capital, or the end) and the word before it isn't abbreviation-shaped ("Dr.", "Rs.", "a/c"): the
+# redactor's sentence rule (re-review F4). A comma, semicolon or colon never ends one.
+_SENTENCE_DOT = re.compile(r"\.(?=\s+[A-Z]|\s*$)")
+_ABBREVIATION = re.compile(r"[A-Za-z]{1,3}|[A-Za-z]/[A-Za-z]")
+
+
+def _sentence_ends(text: str) -> list[int]:
+    ends = [m.start() for m in re.finditer(r"\n|[!?](?=\s|$)", text)]
+    for dot in _SENTENCE_DOT.finditer(text):
+        before = re.search(r"(\S+)$", text[max(0, dot.start() - 24):dot.start()])
+        if before is None or not _ABBREVIATION.fullmatch(before.group(1)):
+            ends.append(dot.start())
+    return sorted(ends)
+
+
+def owner_sentences(text: str, part: str) -> str | None:
+    """The whole sentence(s) of the owner's `text` that hold `part` as whole words, in their own spelling: what is
+    saved as their words, so a slice can never drop a negation or a condition, whatever its commas ("Never, ever share
+    my links publicly"; "If it's a work email, sign it as Kartikey"). None when `part` isn't in `text` (re-review F4)."""
     found = _found(text, part)
     if found is None:
         return None
-    left, right = _clause_span(text, *found)
-    return text[left:right].strip(_EDGE) or None
+    ends = _sentence_ends(text)
+    left = max((e for e in ends if e < found[0]), default=-1) + 1
+    right = min((e for e in ends if e >= found[1]), default=len(text))
+    return text[left:right].strip(_EDGE + "!?") or None
 
 
 def whole_clauses(text: str, part: str) -> bool:
     """Whether `part` is exactly one or more whole clauses of `text`: a meaningful span of the owner's words, never any
-    word they happened to type ("the")."""
+    word they happened to type ("the"). A chat forget's quote must be one."""
     found = _found(text, part)
     if found is None:
         return False

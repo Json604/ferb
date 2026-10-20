@@ -1826,17 +1826,17 @@ class Daemon:
     def _remember(self, items: list[Any], own_words: str, source_id: str,
                   outside: bool = False) -> list[dict[str, str]]:
         """Chat capture (memory review I1, MP2). `own_words`: what the owner typed (pasted parts left out). The quote must
-        be whole words of it. Saved as owner_stated is only the owner's own text: the whole clause(s) of their words
-        that hold the planner's content (`owner_clause`), so a slice never drops a negation. Any other content is FERB's
+        be whole words of it. Saved as owner_stated is only the owner's own text: the whole sentence(s) of their words
+        that hold the planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is FERB's
         wording of what they said: an inferred proposal, out of every prompt until they say Yes to the question that
         offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. `outside`:
         the turn showed outside content, so an owner preference waits for their Confirm before it joins their
         always-loaded identity. Per saved item: its receipt and the line code adds to the reply."""
-        from ferb.memory.items import contains_words, owner_clause, query_terms
+        from ferb.memory.items import contains_words, owner_sentences, query_terms
         saved: list[dict[str, str]] = []
         for it in items:
             content = str(it.content).strip()
-            clause = owner_clause(own_words, content)
+            clause = owner_sentences(own_words, content)
             if not contains_words(own_words, str(it.quote)):
                 why = "quote not in the owner's words"
             elif clause is None and not set(query_terms(str(it.quote))) & set(query_terms(content)):

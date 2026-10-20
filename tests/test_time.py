@@ -340,8 +340,8 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     left = run(daemon, daemon.daemon.timers.pending)
     assert len(left) == 1 and left[0].fire_at == resolve(When(**this), daemon.daemon.clock.now())
     facts = run(daemon, daemon.daemon._facts)
-    # their own words: the whole clause they said it in (I1, fix round)
-    assert "When the owner says “next friday”, they mean: by next friday I meant this friday" in facts
+    # their own words: the whole sentence they said it in (I1; re-review F4)
+    assert "When the owner says “next friday”, they mean: no, by next friday I meant this friday" in facts
     assert f"Reminder {left[0].id}: call Mom" in facts
 
 

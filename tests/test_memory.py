@@ -119,17 +119,17 @@ def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daem
     assert "Safari" not in _identity(daemon)                  # a confirmed inference is still not the owner's rule
 
 
-def test_owner_words_are_saved_as_their_whole_clause_never_a_slice_dropping_a_negation(daemon: RunningDaemon) -> None:
+def test_owner_words_are_saved_as_their_whole_sentence_never_a_slice_dropping_a_negation(daemon: RunningDaemon) -> None:
     """Review Q3: a contiguous slice of the owner's words ("share my links publicly" out of "never share my links
-    publicly, …") was saved as their rule. What is saved as theirs is the whole clause it sits in."""
+    publicly, …") was saved as their rule. What is saved as theirs is the whole sentence it sits in (re-review F4)."""
     own = "never share my links publicly, just summarize the page"
     src = journal(daemon, "chat.message", {"text": own})
     item = Remember(kind="preference", subject="owner", key="links", content="share my links publicly",
                     quote="share my links publicly")
     saved = run(daemon, lambda: daemon.daemon._remember([item], own, src))
-    assert [s["line"] for s in saved] == ["Remembered: never share my links publicly"]
+    assert [s["line"] for s in saved] == ["Remembered: never share my links publicly, just summarize the page"]
     stored = run(daemon, lambda: [i.content for i in mem(daemon).items(None, valid_now=False)])
-    assert stored == ["never share my links publicly"]
+    assert stored == ["never share my links publicly, just summarize the page"]
     assert "never share my links publicly" in _identity(daemon)
 
 
@@ -415,3 +415,46 @@ def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None
     everything = daemon.run(dump())
     assert secret.encode() not in everything and b"hunter2-Zq9" not in everything
     assert "[redacted]" in (home / "memory" / "owner.md").read_text()
+
+
+# ---------- round 2 (re-review F3, F4, F5) ----------
+
+def test_no_prompt_path_shows_an_unconfirmed_inferred_item(daemon: RunningDaemon) -> None:
+    """Re-review F3 (probe c): a pending inferred item reached an active entity rollup that search returned, and
+    `memory.learned item_id` returned the pending node itself. Until the owner says Yes, nothing a prompt or a worker
+    can read holds it."""
+    import asyncio as _asyncio
+    import json as _json
+    from ferb.memory.tools import LearningRead
+    d = daemon.daemon
+    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
+    run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
+                                            [("journal", src)], 0.7))
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    run(daemon, lambda: d.consolidator.rollups(d.learning))
+    assert not [n for n in run(daemon, lambda: d.learning.items("entity")) if "Quentarr" in _json.dumps(n["body"])]
+    assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
+    [pending] = [n for n in run(daemon, lambda: d.learning.items("fact")) if n["state"] == "proposed"]
+    read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=pending["id"]), None))
+    assert read.is_error and "Quentarr" not in _json.dumps(read.content)
+    script = install(daemon, [_json.dumps({"kind": "reply", "text": "Hi."})])
+    chat(daemon, "who is my boss?")
+    assert "Quentarr" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    assert _asyncio
+
+
+def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemon: RunningDaemon) -> None:
+    """Re-review F4 ruling: a comma inside a sentence split a negation or a condition off what was saved. What is saved
+    as the owner's words is their whole typed sentence(s), split only at a sentence end or a line break."""
+    from ferb.memory.items import owner_sentences
+    for own, part, saved in [
+            ("Never, ever share my links publicly", "share my links publicly", "Never, ever share my links publicly"),
+            ("Don't, under any circumstances, share my links publicly", "share my links publicly",
+             "Don't, under any circumstances, share my links publicly"),
+            ("If it's a work email, sign it as Kartikey", "sign it as Kartikey",
+             "If it's a work email, sign it as Kartikey"),
+            ("Thanks. Never share my links publicly! Summarize the page.", "share my links publicly",
+             "Never share my links publicly"),
+            ("my dentist is Dr. Rao, he's great\nalso book me in", "my dentist is Dr. Rao",
+             "my dentist is Dr. Rao, he's great")]:
+        assert owner_sentences(own, part) == saved, own
