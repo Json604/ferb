@@ -42,9 +42,12 @@ SECRET_PATTERNS = [
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
-    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}"),
 ]
+# A JSON web token, masked after those and before a bearer token, which may carry one (`_jwts`).
+_JWT_START = re.compile(r"\beyJ")
+JWT = re.compile(r"eyJ[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}+\.[A-Za-z0-9_-]{8,}+")
+_TOKEN_RUN = re.compile(r"[A-Za-z0-9_-]*+")
+BEARER = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}")
 URL = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s\"'<>]+")
 _URL_START = re.compile(r"\b[a-zA-Z]")
 _SCHEME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+.-")
@@ -60,6 +63,20 @@ def _private_keys(s: str) -> list[tuple[int, int]]:
             break
         spans.append((begin.start(), end.end()))
         pos = end.end()
+    return spans
+
+
+def _jwts(s: str) -> list[tuple[int, int]]:
+    """Where each JSON web token lies, reading the text once. A start that fails reads its run of token characters to
+    the run's end and fails on what follows it, and so does every later start in that run, so they are skipped
+    (re-review 6, final: tried from every "eyJ" of "eyJ-eyJ-…", the pattern cost quadratic time)."""
+    spans, pos = [], 0
+    while (start := _JWT_START.search(s, pos)) is not None:
+        if (token := JWT.match(s, start.start())) is not None:
+            spans.append(token.span())
+            pos = token.end()
+        else:
+            pos = _TOKEN_RUN.match(s, start.start()).end()        # type: ignore[union-attr]
     return spans
 
 
@@ -933,6 +950,7 @@ def _before_labels(s: str) -> str:
     s = _mask_spans(s, _private_keys(s))
     for p in SECRET_PATTERNS:
         s = p.sub(REDACTED, s)
+    s = BEARER.sub(REDACTED, _mask_spans(s, _jwts(s)))
     ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
     s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
                  any(a <= m.start() and m.end() <= b for a, b in ids) else REDACTED, s)
@@ -1132,14 +1150,16 @@ class RedactionStream:
         kinds = _forward_relations(self.context + self.pending[:line_start], self._kinds_of)[1]
         labelled = self._labelled_hold(line_start, kinds)
         # Each guard only moves the cut back, and one can land inside another's region (a class run reaching into a
-        # private key block): apply them until none moves it.
+        # private key block): apply them until none moves it. The key and token spans are found once per read.
+        spans = (_private_keys(self.pending) + _jwts(self.pending)
+                 + [m.span() for p in (*SECRET_PATTERNS, BEARER) for m in p.finditer(self.pending)])
         while True:
-            moved = self._guarded_cut(cut, labelled)
+            moved = self._guarded_cut(cut, labelled, spans)
             if moved == cut:
                 return cut
             cut = moved
 
-    def _guarded_cut(self, cut: int, labelled: int) -> int:
+    def _guarded_cut(self, cut: int, labelled: int, spans: list[tuple[int, int]]) -> int:
         for value in self.redactor.secret_values():
             start = self.pending.find(value)
             while start >= 0:
@@ -1149,7 +1169,6 @@ class RedactionStream:
             for length in range(1, min(len(value), len(self.pending) + 1)):
                 if self.pending.endswith(value[:length]):
                     cut = min(cut, len(self.pending) - length)
-        spans = _private_keys(self.pending) + [m.span() for p in SECRET_PATTERNS for m in p.finditer(self.pending)]
         for start, end in spans:
             if start < cut < end:
                 cut = start
