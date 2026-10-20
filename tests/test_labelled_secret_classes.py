@@ -2,6 +2,7 @@
 either side, and a value next to a secret word is masked whatever its shape. Labelled by words, never by digit shape
 alone: an ordinary number with no code or secret word near it stays visible. Every capture path uses the one class."""
 import re
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -326,9 +327,14 @@ def _streamed(redactor: Redactor, text: str, sizes: Any) -> str:
     return (out + stream.feed(b"", final=True)).decode()
 
 
+def _words(text: str) -> Counter[str]:
+    return Counter(re.findall(r"[A-Za-z0-9]+", text.replace(REDACTED, " ")))
+
+
 def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
     """Review of fix wave 2 (probes p9, p11): random owner-like lines, read whole or in random pieces, never come out
-    of the stream with fewer masks than `Redactor.text` gives the same text."""
+    of the stream with fewer masks than `Redactor.text` gives the same text, and never show a word the text redactor
+    hid or a word twice, or drop a word without masking more (re-review 6)."""
     import random
     vocab = ["code", "OTP", "PIN", "password", "my", "token", "api key", "api", "key", "is", "to", ":", "-", "(", ")",
              "the", "your", "482913", "4829", "48 29 13", "482-913", "G-482913", "2024", "for", "verification",
@@ -344,14 +350,21 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              "\n  s3cret pass 9", "pwd:", "\xa0codes:",
              # re-review 5: unclosed quotes, markup around a code, quoted mail, comma-led list lines
              "'hunter2", '"Xk9#mQ2', "it's", "**482913**", "`482913`", "<b>482913</b>", "_4829_", "\n> 482913", "\n>",
-             "\n# 482913", "\n\u00b7 482913", "\n\u2013 482913", "\n, a1b2c-3d4e5", "<b", "id_4829"]
+             "\n# 482913", "\n\u00b7 482913", "\n\u2013 482913", "\n, a1b2c-3d4e5", "<b", "id_4829",
+             # re-review 6: long whitespace runs, tags with spaces in their attributes, <code> tags, quoted words
+             " " * 24, "\t" * 12, "\xa0" * 16, " \t\xa0\u2003" * 6, '<span class="a b">', "</span>",
+             '<td class="x y">', "</td>", '<i class="q">', '<span style="color:#999">', "<code>", "</code>",
+             "<pre><code>", "'sunshine'", '<td class="x', "1 2 3 4 5 total"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
         text = " ".join(rng.choice(vocab) for _ in range(rng.randint(2, 14))) + rng.choice(["", "\n"])
-        whole = redactor.text(text).count(REDACTED)
-        assert _streamed(redactor, text, lambda: 10 ** 9).count(REDACTED) >= whole, text
-        assert _streamed(redactor, text, lambda: rng.randint(1, 8)).count(REDACTED) >= whole, text
+        whole = redactor.text(text)
+        for out in (_streamed(redactor, text, lambda: 10 ** 9), _streamed(redactor, text, lambda: rng.randint(1, 8))):
+            masks = out.count(REDACTED) - whole.count(REDACTED)
+            assert masks >= 0, (text, out)
+            assert not _words(out) - _words(whole), (text, out)                   # nothing hidden shown, nothing twice
+            assert masks > 0 or not _words(whole) - _words(out), (text, out)     # nothing dropped
 
 
 
