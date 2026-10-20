@@ -1266,7 +1266,8 @@ remain a process-cleanup residual. No unsandboxed command fallback exists.
 `Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
 and Luhn-valid payment cards to existing credential classes. The labelled classes (C1, owner decision 2026-10-15,
 `labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with one of the owner's code words
-(code, OTP, passcode, PIN, one-time password, verification; never inside a file name) within `CODE_REACH` (8) words
+(code, OTP, passcode, PIN, one-time password, verification; never inside a file name, nor in an HTML tag's name or
+attributes such as "<code>" or `class="code"`: re-review 6) within `CODE_REACH` (8) words
 on the same line and no sentence or clause break between (`_clause_break`: ";", "!", "?", a comma before a space,
 and a dot only when a new sentence follows and the word before it isn't abbreviation-shaped, so "Rs. 2,000",
 "a/c no. XX1234" and "Ref. No. 4417" keep a bank's OTP in reach): before it, joined directly (`OTP 482913`,
@@ -1286,11 +1287,12 @@ Every code in a backup, recovery, 2FA or one-time code list ("Backup codes: 1234
 leading commas and item numbers or bullets such as "1. ", "2) ", "• " allowed) is masked;
 another "codes:" label ("HTTP status codes: 200, 301") lists ordinary data (`CODE_LIST`). Address and coupon codes
 are ordinary data (owner decision 2026-10-15): "PIN code", "pincode", "ZIP code", "Pin/Zip code", "postal code",
-"coupon code", "promo code" and close variants are no code or secret words (`ADDRESS_CODE`).
+"coupon code", "promo code" and close variants are no code or secret words (`_address_codes`).
 The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
 (on a later line, blank lines between allowed, it is that whole line unless quoted; a quote that doesn't close on its
 line quotes nothing, so the value is read as unquoted with its quote mark), one with a digit or symbol after "is"/"was"
-(or, after "my/our … is", a plain word that ends its clause), one with a digit right after the word. A text field named
+(or, after "my/our … is", a plain word that ends its clause, a quoted word's after its closing quote), one with a
+digit right after the word. A text field named
 by a secret word hides its whole value; a code word hides a code-shaped one. A typed answer (`Redactor.answer`) to a
 question with a password (also "pwd", "passwd"), passcode or passphrase word or a sign-in PIN is hidden whole, whatever
 its shape or the question's phrasing (rule 14 over convenience: a worker asks "Which password manager do you use?" with
@@ -1302,8 +1304,10 @@ Cancel). A masked code counts as the digits it replaced, so masking twice change
 `RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
 the line being read is held while it holds a class word, an OTP introducer, a word that can still become one ("api ",
 "sign ", "my wifi ", "coupon ", a list qualifier such as "Two factor "), or a number its link can still follow
-("482913 is your …"; a prompt such as "Delete 1234 files? [y/N] " appears at once); a trailing digit run is held
-from its token's start, through "." and "," too, so a card is never split. Of the complete lines only a last line that
+("482913 is your …", marks and an unfinished tag between, spaces in its attributes too; a prompt such as "Delete 1234
+files? [y/N] " appears at once), or that is a code alone so far, an unfinished tag at its end allowed ("(482913) <b",
+`_code_alone_so_far`); a trailing digit run is held from its token's start, through "." and "," too, so a card is never
+split. A line that starts where the last release ended is judged with its released start (re-review 6, I1). Of the complete lines only a last line that
 is only a code is held (its naming line can follow), with the related lines above it; code-only lines never hold each
 other, so number-only output passes one line behind. A label line, "Password:" or a list's label never changes with
 what follows, so it is released at once and kept as context (`_forward_relations`, a line or two) that the next
@@ -1316,8 +1320,23 @@ line too long to hold is held only from the class items still within reach of it
 relations once (`_line_kinds`, cached for that read), applying the masks before the labelled classes only to a line
 holding a class word's stem, so its work is its new lines plus the line or two of context (re-review 4, P1). A fuzz
 test (CRLF and lone "\r" splits, abbreviations, bracketed prefixes, number-only lines, prompts, real list labels,
-quoted values on the next line, Unicode indents and blank lines) checks that the stream masks every code
-`Redactor.text` masks; agreement is tested, not proved. URL words never count (query credentials are the URL rule's).
+quoted values on the next line, Unicode indents and blank lines, long whitespace runs, tags with spaces in their
+attributes) checks that the stream masks every code `Redactor.text` masks, shows no word it hid or any word twice and
+drops none; agreement is tested, not proved.
+Both redactors run on the daemon's event loop, so every pattern and scan takes time in proportion to its input
+(re-review 6, C1: `_LINK_START` read a space two ways and backtracked exponentially on a long run of spaces after a
+number; FERB's own `proxy.py` line 69 stalled a read past 20 s). Quantifiers that could split one run several ways are
+possessive, and scans that would restart at every position of a run read it once: `_urls` tries only a scheme run's
+first start, `_address_codes` reads a chain of places whole, `_private_keys` stops at a BEGIN line with no END after
+it, `_NUMERIC_TAIL` is tried only where its run starts, span lookups bisect. `tests/test_redaction_scaling.py` doubles
+pathological runs (spaces, tabs, no-break spaces, markup, quotes, digits, dotted and slashed runs, BEGIN lines) through
+every pattern of `redact.py` and `images.py` (as the modules call it) and through `Redactor.text` and a stream read, and
+fails when the time per call grows faster than the input.
+Residuals (re-review 6, parked): a quoted mail's password or backup codes with a ">"-only line between label and value
+("> Password:" over ">" over "> hunter2!"; "> Backup codes:" over "> a1b2c-…") and HTML source with tag-only lines
+between a label and its code show the value; over-masking: "the password is 'not set yet" masks "'not", and
+`.split("#token=")[1]` masks its tail. A line held whole is examined again at every read, so a long held line arriving a
+few bytes per read costs time growing with its length squared (bounded by `MAX_PENDING`). URL words never count (query credentials are the URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word), with the text redactor's
 code-alone and whitespace rules (`_code_alone`, `_H`).

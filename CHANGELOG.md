@@ -158,6 +158,14 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   in your answer to a question about a code is masked. Streaming number-only output costs about a quarter of what it did
   after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about 0.4 s → 0.1 s; 0.05 s before the redaction
   fixes).
+  Closing round (re-review 6): redaction can no longer stall the daemon. A line with a number, a long run of spaces and
+  two more words made one pattern take exponential time when a shell read ended inside that line (FERB's own source,
+  aligned comments, padded tables: past 20 s for one read, with everything waiting, stop included); every redaction
+  pattern and scan now grows in proportion to its input, which a test checks by doubling pathological runs. Also masked now: "my password
+  is 'sunshine'", "Your code: <code>482913</code>", and in streamed output a code next to an HTML tag with spaces in
+  its attributes or a tag split by a read; "Port <code>8080</code> is the default" stays readable. Known gaps: a quoted
+  mail's password or backup codes with a ">"-only line under the label, and a code under its label in HTML source
+  with tag-only lines between, still show.
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
