@@ -1362,9 +1362,11 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   forget deletes only the cards that cite a forgotten ref, directly or through derived nodes, and tombstones their
   keys.
 - **Chat capture (I1, MP2).** `Daemon._remember` saves as owner_stated the whole sentence(s) of the owner's typed words
-  that hold the planner's content (`items.owner_sentences`; inside the owner's words only a line break ends a
-  sentence, never a comma, `.`, `!` or `?`, so "my prof. Zorblat" or "never! Share my links" never loses its negation,
-  and the saved text may be longer). FERB's rewording is an inferred proposal offered by a
+  that hold the planner's content (`items.owner_sentences`). It reads `Marked.typed_lines`: the owner's own words with
+  their line breaks, each pasted or quoted part counting as one (`own_words`, which the rest of FERB reads, stays one
+  line). Only a line break or a paste ends a sentence, never a comma, `.`, `!` or `?`, so "my prof. Zorblat" or "never!
+  Share my links" never loses its negation, the saved text may be longer, and "Book my flight.\nI prefer aisle seats"
+  or "Translate [paste] and never share my links publicly" saves just the typed fragment. FERB's rewording is an inferred proposal offered by a
   `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No retracts); a quote sharing no word with the content is
   refused. An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
   2026-10-20: "No hold for my typed words"); pasted text never becomes owner_stated, and identity proposals remain only
@@ -1396,10 +1398,15 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   makes `Daemon._chat_forget` ask a `memory.forget` FERB check (Yes/No, in `FERB_CHECKS`) naming what goes; the Yes,
   from chat (`Supervisor._answer` → `question_answered`) or the notch (`_resolve_approval`), runs the forget.
 - **Learned-item forgets (I2).** Every path (dashboard, chat Yes, what a memory forget deletes, cards forgotten for
-  restating the item) goes through `Daemon._forget_nodes`: `Learning.forget`, then the questions about the deleted
-  nodes close. An item the owner named (the one asked for, or one a waiting "Forget for good?" names) gets the echo
-  pass for FERB's naming of it in that question (`_named_node`) and what it states (body text, a procedure's intent, a
-  lesson's trigger), never its key alone (a key can be a label: "owner", a subject, a task id). What a learned-item
+  restating the item, the consolidator's clean-up of rollups written on a source forgotten meanwhile) goes through
+  `Daemon._forget_nodes`: `Learning.forget`, then the questions about the deleted nodes close. An item the owner named
+  (the one asked for, or one a waiting "Forget for good?" names) gets an echo pass (`echoes.finish_node`, queued like
+  a memory forget's). FERB's naming of it in that question (`_named_node`) goes from FERB's rows and every span. What
+  it states (body text, a procedure's intent, a lesson's trigger) goes only where it was shown or cited, never by a
+  replace across every span: the tasks given it (`task_memory_refs`), the chat turns that listed it (chat rows whose
+  source refs cite it, and those requests' planner turns), and for an owner identity statement every model turn
+  since it was recorded (it is in each prompt). An episode card's goal is never scrubbed (other tasks share it), nor
+  a key alone (a key can be a label: "owner", a subject, a task id). What a learned-item
   forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
   built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
   site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.

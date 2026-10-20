@@ -567,7 +567,7 @@ This section matters most for an automated campaign. It says exactly what runs u
 
 #### Owner memory
 - What: "remember that …" saves as the owner's words the whole sentence they typed it in (pasted parts left out;
-  only a line break ends it, never a dot, "!" or "?", so a "never" is never dropped);
+  only a line break or a pasted part ends it, never a dot, "!" or "?", so a "never" is never dropped);
   FERB's rewording waits for the owner's Yes (asked in chat and the notch, or the dashboard) before it reaches a
   prompt. Inferred facts never reach a prompt unconfirmed; observed patterns not yet seen on 3 days show as unconfirmed
   hints; only the owner's own stated preferences become identity (straight away, whatever was on screen when they
@@ -576,8 +576,8 @@ This section matters most for an automated campaign. It says exactly what runs u
   message, reply lines that restate it), and what a task given it did with it (its answer, outcome, saved plan,
   permanent record, stored tool calls and turns, and its episode card when that restates it); a tombstone keeps the deleted ids, never their content. A paraphrase in other
   words can survive. Forget from the CLI, the dashboard or chat: FERB names each item that goes and deletes only after
-  a Yes. Forgetting a learned item (a lesson, a procedure) also removes FERB's naming of it and what it states from
-  FERB's replies and stored turns; what can survive: a procedure's steps shown to a worker (in that task's stored
+  a Yes. Forgetting a learned item (a lesson, a procedure) also removes FERB's naming of it, and what it states from
+  the replies and stored turns that were shown it (never from other tasks, even with the same goal); what can survive: a procedure's steps shown to a worker (in that task's stored
   turns), records deleted only because they were built on it (deleted, but their words not scrubbed), a lesson's scope
   labels (app, site, intent), and an entity summary's multi-line text unless it was recorded exactly.
 - Status: **Shipped**; the chat forget and the scrub of FERB's own lines are **landing this week — integrated, not
