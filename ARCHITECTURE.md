@@ -1275,25 +1275,30 @@ and a dot only when a new sentence follows and the word before it isn't abbrevia
 code" stay. Across lines only a code alone on its line relates: to the label line above it (a code word within reach
 of its end with no sentence end after it, colon or not: "Use this code to sign in"; blank lines allowed) or the
 naming line below it (an email's layout, `_line_codes`); sibling page nodes are read the same way (`_siblings`). A
-code alone may sit in brackets or parentheses, with punctuation, or after a list dash or bullet ("[ 482913 ]",
-"- 482913", `_code_alone`). Any whitespace but a line break (a no-break space, an en, em or ideographic space,
-\x0b, \x0c) reads as a space in these classes (`_H`, re-review 4); line breaks are "\r\n", "\r" and "\n".
-Every code in a backup, recovery, 2FA or one-time code list ("Backup codes: 1234 5678 …", one per line, blank lines
-and item numbers or bullets such as "1. ", "2) ", "• " allowed) is masked;
+code alone may follow a quoted mail's ">" marks, a heading's "#"s and a list dash or bullet, and sit in punctuation,
+brackets, quote marks, markdown emphasis or code marks and inline HTML tags ("[ 482913 ]", "- 482913",
+"> **482913**", "<b>482913</b>", `_code_alone_span`; re-review 4 and 5); a quoted mail's ">"-only lines between a
+label line and its code count as blank. On one line the same marks may sit between a code and its label or link
+(`_MARKUP`: "Your code is: **482913**", "Code: <b>482913</b>"). Any whitespace but a line break (a no-break space,
+an en, em or ideographic space, \x0b, \x0c) reads as a space in these classes (`_H`, re-review 4); line breaks are
+"\r\n", "\r" and "\n".
+Every code in a backup, recovery, 2FA or one-time code list ("Backup codes: 1234 5678 …", one per line, blank lines,
+leading commas and item numbers or bullets such as "1. ", "2) ", "• " allowed) is masked;
 another "codes:" label ("HTTP status codes: 200, 301") lists ordinary data (`CODE_LIST`). Address and coupon codes
 are ordinary data (owner decision 2026-10-15): "PIN code", "pincode", "ZIP code", "Pin/Zip code", "postal code",
 "coupon code", "promo code" and close variants are no code or secret words (`ADDRESS_CODE`).
 The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
-(on a later line, blank lines between allowed, it is that whole line unless quoted), one with a digit or symbol after
-"is"/"was" (or, after "my/our … is", a plain word that ends its clause), one with a digit right after the word. A text
-field named by a secret word hides its whole value; a code word hides a code-shaped one. A typed answer
-(`Redactor.answer`) to a question with a password (also "pwd", "passwd"), passcode or passphrase word or a sign-in PIN
-is hidden whole, whatever its shape or the question's phrasing (rule 14 over convenience: a worker asks "Which
-password manager do you use?" with options, and a picked option is never hidden; the planner's clarify question,
-which has no options, never uses these words); to a question with a code word its 4–8 digit codes are masked. A chat
-message while such a question is open (a worker's, or the planner's own clarifying question) is masked the same way,
-hidden whole for a password question only when it is one word (it may be a steer); stopping stays the code's
-(`task.stop`, a question's Cancel). A masked code counts as the digits it replaced, so masking twice changes nothing.
+(on a later line, blank lines between allowed, it is that whole line unless quoted; a quote that doesn't close on its
+line quotes nothing, so the value is read as unquoted with its quote mark), one with a digit or symbol after "is"/"was"
+(or, after "my/our … is", a plain word that ends its clause), one with a digit right after the word. A text field named
+by a secret word hides its whole value; a code word hides a code-shaped one. A typed answer (`Redactor.answer`) to a
+question with a password (also "pwd", "passwd"), passcode or passphrase word or a sign-in PIN is hidden whole, whatever
+its shape or the question's phrasing (rule 14 over convenience: a worker asks "Which password manager do you use?" with
+options, and a picked option is never hidden; the planner's clarify question, which has no options, never uses these
+words, "pwd" and "passwd" included); to a question with a code word its 4–8 digit codes are masked. A chat message while
+such a question is open (a worker's, or the planner's own clarifying question) is masked the same way, hidden whole for
+a password question only when it is one word (it may be a steer); stopping stays the code's (`task.stop`, a question's
+Cancel). A masked code counts as the digits it replaced, so masking twice changes nothing.
 `RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
 the line being read is held while it holds a class word, an OTP introducer, a word that can still become one ("api ",
 "sign ", "my wifi ", "coupon ", a list qualifier such as "Two factor "), or a number its link can still follow
@@ -1303,8 +1308,9 @@ is only a code is held (its naming line can follow), with the related lines abov
 other, so number-only output passes one line behind. A label line, "Password:" or a list's label never changes with
 what follows, so it is released at once and kept as context (`_forward_relations`, a line or two) that the next
 release is masked with; the line under it is held while it can still relate (under "Password:" the whole value line,
-under a list a line starting with a list token or item marker, under a label one starting as a code alone; its indent
-may be any whitespace the text redactor strips). Blank lines between a list's lines keep it one list. When a read
+under a list a line starting with a list token or item marker, under a label one that can still become a code alone,
+its lead and marks included (`_code_alone_start`); its indent may be any whitespace the text redactor strips). Blank
+lines between a list's lines keep it one list, and a label above a quoted mail's ">" lines stays context. When a read
 releases the start of a line, its last words are kept (`_line_head`) so the rest is masked as part of that line. A
 line too long to hold is held only from the class items still within reach of its end. A read works out each line's
 relations once (`_line_kinds`, cached for that read), applying the masks before the labelled classes only to a line

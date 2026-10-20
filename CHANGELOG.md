@@ -146,16 +146,18 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   every code the text redactor masks, checked by a fuzz test, while number-only output (`seq`, id lists) and prompts
   with a number ("Delete 1234 files? [y/N] ") pass straight through; a bank's OTP after "Rs.", "a/c no." or "Ref. No."
   and a code after a bracketed sender ("[Swiggy] 482913 is your OTP") are masked; an email's code on its own line (under
-  "Use this code to sign in", colon or not; in brackets or after a bullet too, on screen as well) and every code in a
-  backup, recovery or 2FA code list (blank lines and item numbers such as "1. " allowed) are masked, while other
-  "codes:" lists ("HTTP status codes: 200, 301") stay; a password on a line under its label is masked whole ("password
-  for gmail:" over "s3cret pass 9"); no-break and other Unicode spaces read as spaces ("Code:&nbsp;482913", a card
-  grouped by them); your own requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please
-  review the code"); address and coupon codes (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner
-  decision); your typed answer to a question that mentions a password (or "pwd"), passcode or PIN is hidden whole (a
-  choice you pick never is), and the code in your answer to a question about a code is masked. Streaming number-only
-  output costs about a quarter of what it did after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about
-  0.4 s → 0.1 s; 0.05 s before the redaction fixes).
+  "Use this code to sign in", colon or not; in brackets, after a bullet, in markdown or HTML marks or in a quoted mail
+  too, on screen as well; "Your code is: **482913**" on one line too) and every code in a backup, recovery or 2FA code
+  list (blank lines, leading commas and item numbers such as "1. " allowed) are masked, while other "codes:" lists
+  ("HTTP status codes: 200, 301") stay; a password on a line under its label is masked whole ("password for gmail:" over
+  "s3cret pass 9"), and so is a value whose quote doesn't close on its line ("password: 'Tr0ub4dor&3"); no-break and
+  other Unicode spaces read as spaces ("Code:&nbsp;482913", a card grouped by them); your own requests keep their
+  numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code"); address and coupon codes (PIN
+  code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your typed answer to a question that
+  mentions a password (or "pwd", "passwd"), passcode or PIN is hidden whole (a choice you pick never is), and the code
+  in your answer to a question about a code is masked. Streaming number-only output costs about a quarter of what it did
+  after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about 0.4 s → 0.1 s; 0.05 s before the redaction
+  fixes).
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
