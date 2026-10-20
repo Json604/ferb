@@ -39,6 +39,8 @@ PAGE_UNREAD = ("the page's secret fields couldn't be located (neither the browse
                "read the page this window shows: {why}); " + OCR_ONLY)
 WINDOW_UNREAD = ("the window's secret fields couldn't be located (Accessibility couldn't read this window when it was "
                  "captured); " + OCR_ONLY)
+WINDOW_HALF_READ = ("Accessibility couldn't read this window in one look around the capture: the secret fields the "
+                    "other look found are painted where it saw them; " + OCR_REST)
 FIELD_UNPLACED = "a secret field Accessibility found has no place on screen to paint; " + OCR_ONLY
 FIELD_MOVED = ("a secret field moved, appeared or went during the capture: painted where it was before and after; "
                + OCR_REST)
@@ -46,6 +48,11 @@ PAGE_MOVED = ("the page changed during the capture: its secret fields are painte
               + OCR_REST)
 PAGE_UNPLACED = ("the page's secret fields couldn't be placed on the window (Accessibility shows no page area); "
                  + OCR_ONLY)
+PAGE_PART_PLACED = ("the page changed during the capture and one look's secret fields couldn't be placed on the "
+                    "window (Accessibility showed no page area): the others are painted where they were; " + OCR_REST)
+ONE_LOOK = ("the browser extension read the page in one look around the capture only ({why}): its secret fields are "
+            "painted where it saw them; a field only the other look could show is left to text recognition (a secret "
+            "it can't read as text could show)")
 UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
 AX_ONLY = "masked from Accessibility only: the browser extension couldn't read this page ({why})"
 EXTENSION_UNREAD = "not paired with this window's profile, an incognito window, or a page scripts can't reach"
@@ -89,41 +96,67 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
     to text recognition. Never refused: only `painted` withholds, when the boxes can't be painted at all."""
     (t1, w1), (t2, w2) = before, after
     if t1 is None or t2 is None or t1.secure is None or t2.secure is None:
-        read = [t for t in (t1, t2) if t is not None and t.secure is not None]
-        return _union(*(_ax_boxes(t)[0] for t in read)), WINDOW_UNREAD
+        # One look (or both) couldn't read the window: what a readable look located is still painted, its page's
+        # fields on its own page area (review I1)
+        read = [(t, w) for t, w in ((t1, w1), (t2, w2)) if t is not None and t.secure is not None]
+        masks = _union(*(_ax_boxes(t)[0] for t, _ in read))
+        for t, w in read:
+            if w is not None and w.state is not None:
+                masks += _placed(_look_items(w.state, None), w.state, t)[0]
+        return masks, WINDOW_HALF_READ if read else WINDOW_UNREAD
     (ax1, whole1), (ax2, whole2) = _ax_boxes(t1), _ax_boxes(t2)
     notes = [FIELD_UNPLACED] if not (whole1 and whole2) else [FIELD_MOVED] if sorted(ax1) != sorted(ax2) else []
     masks = _union(ax1, ax2)
     p1, p2 = (w1.state if w1 else None), (w2.state if w2 else None)
     if p1 is not None and p2 is not None:
-        page, note = _page_on_screen(p1, p2, axm.outermost(t1.web_areas), axm.outermost(t2.web_areas))
+        page, note = _page_on_screen(p1, p2, t1, t2)
         return masks + page, "; ".join(notes + [note] if note else notes)
-    for p, t in ((p1, t1), (p2, t2)):                # the extension answered one look only: its fields still count
+    placed = False                                   # the extension answered one look only: its fields still count
+    for p, t in ((p1, t1), (p2, t2)):
         if p is not None:
-            with contextlib.suppress(Withheld):
-                masks += page_on_screen([i.rect for i in p.items], p.viewport, axm.outermost(t.web_areas))
+            rects, placed = _placed(_look_items(p, None), p, t)
+            masks += rects
     if browser:
         why = (w2.why if w2 else "") or (w1.why if w1 else "") or EXTENSION_UNREAD
         ax_why = next((AX_EMPTY if t.has_web else AX_NO_AREA for t in (t1, t2) if not t.has_web
                        or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas))), None)
-        notes.append(PAGE_UNREAD.format(why=f"{why}; {ax_why}") if ax_why else AX_ONLY.format(why=why))
+        notes.append(ONE_LOOK.format(why=why) if placed else PAGE_UNREAD.format(why=f"{why}; {ax_why}") if ax_why
+                     else AX_ONLY.format(why=why))
     return masks, "; ".join(notes)
 
 
-def _page_on_screen(p1: PageState, p2: PageState, a1: list[Rect], a2: list[Rect]) -> tuple[list[Rect], str]:
+def _page_on_screen(p1: PageState, p2: PageState, t1: axm.AxTree, t2: axm.AxTree) -> tuple[list[Rect], str]:
     """The page's secret fields on screen for one capture, from the extension's looks before and after it and the AX
-    page areas each look saw; a note when they weren't still (painted where each look saw them) or can't be placed."""
+    page areas each look saw; a note when they weren't still (painted where each look saw them, whatever each look
+    can place: review I1) or can't be placed."""
+    a1, a2 = axm.outermost(t1.web_areas), axm.outermost(t2.web_areas)
     still: tuple[list[Rect], Rect] | None = None
     if sorted(a1) == sorted(a2):
         with contextlib.suppress(Withheld):          # something moved, appeared or went, or the page changed
             still = page_masks(p1, p2)
-    try:
-        if still is not None:
+    if still is not None:
+        try:
             return page_on_screen(*still, a2), ""
-        return (page_on_screen([i.rect for i in p1.items], p1.viewport, a1)
-                + page_on_screen([i.rect for i in p2.items], p2.viewport, a2)), PAGE_MOVED
-    except Withheld:                                 # fields, and no page area to place them on
-        return [], PAGE_UNPLACED
+        except Withheld:                             # fields, and no page area to place them on
+            return [], PAGE_UNPLACED
+    (r1, ok1), (r2, ok2) = _placed(_look_items(p1, p2), p1, t1), _placed(_look_items(p2, p1), p2, t2)
+    return r1 + r2, PAGE_MOVED if ok1 and ok2 else PAGE_PART_PLACED if ok1 or ok2 else PAGE_UNPLACED
+
+
+def _look_items(p: PageState, other: PageState | None) -> list[Rect]:
+    """What one look of a page must paint when the looks can't be merged: its secret fields and the frame hosts it
+    paints whole, and a frame host whose frame changed document since the other look (a reload); a clean frame (no
+    secret field in it, `paint` False) stays visible (review M4)."""
+    then = {i.key: i for i in other.items} if other is not None else {}
+    return [i.rect for i in p.items if i.paint or (i.key in then and then[i.key].child != i.child)]
+
+
+def _placed(rects: list[Rect], p: PageState, t: axm.AxTree) -> tuple[list[Rect], bool]:
+    """A look's page rects on that look's own page area, and whether they could be placed (no rects: trivially)."""
+    try:
+        return page_on_screen(rects, p.viewport, axm.outermost(t.web_areas)), True
+    except Withheld:
+        return [], False
 
 
 def _ax_boxes(tree: axm.AxTree) -> tuple[list[Rect], bool]:

@@ -136,8 +136,8 @@ def test_window_recording_keeps_a_frame_whose_secret_inventory_is_unknown_and_sa
         _, shot, _ = await d.screenshot('Notes')
         _, capture = d.recording_source('Notes', shot.id)
         ax.secure = [False, None] if unknown_after_capture else [None]
-        frame, note = await capture()
-        assert frame == shots.jpeg and "couldn't be located" in note and len(shots.captured) == 2
+        frame, note = await capture()                  # the other look read it: what it found stays painted (I1)
+        assert frame == shots.jpeg and "in one look around the capture" in note and len(shots.captured) == 2
     asyncio.run(check())
 
 

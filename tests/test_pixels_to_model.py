@@ -350,7 +350,62 @@ def test_page_fields_the_extension_gave_for_one_look_only_are_still_painted(monk
     d, _, _, _ = _brave(monkeypatch, _page((20, 40, 100, 20)), WebSecrets(None, "a paired profile didn't answer"))
     _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
     assert black(pixel(jpeg, 100, 255)) and white(pixel(jpeg, 100, 320))
-    assert "Accessibility only" in shot.masking and "didn't answer" in shot.masking
+    # review M5: the note says a field only the unread look could show is left to text recognition
+    assert "in one look around the capture only" in shot.masking and "didn't answer" in shot.masking
+    assert "a field only the other look could show is left to text recognition" in shot.masking
+
+
+def _frames_page(*fields: Any, frames: Any = ()) -> Any:
+    from ferb.act.evidence.mask import PageState
+    from ferb.act.mac.driver import WebSecrets
+    return WebSecrets(PageState.parse(_state(*fields, viewport=(0, 0, 800, 520), frames=list(frames))))
+
+
+def test_a_field_one_look_located_is_painted_when_accessibility_cant_read_the_other(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review I1, probe 1: the look before the capture read the window and the extension named a field; the look after
+    found no AX window there (retitled or moved mid-capture). The field is painted where the first look saw it, and
+    the note says what happened (it used to be dropped under "couldn't be located")."""
+    page = _page((20, 40, 100, 20))
+    d, ax, _, _ = _brave(monkeypatch, page, page)
+    ax.tree.secret_rects = [(150.0, 60.0, 100.0, 20.0)]
+    ax.secure = [True, True]
+    looks = iter(["win", None])
+    ax.window_with_frame = lambda *a, **k: next(looks)                     # type: ignore[method-assign]
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and black(pixel(jpeg, 150, 30)) and white(pixel(jpeg, 100, 320))
+    assert "in one look around the capture" in shot.masking and "painted where it saw them" in shot.masking
+    assert "couldn't be located" not in shot.masking
+
+
+def test_a_page_that_moved_keeps_the_fields_of_the_look_that_can_be_placed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review I1, probe 2: the page moved during the capture and the look after it shows no page area: the look
+    before still places its field, and the note says the other look's couldn't be placed."""
+    import dataclasses
+    d, ax, _, _ = _brave(monkeypatch, _page((20, 40, 100, 20)), _page((20, 100, 100, 20)))
+    trees = [dataclasses.replace(ax.tree), dataclasses.replace(ax.tree, web_areas=[])]
+    ax.read_tree = lambda *a: trees.pop(0)                                 # type: ignore[method-assign]
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and white(pixel(jpeg, 100, 375))
+    assert "changed during the capture" in shot.masking and "couldn't be placed" in shot.masking
+
+
+def test_a_clean_frame_is_not_painted_when_the_page_moved_or_was_read_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M4: a frame host whose frame shows no secret field (paint False) stays visible when the page's fields are
+    painted look by look; one whose frame changed document between the looks is painted whole."""
+    clean = {"key": "frame|doc|t1", "rect": [300, 300, 200, 100], "paint": False, "child": "kid"}
+    reload_a = {"key": "frame|doc|t2", "rect": [50, 300, 100, 100], "paint": False, "child": "a"}
+    reload_b = dict(reload_a, child="b")
+    before = _frames_page((20, 40, 100, 20), frames=[clean, reload_a])
+    after = _frames_page((20, 100, 100, 20), frames=[clean, reload_b])
+    d, _, _, _ = _brave(monkeypatch, before, after)
+    _, _, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and black(pixel(jpeg, 100, 375))      # the field, where each look saw it
+    assert white(pixel(jpeg, 700, 850)) and black(pixel(jpeg, 150, 850))      # clean frame visible; reloaded one not
+    from ferb.act.mac.driver import WebSecrets
+    d, _, _, _ = _brave(monkeypatch, _frames_page(frames=[clean]), WebSecrets(None, "a paired profile didn't answer"))
+    _, _, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert white(pixel(jpeg, 700, 850))
 
 
 def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeypatch: pytest.MonkeyPatch) -> None:
