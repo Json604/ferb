@@ -56,9 +56,15 @@ def applescript_front_tab(bundle_id: str) -> tuple[str, str] | None:
 # frontmost window in its own order, which can be another window than the one in front of the owner (live case
 # 2026-10-19). One record per window: its bounds (left, top, right, bottom: screen points from the top-left of the
 # main display, as the window server's), its title, its active tab's URL and title; fields apart by the ASCII unit
-# separator, records by the record separator (no title or URL holds them). A part the browser won't answer is empty.
-_TABS = {"chromium": "set tb to active tab of w\n      set u to URL of tb\n      set ti to title of tb",
-         "safari": "set tb to current tab of w\n      set u to URL of tb\n      set ti to name of tb"}
+# separator, records by the record separator (no title or URL holds them). A part the browser won't answer, or
+# answers with `missing value`, is empty.
+_TAB = """set tb to {tab} of w
+      set v to URL of tb
+      if v is not missing value then set u to v
+      set v to {title} of tb
+      if v is not missing value then set ti to v"""
+_TABS = {"chromium": _TAB.format(tab="active tab", title="title"),
+         "safari": _TAB.format(tab="current tab", title="name")}
 _WINDOWS = """set fs to character id 31
 set rs to character id 30
 set gs to character id 29
@@ -72,7 +78,8 @@ tell application id "{bundle}"
     end try
     set n to ""
     try
-      set n to name of w
+      set v to name of w
+      if v is not missing value then set n to v
     end try
     set u to ""
     set ti to ""

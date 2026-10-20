@@ -266,6 +266,9 @@ def test_the_applescript_read_lists_every_window_with_its_bounds_and_active_tab(
     script = scripts[0]
     assert 'tell application id "com.brave.Browser"' in script and "front window" not in script
     assert "repeat with w in windows" in script and "bounds of w" in script and "active tab of w" in script
+    # AppleScript's `missing value` (an untitled window, a tab still loading) is never concatenated (that fails the
+    # whole read) nor turned into the text "missing value" (that would be a URL): each part is kept only when set
+    assert script.count("is not missing value") == 3 and " as text\n" not in script
     bt.applescript_windows("com.apple.Safari")
     assert "current tab of w" in scripts[1] and "name of tb" in scripts[1]
     monkeypatch.setattr(bt.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "denied"))
