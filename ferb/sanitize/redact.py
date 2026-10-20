@@ -122,7 +122,23 @@ def secret_words(s: str) -> list[re.Match[str]]:
 
 
 # A sentence or clause break: a code never reaches its word across one ("Order 4821 is out. Share OTP 7731").
-CLAUSE = re.compile(r"[.,;!?](?=\s|$)")
+# ";", "!", "?" and a comma before a space always break; a dot only when a new sentence follows (a space and a capital,
+# or the end) and the word before it isn't abbreviation-shaped (1-3 letters, or "a/c"): "Rs. 2,000", "a/c no. XX1234",
+# "Ref. No. 4417" keep the bank's OTP in reach (re-review 2, C2).
+_HARD_BREAK = re.compile(r"[;!?](?=\s|$)|,(?=\s)")
+_SENTENCE_DOT = re.compile(r"\.(?=\s+[A-Z]|\s*$)")
+_ABBREVIATION = re.compile(r"[A-Za-z]{1,3}|[A-Za-z]/[A-Za-z]")
+
+
+def _clause_break(s: str, a: int, b: int) -> bool:
+    """Whether a sentence or clause ends between positions a and b of s."""
+    if _HARD_BREAK.search(s, a, b):
+        return True
+    for dot in _SENTENCE_DOT.finditer(s, a, b):
+        before = re.search(r"(\S+)$", s[max(0, dot.start() - 24):dot.start()])
+        if before is None or not _ABBREVIATION.fullmatch(before.group(1)):
+            return True
+    return False
 # A code after its word comes right after it ("OTP 482913", "Code: 482913"), after a link on the same line ("… is
 # 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another word, so "code review on 12
 # Oct 2024" and "Code (3733 recorded uses)" keep their numbers. Across lines, only a code alone on its line relates to
@@ -219,11 +235,11 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
             after = bisect.bisect_left(begins, code.end())
             if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH
                     and LINE_BREAK.search(s, ends[before], code.start()) is None
-                    and CLAUSE.search(s, ends[before], code.start()) is None
+                    and not _clause_break(s, ends[before], code.start())
                     and _label_joined(s, ends[before], code)) or (
                     after < len(labels) and CODE_LINK.match(s, code.end()) is not None
                     and LINE_BREAK.search(s, code.end(), begins[after]) is None
-                    and CLAUSE.search(s, code.end(), begins[after]) is None
+                    and not _clause_break(s, code.end(), begins[after])
                     and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
                 spans.append(code.span())
     return spans + _line_codes(s) + _code_list(s)
@@ -358,7 +374,7 @@ def _link_line(line: str) -> bool:
     code")."""
     found = code_words(line)
     word = found[0] if found else None
-    return (CODE_LINK.match(line) is not None and word is not None and CLAUSE.search(line, 0, word.start()) is None
+    return (CODE_LINK.match(line) is not None and word is not None and not _clause_break(line, 0, word.start())
             and len(line[:word.start()].split()) <= CODE_REACH)
 
 

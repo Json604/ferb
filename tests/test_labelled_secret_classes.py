@@ -468,3 +468,28 @@ def test_many_short_lines_with_digits_stream_through_whole() -> None:
         out += stream.feed(data[i:i + 1024])
     out += stream.feed(b"", final=True)
     assert out.decode() == text and time.monotonic() - started < 10
+
+
+# Re-review 2 (C2): an abbreviation's dot ("Rs.", "no.", "Ref.") is no sentence break, so a bank's OTP stays masked.
+ABBREVIATED = [
+    ("Your OTP for HDFC Bank txn of Rs. 2,000 is 482913. Valid for 10 mins.", "482913"),
+    ("Your OTP for Rs. 500 txn at Swiggy is 482913", "482913"),
+    ("OTP for a/c no. XX1234 is 482913", "482913"),
+    ("Verification code for Ref. No. 4417 is 739201", "739201"),
+]
+
+
+@pytest.mark.parametrize("message,code", ABBREVIATED)
+def test_an_abbreviation_dot_never_ends_the_clause(message, code) -> None:
+    assert code not in Redactor().text(message)
+    redactor = Redactor()
+    data = (message + "\n").encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert code.encode() not in stream.feed(data[:split]) + stream.feed(data[split:], final=True), split
+
+
+def test_a_sentence_end_still_breaks_the_clause() -> None:
+    out = Redactor().text("Order 4821 is out for delivery. Share OTP 7731 with the agent")
+    assert "4821" in out and "7731" not in out
+    assert "4999" in Redactor().text("Rs 4999 is the price. Promo code SAVE10 applies.")
