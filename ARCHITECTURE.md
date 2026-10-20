@@ -1619,10 +1619,16 @@ protected FERB state (16.9).
   on-screen window whose owner isn't FERB: FERB's apps (`FERB_APPS`: `com.ferb.ferb`, `dev.ferb.notch`,
   `com.ferb.app`, and `com.ferb.daemon`, the agent app the packaged daemon runs as), the daemon, or a bundle-less
   descendant of it. The app hosting the sending `ferb chat` is skipped.
-- Facts: app, bundle id, title, and for a browser the front tab's URL and title (Safari, and every Chromium browser
-  whose AppleScript has tabs: Chrome and its channels, Chromium, Brave, Edge and its channels, Vivaldi, Arc; not
-  Opera; read as two lines, URL then title, M1) (AppleScript, only with Automation
-  already granted; a kept grant bridges a pending check). One screenshot of that window by window id, masked and
+- Facts: app, bundle id, title, and for a browser the URL and title of the active tab **of the captured window**
+  (Safari, and every Chromium browser whose AppleScript has tabs: Chrome and its channels, Chromium, Brave, Edge and
+  its channels, Vivaldi, Arc; not Opera) (AppleScript, only with Automation already granted; a kept grant bridges a
+  pending check). `browser_tabs.applescript_windows` lists every window (bounds, title, active tab; fields apart by
+  ASCII separators) and `window_tab` picks the captured one: the window at its bounds (2 pt, the capture tolerance);
+  when several could be (maximized windows share bounds; a browser that won't give bounds), the one whose title or
+  active tab's title is the captured window's window-server title. No single match: no URL or tab title, and the
+  block's `tab_note` says why. (Live case 2026-10-19: AppleScript's `front window` is the browser's own frontmost
+  window, which was another Brave window, so the planner got a Kaggle URL for a Greenhouse page.) The tab watcher
+  still reads the front window (M1, two lines). One screenshot of that window by window id, masked and
   through the F5 `ImageRedactor`, stored as evidence kind `front_window` under the request id.
 - An excluded site is captured under `external:web:excluded` with the URL shown as `[excluded]`; an excluded app gives
   only `[excluded]` (not named, not looked at); `[mac] snapshot_image = false` keeps the facts only.

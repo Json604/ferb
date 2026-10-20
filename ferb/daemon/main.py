@@ -829,14 +829,16 @@ class Daemon:
             self._journal().append("screen.capture_failed", {"request_id": request_id, "error": error_name(e)})
             return None
 
-    def _front_tab(self, bundle_id: str, after_shot: bool = False) -> tuple[str, str] | None:
-        """A browser's front tab (URL, title) for the front window (L12): the tab watcher's AppleScript read, only when
-        the owner already granted Automation for that browser (the check never asks; while it is still answering the
-        read is None, and the capture tries again after the shot). A kept GRANTED answer serves only that read after
-        the shot, and only while a fresh check is still pending; it is dropped as soon as a check answers anything else
-        (a permission reset mid-run must not lead to a prompt), and when a read fails."""
-        from ferb.sense.watchers.browser_tabs import SCRIPTS, applescript_front_tab
-        if bundle_id not in SCRIPTS:
+    def _front_tab(self, bundle_id: str, window: Any, after_shot: bool = False) -> tuple[str, str] | None:
+        """The active tab (URL, title) of the browser window the front-window capture took (L12, `window`): every
+        window of the browser read through AppleScript and the captured one picked by its place and title
+        (`browser_tabs.window_tab`; LookupError when no single window is it: no URL rather than another window's).
+        Only when the owner already granted Automation for that browser (the check never asks; while it is still
+        answering the read is None, and the capture tries again after the shot). A kept GRANTED answer serves only that
+        read after the shot, and only while a fresh check is still pending; it is dropped as soon as a check answers
+        anything else (a permission reset mid-run must not lead to a prompt), and when a read fails."""
+        from ferb.sense.watchers.browser_tabs import WINDOW_SCRIPTS, applescript_windows, window_tab
+        if bundle_id not in WINDOW_SCRIPTS:
             return None
         if not self._automation_granted(bundle_id):
             probe = self._automation_checks.get(bundle_id)
@@ -847,12 +849,14 @@ class Daemon:
                 return None
         self._tab_granted.add(bundle_id)
         try:
-            tab = applescript_front_tab(bundle_id)
+            listed = applescript_windows(bundle_id)
         except (OSError, subprocess.SubprocessError):
-            tab = None
-        if tab is None:
+            listed = None
+        if listed is None:
             self._tab_granted.discard(bundle_id)
-        return tab
+            return None
+        found = window_tab(listed, window.bounds, window.title)
+        return (found.url, found.title) if found.url else None
 
     def _build_mac_and_shell(self) -> None:
         device = str(self.config.get("device", "id", "unknown-device"))

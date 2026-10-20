@@ -6,9 +6,12 @@ FERB.app take key focus while the owner types, and the daemon and what it starte
 (its helpers, the commands it runs) are FERB too. An app with a bundle of its own is the owner's, whoever launched it,
 and FERB's own browser profile windows are windows the owner sees: they count. When the message came from a CLI, the
 window of the app hosting it (a terminal running `ferb chat`) is skipped while it is in front: the next one is the
-owner's. What is kept: app, bundle id, window title, a browser's front tab URL and title, and one screenshot of that
-window only (D29). The tab is read before the shot when it can be; when the browser's Automation check is still
-answering, it is read again after the shot. The screenshot goes through FERB's screenshot path (secret fields
+owner's. What is kept: app, bundle id, window title, the URL and title of the active tab of that very browser window,
+and one screenshot of that window only (D29). The tab is the captured window's, found among the browser's windows by
+its place and title, never the browser's own idea of its front window (live case 2026-10-19: that was another
+window); when no single window is the captured one there is no URL or tab title, and the planner is told why. The tab
+is read before the shot when it can be; when the browser's Automation check is still answering, it is read again
+after the shot. The screenshot goes through FERB's screenshot path (secret fields
 the window's tree shows are masked in the capture), then the F5 on-device redaction; when either fails the image is
 withheld and the text facts stay. Text facts are redacted here, at capture (rule 14).
 
@@ -43,12 +46,13 @@ class FrontWindow:
     app: str
     bundle_id: str
     title: str
-    url: str | None                   # a browser's front tab, when FERB can read it
+    url: str | None                   # the active tab of this browser window, when FERB can read and match it
     tab_title: str | None
     image_ref: str | None             # the evidence-store row of the redacted screenshot; None: withheld
     origin: str                       # what the window shows, as content labels (MP2): data, never instructions
     withheld: str | None = None       # why there is no screenshot
     image: bytes | None = field(default=None, repr=False, compare=False)   # those same redacted bytes, in memory
+    tab_note: str | None = None       # why a browser window has no URL or tab title (no single window matched)
 
     def facts(self) -> dict[str, Any]:
         """The labelled facts the planner is given (a browser's tab only when it was read)."""
@@ -59,6 +63,8 @@ class FrontWindow:
             out["window_title"] = self.title
         if self.url or self.tab_title:
             out |= {"url": self.url, "tab_title": self.tab_title}
+        elif self.tab_note:
+            out |= {"url": None, "tab_title": None, "tab_note": self.tab_note}
         return out
 
 
@@ -69,7 +75,9 @@ class Sources:
     app_of: Callable[[int], tuple[str, str] | None]       # a process's (app name, bundle id); None: not an app
     own: Callable[[int, str], bool]                       # (pid, bundle id): a FERB process (`ferb_process`)
     excluded: Callable[[str, str, str | None], bool]      # (bundle id, app name, url): on the owner's exclusion list
-    tab: Callable[[str, bool], tuple[str, str] | None]    # (bundle id, after the shot): its front tab (url, title)
+    # (bundle id, the captured window, after the shot): that window's active tab (url, title); None: not read now;
+    # LookupError(why): the browser answered, but no single window of it is the captured one
+    tab: Callable[[str, Window, bool], tuple[str, str] | None]
     shoot: Callable[[Window], Awaitable[bytes]]           # that window's JPEG, its tree's secret fields masked
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
@@ -147,10 +155,15 @@ def _topmost(src: Sources) -> tuple[Window, str, str] | None:
     return None
 
 
-async def _tab(src: Sources, bundle: str, after_shot: bool) -> tuple[str | None, str | None] | None:
-    """A browser's front tab (url, title), when it can be read now."""
-    tab = await asyncio.to_thread(src.tab, bundle, after_shot)
-    return (tab[0] or None, tab[1] or None) if tab is not None else None
+async def _tab(src: Sources, w: Window, bundle: str,
+               after_shot: bool) -> tuple[tuple[str | None, str | None] | None, str | None]:
+    """The captured browser window's active tab (url, title) when it can be read now, or why no window of the browser
+    could be told to be that one."""
+    try:
+        tab = await asyncio.to_thread(src.tab, bundle, w, after_shot)
+    except LookupError as e:
+        return None, str(e)
+    return ((tab[0] or None, tab[1] or None) if tab is not None else None), None
 
 
 async def capture(src: Sources) -> FrontWindow | None:
@@ -163,7 +176,7 @@ async def capture(src: Sources) -> FrontWindow | None:
     if src.excluded(bundle, name, None):               # never named or looked at: no title, tab or pixels (rule 14)
         return FrontWindow(EXCLUDED, "", "", None, None, None, origins.PRIVATE, EXCLUDED_APP)
     browser = is_browser(bundle)
-    tab = await _tab(src, bundle, False) if browser else None
+    tab, tab_note = await _tab(src, w, bundle, False) if browser else (None, None)
     image: bytes | None = None
     withheld: str | None = None
     try:
@@ -177,15 +190,15 @@ async def capture(src: Sources) -> FrontWindow | None:
             image = await asyncio.to_thread(src.redact_image, raw)
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
-    if browser and tab is None:                        # its Automation check may have answered during the shot
-        tab = await _tab(src, bundle, True)
+    if browser and tab is None and tab_note is None:   # its Automation check may have answered during the shot
+        tab, tab_note = await _tab(src, w, bundle, True)
     url, tab_title = tab if tab is not None else (None, None)
     excluded_site = bool(url) and src.excluded(bundle, name, url)
     read = (("web", url),) if url else _sources(bundle)
     origin = origins.external("web", "excluded") if excluded_site else \
         origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
     facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": EXCLUDED if excluded_site else url,
-                        "tab_title": tab_title})
+                        "tab_title": tab_title} | ({"tab_note": tab_note} if tab_note else {}))
     ref: str | None = None
     if image is not None:
         try:
@@ -193,4 +206,4 @@ async def capture(src: Sources) -> FrontWindow | None:
         except Exception as e:
             image, withheld = None, f"the screenshot couldn't be kept as evidence ({type(e).__name__})"
     return FrontWindow(facts["app"], facts["bundle_id"], facts["title"], facts["url"], facts["tab_title"], ref,
-                       origin, withheld, image)
+                       origin, withheld, image, tab_note=tab_note)

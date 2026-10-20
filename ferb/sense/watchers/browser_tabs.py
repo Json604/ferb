@@ -7,10 +7,14 @@ Browser tabs: page loads and tab switches, as metadata (browser, profile, host, 
 - Safari, and a Chromium browser with tab scripting (Chrome and its channels, Chromium, Brave, Edge and its
   channels, Vivaldi, Arc) while no profile of it is connected: an AppleScript read of the front tab, only while that
   browser is frontmost and only if the owner has already granted Automation for it (never asked for here). The
-  profile is unknown there."""
+  profile is unknown there.
+
+The front window at send (L12) reads every window instead (`applescript_windows`) and takes the active tab of the one
+FERB captured (`window_tab`), or none."""
 
 import asyncio
 import subprocess
+from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -46,6 +50,96 @@ def applescript_front_tab(bundle_id: str) -> tuple[str, str] | None:
         return None
     url, _, title = r.stdout.removesuffix("\n").partition("\n")
     return (url.strip(), title) if url.strip() else None
+
+
+# Every window of the browser, for the window FERB captured (L12): AppleScript's `front window` is the browser's
+# frontmost window in its own order, which can be another window than the one in front of the owner (live case
+# 2026-10-19). One record per window: its bounds (left, top, right, bottom: screen points from the top-left of the
+# main display, as the window server's), its title, its active tab's URL and title; fields apart by the ASCII unit
+# separator, records by the record separator (no title or URL holds them). A part the browser won't answer is empty.
+_TABS = {"chromium": "set tb to active tab of w\n      set u to URL of tb\n      set ti to title of tb",
+         "safari": "set tb to current tab of w\n      set u to URL of tb\n      set ti to name of tb"}
+_WINDOWS = """set fs to character id 31
+set rs to character id 30
+set gs to character id 29
+tell application id "{bundle}"
+  set out to ""
+  repeat with w in windows
+    set b to ""
+    try
+      set {{x1, y1, x2, y2}} to bounds of w
+      set b to (x1 as text) & gs & (y1 as text) & gs & (x2 as text) & gs & (y2 as text)
+    end try
+    set n to ""
+    try
+      set n to name of w
+    end try
+    set u to ""
+    set ti to ""
+    try
+      {tab}
+    end try
+    set out to out & b & fs & n & fs & u & fs & ti & rs
+  end repeat
+  return out
+end tell"""
+WINDOW_SCRIPTS = {bundle: _TABS["safari" if key == "safari" else "chromium"] for bundle, (key, _) in SCRIPTS.items()}
+NO_WINDOW = ("none of the browser's windows is where the captured window is, so FERB can't tell which tab it shows: "
+             "no URL or tab title")
+AMBIGUOUS = ("more than one of the browser's windows could be the captured one and its title doesn't single one out, "
+             "so FERB can't tell which tab it shows: no URL or tab title")
+
+
+@dataclass(frozen=True)
+class ScriptedWindow:
+    """One browser window as its AppleScript answers: where it is (x, y, w, h in screen points; None when the browser
+    won't say), its title, and its active tab's URL and title ("" when they can't be read)."""
+    bounds: tuple[float, float, float, float] | None
+    name: str
+    url: str
+    title: str
+
+
+def _bounds(field: str) -> tuple[float, float, float, float] | None:
+    try:
+        x1, y1, x2, y2 = (float(v.strip().replace(",", ".")) for v in field.split("\x1d"))
+    except ValueError:
+        return None
+    return x1, y1, x2 - x1, y2 - y1
+
+
+def applescript_windows(bundle_id: str) -> list[ScriptedWindow] | None:
+    """Every window of this browser with its bounds, title and active tab (the AppleScript read; Automation must be
+    granted already). None when the browser didn't answer."""
+    script = _WINDOWS.format(bundle=bundle_id, tab=WINDOW_SCRIPTS[bundle_id])
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=5)
+    if r.returncode != 0:
+        return None
+    out = []
+    for record in r.stdout.removesuffix("\n").split("\x1e"):
+        fields = record.split("\x1f")
+        if len(fields) == 4:
+            out.append(ScriptedWindow(_bounds(fields[0]), fields[1], fields[2].strip(), fields[3]))
+    return out
+
+
+def window_tab(windows: list[ScriptedWindow], bounds: tuple[float, float, float, float],
+               title: str) -> ScriptedWindow:
+    """The browser window FERB captured (at these bounds, with this window-server title), among those its AppleScript
+    lists: the one at the same place (within 2 points, the capture path's tolerance); when several could be (maximized
+    windows share bounds; a window whose bounds the browser won't give could be anywhere), the one among them whose
+    title, or its active tab's, is the captured window's. LookupError (why, in FERB's words) when no single window is:
+    no tab rather than another window's."""
+    at = [w for w in windows if w.bounds is not None and all(abs(a - b) <= 2 for a, b in zip(w.bounds, bounds))]
+    anywhere = [w for w in windows if w.bounds is None]
+    if len(at) == 1 and not anywhere:
+        return at[0]
+    if not at and not anywhere:
+        raise LookupError(NO_WINDOW)
+    named = [w for w in at + anywhere if title and title in (w.name, w.title)]
+    if len(named) != 1:
+        raise LookupError(AMBIGUOUS)
+    return named[0]
 
 
 class ScriptedTabsWatcher:
