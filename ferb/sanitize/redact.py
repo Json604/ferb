@@ -391,7 +391,17 @@ def _secret_colon_end(line: str) -> bool:
 # The first word of a two-word class word, or "my"/"our", ending what has been read of a line: it can still become one
 # ("api " then "key 482-913", "my wifi " then "password is …").
 _PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+){0,2}|(?<![A-Za-z0-9])(?:api|private|"
-                         r"access|auth|refresh|one|time|pass|backup|recovery|secret)[ \t_-]*\S*)[ \t]*$")
+                         r"access|auth|refresh|one|time|pass|backup|recovery|secret|sign|login|security|authentication|"
+                         r"coupon|zip|postal|post|promo|promotional|discount|voucher|area)[ \t_/-]*\S*)[ \t]*$")
+
+
+def _line_starts(pending: str) -> tuple[list[int], int]:
+    """The ends of the complete lines of what has been read, and where the line still being read starts. A "\r" that
+    ends the text may be the first half of "\r\n" (PTY output), so its line isn't complete yet (re-review 2, C1)."""
+    breaks = [m.end() for m in LINE_BREAK.finditer(pending)]
+    if breaks and breaks[-1] == len(pending) and pending.endswith("\r"):
+        breaks.pop()
+    return breaks, breaks[-1] if breaks else 0
 
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
@@ -399,7 +409,7 @@ _PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+)
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
 # Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
 # Its gap never reaches over a code already masked, and a "G-" prefixed code is C1's whole.
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\r\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
@@ -686,18 +696,11 @@ class RedactionStream:
         bearer = self.BEARER_TAIL.search(self.pending)
         if bearer:
             cut = min(cut, bearer.start())
-        # Contextual codes and grouped card numbers may straddle whitespace. Keep the current line from their
-        # class introducer/first digit until a line ending, so a later chunk cannot reveal a partial secret.
-        line_start = self.pending.rfind("\n") + 1
+        # Grouped card numbers may straddle whitespace: the line still being read keeps its trailing digits (an OTP
+        # introducer holds that whole line: `_labelled_cut`).
+        _, line_start = _line_starts(self.pending)
         tail = self.pending[line_start:]
-        contextual = OTP_CONTEXT_START.search(tail)
         numeric = re.search(r"(?<!\d)\d[\d -]*$", tail)
-        if contextual and len(tail) > self.MAX_PENDING // 2:
-            # a line too long to hold whole: only an introducer still within OTP_TEXT's reach of its end matters
-            near = [m for m in OTP_CONTEXT_START.finditer(tail, max(0, len(tail) - 96))]
-            contextual = near[0] if near else None
-        if contextual:
-            cut = min(cut, line_start + contextual.start())
         if numeric:                         # from its token's start: a card's digits are never split from it
             start = line_start + numeric.start()
             while start > line_start and not self.pending[start - 1].isspace():
@@ -737,11 +740,15 @@ class RedactionStream:
           code"), or a line ending in "Password:"; and each line before it that relates to a held line is held too.
         A line too long to hold (MAX_PENDING) is held only from the run of class items still within reach of its end."""
         pending = self.pending
-        breaks = [m.end() for m in LINE_BREAK.finditer(pending)]
-        tail_start = breaks[-1] if breaks else 0
+        breaks, tail_start = _line_starts(pending)
         tail = pending[tail_start:]
         hold = cut
-        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or CODE_VALUE.search(tail)
+        # A number alone holds the line only while its link can still follow it ("482913 is your …"): an interactive
+        # prompt with a number ("Delete 1234 files? [y/N] ") appears at once (re-review 2, I3).
+        urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
+        joinable = any((CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"\s*\S*", tail[m.end():]))
+                       and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
+        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         lines, begin = [], 0
@@ -782,7 +789,8 @@ class RedactionStream:
     def _open_run(line: str) -> int:
         """Where a very long line still being read must be held from: the start of the run of class items (each within
         reach of the next) that ends within reach of what has been read; the line's end when there is none."""
-        found = [m.span() for m in CODE_WORD.finditer(line)] + [m.span() for m in CODE_VALUE.finditer(line)]
+        found = ([m.span() for m in CODE_WORD.finditer(line)] + [m.span() for m in CODE_VALUE.finditer(line)]
+                 + [m.span() for m in OTP_CONTEXT_START.finditer(line)])
         for m in SECRET_WORD.finditer(line):
             own = MINE.search(line, max(0, m.start() - 40), m.start())
             found.append((own.start() if own else m.start(), m.end()))

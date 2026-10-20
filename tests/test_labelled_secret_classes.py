@@ -277,7 +277,8 @@ def test_the_stream_never_masks_less_than_the_text_redactor() -> None:
              "the", "your", "482913", "4829", "48 29 13", "482-913", "G-482913", "2024", "for", "verification",
              "one-time password", "secret", "=", "sunshine", "hunter2!", "was", "our", "wifi", "port", "54321",
              "words", "here", "Enter", "\n", "\n\n", "private", "as", ".", ",", "codes:", "a1b2c-3d4e5",
-             "4821-9921", "and", "on"]
+             "4821-9921", "and", "on", "\r\n", "\r", "sign in", "sign", "in", "Rs.", "No.", "a/c no.", "[Swiggy]",
+             "[x]", "1000", "1001", "[y/N]", "Port (default 8080):", "coupon code", "PIN code"]
     rng = random.Random(11)
     redactor = Redactor()
     for _ in range(6000):
@@ -500,3 +501,43 @@ def test_a_sentence_end_still_breaks_the_clause() -> None:
 def test_a_code_after_a_bracketed_prefix_is_masked(message) -> None:
     """Re-review 2 (I1): the idempotence guard took any "] " for a mask's end."""
     assert "482913" not in Redactor().text(message)
+
+
+CRLF = [
+    "Dear customer, 739201 is the One Time Password (OTP) for your transaction\r\n",
+    "482913 is your Swiggy OTP, valid for 10 minutes.\r\n",
+    "G-482913 is your Google verification code, do not share\r\n",
+    "Your sign in code for Swiggy account login 482913\n",
+    "Use this coupon code 4455 at checkout\n",
+]
+
+
+@pytest.mark.parametrize("raw", CRLF)
+def test_crlf_lines_and_split_words_stream_as_the_text_redactor_masks_them(raw) -> None:
+    """Re-review 2 (C1): a read ending between "\\r" and "\\n" (PTY output is CRLF), or right after "sign ", leaked the
+    code; a read ending after "coupon " over-masked an address-like coupon code."""
+    redactor = Redactor()
+    expected = redactor.text(raw).encode()
+    data = raw.encode()
+    for split in range(len(data) + 1):
+        stream = redactor.stream()
+        assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
+    if raw.endswith("\r\n"):
+        stream = redactor.stream()
+        out = stream.feed(data[:-1]) + stream.feed(b"\n") + stream.feed(b"", final=True)
+        assert out == expected
+
+
+@pytest.mark.parametrize("prompt", ["Delete 1234 files? [y/N] ", "Port (default 8080): ",
+                                    "Proceed with 2048 MB download? (y/n) ",
+                                    "Listening on http://127.0.0.1:8000 (Press CTRL+C to quit) "])
+def test_an_interactive_prompt_with_a_number_appears_before_its_answer(prompt) -> None:
+    """Re-review 2 (I3): a number on the unfinished line held the whole prompt until a newline that never comes."""
+    stream = Redactor().stream()
+    assert stream.feed(prompt.encode()) == prompt.encode()
+
+
+@pytest.mark.parametrize("start", ["482913 is your ", "482913", "482913 i", "Your code is "])
+def test_a_code_that_can_still_join_its_word_is_held(start) -> None:
+    stream = Redactor().stream()
+    assert b"482913" not in stream.feed(start.encode())
