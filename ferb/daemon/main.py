@@ -126,6 +126,11 @@ def mcp_shim_command() -> list[str]:
     return [sys.executable, "-I", "-m", "ferb.cli.mcp"]
 
 
+def _named_node(node: dict[str, Any]) -> str:
+    """How FERB names a learned item to the owner in a "Forget for good?" question; a forget of it scrubs this too."""
+    return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
+
+
 class _PurgePlan(NamedTuple):
     """One retention pass: its clock, its windows, the roots it handles and how many wait for the next pass."""
     now: datetime
@@ -1476,19 +1481,18 @@ class Daemon:
     def _forget_nodes(self, refs: list[str], named: bool = True) -> list[str]:
         """Learned items go (`Learning.forget`: every version, what is built on them, tombstones), and FERB's questions
         about them close. A learned item the owner named has an echo pass, like a memory forget's (re-review R3): the
-        one they asked to forget (`named`) and any a waiting "Forget for good?" names. Its text (its key, unless that
-        is a task id, and the text it states) leaves FERB's replies and every span, in a worker thread
-        (`echoes.finish_at`); the question that quoted it goes with it."""
+        one they asked to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that
+        question (`_named_node`) and what it states (its body's text, a procedure's intent, a lesson's trigger; never
+        its key alone, which can be a label such as "owner" or a task id) leave FERB's replies and every span, in a
+        worker thread (`echoes.finish_at`)."""
         from ferb.memory import echoes
-        from ferb.memory.learning import ID_KEYED
         asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
         texts: dict[str, list[str]] = {}
         for ident in (set(refs) if named else set()) | asked:
             node = self.learning.get(ident)
             if node is not None:
-                said = node["body"].get("text")
-                texts[ident] = [t for t in ("" if node["kind"] in ID_KEYED else str(node["key"]),
-                                            said if isinstance(said, str) else "") if t.strip()]
+                said = [node["body"].get(k) for k in ("text", "intent", "trigger")]
+                texts[ident] = [_named_node(node), *(t for t in said if isinstance(t, str) and t.strip())]
         deleted = self.learning.forget(refs)
         self._close_memory_questions(deleted)
         gone = echoes.Forgotten(contents=sorted({t for ident in deleted for t in texts.get(ident, [])}))
@@ -1537,8 +1541,7 @@ class Daemon:
         elif node is not None and node["kind"] not in ("fact", "identity") and self.learning is not None:
             doomed = sorted(self.learning.descendants([item_id]))
             target = ("learning", item_id)
-            lines = [f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']}) and "
-                     f"{len(doomed) - 1} record(s) built on it"]
+            lines = [f"{_named_node(node)} and {len(doomed) - 1} record(s) built on it"]
         else:
             return "I couldn't find that memory, so nothing was deleted."
         reason = "Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines)

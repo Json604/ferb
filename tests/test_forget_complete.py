@@ -538,9 +538,13 @@ def test_forgetting_a_learned_item_leaves_no_copy_of_its_question_in_a_span(daem
 
 
 def test_a_learned_item_forgotten_from_chat_leaves_no_copy_in_ferbs_replies_or_spans(daemon: RunningDaemon) -> None:
-    """R3, from chat: FERB's question naming the lesson is its reply in the conversation record; after the owner's
-    Yes, neither that reply nor any span holds the lesson's text. The owner's own words stay as they typed them."""
-    node = _lesson(daemon, "use brave zentrix")
+    """R3, from chat: FERB's question naming the lesson (by its key, here its scope and trigger) is its reply in the
+    conversation record; after the owner's Yes, neither that reply nor any span holds the lesson's key or text. The
+    owner's own words stay as they typed them."""
+    node = _on_loop(daemon, lambda: daemon.daemon.learning.put(
+        "lesson", '{"app": "Mail"}:send greyed out in zentrix', {"text": "wait for the draft to save in vorpalt",
+                                                                 "trigger": "send greyed out in zentrix"},
+        [], made_by="model:t", state="active"))
     install(daemon, [_reply("Okay.", forget=[{"item_id": node["id"], "quote": "forget that lesson"}])])
     asked = chat(daemon, "forget that lesson")
     assert any("zentrix" in str(e.get("text")) for e in asked)
@@ -550,7 +554,7 @@ def test_a_learned_item_forgotten_from_chat_leaves_no_copy_in_ferbs_replies_or_s
     chat(daemon, "Yes")
     daemon.run(daemon.daemon._settle_forgets())
     assert _on_loop(daemon, lambda: daemon.daemon.learning.get(node["id"])) is None
-    assert _everywhere(daemon, "zentrix") == []
+    assert _everywhere(daemon, "zentrix") == [] and _everywhere(daemon, "vorpalt") == []
     texts = _on_loop(daemon, lambda: [e.data.get("text") for e in daemon.daemon.journal.of_kind("chat.message")])
     assert "forget that lesson" in texts
 
@@ -676,3 +680,53 @@ def test_a_card_forgotten_for_restating_the_item_closes_the_question_about_it(da
         c.close()
     assert _on_loop(daemon, lambda: d.learning.current_card(task_id)) is None
     assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
+
+
+def test_a_learned_items_echo_never_scrubs_a_label_key(daemon: RunningDaemon) -> None:
+    """R3's echo pass removes FERB's naming of the item and what it states, never its key alone: an owner identity
+    statement is keyed "owner", a word every planner turn holds."""
+    from ferb.cli.client import Client
+    from ferb.memory.echoes import REMOVED
+    d = daemon.daemon
+    node = _on_loop(daemon, lambda: d.learning.put("identity", "owner", {"text": "I sign emails as Kestrovan"}, [],
+                                                   origin_label="owner", made_by="owner:identity/1", owner=True,
+                                                   state="active"))
+    install(daemon, [_reply("Hi.")])
+    chat(daemon, "what's on today?")
+
+    def owners() -> int:                         # "owner" in spans, beside the removal marker's own "owner"
+        held = _on_loop(daemon, lambda: "".join(json.dumps(json.loads(r[0])) for r in d.db.conn.execute(
+            "SELECT input_json FROM spans")))
+        return held.count("owner") - held.count(REMOVED)
+    before = owners()
+    assert before and _everywhere(daemon, "Kestrovan")
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": node["id"], "confirm": True})
+    finally:
+        c.close()
+    assert _everywhere(daemon, "Kestrovan") == []
+    assert owners() == before
+
+
+def test_a_forgotten_lesson_leaves_no_copy_in_a_planner_turn_that_listed_it(daemon: RunningDaemon) -> None:
+    """R3: a planner turn listed the lesson among its candidates (by its key: scope and trigger). After the dashboard
+    forgets it, no span holds its trigger or text; only the owner's own message in the conversation record does."""
+    from ferb.cli.client import Client
+    d = daemon.daemon
+    node = _on_loop(daemon, lambda: d.learning.put(
+        "lesson", '{"app": "Mail"}:send greyed out in zentrix', {"text": "wait for the draft to save in vorpalt",
+                                                                 "trigger": "send greyed out in zentrix"},
+        [], made_by="model:t", state="active"))
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "why is send greyed out in zentrix?")
+    assert "greyed out in zentrix" in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": node["id"], "confirm": True})
+    finally:
+        c.close()
+    assert _everywhere(daemon, "vorpalt") == []
+    assert _everywhere(daemon, "zentrix") == [("journal", "data_json")]
+    assert _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT kind FROM journal WHERE data_json LIKE '%zentrix%'")]) == ["chat.message"]
