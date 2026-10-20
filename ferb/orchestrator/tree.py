@@ -36,10 +36,11 @@ class TaskRecord:
     tree_id: str | None = None     # the request's root task (None: the task is its own tree)
 
 
-# A conversation's request trees updated since a time: through the conversation's index, then each task by its id;
-# CROSS JOIN keeps that order, so no turn reads the whole task table (re-review 2, R4).
-CONVERSATION_ROOTS = ("SELECT t.* FROM task_context c CROSS JOIN tasks t ON t.id = c.task_id "
-                      "WHERE c.conversation_id = ? AND t.parent_id IS NULL AND t.updated_at >= ? ORDER BY t.created_at")
+# A conversation's request trees recorded since a rowid floor (a chat session's start): the tasks above the floor by
+# the rowid key, each matched to its conversation by its key; CROSS JOIN keeps that order, so a turn's work is the
+# tasks recorded since the session started, never the task table or the conversation's whole history (R4).
+CONVERSATION_ROOTS = ("SELECT t.* FROM tasks t CROSS JOIN task_context c ON c.task_id = t.id "
+                      "WHERE t.rowid > ? AND c.conversation_id = ? AND t.parent_id IS NULL ORDER BY t.created_at")
 
 
 class TaskTree:
@@ -99,11 +100,17 @@ class TaskTree:
         return [dict(r) for r in self.db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at",
                                                       (tree_id,)).fetchall()]
 
-    def conversation_roots(self, conversation: str, since_iso: str) -> list[dict[str, Any]]:
-        """A conversation's request trees updated since then (the planner's task status facts)."""
+    def conversation_roots(self, conversation: str, floor: int) -> list[dict[str, Any]]:
+        """A conversation's request trees recorded above the rowid floor (the planner's task status facts)."""
         if self.db is None:
             return []
-        return [dict(r) for r in self.db.conn.execute(CONVERSATION_ROOTS, (conversation, since_iso))]
+        return [dict(r) for r in self.db.conn.execute(CONVERSATION_ROOTS, (floor, conversation))]
+
+    def max_rowid(self) -> int:
+        """The last task row recorded so far: a chat session's floor (the rowid key's end, no scan)."""
+        if self.db is None:
+            return 0
+        return int(self.db.conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM tasks").fetchone()[0])
 
     def recent_roots(self, since_iso: str) -> list[dict[str, Any]]:
         """Requests' task trees updated since then (continuity, 14a)."""

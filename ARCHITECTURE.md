@@ -732,8 +732,8 @@ for `done` only.
 **Task status facts (owner live use 2026-10-18).** Each planner turn carries a protected Layer 6 block of FERB's own
 record of the tasks a progress question can be about (`Supervisor._status_facts`): every running tree (running,
 blocked when its latest worker report or a plan step is blocked, failed or needs an answer, stopping) and this
-conversation's latest five tasks finished since its chat session started (`CONVERSATION_ROOTS`: through the
-conversation's index, never the whole task table), with the first line of the latest worker report and the plan's
+conversation's latest five tasks recorded since its chat session started (`CONVERSATION_ROOTS`: the tasks above
+the session's rowid floor by key, each matched to its conversation by key), with the first line of the latest worker report and the plan's
 step counts, labelled with those tasks' origins. `supervisor.md` answers progress only from it.
 
 **A recurring run sees the one before (fix wave 2, 2026-10-15).** A scheduled run's tree is saved in the schedule's

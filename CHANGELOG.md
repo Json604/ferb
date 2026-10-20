@@ -201,8 +201,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - A task's tabs are known by tab id: a tab it took over and then navigated elsewhere is still the same tab (with the
   page it held when taken over, stored redacted), so it never counts as missing; a held tab you close is listed as
   closed by you, and reopening it is a new tab.
-- In a plan run, a blocked step shows the task as blocked in FERB's record, and that record reads only this chat's
-  tasks (not every task ever) on each turn.
+- In a plan run, a blocked step shows the task as blocked in FERB's record. Each turn's record of finished tasks reads
+  only the tasks recorded since this chat session started.
 
 Fix wave 3 (2026-10-15, after the memory and learning review):
 - Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own

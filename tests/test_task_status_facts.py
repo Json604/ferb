@@ -76,31 +76,35 @@ def test_a_blocked_plan_step_shows_in_the_tasks_state(daemon: RunningDaemon, mon
     assert row["state"] == "blocked" and row["plan_steps"] == {"done": 1, "blocked": 1}
 
 
-def test_finished_tasks_come_from_this_conversation_since_its_session_started(daemon: RunningDaemon) -> None:
-    """Re-review 2 (R4b): each planner turn read every task ever recorded. The finished ones now come from the
-    conversation's own index, since the chat session started; no task table scan."""
+def test_finished_tasks_come_from_tasks_recorded_since_the_session_started(daemon: RunningDaemon) -> None:
+    """Re-review 2/3 (R4b): each planner turn read every task ever recorded, then every task of the conversation (the
+    default "owner" conversation holds them all). The finished ones now come from the tasks recorded since the chat
+    session started: a rowid floor captured then, read by the rowid key, each matched to its conversation by key."""
     d = daemon.daemon
     supervisor = d.supervisor
     assert supervisor is not None
 
     async def query_plan() -> list[str]:
-        return [str(tuple(r)[-1]) for r in d.db.conn.execute("EXPLAIN QUERY PLAN " + CONVERSATION_ROOTS, ("c", ""))]
+        return [str(tuple(r)[-1]) for r in d.db.conn.execute("EXPLAIN QUERY PLAN " + CONVERSATION_ROOTS, (0, "c"))]
     plan = daemon.run(query_plan())
-    assert any("task_context_conversation" in step for step in plan), plan
+    assert any("INTEGER PRIMARY KEY (rowid>?)" in step for step in plan), plan
     assert not any(step.startswith("SCAN") for step in plan), plan
 
-    def add(task_id: str, conversation: str, updated: str) -> None:
+    def add(task_id: str, conversation: str) -> None:
         d.db.conn.execute("INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, "
                           "outcome_json, created_at, updated_at) VALUES (?, ?, 'r', ?, 'owner', 'root', '[]', 'done', "
-                          "'{\"summary\": \"Done.\"}', ?, ?)", (task_id, task_id, "goal " + task_id, updated, updated))
+                          "'{\"summary\": \"Done.\"}', ?, ?)", (task_id, task_id, "goal " + task_id,
+                                                                  "2026-10-20T09:00:00+05:30", "2026-10-20T09:00:00+05:30"))
         d.db.conn.execute("INSERT OR IGNORE INTO conversations(id) VALUES (?)", (conversation,))
         d.db.conn.execute("INSERT INTO task_context (task_id, conversation_id, spec_json, owner_words) "
                           "VALUES (?, ?, '{}', '')", (task_id, conversation))
 
-    async def facts() -> list[str]:
-        add("old-task", "chat-r4", "2026-10-01T09:00:00+05:30")
-        add("other-chat", "chat-elsewhere", "2026-10-20T09:00:00+05:30")
-        add("new-task", "chat-r4", "2026-10-20T10:00:00+05:30")
-        session = ChatSession("chat-r4", started_at="2026-10-20T08:00:00+05:30")
-        return [row["task_id"] for row in supervisor._status_facts(session)[0]]
-    assert daemon.run(facts()) == ["new-task"]
+    async def facts() -> tuple[list[str], list[str]]:
+        add("old-task", "chat-r4")
+        session = ChatSession("chat-r4", task_floor=d.tasks.max_rowid())        # the session starts here
+        add("other-chat", "chat-elsewhere")
+        add("new-task", "chat-r4")
+        unstarted = ChatSession("chat-r4")                                        # no floor: running tasks only
+        return ([row["task_id"] for row in supervisor._status_facts(session)[0]],
+                [row["task_id"] for row in supervisor._status_facts(unstarted)[0]])
+    assert daemon.run(facts()) == (["new-task"], [])

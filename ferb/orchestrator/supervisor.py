@@ -188,8 +188,9 @@ class ChatSession:
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
     payload: str = ""          # complete prior request, including marked source data
-    # when this session started, on the clock task records use: its finished tasks are the status facts' (R4)
-    started_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat())
+    # the last task row when this session started: tasks recorded after it are the status facts' finished ones (R4);
+    # None: no finished tasks, only running ones
+    task_floor: int | None = None
 
 
 def _bare(text: str) -> str:
@@ -649,7 +650,7 @@ class Supervisor(WorkerRuns):
             # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
             "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
                              "later_runs_without_answer": previous["skipped"]} if previous else None})
-        session = ChatSession(SCHEDULE_SESSION + sched.id)
+        session = ChatSession(SCHEDULE_SESSION + sched.id, task_floor=self.tasks.max_rowid())
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
         self._env[request_id]["schedule_previous"] = previous
@@ -731,8 +732,8 @@ class Supervisor(WorkerRuns):
     def _status_facts(self, session: ChatSession) -> tuple[list[dict[str, Any]], set[str], list[str]]:
         """FERB's own record of the tasks a progress question can be about: each running tree (running, blocked when
         its latest worker report or a plan step is blocked, failed or needs an answer, stopping), and this
-        conversation's latest tasks finished since its session started (read through the conversation's index, never
-        the whole task table: re-review 2, R4); with the first line of the latest worker report and the plan's step
+        conversation's latest tasks recorded since its session started (above the session's rowid floor, by key:
+        never the task table or the conversation's whole history, re-review 2/3 R4); with the first line of the latest worker report and the plan's step
         counts. The report lines are model-written, so the block carries those tasks' origins (MP2)."""
         rows: list[dict[str, Any]] = []
         origins: set[str] = set()
@@ -762,7 +763,8 @@ class Supervisor(WorkerRuns):
             rows.append(row)
             origins |= self._task_line_origins(key)
             refs.append(TASK + key)
-        done = [r for r in self.tasks.conversation_roots(session.id, session.started_at) if r["id"] not in self._tree_of]
+        done = ([r for r in self.tasks.conversation_roots(session.id, session.task_floor) if r["id"] not in self._tree_of]
+                if session.task_floor is not None else [])
         for r in done[-5:]:
             outcome = json.loads(r.get("outcome_json") or "{}") if isinstance(r.get("outcome_json"), str) else {}
             rows.append({"task_id": r["id"], "goal": first_line(r["goal"]), "state": r["status"],
@@ -973,7 +975,9 @@ class Supervisor(WorkerRuns):
     async def _send(self, session_id: str, text: str, input_paths: list[str],
                     request_id: str, screen: Awaitable[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
         await self.settle()                                  # a forget still being finished completes first (I2)
-        session = self.sessions.setdefault(session_id, ChatSession(session_id))
+        if session_id not in self.sessions:
+            self.sessions[session_id] = ChatSession(session_id, task_floor=self.tasks.max_rowid())
+        session = self.sessions[session_id]
         focus = self._answer_focus.pop(session_id, None)     # FERB's own answer question applies to this message only
         session.pending, session.asked = self.continuity.pending(session_id)
         clarified = session.asked                            # the question this message may answer (L3, I3)
