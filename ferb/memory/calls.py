@@ -40,6 +40,9 @@ async def learning_call(rt: Any, task: Task, system: str, ctx: str, reference: s
                     final = str(event.data.get("text", ""))
                 elif event.kind == "usage":
                     usage(rt.name, dict(event.data))
+                elif event.kind == "retrying" and span is not None:  # retried by the runtime itself: the call goes on
+                    retry = spans.start("model.retry", task_id=None, parent_id=span.id, input={"runtime": rt.name})
+                    spans.finish(retry, error=str(event.data.get("message", "")))
                 elif event.kind in ("error", "violation"):
                     raise RuntimeError(str(event.data.get("message") or event.data))
         finally:

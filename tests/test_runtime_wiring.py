@@ -131,3 +131,26 @@ def test_the_codex_runtime_redacts_its_errors_with_the_daemons_redactor(daemon: 
     monkeypatch.setattr('ferb.runtimes.codex_exec.codex_binary', lambda *_: d.home / 'fake-codex')
     rt = d._make_runtime('orchestrator', mode='supervisor', tool_names=[], schema={'type': 'object'})
     assert rt.redact is d.redact
+
+
+def test_a_retried_runtime_error_is_recorded_and_the_task_goes_on(daemon: RunningDaemon, monkeypatch) -> None:
+    """An error the runtime retries itself (Codex willRetry) is a `model.retry` span under the run, with its message;
+    the worker's run continues to its answer (L28, D32)."""
+    from ferb.core.types import RuntimeEvent
+    from tests.conftest import FakeRuntime, chat, done, install, outcome, sup, task
+    original = FakeRuntime.events
+
+    async def events(self, run):
+        if run.state["key"] == "worker":
+            yield RuntimeEvent("retrying", {"message": "Codex is retrying after an error: stream disconnected"})
+        async for event in original(self, run):
+            yield event
+    monkeypatch.setattr(FakeRuntime, "events", events)
+    install(daemon, [sup("task", "Working", task())], {"worker": lambda _: done("ok")})
+    result = outcome(chat(daemon, "Create the requested file"))
+    assert result["status"] != "failed"
+
+    async def retries():
+        return [(r[0], r[1]) for r in daemon.daemon.db.conn.execute(
+            "SELECT s.error, p.kind FROM spans s JOIN spans p ON p.id = s.parent_id WHERE s.kind = 'model.retry'")]
+    assert daemon.run(retries()) == [("Codex is retrying after an error: stream disconnected", "worker")]

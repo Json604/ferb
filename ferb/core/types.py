@@ -215,8 +215,10 @@ class RunHandle:
 @dataclass(frozen=True)
 class RuntimeEvent:
     # invalid_answer: the model answered, but its final answer doesn't match the requested schema (format repair, not
-    # a failed call); data["message"] says where
-    kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation", "invalid_answer"]
+    # a failed call); data["message"] says where. retrying: the runtime hit an error it retries itself (Codex
+    # willRetry); the run goes on; data["message"] is the runtime's redacted error
+    kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation", "invalid_answer",
+                  "retrying"]
     data: dict[str, Any]
 
 

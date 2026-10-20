@@ -448,6 +448,11 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         'output_tokens': usage.get('outputTokens', 0),
                         'reasoning_output_tokens': usage.get('reasoningOutputTokens', 0)}
                     yield RuntimeEvent('usage', asdict(from_codex(runtime.model, mapped)))
+                elif method == 'error' and params.get('willRetry') is True:
+                    # Codex retries it itself and "this will not interrupt a turn" (v2 ErrorNotification,
+                    # app-server-protocol v2/notification.rs:62-69): reported, and the run goes on
+                    yield RuntimeEvent('retrying', {'message': codex_error('Codex is retrying after an error',
+                                                                           params.get('error'), runtime.redact)})
                 elif method == 'error':
                     raise ProtocolError(codex_error('Codex runtime reported an error', params.get('error'),
                                                     runtime.redact))

@@ -151,6 +151,24 @@ async def test_a_turn_error_event_carries_codexs_message(tmp_path, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_an_error_codex_retries_itself_is_reported_and_the_run_goes_on(tmp_path, monkeypatch):
+    """Codex's v2 ErrorNotification: willRetry true "will not interrupt a turn" (app-server-protocol
+    v2/notification.rs:62-69, rust-v0.157.1). FERB reports it (redacted) and keeps the run; only a non-retrying error
+    or a failed turn ends it."""
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.notify('error', {'error': {'message': 'stream disconnected, retrying 1/5 Bearer abcdefghijklmnop0123456789',
+                                    'codexErrorInfo': 'responseStreamDisconnected'}, 'willRetry': True})
+    proc.complete()
+    got = [ev async for ev in stream.events(rt, run)]
+    retrying = [ev for ev in got if ev.kind == 'retrying']
+    assert len(retrying) == 1 and 'stream disconnected, retrying 1/5' in retrying[0].data['message']
+    assert 'responseStreamDisconnected' in retrying[0].data['message']
+    assert 'abcdefghijklmnop0123456789' not in retrying[0].data['message']
+    assert got[-1].kind == 'final' and not any(ev.kind == 'error' for ev in got)
+
+
+@pytest.mark.anyio
 async def test_exec_error_events_pass_through_redaction(tmp_path):
     import sys
     from ferb.core.types import RunHandle

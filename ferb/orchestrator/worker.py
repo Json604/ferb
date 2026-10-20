@@ -307,6 +307,10 @@ class WorkerRuns:
                     s = self.spans.start("model.usage", task_id=task.id if task.id != task.request_id else None,
                                          parent_id=parent_span, input={"runtime": rt.name})
                     self.spans.finish(s, output=dict(ev.data), cost_usd=ev.data.get("cost_usd"))            # traced, never limited
+                elif ev.kind == "retrying":              # an error the runtime retries itself: recorded, the run goes on
+                    s = self.spans.start("model.retry", task_id=task.id if task.id != task.request_id else None,
+                                         parent_id=parent_span, input={"runtime": rt.name})
+                    self.spans.finish(s, error=str(ev.data.get("message", "")))
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")

@@ -83,6 +83,34 @@ def test_an_answered_consolidation_call_records_its_outcome(daemon) -> None:
     assert span["output"]["outcome"] == "answered" and span["error"] is None
 
 
+class RetriesThenAnswers(Answers):
+    async def events(self, run: RunHandle) -> Any:
+        yield RuntimeEvent("retrying", {"message": "Codex is retrying after an error: stream disconnected"})
+        async for event in super().events(run):
+            yield event
+
+
+def test_a_retried_error_in_a_learning_call_is_recorded_and_the_call_answers(daemon) -> None:
+    d = daemon.daemon
+    trail_row(daemon, "2025-12-30")
+    d.distiller.make_runtime = lambda *a, **k: RetriesThenAnswers({"narrative": "", "items": []})
+    assert daemon.run(d.distiller.run_day("2025-12-30"), timeout=30)["status"] == "distilled"
+    [span] = _learning_spans(daemon)
+    assert span["output"]["outcome"] == "answered"
+
+    async def retries() -> list[Any]:
+        return [tuple(r) for r in d.db.conn.execute(
+            "SELECT s.error, p.kind FROM spans s JOIN spans p ON p.id = s.parent_id WHERE s.kind = 'model.retry'")]
+    assert daemon.run(retries()) == [("Codex is retrying after an error: stream disconnected", "model.learning")]
+    from ferb.cli.admin import render_trace
+    c = Client(daemon.sock)
+    try:
+        lines = render_trace(c.call("trace.get", {"task_id": "distill-2025-12-30"}))
+    finally:
+        c.close()
+    assert any("stream disconnected" in line for line in lines)
+
+
 def test_a_failed_distillation_call_is_a_span_and_its_day_keeps_codexs_error(daemon) -> None:
     d = daemon.daemon
     trail_row(daemon, "2025-12-30")
