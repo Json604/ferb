@@ -252,12 +252,66 @@ def _words_between(starts: list[int], a: int, b: int) -> int:
     return bisect.bisect_left(starts, b) - bisect.bisect_left(starts, a)
 
 
-def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
+_ALNUM = re.compile(r"[^\W_]")                  # a character `str.isalnum` takes
+_NOT_ALNUM = re.compile(r"[\W_]")
+# A quote's close on its own line: the first such quote, or the line break that comes first.
+_QUOTE_CLOSE = {quote: re.compile(re.escape(quote) + r"|\r|\n") for quote in ('"', "'", '\\"', "\\'")}
+_ENDS_CLAUSE = re.compile(rf"(?i)[{_H}]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))")
+_MASK_START = REDACTED[:-1]
+
+
+class _Values:
+    """What the values of one text's secret words read, worked out once for all of them (re-review 6, final): where
+    each run of non-space characters ends, where the digits and masks are, where a run's trailing punctuation starts.
+    Read again for every word, a long line of secret words cost quadratic time (minified JSON: 256 KB in 6-46 s)."""
+
+    def __init__(self, s: str) -> None:
+        self.s = s
+        self._starts: list[int] | None = None
+        self._ends: list[int] = []
+        self._digits: list[int] | None = None
+        self._masks: list[int] | None = None
+        self._trailing: dict[int, int] = {}
+
+    def token_end(self, pos: int) -> int:
+        """Where the run of non-space characters holding `pos` ends."""
+        if self._starts is None:
+            spans = [m.span() for m in re.finditer(r"\S+", self.s)]
+            self._starts, self._ends = [a for a, _ in spans], [b for _, b in spans]
+        return self._ends[bisect.bisect_right(self._starts, pos) - 1]
+
+    def trailing_start(self, end: int) -> int:
+        """Where the run of trailing punctuation (`_TRAILING`) that ends at `end` starts."""
+        if (start := self._trailing.get(end)) is None:
+            start = end
+            while start > 0 and self.s[start - 1] in _TRAILING:
+                start -= 1
+            self._trailing[end] = start
+        return start
+
+    def digit(self, a: int, b: int) -> bool:
+        """Whether s[a:b] holds a character `str.isdigit` takes."""
+        if self._digits is None:
+            self._digits = [i for i, c in enumerate(self.s) if c.isdigit()]
+        i = bisect.bisect_left(self._digits, a)
+        return i < len(self._digits) and self._digits[i] < b
+
+    def masked(self, a: int, b: int) -> bool:
+        """Whether a mask starts and ends inside s[a:b]."""
+        if self._masks is None:
+            self._masks = [m.start() for m in re.finditer(re.escape(_MASK_START), self.s)]
+        i = bisect.bisect_left(self._masks, a)
+        return i < len(self._masks) and self._masks[i] + len(_MASK_START) <= min(b, len(self.s))
+
+
+def _secret_value(s: str, word: re.Match[str], values: _Values | None = None) -> tuple[int, int] | None:
     """Where the value after a secret word lies, when one is there: after ":"/"=" any value, after "is"/"was"/" - "
     one with a digit or a symbol (or any, when it is the owner's own), and right after the word one with a digit.
     A value on a later line than its label is that whole line, unless quoted ("password for gmail:" over
     "  s3cret pass 9": re-review 4, T1). A quote that doesn't close on its line quotes nothing: the value is read as
-    unquoted, its quote mark included ("password: 'Tr0ub4dor&3": re-review 5)."""
+    unquoted, its quote mark included ("password: 'Tr0ub4dor&3": re-review 5). `values`: the text's facts, shared by
+    its words (`_Values`); each word's own reading stays within its value."""
+    values = values if values is not None else _Values(s)
     end, strong, mine = word.end(), False, MINE.search(s, max(0, word.start() - 40), word.start()) is not None
     after = SECRET_AFTER.match(s, end)
     next_line = False
@@ -272,9 +326,9 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
     if end >= len(s) or s[end].isspace():
         return None
     quote = s[end] if s[end] in "\"'" else ("\\" + s[end + 1] if s.startswith(("\\\"", "\\'"), end) else "")
-    if quote:
-        line_end = LINE_BREAK.search(s, end)
-        close = s.find(quote, end + len(quote), line_end.start() if line_end else len(s))
+    if quote:                                       # its close, read only as far as the close or the line's end
+        found = _QUOTE_CLOSE[quote].search(s, end + len(quote))
+        close = found.start() if found is not None and found.group() == quote else -1
         quote = quote if close >= 0 else ""         # a quote that doesn't close on its line quotes nothing
     if quote:
         start, stop = end + len(quote), close
@@ -283,30 +337,25 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         start, stop = end, line_end.start() if line_end else len(s)
         while s[stop - 1].isspace():
             stop -= 1
-    else:
-        stop = end
-        while stop < len(s) and not s[stop].isspace():
-            stop += 1
+    else:                                           # to the run's end, its trailing punctuation left out
         start = end
-        while stop > start and s[stop - 1] in _TRAILING:
-            stop -= 1
+        stop = max(start, values.trailing_start(values.token_end(end)))
         if s.startswith("\\", stop - 1):
             stop -= 1
-    value = s[start:stop]
+    length = max(0, stop - start)
     if next_line and not quote:                     # the whole line, unless only masks are left of it
-        if not any(c.isalnum() for c in value.replace(REDACTED, "")):
+        if not any(c.isalnum() for c in s[start:stop].replace(REDACTED, "")):
             return None
-    elif not any(c.isalnum() for c in value) or REDACTED[:-1] in s[end:stop + 1]:   # no value; already masked
+    elif _ALNUM.search(s, start, stop) is None or values.masked(end, stop + 1):    # no value; already masked
         return None
-    digit = any(c.isdigit() for c in value)
-    symbol = any(not c.isalnum() for c in value)
+    digit = values.digit(start, stop)
+    symbol = _NOT_ALNUM.search(s, start, stop) is not None
     # "my password is sunshine" hides a plain word that ends its clause; "my PIN is on the card" is no value. A quoted
     # word's clause is read after its closing quote ("my password is 'sunshine'": re-review 6, I2).
-    ends_clause = re.match(rf"(?i)[{_H}]*(?:$|[\r\n.,;!?)]|(?:and|but)(?![A-Za-z0-9]))",
-                           s[stop + len(quote):]) is not None
+    ends_clause = _ENDS_CLAUSE.match(s, stop + len(quote)) is not None
     if strong or (after is not None and ((mine and (digit or symbol or ends_clause))
-                                         or (len(value) >= 4 and (digit or symbol)))) or \
-            (after is None and len(value) >= 4 and digit):
+                                         or (length >= 4 and (digit or symbol)))) or \
+            (after is None and length >= 4 and digit):
         return start, stop
     return None
 
@@ -321,8 +370,9 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
         return i >= 0 and span[1] <= urls[i][1]
     spans: list[tuple[int, int]] = []
     words = [m for m in secret_words(s) if not in_url(m.span())]
+    values = _Values(s)
     for word in words:
-        value = _secret_value(s, word)
+        value = _secret_value(s, word, values)
         if value is not None:
             spans.append(value)
     codes = [m for m in CODE_VALUE.finditer(s) if not in_url(m.span())]

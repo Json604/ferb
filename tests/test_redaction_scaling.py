@@ -17,11 +17,15 @@ from typing import Callable
 import pytest
 
 from ferb.sanitize import images, redact
-from ferb.sanitize.redact import Redactor
+from ferb.sanitize.redact import RedactionStream, Redactor
 
 FLOOR = 0.0002              # seconds: below this a ratio is timer noise
 GIVE_UP = 1.0               # seconds: one call this slow ends the doubling (it has already failed)
-MAX_CHARS = 8192            # the longest run built per case
+MAX_CHARS = 8192            # the longest run built per pattern case
+TEXT_CHARS = 32768          # the longest run built per whole-text case (a small quadratic shows only past 8 KB)
+# A stream read's line stays on one path: a line past MAX_PENDING // 2 is held from its open run instead (a costlier
+# per-character path, linear too), and the switch would read as growth.
+READ_CHARS = RedactionStream.MAX_PENDING // 4
 
 
 def _best(call: Callable[[], object], repeat: int) -> float:
@@ -33,13 +37,14 @@ def _best(call: Callable[[], object], repeat: int) -> float:
     return best
 
 
-def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit: int) -> str | None:
+def _superlinear(run: Callable[[str], object], make: Callable[[int], str], unit: int,
+                 max_chars: int = MAX_CHARS) -> str | None:
     """None when the time of `run(make(n))` grows about in proportion to n as the run of n units doubles from one
     unit; else what grew. A doubling may cost at most 8 times the size before (an exponential blows past that within a
     step or two, while the calls are still cheap), and a quadrupling at most 8 times (a quadratic costs 16)."""
     times: dict[int, float] = {}
     n = 1
-    while n * unit <= MAX_CHARS:
+    while n * unit <= max_chars:
         text = make(n)
         times[n] = t = _best(lambda: run(text), 1)
         for back in (2, 4):
@@ -140,6 +145,9 @@ TEXTS: list[tuple[str, str, str]] = [
     # re-review 6, final: self-closing tags between a code and its link, in minified HTML, under a code-alone line
     ("482913", " <br />", " x is your code"), ("<td>12345</td>", '<meta name="a" content="b"/>', "<p>Enter the code</p>"),
     ("Order 482913", "<img src='a' />", "x"), ("482913\n", "<br />", "x code"),
+    # minified JSON with secret keys, quoted and unquoted values (a file read whole), prose with unclosed quotes
+    ("", '{"token":"abc","n":1}', "\n"), ("", '{"pin":1234,"x":"y"}', "\n"), ("", '{"user":"a","has_password":true}', "\n"),
+    ("", "password: 'x ", "y z"), ("", "pwd: 'a' ", "x y"),
 ]
 
 
@@ -154,5 +162,5 @@ def test_both_redactors_are_linear_on_pathological_lines(prefix, unit, suffix) -
         data = text.encode()
         return redactor.stream().feed(data[:len(data) - 2])          # the read ends inside the last word
 
-    assert (grew := _superlinear(redactor.text, make, len(unit))) is None, f"Redactor.text: {grew}"
-    assert (grew := _superlinear(read, make, len(unit))) is None, f"stream read: {grew}"
+    assert (grew := _superlinear(redactor.text, make, len(unit), TEXT_CHARS)) is None, f"Redactor.text: {grew}"
+    assert (grew := _superlinear(read, make, len(unit), READ_CHARS)) is None, f"stream read: {grew}"
