@@ -469,6 +469,8 @@ class FakeExtension:
         if b not in self.windows:
             return {"matched": False, "reason": "window_not_found"}
         rects = self.windows[b]
+        if rects == "ambiguous":                       # two of this profile's windows at those bounds
+            return {"matched": False, "reason": "ambiguous_window"}
         if rects is None:
             return {"matched": True, "complete": False, "reason": "the page can't be read"}
         return {"matched": True, "complete": True, "state": {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [

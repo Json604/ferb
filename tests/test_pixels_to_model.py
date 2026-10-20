@@ -325,6 +325,78 @@ def test_a_mac_screenshot_of_a_page_nobody_read_reaches_the_model_through_text_r
     assert daemon.run(_evidence(daemon, "n")) == [("screenshot", True)]
 
 
+def test_the_note_says_why_neither_the_extension_nor_accessibility_read_the_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So the next live case explains itself from the trace: the extension's reason (here, two of the profile's
+    windows at the captured window's place, as two maximized windows are) and what Accessibility showed."""
+    from ferb.act.mac.driver import WebSecrets
+    why = WebSecrets(None, "a paired profile has more than one window at this window's place")
+    d, ax, _, _ = _brave(monkeypatch, *[why] * 6)                     # two looks for each of three captures
+    ax.tree.empty_web_areas = [(100.0, 130.0, 800.0, 520.0)]
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert "more than one window at this window's place" in shot.masking and "page area is empty" in shot.masking
+    assert "text recognition only" in shot.masking
+    ax.tree.empty_web_areas, ax.tree.has_web = [], False
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))
+    assert "shows no page area" in shot.masking
+    ax.tree.has_web = True
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))                     # AX read it: masked from AX, and why
+    assert "Accessibility only" in shot.masking and "more than one window" in shot.masking
+
+
+def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two maximized windows share bounds: Accessibility's window is the one with the captured window's title."""
+    d, ax, shots, *_ = vision(monkeypatch)
+    asked: list[Any] = []
+    ax.window_with_frame = lambda pid, bounds, title=None: asked.append(title) or "win"   # type: ignore[method-assign]
+    asyncio.run(d.screenshot("Notes"))
+    assert asked == ["w", "w"]                                       # FakeShots' window title, both looks
+
+
+def test_an_ax_window_at_a_shared_place_is_told_apart_by_its_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.mac import accessibility as axm
+    monkeypatch.setattr(axm, "ax_windows", lambda pid: ["kaggle", "greenhouse"])
+    monkeypatch.setattr(axm, "frame", lambda win: (0.0, 30.0, 1400.0, 900.0))
+    monkeypatch.setattr(axm, "window_title", lambda win: {"kaggle": "Kaggle", "greenhouse": "Job – Panthalassa"}[win])
+    assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0)) is None                     # never the first
+    assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "Job – Panthalassa") == "greenhouse"
+    assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "Something else") is None
+    monkeypatch.setattr(axm, "ax_windows", lambda pid: ["greenhouse"])
+    assert axm.window_with_frame(1, (0.0, 30.0, 1400.0, 900.0), "renamed meanwhile") == "greenhouse"
+
+
+def test_a_browser_page_area_that_hasnt_appeared_yet_is_read_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chromium builds its web tree when an Accessibility client asks (Chrome 154 / Brave 151, spike 06; Brave 1.97 and
+    Chrome 155 don't know AXManualAccessibility): the first walks can show no page area at all, not only an empty
+    one. A browser's walk is read again for ~2 s in both cases; another app's is not."""
+    import sys
+    from types import SimpleNamespace
+    from ferb.act.mac import accessibility as axm
+    from tests.test_mac_snapshot import El, fake_ax
+    fake_ax(monkeypatch)
+    clock = [0.0]
+    monkeypatch.setattr(axm, "time", SimpleNamespace(monotonic=lambda: clock[0],
+                                                     sleep=lambda s: clock.__setitem__(0, clock[0] + s)))
+    monkeypatch.setitem(sys.modules, "ApplicationServices",
+                        SimpleNamespace(AXUIElementCreateApplication=lambda pid: El("AXApplication"),
+                                        kAXValueCGPointType=1, kAXValueCGSizeType=2))
+    monkeypatch.setattr(axm, "windows", lambda pid, win=None: [])
+    page = El("AXWebArea", {"AXPosition": (0.0, 80.0), "AXSize": (800.0, 520.0)},
+              children=[El("AXStaticText", {"AXValue": "Software Intern"})])
+    no_area = El("AXWindow", children=[El("AXScrollArea")])                # the web view, its tree not built yet
+    built = El("AXWindow", children=[El("AXScrollArea", children=[page])])
+    walks = [no_area, no_area, built]
+    monkeypatch.setattr(axm, "app_window", lambda pid: walks.pop(0) if len(walks) > 1 else walks[0])
+    tree = axm.read_tree(1, browser=True)
+    assert tree.has_web and tree.web_areas == [(0.0, 80.0, 800.0, 520.0)] and "Software Intern" in tree.text
+    walks[:] = [no_area]
+    clock[0] = 0.0
+    tree = axm.read_tree(1, browser=True)                                 # never appears: gives up at ~2 s
+    assert not tree.has_web and 2.0 <= clock[0] < 2.5
+    clock[0] = 0.0
+    axm.read_tree(1, browser=False)
+    assert clock[0] == 0.0                                                # another app: one walk
+
+
 def test_a_secret_field_appearing_during_capture_is_painted_where_it_appeared_and_says_so(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner: no screenshot is refused. A field whose place during the capture isn't certain is painted wherever a

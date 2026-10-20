@@ -1652,7 +1652,18 @@ protected FERB state (16.9).
   a child frame holding secrets is painted whole; a transformed host is painted whole; mirrored or filtered secrets
   (box-reflect, SVG `url()` filters, `::details-content`) withhold.
 - Native captures of a browser window use `window_secrets` from the owning profile, placed through the page's AX web
-  area; AX-only masking is recorded as `masking`.
+  area; AX-only masking is recorded as `masking`. When no profile can tell, `_web_secrets` says why
+  (`WebSecrets.why`: no paired profile of that browser connected, none of a profile's windows or more than one at
+  that place, more than one profile, no answer, or the extension's own reason), and the note carries it with what
+  Accessibility showed ("no page area" / "page area is empty"), so a live trace explains itself.
+- Each look's AX window is the app's window at the captured bounds; when several are there (maximized windows share
+  bounds) the one with the captured window's window-server title (`accessibility.window_with_frame(…, title)`).
+- Chromium builds its web AX tree when an Accessibility client asks; Brave 1.97 and Chrome 155 don't contain the
+  string `AXManualAccessibility` (checked in their framework binaries, fix wave 4; spike 06 saw the same on Chrome
+  154 / Brave 151), so `expose_tree` only helps Electron apps. `read_tree` re-reads a browser's window for ~2 s while
+  it shows no web area yet as well as an empty one (it used to return at once when no web area had appeared).
+  `AXEnhancedUserInterface` (the VoiceOver signal Chromium does honour) is not set: it switches the owner's browser
+  into its full screen-reader mode for every page and is known to disturb window managers; that is the owner's call.
 - Native captures are never refused for where their secret fields are (owner: "no screenshots should be refused; go
   with redacted stuff", "no exceptions"; live case 2026-10-19, where the front-window block said "pixels withheld"
   and FERB asked which internship). `window_masks` paints what it found and says the rest in `masking`:

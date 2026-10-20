@@ -496,11 +496,19 @@ def test_the_profile_that_owns_a_window_gives_its_tabs_page(bd: Any) -> None:
     assert page.state.viewport == (0.0, 0.0, 1280.0, 900.0)
     blank = d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0)))
     assert blank.complete and blank.state.items == ()
-    assert not d.run(ask("chrome", (5.0, 5.0, 300.0, 200.0))).complete     # its page can't be read
-    assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
-    assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
+    unread = d.run(ask("chrome", (5.0, 5.0, 300.0, 200.0)))
+    assert not unread.complete and "the page can't be read" in unread.why       # its page can't be read: why
+    # Nobody can tell, and the capture's note says why (fix wave 4: the live case's "neither read" said nothing more)
+    nowhere = d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0)))
+    assert not nowhere.complete and "no paired profile has a window" in nowhere.why
+    unpaired = d.run(ask("brave", (10.0, 20.0, 800.0, 600.0)))
+    assert not unpaired.complete and "no paired profile of brave is connected" in unpaired.why
+    work.windows[(7, 7, 400, 300)] = "ambiguous"                             # two of its windows at that place
+    twice = d.run(ask("chrome", (7.0, 7.0, 400.0, 300.0)))
+    assert not twice.complete and "more than one window" in twice.why
     work.windows[(10, 20, 800, 600)] = []                                    # two profiles, same bounds
-    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) is None
+    both = d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0)))
+    assert not both.complete and "more than one paired profile" in both.why
 
 
 @pytest.mark.parametrize("driver_name", ["router", "ferb_identity"])

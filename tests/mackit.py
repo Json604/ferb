@@ -204,7 +204,7 @@ class VisionAx(FakeAx):
     def frame(self, win: Any) -> Any:
         return BOUNDS
 
-    def window_with_frame(self, pid: int, bounds: Any) -> Any:
+    def window_with_frame(self, pid: int, bounds: Any, title: Any = None) -> Any:
         return "win"
 
     def hit(self, x: float, y: float) -> Any:

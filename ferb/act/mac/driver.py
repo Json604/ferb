@@ -36,7 +36,7 @@ Rect = tuple[float, float, float, float]          # x, y, w, h
 OCR_ONLY = "masked by text recognition only (a secret it can't read as text could show)"
 OCR_REST = "anything else is left to text recognition (a secret it can't read as text could show)"
 PAGE_UNREAD = ("the page's secret fields couldn't be located (neither the browser extension nor Accessibility could "
-               "read the page this window shows); " + OCR_ONLY)
+               "read the page this window shows: {why}); " + OCR_ONLY)
 WINDOW_UNREAD = ("the window's secret fields couldn't be located (Accessibility couldn't read this window when it was "
                  "captured); " + OCR_ONLY)
 FIELD_UNPLACED = "a secret field Accessibility found has no place on screen to paint; " + OCR_ONLY
@@ -47,16 +47,18 @@ PAGE_MOVED = ("the page changed during the capture: its secret fields are painte
 PAGE_UNPLACED = ("the page's secret fields couldn't be placed on the window (Accessibility shows no page area); "
                  + OCR_ONLY)
 UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
-AX_ONLY = ("masked from Accessibility only: the browser extension couldn't read this page (not paired with this "
-           "window's profile, an incognito window, or a page scripts can't reach)")
+AX_ONLY = "masked from Accessibility only: the browser extension couldn't read this page ({why})"
+EXTENSION_UNREAD = "not paired with this window's profile, an incognito window, or a page scripts can't reach"
+AX_NO_AREA, AX_EMPTY = "Accessibility shows no page area", "Accessibility's page area is empty"
 
 
 @dataclass(frozen=True)
 class WebSecrets:
     """What the browser extension says about the page a browser window shows (L13): the mask state of its active tab
-    (mask.PageState: isSecret's password and code fields, keyed, in visual-viewport CSS px). None: the profile owns the
-    window but couldn't read the page."""
+    (mask.PageState: isSecret's password and code fields, keyed, in visual-viewport CSS px). None: it couldn't be read,
+    and `why` says why when known (FERB's words, or the extension's own fixed reason; never page content)."""
     state: PageState | None = None
+    why: str = ""
 
     @property
     def complete(self) -> bool:
@@ -66,7 +68,11 @@ class WebSecrets:
     def from_reply(cls, r: dict[str, Any]) -> "WebSecrets":
         """A `window_secrets` answer from the profile that owns the window. Anything malformed is a page nobody could
         read, never a page without secrets."""
-        return cls(PageState.parse(r.get("state")) if r.get("complete") is True else None)
+        state = PageState.parse(r.get("state")) if r.get("complete") is True else None
+        reason = r.get("reason")
+        why = f"its profile couldn't read the page: {reason[:160]}" if isinstance(reason, str) and reason else \
+            "its profile couldn't read the page"
+        return cls(state, "" if state is not None else why)
 
 
 Look = tuple[axm.AxTree | None, WebSecrets | None]      # one look at a window: its AX walk, the extension's page
@@ -93,8 +99,10 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
         page, note = _page_on_screen(p1, p2, axm.outermost(t1.web_areas), axm.outermost(t2.web_areas))
         return masks + page, "; ".join(notes + [note] if note else notes)
     if browser:
-        unread = any(not t.has_web or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas)) for t in (t1, t2))
-        notes.append(PAGE_UNREAD if unread else AX_ONLY)
+        why = (w2.why if w2 else "") or (w1.why if w1 else "") or EXTENSION_UNREAD
+        ax_why = next((AX_EMPTY if t.has_web else AX_NO_AREA for t in (t1, t2) if not t.has_web
+                       or any(a in t.empty_web_areas for a in axm.outermost(t.web_areas))), None)
+        notes.append(PAGE_UNREAD.format(why=f"{why}; {ax_why}") if ax_why else AX_ONLY.format(why=why))
     return masks, "; ".join(notes)
 
 
@@ -349,11 +357,12 @@ class MacComputerDriver:
 
     # ---------- screenshots ----------
 
-    async def _look(self, a: Any, bounds: Rect) -> Look:
+    async def _look(self, a: Any, bounds: Rect, title: str = "") -> Look:
         """One look at the window at `bounds` now, for its capture masks (`window_masks`): a fresh Accessibility walk
-        (never an earlier one: a field may have moved since) and, for a browser, the extension's page. No AX window
-        there (it moved, or can't be read): no walk."""
-        win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds)
+        (never an earlier one: a field may have moved since) and, for a browser, the extension's page. The AX window
+        is the one there (with the captured window's `title`, when several are). None there (it moved, or can't be
+        read): no walk."""
+        win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds, title or None)
         tree = await self._walk(a, win) if win is not None else None
         browser = BROWSER_BUNDLES.get(a.bundle_id)
         web = await self.web_secrets(browser, bounds) if tree is not None and browser and self.web_secrets else None
@@ -425,9 +434,9 @@ class MacComputerDriver:
             except (RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
-        first = await self._look(a, w.bounds)
+        first = await self._look(a, w.bounds, w.title)
         jpeg, width, height = await asyncio.to_thread(grab, w)
-        masks, note = window_masks(first, await self._look(a, w.bounds), browser)
+        masks, note = window_masks(first, await self._look(a, w.bounds, w.title), browser)
         return a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height), note
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
@@ -450,10 +459,10 @@ class MacComputerDriver:
             w = await current()
             await self._expose(a)
             browser = a.bundle_id in BROWSER_BUNDLES
-            first = await self._look(a, w.bounds)
+            first = await self._look(a, w.bounds, w.title)
             image, width, height = await asyncio.to_thread(self.shots.capture, w)
             await current()
-            masks, note = window_masks(first, await self._look(a, w.bounds), browser)   # moved: no window, OCR only
+            masks, note = window_masks(first, await self._look(a, w.bounds, w.title), browser)   # moved: OCR only
             frame = await painted(image, masks, w.bounds, (width, height))
             return (frame, note) if note else frame
         return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture

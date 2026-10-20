@@ -780,8 +780,9 @@ class Daemon:
     async def _web_secrets(self, browser: str, bounds: tuple[float, float, float, float]) -> WebSecrets | None:
         """For a native capture of a browser window (L13): ask every connected profile of this browser, together, for
         the mask state of the active tab of its (not minimized) window at these bounds. Exactly one profile must own
-        such a window, and its answer is the WebSecrets. None: no profile, or more than one (whose page is on screen
-        can't be told), so nobody could tell."""
+        such a window, and its answer is the WebSecrets. Otherwise nobody could tell, and the WebSecrets has no page
+        and says why (no paired profile connected, none or two of a profile's windows there, more than one profile,
+        no answer), for the capture's note (fix wave 4: the live case's "neither read" couldn't be explained)."""
         async def ask(br: Any) -> Any:
             try:
                 return await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
@@ -789,9 +790,20 @@ class Daemon:
                 return None
         bridges = [br for br in (self.hub.bridges.values() if self.hub else []) if br.conn is not None
                    and br.binding.browser == browser]
+        if not bridges:
+            return WebSecrets(None, f"no paired profile of {browser} is connected")
         answers = await asyncio.gather(*(ask(br) for br in bridges))
         owners = [r for r in answers if isinstance(r, dict) and r.get("matched")]
-        return WebSecrets.from_reply(owners[0]) if len(owners) == 1 else None
+        if len(owners) == 1:
+            return WebSecrets.from_reply(owners[0])
+        if owners:
+            return WebSecrets(None, "more than one paired profile has a window at this window's place")
+        if any(isinstance(r, dict) and r.get("reason") == "ambiguous_window" for r in answers):
+            return WebSecrets(None, "a paired profile has more than one window at this window's place")
+        if any(not isinstance(r, dict) for r in answers):
+            return WebSecrets(None, "a paired profile didn't answer")
+        return WebSecrets(None, "no paired profile has a window at this window's place (another profile, or a "
+                                "private window)")
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that

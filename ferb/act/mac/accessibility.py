@@ -15,7 +15,9 @@ The masking inventory (`secret_rects`, L13) also holds a text field whose own me
 holds where a browser draws its pages, so the extension's secret-field rects can be placed on a window capture. The
 node list stops at MAX_DEPTH; the masking inventory walks the whole tree (iteratively below it), so a deep tree is
 still masked, never left unknown.
-A browser's web area is built on demand: when the window shows a web area that is still empty, re-read for ~2 s."""
+A browser's web area is built on demand: while the window shows no web area yet, or one that is still empty, re-read
+for ~2 s. (Chromium builds its web tree when an Accessibility client asks; Brave 1.97 and Chrome 155 don't know
+AXManualAccessibility, so `expose_tree` does nothing for them: spike 06, fix wave 4.)"""
 
 import re
 import time
@@ -257,10 +259,14 @@ def frame(win: Any) -> tuple[float, float, float, float] | None:
     return (x, y, w, h) if w and h else None
 
 
-def window_with_frame(pid: int, bounds: tuple[float, float, float, float]) -> Any:
-    """The app's Accessibility window at these screen bounds (the captured window), or None."""
+def window_with_frame(pid: int, bounds: tuple[float, float, float, float], title: str | None = None) -> Any:
+    """The app's Accessibility window at these screen bounds (the captured window), or None. When several are there
+    (maximized windows share bounds), the one whose title is `title` (the captured window's, as the window server
+    names it); never the first of several."""
     matches = [win for win in ax_windows(pid) if (f := frame(win)) is not None and
                all(abs(a - b) <= 2 for a, b in zip(f, bounds))]
+    if len(matches) > 1 and title:
+        matches = [win for win in matches if window_title(win) == title.strip("‎ ")]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -322,7 +328,7 @@ def describe(el: Any) -> str:
 
 def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
     """One walk of the exact window (or sole reachable window), its sheet, the app's open menus,
-    popovers and dialogs. For a browser whose web area is still empty, re-read for ~2 s."""
+    popovers and dialogs. For a browser whose window shows no web area yet, or an empty one, re-read for ~2 s."""
     import ApplicationServices as AX
     deadline = time.monotonic() + (2.0 if browser else 0.0)
     while True:
@@ -347,7 +353,7 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
         tree.text = _text(" ".join(texts))
         tree.truncated = bool(tree.truncated_by)
         tree.windows = windows(pid, win)
-        if not browser or not (tree.has_web and tree.web_empty) or time.monotonic() >= deadline:
+        if not browser or (tree.has_web and not tree.web_empty) or time.monotonic() >= deadline:
             return tree
         time.sleep(0.25)                                       # the web AX tree is built on demand: ask again
 
@@ -509,8 +515,9 @@ def value(el: Any) -> str | None:
 
 def expose_tree(pid: int) -> bool:
     """Electron apps (Slack, Discord, VS Code…) build their full Accessibility tree only when an assistive app asks
-    for it with AXManualAccessibility; set once per process. Other apps refuse the attribute (-25205), harmlessly.
-    AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on."""
+    for it with AXManualAccessibility; set once per process. Other apps refuse the attribute (-25205), harmlessly,
+    Chromium browsers included (Brave 1.97 and Chrome 155 don't know it: they build their web tree when a client
+    asks, `read_tree`). AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on."""
     import ApplicationServices as AX
     return bool(AX.AXUIElementSetAttributeValue(AX.AXUIElementCreateApplication(pid), "AXManualAccessibility",
                                                 True) == 0)
