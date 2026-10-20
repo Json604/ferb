@@ -618,9 +618,9 @@ class _TabDriver:
                                       Awaitable[tuple[list[tuple[float, float, float, float]],
                                                       tuple[float, float, float, float], bool] | None]] | None = None
         # daemon supplied (round 3, I1): (browser pid, window bounds, tab title) -> a native capture of that on-screen
-        # browser window (JPEG, its masking note), for a tab the debugger can't attach to; None: it can't
+        # browser window (JPEG, its masking note), for a tab the debugger can't attach to; (None, why) when it can't
         self.native_capture: Callable[[int, tuple[float, float, float, float], str],
-                                      Awaitable[tuple[bytes, str] | None]] | None = None
+                                      Awaitable[tuple[bytes | None, str]]] | None = None
         self._n = 0
         if isinstance(getattr(hub, "drivers", None), list):
             hub.drivers.append(self)
@@ -1236,10 +1236,9 @@ class _TabDriver:
         bounds = _window_bounds(window)
         if self.native_capture is None or not isinstance(pid, int) or bounds is None:
             raise Withheld(f"pixels withheld: {reason}, and its window can't be captured from here")
-        got = await self.native_capture(pid, bounds, str(window.get("title") or ""))
-        if got is None:
-            raise Withheld(f"pixels withheld: {reason}, and its window isn't on screen to be captured in its place")
-        jpeg, note = got
+        jpeg, note = await self.native_capture(pid, bounds, str(window.get("title") or ""))
+        if jpeg is None:                                 # the actual reason (round 4, item 3)
+            raise Withheld(f"pixels withheld: {reason}, and its window couldn't be captured in its place: {note}")
         return jpeg, (f"{reason}: this is a picture of the whole browser window showing it, masked as a mac.screenshot "
                       f"({note or 'the secret fields Accessibility and the browser extension found are painted'}) "
                       "and by text recognition")

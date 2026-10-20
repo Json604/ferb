@@ -297,8 +297,8 @@ def test_the_daemon_wires_accessibility_for_unread_tabs(daemon: RunningDaemon, m
 def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: RunningDaemon,
                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
     """Round 3 (I1): the router's native_capture hook takes the on-screen browser window at the tab window's bounds
-    (by title when several are there) through the Mac driver, as mac.screenshot does; none on screen, or screenshots
-    switched off: None (the tab capture is then withheld with the reason)."""
+    carrying the tab's title, through the Mac driver, as mac.screenshot does. Otherwise no picture and the actual
+    reason (round 4, item 3): none on screen, another window there, screenshots switched off, the app excluded."""
     from ferb.act.mac import screenshot
     from ferb.act.mac.screenshot import Window
     shots, _ = _fake_mac(daemon, monkeypatch)
@@ -310,16 +310,27 @@ def test_the_daemon_captures_a_debugger_proof_tabs_window_natively(daemon: Runni
     jpeg, note = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
     assert jpeg == shots.jpeg and shots.captured == [121] and "Accessibility only" in note
     windows.clear()                                                        # not on screen
-    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "on screen" in why and "another Space" in why
     # round 4 (rule 5): the tab's window is on another Space; another window of the browser sits at the same place on
     # this one, titled differently ("My bank - Private"). One window there isn't enough: it must carry the tab's title.
     windows.append(Window(122, 12, BOUNDS, "My bank - Private"))
-    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "on screen" in why and "My bank" not in why     # another window's title isn't repeated
     assert shots.captured == [121]                                         # nothing more was captured
     windows.clear()
     windows.append(Window(121, 12, BOUNDS, "Chrome Web Store"))
+    windows.append(Window(123, 12, BOUNDS, "Chrome Web Store"))            # two windows there show that title
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "more than one window" in why
+    windows.pop()
+    daemon.daemon.config.set("privacy", "exclude_apps", ["com.brave.Browser"])
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "exclusion list" in why
+    daemon.daemon.config.set("privacy", "exclude_apps", [])
     daemon.daemon.mac.snapshot_images = lambda: False                      # type: ignore[union-attr]
-    assert daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store")) is None
+    none, why = daemon.run(daemon.daemon._native_window_capture(12, BOUNDS, "Chrome Web Store"))
+    assert none is None and "snapshot_image" in why
 
 
 def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningDaemon) -> None:
@@ -408,6 +419,13 @@ def test_a_tab_the_debugger_cant_attach_to_is_captured_natively_when_its_window_
     d._tabs["t1"].bridge.call = _replying(reply)
     with pytest.raises(Withheld, match="debugger"):
         asyncio.run(d.screenshot(ref))
+
+    async def switched_off(pid: int, bounds: Any, title: str) -> Any:
+        return None, "screenshots are switched off ([mac] snapshot_image)"
+    d.native_capture = switched_off                                        # round 4 (item 3): the actual reason
+    with pytest.raises(Withheld, match=r"snapshot_image") as e:
+        asyncio.run(d.screenshot(ref))
+    assert "isn't on screen" not in str(e.value)
 
 
 def test_a_minimized_window_is_said_to_be_minimized() -> None:

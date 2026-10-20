@@ -828,29 +828,36 @@ class Daemon:
             self._journal().append("screen.page_secrets_failed", {"error": error_name(e)})
             return None
 
-    async def _native_window_capture(self, pid: int, bounds: tuple[float, float, float, float], title: str) -> Any:
+    async def _native_window_capture(self, pid: int, bounds: tuple[float, float, float, float],
+                                     title: str) -> tuple[bytes | None, str]:
         """Round 3 (I1): for a task tab the debugger can't attach to, which is the one its window shows: that on-screen
         browser window (at `bounds`, carrying the tab's title `title`) captured natively, as mac.screenshot
-        captures (masked from AX and the extension where they can read it, `Shot.masking`). (JPEG, note), or None: no
-        Mac driver, screenshots switched off ([mac] snapshot_image), no single such window on screen, or the capture
-        failed (journaled by type)."""
+        captures (masked from AX and the extension where they can read it, `Shot.masking`): (JPEG, note). Otherwise
+        (None, why), in FERB's words (round 4, item 3): no Mac driver, screenshots switched off ([mac] snapshot_image),
+        no such window on screen or more than one, the app excluded, or the capture failed (journaled by type)."""
         mac = self.mac
-        if mac is None or not mac.snapshot_images():
-            return None
+        if mac is None:
+            return None, "FERB has no Mac driver to capture windows with"
+        if not mac.snapshot_images():
+            return None, "screenshots are switched off ([mac] snapshot_image)"
         from ferb.act.mac import screenshot
         try:
             near = [w for w in await asyncio.to_thread(screenshot.normal_windows)
                     if w.pid == pid and all(abs(a - b) <= 2 for a, b in zip(w.bounds, bounds))]
             if title:                          # the window showing the tab carries its title, even when it is the only
                 near = [w for w in near if same_title(w.title, title)]   # one there (round 4: rule 5, the right window)
-            if len(near) != 1:
-                return None
+            if not near:
+                return None, "no window of the browser showing that tab is on screen (it may be on another Space)"
+            if len(near) > 1:
+                return None, "more than one window of the browser at that place shows that tab's title"
             _, shot, jpeg = await mac.window_image(f"pid:{pid}", window=str(near[0].id))
             return jpeg, shot.masking
+        except Refused as e:                   # FERB's own words (an excluded app, the window gone)
+            return None, str(e)
         except Exception as e:
             from ferb.daemon.gateway import error_name
             self._journal().append("screen.native_capture_failed", {"error": error_name(e)})
-            return None
+            return None, f"the window capture failed ({error_name(e)})"
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that
