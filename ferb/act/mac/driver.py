@@ -98,6 +98,10 @@ def window_masks(before: Look, after: Look, browser: bool) -> tuple[list[Rect], 
     if p1 is not None and p2 is not None:
         page, note = _page_on_screen(p1, p2, axm.outermost(t1.web_areas), axm.outermost(t2.web_areas))
         return masks + page, "; ".join(notes + [note] if note else notes)
+    for p, t in ((p1, t1), (p2, t2)):                # the extension answered one look only: its fields still count
+        if p is not None:
+            with contextlib.suppress(Withheld):
+                masks += page_on_screen([i.rect for i in p.items], p.viewport, axm.outermost(t.web_areas))
     if browser:
         why = (w2.why if w2 else "") or (w1.why if w1 else "") or EXTENSION_UNREAD
         ax_why = next((AX_EMPTY if t.has_web else AX_NO_AREA for t in (t1, t2) if not t.has_web

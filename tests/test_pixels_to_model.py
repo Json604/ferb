@@ -343,6 +343,16 @@ def test_the_note_says_why_neither_the_extension_nor_accessibility_read_the_page
     assert "Accessibility only" in shot.masking and "more than one window" in shot.masking
 
 
+def test_page_fields_the_extension_gave_for_one_look_only_are_still_painted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The extension answered before the capture but not after (a timeout): the fields it named are painted where it
+    saw them, on top of Accessibility's, rather than dropped."""
+    from ferb.act.mac.driver import WebSecrets
+    d, _, _, _ = _brave(monkeypatch, _page((20, 40, 100, 20)), WebSecrets(None, "a paired profile didn't answer"))
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert black(pixel(jpeg, 100, 255)) and white(pixel(jpeg, 100, 320))
+    assert "Accessibility only" in shot.masking and "didn't answer" in shot.masking
+
+
 def test_the_capture_reads_the_ax_window_with_the_captured_windows_title(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two maximized windows share bounds: Accessibility's window is the one with the captured window's title."""
     d, ax, shots, *_ = vision(monkeypatch)
