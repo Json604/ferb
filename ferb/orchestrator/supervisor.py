@@ -26,7 +26,7 @@ from ferb.clock import context, when
 from ferb.core import origin as origins_
 from ferb.core.errors import Deferred, InputTooLarge
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
-from ferb.core.context import Assembly, ContextBlock, count_tokens
+from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
@@ -52,7 +52,8 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, told
+from ferb.orchestrator.worker import (InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits,
+                                      reserve_tokens, told)
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -328,6 +329,14 @@ class _Watch(Observer):
 
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
+
+
+def _summary_blocks(previous: JournalEntry | None, told: list[Any]) -> list[ContextBlock]:
+    """A running-summary call's context: the latest summary, then the entries it folds in, oldest first (data)."""
+    return [ContextBlock("FERB's earlier running summary (data):\n" + str(previous.data.get("text", "")),
+                         "chat.history", protected=True) if previous else ContextBlock("", ""),
+            ContextBlock("Entries to fold in, oldest first (data):\n" +
+                         wrap_untrusted("\n\n".join(e.text for e in told)), "chat.history", protected=True)]
 
 
 class Supervisor(WorkerRuns):
@@ -1507,28 +1516,38 @@ class Supervisor(WorkerRuns):
         job.add_done_callback(lambda _: self._summarizing.pop(conversation, None))
 
     async def _summarize(self, conversation: str, count: int) -> None:
-        """Fold the `count` oldest entries after the current summary into a new one: model-written from the recorded
-        entries (data, never authority; MP2: it holds everything they hold). It cites what it folded by handle."""
+        """Fold the `count` oldest entries after the current summary into new summaries: model-written from the recorded
+        entries (data, never authority; MP2: each holds everything its entries and the summary before it hold), citing
+        what it folded by handle. Each call holds the latest summary and the next entries that fit the model's window
+        and its runtime's per-input character cap (L28), and is written before the next call is made; a failed call
+        ends the refresh (the next overflowing turn tries again; the omission note stands)."""
+        while count > 0:
+            previous = self._summary(conversation)
+            entries = self._timeline("", conversation, previous)[0][:count]
+            if not entries:
+                return
+            folded = await self._fold(conversation, previous, entries)
+            if not folded:
+                return
+            count -= folded
+
+    async def _fold(self, conversation: str, previous: JournalEntry | None, entries: list[Any]) -> int:
+        """One summary call over `previous` and the oldest of `entries` that fit it (`_foldable`; an oldest entry too
+        big alone is sent to be refused by name); how many entries it folded, 0 when it failed (recorded)."""
         request_id = "summary-" + self.ids.new_id()
-        span = self.spans.start("model.summary", task_id=None, input={"session_id": conversation, "entries": count})
+        span = self.spans.start("model.summary", task_id=None,
+                                input={"session_id": conversation, "entries": len(entries)})
         final = ""
         try:
-            previous = self._summary(conversation)
-            folded = self._timeline("", conversation, previous)[0][:count]
+            rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUMMARY_SCHEMA)
+            system = load_prompt(self._approach() + "/summary.md")
+            folded = self._foldable(rt, system, previous, entries) or entries[:1]
             # A notice's text (observed, typed or clipboard-derived) has its own purge (D14) and forget paths: it is
             # never copied into the summary, so neither has another copy to reach. chat.history keeps the notice.
             told = [e for e in folded if e.kind != "chat.notice"]
-            if not folded:
-                self.spans.finish(span, output={"text": ""})
-                return
-            ctx = [ContextBlock("FERB's earlier running summary (data):\n" + str(previous.data.get("text", "")),
-                                "chat.history", protected=True) if previous else ContextBlock("", ""),
-                   ContextBlock("Entries to fold in, oldest first (data):\n" +
-                                wrap_untrusted("\n\n".join(e.text for e in told)), "chat.history", protected=True)]
-            rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUMMARY_SCHEMA)
             task = Task(request_id + ".summary", None, "conversation summary", self.device_id, Identity.OWNER, set(),
                         "mixed", request_id, [], None)
-            final = await self._run(rt, task, load_prompt(self._approach() + "/summary.md"), ctx, "", span.id, None, "")
+            final = await self._run(rt, task, system, _summary_blocks(previous, told), "", span.id, None, "")
             text = SummaryOutcome.model_validate_json(final).summary
             made = {origins_.INFERRED} | {o for e in told for o in e.origins} | \
                 (origins_.split(previous.origin) if previous else set())
@@ -1536,11 +1555,34 @@ class Supervisor(WorkerRuns):
             self.journal.append(SUMMARY_KIND, {"session_id": conversation, "text": text,
                                                "covered": [e.handle for e in folded], "source_refs": refs},
                                 origin=origins_.join(made))
-            self.spans.finish(span, output={"text": final})
-        except Exception as exc:                 # the next overflowing turn tries again; the omission note stands
+            self.spans.finish(span, output={"text": final, "folded": len(folded)})
+            return len(folded)
+        except Exception as exc:
             self.spans.finish(span, output={"text": final}, error=f"{type(exc).__name__}: {exc}")
             self.journal.append("chat.summary_failed", {"session_id": conversation,
                                                         "error": f"{type(exc).__name__}: {exc}"})
+            return 0
+
+    @staticmethod
+    def _foldable(rt: Any, system: str, previous: JournalEntry | None, entries: list[Any]) -> list[Any]:
+        """The oldest `entries` that fit one summary call beside `previous`: the model's window and its runtime's
+        per-input character cap (L28), counted as `_run` assembles the call (each entry with its separator)."""
+        limits = model_limits(rt)
+        reserved = reserve_tokens(system, [], getattr(rt, "output_schema", None))
+        base = "\n\n".join(block.text for block in _summary_blocks(previous, []) if block.text)
+        tokens = reserved + overhead_tokens(limits.context_budget, reserved) + count_tokens(base)
+        chars = overhead_chars(limits.context_budget, reserved) + len(base)
+        cap = limits.max_input_chars
+        fitting: list[Any] = []
+        for entry in entries:
+            if entry.kind != "chat.notice":      # a notice is covered, never copied (`_fold`)
+                text = entry.text.replace("</untrusted-data", "<\\/untrusted-data")    # as wrap_untrusted writes it
+                tokens += count_tokens(text) + count_tokens("\n\n")
+                chars += len(text) + len("\n\n")
+                if tokens > limits.context_budget or (cap is not None and chars > cap):
+                    break
+            fitting.append(entry)
+        return fitting
 
     def forget_summaries(self, entry_ids: set[str]) -> int:
         """Explicit owner forget: a running summary that folded a forgotten entry (or a summary built on one) goes too;

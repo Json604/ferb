@@ -79,6 +79,13 @@ class InvalidAnswer(ValueError):
     """The model answered, but its answer doesn't match the requested schema: output validation, not a failed call."""
 
 
+def reserve_tokens(system: str, tool_schemas: list[Any], output_schema: Any) -> int:
+    """Tokens `_run` keeps beside the context: FERB's instructions, the tool and answer schemas, and room for the
+    runtime's own framing."""
+    return (count_tokens(system) + count_tokens(json.dumps(tool_schemas)) + count_tokens(json.dumps(output_schema)) +
+            1024)
+
+
 def model_limits(rt: AgentRuntime) -> ModelLimits:
     """The runtime's documented model limits (L28). A runtime that reports none is an explicit failure the owner is told
     about, never a guessed window."""
@@ -259,8 +266,7 @@ class WorkerRuns:
         limits = model_limits(rt)
         try:                                    # the model's window and its runtime's per-input character cap (L28)
             assembly = assemble(ctx, budget_tokens=limits.context_budget,
-                                reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
-                                                count_tokens(json.dumps(output_schema)) + 1024,
+                                reserved_tokens=reserve_tokens(system, tool_schemas, output_schema),
                                 max_chars=limits.max_input_chars)
         except InputTooLarge as exc:            # refused by name, never sent to be rejected
             exc.runtime = rt.name

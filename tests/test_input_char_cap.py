@@ -248,3 +248,31 @@ def test_a_day_over_the_character_cap_is_refused_by_name_never_sent(daemon, monk
         return d.db.conn.execute("SELECT detail FROM distill_runs WHERE day = '2025-12-30'").fetchone()
     detail = daemon.run(row())["detail"]
     assert "InputTooLarge" in detail and "characters" in detail and "100" in detail
+
+
+def test_the_running_summary_folds_what_fell_out_in_calls_that_fit_the_cap(daemon, monkeypatch) -> None:
+    """The entries that fell out of the planner's window are folded in calls of the latest summary plus the next
+    entries that fit, not in one call that can exceed the cap every turn."""
+    turns = 30
+    script = install(daemon, [sup("reply", f"answer {i}") for i in range(turns)] + [sup("reply", "latest")],
+                     {"summary": json.dumps({"summary": "EARLIER-SUMMARY of the tea questions."})})
+    for i in range(turns):
+        chat(daemon, f"message number {i} " + "filler " * 300)
+    monkeypatch.setattr(FakeRuntime, "limits", capped(30_000))
+    chat(daemon, "what next?")
+    d = daemon.daemon
+
+    async def settled() -> tuple[list[Any], list[Any]]:
+        for _ in range(500):
+            if not d.supervisor._summarizing and (d.journal.of_kind("chat.summary") or
+                                                  d.journal.of_kind("chat.summary_failed")):
+                break
+            await asyncio.sleep(0.02)
+        return [e.data for e in d.journal.of_kind("chat.summary")], [e.data for e in d.journal.of_kind("chat.summary_failed")]
+    rows, failed = daemon.run(settled(), timeout=20)
+    calls = [r for _, key, r in script.requests if key == "summary"]
+    assert not failed and len(calls) >= 2 and len(rows) == len(calls)
+    assert all(len(r.context) <= 30_000 for r in calls)
+    covered = [h for row in rows for h in row["covered"]]
+    assert len(covered) == len(set(covered))                            # each entry folded once
+    assert "EARLIER-SUMMARY" in calls[1].context                        # the next call builds on the latest summary
