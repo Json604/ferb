@@ -868,3 +868,24 @@ def test_the_consolidators_clean_up_forgets_through_the_daemons_path(daemon: Run
     daemon.run(d._settle_forgets())
     assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
     assert _everywhere(daemon, "brindlewax") == []
+
+
+def test_a_forgotten_lessons_multi_line_text_leaves_the_turn_that_listed_it(daemon: RunningDaemon) -> None:
+    """Round 5 (probe r3_unicode): a lesson whose text spans two lines, with accents, curly quotes and a double space,
+    listed in a planner turn's memory layer, stayed there after the dashboard forgot it. The owner's own message in
+    that turn, which shares two words with it, stays."""
+    from ferb.cli.client import Client
+    d = daemon.daemon
+    text = "Prefer café  qwyrtz\nover “brimble”"
+    node = _on_loop(daemon, lambda: d.learning.put("lesson", text, {"text": text}, [], made_by="model:t",
+                                                   state="active"))
+    install(daemon, [_reply("Hi.")])
+    chat(daemon, "what about qwyrtz and brimble?")
+    assert _everywhere(daemon, "Prefer caf")
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": node["id"], "confirm": True})
+    finally:
+        c.close()
+    assert _everywhere(daemon, "Prefer caf") == [] and _everywhere(daemon, "brimble\\u201d") == []
+    assert _held_in_spans(daemon, "what about qwyrtz and brimble?")

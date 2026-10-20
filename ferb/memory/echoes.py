@@ -327,12 +327,21 @@ def _rewrite(db: Any, row: Any, data: dict[str, Any]) -> None:
 
 
 def _scrub_spans(db: Any, spans: list[Any], lines: "_Lines", rule: Callable[[str], bool]) -> None:
-    for span in spans:
-        before_in, before_out = json.loads(span["input_json"]), json.loads(span["output_json"] or "null")
-        new_in, new_out = lines.value(before_in, rule), lines.value(before_out, rule)
+    """These spans lose each line `rule` holds."""
+    _rewrite_spans(db, spans, lambda value: lines.value(value, rule))
+
+
+def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any]) -> None:
+    """Each span once, read as it is now (a span listed twice is never rewritten from an old copy)."""
+    for ident in dict.fromkeys(span["id"] for span in spans):
+        row = db.conn.execute("SELECT input_json, output_json FROM spans WHERE id = ?", (ident,)).fetchone()
+        if row is None:
+            continue
+        before_in, before_out = json.loads(row["input_json"]), json.loads(row["output_json"] or "null")
+        new_in, new_out = change(before_in), change(before_out)
         if new_in != before_in or new_out != before_out:
             db.conn.execute("UPDATE spans SET input_json = ?, output_json = ? WHERE id = ?",
-                            (json.dumps(new_in), None if new_out is None else json.dumps(new_out), span["id"]))
+                            (json.dumps(new_in), None if new_out is None else json.dumps(new_out), ident))
 
 
 def _turns(db: Any, request: str) -> list[Any]:
@@ -367,12 +376,31 @@ def _scrub_task(db: Any, task: str, lines: "_Lines", rule: Callable[[str], bool]
         goal, answer = lines.text(row["goal"], rule), lines.text(row["answer"], rule)
         if (goal, answer) != (row["goal"], row["answer"]):      # the "while you were away" result
             db.conn.execute("UPDATE task_results SET goal = ?, answer = ? WHERE task_id = ?", (goal, answer, task))
+    _scrub_spans(db, _task_spans(db, task), lines, rule)   # every record of its tree: tool calls, turns, evidence
+
+
+def _task_spans(db: Any, task: str) -> list[Any]:
+    """Every span of a task's tree, and the planner turn that planned it."""
     spans = list(db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE task_id = ? OR task_id LIKE ?",
                                  (task, task + ".%")).fetchall())
     for (request,) in db.conn.execute("SELECT DISTINCT request_id FROM tasks WHERE id = ? OR id LIKE ?",
                                       (task, task + ".%")).fetchall():
-        spans += _turns(db, request)              # the planner turn that planned it
-    _scrub_spans(db, spans, lines, rule)          # every record of the task's tree: tool calls, turns, evidence
+        spans += _turns(db, request)
+    return spans
+
+
+def _replace_in_spans(db: Any, spans: list[Any], pairs: list[tuple[str, str]]) -> None:
+    """These spans lose each paired text wherever a string holds it (a text spanning lines too)."""
+    def replaced(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: replaced(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [replaced(v) for v in value]
+        if isinstance(value, str):
+            for old, new in pairs:
+                value = value.replace(old, new)
+        return value
+    _rewrite_spans(db, spans, replaced)
 
 
 def scrub_told(db: Any, told: set[str]) -> None:
@@ -442,14 +470,17 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
     if in_spans.phrases:
+        shown: list[Any] = []
         for task in sorted(tasks):
             _scrub_task(db, task, in_spans, in_spans.verbatim)
+            shown += _task_spans(db, task)
         for request in sorted({str(r[1]) for r in listed if r[1]}):
-            _scrub_spans(db, _turns(db, request), in_spans, in_spans.verbatim)
+            shown += _turns(db, request)
         if echo.in_every_turn_since is not None:
-            _scrub_spans(db, list(db.conn.execute(
-                "SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND started_at >= ?",
-                (echo.in_every_turn_since,)).fetchall()), in_spans, in_spans.verbatim)
+            shown += db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
+                                     "started_at >= ?", (echo.in_every_turn_since,)).fetchall()
+        _scrub_spans(db, shown, in_spans, in_spans.verbatim)      # each line holding it, then a text across lines
+        _replace_in_spans(db, shown, _told_pairs(set(texts)))
     scrub_told(db, {*named.removed, *named.phrases, *stated.removed})
     _drop_folded(db, set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
