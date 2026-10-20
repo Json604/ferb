@@ -1,7 +1,8 @@
 """On-device OCR and opaque masking before an image is stored or sent. No hosted OCR, raw text, or raw fallback.
 
 Vision's accurate recognizer is the platform default. OCR is class recognition, not a guarantee that every rendered
-secret is readable; AX password boxes and the existing incomplete-inventory refusal remain independent defenses.
+secret is readable; AX password boxes and the extension's secret-field rects remain independent defenses. Where a
+capture's secret fields couldn't be located, this is the only layer, and the capture's note says so (L13).
 https://developer.apple.com/documentation/vision/recognizing-text-in-images
 """
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, CODE_VALUE, CODE_WORD, 
 # OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
 # glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
 CARD_DIGITS = re.compile(r"\d(?:[ -]?\d){12,18}")
+# A region that reads as nothing but a row of password dots is a password field (fix wave 4: the only layer where a
+# capture's fields couldn't be located). Four or more, spaces aside: fewer is a separator or a rating.
+PASSWORD_DOTS = re.compile(r"[•●∙⋅·◦*]{4,}")
 
 
 def neighbour_spans(lines: list[str]) -> set[int]:
@@ -90,7 +94,7 @@ class ImageRedactor:
                 text = region.text
                 if (self.redactor.text(text) != text or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
                         or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text))
-                        or i in labelled):
+                        or i in labelled or PASSWORD_DOTS.fullmatch(re.sub(r"\s", "", text))):
                     boxes.append(region.box)
             return self.mask(image, boxes) if boxes else image
         except Exception:

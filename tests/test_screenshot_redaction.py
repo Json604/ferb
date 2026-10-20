@@ -34,3 +34,18 @@ def test_ocr_card_glued_to_its_label_is_still_masked() -> None:
                TextRegion('Order4111111111111112 shipped', (3, 3, 9, 9))]
     assert ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw') == b'safe'
     assert boxes == [(1, 1, 9, 9), (2, 2, 9, 9)]                 # no checksum, no card: the order number stays
+
+
+def test_a_field_the_ocr_reads_as_password_dots_is_masked() -> None:
+    """Fix wave 4: where a capture's secret fields couldn't be located, text recognition is the only layer left; a
+    region it reads as nothing but a row of password dots is a password field, painted over like the others."""
+    boxes = []
+    def mask(image, rects):
+        boxes.extend(rects)
+        return b'safe'
+    regions = [TextRegion('••••••••', (1, 1, 9, 9)), TextRegion('● ● ● ● ● ●', (2, 2, 9, 9)),
+               TextRegion('************', (3, 3, 9, 9)), TextRegion('Password', (4, 4, 9, 9)),
+               TextRegion('•••', (5, 5, 9, 9)), TextRegion('Rated •••••', (6, 6, 9, 9)),
+               TextRegion('Visa •••• 4242', (7, 7, 9, 9))]
+    assert ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw') == b'safe'
+    assert boxes == [(1, 1, 9, 9), (2, 2, 9, 9), (3, 3, 9, 9)]  # three dots, a rating, a card's last four stay
