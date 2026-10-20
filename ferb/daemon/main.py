@@ -1263,6 +1263,7 @@ class Daemon:
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
         self._replay_deferred_receipts()
+        self._restore_memory_questions()
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
         if self.run_retention:
@@ -1498,18 +1499,35 @@ class Daemon:
         self._ask_owner("forget:" + target[0], target[1], reason, "memory-forget-" + request_id)
         return reason + "\nAnswer Yes or No."
 
-    def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str) -> None:
+    def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str, approval_id: str | None = None) -> None:
         """One of FERB's own Yes/No questions about memory (a FERB check: a plain Yes or No answers it, in chat or with
-        the notch's buttons): `_question_answered` does what its Yes asks."""
+        the notch's buttons): `_question_answered` does what its Yes asks. It is kept in `memory_questions` until it is
+        answered, so a restart asks it again (`_restore_memory_questions`; rule 9)."""
         from ferb.core.types import Identity
         from ferb.orchestrator.steering import CONFIRM_MEMORY_ASK, FORGET_ASK
         from ferb.policy.rules import ActionRequest
         action = ActionRequest(CONFIRM_MEMORY_ASK if kind == "confirm" else FORGET_ASK, "owner_question",
                                Identity.OWNER, frozenset(), "", "", request_id, frozenset())
-        ap = self.state.approvals.question(action, reason, ["Yes", "No"])
+        ap = self.state.approvals.question(action, reason, ["Yes", "No"], approval_id)
+        self.db.conn.execute("INSERT OR IGNORE INTO memory_questions VALUES (?,?,?,?,?,?)",
+                             (ap.id, kind, ident, reason, request_id, self.clock.now().isoformat()))
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+
+    def _restore_memory_questions(self) -> None:
+        """At start: FERB's Yes/No questions about memory that were still waiting are asked again, with their ids and
+        words; one whose memory has gone meanwhile is dropped."""
+        for row in self.db.conn.execute("SELECT * FROM memory_questions ORDER BY at").fetchall():
+            if row["kind"] == "forget:learning":
+                gone = self.learning is None or self.learning.get(row["target"]) is None
+            else:
+                item = self.memory.get(row["target"]) if self.memory is not None else None
+                gone = item is None or (row["kind"] == "confirm" and item.status != "proposed")
+            if gone:
+                self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (row["approval_id"],))
+            elif self.state.approvals.get(row["approval_id"]) is None:
+                self._ask_owner(row["kind"], row["target"], row["reason"], row["request_id"], row["approval_id"])
 
     def _question_answered(self, ap: Any) -> str:
         """FERB's own follow-up to an answered question: a chat forget on its Yes (I2), keeping FERB's wording of a
@@ -1517,6 +1535,7 @@ class Daemon:
         followup = self._owner_followups.pop(ap.id, None)
         if followup is None:
             return ""
+        self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (ap.id,))
         what, ident = followup
         from ferb.memory.items import MemoryRefused
         yes = ap.state == "granted" and ap.choice == "Yes"
@@ -1552,7 +1571,9 @@ class Daemon:
         op, ident = params.get("op", "inventory"), str(params.get("id", ""))
         if op == "inventory":
             l.sync_facts(self.memory)
-            return {"items": l.items(history=bool(params.get("history")))}
+            return {"items": [n | {"confirmable": not n["confirmed"] and (
+                n["kind"] in ("identity_proposal", "procedure") or (n["kind"] == "fact" and n["state"] == "proposed"))}
+                for n in l.items(history=bool(params.get("history")))]}
         if op == "search":
             return {"items": l.search(str(params.get("query", "")), **{
                 k: str(params[k]) for k in ("kind", "app", "person", "since", "until") if params.get(k)})}

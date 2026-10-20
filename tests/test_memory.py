@@ -458,3 +458,58 @@ def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemo
             ("my dentist is Dr. Rao, he's great\nalso book me in", "my dentist is Dr. Rao",
              "my dentist is Dr. Rao, he's great")]:
         assert owner_sentences(own, part) == saved, own
+
+
+def test_the_dashboard_offers_confirm_for_a_pending_memory(daemon: RunningDaemon) -> None:
+    """Re-review F5: the dashboard showed Confirm only for identity proposals and procedures, not for FERB's wording
+    of a memory waiting for the owner's Yes. The daemon says what each record can be confirmed, and the page shows it."""
+    from pathlib import Path as _Path
+    from ferb.cli.client import Client
+    import ferb.memory as memory_package
+    said = "I prefer Brave for work"
+    src = journal(daemon, "chat.message", {"text": said})
+    item = Remember(kind="preference", subject="owner", key="work_browser", content="Always use Brave for work",
+                    quote="I prefer Brave for work")
+    run(daemon, lambda: daemon.daemon._remember([item], said, src))
+    c = Client(daemon.sock)
+    try:
+        inventory = c.call("memory.learning", {"op": "inventory"})["items"]
+    finally:
+        c.close()
+    [node] = [n for n in inventory if n["kind"] == "fact"]
+    assert node["confirmable"] is True
+    script = (_Path(memory_package.__file__).parent / "dashboard.js").read_text()
+    assert "if(r.confirmable)" in script
+
+
+def test_a_memory_question_waits_across_a_restart(home) -> None:
+    """Re-review F5 (CLAUDE.md rule 9): a question never expires while it waits. FERB's Yes/No questions about memory
+    (keep its wording, forget an item) come back after a restart with the same words; nothing acts before the Yes."""
+    import json as _json
+    from tests.test_planner_context import _own_daemon
+    d = _own_daemon(home)
+    try:
+        said = "I prefer Brave for work"
+        src = journal(d, "chat.message", {"text": said})
+        run(d, lambda: d.daemon._remember([Remember(kind="preference", subject="owner", key="work_browser",
+                                                    content="Always use Brave for work", quote=said)], said, src))
+        added = journal(d, "memory.added", {"content": "My dentist is Dr. Zorblat"})
+        item = run(d, lambda: mem(d).propose("person", "owner", "dentist", "My dentist is Dr. Zorblat",
+                                             "owner_stated", [("journal", added)], 1.0))
+        install(d, [_json.dumps({"kind": "reply", "text": "Okay.", "forget": [
+            {"item_id": item.id, "quote": "forget my dentist"}]})])
+        chat(d, "forget my dentist")
+        asked = sorted((q.capability, q.reason) for q in run(d, d.daemon.state.approvals.pending))
+    finally:
+        d.stop()
+    again = _own_daemon(home, ids="again")
+    try:
+        pending = run(again, again.daemon.state.approvals.pending)
+        assert sorted((q.capability, q.reason) for q in pending) == asked
+        forget = next(q for q in pending if q.capability == "memory.forget")
+        assert run(again, lambda: mem(again).get(item.id)) is not None
+        run(again, lambda: again.daemon._resolve_approval(forget.id, True, 1))
+        again.run(again.daemon._settle_forgets())
+        assert run(again, lambda: mem(again).get(item.id)) is None
+    finally:
+        again.stop()

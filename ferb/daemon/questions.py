@@ -42,8 +42,9 @@ class Approvals:
         self._items: dict[str, Approval] = {}
         self.unattended: set[str] = set()
 
-    def question(self, action: ActionRequest, question: str, options: list[str]) -> Approval:
-        ap = Approval("ap-" + secrets.token_hex(6), action.capability, question, action.request_id,
+    def question(self, action: ActionRequest, question: str, options: list[str], ident: str | None = None) -> Approval:
+        """`ident`: the id of a question asked before a restart and asked again now (it keeps its id)."""
+        ap = Approval(ident or "ap-" + secrets.token_hex(6), action.capability, question, action.request_id,
                       options=tuple(options), task_id=action.task_id)
         self._items[ap.id] = ap
         return ap
