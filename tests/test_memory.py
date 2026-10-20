@@ -532,3 +532,39 @@ def test_a_doubtful_sentence_break_merges_so_no_word_is_dropped(daemon: RunningD
             ("When it's after 10 pm. Don't call me", "call me", "Don't call me"),
             ("Never share my links publicly?", "share my links publicly", "Never share my links publicly")]:
         assert owner_sentences(own, part) == saved, own
+
+
+def test_memory_read_neither_lists_nor_reads_a_pending_inferred_item(daemon: RunningDaemon) -> None:
+    """Re-review minor (test gap for F3): the worker's memory.read tool omits FERB's unconfirmed wording from its
+    lists and searches, and refuses it by id."""
+    import json as _json
+    from ferb.orchestrator.evidence import MemoryRead
+    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
+    item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
+                                                   [("journal", src)], 0.7))
+    reader = MemoryRead(lambda: daemon.daemon.memory)
+    by_id = daemon.run(reader.run(MemoryRead.Input(item_id=item.id), None))
+    searched = daemon.run(reader.run(MemoryRead.Input(query="Quentarr"), None))
+    listed = daemon.run(reader.run(MemoryRead.Input(), None))
+    assert by_id.is_error and "Quentarr" not in _json.dumps(by_id.content)
+    assert "Quentarr" not in _json.dumps(searched.content) + _json.dumps(listed.content)
+
+
+def test_a_question_whose_memory_went_while_ferb_was_down_is_not_asked_again(home) -> None:
+    """Re-review minor (test gap for F5): a waiting question about a learned item that was deleted outside FERB's
+    forget paths is dropped at the next start, with its row."""
+    from tests.test_planner_context import _own_daemon
+    d = _own_daemon(home)
+    try:
+        node = run(d, lambda: d.daemon.learning.put("lesson", "use brave", {"text": "use brave"}, [],
+                                                    made_by="model:t", state="active"))
+        run(d, lambda: d.daemon._chat_forget(node["id"], "r-x"))
+        run(d, lambda: d.daemon.learning.forget([node["id"]]))                # not through a daemon path
+    finally:
+        d.stop()
+    again = _own_daemon(home, ids="again")
+    try:
+        assert [q for q in run(again, again.daemon.state.approvals.pending) if q.capability == "memory.forget"] == []
+        assert run(again, lambda: again.daemon.db.conn.execute("SELECT COUNT(*) FROM memory_questions").fetchone()[0]) == 0
+    finally:
+        again.stop()
