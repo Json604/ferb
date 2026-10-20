@@ -1481,32 +1481,37 @@ class Daemon:
 
     def _forget_nodes(self, refs: list[str], named: bool = True) -> list[str]:
         """Learned items go (`Learning.forget`: every version, what is built on them, tombstones), and FERB's questions
-        about them close. A learned item the owner named has an echo pass (re-review R3, round 5): the one they asked
-        to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that question
-        (`_named_node`) goes from FERB's replies and every span; what it states (its body's text, a procedure's intent,
-        a lesson's trigger; never an episode card's goal, which other tasks share, and never its key alone, which can
-        be a label such as "owner") goes only where it was shown or cited (`echoes.finish_node`, in a worker thread):
-        an owner identity statement was in every model turn's prompt since it was recorded."""
+        about them close. A learned item the owner named has an echo pass (re-review R3, round 5, closing round): the
+        one they asked to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that
+        question (`_named_node`) goes from FERB's replies and every span; what each of its versions states (its body's
+        text, a procedure's intent, a lesson's trigger; never an episode card's goal, which other tasks share, and
+        never its key alone, which can be a label such as "owner") goes where that version was shown or cited, and
+        from FERB's chat replies word for word (`echoes.finish_node`, in a worker thread)."""
         from ferb.memory import echoes
         from ferb.memory.learning import ID_KEYED
         asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
-        found: dict[str, tuple[set[str], str, list[str], str | None]] = {}
-        for ident in (set(refs) if named else set()) | asked:   # its versions, naming, what it states, in every turn
+        found: dict[str, tuple[str, dict[str, list[str]], dict[str, str]]] = {}
+        for ident in (set(refs) if named else set()) | asked:   # its naming; each version's statement; identity times
             node = self.learning.get(ident)
-            if node is not None:
-                said = [] if node["kind"] in ID_KEYED else [node["body"].get(k) for k in ("text", "intent", "trigger")]
-                versions = self.db.conn.execute("SELECT id, recorded_at FROM learning_nodes WHERE kind = ? AND key = ?",
-                                                (node["kind"], node["key"])).fetchall()
-                since = min(str(r[1]) for r in versions) if node["kind"] == "identity" and versions else None
-                found[ident] = ({r[0] for r in versions} | {ident}, _named_node(node),
-                                [t for t in said if isinstance(t, str) and t.strip()], since)
+            if node is None:
+                continue
+            versions: dict[str, list[str]] = {}
+            since: dict[str, str] = {}
+            for row in self.db.conn.execute("SELECT id, body_json, recorded_at FROM learning_nodes WHERE kind = ? AND "
+                                            "key = ?", (node["kind"], node["key"])).fetchall():
+                body = json.loads(row["body_json"])
+                said = [] if node["kind"] in ID_KEYED else [body.get(k) for k in ("text", "intent", "trigger")]
+                versions[row["id"]] = [t for t in said if isinstance(t, str) and t.strip()]
+                if node["kind"] == "identity":
+                    since[row["id"]] = str(row["recorded_at"])
+            found[ident] = (_named_node(node), versions, since)
         deleted = self.learning.forget(refs)
         self._close_memory_questions(deleted)
-        gone = [ident for ident in deleted if ident in found]
-        echo = echoes.NodeEcho({v for i in gone for v in found[i][0]} & set(deleted), sorted({found[i][1] for i in gone}),
-                               sorted({t for i in gone for t in found[i][2]}),
-                               min((s for i in gone if (s := found[i][3])), default=None))
-        if echo.refs:
+        gone = [found[ident] for ident in deleted if ident in found]
+        echo = echoes.NodeEcho(sorted({naming for naming, _, _ in gone}),
+                               {v: said for _, versions, _ in gone for v, said in versions.items() if v in deleted},
+                               {v: at for _, _, since in gone for v, at in since.items() if v in deleted})
+        if echo.naming:
             self._after_forgets(lambda: self._finish_node_forget(echo))
         return deleted
 

@@ -842,10 +842,11 @@ def test_echo_scrubs_run_one_at_a_time(daemon: RunningDaemon) -> None:
     real = echoes.finish_node_at
 
     def slow(path: Any, echo: Any) -> Any:
-        events.append(("start", echo.texts[0]))
+        [said] = echo.versions.values()
+        events.append(("start", said[0]))
         time.sleep(0.3)
         out = real(path, echo)
-        events.append(("end", echo.texts[0]))
+        events.append(("end", said[0]))
         return out
     echoes.finish_node_at = slow                                          # type: ignore[assignment]
     try:
@@ -889,3 +890,116 @@ def test_a_forgotten_lessons_multi_line_text_leaves_the_turn_that_listed_it(daem
         c.close()
     assert _everywhere(daemon, "Prefer caf") == [] and _everywhere(daemon, "brimble\\u201d") == []
     assert _held_in_spans(daemon, "what about qwyrtz and brimble?")
+
+
+# ---------- closing round (final check of round 5) ----------
+
+def _dashboard_forget(d: RunningDaemon, ident: str) -> None:
+    from ferb.cli.client import Client
+    c = Client(d.sock)
+    try:
+        c.call("memory.learning", {"op": "forget", "id": ident, "confirm": True})
+    finally:
+        c.close()
+
+
+def _identity(d: RunningDaemon, text: str) -> Any:
+    return _on_loop(d, lambda: d.daemon.learning.put("identity", "owner", {"text": text}, [], origin_label="owner",
+                                                     made_by="owner:identity/1", owner=True, state="active"))
+
+
+def _attention_run(d: RunningDaemon, title: str) -> None:
+    install(d, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    d.run(d.daemon.supervisor.attention(["trail:x"], [{"data": {"title": title}}], []))
+
+
+def test_a_forgotten_identity_statement_leaves_every_model_run_since(daemon: RunningDaemon) -> None:
+    """Closing round (1): an owner identity statement is in the system prompt of every model run, not only planner
+    turns: the worker, dispatch, question, resources and attention runs record it too. Its forget scoped only
+    `model.turn` spans, so the worker's and the attention check's records kept it."""
+    from tests.conftest import done, outcome, sup, task
+    node = _identity(daemon, "I sign emails as Kestrovan")
+    install(daemon, [sup("task", "Checking.", task("check the weather"))], {"worker": done("Sunny.")})
+    outcome(chat(daemon, "check the weather"))
+    _attention_run(daemon, "weather")
+    kinds = _on_loop(daemon, lambda: {r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT kind FROM spans WHERE input_json LIKE '%Kestrovan%'")})
+    assert {"worker", "attention.consider"} <= kinds
+    _dashboard_forget(daemon, node["id"])
+    assert _everywhere(daemon, "Kestrovan") == []
+
+
+def test_the_identity_scope_compares_times_across_utc_offsets(daemon: RunningDaemon) -> None:
+    """Closing round (5): the identity scope compared ISO strings, so a statement recorded at 13:00+05:30 (07:30 UTC)
+    missed a model run at 09:00+00:00, which sorts first as text."""
+    from datetime import datetime, timedelta, timezone
+    from tests.conftest import done, outcome, sup, task
+    learning = daemon.daemon.learning
+    clock = learning.clock
+
+    class India:
+        def now(self) -> datetime:
+            return datetime(2026, 1, 1, 13, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    learning.clock = India()
+    try:
+        node = _identity(daemon, "I sign emails as Kestrovan")
+    finally:
+        learning.clock = clock
+    assert node["recorded_at"] == "2026-01-01T13:00:00+05:30"
+    install(daemon, [sup("task", "Checking.", task("check the weather"))], {"worker": done("Sunny.")})
+    outcome(chat(daemon, "check the weather"))           # its model runs start at 09:00+00:00, after 07:30 UTC
+    assert ("spans", "input_json") in _everywhere(daemon, "Kestrovan")
+    _dashboard_forget(daemon, node["id"])
+    assert _everywhere(daemon, "Kestrovan") == []
+
+
+def test_a_lesson_listed_to_the_attention_check_leaves_its_record(daemon: RunningDaemon) -> None:
+    """Closing round (2): the background attention check has no request, so no exposure records what its memory layer
+    listed; a forgotten lesson stayed in its `attention.consider` span. A span that names the node by its id showed
+    it."""
+    node = _lesson(daemon, "use brave glimmorax")
+    _attention_run(daemon, "use brave glimmorax")
+    assert _on_loop(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT kind FROM spans WHERE input_json LIKE '%glimmorax%'")]) == ["attention.consider"]
+    _dashboard_forget(daemon, node["id"])
+    assert _everywhere(daemon, "glimmorax") == []
+
+
+def test_a_reply_that_copied_a_lesson_in_a_turn_not_shown_it_loses_the_line(daemon: RunningDaemon) -> None:
+    """Closing round (3, ruling): FERB restated a lesson in a turn that listed it, then repeated it word for word in a
+    later turn that wasn't shown it; that reply kept the text and chat history fed it to the planner. FERB's chat
+    replies, and their turns, lose a line holding a forgotten (not ID-keyed) item's text word for word, as in round
+    4, besides the scope."""
+    d = daemon.daemon
+    node = _lesson(daemon, "always cc the trelloquin team")
+    install(daemon, [_reply("Noted: always cc the trelloquin team")])
+    chat(daemon, "who do I cc on trelloquin updates?")
+    d.supervisor.memory_candidates = lambda words: []
+    install(daemon, [_reply("As before: always cc the trelloquin team")])
+    chat(daemon, "remind me again about trelloquin")
+    _dashboard_forget(daemon, node["id"])
+    assert _everywhere(daemon, "always cc the trelloquin team") == []
+    script = install(daemon, [_reply("Hi.")])
+    chat(daemon, "anything else?")
+    assert "always cc the trelloquin team" not in "\n".join(str(c) for _, key, c, _ in script.contexts
+                                                            if key == "supervisor")
+
+
+def test_each_version_of_a_forgotten_lesson_leaves_where_it_was_shown(daemon: RunningDaemon) -> None:
+    """Closing round (4): a forget deletes every version of a lesson, but only the named version's text was scrubbed;
+    a task whose worker read an older version kept that version's text in its tool call."""
+    from tests.conftest import done, outcome, sup, task, tool
+    d = daemon.daemon
+    v1 = _on_loop(daemon, lambda: d.learning.put("lesson", "send button key", {"text": "wait for zorbleck draft"}, [],
+                                                 made_by="model:t", state="active"))
+
+    def act(token: str) -> str:
+        tool(daemon.sock, token, "memory.learned", item_id=v1["id"])
+        return done("Read the lesson.")
+    install(daemon, [sup("task", "Reading.", task("read the send button lesson"))], {"worker": act})
+    outcome(chat(daemon, "read the send button lesson"))
+    v2 = _on_loop(daemon, lambda: d.learning.put("lesson", "send button key", {"text": "wait for quiggat draft"}, [],
+                                                 made_by="model:t", state="active"))
+    assert v1["id"] != v2["id"] and ("spans", "output_json") in _everywhere(daemon, "wait for zorbleck")
+    _dashboard_forget(daemon, v2["id"])
+    assert _everywhere(daemon, "wait for zorbleck") == []

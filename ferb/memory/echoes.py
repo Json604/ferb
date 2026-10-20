@@ -20,6 +20,7 @@ Journal rows are append-only (they are only ever deleted, for a forget): a chang
 with the same sequence number, id, time, kind and origin. The owner's own messages are never rewritten."""
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from ferb.memory.items import contains_words, query_terms
@@ -425,63 +426,93 @@ def _told_pairs(told: set[str]) -> list[tuple[str, str]]:
 
 @dataclass
 class NodeEcho:
-    """A forgotten learned item's echo (re-review R3, round 5): `refs` the node ids; `naming` FERB's naming of each in
-    its "Forget for good?" question (FERB's own wording, naming only that item); `texts` what they state;
-    `in_every_turn_since` when the item was in every model turn's prompt from then on (an owner identity statement,
-    Layer 1), else None."""
-    refs: set[str] = field(default_factory=set)
+    """A forgotten learned item's echo (re-review R3, rounds 5 and closing): `naming` FERB's naming of each named item
+    in its "Forget for good?" question (FERB's own wording, naming only that item); `versions` each forgotten
+    version's id and what it states; `in_prompts_since` an owner identity statement's version id and when it was
+    recorded: from then on it is in every model run's system prompt (Layer 1)."""
     naming: list[str] = field(default_factory=list)
-    texts: list[str] = field(default_factory=list)
-    in_every_turn_since: str | None = None
+    versions: dict[str, list[str]] = field(default_factory=dict)
+    in_prompts_since: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def refs(self) -> set[str]:
+        return set(self.versions)
+
+
+def _utc(at: str) -> datetime:
+    when = datetime.fromisoformat(at)
+    return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when.astimezone(timezone.utc)
+
+
+def _shown(db: Any, ref: str, since: str | None) -> tuple[set[str], list[Any]]:
+    """Where one learned item was shown or cited: the tasks given it (`task_memory_refs`), and the spans that showed
+    it: those tasks' trees and planner turns, the planner turns of the chat turns that listed it (chat rows whose
+    source refs cite it), every span naming it by its id (a run with no request, such as the attention check, records
+    no exposure), and, for an identity statement, every model run's record since `since` (its system prompt held it;
+    compared in UTC)."""
+    tasks = {_root(str(r[0])) for r in db.conn.execute("SELECT DISTINCT task_id FROM task_memory_refs WHERE ref = ?",
+                                                        (ref,))}
+    spans = [span for task in sorted(tasks) for span in _task_spans(db, task)]
+    for (request,) in db.conn.execute(
+            f"SELECT DISTINCT json_extract(j.data_json, '$.request_id') FROM journal j, json_each(j.data_json, "
+            f"'$.source_refs') r WHERE j.kind IN ({','.join('?' * len(CHAT_KINDS))}) AND json_type(j.data_json, "
+            "'$.source_refs') = 'array' AND r.value = ?", (*CHAT_KINDS, ref)).fetchall():
+        if request:
+            spans += _turns(db, str(request))
+    spans += db.conn.execute("SELECT id FROM spans WHERE instr(input_json, ?) > 0 OR "
+                             "instr(COALESCE(output_json, ''), ?) > 0", (ref, ref)).fetchall()
+    if since is not None:
+        start = _utc(since)
+        spans += [row for row in db.conn.execute("SELECT id, started_at FROM spans WHERE "
+                                                 "json_type(input_json, '$.system_prompt') IS NOT NULL").fetchall()
+                  if _utc(str(row["started_at"])) >= start]
+    return tasks, spans
 
 
 def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
-    """A learned item's echo pass, after its deletion (round 5 ruling). FERB's naming of it goes from FERB's
-    conversation rows (each line holding it) and from every span. What it states goes only where it was shown or
-    cited, never by a substring replace across every span: the tasks given it (`task_memory_refs`: their answer and
-    outcome rows, records, spans and the planner turn that planned them), the chat turns that listed it (the chat
-    rows whose source refs cite it, and those requests' planner turns), and for an owner identity statement every
-    model turn since it was recorded (it is in each one's prompt). Copies of the FERB lines it removed go from every
-    span, as a memory forget's do."""
+    """A learned item's echo pass, after its deletion. FERB's naming of it goes from FERB's conversation rows (each
+    line holding it) and every span. What each forgotten version states goes where that version was shown or cited
+    (`_shown`), never by a substring replace across every span: those tasks' answer and outcome rows and records lose
+    each line holding it, and those spans lose each such line and the text itself (a text spanning lines too).
+    FERB's chat replies lose a line holding any version's text word for word, wherever they were written (a reply
+    can copy it in a turn that wasn't shown it). Copies of the FERB lines removed go from every span, as a memory
+    forget's do: from the turns that wrote those replies and from the chat history later turns were shown (closing
+    round)."""
     out = Scrubbed()
-    naming, texts = [t for t in echo.naming if t.strip()], [t for t in echo.texts if t.strip()]
-    named, stated, in_spans = _Lines(naming, [], set()), _Lines(texts, [], set()), _Lines(texts, [], set())
-    if not named.phrases and not stated.phrases:
+    texts = {ref: [t for t in said if t.strip()] for ref, said in echo.versions.items()}
+    naming = [t for t in echo.naming if t.strip()]
+    everything = sorted({t for said in texts.values() for t in said})
+    if not naming and not everything:
         return out
-    tasks = {_root(str(r[0])) for r in _with_refs(
-        db, echo.refs, "SELECT DISTINCT t.task_id FROM task_memory_refs t JOIN forgetting_refs f ON t.ref = f.ref")}
-    listed = _with_refs(db, echo.refs, f"SELECT DISTINCT j.id, json_extract(j.data_json, '$.request_id') FROM journal j, "
-                                       "json_each(j.data_json, '$.source_refs') r JOIN forgetting_refs f ON r.value = "
-                                       f"f.ref WHERE j.kind IN ({','.join('?' * len(CHAT_KINDS))}) AND "
-                                       "json_type(j.data_json, '$.source_refs') = 'array'", CHAT_KINDS)
+    named, replies = _Lines(naming, [], set()), _Lines(everything, [], set())
+    scopes = {ref: _shown(db, ref, echo.in_prompts_since.get(ref)) for ref, said in texts.items() if said}
+    by_task: dict[str, set[str]] = {}
+    for ref, (tasks, _) in scopes.items():
+        for task in tasks:
+            by_task.setdefault(task, set()).update(texts[ref])
+    task_lines = {task: _Lines(sorted(said), [], set()) for task, said in by_task.items()}
     for row in _ferb_rows(db):
         data = json.loads(row["data_json"])
-        of_task = row["kind"] in TASK_KINDS and _root(str(data.get("task_id", ""))) in tasks
-        scoped = of_task or row["id"] in {r[0] for r in listed}
+        lines = task_lines.get(_root(str(data.get("task_id", "")))) if row["kind"] in TASK_KINDS else None
         new = {}
         for key, value in data.items():
-            if of_task and key not in IDS:
-                value = stated.value(named.value(value, named.verbatim), stated.verbatim)
+            if lines is not None and key not in IDS:          # a task given it: its outcome's summary and subtasks too
+                value = lines.value(named.value(value, named.verbatim), lines.verbatim)
             elif key in FIELDS and isinstance(value, str) and value:
                 value = named.text(value, named.verbatim)
-                value = stated.text(value, stated.verbatim) if scoped else value
+                value = replies.text(value, replies.verbatim) if row["kind"] in CHAT_KINDS else value
             new[key] = value
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
-    if in_spans.phrases:
-        shown: list[Any] = []
+    for ref, (tasks, spans) in scopes.items():
+        in_spans = _Lines(texts[ref], [], set())
         for task in sorted(tasks):
             _scrub_task(db, task, in_spans, in_spans.verbatim)
-            shown += _task_spans(db, task)
-        for request in sorted({str(r[1]) for r in listed if r[1]}):
-            shown += _turns(db, request)
-        if echo.in_every_turn_since is not None:
-            shown += db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
-                                     "started_at >= ?", (echo.in_every_turn_since,)).fetchall()
-        _scrub_spans(db, shown, in_spans, in_spans.verbatim)      # each line holding it, then a text across lines
-        _replace_in_spans(db, shown, _told_pairs(set(texts)))
-    scrub_told(db, {*named.removed, *named.phrases, *stated.removed})
+        _scrub_spans(db, spans, in_spans, in_spans.verbatim)      # each line holding it, then a text across lines
+        _replace_in_spans(db, spans, _told_pairs(set(texts[ref])))
+    scrub_told(db, {*named.removed, *named.phrases, *replies.removed,
+                    *(line for lines in task_lines.values() for line in lines.removed)})
     _drop_folded(db, set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     return out
