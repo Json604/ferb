@@ -94,7 +94,7 @@ CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|p
 # The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
 # A masked code counts as the digits it replaced, so masking twice changes nothing.
-CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])(?<!\][ -])"
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])(?<!\[redacted\][ -])"
                         rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d|[ -]\[redacted\])")
 # Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "739201 as your PIN",
@@ -399,7 +399,7 @@ _PREFIX_END = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+)
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
 # Its code is never part of a longer digit group (a phone number: "a verification code to +91 98765 43210").
 # Its gap never reaches over a code already masked, and a "G-" prefixed code is C1's whole.
-OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b(?:(?!\[redacted\])[^\d\n]){0,40})(?<![+\d])(?<!\d[ -])(?<![A-Za-z]-)(?<!\[redacted\][ -])(\d(?:[ -]?\d){3,7})(?![ -]?\d|[ -]\[redacted\])")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
 # \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.

@@ -493,3 +493,10 @@ def test_a_sentence_end_still_breaks_the_clause() -> None:
     out = Redactor().text("Order 4821 is out for delivery. Share OTP 7731 with the agent")
     assert "4821" in out and "7731" not in out
     assert "4999" in Redactor().text("Rs 4999 is the price. Promo code SAVE10 applies.")
+
+
+@pytest.mark.parametrize("message", ["[Swiggy] 482913 is your OTP", "[10:42] 482913 is your Instagram code",
+                                     "[#] 482913 is your verification code", "[Bank] Your OTP is 482913"])
+def test_a_code_after_a_bracketed_prefix_is_masked(message) -> None:
+    """Re-review 2 (I1): the idempotence guard took any "] " for a mask's end."""
+    assert "482913" not in Redactor().text(message)
