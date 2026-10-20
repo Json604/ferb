@@ -195,9 +195,9 @@ def test_the_echo_scrub_runs_off_the_event_loop_and_the_next_turn_waits_for_it(d
     ran: list[str] = []
     real = echoes.scrub
 
-    def recorded(db: Any, forgotten: Any) -> Any:
+    def recorded(db: Any, forgotten: Any, *rest: Any) -> Any:
         ran.append(threading.current_thread().name)
-        return real(db, forgotten)
+        return real(db, forgotten, *rest)
     echoes.scrub = recorded                                     # type: ignore[assignment]
     try:
         c = Client(daemon.sock)
@@ -223,3 +223,102 @@ def test_a_forget_answered_in_chat_is_complete_before_the_next_turn(daemon: Runn
     script = install(daemon, [_reply("Hi.")])
     chat(daemon, "what is my test lab colour?")
     assert "heron" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+
+
+# ---------- round 2 (re-review F1, F2) ----------
+
+def _everywhere(d: RunningDaemon, word: str) -> list[tuple[str, str]]:
+    """Every (table, column) whose text holds `word`, across the whole database (index shadow tables too)."""
+    db = d.daemon.db
+
+    def scan() -> list[tuple[str, str]]:
+        hits = []
+        for (table,) in db.conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            for column in [r[1] for r in db.conn.execute(f'PRAGMA table_info("{table}")')]:
+                if db.conn.execute(f'SELECT 1 FROM "{table}" WHERE CAST("{column}" AS TEXT) LIKE ? LIMIT 1',
+                                   (f"%{word}%",)).fetchone():
+                    hits.append((table, column))
+        return hits
+    return _on_loop(d, scan)
+
+
+def test_forget_leaves_nothing_of_the_item_in_what_a_task_did_with_it(daemon: RunningDaemon) -> None:
+    """Re-review F1 (probe a): the planner put the name in the goal and its plan line, the worker wrote it in a tool
+    call and its answer. After the forget, no table holds it: not the task's tool-call spans, the planner's intake
+    turn, or the "while you were away" result."""
+    from tests.conftest import outcome, sup, task, tool
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+
+    def act(token: str) -> str:
+        r = tool(daemon.sock, token, "fs.write", path="note.txt", content="Dear Dr. Zorblat,\nPlease book Monday.",
+                 overwrite=True, effect="edit")
+        return json.dumps({"status": "failed" if r["is_error"] else "done",
+                           "summary": "Wrote the note to Dr. Zorblat asking for Monday.", "artifacts": ["note.txt"],
+                           "evidence": []})
+    install(daemon, [sup("task", "Writing to Dr. Zorblat.", task("write a note to Dr. Zorblat to book Monday"))],
+            {"worker": act})
+    outcome(chat(daemon, "write my dentist a note to book Monday"))
+    daemon.run(d.supervisor.finish_episodes())
+    assert _everywhere(daemon, "Zorblat")
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.forget", {"id": item.id, "confirm": True})
+    finally:
+        c.close()
+    assert _everywhere(daemon, "Zorblat") == []
+
+
+def _procedure_scene(d: RunningDaemon, answer: str) -> tuple[Any, str, Any]:
+    """The item captured from a chat message E1, a card citing E1, a procedure built on that card, and a task T3 shown
+    only that procedure (review probe f)."""
+    from tests.conftest import done, outcome, sup, task
+    dd = d.daemon
+    e1 = str(_on_loop(d, lambda: dd._journal().append("chat.message", {"text": "remember my dentist is Dr. Zorblat",
+                                                                        "request_id": "r-e1"}).id))
+    item = _on_loop(d, lambda: dd.memory.propose("person", "owner", "dentist", "my dentist is Dr. Zorblat",
+                                                 "owner_stated", [("journal", e1)], 1.0))
+    c1 = _on_loop(d, lambda: dd.learning.put("episode", "T1", {"task_id": "T1", "verified": True, "request": "x",
+                                                               "apps": {}, "slots": {}, "status": "done",
+                                                               "actions": []}, ["journal:" + e1],
+                                             origin_label="ferb", made_by="code:evidence-card/2", state="active"))
+    procedure = _on_loop(d, lambda: dd.learning.put("procedure", "book appointment", {
+        "intent": "book appointment", "steps": [{"tool": "gmail.send"}], "preconditions": {"apps": {}}},
+        [c1["id"]], made_by="model:t", state="candidate"))
+    dd.supervisor.memory_candidates = lambda words: []                      # T3's planner sees no fact
+    install(d, [sup("task", "Booking.", task("email Carol to book Tuesday"))], {"worker": done(answer)})
+    t3 = outcome(chat(d, "email Carol to book Tuesday"))["task_id"]
+    _on_loop(d, lambda: dd.db.conn.execute("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
+                                           (t3, procedure["id"])))
+    d.run(dd.supervisor.finish_episodes())
+    return item, t3, procedure
+
+
+def test_a_task_shown_only_a_node_built_on_the_items_source_is_not_given_the_item(daemon: RunningDaemon) -> None:
+    """Re-review F2 (probe f): T3 was shown only a procedure built on a card that cites the item's source message. The
+    procedure doesn't state the item, so T3 wasn't given it: its rows and its card stay."""
+    d = daemon.daemon
+    item, t3, _ = _procedure_scene(daemon, "Emailed Dr. Carol to book Tuesday.\nUsed the booking template.")
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    rows = _on_loop(daemon, lambda: [e.data.get("text") for e in d.journal.of_kind("task.answer")])
+    assert rows == ["Emailed Dr. Carol to book Tuesday.\nUsed the booking template."]
+    assert _on_loop(daemon, lambda: d.learning.current_card(t3)) is not None
+
+
+def test_a_card_goes_only_when_its_body_restates_the_item(daemon: RunningDaemon) -> None:
+    """Re-review F2 ruling: a task given the item (its planner was shown the fact) whose card shares one rare word with
+    it keeps its card; a card is forgotten (and tombstoned) only when its body restates the item."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [sup("task", "Checking.", task("check the clinic page"))],
+            {"worker": done("The clinic page lists Zorblat Street as its address.")})
+    one_word = outcome(chat(daemon, "check my dentist clinic page"))["task_id"]
+    install(daemon, [sup("task", "Emailing.", task("email my dentist to book Monday"))],
+            {"worker": done("Emailed Dr. Zorblat's office to book Monday.")})
+    restating = outcome(chat(daemon, "email my dentist to book Monday"))["task_id"]
+    daemon.run(d.supervisor.finish_episodes())
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    assert _on_loop(daemon, lambda: d.learning.current_card(one_word)) is not None
+    assert _on_loop(daemon, lambda: d.learning.current_card(restating)) is None

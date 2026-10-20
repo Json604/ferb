@@ -43,6 +43,10 @@ class Forgotten:
     requests: set[str] = field(default_factory=set)
     refs: set[str] = field(default_factory=set)
     tasks: set[str] = field(default_factory=set)
+    # each candidate task -> the refs it was shown or cited; the texts of the learned nodes among them, read before the
+    # forget deletes them: a task was given the item only through the item itself or a node whose body restates it
+    through: dict[str, set[str]] = field(default_factory=dict)
+    node_texts: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def phrases(self) -> list[str]:
@@ -95,16 +99,28 @@ def capture(db: Any, items: list[str], journal: list[str], trail: list[str]) -> 
         out.refs |= found
         frontier = found
     if out.refs:
-        given = _with_refs(db, out.refs, "SELECT DISTINCT t.task_id FROM task_memory_refs t JOIN forgetting_refs f "
+        given = _with_refs(db, out.refs, "SELECT DISTINCT t.task_id, t.ref FROM task_memory_refs t JOIN forgetting_refs f "
                                          "ON t.ref = f.ref")
-        cited = _with_refs(db, out.refs, "SELECT DISTINCT n.key FROM learning_nodes n JOIN learning_sources s ON "
-                                         "s.node_id = n.id JOIN forgetting_refs f ON s.source_ref = f.ref "
+        cited = _with_refs(db, out.refs, "SELECT DISTINCT n.key, s.source_ref FROM learning_nodes n JOIN learning_sources s "
+                                         "ON s.node_id = n.id JOIN forgetting_refs f ON s.source_ref = f.ref "
                                          "WHERE n.kind = 'episode'")
-        shown = _with_refs(db, entries, "SELECT DISTINCT s.task_id FROM spans s, json_each(s.input_json, "
+        shown = _with_refs(db, entries, "SELECT DISTINCT s.task_id, r.value FROM spans s, json_each(s.input_json, "
                                         "'$.source_refs') r JOIN forgetting_refs f ON r.value = f.ref WHERE "
                                         "s.kind = 'context.exposure' AND s.task_id IS NOT NULL") if entries else []
-        out.tasks = {_root(str(r[0])) for r in [*given, *cited, *shown] if r[0]}
+        for task, ref in [*given, *cited, *shown]:
+            if task:
+                out.through.setdefault(_root(str(task)), set()).add(str(ref))
+        for ref in {r for refs in out.through.values() for r in refs if not _direct(r)}:
+            node = db.conn.execute("SELECT key, body_json FROM learning_nodes WHERE id=?", (ref,)).fetchone()
+            if node is not None:
+                out.node_texts[ref] = [str(node["key"]), *_strings(json.loads(node["body_json"]))]
+        out.tasks = set(out.through)                  # narrowed once the item's rare words are known (`settle`)
     return out
+
+
+def _direct(ref: str) -> bool:
+    """A ref naming the forgotten thing itself (the item, its source entries or trail rows), not a node built on it."""
+    return ref.startswith(("memory:", "journal:", "entry:", "trail:"))
 
 
 def given(db: Any, forgotten: Forgotten) -> set[str]:
@@ -208,8 +224,9 @@ SUMMARY_KIND = "chat.summary"
 def finish(db: Any, forgotten: Forgotten) -> Scrubbed:
     """A forget's work after its deletion: `scrub`, then the running summaries that folded a row written with the item
     or rewritten here (or a summary built on one: they are rebuilt from what remains), then an emptied WAL."""
+    lines = settle(db, forgotten)
     written = given(db, forgotten) | stating(db, forgotten)
-    out = scrub(db, forgotten)
+    out = scrub(db, forgotten, lines)
     folded = {"entry:" + ident for ident in written | set(out.rewritten)}
     while folded:
         doomed = {row[0] for row in db.conn.execute("SELECT id, data_json FROM journal WHERE kind = ?", (SUMMARY_KIND,))
@@ -231,17 +248,36 @@ def finish_at(path: Any, forgotten: Forgotten) -> Scrubbed:
         db.close()
 
 
-def scrub(db: Any, forgotten: Forgotten) -> Scrubbed:
+def _ferb_rows(db: Any) -> list[Any]:
+    marks = ','.join('?' * len(FERB_KINDS))
+    return list(db.conn.execute(f"SELECT seq, id, at, kind, data_json, origin FROM journal WHERE kind IN ({marks}) "
+                                "ORDER BY seq", FERB_KINDS).fetchall())
+
+
+def settle(db: Any, forgotten: Forgotten) -> "_Lines":
+    """The line rules for this forget, and the tasks it reaches: a candidate task was given the item only when it was
+    shown or cited the item itself (its text, source entries or rows) or a learned node whose own body restates it; a
+    node merely built on the item's sources (a procedure on a card that cites the source message) doesn't count
+    (re-review F2). The item's rare words are first measured against every candidate, then against the tasks kept."""
+    ferb = _ferb_rows(db)
+
+    def rules() -> _Lines:
+        return _Lines(forgotten.phrases, forgotten.contents, _rare(db, forgotten, given(db, forgotten), ferb))
+    lines = rules()
+    forgotten.tasks = {task for task, refs in forgotten.through.items() if any(
+        _direct(ref) or any(lines.restates(text) for text in forgotten.node_texts.get(ref, [])) for ref in refs)}
+    return rules()
+
+
+def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrubbed:
     """Remove what FERB's own records say of the forgotten item (module docstring), after its deletion."""
     out = Scrubbed()
     phrases = forgotten.phrases
     if not phrases and not forgotten.requests:
         return out
-    marks = ','.join('?' * len(FERB_KINDS))
-    ferb = db.conn.execute(f"SELECT seq, id, at, kind, data_json, origin FROM journal WHERE kind IN ({marks}) "
-                           "ORDER BY seq", FERB_KINDS).fetchall()
+    lines = lines or settle(db, forgotten)
+    ferb = _ferb_rows(db)
     written_with = given(db, forgotten)
-    lines = _Lines(phrases, forgotten.contents, _rare(db, forgotten, written_with, ferb))
     for row in ferb:
         data = json.loads(row["data_json"])
         answer = row["kind"] in CHAT_KINDS and data.get("request_id") in forgotten.requests
@@ -283,9 +319,27 @@ def scrub(db: Any, forgotten: Forgotten) -> Scrubbed:
             if new_values != [episode[k] for k in EPISODE_FIELDS]:
                 db.conn.execute(f"UPDATE episodes SET {', '.join(k + ' = ?' for k in EPISODE_FIELDS)} WHERE task_id = ?",
                                 (*new_values, task))
+        for row in db.conn.execute("SELECT task_id, goal, answer FROM task_results WHERE task_id = ?", (task,)).fetchall():
+            goal, answer = lines.text(row["goal"], lines.mentions), lines.text(row["answer"], lines.mentions)
+            if (goal, answer) != (row["goal"], row["answer"]):      # the "while you were away" result
+                db.conn.execute("UPDATE task_results SET goal = ?, answer = ? WHERE task_id = ?", (goal, answer, task))
+        requests = [r[0] for r in db.conn.execute("SELECT DISTINCT request_id FROM tasks WHERE id = ? OR id LIKE ?",
+                                                  (task, task + ".%"))]
+        spans = db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE task_id = ? OR task_id LIKE ?",
+                                (task, task + ".%")).fetchall()
+        for request in requests:                     # the planner turn that planned it
+            spans += db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
+                                     "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall()
+        for span in spans:                           # every record of the task's tree: tool calls, turns, evidence
+            before_in, before_out = json.loads(span["input_json"]), json.loads(span["output_json"] or "null")
+            new_in, new_out = lines.value(before_in, lines.mentions), lines.value(before_out, lines.mentions)
+            if new_in != before_in or new_out != before_out:
+                db.conn.execute("UPDATE spans SET input_json = ?, output_json = ? WHERE id = ?",
+                                (json.dumps(new_in), None if new_out is None else json.dumps(new_out), span["id"]))
         for card in db.conn.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'episode' AND key = ?",
                                     (task,)).fetchall():
-            if any(lines.mentions(s) for s in _strings(json.loads(card["body_json"]))):
+            # a card goes only when its body restates the item, never on one rare word (re-review F2)
+            if any(lines.restates(s) for s in _strings(json.loads(card["body_json"]))):
                 out.cards.append(card["id"])
     for request in sorted(forgotten.requests):           # the planner's own answer to a forgotten message goes whole
         for span in db.conn.execute("SELECT id, output_json FROM spans WHERE kind = 'model.turn' AND "
