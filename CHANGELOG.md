@@ -153,8 +153,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   your own requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code");
   address and coupon codes (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your typed
   answer to a question that mentions a password (or "pwd"), passcode or PIN is hidden whole (a choice you pick never
-  is), and the code in your answer to a question about a code is masked. Streamed number-only output costs about a
-  quarter of what it did after the first fixes (`seq` at 1024-byte reads: 398 → 101 ms).
+  is), and the code in your answer to a question about a code is masked. Streaming number-only output costs about a
+  quarter of what it did after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about 0.4 s → 0.1 s;
+  0.05 s before the redaction fixes).
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
