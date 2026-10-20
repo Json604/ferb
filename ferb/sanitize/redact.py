@@ -246,7 +246,9 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
 
 
 # A list of backup or recovery codes ("Backup codes: 1234 5678 9012 3456", or one per line): every code in it.
-CODE_LIST = re.compile(r"(?i)(?<![A-Za-z0-9])codes[ \t]*:[ \t]*")
+# Only a backup, recovery, 2FA or one-time code list (re-review 2, I5): "HTTP status codes: 200, 301" is ordinary data.
+CODE_LIST = re.compile(r"(?i)(?<![A-Za-z0-9])(?:backup|recovery|2fa|two[ -]?factor|one[ -]?time|verification|security|"
+                       r"login)(?:[ \t]+backup)?[ \t]+codes[ \t]*:[ \t]*")
 LIST_TOKEN = re.compile(r"(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})?(?![A-Za-z0-9-])")
 _LIST_GAP = re.compile(r"[ \t,]*(?:(?:\r\n|\r|\n)[ \t]*)?")
 
@@ -748,7 +750,7 @@ class RedactionStream:
         urls = [u.span() for u in URL.finditer(tail)]          # a URL's own digits are never a code
         joinable = any((CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"\s*\S*", tail[m.end():]))
                        and not any(a <= m.start() < b for a, b in urls) for m in CODE_VALUE.finditer(tail))
-        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable
+        if (CODE_WORD.search(tail) or SECRET_WORD.search(tail) or joinable or _code_alone(tail)
                 or OTP_CONTEXT_START.search(tail) or _PREFIX_END.search(tail)):
             hold = min(hold, tail_start if len(tail) <= self.MAX_PENDING // 2 else tail_start + self._open_run(tail))
         lines, begin = [], 0
@@ -757,33 +759,45 @@ class RedactionStream:
             if text.strip():
                 lines.append((begin, text))
             begin = end
-        if lines and self._forward(lines[-1][1]):
-            at = len(lines) - 1
+        if lines and (at := self._held_from(lines)) is not None:
+            # a line above that relates to the first held one is decided with it (never code-only lines with each
+            # other: number-only output stays one line behind)
             while at > 0 and self._related(lines[at - 1][1], lines[at][1]):
                 at -= 1
-            # Lines of list codes matter only under a list's label: without one in the run, nothing relates them
-            # (40000 lines "line0".."line39999" are no list)
-            run = [text for _, text in lines[at:]]
-            if not all(_list_line(t) and not self._forward_alone(t) for t in run):
-                hold = min(hold, lines[at][0])
+            hold = min(hold, lines[at][0])
         return hold
 
     @staticmethod
-    def _forward_alone(line: str) -> bool:
-        """A line that can relate to the next without a list's label."""
-        return (_label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
-                or _list_label_line(line))
-
-    @staticmethod
-    def _forward(line: str) -> bool:
-        return (_label_line(line) or _code_alone(line) or _secret_colon_end(line) or _link_line(line)
-                or _list_line(line) or _list_label_line(line))
-
-    @staticmethod
     def _related(above: str, below: str) -> bool:
+        """Two neighbouring lines the text rule relates: a label over a code-only line, a code-only line over its
+        naming line, "Password:" over its value, a list label over its first code."""
         return ((_code_alone(below) and _label_line(above)) or (_code_alone(above) and _link_line(below))
-                or _secret_colon_end(above)
-                or (_list_line(below) and (_label_line(above) or _list_line(above) or _list_label_line(above))))
+                or _secret_colon_end(above) or (_list_line(below) and _list_label_line(above)))
+
+    @staticmethod
+    def _held_from(lines: list[tuple[int, str]]) -> int | None:
+        """Which complete line (by index) the stream must hold from, given the last one can still relate to what comes
+        next (re-review 2, I2): a list's codes under their backup/recovery label hold from the label; a line that is only
+        a code holds itself (its naming line can follow) and the label line just above it; a naming line holds the code
+        line above it; a label line or one ending in "Password:" holds itself. Neighbouring code-only lines never hold
+        each other, so number-only output passes one line behind."""
+        last = len(lines) - 1
+        text = lines[last][1]
+        if _list_line(text):
+            at = last
+            while at > 0 and _list_line(lines[at - 1][1]) and not _list_label_line(lines[at - 1][1]):
+                at -= 1
+            if at > 0 and _list_label_line(lines[at - 1][1]):
+                return at - 1
+            if _list_label_line(lines[at][1]):
+                return at
+        if _code_alone(text):
+            return last - 1 if last > 0 and _label_line(lines[last - 1][1]) else last
+        if _link_line(text):
+            return last - 1 if last > 0 and _code_alone(lines[last - 1][1]) else last
+        if _label_line(text) or _secret_colon_end(text) or _list_label_line(text):
+            return last
+        return None
 
     @staticmethod
     def _open_run(line: str) -> int:

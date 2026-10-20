@@ -509,6 +509,8 @@ CRLF = [
     "G-482913 is your Google verification code, do not share\r\n",
     "Your sign in code for Swiggy account login 482913\n",
     "Use this coupon code 4455 at checkout\n",
+    "482913.\r\n(OTP)\r\nThanks\r\n",
+    "sunshine\r\n482913.\r\nexit code 0\r\n482913.\r\nas your PIN\r\n",
 ]
 
 
@@ -541,3 +543,24 @@ def test_an_interactive_prompt_with_a_number_appears_before_its_answer(prompt) -
 def test_a_code_that_can_still_join_its_word_is_held(start) -> None:
     stream = Redactor().stream()
     assert b"482913" not in stream.feed(start.encode())
+
+
+@pytest.mark.parametrize("text", ["".join(f"{n}\n" for n in range(1000, 30000)),
+                                  "".join(f"{n * 7919 % 99999999:08d}\r\n" for n in range(6000))])
+def test_number_only_output_streams_through_whole_and_holds_at_most_one_line(text) -> None:
+    """Re-review 2 (I2): `seq 1000 29999` came out as the oversized marker and an id dump was held to the end, with
+    seconds of work per read. A code-only line is held only for the line after it (its label or naming line can be
+    there); neighbouring code-only lines never hold each other."""
+    stream, out, data = Redactor().stream(), b"", text.encode()
+    for i in range(0, len(data), 1024):
+        out += stream.feed(data[i:i + 1024])
+        assert len(stream.pending) <= 32, len(stream.pending)          # the work per read stays the read's own
+    out += stream.feed(b"", final=True)
+    assert out.decode() == text
+
+
+@pytest.mark.parametrize("message", ["HTTP status codes: 200, 301, 404, 500", "Course codes: CS101, MA102",
+                                     "allowed_codes: 200, 201, 204", "Response codes: 2001 2002 2003"])
+def test_an_ordinary_codes_label_lists_ordinary_data(message) -> None:
+    """Re-review 2 (I5): list masking is only for backup, recovery, 2FA and one-time code lists."""
+    assert Redactor().text(message) == message
