@@ -389,6 +389,8 @@ class Gateway:
         # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds
         # the tasks that were given an item (re-review a3); the daemon records it in task_memory_refs
         self.memory_read: Callable[[str, list[str]], None] = lambda task_id, refs: None
+        # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
+        self.journal_problem: Callable[[str, dict[str, Any]], None] = lambda kind, data: None
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._waiting: dict[str, int] = {}             # owner question id -> calls waiting on it now
@@ -1615,10 +1617,7 @@ class Gateway:
         carries only the arguments a step line shows (`lines.ARG_KEYS`), redacted then clipped; the span keeps all."""
         args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
         if name in ("memory.read", "memory.learned") and not is_error and isinstance(output, dict) and span.task_id:
-            from ferb.memory.lineage import call_sources
-            read = sorted(r for r in call_sources({"tool": name, "args": args}, output) if r.startswith(("memory:", "m-")))
-            if read:
-                self.memory_read(str(span.task_id).split(".", 1)[0], read)
+            self._record_memory_read(str(span.task_id).split(".", 1)[0], name, args, output)
         summary = lines.summarize(name, args, self.redact(content), is_error)   # redact before clip cuts a secret
         self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins is not None else None,
                           summary=summary)
@@ -1627,6 +1626,22 @@ class Gateway:
                                        if span.ended_at else None,
                                        "error": self.redact({"e": error})["e"] if error else None,
                                        "args": _shown_args(self.redact(args)), "why": self.redact({"w": why})["w"]})
+
+    def _record_memory_read(self, root: str, name: str, args: dict[str, Any], output: dict[str, Any]) -> None:
+        """Tell the memory what a finished memory read returned (re-review a3). Recording it never costs the read its
+        result or its span: a failure is journaled, redacted, and the call answers as it would have (re-review R4)."""
+        from ferb.memory.lineage import call_sources
+        try:
+            read = sorted(r for r in call_sources({"tool": name, "args": args}, output) if r.startswith(("memory:", "m-")))
+            if read:
+                self.memory_read(root, read)
+        except Exception as e:
+            problem = {"task_id": root, "tool": name, "error": self.redact({"e": f"{type(e).__name__}: {e}"})["e"]}
+            try:
+                self.journal_problem("memory.read_unrecorded", problem)
+            except Exception as again:
+                logging.getLogger(__name__).warning("FERB memory read unrecorded: %s; %s", error_name(e),
+                                                    error_name(again))
 
     def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",

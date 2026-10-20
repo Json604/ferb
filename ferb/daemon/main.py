@@ -652,6 +652,7 @@ class Daemon:
         self.gateway.disturbance = self.disturbance
         self.gateway.memory_read = lambda task_id, refs: self.db.conn.executemany(   # re-review a3
             "INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)", [(task_id, ref) for ref in refs])
+        self.gateway.journal_problem = lambda kind, data: self._journal().append(kind, data)   # re-review R4
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots

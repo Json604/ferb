@@ -553,3 +553,31 @@ def test_a_learned_item_forgotten_from_chat_leaves_no_copy_in_ferbs_replies_or_s
     assert _everywhere(daemon, "zentrix") == []
     texts = _on_loop(daemon, lambda: [e.data.get("text") for e in daemon.daemon.journal.of_kind("chat.message")])
     assert "forget that lesson" in texts
+
+
+def test_a_failure_to_record_a_memory_read_never_costs_the_read(daemon: RunningDaemon) -> None:
+    """Re-review R4 (probe h6c): when recording a worker's memory read (`Gateway.memory_read`) raised, the memory.read
+    call failed with an RPC error and its tool.call span was never finished. The read keeps its result and its span;
+    the failure is journaled, redacted."""
+    from tests.conftest import done, outcome, sup, task, tool
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    secret = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWX"
+
+    def boom(task_id: str, refs: list[str]) -> None:
+        raise RuntimeError(f"database is locked ({secret})")
+    d.gateway.memory_read = boom
+    got: dict[str, Any] = {}
+
+    def act(token: str) -> str:
+        got["read"] = tool(daemon.sock, token, "memory.read", item_id=item.id)
+        return done("Read the dentist's name.")
+    install(daemon, [sup("task", "Reading.", task("read my dentist's name from memory"))], {"worker": act})
+    outcome(chat(daemon, "what's my dentist's name?"))
+    assert got["read"]["is_error"] is False and "Zorblat" in json.dumps(got["read"]["content"])
+    ended = _on_loop(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT ended_at FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = 'memory.read'")])
+    assert ended and None not in ended
+    problems = _on_loop(daemon, lambda: [e.data for e in d.journal.of_kind("memory.read_unrecorded")])
+    assert len(problems) == 1 and "RuntimeError" in problems[0]["error"]
+    assert secret not in json.dumps(problems)
