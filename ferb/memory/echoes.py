@@ -346,12 +346,20 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
             if isinstance(out_value, dict) and out_value.get("text") not in (None, REMOVED):
                 db.conn.execute("UPDATE spans SET output_json = ? WHERE id = ?",
                                 (json.dumps(out_value | {"text": REMOVED}), span["id"]))
-    told = {s.strip() for s in [*lines.removed, *phrases] if s.strip()}
-    if told:
-        from ferb.orchestrator.attention import scrub_spans
-        pairs = {(s, REMOVED) for s in told}
-        for ascii_only in (True, False):                  # as a JSON document inside a recorded string holds it
-            pairs |= {(json.dumps(s, ensure_ascii=ascii_only)[1:-1], json.dumps(REMOVED, ensure_ascii=ascii_only)[1:-1])
-                      for s in told}
-        scrub_spans(db, sorted(pairs, key=lambda p: -len(p[0])), every_kind=True)
+    scrub_told(db, {*lines.removed, *phrases})
     return out
+
+
+def scrub_told(db: Any, told: set[str]) -> None:
+    """Every span loses each told text: as recorded, space-normalised (FERB's questions show a memory's text so:
+    re-review R2), and as a JSON document inside a recorded string holds either."""
+    texts = {t.strip() for t in told if t.strip()}
+    texts |= {" ".join(t.split()) for t in texts}
+    if not texts:
+        return
+    from ferb.orchestrator.attention import scrub_spans
+    pairs = {(t, REMOVED) for t in texts}
+    for ascii_only in (True, False):
+        pairs |= {(json.dumps(t, ensure_ascii=ascii_only)[1:-1], json.dumps(REMOVED, ensure_ascii=ascii_only)[1:-1])
+                  for t in texts}
+    scrub_spans(db, sorted(pairs, key=lambda p: -len(p[0])), every_kind=True)

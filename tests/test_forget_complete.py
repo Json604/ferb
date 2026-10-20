@@ -494,3 +494,21 @@ def test_a_yes_to_keep_this_leaves_the_owners_forget_question_waiting(daemon: Ru
     _on_loop(daemon, lambda: daemon.daemon._resolve_approval(keep.id, True, 1))
     assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"
     _forget_still_answers(daemon, item, forget)
+
+
+def test_a_question_showing_ferbs_wording_space_normalised_leaves_no_copy_in_a_span(daemon: RunningDaemon) -> None:
+    """Re-review R2 (probes h4, h4b): the question shows FERB's wording with its spacing normalised, and a planner turn
+    recorded it so; the echo pass matched spans by the raw text only, so a double space or a line break inside the
+    wording left the question's copy in that turn after the forget."""
+    from ferb.cli.client import Client
+    for content, word in [("Owner's boss is  Quentarr Vexley", "Vexley"), ("Owner's boss is\nQuentarr Zyxwell", "Zyxwell")]:
+        item = _paraphrased(daemon, content)
+        install(daemon, [_reply("Hi.")])
+        chat(daemon, "what's on today?")
+        assert _everywhere(daemon, word)
+        c = Client(daemon.sock)
+        try:
+            c.call("memory.forget", {"id": item.id, "confirm": True})
+        finally:
+            c.close()
+        assert _everywhere(daemon, word) == [], content
