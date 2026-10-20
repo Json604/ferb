@@ -49,3 +49,18 @@ def test_a_field_the_ocr_reads_as_password_dots_is_masked() -> None:
                TextRegion('Visa •••• 4242', (7, 7, 9, 9))]
     assert ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw') == b'safe'
     assert boxes == [(1, 1, 9, 9), (2, 2, 9, 9), (3, 3, 9, 9)]  # three dots, a rating, a card's last four stay
+
+
+def test_runs_with_periods_are_never_painted_so_ellipses_and_leaders_stay() -> None:
+    """Review M3: Vision seldom reads password bullets cleanly (offline renders gave '........•', '..•••••', '.......',
+    or nothing). Matching period runs too caught few more of them and painted a leader Vision split off a contents
+    line, so periods never count: only a region that is all bullets or asterisks is painted."""
+    boxes = []
+    def mask(image, rects):
+        boxes.extend(rects)
+        return b'safe'
+    painted = ['**********', '••••••••••', '* * * * * *']
+    kept = ['........•', '..•••••', '.......', '........', 'Loading...', 'Chapter 1 ........ 5', '...', 'Wait…', '..5']
+    regions = [TextRegion(t, (i, i, 9, 9)) for i, t in enumerate(painted + kept)]
+    ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw')
+    assert boxes == [(i, i, 9, 9) for i in range(len(painted))]

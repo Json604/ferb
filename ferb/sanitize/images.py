@@ -16,8 +16,11 @@ from ferb.sanitize.redact import (CODE_LINK, CODE_REACH, CODE_VALUE, CODE_WORD, 
 # OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
 # glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
 CARD_DIGITS = re.compile(r"\d(?:[ -]?\d){12,18}")
-# A region that reads as nothing but a row of password dots is a password field (fix wave 4: the only layer where a
-# capture's fields couldn't be located). Four or more, spaces aside: fewer is a separator or a rating.
+# A region that reads as nothing but four or more bullets or asterisks (spaces aside) is painted: a password field's
+# dots. Measured on offline renders (fix wave 4 round 1, review M3): Vision reads a row of asterisks this way about
+# half the time (10/18) but a row of bullets almost never (1/72: it returns '........•', '..•••••', '.......', or
+# nothing), so this is no protection to count on. Runs with periods are not matched: allowing them caught 6/72 bullet
+# rows and painted a table-of-contents leader Vision split off on its own.
 PASSWORD_DOTS = re.compile(r"[•●∙⋅·◦*]{4,}")
 
 

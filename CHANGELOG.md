@@ -241,9 +241,10 @@ with "Which internship is this?"; not installed or live-tested):
   redacted stuff"). When neither the browser extension nor Accessibility can read the page, or a field has no box, or
   Accessibility can't read the window, the picture goes to the model masked by on-device text recognition only, with
   a note saying so and why (which extension or Accessibility step failed); a field that moved during the capture is
-  painted where it was before and after. Only a picture the masks can't be painted on is withheld. Text recognition
-  also paints a field it reads as a row of password dots. Residual: where fields can't be located, a secret the OCR
-  doesn't recognise as one can show.
+  painted where it was before and after, and whatever one look located stays painted when the other look can't be
+  used. Only a picture the masks can't be painted on is withheld. Residual: where fields can't be located, a secret
+  the OCR doesn't recognise as one can show (text recognition reads a row of password bullets almost never, so a
+  shown-as-dots field is not something it covers).
 - With two windows at the same place (maximized), Accessibility's window is the one with the captured window's
   title; a browser window is read again for ~2 s while its page area hasn't appeared yet. Brave and Chrome ignore
   `AXManualAccessibility` (it only helps Electron apps).
