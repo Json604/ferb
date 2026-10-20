@@ -394,6 +394,7 @@ class Supervisor(WorkerRuns):
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
+        self._retrying: dict[str, tuple[str, str]] = {}   # worker id -> (runtime, last retry) since its last progress
         self._tools_seen: dict[str, list[str]] = {}       # worker id -> tool names its runtime reported
         self._tools_offered: dict[str, bool] = {}         # worker id -> whether FERB offered it any tools
         self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}

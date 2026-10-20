@@ -1,4 +1,5 @@
 """The direct-API runtimes join FERB: chosen per role, keys from the Keychain and redacted, offered only when usable."""
+import asyncio
 import json
 
 from ferb.runtimes.api import ApiRuntime
@@ -154,3 +155,71 @@ def test_a_retried_runtime_error_is_recorded_and_the_task_goes_on(daemon: Runnin
         return [(r[0], r[1]) for r in daemon.daemon.db.conn.execute(
             "SELECT s.error, p.kind FROM spans s JOIN spans p ON p.id = s.parent_id WHERE s.kind = 'model.retry'")]
     assert daemon.run(retries()) == [("Codex is retrying after an error: stream disconnected", "worker")]
+
+
+RECONNECTING = "Codex is retrying after an error: Reconnecting... 3/∞ (waiting for network)"
+
+
+def _retrying_worker(daemon: RunningDaemon, monkeypatch, then_progress: bool) -> dict:
+    """A worker run whose runtime only retries (Codex 0.157.1 retries a lost connection without end: its default-on
+    unbounded_connection_retries), or retries and then makes progress. Real seconds, a 0.3 s stall for test speed."""
+    import threading
+    import time
+    from ferb.core.types import RuntimeEvent
+    from tests.conftest import FakeRuntime, chat, done, install, sup, task
+    s = daemon.daemon.supervisor
+    s.activity.now = time.monotonic
+    s.stall_s, s.heartbeat_poll_s = 0.3, 0.05
+    original = FakeRuntime.events
+
+    async def events(self, run):
+        if run.state["key"] != "worker":
+            async for event in original(self, run):
+                yield event
+            return
+        if then_progress:
+            yield RuntimeEvent("retrying", {"message": RECONNECTING})
+            for _ in range(3):
+                await asyncio.sleep(0.1)
+                yield RuntimeEvent("message", {"text": "reading the notes"})
+            async for event in original(self, run):
+                yield event
+            return
+        while not run.state["cancel"]:
+            yield RuntimeEvent("retrying", {"message": RECONNECTING})
+            await asyncio.sleep(0.05)
+    monkeypatch.setattr(FakeRuntime, "events", events)
+    install(daemon, [sup("task", "Working", task("tidy the notes"))], {"worker": lambda _: done("ok")})
+    turn: dict = {}
+    chatting = threading.Thread(target=lambda: turn.update(events=chat(daemon, "tidy the notes")), daemon=True)
+    chatting.start()
+    chatting.join(8)                                   # chat streams have no socket timeout: bound the wait here
+    return turn
+
+
+def test_a_worker_that_only_retries_stalls_and_says_why(daemon: RunningDaemon, monkeypatch) -> None:
+    """Retries are not a sign of life (L28, D32): during an outage Codex retries without end, and FERB's stall
+    watchdog (STALL_S) bounds the run, reporting the last retry as the reason."""
+    from tests.conftest import outcome
+    turn = _retrying_worker(daemon, monkeypatch, then_progress=False)
+    assert "events" in turn, "a worker that only retried was never stopped"
+    out = outcome(turn["events"])
+    summary = out["subtasks"]["worker"]["summary"]
+    assert out["status"] == "failed" and "Reconnecting... 3/∞ (waiting for network)" in summary, out
+    assert ".." not in summary.replace("Reconnecting...", "")
+
+
+def test_a_worker_that_retries_and_then_makes_progress_continues(daemon: RunningDaemon, monkeypatch) -> None:
+    from tests.conftest import outcome
+    turn = _retrying_worker(daemon, monkeypatch, then_progress=True)
+    assert "events" in turn
+    out = outcome(turn["events"])
+    assert out["status"] != "failed" and "Reconnecting" not in json.dumps(out), out
+
+
+def test_a_worker_that_only_retries_while_the_mac_is_offline_says_so(daemon: RunningDaemon, monkeypatch) -> None:
+    import ferb.sense.network as network
+    from tests.conftest import outcome
+    monkeypatch.setattr(network, "has_route", lambda: False)
+    out = outcome(_retrying_worker(daemon, monkeypatch, then_progress=False)["events"])
+    assert "seems to be offline" in out["subtasks"]["worker"]["summary"], out

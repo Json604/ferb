@@ -54,6 +54,17 @@ def problem_of(e: "ServiceError") -> str:
     return service_problem(str(e), e.runtime, e.network)
 
 
+def retry_stall_problem(runtime: str, message: str, stall_s: float) -> str:
+    """The owner-facing sentence for a run that did nothing but retry for `stall_s` (Codex retries a lost connection
+    without end): the offline sentence when this Mac has no network route, else the service's last retry, as it said
+    it."""
+    from ferb.sense import network as route
+    if route.has_route() is False:
+        return service_problem(message, runtime, network=True)
+    return (f"The AI service I use ({runtime}) only kept retrying for {stall_s:g} s, so I stopped this attempt. "
+            f"Its last word: {message.rstrip('.')}.")
+
+
 def too_large_problem(e: InputTooLarge) -> str:
     """The owner-facing sentence for a call FERB didn't send: over the runtime's documented per-input character cap
     (L28). FERB refused it; the service reported nothing."""
@@ -102,6 +113,7 @@ class Stalled(Exception):
 class WorkerRuns:
     """Needs from the host: make_runtime, gateway, tokens, spans, tasks, publish, journal, clock, ids, device_id,
     activity, on_violation, heartbeat_poll_s, stall_s, apps(), running_apps(), _system(), _active, _tree_of, _stalled,
+    _retrying,
     _live, cancel_tree()."""
     make_runtime: Any
     gateway: Any
@@ -124,6 +136,7 @@ class WorkerRuns:
     _active: dict[str, tuple[AgentRuntime, RunHandle]]
     _tree_of: dict[str, Any]
     _stalled: set[str]
+    _retrying: dict[str, tuple[str, str]]
     _tools_seen: dict[str, list[str]]
     _tools_offered: dict[str, bool]
     _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
@@ -229,8 +242,11 @@ class WorkerRuns:
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
-                result = Outcome(task.id, "failed", "This attempt stopped responding (a problem on my side).", [],
-                                 [f"no sign of life for {self.stall_s:g} s, not counting waits on the owner"])
+                retried = self._retrying.get(worker_id)          # it only retried since its last progress
+                result = Outcome(task.id, "failed", retry_stall_problem(*retried, self.stall_s) if retried else
+                                 "This attempt stopped responding (a problem on my side).", [],
+                                 [f"no sign of life for {self.stall_s:g} s, not counting waits on the owner" +
+                                  (" (only retries)" if retried else "")])
             else:
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
                                  tree.stop or "The report from this attempt wasn't usable (a problem on my side).", [],
@@ -240,6 +256,7 @@ class WorkerRuns:
             result = Outcome(task.id, "blocked", "This attempt couldn't run (a problem on my side).", [], [failure])
         finally:
             self._stalled.discard(worker_id)
+            self._retrying.pop(worker_id, None)
             self.activity.end(worker_id)
             self.tokens.revoke_worker(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
@@ -328,8 +345,11 @@ class WorkerRuns:
                 async with tree.steering.lock:
                     await deliver_steering(self, tree, rt, run)
             async for ev in rt.events(run):
-                if worker_id:
+                # a retry is no sign of life (Codex retries a lost connection without end): a run of only retries
+                # ends as a stall after stall_s, with the last retry as its reason
+                if worker_id and ev.kind != "retrying":
                     self.activity.beat(worker_id)
+                    self._retrying.pop(worker_id, None)
                 if ev.kind == "text_delta":
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
@@ -340,9 +360,12 @@ class WorkerRuns:
                                          parent_id=parent_span, input={"runtime": rt.name})
                     self.spans.finish(s, output=dict(ev.data), cost_usd=ev.data.get("cost_usd"))            # traced, never limited
                 elif ev.kind == "retrying":              # an error the runtime retries itself: recorded, run goes on
+                    message = str(ev.data.get("message", ""))
                     s = self.spans.start("model.retry", task_id=task.id if task.id != task.request_id else None,
                                          parent_id=parent_span, input={"runtime": rt.name})
-                    self.spans.finish(s, error=str(ev.data.get("message", "")))
+                    self.spans.finish(s, error=message)
+                    if worker_id:
+                        self._retrying[worker_id] = (rt.name, message)
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
