@@ -265,7 +265,9 @@ def test_the_applescript_read_lists_every_window_with_its_bounds_and_active_tab(
                    bt.ScriptedWindow(None, "Settings", "", "")]
     script = scripts[0]
     assert 'tell application id "com.brave.Browser"' in script and "front window" not in script
-    assert "repeat with w in windows" in script and "bounds of w" in script and "active tab of w" in script
+    # review M2: the list is taken once (window references by id), so a window-order change mid-read can't mix two
+    # windows in one record (`repeat with w in windows` re-resolves `item i of every window`, z-ordered)
+    assert "repeat with w in (get windows)" in script and "bounds of w" in script and "active tab of w" in script
     # AppleScript's `missing value` (an untitled window, a tab still loading) is never concatenated (that fails the
     # whole read) nor turned into the text "missing value" (that would be a URL): each part is kept only when set
     assert script.count("is not missing value") == 3 and " as text\n" not in script

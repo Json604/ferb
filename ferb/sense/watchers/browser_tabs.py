@@ -57,7 +57,8 @@ def applescript_front_tab(bundle_id: str) -> tuple[str, str] | None:
 # 2026-10-19). One record per window: its bounds (left, top, right, bottom: screen points from the top-left of the
 # main display, as the window server's), its title, its active tab's URL and title; fields apart by the ASCII unit
 # separator, records by the record separator (no title or URL holds them). A part the browser won't answer, or
-# answers with `missing value`, is empty.
+# answers with `missing value`, is empty. The window list is taken once (`get windows`: references by id), so a window
+# coming forward mid-read can't mix two windows in one record.
 _TAB = """set tb to {tab} of w
       set v to URL of tb
       if v is not missing value then set u to v
@@ -70,7 +71,7 @@ set rs to character id 30
 set gs to character id 29
 tell application id "{bundle}"
   set out to ""
-  repeat with w in windows
+  repeat with w in (get windows)
     set b to ""
     try
       set {{x1, y1, x2, y2}} to bounds of w
