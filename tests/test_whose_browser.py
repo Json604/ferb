@@ -268,3 +268,30 @@ def test_a_held_tab_navigated_elsewhere_is_still_the_same_tab() -> None:
     assert held["taken_over_from"] == {"url": "https://www.youtube.com/watch?v=fixture", "title": "Lesson"}
     assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "taken_over_from": {"url": "https://www.youtube.com/watch?v="
                                                                                  "fixture", "title": "Lesson"}}]
+
+
+TITLE = "123456 is your Instagram code - kartikey@gmail.com - Gmail"
+
+
+def test_the_page_a_taken_over_tab_held_is_stored_redacted() -> None:
+    """Re-review 2 (I4, rule 14): the page held at takeover was stored raw and reached the final checker's model."""
+    r, br = router()
+
+    async def coded(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        return {"tabs": [{"tab_id": 11, "host": "mail.google.com", "url": "https://mail.google.com/mail/u/0/",
+                          "title": TITLE, "active": True}]} if op == "list_tabs" else {}
+    br.call = coded                                                                  # type: ignore[method-assign]
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    held = r.task_tabs("task-1")[0]["taken_over_from"]
+    assert "123456" not in held["title"] and "Instagram code" in held["title"]
+    assert r._tabs[ref.tab_id].taken_over_from == held
+
+
+def test_the_checkers_browser_context_is_redacted(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = daemon.daemon
+    monkeypatch.setattr(d, "_inspection_parent", lambda task_id: "parent")
+    monkeypatch.setattr(d.router, "task_tabs", lambda parent: [{"tab": "t1", "taken_over_from": {"title": TITLE}}])
+    if d.ferb_identity is not None:
+        monkeypatch.setattr(d.ferb_identity, "task_tabs", lambda parent: [])
+    context = d._browser_context("check-1")
+    assert "t1" in context and "123456" not in context

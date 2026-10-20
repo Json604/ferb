@@ -2920,10 +2920,11 @@ class Daemon:
         tabs = [{"tool_prefix": prefix, **tab}
                 for prefix, drv in (("browser", self.router), ("ferb_browser", self.ferb_identity))
                 if drv is not None for tab in drv.task_tabs(parent)]
+        # the checker's model reads this: redacted as every tool result is (re-review 2, I4)
         return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
                 "the page or guess tab ids). A tab is known by its id: one you navigated elsewhere is still the same "
-                "tab, and taken_over_from is the page it held when the task took it over: " + json.dumps(tabs)) \
-            if tabs else ""
+                "tab, and taken_over_from is the page it held when the task took it over: "
+                + json.dumps(self.redact(tabs))) if tabs else ""
 
     def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
         """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
@@ -3137,6 +3138,7 @@ class Daemon:
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
+            drv.redact_text = lambda text: str(self.redact({"u": text})["u"])
         self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()

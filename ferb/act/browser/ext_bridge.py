@@ -35,6 +35,7 @@ from ferb.core.errors import DriverError, FerbError, Refused, StaleRef, Withheld
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
+from ferb.sanitize.redact import Redactor
 
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S = 30.0
@@ -614,6 +615,7 @@ class _TabDriver:
         self.task_running: Callable[[str], bool] = lambda task: True   # daemon supplied: the task hasn't ended
         self.task_root: Callable[[str], str] = lambda task: task      # daemon supplied: the task tree (tab cap)
         self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
+        self.redact_text: Callable[[str], str] = Redactor().text      # daemon supplied: its redactor (rule 14)
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
         # daemon supplied (B6): (browser pid, window bounds, tab title) -> the secret fields Accessibility finds in that
@@ -1544,8 +1546,9 @@ class Router(_TabDriver):
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, str(tab.get("url") or ""), attached=True,
-                                      taken_over_from={"url": str(tab.get("url") or ""),
-                                                       "title": str(tab.get("title") or "")})
+                                      # stored redacted, so every later reader is safe (re-review 2, I4)
+                                      taken_over_from={"url": self.redact_text(str(tab.get("url") or "")),
+                                                       "title": self.redact_text(str(tab.get("title") or ""))})
         return ref
 
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
