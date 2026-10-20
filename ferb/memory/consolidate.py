@@ -398,6 +398,8 @@ class Consolidator:
                     groups.setdefault(('year', key[:4]), []).append(node)
         entities: dict[str, list[dict[str, Any]]] = {}
         for node in l.items('fact'):
+            if node['state'] == 'proposed':          # waits for the owner's Yes: in no summary a prompt can reach (F3)
+                continue
             entities.setdefault(str(node['body'].get('subject', 'owner')), []).append(node)
         for subject, children in entities.items():
             try:

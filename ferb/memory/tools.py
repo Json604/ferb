@@ -33,6 +33,8 @@ class LearningRead(_PagedFacts):
             node = learning.get(args.item_id)
             if node is None:
                 return ToolResult({'error': 'unknown memory ID'}, is_error=True)
+            if node['state'] == 'proposed':          # FERB's wording the owner hasn't confirmed: not readable (F3)
+                return ToolResult({'error': "this memory waits for the owner's confirmation"}, is_error=True)
             return self.page(node, args.offset, args.max_chars, set(node['origins']))
         found = learning.search(args.query, kind=args.kind, app=args.app, person=args.person,
                                  since=args.since, until=args.until)

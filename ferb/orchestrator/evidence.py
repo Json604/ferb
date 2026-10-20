@@ -202,6 +202,11 @@ class ChatHistory(_PagedFacts):
                           read_sources=_passed({o for row in shown for o in origin.split(row.get("origin"))}))
 
 
+def _pending(item: Any) -> bool:
+    """FERB's wording of what the owner said, waiting for their Yes: no model reads it until then (re-review F3)."""
+    return bool(item.status == "proposed" and item.origin == "inferred")
+
+
 class MemoryRead(_PagedFacts):
     name = "memory.read"
     description = ("Read complete durable memory with provenance, status and dates. Search literal query or page "
@@ -230,12 +235,12 @@ class MemoryRead(_PagedFacts):
             return ToolResult({"error": "durable memory is unavailable"}, is_error=True)
         if args.item_id:
             item = memory.get(args.item_id)
-            if item is None:
+            if item is None or _pending(item):
                 return ToolResult({"error": "no memory item with that id"}, is_error=True)
             result = self.page(asdict(item), args.offset, args.max_chars, self._origins(item.id, item.origin))
             result.content['source_refs'] = ['memory:' + item.id]
             return result
-        items = [asdict(item) for item in memory.items(status=None, valid_now=False)]
+        items = [asdict(item) for item in memory.items(status=None, valid_now=False) if not _pending(item)]
         if args.query:
             items = [item for item in items if args.query.casefold() in json.dumps(item, default=str).casefold()]
         end = args.after + args.limit
