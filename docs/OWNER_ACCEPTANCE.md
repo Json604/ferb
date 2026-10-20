@@ -1236,7 +1236,7 @@ Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pendin
     the answer says you closed it, not that it is missing.
 
 Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far):
-61. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one model call per group of
+64. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one model call per group of
     episodes). Then `ferb stats`: the "Learning model calls" line counts the calls; record how many failed and the
     errors it lists. Every new `learning_jobs` row is `done`, or `failed` with a named reason: Codex's own words
     (e.g. "Input exceeds the maximum length of 1048576 characters."), "too long for one codex input", or "too large
@@ -1247,42 +1247,42 @@ Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far
 
 Fix wave 4 — front window (2026-10-19, after the visa question on a Greenhouse page got "Which internship is this?";
 all pending; Brave with Automation already allowed):
-61. Two Brave windows, different pages and places: click into window B (B in front), then send "what page is this?"
+65. Two Brave windows, different pages and places: click into window B (B in front), then send "what page is this?"
     from the notch. `ferb trace TASK --full`: the planner input's front-window block has B's URL and tab title, never
     A's. Then make A FERB's frontmost Brave window in Brave's own order (use it, then click back into B without
     touching A) and repeat: still B's.
-62. Maximize both windows (same place, different pages) with B in front: the block has B's URL (told apart by its
+66. Maximize both windows (same place, different pages) with B in front: the block has B's URL (told apart by its
     title). Then open the same page in both: the block has no URL and a `tab_note` saying FERB can't tell which tab;
     the window title is still there. Note anything in the block that names the other window.
-62a. Second display (review M8): move window B to a second display (left of or above the main one, so its
+66a. Second display (review M8): move window B to a second display (left of or above the main one, so its
     coordinates are negative or offset), keep A on the main display, click into B and send "what page is this?".
     The block has B's URL; the screenshot is B's. Repeat with B maximized on the second display and A maximized on
     the main one (same size, different places): still B's.
-63. The live case again: in a Brave profile that is **not** paired with FERB, open a job page (and a disposable
+67. The live case again: in a Brave profile that is **not** paired with FERB, open a job page (and a disposable
     sign-in page with "Show password" ticked and a throwaway value typed) and ask about it. The planner gets the
     screenshot (no "withheld"), and the block's `masking` says the page's secret fields couldn't be located, why
     (e.g. "no paired profile has a window at this window's place"; "Accessibility shows no page area" or "page area
     is empty"), and that it was masked by text recognition only. Look at the stored evidence image (`ferb trace TASK
     --full` names it): record whether the throwaway password field is black (label "Password" next to it) or shows.
-64. Same page in your paired profile: the block has no `masking` (or "masked from Accessibility only" with a reason),
+68. Same page in your paired profile: the block has no `masking` (or "masked from Accessibility only" with a reason),
     and the password field is black.
-65. `mac.screenshot` of that unpaired-profile window and a short `mac.record` across typing into its field: both
+69. `mac.screenshot` of that unpaired-profile window and a short `mac.record` across typing into its field: both
     return pictures; the result and the recording carry the same `masking` note.
-66. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
+70. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
     page area appears late is now read again for up to ~2 s.
 
 Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension first, and record the version
 `ferb doctor` shows):
-67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's and its
+71. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's and its
     `tab_source` is `extension` (`ferb trace TASK --full`; `applescript` means the extension didn't match), with no
     `tab_note`, and B's password field (a disposable sign-in page) is black. Then maximize a window of an
     **unpaired** profile over a maximized paired-profile window and ask about it: the block's `masking` says the
     paired profile's window "shows another page" and the picture is still masked
     (Accessibility and text recognition); no black boxes in odd places.
-68. With a paired window in front whose page title has extra spaces or a long title, the URL still comes from the
+72. With a paired window in front whose page title has extra spaces or a long title, the URL still comes from the
     extension (no `tab_note`, no "shows another page"). If every paired capture says "shows another page", the
     browser names its windows differently from its tabs: record the window title and tab title.
-69. Pages the extension can't script, through a FERB task's own tab (FERB's tools open only http(s) pages):
+73. Pages the extension can't script, through a FERB task's own tab (FERB's tools open only http(s) pages):
     (a) `http://127.0.0.1:9/` (nothing listens: the browser shows its own error page, which extensions can't script
     but its debugger can attach to), then `browser.screenshot`: a picture arrives with `masking` saying the extension
     couldn't read the page; a `browser_point` on that shot is refused ("can't read"). A short `browser.record` across
