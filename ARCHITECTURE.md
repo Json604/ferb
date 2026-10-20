@@ -72,6 +72,11 @@ against the full request, including account identity, artifact quality and uncer
 intake receipts, artifacts and actual evidence. It must judge the state where it exists, not require a redundant
 worker action or paths repeated in prose. Uploaded/sent artifacts require source/content identity evidence.
 
+A task's tabs are known by tab id (`task_tabs`): a borrowed tab keeps the page it held when the task took it over
+(`taken_over_from`, stored redacted), wherever it navigates; one the browser reports removed (the owner closed it) is
+listed as closed and never driven again, and reopening it is a new tab. The checker's tab context
+(`_browser_context`) is redacted like every tool result.
+
 Cleanup stops recordings before their target is released. Ordinary task-owned tabs close; borrowed/kept-open tabs
 detach without focus restoration. Ordinary task processes stop; explicitly retained background processes survive.
 Cleanup observations feed resource reconciliation. They cannot erase existing failed checks. Final reporting lists
@@ -726,9 +731,10 @@ for `done` only.
 
 **Task status facts (owner live use 2026-10-18).** Each planner turn carries a protected Layer 6 block of FERB's own
 record of the tasks a progress question can be about (`Supervisor._status_facts`): every running tree (running,
-blocked when its latest worker report is blocked or needs an answer, stopping) and this conversation's latest five
-finished ones, with the first line of the latest worker report and the plan's step counts, labelled with those tasks'
-origins. `supervisor.md` answers progress only from it.
+blocked when its latest worker report or a plan step is blocked, failed or needs an answer, stopping) and this
+conversation's latest five tasks finished since its chat session started (`CONVERSATION_ROOTS`: through the
+conversation's index, never the whole task table), with the first line of the latest worker report and the plan's
+step counts, labelled with those tasks' origins. `supervisor.md` answers progress only from it.
 
 **A recurring run sees the one before (fix wave 2, 2026-10-15).** A scheduled run's tree is saved in the schedule's
 conversation (`schedule:<id>`), and a run the planner answers directly is journaled there as `chat.reply`, so the next
@@ -1260,25 +1266,35 @@ remain a process-cleanup residual. No unsandboxed command fallback exists.
 and Luhn-valid payment cards to existing credential classes. The labelled classes (C1, owner decision 2026-10-15,
 `labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with one of the owner's code words
 (code, OTP, passcode, PIN, one-time password, verification; never inside a file name) within `CODE_REACH` (8) words
-on the same line and no sentence or clause break [.,;!?] between: before it, joined directly (`OTP 482913`,
+on the same line and no sentence or clause break between (`_clause_break`: ";", "!", "?", a comma before a space,
+and a dot only when a new sentence follows and the word before it isn't abbreviation-shaped, so "Rs. 2,000",
+"a/c no. XX1234" and "Ref. No. 4417" keep a bank's OTP in reach): before it, joined directly (`OTP 482913`,
 `Code: 482913`), after a link on the line (`… is 482913`, `login: 482913`) or in parentheses; or after it, joined by
 "is"/"are"/"was"/"as" or "(". So "2024 code review", "Line 1234: code smell" and "PR 4821 is ready, please review the
-code" stay. Across lines only a code alone on its line relates: to the label line above it (one ending in ":", "is"
-or the code word; blank lines allowed) or the naming line below it (an email's layout, `_line_codes`); sibling page
-nodes are read the same way (`_siblings`). Every code in a backup or recovery list ("Backup codes: 1234 5678 …", one
-per line) is masked. Address and coupon codes are ordinary data (owner decision 2026-10-15): "PIN code", "pincode",
-"ZIP code", "postal code", "coupon code", "promo code" and close variants are no code or secret words (`ADDRESS_CODE`).
+code" stay. Across lines only a code alone on its line relates: to the label line above it (a code word within reach
+of its end with no sentence end after it, colon or not: "Use this code to sign in"; blank lines allowed) or the
+naming line below it (an email's layout, `_line_codes`); sibling page nodes are read the same way (`_siblings`).
+Every code in a backup, recovery, 2FA or one-time code list ("Backup codes: 1234 5678 …", one per line) is masked;
+another "codes:" label ("HTTP status codes: 200, 301") lists ordinary data (`CODE_LIST`). Address and coupon codes
+are ordinary data (owner decision 2026-10-15): "PIN code", "pincode", "ZIP code", "Pin/Zip code", "postal code",
+"coupon code", "promo code" and close variants are no code or secret words (`ADDRESS_CODE`).
 The value after a secret word (password, passcode, PIN, secret, API key, token, private key): any value after ":"/"="
 (also on the next line), one with a digit or symbol after "is"/"was" (or, after "my/our … is", a plain word that ends
 its clause), one with a digit right after the word. A text field named by a secret word hides its whole value; a code
-word hides a code-shaped one. An answer is hidden only when its question asks for a one-time code or a password or PIN
-(`Redactor.answer`). A masked code counts as the digits it replaced, so masking twice changes nothing.
-`RedactionStream` decides whole lines: the line being read is held while it holds a class word, a code, an OTP
-introducer or a word that can still become one ("api ", "my wifi "), and the last complete line is held while the
-next can still relate to it (a label line, a line that is only a code or list codes, a line ending in "Password:"),
-with each related line above it; a line too long to hold is held only from the class items still within reach of its
-end. Its output never masks less than `Redactor.text` (a fuzz test). URL words never count (query credentials are the
-URL rule's).
+word hides a code-shaped one. An answer (`Redactor.answer`) to a question about a sign-in password, passcode or PIN is
+hidden whole whatever its shape; to a question with a code word its 4–8 digit codes are masked; a chat message while
+such a question is open is masked the same way, hidden whole for a password question only when it is one word (it may
+be a steer). A masked code counts as the digits it replaced, so masking twice changes nothing.
+`RedactionStream` decides whole lines (a "\r" ending a read may still become "\r\n", so its line isn't complete):
+the line being read is held while it holds a class word, an OTP introducer, a word that can still become one ("api ",
+"sign ", "my wifi ", "coupon "), or a number its link can still follow ("482913 is your …"; a prompt such as
+"Delete 1234 files? [y/N] " appears at once). Of the complete lines only a last line that is only a code is held (its
+naming line can follow), with the related lines above it; code-only lines never hold each other, so number-only output
+passes one line behind. A label line, "Password:" or a list's label never changes with what follows, so it is released
+at once and kept as context (`_forward_context`, a line or two) that the next release is masked with. A line too long
+to hold is held only from the class items still within reach of its end. A fuzz test (CRLF and lone "\r" splits,
+abbreviations, bracketed prefixes, number-only lines, prompts) checks that the stream masks every code
+`Redactor.text` masks; agreement is tested, not proved. URL words never count (query credentials are the URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
 OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture

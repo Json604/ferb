@@ -142,11 +142,16 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   transcripts, OCR): a 4–8 digit code with a code word a few words away on either side ("123456 is your Instagram
   code", "G-482913 …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word
   is masked too ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them
-  stay readable (owner decision C1). After the review: streamed output (shell output, replies) never shows a code the
-  text redactor masks; an email's code on its own line and every code in a backup-code list are masked; your own
-  requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code"); address
-  and coupon codes (PIN code, ZIP code, promo code) stay readable (owner decision); an answer is hidden only when the
-  question asks for a one-time code or a sign-in PIN or password.
+  stay readable (owner decision C1). After the reviews: streamed output (shell output, replies, CRLF terminal output
+  included) masks every code the text redactor masks, checked by a fuzz test, while number-only output (`seq`, id
+  lists) and prompts with a number ("Delete 1234 files? [y/N] ") pass straight through; a bank's OTP after "Rs.",
+  "a/c no." or "Ref. No." and a code after a bracketed sender ("[Swiggy] 482913 is your OTP") are masked; an email's
+  code on its own line (under "Use this code to sign in", colon or not) and every code in a backup, recovery or 2FA
+  code list are masked, while other "codes:" lists ("HTTP status codes: 200, 301") stay; your own requests keep their
+  numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code"); address and coupon codes
+  (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your answer to a question about a
+  sign-in password, passcode or PIN is hidden whole, and the code in your answer to a question about a code is
+  masked.
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
@@ -194,7 +199,10 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - "Are the agents working?" is answered from FERB's own record of the task (running, blocked, finished, the last
   worker report, step counts), never from what the planner imagines.
 - A task's tabs are known by tab id: a tab it took over and then navigated elsewhere is still the same tab (with the
-  page it held when taken over), so it never counts as missing.
+  page it held when taken over, stored redacted), so it never counts as missing; a held tab you close is listed as
+  closed by you, and reopening it is a new tab.
+- In a plan run, a blocked step shows the task as blocked in FERB's record, and that record reads only this chat's
+  tasks (not every task ever) on each turn.
 
 Fix wave 3 (2026-10-15, after the memory and learning review):
 - Learning keeps going after the 30-day trail purge and after a forget. An episode card cites only its task's own
