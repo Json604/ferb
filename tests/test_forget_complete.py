@@ -581,3 +581,98 @@ def test_a_failure_to_record_a_memory_read_never_costs_the_read(daemon: RunningD
     problems = _on_loop(daemon, lambda: [e.data for e in d.journal.of_kind("memory.read_unrecorded")])
     assert len(problems) == 1 and "RuntimeError" in problems[0]["error"]
     assert secret not in json.dumps(problems)
+
+
+def test_rare_words_are_measured_once_against_every_candidate_task(daemon: RunningDaemon) -> None:
+    """Re-review test gap for ruling (a) (probe h8): T3, shown only a procedure that doesn't name the item (so not
+    given it), wrote "Emailed Zorblat…"; T1, shown the fact, wrote the same. The rare words are measured once against
+    every candidate task, so T3's rows don't make "zorblat" common: T1 loses the line and T3 keeps its rows. Rules
+    measured again against only the kept tasks would leave T1's line."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item, t3, _ = _procedure_scene(daemon, "Emailed Zorblat to book Tuesday.\nUsed the booking template.")
+    d.supervisor.memory_candidates = None                                     # T1's planner is shown the fact
+    _on_loop(daemon, lambda: d.learning.sync_facts(d.memory))
+    install(daemon, [sup("task", "Booking.", task("email my dentist to book Friday"))],
+            {"worker": done("Emailed Zorblat to book Friday.\nDone.")})
+    t1 = outcome(chat(daemon, "email my dentist to book Friday"))["task_id"]
+    fact = _on_loop(daemon, lambda: [n["id"] for n in d.learning.items("fact")])
+    _on_loop(daemon, lambda: d.db.conn.executemany("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
+                                                   [(t1, f) for f in fact]))
+
+    def answers() -> dict[str, Any]:
+        return _on_loop(daemon, lambda: {e.data.get("task_id"): e.data.get("text")
+                                         for e in d.journal.of_kind("task.answer")})
+    before = answers()
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+    after = answers()
+    assert after[t3] == before[t3]
+    assert "Zorblat" not in after[t1] and "Done." in after[t1]
+
+
+def _pending_rows(d: RunningDaemon) -> int:
+    return _on_loop(d, lambda: d.daemon.db.conn.execute("SELECT COUNT(*) FROM memory_questions").fetchone()[0])
+
+
+def test_forgetting_a_memory_closes_the_question_about_a_learned_item_built_on_it(daemon: RunningDaemon) -> None:
+    """Re-review test gap (probe h3b): a procedure built on the item's fact had a waiting "Forget for good?"; the
+    item's forget deletes the procedure (`_forget_learning_sources`), so its question closes, and the procedure's text
+    that question quoted leaves the planner turn that showed it (R3)."""
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    _on_loop(daemon, lambda: d.learning.sync_facts(d.memory))
+    [fact] = _on_loop(daemon, lambda: d.learning.items("fact"))
+    proc = _on_loop(daemon, lambda: d.learning.put("procedure", "book qindlewort visit", {
+        "intent": "book qindlewort visit", "steps": []}, [fact["id"]], made_by="model:t", state="candidate"))
+    _on_loop(daemon, lambda: d._chat_forget(proc["id"], "r-y"))
+    install(daemon, [_reply("Hi.")])
+    chat(daemon, "what's on today?")
+    assert _everywhere(daemon, "qindlewort")
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.forget", {"id": item.id, "confirm": True})
+    finally:
+        c.close()
+    assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
+    assert _everywhere(daemon, "qindlewort") == [] and _everywhere(daemon, "Zorblat") == []
+
+
+def test_a_yes_to_forget_a_learned_item_closes_the_question_about_one_built_on_it(daemon: RunningDaemon) -> None:
+    """Probe h3c: questions waited on lesson A and on procedure B built on it; the Yes on A deletes B too, so B's
+    question closes and neither text is left anywhere."""
+    d = daemon.daemon
+    a = _lesson(daemon, "qorvex rule")
+    b = _on_loop(daemon, lambda: d.learning.put("procedure", "qorvex proc", {"intent": "qorvex proc", "steps": []},
+                                                [a["id"]], made_by="model:t", state="candidate"))
+    _on_loop(daemon, lambda: d._chat_forget(b["id"], "r-b"))
+    _on_loop(daemon, lambda: d._chat_forget(a["id"], "r-a"))
+    on_a = next(q for q in _memory_questions(daemon) if "qorvex rule" in q.reason)
+    _on_loop(daemon, lambda: d._resolve_approval(on_a.id, True, 1))
+    daemon.run(d._settle_forgets())
+    assert _on_loop(daemon, lambda: d.learning.get(b["id"])) is None
+    assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
+    assert _everywhere(daemon, "qorvex") == []
+
+
+def test_a_card_forgotten_for_restating_the_item_closes_the_question_about_it(daemon: RunningDaemon) -> None:
+    """Re-review test gap: a task given the item wrote it in its answer, and the owner had asked to forget that task's
+    card. The item's forget deletes the card after the echo scrub (`_forget_stating_cards`), and its question closes."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [sup("task", "Emailing.", task("email my dentist to book Monday"))],
+            {"worker": done("Emailed Dr. Zorblat's office to book Monday.")})
+    task_id = outcome(chat(daemon, "email my dentist to book Monday"))["task_id"]
+    daemon.run(d.supervisor.finish_episodes())
+    card = _on_loop(daemon, lambda: d.learning.current_card(task_id))
+    _on_loop(daemon, lambda: d._chat_forget(card["id"], "r-c"))
+    assert len(_memory_questions(daemon)) == 1
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.forget", {"id": item.id, "confirm": True})
+    finally:
+        c.close()
+    assert _on_loop(daemon, lambda: d.learning.current_card(task_id)) is None
+    assert _memory_questions(daemon) == [] and _pending_rows(daemon) == 0
