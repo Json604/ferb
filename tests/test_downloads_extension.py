@@ -470,8 +470,9 @@ const click = (type, a, o = {}) => { const ev = {type, prevented: false, default
   const flood = messages.filter(m => m.ferbDownload && m.ferbDownload.name === 'f.csv').length;
   const dropped = messages.filter(m => m.ferbDropped).length;
   const part = mode === 'armed' && caught.length ? await ctx.window.__ferb.downloadPart(caught[0].id, 0, 4) : null;
-  console.log(JSON.stringify({clicks, caught: caught.filter(c => c.name !== 'f.csv'), opens, openBg, popups, part, passed, armedAnswer, readyEvents, replies, flood, dropped}));
-  process.exit(0);                                               // a pending revoke timer must not hold node open
+  // exit only once the answer is written: node writes to a pipe asynchronously on macOS (see the large-answer test)
+  process.stdout.write(JSON.stringify({clicks, caught: caught.filter(c => c.name !== 'f.csv'), opens, openBg, popups, part, passed, armedAnswer, readyEvents, replies, flood, dropped}) + "\n",
+                       () => process.exit(0));                   // a pending revoke timer must not hold node open
 })();
 """
 
