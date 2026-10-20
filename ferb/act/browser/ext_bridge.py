@@ -590,6 +590,7 @@ class _Tab:
     masking: str = ""               # how the latest screenshot's secret fields were found, when worth saying (L13)
     unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
     native_shot: bool = False       # the latest screenshot is the whole browser window (a debugger-proof tab)
+    input_note: str = ""            # the latest capture went on although the tab's input readiness failed (round 5)
 
 
 class _TabDriver:
@@ -1139,6 +1140,7 @@ class _TabDriver:
         t = self._tab(tab)
         t.masking, t.native_shot = "", False
         v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
+        t.input_note = str(v.get("input_note") or "")[:300]                # protocol 17 (round 5)
         if v.get("undebuggable"):                        # protocol 16: no tab capture at all; maybe its window (I1)
             jpeg, t.masking = await self._native_window(t, v)
             t.native_shot = True
@@ -1160,6 +1162,10 @@ class _TabDriver:
     def masking(self, tab: TabRef) -> str:
         """How the latest screenshot of this tab had its secret fields found, when worth saying ("" otherwise)."""
         return self._tab(tab).masking
+
+    def input_note(self, tab: TabRef) -> str:
+        """Why clicks on this tab may not land, when its latest capture went on although input readiness failed."""
+        return self._tab(tab).input_note
 
     def pointable(self, tab: TabRef, shot: str) -> bool:
         """Whether browser_point can resolve elements on this screenshot (not one of a page the extension can't read,

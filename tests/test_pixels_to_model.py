@@ -451,6 +451,26 @@ def test_a_minimized_window_is_said_to_be_minimized() -> None:
     assert "its window is minimized" in d.masking(ref) and "isn't the one" not in d.masking(ref)
 
 
+def test_a_captures_input_note_reaches_browser_screenshots_result() -> None:
+    """Round 5 (item 3): the extension captured although the tab's input readiness failed; browser.screenshot's result
+    says so (clicks there may not land), apart from how secret fields were masked."""
+    from ferb.act.browser.tools import BrowserScreenshot
+    from ferb.core.types import Identity
+    reply = {"data": base64.b64encode(solid_jpeg(200, 100)).decode(), "mask": _same(_state()),
+             "input_note": "input readiness failed (tab never became ready for input); the capture went on without it"}
+    d, ref, _ = _tab_driver(reply)
+
+    async def snapshot(tab: Any) -> Any:
+        return None
+    d.snapshot = snapshot
+    d.owned_by = lambda tab, task: ref                                      # type: ignore[method-assign]
+    d.tab_url = lambda tab_id: "https://example.test/doc.pdf"              # type: ignore[method-assign]
+    tool = BrowserScreenshot.__new__(BrowserScreenshot)
+    tool.driver, tool.family = d, SimpleNamespace(identity=Identity.FERB)
+    result = asyncio.run(tool._run(SimpleNamespace(tab="t1"), SimpleNamespace(task_id="task")))
+    assert "input readiness failed" in result.content["input"] and "masking" not in result.content
+
+
 def test_a_native_window_shot_is_never_pointable_even_after_a_good_snapshot() -> None:
     """Round 4 (item 4): the snapshot worked (content scripts reach the page) but the debugger can't attach (another
     debugger, DevTools open), so the picture is the whole browser window: its points aren't the page's, so
@@ -1419,7 +1439,7 @@ def test_a_stuck_look_holds_its_tab_only_until_its_deadline() -> None:
 def test_every_look_waits_only_until_its_commands_deadline() -> None:
     """The deadline is the command's own (executeCommand's _timeout_ms), not a new number."""
     out = worker('''(async () => {
-      attach = async id => tabState(id); arm = async id => tabState(id);   // captures arm the debugger only
+      attach = async id => tabState(id); arm = async id => tabState(id); readyForCapture = async () => '';
       cdp = async () => ({data: 'jpeg'});
       const left = [];
       maskState = async (tab, deadline) => {
@@ -1654,7 +1674,8 @@ def test_extension_captures_carry_the_page_before_and_after(op: str, case: str) 
     its window's place (for the daemon's Accessibility and text recognition masking); a page whose secret field it
     found but can't cover still sends no picture."""
     out = worker('''(async () => {
-      attach = async id => tabState(id); arm = async id => tabState(id); let reads = 0, captures = 0;
+      attach = async id => tabState(id); arm = async id => tabState(id); readyForCapture = async () => '';
+      let reads = 0, captures = 0;
       maskState = async () => {
         reads++;
         if (CASE === 'unreadable' || (CASE === 'unread_after' && reads > 1))
@@ -1714,6 +1735,108 @@ def test_a_tab_scripts_cant_reach_is_captured_through_the_real_attach_path(op: s
                                "title": "Chrome Web Store - Extensions"}
     assert "Input.dispatchMouseEvent" not in out["sent"]          # no readiness probe: that needs a scriptable page
     assert out["sent"].count("Page.captureScreenshot") == 1        # the full attach was tried, then the debugger alone
+
+
+# A stateful debugger (round 5): attaching while attached fails ("Another debugger..."), commands fail while detached.
+_STATEFUL_DEBUGGER = '''
+      const sent = [], log = [];
+      let attachedNow = false;
+      const tick = () => new Promise(r => setTimeout(r, 1));
+      chrome.debugger.attach = async () => { await tick();
+        if (attachedNow) { log.push('attach-busy'); throw new Error('Another debugger is already attached to the tab.'); }
+        attachedNow = true; log.push('attach'); };
+      chrome.debugger.detach = async () => { await tick();
+        if (!attachedNow) throw new Error('Debugger is not attached'); attachedNow = false; log.push('detach'); };
+      chrome.debugger.sendCommand = async (t, method) => { await tick();
+        if (!attachedNow) { log.push('cmd-detached:' + method); throw new Error('Debugger is not attached to the tab.'); }
+        sent.push(method);
+        if (FAIL && method === FAIL) throw new Error('boom ' + method);
+        return method === 'Page.captureScreenshot' ? {data: 'jpeg'} :
+               method === 'Page.addScriptToEvaluateOnNewDocument' ? {identifier: 'h'} : {}; };
+      chrome.tabs.get = async id => ({id, windowId: WINDOW, active: true, title: 'T'});
+      chrome.windows = {get: async id => ({id, left: 0, top: 25, width: 1440, height: 875, state: 'minimized'})};
+      maskState = async () => ({top: 'd', viewport: [0, 0, 1280, 800], items: []});
+      visualStates = async () => [];
+'''
+_SCRIPTING = {
+    "unscriptable": "chrome.scripting = {executeScript: async () => { await tick(); "
+                    "throw new Error('Cannot access contents of the page'); }};",
+    "scriptable": "chrome.scripting = {executeScript: async () => { await tick(); return [{frameId: 0, result: true}]; }};",
+    # scriptable, but the readiness probe never sees its move land (a full-page PDF or plugin document)
+    "probe_misses": "chrome.scripting = {executeScript: async () => { await tick(); "
+                    "return [{frameId: 0, result: false}]; }};",
+}
+
+
+def _stateful(body: str, scripting: str, fail: str | None = None, window: int = 5) -> dict[str, Any]:
+    pre = _STATEFUL_DEBUGGER.replace("FAIL", json.dumps(fail)).replace("WINDOW", str(window))
+    return worker("(async () => {" + pre + _SCRIPTING[scripting] + body + "})()")
+
+
+def test_captures_of_an_unscriptable_page_stay_armed_and_never_cycle_the_debugger() -> None:
+    """Round 5 (item 1, ruling; D35): on a page the debugger can reach but scripts can't, a capture checks
+    scriptability first and stays armed: no full attach, so no detach and re-attach per capture (overlapping captures
+    and a recording's frames no longer fail with "Another debugger is already attached"), no infobar flicker, and a
+    download held for the daemon in that tab is never handed back by a capture."""
+    out = _stateful('''
+      await arm(19);                                        // the task tab, already armed (it navigated there)
+      downloads.set('dl1', {id: 'dl1', tabId: 19, requestId: 'r1', timer: null});
+      log.length = 0;
+      const run = async op => { try { const r = await commands[op]({tab_id: 19, _timeout_ms: 3000});
+          return r.data ? 'data' : JSON.stringify(r); } catch (e) { return 'error: ' + String(e.message || e); } };
+      const together = await Promise.all([run('screenshot'), run('record_frame'), run('screenshot')]);
+      const after = [];
+      for (let i = 0; i < 3; i++) after.push(await run('screenshot'));
+      return {together, after, log, held: downloads.has('dl1'), attachedNow, emulated: !!tabState(19).emulated};
+    ''', "unscriptable", window=9)
+    assert out["together"] == ["data"] * 3 and out["after"] == ["data"] * 3, out
+    assert "detach" not in out["log"] and "attach" not in out["log"] and out["attachedNow"]
+    assert out["held"]                                                     # D35: not released by a capture
+    assert not out["emulated"]                                             # never set without the full attach
+
+
+@pytest.mark.parametrize("op", ["screenshot", "record_frame"])
+def test_an_input_setup_error_of_a_ready_tab_doesnt_refuse_its_captures(op: str) -> None:
+    """Round 5 (item 2): a tab FERB attached fully, where one iframe's input session once failed to set up (its
+    inputErrors are never cleared): attach() refuses input commands, but a capture of the ready tab needs no more."""
+    out = _stateful('''
+      await attach(19);
+      tabState(19).inputErrors.push('No session with given id');
+      const res = [];
+      for (let i = 0; i < 2; i++) { try { const r = await commands[OP]({tab_id: 19, _timeout_ms: 3000});
+          res.push(r.data ? 'data' : JSON.stringify(r)); } catch (e) { res.push('error: ' + String(e.message || e)); } }
+      return {res, log};
+    '''.replace("OP", json.dumps(op)), "scriptable")
+    assert out["res"] == ["data", "data"], out
+
+
+@pytest.mark.parametrize("op", ["screenshot", "record_frame"])
+def test_a_readiness_probe_that_misses_doesnt_refuse_a_capture(op: str) -> None:
+    """Round 5 (item 3, ruling): on a scriptable page whose readiness probe never lands (a full-page PDF or plugin
+    document), the capture keeps the focus emulation and FERB's viewport that applied, captures anyway, and says
+    input readiness failed. No detach, so nothing held is handed back."""
+    out = _stateful('''
+      let reply; try { reply = await commands[OP]({tab_id: 19, _timeout_ms: 3000}); }
+      catch (e) { reply = {error: String(e.message || e)}; }
+      const t = tabState(19);
+      return {reply, sent, log, ready: t.ready, emulated: !!t.emulated, attachedNow};
+    '''.replace("OP", json.dumps(op)), "probe_misses", window=9)
+    reply = out["reply"]
+    assert reply.get("data") == "jpeg" and "input readiness" in reply.get("input_note", ""), reply
+    assert "Emulation.setFocusEmulationEnabled" in out["sent"] and "Emulation.setDeviceMetricsOverride" in out["sent"]
+    assert out["emulated"] and not out["ready"] and out["attachedNow"] and "detach" not in out["log"]
+
+
+def test_an_input_setup_failure_on_a_scriptable_page_is_noted_not_fatal() -> None:
+    """Round 5 (item 3): focus emulation itself failing (probe A's case) no longer refuses the capture: it goes on with
+    the note, and FERB's viewport isn't claimed."""
+    out = _stateful('''
+      let reply; try { reply = await commands.screenshot({tab_id: 19, _timeout_ms: 3000}); }
+      catch (e) { reply = {error: String(e.message || e)}; }
+      return {reply, log, emulated: !!tabState(19).emulated, attachedNow};
+    ''', "scriptable", fail="Emulation.setFocusEmulationEnabled", window=9)
+    assert out["reply"].get("data") == "jpeg" and "boom" in out["reply"].get("input_note", ""), out
+    assert not out["emulated"] and out["attachedNow"] and "detach" not in out["log"]
 
 
 @pytest.mark.parametrize("op", ["screenshot", "record_frame"])

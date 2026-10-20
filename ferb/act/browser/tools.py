@@ -415,6 +415,9 @@ class BrowserScreenshot(_Base):
         note = getattr(self.driver, "masking", lambda ref: "")(tab)
         if note:                                     # a page the extension couldn't read (B6)
             out["masking"] = note
+        ready = getattr(self.driver, "input_note", lambda ref: "")(tab)
+        if ready:                                    # captured although input readiness failed (round 5)
+            out["input"] = ready
         return ToolResult(out, read_sources=sources, image=jpeg)
 
 

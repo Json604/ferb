@@ -400,15 +400,24 @@ async function tabWindow(tabId) {
   } catch (_) { return null; }
 }
 
-// A capture's attach, after `arm` (round 4, ruling): the full attach (input readiness, focus emulation, FERB's own
-// viewport in its window) whenever the page can be scripted, so background captures and recordings keep the emulation
-// they were measured with (2.7); the debugger alone only when that failed because the page can't be scripted (its
-// readiness probe needs scripting). A scriptable page whose attach failed fails the capture, as any other command.
+// A capture's attach, after `arm` (rounds 4–5, rulings). A tab already attached fully needs no more (an iframe's
+// input-setup error, which refuses input commands, doesn't touch a capture). A page scripts can't reach stays armed,
+// the debugger alone: no full attach, so no detach and re-attach per capture (overlapping captures and a recording's
+// frames never collide, nothing held is handed back, D35). A scriptable page gets the input setup and readiness probe
+// (focus emulation and FERB's viewport: the emulation background captures were measured with, 2.7), but their
+// failure (a full-page PDF or plugin document the probe's move can't reach) refuses no capture: kept attached, what
+// applied kept, and the returned note says so ("": nothing to say).
 async function readyForCapture(tabId) {
-  try { await attach(tabId); }
-  catch (e) {
-    if (await scriptable(tabId)) throw e;
-    await arm(tabId);                    // attach let go of the debugger when it failed: armed again, alone
+  const t = tabState(tabId);
+  if (t.attached && t.ready) return "";
+  if (!(await scriptable(tabId))) return "";
+  try {
+    await inputSetup(tabId);
+    await ready(tabId);
+    t.ready = true;
+    return "";
+  } catch (e) {
+    return `input readiness failed (${String(e && e.message || e)}); the capture went on without it`;
   }
 }
 
@@ -551,23 +560,30 @@ async function attach(tabId) {
   }
   await arm(tabId);
   try {
-    // Intercept the browser mechanism, including indirect showPicker()/label/button routes.
-    // The event supplies evidence; it never chooses a local/Drive source or opens a native picker.
-    await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
-    await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
-    const s = await session(), tab = await chrome.tabs.get(tabId);
-    if (s.windowId != null && tab.windowId === s.windowId) {   // FERB's own window: layout independent of its size.
-      await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
-      t.emulated = true;                                       // its captures aren't the window's layout (tabWindow)
-    }
+    await inputSetup(tabId);
     await ready(tabId);                                        // the owner's own tab keeps its real viewport
     t.ready = true;
     return t;
   } catch (e) {
     await dropDownloads(tabId);
-    t.attached = false; t.armed = false;
+    t.attached = false; t.armed = false; t.emulated = false;
     try { await chrome.debugger.detach({tabId}); } catch (_) {}
     throw e;
+  }
+}
+
+// What trusted input needs besides the debugger, before the readiness probe: file-chooser interception, focus
+// emulation and, in FERB's own window, FERB's viewport.
+async function inputSetup(tabId) {
+  const t = tabState(tabId);
+  // Intercept the browser mechanism, including indirect showPicker()/label/button routes.
+  // The event supplies evidence; it never chooses a local/Drive source or opens a native picker.
+  await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
+  await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
+  const s = await session(), tab = await chrome.tabs.get(tabId);
+  if (s.windowId != null && tab.windowId === s.windowId) {     // FERB's own window: layout independent of its size.
+    await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
+    t.emulated = true;                                         // its captures aren't the window's layout (tabWindow)
   }
 }
 
@@ -580,7 +596,7 @@ async function arm(tabId) {
   const t = tabState(tabId);
   if (!t.attached) {
     await chrome.debugger.attach({ tabId }, "1.3");
-    t.attached = true; t.detached = null; t.ready = false; t.armed = false;
+    t.attached = true; t.detached = null; t.ready = false; t.armed = false; t.emulated = false;   // a new session
   }
   if (t.armed) return t;
   try {
@@ -644,7 +660,7 @@ chrome.debugger.onDetach.addListener((src, reason) => {
   const t = TABS.get(src.tabId);
   if (!t || !t.attached) return;
   const wasArmed = t.armed;
-  t.attached = false; t.armed = false; t.ready = false; t.detached = reason || "unknown";
+  t.attached = false; t.armed = false; t.ready = false; t.emulated = false; t.detached = reason || "unknown";
   if (wasArmed) { forgetDownloads(src.tabId); armPage(src.tabId, false); }   // the session (and what it held) is gone
   // Not FERB's own close, and a tab the daemon knows: a popup still being checked was never announced to it.
   if (!t.leaving && !t.claiming) send("event", { event: "detached", tab_id: src.tabId, reason: t.detached });
@@ -1458,12 +1474,13 @@ const commands = {
   // when only the look after failed, and `window` says where the tab's window is, for the daemon's Accessibility and
   // text-recognition masking. `withheld` (no picture) for a secret field it found but can't cover, and (with
   // `undebuggable` and `window`) for a page the debugger can't attach to, which the daemon may capture natively.
-  // The tab is attached fully when its page can be scripted, with the debugger alone when not (`readyForCapture`).
+  // The tab is attached fully when its page can be scripted, with the debugger alone when not (`readyForCapture`);
+  // `input_note` says when the input setup or readiness probe failed and the capture went on without it.
   async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
     const deadline = Date.now() + _timeout_ms;
     try { await arm(tab_id); }           // the debugger can't attach: no tab capture at all (round 3, I1)
     catch (e) { return await undebuggable(tab_id, e); }
-    await readyForCapture(tab_id);
+    const inputNote = await readyForCapture(tab_id);
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
     const first = await maskState(tab_id, deadline);
@@ -1472,7 +1489,7 @@ const commands = {
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
     const last = first.withheld ? first : await maskState(tab_id, deadline);
     if (last.withheld && !last.unread) return {withheld: last.withheld};
-    const extra = await unreadCapture(tab_id, first, last);
+    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {})};
     if (before !== null && !extra.unread) {
       if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
       st.visual = {at: Date.now(), snap, states: before, points: new Map()};
@@ -1494,14 +1511,14 @@ const commands = {
     }
     try { await arm(tab_id); }           // as a screenshot
     catch (e) { return await undebuggable(tab_id, e); }
-    await readyForCapture(tab_id);
+    const inputNote = await readyForCapture(tab_id);
     const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or unread
     if (first.withheld && !first.unread) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',
       {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
     const last = first.withheld ? first : await maskState(tab_id, deadline);
     if (last.withheld && !last.unread) return {withheld: last.withheld};
-    const extra = await unreadCapture(tab_id, first, last);
+    const extra = {...await unreadCapture(tab_id, first, last), ...(inputNote ? {input_note: inputNote} : {})};
     if (data.length <= SHOT_PART) return {data, ...extra};
     const id = crypto.randomUUID(); st.recordFrame = {id, data};
     return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, ...extra};

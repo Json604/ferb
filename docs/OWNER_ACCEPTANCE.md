@@ -1078,7 +1078,7 @@ Install (you run these):
 1. `ferb setup --update` (or FERB.app, checks 38–44), then `ferb doctor`: the context-window lines for each role
    (Codex `gpt-5.6-sol`, 258,400 input tokens), the hearing line, and the local-connections line if you pinned ports.
    Rebuild the notch app with `./build.sh` in `ui/mac/FERBNotch` (if the build fails on a stale module cache, remove
-   `.build` once). Reload the extension so the browser runs 0.15.5 / protocol 16 (fix wave 4).
+   `.build` once). Reload the extension so the browser runs 0.15.6 / protocol 17 (fix wave 4).
 
 Chat (L6–L8, L19, L20):
 2. The acknowledgement appears at once in the app, before the plan line; `ferb chat` shows the daemon's phrase too.
@@ -1263,7 +1263,7 @@ all pending; Brave with Automation already allowed):
 66. Timing: with Brave in front, compare `ferb baseline` `latency_s.context` with fix wave 3's numbers; a window whose
     page area appears late is now read again for up to ~2 s.
 
-Fix wave 4 rounds 2–3 (extension 0.15.5 / protocol 16; reload the extension first, and record the version
+Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension first, and record the version
 `ferb doctor` shows):
 67. Two maximized windows of your **paired** profile, B in front, different pages: the block's URL is B's and its
     `tab_source` is `extension` (`ferb trace TASK --full`; `applescript` means the extension didn't match), with no

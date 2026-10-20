@@ -132,7 +132,8 @@ def test_screenshot_carries_the_page_before_and_after_and_publishes_no_bytes_for
     field the extension can't cover publishes no bytes (one it can't read at all is captured for the daemon's
     masking since protocol 15: tests/test_pixels_to_model.py)."""
     result = worker('''(async () => {
-      attach = async id => tabState(id); arm = async id => tabState(id); let reads=0, captures=0;
+      attach = async id => tabState(id); arm = async id => tabState(id); readyForCapture = async () => '';
+      let reads=0, captures=0;
       maskState = async () => {
         reads++;
         if (CASE==='unreadable') return {withheld: "a secret field is drawn again elsewhere on the page"};

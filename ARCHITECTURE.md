@@ -277,10 +277,10 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.5 / protocol 16** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.6 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
-name the matched window's tab; protocol 16 lets tab captures of pages it can't script use the debugger alone and
+name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
 answer for pages it can't read or attach to, see section 16.4). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
@@ -909,7 +909,7 @@ pins the sentences).
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
 the `downloads` table (migration 0025); `browser.downloads` is an observation tool; built on extension 0.15.1,
-protocol 12 (now 0.15.5, protocol 16). The
+protocol 12 (now 0.15.6, protocol 17). The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -1665,9 +1665,11 @@ protected FERB state (16.9).
   accounts for: a secret the extension found but can't cover.
 - A tab whose page the extension can't read (page or top frame unreadable, e.g. a browser error page, or the look
   ran out of time: `maskState`'s `unread`) is still captured (protocols 15–16; owner: no screenshot refused). Tab
-  captures attach fully when the page can be scripted (readiness, focus emulation, FERB's viewport: the emulation
-  background captures were measured with, 2.7) and with the debugger alone only when they can't (`readyForCapture`;
-  the readiness probe needs scripting: rounds 3–4, I1), and
+  captures (`readyForCapture`, rounds 3–5) leave a tab already attached fully as it is; keep a page scripts can't
+  reach armed with the debugger alone (no full attach, so no detach and re-attach per capture: overlapping captures
+  and a recording's frames don't collide, and nothing held is handed back, D35); and give a scriptable page the input
+  setup and readiness probe (focus emulation, FERB's viewport: the emulation background captures were measured with,
+  2.7), whose failure refuses no capture (`input_note`, `browser.screenshot`'s `input`), and
   `browser.screenshot` asks for the picture even when its snapshot failed. The reply carries `unread`, the look before
   the capture when only the look after failed (malformed: withheld, m5), and the tab's window (`tabWindow`: bounds,
   whether the tab is the one it shows, minimized, the tab's title, `emulated` when FERB lays it out at its own size).

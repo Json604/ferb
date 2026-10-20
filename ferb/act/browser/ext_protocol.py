@@ -27,7 +27,10 @@ Protocol 16 (fix wave 4 round 3, extension 0.15.5): `screenshot` and `record_fra
 scripted and with the debugger alone when it can't (the input-readiness probe needs scripting), and send a page they
 can't read with `unread`, its look before
 and `window` ({bounds, active, minimized, title, emulated?}); a page the debugger can't attach to answers `withheld`
-with `undebuggable` and `window`, for the daemon's native window capture."""
+with `undebuggable` and `window`, for the daemon's native window capture.
+Protocol 17 (fix wave 4 round 5, extension 0.15.6): a capture of a page scripts can't reach stays armed (no full
+attach and detach per capture), a tab already attached fully isn't attached again, and a scriptable page's input
+setup or readiness failure refuses no capture: the reply's `input_note` says so."""
 
 import base64
 import hashlib
@@ -37,8 +40,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 16
-MIN_EXTENSION_VERSION = "0.15.5"
+PROTOCOL_VERSION = 17
+MIN_EXTENSION_VERSION = "0.15.6"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
