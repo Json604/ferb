@@ -377,8 +377,9 @@ def _labelled_code(label: str, text: str) -> bool:
 
 # A password, passcode or PIN a question asks for (signing in, paying); never an address PIN code.
 # A question with one of these words gets the answer hidden whole (re-review 3, R1-a: rule 14 over convenience);
-# an address PIN code is excepted (`_not_address`).
-SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|code|phrase)s?|pins?)(?![A-Za-z0-9])")
+# an address PIN code is excepted (`_not_address`). "pwd" and "passwd" are password words, as in SECRET_WORD
+# (re-review 4, M1).
+SIGN_IN_SECRET = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|code|phrase)s?|pwds?|pins?)(?![A-Za-z0-9])")
 
 
 def _hidden_answer(question: str, text: str, *, reply: bool) -> bool:

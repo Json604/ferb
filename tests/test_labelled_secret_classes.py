@@ -183,6 +183,9 @@ def test_an_answer_with_no_code_to_a_code_or_address_question_stays(question, an
     ("Password please", "hunter2!"), ("the password and username for Netflix", "kartikey hunter2!"),
     ("Do you have a password I can use for the router?", "sunshine"), ("What's the passphrase?", "correct horse"),
     ("Which password manager do you use?", "Bitwarden"), ("Should I open the password reset page?", "yes please"),
+    # re-review 4 (M1): "pwd" and "passwd" are password words, as for the secret-word class
+    ("What's the wifi pwd?", "hunter2!"), ("Enter the router passwd", "correct horse"), ("Wifi PWD?", "sunshine"),
+    ("What are the passwds for the two routers?", "a1 b2"),
 ])
 def test_an_answer_to_a_password_or_pin_question_is_hidden_whole_whatever_its_shape(question, answer) -> None:
     """Re-review 2/3 (R1, R1-a; rule 14 over convenience): a question with a password, passcode or passphrase word or a
