@@ -1152,7 +1152,8 @@ class Daemon:
         self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id)
         self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
-            usage=self._record_distill_usage, capture=lambda task_id: self._capture_card(task_id, None),
+            usage=self._record_learning_usage("consolidate"),
+            capture=lambda task_id: self._capture_card(task_id, None),
             cards_refreshed=self._replay_deferred_receipts, spans=self.spans)
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
@@ -1160,7 +1161,7 @@ class Daemon:
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
-                                   record_usage=self._record_distill_usage, spans=self.spans)
+                                   record_usage=self._record_learning_usage("distill"), spans=self.spans)
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.running_apps = self._running_apps
@@ -1629,9 +1630,14 @@ class Daemon:
                 self._journal().append("retention.failed", {"error": f"{type(e).__name__}: {e}"})
             await asyncio.sleep(3600)
 
-    def _record_distill_usage(self, runtime: str, data: dict[str, Any]) -> None:
-        span = self.spans.start("model.usage", task_id=None, parent_id=None, input={"runtime": runtime, "role": "distill"})
-        self.spans.finish(span, output=data, cost_usd=data.get("cost_usd"))
+    def _record_learning_usage(self, role: str) -> Callable[[str, dict[str, Any]], None]:
+        """A learner's usage recorder: each usage event is a `model.usage` span naming that learner's role
+        (consolidate or distill)."""
+        def record(runtime: str, data: dict[str, Any]) -> None:
+            span = self.spans.start("model.usage", task_id=None, parent_id=None,
+                                    input={"runtime": runtime, "role": role})
+            self.spans.finish(span, output=data, cost_usd=data.get("cost_usd"))
+        return record
 
     def _purge_trail(self) -> Any:
         if self.trail is None:

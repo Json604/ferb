@@ -118,7 +118,7 @@ def test_a_usage_events_cost_lands_in_the_span_cost_column(daemon: RunningDaemon
     assert usage and any(r["cost_usd"] == 0.001 for r in usage)
 
     async def distill():
-        daemon.daemon._record_distill_usage("fake", {"input_tokens": 1, "cost_usd": 0.5})
+        daemon.daemon._record_learning_usage("distill")("fake", {"input_tokens": 1, "cost_usd": 0.5})
         return await rows("SELECT cost_usd FROM spans WHERE input_json LIKE '%distill%'")
     assert daemon.run(distill())[0]["cost_usd"] == 0.5
 

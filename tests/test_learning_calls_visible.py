@@ -83,6 +83,23 @@ def test_an_answered_consolidation_call_records_its_outcome(daemon) -> None:
     assert span["output"]["outcome"] == "answered" and span["error"] is None
 
 
+def test_learning_usage_spans_name_their_own_role(daemon) -> None:
+    """Consolidation usage was recorded as role "distill"."""
+    d = daemon.daemon
+    daemon.run(_put(d))
+    d.consolidator.make_runtime = lambda *a, **k: Answers({"procedures": [], "lessons": [], "identity": [],
+                                                           "episodes": []})
+    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
+    trail_row(daemon, "2025-12-30")
+    d.distiller.make_runtime = lambda *a, **k: Answers({"narrative": "", "items": []})
+    daemon.run(d.distiller.run_day("2025-12-30"), timeout=30)
+
+    async def roles() -> list[str]:
+        return [json.loads(r[0])["role"] for r in d.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'model.usage' ORDER BY rowid")]
+    assert daemon.run(roles()) == ["consolidate", "distill"]
+
+
 class RetriesThenAnswers(Answers):
     async def events(self, run: RunHandle) -> Any:
         yield RuntimeEvent("retrying", {"message": "Codex is retrying after an error: stream disconnected"})
