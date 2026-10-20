@@ -182,8 +182,9 @@ def test_a_parallel_request_is_one_plan_step_per_item_and_never_a_condition() ->
     ("worker.md", "Give owner_ask options when the answer is one of a few (yes or no, which of these): a picked option "
                   "reaches you as picked, while a typed answer to a question that mentions passwords, passcodes or "
                   "PINs is hidden whole. Never ask for a password in owner_ask; the sealed tools ask for it."),
-    ("supervisor.md", "A clarify question never asks for a password, passcode or PIN (FERB's sealed input does), and "
-                      "one that only mentions them offers its answers as choices: a typed reply to it is hidden from "
+    # re-review 4 (M3): the planner's clarify has no options field, so it never uses the words at all
+    ("supervisor.md", "A clarify question never asks for a secret (FERB's sealed input does) and never uses the words "
+                      "password, passcode, passphrase or PIN: a typed reply to a question with them is hidden from "
                       "you."),
 ])
 def test_questions_about_passwords_offer_options_and_never_ask_for_one(name: str, sentence: str) -> None:
