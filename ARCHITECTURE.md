@@ -1274,9 +1274,10 @@ and a dot only when a new sentence follows and the word before it isn't abbrevia
 "is"/"are"/"was"/"as" or "(". So "2024 code review", "Line 1234: code smell" and "PR 4821 is ready, please review the
 code" stay. Across lines only a code alone on its line relates: to the label line above it (a code word within reach
 of its end with no sentence end after it, colon or not: "Use this code to sign in"; blank lines allowed) or the
-naming line below it (an email's layout, `_line_codes`); sibling page nodes are read the same way (`_siblings`).
-Any whitespace but a line break (a no-break space, an en, em or ideographic space, \x0b, \x0c) reads as a space in
-these classes (`_H`, re-review 4); line breaks are "\r\n", "\r" and "\n".
+naming line below it (an email's layout, `_line_codes`); sibling page nodes are read the same way (`_siblings`). A
+code alone may sit in brackets or parentheses, with punctuation, or after a list dash or bullet ("[ 482913 ]",
+"- 482913", `_code_alone`). Any whitespace but a line break (a no-break space, an en, em or ideographic space,
+\x0b, \x0c) reads as a space in these classes (`_H`, re-review 4); line breaks are "\r\n", "\r" and "\n".
 Every code in a backup, recovery, 2FA or one-time code list ("Backup codes: 1234 5678 …", one per line, blank lines
 and item numbers or bullets such as "1. ", "2) ", "• " allowed) is masked;
 another "codes:" label ("HTTP status codes: 200, 301") lists ordinary data (`CODE_LIST`). Address and coupon codes
@@ -1312,7 +1313,8 @@ test (CRLF and lone "\r" splits, abbreviations, bracketed prefixes, number-only 
 quoted values on the next line, Unicode indents and blank lines) checks that the stream masks every code
 `Redactor.text` masks; agreement is tested, not proved. URL words never count (query credentials are the URL rule's).
 `ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
-OCR line (a code alone under its code word, a value beside a line ending in a secret word).
+OCR line (a code alone under its code word, a value beside a line ending in a secret word), with the text redactor's
+code-alone and whitespace rules (`_code_alone`, `_H`).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
 masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a native capture is withheld only
 when its boxes can't be painted; fields it can't locate are left to the OCR, and its `masking` says so). The

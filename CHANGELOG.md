@@ -138,24 +138,24 @@ Final review fixes (2026-10-14):
   choices, so you can see it and correct it.
 
 Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
-- One-time codes as providers send them are masked on every capture path (notifications, typed text, chat,
-  transcripts, OCR): a 4–8 digit code with a code word a few words away on either side ("123456 is your Instagram
-  code", "G-482913 …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word
-  is masked too ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them
-  stay readable (owner decision C1). After the reviews: streamed output (shell output, replies, CRLF terminal output
-  included) masks every code the text redactor masks, checked by a fuzz test, while number-only output (`seq`, id
-  lists) and prompts with a number ("Delete 1234 files? [y/N] ") pass straight through; a bank's OTP after "Rs.",
-  "a/c no." or "Ref. No." and a code after a bracketed sender ("[Swiggy] 482913 is your OTP") are masked; an email's
-  code on its own line (under "Use this code to sign in", colon or not) and every code in a backup, recovery or 2FA
-  code list (blank lines and item numbers such as "1. " allowed) are masked, while other "codes:" lists ("HTTP status
-  codes: 200, 301") stay; a password on a line under its label is masked whole ("password for gmail:" over
-  "s3cret pass 9"); no-break and other Unicode spaces read as spaces ("Code:&nbsp;482913", a card grouped by them);
-  your own requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please review the code");
-  address and coupon codes (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner decision); your typed
-  answer to a question that mentions a password (or "pwd"), passcode or PIN is hidden whole (a choice you pick never
-  is), and the code in your answer to a question about a code is masked. Streaming number-only output costs about a
-  quarter of what it did after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about 0.4 s → 0.1 s;
-  0.05 s before the redaction fixes).
+- One-time codes as providers send them are masked on every capture path (notifications, typed text, chat, transcripts,
+  OCR): a 4–8 digit code with a code word a few words away on either side ("123456 is your Instagram code", "G-482913
+  …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word is masked too
+  ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them stay readable
+  (owner decision C1). After the reviews: streamed output (shell output, replies, CRLF terminal output included) masks
+  every code the text redactor masks, checked by a fuzz test, while number-only output (`seq`, id lists) and prompts
+  with a number ("Delete 1234 files? [y/N] ") pass straight through; a bank's OTP after "Rs.", "a/c no." or "Ref. No."
+  and a code after a bracketed sender ("[Swiggy] 482913 is your OTP") are masked; an email's code on its own line (under
+  "Use this code to sign in", colon or not; in brackets or after a bullet too, on screen as well) and every code in a
+  backup, recovery or 2FA code list (blank lines and item numbers such as "1. " allowed) are masked, while other
+  "codes:" lists ("HTTP status codes: 200, 301") stay; a password on a line under its label is masked whole ("password
+  for gmail:" over "s3cret pass 9"); no-break and other Unicode spaces read as spaces ("Code:&nbsp;482913", a card
+  grouped by them); your own requests keep their numbers ("Pay 2500 to Rahul and verify", "PR 4821 is ready, please
+  review the code"); address and coupon codes (PIN code, ZIP code, Pin/Zip code, promo code) stay readable (owner
+  decision); your typed answer to a question that mentions a password (or "pwd"), passcode or PIN is hidden whole (a
+  choice you pick never is), and the code in your answer to a question about a code is masked. Streaming number-only
+  output costs about a quarter of what it did after the earlier fixes (`seq`'s 29,000 lines read 1 KB at a time: about
+  0.4 s → 0.1 s; 0.05 s before the redaction fixes).
 - A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
   when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
   `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
