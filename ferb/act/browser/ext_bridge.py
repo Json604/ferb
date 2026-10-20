@@ -1191,7 +1191,7 @@ class _TabDriver:
     def recording_source(self, tab: TabRef, owner: str) -> tuple[dict[str, Any], Any]:
         t = self._tab(tab)
 
-        async def capture() -> bytes:
+        async def capture() -> bytes | tuple[bytes, str]:    # with a note when the page couldn't be read (B6)
             import base64
             self.owned_by(tab.tab_id, owner)
             if self._tab(tab) is not t:
