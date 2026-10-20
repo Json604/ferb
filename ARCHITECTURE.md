@@ -280,8 +280,8 @@ a stated approach preference for tasks that call for it, not permission to repla
 Extension **0.15.5 / protocol 16** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
-name the matched window's tab; protocol 16 lets tab captures arm the debugger only and answer for pages it can't
-read or attach to, see section 16.4). Task
+name the matched window's tab; protocol 16 lets tab captures of pages it can't script use the debugger alone and
+answer for pages it can't read or attach to, see section 16.4). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
@@ -1665,7 +1665,9 @@ protected FERB state (16.9).
   accounts for: a secret the extension found but can't cover.
 - A tab whose page the extension can't read (page or top frame unreadable, e.g. a browser error page, or the look
   ran out of time: `maskState`'s `unread`) is still captured (protocols 15–16; owner: no screenshot refused). Tab
-  captures arm the debugger only (`arm`, no input-readiness probe, which needs a scriptable page: round 3, I1), and
+  captures attach fully when the page can be scripted (readiness, focus emulation, FERB's viewport: the emulation
+  background captures were measured with, 2.7) and with the debugger alone only when they can't (`readyForCapture`;
+  the readiness probe needs scripting: rounds 3–4, I1), and
   `browser.screenshot` asks for the picture even when its snapshot failed. The reply carries `unread`, the look before
   the capture when only the look after failed (malformed: withheld, m5), and the tab's window (`tabWindow`: bounds,
   whether the tab is the one it shows, minimized, the tab's title, `emulated` when FERB lays it out at its own size).

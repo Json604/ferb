@@ -400,6 +400,23 @@ async function tabWindow(tabId) {
   } catch (_) { return null; }
 }
 
+// A capture's attach, after `arm` (round 4, ruling): the full attach (input readiness, focus emulation, FERB's own
+// viewport in its window) whenever the page can be scripted, so background captures and recordings keep the emulation
+// they were measured with (2.7); the debugger alone only when that failed because the page can't be scripted (its
+// readiness probe needs scripting). A scriptable page whose attach failed fails the capture, as any other command.
+async function readyForCapture(tabId) {
+  try { await attach(tabId); }
+  catch (e) {
+    if (await scriptable(tabId)) throw e;
+    await arm(tabId);                    // attach let go of the debugger when it failed: armed again, alone
+  }
+}
+
+async function scriptable(tabId) {
+  try { await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: () => true }); return true; }
+  catch (_) { return false; }
+}
+
 // A tab the browser won't let its debugger attach to (the Web Store, chrome:// and other extensions' pages) can't be
 // captured as a tab at all (protocol 16): said honestly, with its window, for the daemon's native window capture.
 async function undebuggable(tabId, e) {
@@ -1441,10 +1458,12 @@ const commands = {
   // when only the look after failed, and `window` says where the tab's window is, for the daemon's Accessibility and
   // text-recognition masking. `withheld` (no picture) for a secret field it found but can't cover, and (with
   // `undebuggable` and `window`) for a page the debugger can't attach to, which the daemon may capture natively.
+  // The tab is attached fully when its page can be scripted, with the debugger alone when not (`readyForCapture`).
   async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
     const deadline = Date.now() + _timeout_ms;
-    try { await arm(tab_id); }           // the debugger only: a capture needs no input readiness (round 3, I1)
+    try { await arm(tab_id); }           // the debugger can't attach: no tab capture at all (round 3, I1)
     catch (e) { return await undebuggable(tab_id, e); }
+    await readyForCapture(tab_id);
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
     const first = await maskState(tab_id, deadline);
@@ -1473,8 +1492,9 @@ const commands = {
       if ((part+1)*SHOT_PART >= saved.data.length) st.recordFrame = null;
       return {data};
     }
-    try { await arm(tab_id); }           // the debugger only, as a screenshot
+    try { await arm(tab_id); }           // as a screenshot
     catch (e) { return await undebuggable(tab_id, e); }
+    await readyForCapture(tab_id);
     const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or unread
     if (first.withheld && !first.unread) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',

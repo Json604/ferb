@@ -23,8 +23,9 @@ Protocol 15 (fix wave 4, extension 0.15.4): `window_secrets` takes the captured 
 same bounds apart by their active tab's title, and answers with that tab (`tab`: URL with secret parameters masked,
 title), which the daemon checks against the captured window and the front window uses as its tab. An older daemon
 would ignore the check; an older extension can't break ties or name the tab.
-Protocol 16 (fix wave 4 round 3, extension 0.15.5): `screenshot` and `record_frame` arm the debugger only (no
-input-readiness probe, which needs a scriptable page) and send a page they can't read with `unread`, its look before
+Protocol 16 (fix wave 4 round 3, extension 0.15.5): `screenshot` and `record_frame` attach fully when the page can be
+scripted and with the debugger alone when it can't (the input-readiness probe needs scripting), and send a page they
+can't read with `unread`, its look before
 and `window` ({bounds, active, minimized, title, emulated?}); a page the debugger can't attach to answers `withheld`
 with `undebuggable` and `window`, for the daemon's native window capture."""
 

@@ -1713,6 +1713,37 @@ def test_a_tab_scripts_cant_reach_is_captured_through_the_real_attach_path(op: s
     assert reply["window"] == {"bounds": [0, 25, 1440, 875], "active": True, "minimized": False,
                                "title": "Chrome Web Store - Extensions"}
     assert "Input.dispatchMouseEvent" not in out["sent"]          # no readiness probe: that needs a scriptable page
+    assert out["sent"].count("Page.captureScreenshot") == 1        # the full attach was tried, then the debugger alone
+
+
+@pytest.mark.parametrize("op", ["screenshot", "record_frame"])
+def test_a_scriptable_tab_is_captured_after_the_full_attach_with_its_emulation(op: str) -> None:
+    """Round 4 (item 6, ruling): on a page scripts can reach, a capture attaches fully, as before round 2 (input
+    readiness, focus emulation and, in FERB's own window, FERB's viewport), so minimized-window captures and
+    recordings keep the emulation the background-capture result (2.7) was measured with. Only Chrome's APIs are
+    stubbed; FERB's attach path runs as written."""
+    out = worker('''(async () => {
+      const sent = [];
+      chrome.debugger.attach = async () => {};
+      chrome.debugger.detach = async () => {};
+      chrome.debugger.sendCommand = async (t, method) => { sent.push(method);
+        return method === 'Page.captureScreenshot' ? {data: 'jpeg'} :
+               method === 'Page.addScriptToEvaluateOnNewDocument' ? {identifier: 'h'} : {}; };
+      chrome.scripting = {executeScript: async () => [{frameId: 0, result: true}]};
+      chrome.tabs.get = async id => ({id, windowId: 9, active: true, title: 'Sign in'});   // FERB's own window (9)
+      chrome.windows = {get: async id => ({id, left: 0, top: 25, width: 1440, height: 875, state: 'minimized'})};
+      maskState = async () => ({top: 'd', viewport: [0, 0, 1280, 800], items: []});
+      visualStates = async () => [];
+      let reply; try { reply = await commands[OP]({tab_id: 19, _timeout_ms: 3000}); }
+      catch (e) { reply = {error: String(e.message || e)}; }
+      const t = tabState(19);
+      return {reply, sent, ready: t.ready, emulated: !!t.emulated};
+    })()'''.replace("OP", json.dumps(op)))
+    assert out["reply"].get("data") == "jpeg" and "unread" not in out["reply"], out["reply"]
+    for method in ("Emulation.setFocusEmulationEnabled", "Emulation.setDeviceMetricsOverride",
+                   "Input.dispatchMouseEvent"):                            # readiness probe included
+        assert method in out["sent"], method
+    assert out["ready"] and out["emulated"]
 
 
 @pytest.mark.parametrize("op", ["screenshot", "record_frame"])
