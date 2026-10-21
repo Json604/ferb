@@ -448,10 +448,11 @@ Accepted residuals (L29):
 - A procedure whose slot is named like a credential (a token, a PIN) never becomes learned: those values are masked
   when stored, so its runs count as one value.
 - Steps of the reversible kinds record no target provenance: opening or navigating a site; opening, switching to,
-  keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder or wait; a
+  keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer or reminder; a
   recovery point; stopping a command FERB started (`policy/rules.py` REVERSIBLE; browser.open, navigate, use_tab,
-  close and keep_open, mac.open, mac.act focus, fs.trash, the time tools, recovery.snapshot, shell.kill). A procedure
-  with one of these starts quarantined until you read its steps and confirm it (`ferb memory confirm <id>`). Typing
+  close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash, time.remind_at and set_timer,
+  recovery.snapshot, shell.kill; a wait is a read and never counts). A procedure with one of these starts
+  quarantined until you read its steps and confirm it (`ferb memory confirm <id>`). Typing
   and clicking do record provenance (the page's or app's host, the recipients): a host you didn't name, found only in
   the page, counts as outside. Recording provenance for every step is your decision: more friction against memory
   poisoning.

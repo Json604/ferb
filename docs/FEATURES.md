@@ -633,7 +633,7 @@ This section matters most for an automated campaign. It says exactly what runs u
   save exploration but never skips gateway checks, step checks or the final check. Procedures with steps whose
   targets came from outside content, or that record no target provenance (the reversible kinds: opening or navigating
   a site; opening, switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a
-  timer, reminder or wait; a recovery point; stopping a command FERB started), are quarantined until the owner
+  timer or reminder; a recovery point; stopping a command FERB started), are quarantined until the owner
   confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor
   outside content, is not outside (L29). A model revision is the same procedure: the runs of every version count
   toward its state, and the confirm the owner gave by hand carries over unless the revision adds a step built on

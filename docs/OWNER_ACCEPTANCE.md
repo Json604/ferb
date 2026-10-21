@@ -1418,8 +1418,8 @@ Residuals to know during the week (accepted or recorded, not checks):
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
 - Learning by intent (L29): a procedure with a step of a reversible kind (opening or navigating a site; opening,
-  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder
-  or wait; a recovery point; stopping a command FERB started) starts quarantined until you confirm it; a procedure
+  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer or reminder;
+  a recovery point; stopping a command FERB started) starts quarantined until you confirm it; a procedure
   you forget is never learned again for that kind of task, and one you turned down blocks any procedure for it;
   forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
   slot is named like a credential never becomes learned (CHANGELOG lists them all).

@@ -638,7 +638,7 @@ as many as fit the model's window (L29). Procedures still require step checks an
 Outside-derived action/destination steps are quarantined until confirmed (`ferb memory confirm <id>`): a target found
 only in outside content, or a step that records no target provenance (the reversible kinds: opening or navigating a
 site; opening, switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a
-timer, reminder or wait; a recovery point; stopping a command FERB started; typing and clicking record it); a target
+timer or reminder; a recovery point; stopping a command FERB started; typing and clicking record it); a target
 you typed or answered, or one found in neither (FERB's or the model's choice, or an outside value code can't match),
 is not outside. Reading an outside page alone does not quarantine a procedure. A revision of a procedure is the same
 procedure: its runs keep counting (receipts belong to its key), and the confirm you gave by hand carries over unless

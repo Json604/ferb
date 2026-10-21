@@ -1596,9 +1596,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   outside; composer 3 reads such cards again once, and a card whose trace has aged out has each kept action's flag
   recomputed from its stored `arg_sources`. The gateway records `arg_sources` for consequential kinds only
   (`gateway.py`), so the reversible kinds (`policy/rules.py` REVERSIBLE: opening or navigating a site; opening,
-  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder
-  or wait; a recovery point; stopping a command FERB started; the tools browser.open, navigate, use_tab, close and
-  keep_open, mac.open, mac.act focus, fs.trash, time.remind_at, set_timer and sleep_until, recovery.snapshot and
+  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer or reminder;
+  a recovery point; stopping a command FERB started; the tools browser.open, navigate, use_tab, close and
+  keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash, time.remind_at and set_timer, recovery.snapshot and
   shell.kill; no tool uses `draft`) stay outside, while typing and clicking (fill_form, click, mac input) record it.
   A procedure using one is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm` via
   `_mark_confirmed`: candidate, then refreshed, so learned at once when its key's receipts qualify). Recording
@@ -1616,10 +1616,11 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   the owner gave; none when it was rolled back or is gone). A carried confirm is stored as `confirmed` 2 (`get`
   reports a bool, so search, the dashboard and `confirmable` see True), so it never counts as the owner's own; the
   owner's `confirm` stores 1, also over a carried one (`_mark_confirmed`, one path for both). A revision of a
-  confirmed version that adds such a step, or whose hand-confirmed version is gone, is stored `quarantined` with
-  `confirmed` 0, noted as `memory.procedure_requarantined` (ids: the new version, the one it revises, the
-  hand-confirmed one; the reason; `ferb timeline` prints it) and named in the pass result (`requarantined`, printed
-  by `ferb memory consolidate`). All of this applies only when `put` wrote the node now over the current version
+  confirmed version that adds such a step, or that has a step built on outside content when its hand-confirmed
+  version is gone, is stored `quarantined` with `confirmed` 0, noted as `memory.procedure_requarantined` (the journal
+  keeps the ids of the new version, the one it revises and the hand-confirmed one, and the reason; `ferb timeline`
+  lists it with the first two ids, its details cut at 160 characters) and named in the pass result (`requarantined`,
+  printed by `ferb memory consolidate`). All of this applies only when `put` wrote the node now over the current version
   (`supersedes` is it): a proposal whose content matches an existing node (the current version or an older one)
   changes nothing and is listed under `unchanged`, not accepted. A revision after two failures starts `suspect`
   (sticky, as before), and stays suspect until a verified run and then a revision with a new body.
