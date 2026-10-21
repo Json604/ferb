@@ -629,3 +629,75 @@ def test_an_unknown_slot_type_is_a_mismatch_not_a_crash():
     from ferb.memory import intents
     with pytest.raises(LearningRefused, match='JSON type'):
         intents.typed({'token': 'BTC'}, {'token': '[redacted]'})
+
+
+def test_an_actions_target_provenance_is_read_in_the_gateways_vocabulary(tmp_path):
+    """L29 Task 6 review I1 (an F8 bug): the card reader tested the gateway's `arg_sources` for origin labels ("owner",
+    an outside rank), but the gateway records provenance labels (`policy.provenance`: "owner_words", "owner_answer",
+    the outside content's origins, or "unknown"), so every action with a target read as outside and its procedure was
+    quarantined, even one whose target the owner typed. The labels here come from `provenance.arg_sources` itself."""
+    from ferb.core.types import Target
+    from ferb.policy import provenance
+    from tests.support.cards import card_store, finished_task
+    db, _, spans, store = card_store(tmp_path)
+    page = [('external:web:shop.example', 'write to sales@shop.example for the price')]
+    cases = {                              # task -> (its arg_sources, or None when none were recorded; expected state)
+        'typed': (provenance.arg_sources(Target(recipients=('sales@shop.example',)),
+                                         'email sales@shop.example for a quote', page), 'candidate'),
+        'answered': (provenance.arg_sources(Target(recipients=('sales@shop.example',)), 'email the shop', page,
+                                            answer_text='sales@shop.example'), 'candidate'),
+        'outside': (provenance.arg_sources(Target(recipients=('sales@shop.example',)), 'email the shop', page),
+                    'quarantined'),
+        'chosen': (provenance.arg_sources(Target(recipients=('sales@shop.example',)), 'email the shop', []),
+                   'candidate'),
+        'unrecorded': (None, 'quarantined'),
+    }
+    assert [cases[k][0] for k in ('typed', 'answered', 'outside', 'chosen')] == [   # the gateway's labels
+        {'recipient:0': ['owner_words', 'external:web:shop.example']},
+        {'recipient:0': ['owner_answer', 'external:web:shop.example']},
+        {'recipient:0': ['external:web:shop.example']}, {'recipient:0': ['unknown']}]
+    try:
+        for task_id, (sources, expected) in cases.items():
+            finished_task(db, spans, store, task_id)
+            db.conn.execute("UPDATE episodes SET verified=1, status='done' WHERE task_id=?", (task_id,))
+            inp = {'tool': 'mail.send', 'args': {'to': 'sales@shop.example'}, 'kind': 'send',
+                   'target': {'recipients': ['sales@shop.example']}} | (
+                {} if sources is None else {'arg_sources': sources})
+            call = spans.start('tool.call', task_id=task_id, input=inp)
+            spans.finish(call, output={'ok': True}, origin='ferb')
+            c = store.capture_episode(task_id)
+            [action] = [a for a in c['body']['actions'] if a['tool'] == 'mail.send']
+            assert action['outside_action'] is (expected == 'quarantined'), task_id
+            p = store.propose_procedure({'intent': 'ask the shop for a quote', 'slots': {},
+                                         'preconditions': {'apps': {}}, 'ui_hints': '',
+                                         'steps': [{'tool': 'mail.send', 'args': {'to': 'sales@shop.example'},
+                                                    'expect': 'sent', 'evidence': [action['id']]}],
+                                         'examples': [{'episode': c['id'], 'slots': {}}]},
+                                        'b-' + task_id, 'model:test', intent_id='i-' + task_id)
+            assert p['state'] == expected, task_id
+    finally:
+        db.close()
+    from ferb.memory.learning import outside_targets
+    assert outside_targets({'site': ['owner']}) is False                # a label read before that vocabulary
+    assert outside_targets({'site': ['a-label-it-does-not-know']}) is True     # an unknown label counts as outside
+    assert outside_targets({'site': ['owner_words'], 'recipient:0': ['external:mail']}) is True    # per key
+    assert outside_targets({}) is False                                 # an action without a target value
+
+
+def test_a_card_read_before_the_provenance_fix_is_read_again_once(tmp_path):
+    """L29 Task 6 review I1: a card the earlier composer built marks every targeted action outside; it is read again
+    once (a new composer), so the runs already on the Mac are learned from with their targets read correctly."""
+    from ferb.memory.learning import CARD_MAKER, digest
+    from tests.support.cards import card_store, finished_task
+    db, _, spans, store = card_store(tmp_path)
+    try:
+        finished_task(db, spans, store, 't')
+        built_at, status, verified = db.conn.execute(
+            'SELECT built_at, status, verified FROM episodes WHERE task_id = ?', ('t',)).fetchone()
+        assert CARD_MAKER != 'code:evidence-card/2'
+        store.card_read('t', digest(['code:evidence-card/2', built_at, status, verified, None]))
+        assert store.cards_to_read() == ['t']
+        store.capture_episode('t')
+        assert store.cards_to_read() == []
+    finally:
+        db.close()

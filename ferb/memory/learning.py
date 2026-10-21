@@ -27,9 +27,10 @@ class LearningRefused(FerbError):
 # Kinds whose key is one of FERB's own ids: an episode card (its task id), its annotation and its intent label (L29)
 # (the card's node id).
 ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
-# The episode card's composer. 2: a card cites its task's direct sources only (memory review C1); a card an older
+# The episode card's composer. 2: a card cites its task's direct sources only (memory review C1). 3: an action's
+# target provenance is read in the gateway's vocabulary (`outside_targets`, L29 Task 6 review I1). A card an older
 # composer built is rebuilt once by the consolidator.
-CARD_MAKER = 'code:evidence-card/2'
+CARD_MAKER = 'code:evidence-card/3'
 # Model-written suggestions the owner can turn down ("Not right": retire); one turned down never comes back (M3).
 SUGGESTIONS = frozenset({'procedure', 'identity_proposal', 'lesson'})
 # The JSON types a slot may declare: a closed set, so a slot type the redactor masked by its key ("token": "string")
@@ -284,6 +285,25 @@ def _unit(redact: Callable[[str], str], key: str | None, value: Any) -> Any:
     if isinstance(value, str):
         return redact(seen) if isinstance(seen, str) else REDACTED
     return value if type(seen) is type(value) and seen == value else REDACTED
+
+
+# Where an action's target value appeared, as the gateway records it (`policy.provenance.arg_sources`): in the owner's
+# typed words or answers ("owner" too: a label read before that vocabulary, kept for old rows)
+_OWNER_SOURCES = frozenset({'owner_words', 'owner_answer', origin.OWNER})
+_NEITHER = 'unknown'                 # found in neither the owner's words nor outside content (FERB's or the model's)
+
+
+def outside_targets(arg_sources: Any) -> bool:
+    """Whether an action's targets came from outside content (MP2, F8 quarantine), from the gateway's `arg_sources`
+    (key -> labels): a key the owner typed or answered is the owner's; "unknown" is not outside (as confirmations read
+    it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner label
+    is outside. No provenance at all (a reversible kind records none, or a historical action) is never evidence of a
+    safe target: outside. Provenance only, never intent (R2; L29 Task 6 review I1: this read origin labels, so every
+    target looked outside)."""
+    if not isinstance(arg_sources, dict):
+        return True
+    return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)
+               for labels in (v if isinstance(v, list) else [v] for v in arg_sources.values()))
 
 
 def memory_origin(label: str) -> str:
@@ -545,10 +565,7 @@ class Learning:
                     ('com.google.Chrome', 'com.brave.Browser', 'com.apple.Safari', 'com.microsoft.edgemac')}
                 used_apps.update(browsers or {'unresolved-browser'})
             arg_sources = inp.get('arg_sources')
-            # No provenance on historical actions is unknown, not evidence of a safe destination.
-            outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and (arg_sources is None or any(origin.OWNER not in values and
-                       any(origin.rank(o) >= origin.OUTSIDE_RANK for o in values)
-                       for values in arg_sources.values()))
+            outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and outside_targets(arg_sources)
             result = json.loads(r['output_json']) if r['output_json'] else {}
             # Missing evidence stays an edge (`_card_labels`): dropping it would let a forgotten fact's descendants
             # be reconstructed from old task traces without their deletion lineage.
