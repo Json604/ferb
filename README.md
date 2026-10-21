@@ -461,10 +461,11 @@ An oversized unfinished record may be replaced by an explicit redaction marker.
 To be told when something happens ("tell me when ~/Downloads/report.pdf exists", "alert me whenever the battery is at
 or below 10%"), FERB sets up a watch: a schedule that checks on its interval and survives restarts and
 `ferb setup --update` (work you ask for in the same message, such as "turn on Low Power Mode", runs now as its own
-task). A watch that ends once it happens stops itself after a confirmed check finds it, and that answer says FERB
-stopped checking; a standing one ("whenever …") tells you once each time the condition becomes true. A met condition
-comes as a "FERB alert" notification, as a reminder does, even with the app open; a check that finds nothing raises no
-notification. `ferb schedules` lists each watch with its kind; cancel one there or by asking.
+task; "tell me when the agent you started is done" is that task's own monitoring, not a watch). A watch that ends once
+it happens stops itself after a confirmed check finds it, and that answer says FERB stopped checking; a standing one
+("whenever …") tells you once each time the condition becomes true. A met condition comes as a "FERB alert"
+notification, as a reminder does, even with the app open; a check with nothing new to tell stays out of your chat.
+`ferb schedules` lists each watch with its kind; cancel one there or by asking.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
 and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,
@@ -504,8 +505,7 @@ no automated test proves that the owner experienced no disturbance.
   front-window picture and hearing until you allow FERB again in System Settings → Privacy & Security → Screen
   Recording.
 - A watch checks on the schedule interval (the planner uses every 15 minutes or more): no battery, power or file event
-  wakes it sooner. Each check's answer still appears in the app's chat and in an open `ferb chat`; only the
-  notification and the replay stay quiet.
+  wakes it sooner.
 - Notices need the optional Jev service; notification triage is shadow only.
 - The terminal chat shows no live progress line.
 

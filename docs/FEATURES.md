@@ -530,15 +530,18 @@ This section matters most for an automated campaign. It says exactly what runs u
   makes a schedule that checks every N minutes and marks it a watch that ends once it happens or a standing one
   (stored with the schedule, so it survives restarts and `ferb setup --update`; a loop inside a task did not). Work
   asked for in the same message ("turn on Low Power Mode") is a task that runs now. Each check is an unattended run
-  whose worker reports whether the condition holds now. A met condition reaches the owner as a "FERB alert"
-  notification, as a reminder does (even with the app open or the owner away); a standing watch tells once each time
-  the condition becomes true; a check that finds nothing raises no notification. A confirmed check that finds a
-  one-shot watch's condition met ends it, and that answer says FERB stopped checking; an unconfirmed or failed check
-  never does. `ferb schedules` shows each watch's kind.
+  whose worker reports whether the condition holds now, and its final check judges that report. A met condition
+  reaches the owner as a "FERB alert" notification, as a reminder does (even with the app open or the owner away),
+  once each time the condition becomes true (judged against the last check that reported it); a check with nothing
+  new to tell is recorded but reaches no client. A confirmed check that finds a one-shot watch's condition met ends it
+  (its recorded send scope withdrawn), and that answer says FERB stopped checking; an unconfirmed or failed check
+  never does. "Tell me when the agent you started is done" is the task's own monitoring, not a watch. `ferb
+  schedules` shows each watch's kind.
 - Status: **Landing this week — integrated, not live-tested (fix wave 6c, live check 76).**
 - Limits: the interval is the schedule's (the planner uses every 15 minutes or more); no battery, power or file event
-  exists, so a crossing is seen at the next check. Each check's answer still appears in the app's chat and an open
-  `ferb chat`. A loud alert is the run's own doing with its tools when the owner asked for one; code adds no sound.
+  exists, so a crossing is seen at the next check. A loud alert is the run's own doing with its tools when the owner
+  asked for one; code adds no sound. A check resumed as a saved plan after a restart, or interrupted by one, is told
+  as any task's.
 
 #### Durable plans with waits
 - What: multi-step plans with step types do / map / reduce / wait / ask / converse; waits on a time or an event

@@ -748,36 +748,59 @@ entry's origins and lineage reference (MP2), or a block saying no earlier run is
 gets no resumable-attempts block: earlier runs are data to compare, not attempts to continue. `scheduled.md` tells the
 planner to compare with the previous run when the request asks about change. Notification delivery is unchanged.
 
-**Watches (fix wave 6c, 2026-10-21; owner live case 2026-10-15).** "Tell me when …", "alert me if …" and "whenever …"
-are watches: schedules like any other, so they survive restarts and `ferb setup --update` (the next check is a durable
-`schedule` timer; only `sleep` timers are cancelled at start). The 10% battery alert was a shell loop inside a task,
-which died on every restart. The planner marks a watch when the owner's turn makes it (`ScheduleRequest.watch`:
-`none`, `until_met` or `standing`, stored in `schedules.watch`, migration 0042) and names the check, what to tell and
-whether it ends in the request; `supervisor.md` makes it an `every` schedule, forbids waiting for a condition with a
-loop or sleep inside a task, and says work asked for now is a task in the same turn (the schema and `Supervisor._send`
-always took a task and a schedule together; the prompt's "No task now" said otherwise). `worker.md` tells a worker
-never to build the wait itself. The scheduling line, `ferb schedules` and the planner's facts say which kind it is
-(`schedules.WATCH_SAID`). Each run's Schedule facts carry `watch`; its worker reports `watch_met` (its fresh
-observation; null in any other task), which `_final` adds to the outcome and the `task.answer` row records, so
-`_previous_run` gives the next run `previous_run.watch_met` and `scheduled.md` tells a standing watch's run to stay
-quiet when the previous run already found the condition holding. `run_scheduled` returns `previously_met` for a watch
-(its previous run finished and found it met). `Daemon._run_schedule` decides from those facts (`schedules.watch_met`:
-a finished run, `done` or `done_unverified`, whose outcome says met):
-- a met condition is an alert, every time for `until_met` and once per crossing for `standing` (not when the previous
-  run found it met): `_task_result(alert=True)` posts a "FERB alert" notification the way a reminder does (urgent, with
-  or without a client showing `task.result`, the owner idle or not), and stores and publishes the result as usual;
-- a finished check that reports `watch_met` and isn't an alert is stored as told (`shown=1`: no banner, no `ferb chat`
-  replay); connected clients still file its answer, as they file every scheduled run's;
-- a `done` met run of an `until_met` watch ends it (`_end_watch`): state `done`, the next check's timer cancelled,
-  `schedule.met` journaled with the run's task id, and the answer (and the delivered short text) ends with
-  "🗓 Stopped checking: <request>". A `done_unverified`, failed or not-met run never ends one, nor does any run of a
-  watch the owner paused or cancelled meanwhile; a standing watch is never ended this way.
+**Watches (fix wave 6c, 2026-10-21; owner live case 2026-10-15).** "Tell me when …" and "alert me if …" about
+something outside FERB's own work (a file appears, a battery level, a price, a page) are watches: schedules like any
+other, so they survive restarts and `ferb setup --update` (the next check is a durable `schedule` timer; only `sleep`
+timers are cancelled at start). The 10% battery alert was a shell loop inside a task, which died on every restart.
+The planner marks a watch when the owner's turn makes it (`ScheduleRequest.watch`: `none`, `until_met` or `standing`,
+stored in `schedules.watch`, migration 0042) and names the check, what to tell and whether it ends in the request;
+`supervisor.md` makes it an `every` schedule, forbids waiting for a condition with a loop or sleep inside a task,
+keeps "tell me when the agent I started is done" the task's own monitoring (never a watch), and says work asked for
+now is a task in the same turn (the schema and `Supervisor._send` always took a task and a schedule together; the
+prompt's "No task now" said otherwise). `worker.md` tells a worker never to build the wait itself, and that observing
+a process or agent its task started stays its task. The scheduling line, `ferb schedules` and the planner's facts say
+which kind it is (`schedules.WATCH_SAID`).
 
-The stop is the owner's stored words for that schedule (MP2): a run's report can at most end a one-shot watch, never
-create or widen a schedule. The check interval is the schedule's (`supervisor.md`: every 15 minutes or more); there is
-no battery, power or file event, so a crossing is seen at the next check. `chat.status` (the app's restore, `ferb
-chat`'s replay) takes a result's short text from the task's recorded outcome, so there the stop line is in the full
-answer only, as "(ran late)" is.
+Each check (`run_tree(watch=True)`, `_Tree.watch`):
+- Its worker reports `watch_met` (its fresh observation; null in any other task; reset at each attempt), and its check
+  judges that report like a condition: `checked_conditions` adds `watch_condition(watch_met)` ("The condition this
+  watch checks holds now, as my report says (watch_met true)", or "does not hold", or "gave no watch_met") before
+  FERB's report condition, which stays last; a false or unknown verdict keeps the run from `done`, and `_report` says
+  it in the owner's terms (WATCH_FALSE / WATCH_UNKNOWN / WATCH_UNCHECKED). No `_verifier` or `verifier.md` change:
+  the condition carries the reported value.
+- `_final` adds `watch_met` to the outcome and the `task.answer` row records it. `_previous_run(watch=True)` also
+  returns `last_reported`: what the latest earlier check that reported the condition found (a finished run, `done` or
+  `done_unverified`; failed and unanswered runs are passed over). The run's Schedule facts carry `watch` and
+  `last_reported_met`, and `scheduled.md` tells the run to stay quiet (no new alert of its own) when it is true;
+  `run_scheduled` returns it as `previously_met`.
+- Its start isn't published (no `task.created`) and `chat.status` leaves it out of `running`
+  (`running_trees(watches=False)`), so no client lists or adopts it; a result the daemon publishes arrives as work
+  started elsewhere, with the watch's request as its goal (the app and `ferb chat` already place such results).
+
+`Daemon._run_schedule` then decides (`schedules.watch_met`: a finished run whose outcome says met):
+- a met condition is an alert unless `previously_met` (an unconfirmed met check's alert counts as told, so a watch
+  that never confirms alerts once): `_task_result(alert=True)` posts a "FERB alert" notification the way a reminder
+  does (urgent, with or without a client showing `task.result`, the owner idle or not), and stores and publishes the
+  result;
+- a `done` met run of an `until_met` watch ends it (`_end_watch`): state `done`, the next check's timer cancelled,
+  `schedule.met` journaled with the run's task id, and the recorded scope withdrawn as a cancel withdraws it
+  (`_withdraw_schedule_scope`; `_schedule_live` treats a `schedule.met` after the latest run like a pause, via
+  `_last_run_withdrawn`). The answer, the delivered short text and the task's recorded outcome (which `chat.status`
+  restores from, `_record_stop_line`) end with "🗓 Stopped checking: <request>". This is decided before "quiet", so an
+  ending run already told is still published, with the stop line and no second alert. `done_unverified`, failed and
+  not-met runs never end one, nor does any run of a watch the owner paused or cancelled meanwhile; a standing watch is
+  never ended this way;
+- a finished check that reported `watch_met` and is neither an alert nor the ending run, and any check of a one-shot
+  watch another check already ended (`_watch_ended`), is recorded (task record, trace, `task_results` with `shown=1`)
+  but not published (`_task_result(publish=False)`): no banner, no client message, no `ferb chat` replay;
+- everything else (a failed check, a run the planner answered without a check) is published as any scheduled run's.
+
+The stop is the owner's stored words for that schedule (MP2): a run's report, judged by its check, can at most end a
+one-shot watch, never create or widen a schedule. The check interval is the schedule's (`supervisor.md`: every 15
+minutes or more); there is no battery, power or file event, so a crossing is seen at the next check. Residuals: a
+watch check resumed as a saved plan after a restart (`scheduled.md` asks for one task without a plan) is delivered as
+any resumed task, without the watch rules (the next check applies them); a check interrupted by a restart leaves the
+usual "interrupted … pick it up again?" result.
 
 **The report check (P16 V4/V6, D34; F4 live fixes).** `checked_conditions`
 ([`supervisor.py`](ferb/orchestrator/supervisor.py)) adds `REPORT_CONDITION` ("My report to you says truthfully what was
@@ -2166,5 +2189,5 @@ protected FERB state (16.9).
 `memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
 `memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
-Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch` and
-`task.answer` gained `watch_met` (a watch run's).
+Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch`,
+`task.answer` gained `watch_met` (a watch run's), and `standing.revoked` can give the reason "schedule met".

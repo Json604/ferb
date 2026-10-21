@@ -344,18 +344,21 @@ live-tested):
   read: the page ends before it, so it is masked whole.
 
 Fix wave 6c (2026-10-21, "tell me when …" survives restarts and updates; not installed or live-tested):
-- "Tell me when …", "alert me if …" and "whenever …" are watches: schedules, so they survive restarts and
-  `ferb setup --update`. On 2026-10-15 "turn on Low Power Mode and alert me loudly at 10% battery" put the alert in a
-  shell loop inside the task, which died on the next update. The planner now makes the work asked for now a task and
-  the alert a watch in the same turn, and never waits for a condition with a loop or sleep inside a task.
-- A watch either ends once it happens or keeps watching; the scheduling line and `ferb schedules` say which. A one-shot
-  watch stops itself after a confirmed check finds its condition met (journaled `schedule.met`), and that answer says
-  FERB stopped checking; an unconfirmed or failed check never ends it. A standing watch tells you once each time the
-  condition becomes true: each run sees what the previous one found.
-- A met condition comes as a "FERB alert" notification, as a reminder does, even with the app open or while you're
-  away; a check that finds nothing raises no notification and isn't replayed by `ferb chat` (the app's chat still
-  shows its answer). Checks run on the schedule's interval (every 15 minutes or more); there is no battery or file
-  event.
+- "Tell me when …" and "alert me if …" about something outside FERB's own work (a file, the battery, a price, a page)
+  are watches: schedules, so they survive restarts and `ferb setup --update`. On 2026-10-15 "turn on Low Power Mode and
+  alert me loudly at 10% battery" put the alert in a shell loop inside the task, which died on the next update. The
+  planner now makes the work asked for now a task and the alert a watch in the same turn, and never waits for a
+  condition with a loop or sleep inside a task. "Tell me when the agent you started is done" stays the task's own
+  monitoring.
+- A watch either ends once it happens or keeps watching; the scheduling line and `ferb schedules` say which. Each
+  check's report of the condition is judged by its final check like any condition. A one-shot watch stops itself after
+  a confirmed check finds its condition met (journaled `schedule.met`, its recorded send scope withdrawn as a cancel
+  does), and that answer says FERB stopped checking; an unconfirmed or failed check never ends it.
+- You're told once each time the condition becomes true, judged against the last check that reported it (a failed
+  check in between doesn't make it tell again; an unconfirmed alert counts). A met condition comes as a "FERB alert"
+  notification, as a reminder does, even with the app open or while you're away. A check with nothing new to tell is
+  recorded but reaches neither the app nor `ferb chat`, and no client lists it as running. Checks run on the
+  schedule's interval (every 15 minutes or more); there is no battery or file event.
 
 Licensed under Apache-2.0.
 
