@@ -119,9 +119,12 @@ def counted(known: list[dict[str, Any]], body: dict[str, Any], card: dict[str, A
 
 def unlabelled(learning: Learning) -> list[dict[str, Any]]:
     """The current episode cards without a current label, oldest first. A card whose label the owner rolled back
-    waits until it changes (a new card node): its old answer would only be stored again."""
+    waits until it changes (a new card node): its old answer would only be stored again. One whose label the owner
+    forgot is never labelled again (its key is tombstoned: `Learning.put` would refuse it; final review M2)."""
     done = labels(learning).keys() | _rolled_back(learning)
-    return [n for n in learning.items('episode') if n['id'] not in done]
+    gone = {r[0] for r in learning.db.conn.execute("SELECT id FROM learning_forgotten WHERE id LIKE 'key-%'")}
+    return [n for n in learning.items('episode') if n['id'] not in done
+            and 'key-' + digest([INTENT_KIND, learning.redact_id(n['id'])]) not in gone]
 
 
 def _rolled_back(learning: Learning) -> set[str]:
@@ -168,9 +171,12 @@ def typed(values: dict[str, Any], slots: dict[str, str]) -> None:
             raise LearningRefused(f'slot {k} is not a {t}')
 
 
-def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]],
+          shown: set[str] | None = None) -> dict[str, Any]:
     """The label body an answer stands for, or LearningRefused. An offered id reuses that intent; a new intent whose
-    name is an existing intent's (case and spacing aside) is that intent."""
+    name is an existing intent's (case and spacing aside) is that intent. `shown`: the intents the labeling call was
+    shown (it is shown those that fit); a refusal of a new name that is a known intent it wasn't shown names that
+    intent (final review M3: no second call; the card waits until it changes)."""
     values = to_map(answer['values'], json_text=True)
     chosen = str(answer.get('intent_id') or '')
     if not chosen:
@@ -185,6 +191,12 @@ def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]]) -> dict[st
                 raise LearningRefused('slots must be named and declare JSON types')
             typed(values, slots)
             return {'intent_id': chosen, 'name': name, 'description': description, 'slots': slots, 'values': values}
+        if shown is not None and chosen not in shown:
+            try:
+                typed(values, offered[chosen]['slots'])
+            except LearningRefused as e:
+                raise LearningRefused(f"{e}: the new name is the known intent {chosen} ({offered[chosen]['name']}), "
+                                      "which this call wasn't shown") from None
     if chosen not in offered:
         raise LearningRefused('the intent id is not one of the offered intents')
     intent = offered[chosen]
@@ -194,8 +206,8 @@ def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]]) -> dict[st
 
 
 def label(learning: Learning, card: dict[str, Any], answer: dict[str, Any], offered: dict[str, dict[str, Any]],
-          maker: str) -> dict[str, Any]:
-    """Check a label answer for `card` against the known intents (`offered`, by id) and store it as the card's own
-    label node."""
-    body = check(answer, offered)
+          maker: str, shown: set[str] | None = None) -> dict[str, Any]:
+    """Check a label answer for `card` against the known intents (`offered`, by id; `shown`: those its call was shown)
+    and store it as the card's own label node."""
+    body = check(answer, offered, shown)
     return learning.put(INTENT_KIND, card['id'], body, [card['id']], made_by=maker, state='active')

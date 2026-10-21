@@ -754,3 +754,17 @@ def test_a_revision_quarantined_again_is_named_in_the_pass_result(learning) -> N
     assert (revised["state"], revised["confirmed"]) == ("quarantined", False)
     [result] = [r for r in out["sources"] if r.get("intent") and "accepted" in r]
     assert result["requarantined"] == [revised["id"]]
+
+
+@pytest.mark.parametrize("answer", [failing("the connection dropped"), lambda ctx: EMPTY])
+def test_an_intent_whose_runs_were_all_forgotten_during_its_call_leaves_no_job(learning, answer) -> None:
+    """Final review M1: the owner forgot every run of the intent while its call ran; the job written after it (failed
+    or done) stayed behind for an intent that no longer exists."""
+    cards = runs(learning, "a", "a test intent")
+
+    def forgetting(ctx: str) -> Any:
+        learning.forget([c["id"] for c in cards])
+        return answer(ctx)
+    out = asyncio.run(consolidator(learning, fake(forgetting).make).catch_up())
+    assert {"intent": intents.intent_id("a test intent"), "forgotten": True} in out["sources"]
+    assert job(learning, "a test intent") == ()

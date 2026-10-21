@@ -429,3 +429,60 @@ def test_forgetting_one_labelled_card_keeps_the_intent(learning) -> None:
     learning.forget([a["id"]])
     assert a["id"] not in intents.labels(learning) and b["id"] in intents.labels(learning)
     assert [(i["id"], i["runs"]) for i in intents.intents(learning)] == [(intents.intent_id("cheapest food order"), 1)]
+
+
+def test_a_card_forgotten_while_its_label_call_runs_leaves_no_job(learning) -> None:
+    """Final review M1: the owner forgot the run while the model was labelling it; the refused label left a failed job
+    naming the forgotten card, listed by every `ferb memory consolidate`."""
+    c = card(learning, "t1", "cheapest egg curry")
+
+    def label(ctx: str) -> dict[str, Any]:
+        learning.forget([c["id"]])
+        return new_intent("cheapest food order", "egg curry")
+    out = run(learning, SchemaAnswers({id(intents.INTENT_SCHEMA): label, id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}))
+    assert {"label": c["id"], "forgotten": True} in out["sources"]
+    assert learning.db.conn.execute("SELECT count(*) FROM learning_jobs").fetchone()[0] == 0
+
+
+def test_a_card_whose_label_the_owner_forgot_is_not_labelled_again(learning) -> None:
+    """Final review M2: forgetting a card's label (not the card) tombstones the label's key, so every forced pass
+    spent a call on a label `Learning.put` always refuses. Like a rolled-back label, it isn't asked for again."""
+    c = card(learning, "t1", "cheapest egg curry")
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    [label] = learning.items(intents.INTENT_KIND)
+    learning.forget([label["id"]])
+    assert learning.get(c["id"]) is not None and intents.unlabelled(learning) == []
+    calls = len(rt.calls)
+    asyncio.run(Consolidator(learning, NoMemory(), rt.make).catch_up(force=True))
+    assert len(rt.calls) == calls
+
+
+def test_a_new_name_that_is_an_intent_the_labeler_was_not_shown_names_it_in_the_job(tmp_path) -> None:
+    """Final review M3: the model named a new intent whose id is a known one it wasn't shown (the list didn't fit), with
+    other slots; the label was refused for its slots and nothing said which intent it met. The job now names it, so
+    `ferb memory consolidate` shows it (no second call; the card waits until it changes)."""
+    db, store = new_store(tmp_path / "memory.db", TickingClock())
+    try:
+        old = card(store, "old", "cheapest egg curry")
+        store.put(intents.INTENT_KIND, old["id"], {"intent_id": intents.intent_id("cheapest food order"),
+                                                   "name": "cheapest food order", "description": "d",
+                                                   "slots": {"dish": "string"}, "values": {"dish": "egg curry"}},
+                  [old["id"]], made_by="model:test", state="active")
+        _forty_intents(store)                                    # newer intents fill the list the labeler is shown
+        new = card(store, "new", "cheapest paneer")
+        answer = {"intent_id": "", "name": "Cheapest food order", "description": "d",
+                  "slots": [{"name": "food", "value": "string"}], "values": [{"name": "food", "value": '"paneer"'}]}
+        capped = ModelLimits("fake-model", 1_000_000, 100_000, "test", max_input_chars=10_000)
+        rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: answer, id(PROPOSAL_SCHEMA): lambda ctx: EMPTY},
+                           limits=capped)
+        run(store, rt)
+        [offered] = _label_contexts(rt)
+        iid = intents.intent_id("cheapest food order")
+        assert iid not in offered and new["id"] not in intents.labels(store)
+        status, error = store.db.conn.execute("SELECT status, error FROM learning_jobs WHERE source_ref = ?",
+                                              ("label:" + new["id"],)).fetchone()
+        assert status == "failed" and f"{iid} (cheapest food order)" in error and "wasn't shown" in error
+    finally:
+        db.close()

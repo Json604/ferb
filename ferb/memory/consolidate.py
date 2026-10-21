@@ -190,17 +190,21 @@ class Consolidator:
             task = Task('label-' + c['id'], None, 'memory intent label', 'local', Identity.OWNER, set(), 'verifier',
                         'sleep', [], None)
             try:
-                ctx = encoded({'episode': card_digest(c), 'intents': _fit_intents(c, known, system, limits, rt.name)})
+                fitted = _fit_intents(c, known, system, limits, rt.name)
+                ctx = encoded({'episode': card_digest(c), 'intents': fitted})
                 answer = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence',
                                                         INTENT_SCHEMA, role='intent', spans=self.spans,
                                                         usage=self.usage))
-                node = intents.label(l, c, answer, {i['id']: i for i in known}, maker)
+                node = intents.label(l, c, answer, {i['id']: i for i in known}, maker, {i['id'] for i in fitted})
                 known = intents.counted(known, node['body'], c)
                 self._job('label:' + c['id'], LABEL_JOB, None)
                 results.append({'label': c['id']})
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                if l.forgotten(c['id']):             # the owner forgot it during the call: no job names it (M1)
+                    results.append({'label': c['id'], 'forgotten': True})
+                    continue
                 # an answer refused by code or outside the schema, or a card too large for any call: waits; the call
                 # itself failed (the service, the connection, a timeout, the runtime): the next pass
                 error = l.redact(f'{type(e).__name__}: {e}')
@@ -293,8 +297,14 @@ class Consolidator:
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            if not self._labelled(intent):           # every run forgotten during the call: no job names it (M1)
+                results.append({'intent': intent, 'forgotten': True})
+                return True
             return self._intent_job(intent, group if _waits(e) else group + RETRY, l.redact(f'{type(e).__name__}: {e}'),
                                     results)
+        if not self._labelled(intent):
+            results.append({'intent': intent, 'forgotten': True})
+            return True
         results.append({'intent': intent, 'episodes': sent, 'accepted': accepted, 'refused': refused}
                        | ({'requarantined': requarantined} if requarantined else {}))
         if proposals.get('procedures') and len(why) == len(proposals['procedures']):
@@ -336,6 +346,14 @@ class Consolidator:
         if any('intent' in r for r in procedures['rejected_by_owner']):     # a procedure of it the owner turned down
             out['procedure_rejected'] = True
         return out
+
+    def _labelled(self, intent: str) -> bool:
+        """Whether a current card still carries this intent's label (a forget during its call may have taken them
+        all)."""
+        return self.learning.db.conn.execute(
+            "SELECT 1 FROM learning_nodes WHERE kind = ? AND valid_to IS NULL AND state NOT IN ('retired', "
+            "'rolled_back') AND json_extract(body_json, '$.intent_id') = ? LIMIT 1",
+            (intents.INTENT_KIND, intent)).fetchone() is not None
 
     def _intent_job(self, intent: str, inputs: str, error: str | None, results: list[dict[str, Any]]) -> bool:
         if error:
