@@ -58,6 +58,9 @@ class Forgotten:
     # forget deletes them: a task was given the item only through the item itself or a node whose body restates it
     through: dict[str, set[str]] = field(default_factory=dict)
     node_texts: dict[str, list[str]] = field(default_factory=dict)
+    # the line rules (its rare words and the tasks it reaches) the first `finish` settled: the scrub run again for a
+    # job running at the forget uses the same, kept in memory only (fix wave 6a)
+    lines: Any = field(default=None, repr=False)
 
     @property
     def phrases(self) -> list[str]:
@@ -234,8 +237,11 @@ SUMMARY_KIND = "chat.summary"
 
 def finish(db: Any, forgotten: Forgotten) -> Scrubbed:
     """A forget's work after its deletion: `scrub`, then the running summaries that folded a row written with the item
-    or rewritten here (or a summary built on one: they are rebuilt from what remains), then an emptied WAL."""
-    lines = settle(db, forgotten)
+    or rewritten here (or a summary built on one: they are rebuilt from what remains), then an emptied WAL. Run again
+    (a task or chat turn running at the forget ended), it keeps the rules it settled the first time."""
+    if forgotten.lines is None:
+        forgotten.lines = settle(db, forgotten)
+    lines = forgotten.lines
     written = given(db, forgotten) | stating(db, forgotten)
     out = scrub(db, forgotten, lines)
     _drop_folded(db, written | set(out.rewritten))

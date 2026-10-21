@@ -3,6 +3,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
+from functools import partial
 import os
 import signal
 import subprocess
@@ -129,6 +130,17 @@ def mcp_shim_command() -> list[str]:
 def _named_node(node: dict[str, Any]) -> str:
     """How FERB names a learned item to the owner in a "Forget for good?" question; a forget of it scrubs this too."""
     return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
+
+
+class _Rescrub:
+    """A forget's echo scrub to run again as each task or chat turn that was running at the forget ends (fix wave 6a):
+    what those record after the scrub (spans, answer, records, chat reply) loses the item too. `work` runs the same
+    scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho); it is kept in memory only, never
+    written down, until the last job in `waiting` ends. `queued`: a run is waiting to start, and will see what a job
+    ending now recorded."""
+
+    def __init__(self, work: Callable[[], Awaitable[None]], waiting: set[asyncio.Task[Any]]) -> None:
+        self.work, self.waiting, self.queued = work, waiting, False
 
 
 class _PurgePlan(NamedTuple):
@@ -274,6 +286,7 @@ class Daemon:
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
         self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
+        self._rescrubs: set[_Rescrub] = set()           # forgets waiting for jobs running at them to end (fix wave 6a)
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -420,6 +433,7 @@ class Daemon:
             self.supervisor.suspend_plans()
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs, "task turns")
+        await self._settle_forgets()                         # a scrub run again for a task that just stopped
         if self.supervisor:                                  # learning captures: cancelled, journaled as deferred
             await self.supervisor.stop_episodes()
         self._stop_card_readers()                            # e.g. one a verdict is waiting on
@@ -1471,8 +1485,35 @@ class Daemon:
         """A forget's deletions, now, on the event loop; its echo scrub then runs in a worker thread on a connection of
         its own (`_finish_forget`, review minor), and a chat turn waits for it first (`_settle_forgets`)."""
         plan = self.memory.forget(item_id, keep_sources, finish=False)
-        self._after_forgets(lambda: self._finish_forget(plan))
+        self._forget_scrub(lambda: self._finish_forget(plan))
         return plan
+
+    def _forget_scrub(self, work: Callable[[], Awaitable[None]]) -> None:
+        """A forget's echo scrub, now (behind those still running), and again as each task or chat turn running at the
+        forget ends, after its last record (a task's `task_results` row is written inside its job): what it recorded
+        after the scrub loses the item too (`_Rescrub`). Unrelated rows are untouched: the scrub's rules are the same."""
+        self._after_forgets(work)
+        running = {job for job in self._turns | self._runs if not job.done()}
+        if running:
+            again = _Rescrub(work, running)
+            self._rescrubs.add(again)
+            for job in running:
+                job.add_done_callback(partial(self._ran_at_a_forget, again))
+
+    def _ran_at_a_forget(self, again: _Rescrub, job: asyncio.Task[Any]) -> None:
+        """A job that was running at a forget ended: its scrub runs again (one queued run covers jobs ending before it
+        starts); once none is left, the forget's rules are let go."""
+        again.waiting.discard(job)
+        if not again.waiting:
+            self._rescrubs.discard(again)
+        if again.queued:
+            return
+        again.queued = True
+
+        async def run() -> None:
+            again.queued = False
+            await again.work()
+        self._after_forgets(run)
 
     def _after_forgets(self, work: Callable[[], Awaitable[None]]) -> None:
         """A forget's echo scrub, queued behind those still running: one at a time, so two never rewrite the same row
@@ -1526,7 +1567,7 @@ class Daemon:
                                {v: at for g in gone for v, at in g[2].items() if v in deleted},
                                {v: text for g in gone for v, text in g[3].items() if v in deleted})
         if echo.naming:
-            self._after_forgets(lambda: self._finish_node_forget(echo))
+            self._forget_scrub(lambda: self._finish_node_forget(echo))
         return deleted
 
     async def _finish_node_forget(self, echo: Any) -> None:
