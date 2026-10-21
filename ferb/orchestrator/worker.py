@@ -78,15 +78,16 @@ def retry_stall_problem(runtime: str, message: str, stall_s: float) -> str:
             f"Its last word: {message.rstrip('.')}.")
 
 
-def connection_lost(runtime: str, message: str) -> str:
+def connection_lost(runtime: str, message: str, task: bool = True) -> str:
     """The owner's line the moment a run's AI service connection drops and the runtime retries it itself (fix wave 7;
     owner 2026-10-21: "it should be instant"): the offline sentence when this Mac has no network route, else the
-    service and its own words."""
+    service and its own words. `task`: a task's run carries on; a chat turn with no task yet answers when it's back."""
     from ferb.sense import network as route
     if route.has_route() is False:
         return "Your Mac seems to be offline: I'll carry on when it's back."
     said = f" It said: {message.rstrip('.')}." if message else ""
-    return f"Lost the connection to the AI service I use ({runtime}); it's retrying and the task carries on.{said}"
+    goes_on = "it's retrying and the task carries on" if task else "it's retrying, and I'll answer when it's back"
+    return f"Lost the connection to the AI service I use ({runtime}); {goes_on}.{said}"
 
 
 class ConnectionNotice:
@@ -95,14 +96,14 @@ class ConnectionNotice:
     reconnected. `tell` puts a `progress` event, marked `connection: lost|back`, where that work's live line goes."""
 
     def __init__(self, runtime: str, tell: Callable[[dict[str, Any]], None], now: Callable[[], str],
-                 redact: Callable[[str], str]) -> None:
-        self.runtime, self.tell, self.now, self.redact = runtime, tell, now, redact
+                 redact: Callable[[str], str], task: bool = True) -> None:
+        self.runtime, self.tell, self.now, self.redact, self.task = runtime, tell, now, redact, task
         self.lost = False
 
     def retrying(self, message: str) -> None:
         if not self.lost:
             self.lost = True
-            self._say("lost", connection_lost(self.runtime, message))
+            self._say("lost", connection_lost(self.runtime, message, self.task))
 
     def back(self) -> None:
         if self.lost:
@@ -396,8 +397,8 @@ class WorkerRuns:
         self._active[run.id] = (rt, run)
         if notify is None and tree is not None:
             notify = partial(self._tell_tree, tree.id)
-        notice = (ConnectionNotice(rt.name, notify, lambda: self.clock.now().isoformat(), self.gateway.redact)
-                  if notify is not None else None)
+        notice = (ConnectionNotice(rt.name, notify, lambda: self.clock.now().isoformat(), self.gateway.redact,
+                                   task=tree is not None) if notify is not None else None)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)
             if notice is not None:

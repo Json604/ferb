@@ -387,7 +387,8 @@ or live-tested):
 - When Codex starts retrying a dropped connection during work you're waiting on (a message being planned, a task's
   worker or check), the live line says so the moment it happens: "Your Mac seems to be offline: I'll carry on when
   it's back." when the Mac has no network route, otherwise "Lost the connection to the AI service I use (codex); it's
-  retrying and the task carries on." with Codex's own words. Before, you learned only if the run later stalled or
+  retrying and the task carries on." with Codex's own words (in a plain chat reply: "…it's retrying, and I'll answer
+  when it's back."). Before, you learned only if the run later stalled or
   failed. Further retries stay quiet; when the run moves again, one line says it reconnected, and the task goes on.
   `ferb chat` prints both lines. A worker or check that only retries still stops after 3 minutes, as before.
 - Background work (scheduled and watch checks, learning, the attention check) records the retry in its trace and tells

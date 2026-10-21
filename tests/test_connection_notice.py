@@ -16,6 +16,8 @@ from tests.conftest import FakeRuntime, RunningDaemon, done, install, outcome, s
 RETRY = "Codex is retrying after an error: Reconnecting... {}/5 (responseStreamDisconnected)"
 LOST = ("Lost the connection to the AI service I use (fake); it's retrying and the task carries on. "
         "It said: Codex is retrying after an error: Reconnecting... 1/5 (responseStreamDisconnected).")
+LOST_NO_TASK = ("Lost the connection to the AI service I use (fake); it's retrying, and I'll answer when it's back. "
+                "It said: Codex is retrying after an error: Reconnecting... 1/5 (responseStreamDisconnected).")
 OFFLINE = "Your Mac seems to be offline: I'll carry on when it's back."
 BACK = "Reconnected to the AI service I use (fake)."
 
@@ -124,11 +126,12 @@ def test_the_final_checker_tells_the_owner_too(daemon: RunningDaemon, monkeypatc
 
 def test_the_planner_turn_tells_the_owner_before_its_reply(daemon: RunningDaemon,
                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    """No task exists yet: the notice is the turn's live line, without a task id."""
+    """No task exists yet: the notice is the turn's live line, without a task id, and it promises an answer, not a
+    task (review 1)."""
     _retrying_first(monkeypatch, "supervisor", "1", "2")
     install(daemon, [sup("reply", "Hi! What can I do?")])
     events = _events(daemon, "hi")
-    assert _notices(events) == [("lost", LOST), ("back", BACK)]
+    assert _notices(events) == [("lost", LOST_NO_TASK), ("back", BACK)]
     assert not any(e.get("task_id") for e in events if e["type"] == "progress")
     kinds = [e.get("connection") or e["type"] for e in events]
     assert kinds.index("lost") < kinds.index("back") < kinds.index("reply")

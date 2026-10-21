@@ -530,7 +530,7 @@ route). Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeo
 a `ConnectionNotice`, whose first retry of an outage puts a `progress` line marked `connection: "lost"` where that
 work's live line goes (`worker.connection_lost`: "Your Mac seems to be offline: I'll carry on when it's back." with no
 network route, else "Lost the connection to the AI service I use (codex); it's retrying and the task carries on." and
-the service's words). Further retries stay quiet; the run's next event other than a retry, an error or a violation, or
+the service's words; in a chat turn with no task yet, "…it's retrying, and I'll answer when it's back."). Further retries stay quiet; the run's next event other than a retry, an error or a violation, or
 a tool call it starts (`tool_progress`, before that call's own line), puts one `connection: "back"` line ("Reconnected
 to the AI service I use (codex)."). A task's runs (worker, checker, next-attempt and question choices, conversation
 turns) tell their tree's queue; the planner's chat turn tells its own stream (`_supervise(notify=…)`, no task id yet).

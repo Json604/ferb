@@ -133,7 +133,8 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
 - A `progress` with `connection: "lost"` or `"back"` is FERB's own line about its AI service (fix wave 7): the first
   error the service retries itself in a run the owner waits on ("Your Mac seems to be offline: I'll carry on when
   it's back." with no network route, else "Lost the connection to the AI service I use (codex); it's retrying and the
-  task carries on." and the service's own words), and once that run gets a real event again or starts a tool call,
+  task carries on." and the service's own words; "…it's retrying, and I'll answer when it's back." during the
+  planner's turn), and once that run gets a real event again or starts a tool call,
   "Reconnected to the AI service I use (codex).". Once per outage per run; `started_at` is when it was said. During
   the planner's turn, before any task exists, it has no `task_id`. Show it as the live line; `ferb chat` prints it.
 - Task ids: `plan`, `progress` and `outcome` carry the tree id. `subtask` and `verification` carry the step's own task
