@@ -51,23 +51,34 @@ def digest(value: Any) -> str:
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
 
-def redacted_json(redact: Callable[[str], str], value: Any) -> Any:
-    """`value` with its secrets redacted, still JSON (rule 14), or LearningRefused. In order, the first that parses:
-    1. its encoded text redacted whole, which also catches a secret its key labels ("password":"…") or that spans
-       items (a private key's lines);
+def spaced(value: Any) -> str:
+    """`value` as JSON with a space after each ',' and ':', as `redacted_json` reads it: the redactor reads text as
+    prose, and in compact JSON a word near a string's end ("Pin", "Token", "password") would label a "value" running
+    across the following keys to the next space (L29 re-review R1)."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(', ', ': '), default=str)
+
+
+def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[str] = ()) -> Any:
+    """`value` with its secrets redacted, still JSON (rule 14), or LearningRefused. Every whole-text pass reads it
+    `spaced` (stored compact). In order, the first that parses:
+    1. its text redacted whole, which also catches a secret its key labels ("password": "…") or that spans items (a
+       private key's lines);
     2. when that broke the JSON (a redaction inside a number: a card-like number, a registered value within one), the
        same whole text with every number and boolean written as a string: back in the value's shape, each number or
        boolean whose text changed becomes REDACTED; when the redaction changed the shape, that parse as it stands
        (strings where the numbers were);
-    3. else each value redacted together with its key (the `"key":value` text as one unit, nested values in turn, a
+    3. else each value redacted together with its key (the `"key": value` text as one unit, nested values in turn, a
        list's strings also joined, so a private key split across items is caught), REDACTED where that doesn't parse.
-    Last, the text to be stored is redacted once more: when that would still change it (a secret only a wider context
-    shows, or one the numbers-as-strings pass hid), it is refused, as before this helper existed (L29 re-review N1)."""
+    Then each string is redacted on its own too, as the prose it is: inside JSON the redactor misses a secret that
+    ends a string ("my password is sunshine" followed by another key). Last, the result is checked: redacted once more
+    as a whole it must not change, and the compact text to be stored must hold none of the owner's registered secret
+    `secrets` (one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`, matches only there). Else it is
+    refused, as before this helper existed (L29 re-review N1, R1)."""
     try:
-        out = json.loads(redact(encoded(value)))
+        out = json.loads(redact(spaced(value)))
     except ValueError:
         try:
-            seen = json.loads(redact(encoded(_quoted(value))))
+            seen = json.loads(redact(spaced(_quoted(value))))
         except ValueError:
             out = _units(redact, value, None)
         else:
@@ -75,10 +86,20 @@ def redacted_json(redact: Callable[[str], str], value: Any) -> Any:
                 out = _restored(value, seen)
             except ValueError:
                 out = seen
-    text = encoded(out)
-    if redact(text) != text:
-        raise LearningRefused('could not be stored with its secrets removed')
+    out = _strings_alone(redact, out)
+    text, stored = spaced(out), encoded(out)
+    if redact(text) != text or any(secret and secret in stored for secret in secrets):
+        raise LearningRefused('could not be stored safely: redaction would still change it')
     return out
+
+
+def _strings_alone(redact: Callable[[str], str], value: Any) -> Any:
+    """`value` with each string redacted on its own."""
+    if isinstance(value, dict):
+        return {k: _strings_alone(redact, v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_strings_alone(redact, v) for v in value]
+    return redact(value) if isinstance(value, str) else value
 
 
 def _quoted(value: Any) -> Any:
@@ -131,7 +152,7 @@ def _unit(redact: Callable[[str], str], key: str | None, value: Any) -> Any:
     if not isinstance(value, (str, bool, int, float)) and value is not None:
         value = str(value)
     try:
-        seen = json.loads(redact(encoded(value if key is None else {key: value})))
+        seen = json.loads(redact(spaced(value if key is None else {key: value})))
     except ValueError:
         return REDACTED
     if key is not None:
@@ -177,6 +198,8 @@ class Learning:
         self.embedder: Any = None
         # where a problem the owner should be able to find later is recorded (the daemon: its journal)
         self.note: Callable[[str, dict[str, Any]], Any] = publish
+        # the owner's registered secret values (the daemon: its Redactor's), checked in the exact text stored
+        self.secret_values: Callable[[], Iterable[str]] = lambda: ()
         # Bumped by every change to an episode card's inputs (a forget, an owner verdict, a write of a card): a card
         # read before one is read again before it is written (L28).
         self.generation = 0
@@ -279,7 +302,7 @@ class Learning:
             raise LearningRefused('the owner said this suggestion was not right')
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
-        body = redacted_json(self.redact, body)
+        body = redacted_json(self.redact, body, self.secret_values())
         key = self.redact_id(key) if kind in ID_KEYED else self.redact(key)
         refs = sorted(set(sources))
         labels = set(labels) if labels is not None else self.labels(refs)
@@ -584,10 +607,10 @@ class Learning:
                                     (ep['key'],)).fetchone()
         successful = ep['body'].get('verified') is True and not (last and last[0] == 'fail')
         # the slot values are model-written (the planner's, L29, or a proposal's examples): redacted like a node's body
+        values = redacted_json(self.redact, slots or ep['body'].get('slots') or {}, self.secret_values())
         self.db.conn.execute('INSERT INTO learning_receipts VALUES (?,?,?,?,?) ON CONFLICT(procedure_id,episode_id) '
                              'DO UPDATE SET successful=excluded.successful',
-            (procedure_id, episode_id, encoded(redacted_json(self.redact, slots or ep['body'].get('slots') or {})),
-             int(successful), ep['recorded_at']))
+            (procedure_id, episode_id, encoded(values), int(successful), ep['recorded_at']))
         self._refresh(procedure_id, None)
 
     def _refresh(self, node_id: str, apps: dict[str, str] | None) -> dict[str, Any]:

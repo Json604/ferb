@@ -403,7 +403,7 @@ def test_redacted_json_falls_back_value_by_value_when_structure_breaks():
     assert redacted_json(quote_eating, {'a': 17, 'b': 'tok', 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x7'}) == \
         {'a': REDACTED, 'b': REDACTED, 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x#'}
     assert redacted_json(lambda t: t, {'a': 17, 'b': 'x7'}) == {'a': 17, 'b': 'x7'}       # no redaction: unchanged
-    with pytest.raises(LearningRefused, match='secrets removed'):                          # never stable: refused
+    with pytest.raises(LearningRefused, match='stored safely'):                            # never stable: refused
         redacted_json(lambda t: t + ' ', {'a': 1})
 
 
@@ -454,8 +454,134 @@ def test_a_secret_that_spans_two_numbers_is_refused_rather_than_stored(tmp_path)
     redactor = Redactor()
     redactor.add_secret_value('1234,5678')
     store = Learning(db, Clock(), lambda *args: None, redactor.text)
+    store.secret_values = redactor.secret_values                   # as the daemon wires it
     try:
-        with pytest.raises(LearningRefused, match='secrets removed'):
+        with pytest.raises(LearningRefused, match='could not be stored safely: redaction would still change it'):
             store.put('lesson', 'k', {'a': [1234, 5678]}, [], made_by='model:test')
     finally:
         db.close()
+
+
+# L29 fix round 3 (re-review R1): ordinary cards and procedures are stored ---------------------------------------
+
+def _ordinary_card():
+    """An episode card shaped as `prepare_episode` writes one (a WhatsApp reply)."""
+    return {'task_id': '4b1f9c2e-7a3d-4e8b-9c1a-2f3e4d5c6b7a', 'request': 'reply to Alex in the FERB test group',
+            'intent': 'reply on WhatsApp', 'slots': {}, 'apps': {'net.whatsapp.WhatsApp': '24.20.79'},
+            'app_versions_captured': True, 'app_version_scope': 'identified apps and browser inventory',
+            'surfaces': {'gui.click': 2, 'gui.read': 1},
+            'actions': [{'id': '9d8c7b6a-5f4e-4d3c-2b1a-0f9e8d7c6b5a', 'tool': 'gui.click',
+                         'args': {'app': 'net.whatsapp.WhatsApp', 'text': 'FERB test group'}, 'kind': 'act',
+                         'outside_action': False, 'arg_sources': {'text': ['owner']}, 'error': None,
+                         'result': {'ok': True}},
+                        {'id': '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', 'tool': 'gui.click',
+                         'args': {'app': 'net.whatsapp.WhatsApp', 'text': 'Reply'}, 'kind': 'act',
+                         'outside_action': False, 'arg_sources': {'text': ['ferb']}, 'error': None,
+                         'result': {'ok': True}}],
+            'status': 'done', 'verified': True, 'conditions': [],
+            'feedback': [{'verdict': 'pass', 'note': 'good', 'at': '2026-10-21T10:15:00+05:30'}],
+            'narrative': 'Replied to Alex in FERB test group.', 'problems': [],
+            'started_at': '2026-10-21T10:12:03+05:30', 'ended_at': '2026-10-21T10:12:41+05:30',
+            'usage': {'input_tokens': 18234, 'output_tokens': 912}}
+
+
+# Ordinary UI and request text that reads like a labelled secret in compact JSON (the reviewer's corpus)
+_ORDINARY = ['Pin message', 'Pin', 'Unpin', 'Pin chat', 'Pinned the message.', 'Token usage', 'Show password',
+             'Forgot password?', 'Change password', 'Reset your password here', 'Session expired', 'Enter OTP',
+             'Resend OTP', 'API keys', 'Copy API key', 'Secret Santa', 'Security key', 'Passkey', 'Enter PIN',
+             'UPI PIN', 'Wrong password', 'Type your password here', "I couldn't find the password field.",
+             'The session ended before the message was pinned.', 'Rotated the API key for staging.',
+             'Opened the token settings page.', 'Saved the secret santa list to Notes.',
+             'Turned on 2FA with an authenticator app.', 'The login page asked for a code; I stopped.', 'Pin the tab',
+             'pin the message from Alex', 'change my netflix password', "what's my token usage",
+             'open the secret santa list', 'reset the router password', 'show my API keys page']
+_FIELDS = {'request': lambda b, t: b.__setitem__('request', t),
+           'intent': lambda b, t: b.__setitem__('intent', t),
+           'click text': lambda b, t: b['actions'][1]['args'].__setitem__('text', t),
+           'narrative': lambda b, t: b.__setitem__('narrative', t),
+           'problems': lambda b, t: b.__setitem__('problems', [t]),
+           'feedback note': lambda b, t: b['feedback'][0].__setitem__('note', t)}
+
+
+def test_ordinary_cards_are_never_refused():
+    """Re-review R1: compact JSON read as prose ran a label ("Pin", "Token", "password") across the following keys to a
+    value with digits, so the final check refused ordinary cards (WhatsApp's "Pin message", "Pin chat"). The whole-text
+    passes and the check read JSON with a space after ',' and ':': none of the 216 is refused."""
+    from ferb.memory.learning import redacted_json
+    from ferb.sanitize.redact import Redactor
+    redactor = Redactor()
+    refused = []
+    for text in _ORDINARY:
+        for field, place in _FIELDS.items():
+            body = _ordinary_card()
+            place(body, text)
+            try:
+                redacted_json(redactor.text, body, redactor.secret_values())
+            except LearningRefused:
+                refused.append((field, text))
+    assert refused == []
+
+
+@pytest.mark.parametrize('click', ['Pin message', 'Pin chat', 'Token usage'])
+def test_a_whatsapp_card_with_a_pin_click_is_stored(tmp_path, click):
+    """The production path (`Learning.put`, a real Redactor as the daemon wires it): the card is stored, its click
+    text as written."""
+    from ferb.sanitize.redact import Redactor
+    db = Database(tmp_path / 'memory.db')
+    db.migrate()
+    redactor = Redactor()
+    store = Learning(db, Clock(), lambda *args: None, redactor.text)
+    store.secret_values = redactor.secret_values
+    body = _ordinary_card()
+    body['actions'][1]['args']['text'] = click
+    try:
+        node = store.put('episode', body['task_id'], body, [], origin_label='ferb', made_by='code:evidence-card/2',
+                         state='active')
+        assert node['body']['actions'][1]['args']['text'] == click
+    finally:
+        db.close()
+
+
+def test_procedures_for_pinning_a_message_and_token_usage_are_stored(tmp_path):
+    """Model-written procedures (`Learning.put` as `propose_procedure` stores them) whose steps click "Pin message" or
+    "Token usage" are stored unchanged."""
+    from ferb.sanitize.redact import Redactor
+    db = Database(tmp_path / 'memory.db')
+    db.migrate()
+    redactor = Redactor()
+    store = Learning(db, Clock(), lambda *args: None, redactor.text)
+    store.secret_values = redactor.secret_values
+    ev = ['9d8c7b6a-5f4e-4d3c-2b1a-0f9e8d7c6b5a', '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d']
+    bodies = [
+        {'intent': 'pin a WhatsApp message', 'slots': {'chat': 'string'},
+         'preconditions': {'apps': {'net.whatsapp.WhatsApp': '24.20.79'}},
+         'steps': [{'tool': 'gui.click', 'args': {'text': '{chat}'}, 'expect': 'chat open', 'optional': False,
+                    'evidence': ev[:1]},
+                   {'tool': 'gui.click', 'args': {'text': 'Pin message'}, 'expect': 'pinned', 'optional': False,
+                    'evidence': ev[1:]}],
+         'ui_hints': 'Right-click the message, then Pin message.',
+         'examples': [{'episode': 'm-' + 'a1' * 32, 'slots': {'chat': 'FERB test group'}}]},
+        {'intent': 'check API token usage', 'slots': {}, 'preconditions': {'apps': {}},
+         'steps': [{'tool': 'browser.navigate', 'args': {'url': 'https://platform.example.com/usage'},
+                    'expect': 'usage page', 'optional': False, 'evidence': ev[:1]},
+                   {'tool': 'browser.click', 'args': {'text': 'Token usage'}, 'expect': 'chart', 'optional': False,
+                    'evidence': ev[1:]}],
+         'ui_hints': '', 'examples': [{'episode': 'm-' + 'b2' * 32, 'slots': {}}]}]
+    try:
+        for body in bodies:
+            node = store.put('procedure', body['intent'], body, [], made_by='model:test|prompt:1')
+            assert node['body'] == body
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize('body', [{'args': {'text': 'my password is sunshine'}, 'error': None},
+                                  {'text': 'my password is sunshine'},
+                                  {'items': ['my wifi password is sunshine', 'Reply'], 'n': 3}])
+def test_a_secret_ending_a_string_is_redacted(redacting, body):
+    """Inside JSON text the redactor misses a secret that ends a string (it is caught in compact JSON only when another
+    key follows, by accident, and never with a space after ','): each string is also redacted on its own."""
+    store, _ = redacting
+    node = store.put('lesson', 'k', body, [], made_by='model:test')
+    text = json.dumps(node['body'])
+    assert 'sunshine' not in text and 'password is [redacted]' in text

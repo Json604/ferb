@@ -1,9 +1,11 @@
 """Owns each episode card's intent label (L29): what kind of task it was, as the learning model reads it, and the list
 labels are chosen from. Must not decide sameness itself (R2): the model labels; code checks the answer's shape and
 types and stores it as the card's own `episode_intent` node (keyed by the card's node id, its only source the card),
-so forgetting a card removes only its label. The intent list is derived from the current cards' labels. A card read
-again (a new node of the same task) keeps its task's label (`carry_forward`), and a superseded card's label is closed.
-Labels are the learner's bookkeeping: search never recalls them (`Learning.search`)."""
+so forgetting a card removes only its label. A label that reuses an intent copies its name and description (they
+describe the kind of task, not that run), so forgetting the run that first wrote them leaves that text in the intent's
+other labels and its planner line (accepted residual, 2026-10-21). The intent list is derived from the current cards'
+labels. A card read again (a new node of the same task) keeps its task's label (`carry_forward`), and a superseded
+card's label is closed. Labels are the learner's bookkeeping: search never recalls them (`Learning.search`)."""
 import json
 from typing import Any, Iterable
 
