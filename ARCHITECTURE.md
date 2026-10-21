@@ -886,18 +886,18 @@ even all of them wouldn't), so the highest-priority calls are shown whole beside
 marker. With one run, or runs in disjoint priority bands (every current caller), no block is left out while
 lower-priority markers that could make room for it are listed; when runs interleave in priority, folding stays lowest
 first and a run's first fold also costs its note, so a block can be left out that folding only some of those markers
-would have fitted (L29 Task 5 fix round 1; a context without a run assembles byte for byte as before,
-checked against the earlier `assemble` in random
-trials, `tests/support/context_reference.py`). Which stay when space runs out: every action first (its record is the only
-evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
-re-establish current state), newest first within each, the latest being closest to the final state; all above the
-context's other optional blocks (their highest priority plus one). A record is shown up to its page or left out
-whole, never cut to fit. The blocks carry no `origin`, so no `context.exposure` copy is written: the records are this
-tree's own tool calls, whose origins `task_origins` already holds; the checker's recorded `context` keeps them like
-any model input, and a forget scrubs spans as before. [`verifier.md`](ferb/orchestrator/prompts/verifier.md) says the
-calls are in context and `task_evidence` is for a record cut or left out, the root's intake, context, cleanup and
-disturbance records, and searches. A scripted complete check of 53 recorded calls (50 short, 3 of about 30,000
-characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`).
+would have fitted (L29 Task 5 fix round 1; a context without a run assembles byte for byte as before, checked against
+the earlier `assemble` in random trials, `tests/support/context_reference.py`). Which stay when space runs
+out: every action first (its record is the only evidence of what was done, sent or edited; no fresh read recovers
+it), then observations (a fresh read can also re-establish current state), newest first within each, the latest
+being closest to the final state; all above the context's other optional blocks (their highest priority plus one).
+A record is shown up to its page or left out whole, never cut to fit. The blocks carry no `origin`, so no
+`context.exposure` copy is written: the records are this tree's own tool calls, whose origins `task_origins` already
+holds; the checker's recorded `context` keeps them like any model input, and a forget scrubs spans as before.
+[`verifier.md`](ferb/orchestrator/prompts/verifier.md) says the calls are in context and `task_evidence` is for a
+record cut or left out, the root's intake, context, cleanup and disturbance records, and searches. A scripted
+complete check of 53 recorded calls (50 short, 3 of about 30,000 characters) needed 62 `task.evidence` calls before
+and 6 now (`tests/test_checker_recorded_calls.py`).
 A check whose model window overflowed runs once more without the recorded calls, as checks ran before fix wave 6b
 (round 1, ruling 7): `_run_worker_once` returns `Overflowed` (an `Outcome`) for FERB's `InputTooLarge` and for a
 `ContextOverflow`, the runtime's window-exceeded error as its adapter marks it (`overflow` on the error event).
@@ -1584,7 +1584,18 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   planner exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence
   (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
   source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
-  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/2`.
+  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/3`.
+- **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` unless its kind reads
+  (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the gateway's vocabulary
+  (`policy/provenance.py`): a key with `owner_words` or `owner_answer` (or a literal `owner`, from old rows) is the
+  owner's; `unknown` (in neither the owner's words nor outside content: FERB's or the model's choice) is not outside,
+  as confirmations read it; any other label (an outside origin, or one it doesn't know) on a key without an owner label
+  is outside; no `arg_sources` at all is outside (fail-safe). Before, it tested origin labels (`owner`, an outside
+  rank) that the gateway never records, so every targeted action was outside; composer 3 reads such cards again once.
+  Reversible kinds (browser, GUI) record no `arg_sources` (`gateway.py`, consequential kinds only), so their steps
+  stay outside: a procedure using them is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm`:
+  candidate, then refreshed, so learned at once when its receipts qualify). Recording provenance for every action is
+  the owner's decision (friction against memory poisoning).
 - **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
   (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
   keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later

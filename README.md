@@ -629,13 +629,16 @@ optional and must reproduce the runs that cite it; every other step must reprodu
 learned after three verified successes across two slot values, with the latest on current captured app versions.
 The planner is shown every procedure it may use, whatever words you use, as data: its kind of task's name and
 description and its slots (the most recently used kinds first, as many as fit its window); it picks one by meaning
-and gives this request's value for each slot, which code checks against the slot's type (values that don't fit are
-noted in the task's trace and left out) and the run's receipt keeps (L29). The worker then starts from that procedure,
+and gives this request's value for each slot, which code checks against the slot's type (if any value is missing or
+of the wrong type, the values are noted in the task's trace and left out, and the procedure is used with its blanks)
+and the run's receipt keeps (L29). The worker then starts from that procedure,
 as data: its steps with this request's values filled in (a blank without a value is left for the worker to fill from
 your request), the lessons learned from that kind of task, and the tool calls of its latest verified runs, newest first,
 as many as fit the model's window (L29). Procedures still require step checks and final verification.
-Outside-derived action/destination steps are quarantined until confirmed; reading an outside page alone does not
-quarantine a procedure. An app update sends a learned procedure back to candidate until it succeeds on the new
+Outside-derived action/destination steps are quarantined until confirmed (`ferb memory confirm <id>`): a target
+found only in outside content, or a step that records no target provenance (browser and screen actions record none);
+a target you typed or answered, or one FERB chose, is not outside. Reading an outside page alone does not quarantine
+a procedure. An app update sends a learned procedure back to candidate until it succeeds on the new
 version; two consecutive failures mark it suspect. A suggestion you turned down ("Not right") is not proposed again.
 Old episodes without captured app versions cannot establish the current-version requirement.
 

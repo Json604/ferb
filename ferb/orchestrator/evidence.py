@@ -192,11 +192,11 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
     priority (L29 Task 5 fix round 1). Which stay whole when space runs out: every action first, since its record is
     the only evidence of what was done, sent or edited (no fresh read recovers it), then observations, whose current
     state a fresh read can also re-establish; newest first within each, the latest being closest to the final state.
-    All of them come before the context's other optional blocks (`above`, their
-    highest priority plus one). `redact`: the gateway's, applied to each shown page as to every task.evidence page the
-    gateway returns (rule 14, round 1 M1): a value sealed after the call was recorded is masked here too; it runs after
-    the page is cut, so offsets stay on the stored text, as they do for task.evidence. `secrets`: the values FERB knows
-    as secrets now; a page ends before one it would split, as task.evidence's pages do (`page_bounds`, round 2 N2)."""
+    All of them come before the context's other optional blocks (`above`, their highest priority plus one). `redact`:
+    the gateway's, applied to each shown page as to every task.evidence page the gateway returns (rule 14, round 1
+    M1): a value sealed after the call was recorded is masked here too; it runs after the page is cut, so offsets stay
+    on the stored text, as they do for task.evidence. `secrets`: the values FERB knows as secrets now; a page ends
+    before one it would split, as task.evidence's pages do (`page_bounds`, round 2 N2)."""
     runs, found = 0, []
     after: int | None = 0
     while after is not None:

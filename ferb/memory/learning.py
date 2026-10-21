@@ -71,7 +71,8 @@ def digest(value: Any) -> str:
 
 
 # Line breaks JSON keeps raw (`ensure_ascii=False`) that a reader of a prompt splits lines at (`str.splitlines`; JSON
-# already escapes the control characters)
+# already escapes the control characters). Escaped only after redaction, at prompt build: the redactor reads the raw
+# text, and an escape would hide a secret's label from it ("otp\x85 482913")
 _LINE_BREAKS = str.maketrans({'\u2028': '\\u2028', '\u2029': '\\u2029', '\x85': '\\u0085'})
 
 
@@ -296,10 +297,10 @@ _NEITHER = 'unknown'                 # found in neither the owner's words nor ou
 def outside_targets(arg_sources: Any) -> bool:
     """Whether an action's targets came from outside content (MP2, F8 quarantine), from the gateway's `arg_sources`
     (key -> labels): a key the owner typed or answered is the owner's; "unknown" is not outside (as confirmations read
-    it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner label
-    is outside. No provenance at all (a reversible kind records none, or a historical action) is never evidence of a
-    safe target: outside. Provenance only, never intent (R2; L29 Task 6 review I1: this read origin labels, so every
-    target looked outside)."""
+    it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner
+    label is outside. No provenance at all (a reversible kind records none, or a historical action) is never evidence
+    of a safe target: outside. Provenance only, never intent (R2; L29 Task 6 review I1: this read origin labels, so
+    every target looked outside)."""
     if not isinstance(arg_sources, dict):
         return True
     return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)

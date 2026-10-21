@@ -1354,19 +1354,26 @@ Fix wave 7 (2026-10-21; pending, checkout tests only so far):
     shows nothing. Delete the file after.
 
 Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
-78. Learning by intent (L29): after `ferb setup --update`, ask FERB three times, on different occasions, for the same
-    kind of task with different values (e.g. "find the cheapest egg curry with breads", then paneer, then dal). A run
-    whose check didn't confirm it, or that you mark `ferb verdict TASK fail`, doesn't count toward the three. Then
-    `ferb memory consolidate`: its output lists a `label` entry per new task and one entry for the kind of task with
-    the three runs under `episodes` and the new procedure's id under `accepted` (if the hourly pass got there first it
-    shows nothing new: go on with the next steps). `ferb stats` counts them under "Learning model calls" (one label
-    call per new task, one consolidation call for the three); `ferb trace label-<card id>` shows a label call (role
-    `intent`) and `ferb trace <the procedure's batch_id>` the consolidation call (role `consolidate`). `ferb memory
-    search egg --kind procedure` (or the memory dashboard) shows a procedure named like the task, state `learned`.
-    Ask a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that procedure
-    (the task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the worker's input
-    has the steps with rajma filled in and the earlier runs' tool calls. Record its tool calls and time against the
-    first three runs (`ferb baseline`).
+78. Learning by intent (L29): after `ferb setup --update`, run `ferb baseline` once, then ask FERB three times, on
+    different occasions, for the same kind of task with different values (e.g. "find the cheapest egg curry with
+    breads", then paneer, then dal). A run whose check didn't confirm it, or that you mark `ferb verdict TASK fail`,
+    doesn't count toward the three. Then `ferb memory consolidate`: its output lists a `label` entry per new task and
+    one entry for the kind of task with the three runs under `episodes` and, among the ids under `accepted`, the new
+    procedure's (the others are run annotations and lessons; if the hourly pass got there first it shows nothing new:
+    go on with the next steps). `ferb stats` "Learning model calls" counts at least these four (one label call per new
+    task, one consolidation call for the three; distillation calls count there too). `ferb trace label-<card id>
+    --full` shows a label call (role `intent`) and `ferb trace <the procedure's batch_id> --full` the consolidation
+    call (role `consolidate`). `ferb memory search egg --kind procedure` (or the memory dashboard) shows a procedure
+    named like the task with its `state` and `batch_id`. A browser task's procedure shows `quarantined`: browser and
+    screen steps record no target provenance, so they count as outside content. Read its steps, then run `ferb memory
+    confirm <procedure id>`; the search should then show `learned` (`Learning.confirm` makes it a candidate and
+    refreshes it: three verified runs with different dishes make it learned). Record which state you saw before and
+    after. Ask a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that
+    procedure (the task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the
+    worker's input has the steps with rajma filled in and the earlier runs' tool calls. For each of the four tasks,
+    count its tool calls with `ferb trace TASK --steps` (one line per tool call) and take its time from the task span
+    in `ferb trace TASK --json` (`started_at` to `ended_at`); record the fourth against the first three, then run
+    `ferb baseline` again for the totals before and after.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
@@ -1405,6 +1412,7 @@ Residuals to know during the week (accepted or recorded, not checks):
 - Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
-- Learning by intent (L29): a procedure you forget is never learned again for that kind of task, and one you turned
-  down blocks any procedure for it; forgetting the run that first named a kind of task leaves that name in its other
-  runs' labels; a procedure whose slot is named like a credential never becomes learned (CHANGELOG lists them all).
+- Learning by intent (L29): a procedure that uses browser or screen steps starts quarantined until you confirm it; a
+  procedure you forget is never learned again for that kind of task, and one you turned down blocks any procedure for
+  it; forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
+  slot is named like a credential never becomes learned (CHANGELOG lists them all).

@@ -630,8 +630,10 @@ This section matters most for an automated campaign. It says exactly what runs u
   episodes; a step some runs skipped is optional and must reproduce the runs that cite it, every other step every
   run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
-  save exploration but never skips gateway checks, step checks or the final check. Procedures with steps that came
-  from outside content are quarantined until the owner confirms. An app update sends a learned procedure back to
+  save exploration but never skips gateway checks, step checks or the final check. Procedures with steps whose
+  targets came from outside content, or that record no target provenance (browser and screen steps), are quarantined
+  until the owner confirms (`ferb memory confirm`); a target the owner typed or answered, or FERB chose, is not
+  outside (L29). An app update sends a learned procedure back to
   candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
   down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
   learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
@@ -647,8 +649,9 @@ This section matters most for an automated campaign. It says exactly what runs u
   its blanks (slots) with their types, its state and where it came from; the most recently used kinds of task first,
   as many as fit the model's window, the rest counted in one note. It chooses one by meaning, the same kind of task
   even in other words, and gives this request's value for each blank; code checks the values against the blanks'
-  types (values that don't fit are noted in the task's trace and left out) and the run's record of the procedure (its
-  receipt) keeps them, so runs with different values count toward "learned" (L29). The worker then gets, as data, the
+  types (if any value is missing or of the wrong type, the values are noted in the task's trace and left out, and the
+  procedure is used with its blanks) and the run's record of the procedure (its receipt) keeps them, so runs with
+  different values count toward "learned" (L29). The worker then gets, as data, the
   chosen procedure's steps with this request's values filled in (a blank without a value stays for the worker to fill
   from the request), the lessons learned from that kind of task, and the tool calls of its latest verified runs (tool,
   arguments, what came back), newest first, as many as fit the model's window, the rest listed or counted in a note;
