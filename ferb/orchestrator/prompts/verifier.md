@@ -20,8 +20,8 @@ Report missing work the same way, for recovery.
 - The worker's recorded tool calls, with their inputs and results, are in your context in recorded order. These are
   the actual redacted observations and action history with timestamps, not its final prose. Read relevant records,
   including their errors and truncation indicators. Use task_evidence for a record cut short there (read on from the
-  offset it names) or left out ("[Context omitted ...]", by its span_id), and to search. A search hit or successful
-  input alone is not proof of the result.
+  offset it names), left out ("[Context omitted ...]", by its span_id) or counted in a note's range (list them with
+  kind=tool.call), and to search. A search hit or successful input alone is not proof of the result.
   For historical facts, a source snapshot from this task can establish what was visible even if the worker later
   closed the tab or selected another chat. Do not require every earlier source to remain on the final screen.
   Use fresh reads for current or changed state, missing coverage and image-only claims; stored text has no pixels.

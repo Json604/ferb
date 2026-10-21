@@ -103,7 +103,8 @@ class AnthropicProvider:
         if stop == "refusal":
             raise ProviderError("anthropic: the model refused to answer")
         if stop not in ("end_turn", "tool_use", "stop_sequence"):
-            raise ProviderError(f"anthropic: the reply stopped early ({stop})")
+            raise ProviderError(f"anthropic: the reply stopped early ({stop})",
+                                overflow=stop == "model_context_window_exceeded")
         state["body"]["messages"].append({"role": "assistant", "content": content})
         calls = [ToolCall(b["id"], b["name"], b["input"] if isinstance(b.get("input"), dict) else {},
                           "" if isinstance(b.get("input"), dict) else "not a JSON object")

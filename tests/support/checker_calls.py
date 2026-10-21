@@ -38,6 +38,13 @@ class Echo:
         return ToolResult({"text": args.text + "." * args.pad}, read_sources=self.reads)
 
 
+class Saves(Echo):
+    """A probe action whose result is short whatever it is given: how many characters it saved."""
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        return ToolResult({"saved": len(args.text) + args.pad})
+
+
 def add(daemon: Any, *caps: Echo) -> None:
     for cap in caps:
         daemon.daemon.registry.capabilities[cap.name] = cap
@@ -111,3 +118,53 @@ def narrow_checker(monkeypatch: Any, keep: Callable[[ContextBlock], bool]) -> No
             max_chars = base + sum(len(b.text) - marker(b) for b in active if not b.protected and keep(b))
         return real(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens, max_chars=max_chars)
     monkeypatch.setattr(worker, "assemble", fitted)
+
+
+# A fold note `assemble` writes for the lowest-priority recorded calls whose markers couldn't all fit (fix round 1, I1)
+FOLDED = re.compile(r"\[(\d+) more not shown or listed one by one; fetch full text: task\.evidence kind=tool\.call, "
+                    r"the (observations|actions) among these recorded calls — from task\.evidence span_id=([^\s]+) "
+                    r"\(recorded call (\d+) of \d+: [^)]*\) to task\.evidence span_id=([^\s]+) "
+                    r"\(recorded call (\d+) of \d+: [^)]*\)\]")
+
+
+def recorded_task(daemon: Any, task_id: str, calls: int) -> tuple[list[str], list[str]]:
+    """A worker run of `calls` short recorded calls (about 340 characters each, as in review 1's measurement), every
+    third an action: their span ids and roles, in recorded order. Recorded with FERB's production ids (32 hex
+    characters), not the test daemon's short sequential ones, so each marker is its real size."""
+    from ferb.core.ids import RandomIds
+    from ferb.store.spans import SpanStore
+
+    async def go() -> tuple[list[str], list[str]]:
+        d = daemon.daemon
+        spans = SpanStore(d.db, d.clock, RandomIds(), d.redact)
+        run = spans.start("worker", task_id=task_id, input={"goal": "label these emails"})
+        ids, roles = [], []
+        for i in range(calls):
+            acts = i % 3 == 0
+            span = spans.start("tool.call", task_id=task_id, parent_id=run.id,
+                               input={"tool": "probe.act" if acts else "probe.read",
+                                      "args": {"text": f"label message {i}"}, "kind": "navigate" if acts else "read"})
+            spans.finish(span, output={"text": f"message {i}: " + "subject and preview line " * 8},
+                         origin="external:email")
+            ids.append(span.id)
+            roles.append("action" if acts else "observation")
+        spans.finish(run, output={})
+        return ids, roles
+    return daemon.run(go(), timeout=300)                        # type: ignore[no-any-return]
+
+
+def reachable(context: str, ids: list[str], roles: list[str]) -> tuple[set[str], set[str], set[str]]:
+    """How each recorded call can be reached from an assembled checker context: shown, listed by its own span_id, or
+    folded into a note's range (every call of the note's role between its first and last that isn't shown or listed),
+    each exactly once."""
+    shown, listed = set(bundle(context)[0]), set(LEFT_OUT.findall(context))
+    assert not shown & listed
+    folded: set[str] = set()
+    for count, role, first, a, last, b in FOLDED.findall(context):
+        a_, b_ = int(a) - 1, int(b) - 1
+        assert ids[a_] == first and ids[b_] == last and roles[a_] == roles[b_] == role[:-1]
+        inside = {ids[i] for i in range(a_, b_ + 1) if roles[i] == role[:-1]} - shown - listed
+        assert len(inside) == int(count) and not inside & folded
+        folded |= inside
+    assert shown | listed | folded == set(ids)
+    return shown, listed, folded

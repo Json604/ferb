@@ -108,6 +108,7 @@ class ContextBlock:
     source_refs: tuple[str, ...] = ()
     payload: str | None = None  # source data without presentation/catalogue metadata; None preserves legacy text
     history: bool = False    # one conversation entry: filled newest-first after the protected blocks, never with gaps
+    fold: str = ""           # optional blocks of one run, by its retrieval route: markers that can't all fit fold into a note
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,11 @@ def assemble(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens:
     """Reserve prompts/tools first; then every protected block; then the conversation entries newest-first while they
     fit, the older ones reported in one omission note; then optional blocks by priority (omitted whole, their retrieval
     references kept visible). Each block is counted once (L28); the report counts the final body once.
+
+Every optional block's marker is charged before any block is added. When the markers of a run (`fold`, one retrieval
+route, e.g. a task's recorded calls) can't all fit beside the protected text, its lowest-priority blocks fold, one by
+one until the rest fit, into one note in the first one's place that counts them and names the first and last of them
+and the route (fix wave 6b round 1). Blocks without `fold` keep their markers as before.
 
 Protected source text can exceed the budget. Reporting that fact is preferable to changing it.
 The budget is a context allocation (the model's window minus room for its reply), not a task/output/token-spend limit.
@@ -154,6 +160,20 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
     note_chars = len(_note(len(history), active[history[0]].reference.split(" ", 1)[0])) + 2 if history else 0
     used_chars = (len(_report(budget_tokens, reserved_tokens, 10 ** 9, True, len(active))) + 2 + note_chars +
                   sum(len(active[index].text) + 2 for index in kept) + sum(len(omission[index]) + 2 for index in gap))
+    folded: dict[str, list[int]] = {}        # fold route -> its folded blocks, lowest priority first
+    for index in sorted((i for i in gap if active[i].fold), key=lambda i: active[i].priority):
+        if used <= budget_tokens and used_chars <= cap:
+            break
+        route = active[index].fold
+        if route not in folded:              # the run's note, at its longest: two of its longest references
+            run = [i for i in gap if active[i].fold == route]
+            used += count_tokens(_fold(10 ** 9, "", "", route)) + 2 * max(gap[i] for i in run) + separator
+            used_chars += len(_fold(10 ** 9, "", "", route)) + 2 * max(len(active[i].reference) for i in run) + 2
+            folded[route] = []
+        folded[route].append(index)
+        used -= gap.pop(index) + separator
+        used_chars -= len(omission[index]) + 2
+    first_folded = {min(run): route for route, run in folded.items()}
     for index in reversed(history):
         chars = len(active[index].text) + 2
         if used + cost[index] + separator > budget_tokens or used_chars + chars > cap:
@@ -180,6 +200,11 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
                 parts.append(_note(omitted_history, block.reference.split(" ", 1)[0]))
                 repeats.append(block.cache)
                 noted = True
+        elif block.fold in folded and index in folded[block.fold]:
+            if index in first_folded:    # a run's folded blocks: one note where the first one stood
+                run = sorted(folded[block.fold])
+                parts.append(_fold(len(run), active[run[0]].reference, active[run[-1]].reference, block.fold))
+                repeats.append(False)
         else:
             parts.append(omission[index])
             repeats.append(False)        # an omitted block ends the cacheable prefix
@@ -206,6 +231,10 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
 
 def _note(count: int, reference: str) -> str:
     return f"[{count} older entries not shown here; fetch full text: {reference}]"
+
+
+def _fold(count: int, first: str, last: str, route: str) -> str:
+    return f"[{count} more not shown or listed one by one; fetch full text: {route} — from {first} to {last}]"
 
 
 def _report(budget: int, reserved: int, content: int, over: bool, omitted: int) -> str:

@@ -9,9 +9,16 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ferb.orchestrator.evidence import PAGE_CHARS
-from tests.conftest import chat, cond, done, install, outcome, sup, task, tool
-from tests.support.checker_calls import Echo, add, bundle, checker_context, narrow_checker, rebuild, verdict
+import pytest
+
+from ferb.core.context import ContextBlock, assemble
+from ferb.core.errors import InputTooLarge
+from ferb.core.types import ModelLimits, RuntimeEvent
+from ferb.orchestrator.evidence import PAGE_CHARS, record_text, recorded_calls
+from ferb.runtimes.codex_exec import MAX_INPUT_CHARS
+from tests.conftest import FakeRuntime, chat, cond, done, install, outcome, sup, task, tool
+from tests.support.checker_calls import (Echo, Saves, add, bundle, checker_context, narrow_checker, rebuild,
+                                         reachable, recorded_task, verdict)
 
 LOW_POWER = task("turn on low power mode", conds=(cond("Low Power Mode is on"),))
 
@@ -26,7 +33,7 @@ def _record(daemon: Any, span_id: str) -> str:
     async def go() -> Any:
         [task_id] = daemon.daemon.db.conn.execute("SELECT task_id FROM spans WHERE id = ?", (span_id,)).fetchone()
         return daemon.daemon.spans.tool_call(task_id, span_id)
-    return json.dumps(daemon.run(go()), ensure_ascii=False)
+    return record_text(daemon.run(go()))
 
 
 def test_the_checker_starts_with_every_recorded_call_and_its_result(daemon) -> None:
@@ -68,8 +75,9 @@ def test_the_checker_prompt_says_the_calls_are_in_its_context() -> None:
     text = " ".join(Path("ferb/orchestrator/prompts/verifier.md").read_text().split())
     assert ("The worker's recorded tool calls, with their inputs and results, are in your context in recorded order."
             in text)
-    assert ('Use task_evidence for a record cut short there (read on from the offset it names) or left out ("[Context '
-            'omitted ...]", by its span_id), and to search.') in text
+    assert ('Use task_evidence for a record cut short there (read on from the offset it names), left out ("[Context '
+            'omitted ...]", by its span_id) or counted in a note\'s range (list them with kind=tool.call), and to '
+            'search.') in text
     assert ("Use task.evidence for root intake, context, cleanup and disturbance records as well as recorded calls cut "
             "short or left out of your context.") in text
     assert "search and page through" not in text and "across all list pages" not in text
@@ -242,3 +250,171 @@ def test_task_evidence_calls_a_complete_check_needs_before_and_after(daemon, cap
     with capsys.disabled():
         print(f"\n[fix wave 6b] task.evidence calls for a complete check of 53 recorded calls: "
               f"before {seen['before_calls']}, after {seen['after_calls']}")
+
+
+# ---------- fix round 1 (review 1: I1, M1, M2 and the overflow fallback) ----------
+
+def test_record_text_puts_the_small_facts_first_and_the_shorter_side_before_the_longer() -> None:
+    """M2: one rule for the record task.evidence pages and the bundle shows (byte parity kept): ids, times, error and
+    origin first, then the shorter of input and output, so a long input never pushes the result out of the page."""
+    row = {"id": "s1", "kind": "tool.call", "task_id": "t.worker", "started_at": "a", "ended_at": "b",
+           "input": {"tool": "fs.write", "args": {"content": "x" * 40_000}}, "output": {"saved": 40_000},
+           "error": None, "origin": "private"}
+    assert list(json.loads(record_text(row))) == ["id", "kind", "task_id", "started_at", "ended_at", "error", "origin",
+                                                  "output", "input"]
+    row["input"], row["output"] = {"tool": "browser.snapshot"}, {"text": "y" * 40_000}
+    assert list(json.loads(record_text(row)))[-2:] == ["input", "output"]
+    assert json.loads(record_text(row)) == row
+
+
+def test_a_long_input_never_pushes_the_result_out_of_its_page(daemon) -> None:
+    add(daemon, Saves("probe.save", "navigate", False))
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.save", text="notes " * 8_000)["is_error"]
+        return done("Saved the notes.")
+
+    def checker(token: str) -> str:
+        seen["context"] = checker_context(script)
+        seen["texts"], _ = rebuild(daemon.sock, token, seen["context"])
+        return verdict(True)
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)], {"worker": worker, "worker.verify": checker})
+    chat(daemon, "save my notes")
+    (span_id, (page, offset)), = bundle(seen["context"])[0].items()
+    assert offset == PAGE_CHARS                                   # the long input is cut ...
+    assert '"error": null' in page and '"origin": ' in page and '"output": {"saved": 48000}' in page   # ... not the result
+    assert seen["texts"][span_id] == _record(daemon, span_id)    # still exactly what task.evidence pages
+
+
+def test_a_secret_learned_after_capture_never_reaches_the_checker(daemon) -> None:
+    """M1 (rule 14): the bundle passes the same read-time redaction as every task.evidence page, so a value sealed after
+    the worker saw it (a login code the owner typed mid-task) is masked for the checker too."""
+    _probes(daemon)
+    seen: dict[str, str] = {}
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="the label reads plum-velvet-7781")["is_error"]
+        daemon.call_soon(daemon.daemon._add_secret_value, "plum-velvet-7781")     # sealed after it was recorded
+        return done("Read the label.")
+
+    def checker(token: str) -> str:
+        seen["context"] = checker_context(script)
+        [span_id] = bundle(seen["context"])[0]
+        seen["page"] = tool(daemon.sock, token, "task.evidence", span_id=span_id)["content"]["text"]
+        seen["stored"] = _record(daemon, span_id)
+        return verdict(True)
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)], {"worker": worker, "worker.verify": checker})
+    chat(daemon, "read the label")
+    assert "plum-velvet-7781" in seen["stored"]                  # recorded before it was a secret
+    assert "plum-velvet-7781" not in seen["page"] and "plum-velvet-7781" not in seen["context"]
+    assert bundle(seen["context"])[0].popitem()[1][0] == seen["page"]   # the same bytes task.evidence returns now
+
+
+CODEX = ModelLimits("gpt-5.6-sol", 258_400, 128_000, "codex_exec.limits_for: 272,000 x 95 %",
+                    window_includes_output=False, max_input_chars=MAX_INPUT_CHARS)
+
+
+@pytest.mark.parametrize("calls", [3_500, 6_000])
+def test_thousands_of_calls_fit_codex_limits_and_every_record_stays_reachable(daemon, calls) -> None:
+    """I1: at the review's sizes the per-call markers alone overflowed Codex's window (3,500: over budget; 6,000:
+    InputTooLarge). Now the lowest-priority calls left out fold into range notes when their markers can't all fit,
+    with the real `assemble` at Codex's limits: the input fits, and every call is shown, listed by its span_id or
+    inside a note's range with its read route."""
+    ids, roles = recorded_task(daemon, "big.worker", calls)
+
+    async def build() -> list[ContextBlock]:
+        return recorded_calls(daemon.daemon.spans, "big.worker", "big", lambda name: name == "probe.read", above=1,
+                              redact=daemon.daemon.redact)
+    # about 10,000 tokens of protected context, as a real check has (request, conditions, report, runtime and time)
+    situation = "Owner's complete original request: label these emails\n" + "the report and its conditions " * 1_700
+    blocks = [ContextBlock(situation, "task.evidence kind=task", protected=True)] + daemon.run(build(), timeout=120)
+    out = assemble(blocks, budget_tokens=CODEX.context_budget, reserved_tokens=20_000, max_chars=CODEX.max_input_chars)
+    report = json.loads(out.parts[-1].split(": ", 1)[1])
+    assert not report["over_budget"] and out.chars <= MAX_INPUT_CHARS
+    shown, listed, folded = reachable("\n\n".join(out.parts), ids, roles)
+    assert folded and len(shown) + len(listed) + len(folded) == calls      # each call reachable exactly one way
+
+
+def _check_runs(script: Any) -> list[str]:
+    return [c for _, key, c, _ in script.contexts if key == "worker.verify"]
+
+
+def _reruns(daemon: Any) -> list[dict[str, Any]]:
+    async def go() -> list[dict[str, Any]]:
+        return [e.data for e in daemon.daemon.journal.of_kind("task.check_rerun")]
+    return daemon.run(go())                                       # type: ignore[no-any-return]
+
+
+def test_a_check_whose_model_context_overflowed_runs_once_more_without_the_recorded_calls(daemon) -> None:
+    """Ruling 7: a runtime without compaction (a direct API) ends a check whose window overflowed with its documented
+    window-exceeded error. FERB runs that check once more as it ran before fix wave 6b: no recorded calls in context,
+    task_evidence for all of them. Journaled and traced."""
+    _probes(daemon)
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="Low Power Mode: 1")["is_error"]
+        return done("Low Power Mode is on.")
+    overflow = RuntimeEvent("error", {"message": "fake: the model's context window was exceeded", "overflow": True})
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)],
+                     {"worker": worker, "worker.verify": [overflow, verdict(True)]})
+    assert outcome(chat(daemon, "turn on low power mode"))["verified"]
+    first, again = _check_runs(script)
+    assert "Recorded call 1 of 1" in first
+    assert "Recorded call" not in again and "Recorded tool calls of this task" not in again
+    assert "Full observations: task_evidence; memory.read; chat.history" in again
+    assert "list and read them with task_evidence" in again
+    [rerun] = _reruns(daemon)
+    assert rerun["task_id"].endswith(".worker") and "context window was exceeded" in rerun["reason"]
+
+    async def spans() -> list[str]:
+        return [r[0] for r in daemon.daemon.db.conn.execute("SELECT kind FROM spans WHERE kind = 'verify.rerun'")]
+    assert daemon.run(spans()) == ["verify.rerun"]
+
+
+def test_a_check_refused_as_too_large_runs_once_more_without_the_recorded_calls(daemon, monkeypatch) -> None:
+    _probes(daemon)
+    real = FakeRuntime.start
+    refused: list[str] = []
+
+    async def start(self: Any, task_: Any, request: Any, token: str) -> Any:
+        if task_.id.endswith(".verify") and not refused:
+            refused.append(task_.id)
+            raise InputTooLarge(len(request.context), 1_000, "this fake input")
+        return await real(self, task_, request, token)
+    monkeypatch.setattr(FakeRuntime, "start", start)
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="Low Power Mode: 1")["is_error"]
+        return done("Low Power Mode is on.")
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)], {"worker": worker, "worker.verify": verdict(True)})
+    assert outcome(chat(daemon, "turn on low power mode"))["verified"]
+    assert refused and len(_check_runs(script)) == 1              # the refused one was never sent
+    assert "Recorded call" not in _check_runs(script)[0]
+    assert len(_reruns(daemon)) == 1
+
+
+def test_the_fallback_runs_once(daemon) -> None:
+    _probes(daemon)
+    overflow = RuntimeEvent("error", {"message": "fake: the model's context window was exceeded", "overflow": True})
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="Low Power Mode: 1")["is_error"]
+        return done("Low Power Mode is on.")
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)],
+                     {"worker": worker, "worker.verify": [overflow, overflow, verdict(True)]})
+    result = outcome(chat(daemon, "turn on low power mode"))
+    assert not result["verified"] and len(_check_runs(script)) == 2 and len(_reruns(daemon)) == 1
+
+
+def test_an_ordinary_check_failure_is_not_rerun(daemon) -> None:
+    _probes(daemon)
+    failed = RuntimeEvent("error", {"message": "fake: the service is down"})
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="Low Power Mode: 1")["is_error"]
+        return done("Low Power Mode is on.")
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)],
+                     {"worker": worker, "worker.verify": [failed, verdict(True)]})
+    assert not outcome(chat(daemon, "turn on low power mode"))["verified"]
+    assert len(_check_runs(script)) == 1 and not _reruns(daemon)

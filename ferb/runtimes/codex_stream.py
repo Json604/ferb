@@ -28,7 +28,16 @@ if TYPE_CHECKING:
 
 
 class ProtocolError(ValueError):
-    pass
+    overflow = False       # Codex's CodexErrorInfo `contextWindowExceeded`: the model's window overflowed
+
+
+def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any]) -> ProtocolError:
+    """A turn's or run's failure as Codex reported it (`codex_error`), marked as an overflow when its CodexErrorInfo is
+    `contextWindowExceeded` (app-server protocol v2; fix wave 6b round 1: a check may run once more without its
+    optional recorded calls)."""
+    failure = ProtocolError(codex_error(prefix, error, redact))
+    failure.overflow = isinstance(error, dict) and error.get('codexErrorInfo') == 'contextWindowExceeded'
+    return failure
 
 
 class AccountError(ProtocolError, RuntimeUnavailable):
@@ -401,8 +410,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     await _finish_trace(run)
                     await _check_catalog(run)
                     if turn.get('status') != 'completed' or turn.get('error') or not final:
-                        raise ProtocolError(codex_error('Codex runtime did not complete its final answer',
-                                                        turn.get('error'), runtime.redact))
+                        raise _codex_failure('Codex runtime did not complete its final answer', turn.get('error'),
+                                             runtime.redact)
                     try:
                         check_final(final, runtime.output_schema)
                     except ValueError as exc:      # the model answered outside the schema: repair, not a failed call
@@ -454,13 +463,13 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     yield RuntimeEvent('retrying', {'message': codex_error('Codex is retrying after an error',
                                                                            params.get('error'), runtime.redact)})
                 elif method == 'error':
-                    raise ProtocolError(codex_error('Codex runtime reported an error', params.get('error'),
-                                                    runtime.redact))
+                    raise _codex_failure('Codex runtime reported an error', params.get('error'), runtime.redact)
     except (ProtocolError, TimeoutError) as exc:
         if state['violation']:
             yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])})
         elif not state['cancelled']:
-            yield RuntimeEvent('error', {'message': 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)})
+            yield RuntimeEvent('error', {'message': 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)}
+                               | ({'overflow': True} if getattr(exc, 'overflow', False) else {}))
     finally:
         if reading is not None:
             reading.cancel()

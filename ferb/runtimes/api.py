@@ -24,7 +24,17 @@ RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
 
 
 class ProviderError(Exception):
-    """A provider failure, worded without the key or the request."""
+    """A provider failure, worded without the key or the request. `overflow`: the provider's documented
+    window-exceeded error (fix wave 6b round 1: a check may run once more without its optional recorded calls)."""
+
+    def __init__(self, message: str, overflow: bool = False) -> None:
+        super().__init__(message)
+        self.overflow = overflow
+
+
+# The `error.code` OpenAI's API returns for an input longer than the model's context window; a protocol fact read from
+# the error's code field, never from its message. Anthropic's is a stop reason (anthropic_api); Google's has no code.
+WINDOW_EXCEEDED_CODES = frozenset({"context_length_exceeded"})
 
 
 @dataclass(frozen=True)
@@ -190,7 +200,8 @@ class ApiRuntime:
                     raise
                 except ProviderError as e:
                     r.closed = True
-                    yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')})
+                    yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')} |
+                                       ({"overflow": True} if e.overflow else {}))
                     return
                 yield RuntimeEvent("usage", asdict(turn.usage))
                 if not turn.calls:
@@ -272,7 +283,7 @@ class ApiRuntime:
                         continue
                     if resp.status_code != 200:
                         await resp.aread()
-                        raise ProviderError(self._error_text(resp, r.key))
+                        raise ProviderError(self._error_text(resp, r.key), overflow=_window_exceeded(resp))
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):
@@ -369,3 +380,12 @@ def _retry_after(resp: httpx.Response) -> float | None:
         return min(float(resp.headers.get("retry-after", "")), 60.0)
     except ValueError:
         return None
+
+
+def _window_exceeded(resp: httpx.Response) -> bool:
+    """Whether an error response carries a documented window-exceeded code (WINDOW_EXCEEDED_CODES)."""
+    try:
+        err = resp.json().get("error") or {}
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(err, dict) and err.get("code") in WINDOW_EXCEEDED_CODES

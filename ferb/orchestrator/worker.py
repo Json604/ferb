@@ -40,6 +40,18 @@ class ServiceError(ValueError):
         self.runtime, self.network = runtime, network
 
 
+class ContextOverflow(ServiceError):
+    """The run's model context overflowed: the runtime's documented window-exceeded error (Codex's
+    `contextWindowExceeded`, OpenAI's `context_length_exceeded`, Anthropic's `model_context_window_exceeded` stop), as
+    the adapter marked it (`overflow` on its error event). Not a network failure."""
+
+
+class Overflowed(Outcome):
+    """An attempt that ended because its model context overflowed: refused by FERB before sending (InputTooLarge) or
+    the runtime's window-exceeded error (ContextOverflow). A caller with optional context may try once with less
+    (the final checker without its recorded calls, fix wave 6b round 1)."""
+
+
 def service_problem(message: str, runtime: str = "Codex", network: bool = False) -> str:
     """The owner-facing sentence for a model-service failure. A failure reaching the service while this Mac has no
     network route (a fact, ferb/sense/network.py) says the Mac seems offline, not "try again shortly"."""
@@ -235,10 +247,11 @@ class WorkerRuns:
             result = Outcome(task.id, "failed", "This attempt was stopped (a problem on my side).", [], [failure])
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
-            result = Outcome(task.id, "blocked", problem_of(e), [], [])
+            result = (Overflowed if isinstance(e, ContextOverflow) else Outcome)(task.id, "blocked", problem_of(e),
+                                                                                  [], [])
         except InputTooLarge as e:              # refused before sending (L28): not the service's error
             failure = f"{type(e).__name__}: {e}"
-            result = Outcome(task.id, "blocked", too_large_problem(e), [], [])
+            result = Overflowed(task.id, "blocked", too_large_problem(e), [], [])
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
@@ -369,6 +382,8 @@ class WorkerRuns:
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
+                elif ev.kind == "error" and ev.data.get("overflow"):     # the window-exceeded error, as marked
+                    raise ContextOverflow(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
                     raise ServiceError(str(ev.data.get("message")), rt.name, network=True)
                 elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it

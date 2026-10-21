@@ -52,8 +52,8 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import (InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits,
-                                      reserve_tokens, told)
+from ferb.orchestrator.worker import (InvalidAnswer, Overflowed, RuntimeViolation, ServiceError, WorkerRuns,
+                                      model_limits, reserve_tokens, told)
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -2788,18 +2788,32 @@ class Supervisor(WorkerRuns):
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
-        report += ("\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; "
-                   "chat.history")
-        ctx = (await self._context(tree)) + [ContextBlock(report, "complete report and inspection evidence", protected=True)]
+        context = await self._context(tree)
+        ctx = context + [ContextBlock(report + "\nThe worker's recorded tool calls and their results follow. More: "
+                                      "task_evidence; memory.read; chat.history",
+                                      "complete report and inspection evidence", protected=True)]
         # Fix wave 6b: every run's recorded calls (a re-check after a repair round too), ahead of the context's other
         # optional blocks; the checker reads with task_evidence only what didn't fit, and the root's other records
         ctx += recorded_calls(self.spans, task.id, tree.id, lambda tool: observes(self.gateway.caps.get(tool)),
-                              above=1 + max(block.priority for block in ctx))
+                              self.gateway.redact, above=1 + max(block.priority for block in ctx))
+        # ... and the check as it was before them, for a run whose model window overflowed with them (round 1)
+        plain = context + [ContextBlock(report + "\nThis check's context holds no recorded tool calls: with them, it "
+                                        "overflowed the model's window; list and read them with task_evidence. Full "
+                                        "observations: task_evidence; memory.read; chat.history",
+                                        "complete report and inspection evidence", protected=True)]
         vtask = Task(f"{task.id}.verify", task.id, "verify", self.device_id, task.identity,
                      set(task.scopes),
                      "verifier", task.request_id, [], task.deadline)
         try:
             raw, _ = await self.run_worker(tree, vtask, "verifier.md", ctx, VERIFIER_SCHEMA, span)
+            if isinstance(raw, Overflowed):
+                # Ruling 7 (round 1): a runtime without compaction ends a check whose window overflowed (its documented
+                # window-exceeded error, or FERB's InputTooLarge before sending); it runs once more without the
+                # recorded calls, as checks ran before fix wave 6b, so a check never fails where it used to run
+                note = self.spans.start("verify.rerun", task_id=vtask.id, parent_id=span, input={"reason": raw.summary})
+                self.spans.finish(note, output={"rerun": "once, without the recorded calls"})
+                self.journal.append("task.check_rerun", {"task_id": task.id, "reason": raw.summary})
+                raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, VERIFIER_SCHEMA, span)
             if isinstance(raw, Outcome):
                 self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                       {"summary": raw.summary})

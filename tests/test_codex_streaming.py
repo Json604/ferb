@@ -148,6 +148,20 @@ async def test_a_turn_error_event_carries_codexs_message(tmp_path, monkeypatch):
     assert got[-1].kind == 'error'
     assert 'stream disconnected before completion' in got[-1].data['message']
     assert 'responseStreamDisconnected' in got[-1].data['message']
+    assert 'overflow' not in got[-1].data
+
+
+@pytest.mark.anyio
+async def test_codexs_context_window_exceeded_error_is_marked_as_an_overflow(tmp_path, monkeypatch):
+    """Codex's app-server CodexErrorInfo `contextWindowExceeded` (v2 protocol): the run's model window overflowed.
+    Marked so the checker can run once more without its optional recorded calls (fix wave 6b round 1)."""
+    proc = Process()
+    stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
+    proc.notify('error', {'error': {'message': 'Codex ran out of room in the model\'s context window.',
+                                    'codexErrorInfo': 'contextWindowExceeded'}, 'willRetry': False})
+    got = [ev async for ev in stream.events(rt, run)]
+    assert got[-1].kind == 'error' and got[-1].data.get('overflow') is True
+    assert 'contextWindowExceeded' in got[-1].data['message']
 
 
 @pytest.mark.anyio

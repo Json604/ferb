@@ -142,6 +142,19 @@ async def test_anthropic_early_stop_is_an_error(stop) -> None:
     events = await run(make(CASES["anthropic"], Scripted([(200, reply)]), mode="supervisor"), token="")
     assert events[-1].kind == "error" and stop in events[-1].data["message"]
     assert not any(e.kind == "final" for e in events)
+    # the documented window-exceeded stop is marked as an overflow (fix wave 6b round 1: the checker's fallback)
+    assert events[-1].data.get("overflow", False) is (stop == "model_context_window_exceeded")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code, overflow", [("context_length_exceeded", True), ("invalid_value", False)])
+async def test_openai_window_exceeded_error_is_marked_as_an_overflow(code, overflow) -> None:
+    """OpenAI documents error code context_length_exceeded for an input longer than the model's window."""
+    body = {"error": {"message": "This model's maximum context length is 400000 tokens.", "type": "invalid_request_error",
+                      "code": code}}
+    events = await run(make(CASES["openai"], Scripted([(400, body)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and "400" in events[-1].data["message"]
+    assert events[-1].data.get("overflow", False) is overflow
 
 def openai_tool(name, args):
     return {"status": "completed", "output": [{"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": name,
