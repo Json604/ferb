@@ -807,8 +807,9 @@ calls are in context and `task_evidence` is for a record cut or left out, the ro
 disturbance records, and searches. A scripted complete check of 53 recorded calls (50 short, 3 of about 30,000
 characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`). Residual: on a
 task whose recorded calls hold more than the checker's window (many long snapshots), the bundle fills the window at
-the checker's start, leaving its own later reads to the runtime's context handling; and a task with thousands of
-calls left out lists one marker each.
+the checker's start, leaving its own later reads to the runtime's context handling; and every call left out keeps
+its own marker (about 82 tokens), so markers alone would fill Codex's window at about 3,100 left-out calls, and that
+check would then report it couldn't run.
 
 **After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
 too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).
