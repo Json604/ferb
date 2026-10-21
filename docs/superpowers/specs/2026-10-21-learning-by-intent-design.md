@@ -34,9 +34,13 @@ expected result as it goes.
 - Code checks the answer: the id exists or the new intent is well formed; for an existing intent, the slot names match
   its declared slots and the values match their JSON types. A refused or failed label keeps its job error and is tried
   again when the card changes or on `ferb memory consolidate` (as consolidation jobs do today).
-- Stored as the card's `episode_annotation` (the kind exists; its `intent_signature` field is already in the
-  consolidation schema but is written after grouping and never used for it). Intents are learning nodes whose sources
-  are the cards labelled with them, so forgetting a card's source removes its label (existing lineage and forget rules).
+- Stored as the card's own label: a learning node of kind `episode_intent`, keyed by the card's node id, whose only
+  source is the card. It carries the intent's id, name, description and slot types, and this run's slot values. The
+  intent list is the distinct intents of the current cards' labels, so forgetting a card's source removes only that
+  card's label (existing lineage and forget rules); an intent lives while any current card carries it. (Not the
+  existing `episode_annotation`, which consolidation also writes for the same key: two writers would supersede each
+  other. Not one node per intent citing all its cards: forgetting any one card would delete the intent and everything
+  built on it.)
 - The intent list is fitted to the learning runtime's window with the existing context machinery (`assemble`, L28);
   no count cap.
 - Backfill: the existing cards are labelled on the first idle pass, one call each.
