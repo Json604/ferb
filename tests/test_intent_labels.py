@@ -65,6 +65,39 @@ def test_a_second_run_is_offered_the_existing_intent_and_may_reuse_it(learning) 
     assert [i["runs"] for i in intents.intents(learning)] == [2]
 
 
+def test_the_labeler_and_the_planner_name_an_intent_by_its_newest_label(tmp_path) -> None:
+    """One rule everywhere: an intent's name, description and slots come from its newest current label, so the
+    labeling model, the planner and the consolidation call always see the same description (also after `counted`
+    adds a label)."""
+    db, store = new_store(tmp_path / "memory.db", TickingClock())
+    iid = intents.intent_id("cheapest food order")
+
+    def label(ident: str, description: str, slots: dict[str, str]) -> dict[str, Any]:
+        c = card(store, ident, "cheapest " + ident)
+        body = {"intent_id": iid, "name": "Cheapest food order", "description": description, "slots": slots,
+                "values": {k: "x" for k in slots}}
+        store.put(intents.INTENT_KIND, c["id"], body, [c["id"]], made_by="model:test", state="active")
+        return c
+    try:
+        label("t1", "the cheapest dish", {})
+        label("t2", "the cheapest dish with breads", {"dish": "string"})
+        store.put("procedure", iid, {"intent": "cheapest food order", "slots": {"dish": "string"},
+                  "preconditions": {"apps": {}}, "steps": []}, [], made_by="code:test/1", state="candidate")
+        [known] = intents.intents(store)
+        [listed] = store.learned_procedures()
+        assert (known["description"], known["slots"], known["runs"]) == \
+            ("the cheapest dish with breads", {"dish": "string"}, 2)
+        assert listed["description"] == known["description"]
+        [(about, _)] = Consolidator(store, NoMemory(), lambda *a, **k: None)._groups()     # the consolidation call too
+        assert (about["description"], about["slots"]) == (known["description"], known["slots"])
+        newer = {"intent_id": iid, "name": "cheapest food order", "description": "the cheapest dish, any bread",
+                 "slots": {"dish": "string"}, "values": {"dish": "x"}}
+        [after] = intents.counted([known], newer, {"recorded_at": "2099-01-01T00:00:00+00:00"})
+        assert (after["description"], after["runs"]) == ("the cheapest dish, any bread", 3)
+    finally:
+        db.close()
+
+
 def test_a_new_intents_name_and_description_are_single_line() -> None:
     """Review M2: model-written free text later shown to the planner: whitespace, newlines included, collapses to
     single spaces, so it can never read as another block of the prompt."""

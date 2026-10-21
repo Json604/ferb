@@ -46,9 +46,10 @@ def labels(learning: Learning) -> dict[str, dict[str, Any]]:
 
 
 def _count(out: dict[str, dict[str, Any]], body: dict[str, Any], recorded_at: str) -> None:
-    entry = out.setdefault(body['intent_id'], {'id': body['intent_id'], 'name': body['name'],
-                                               'description': body['description'], 'slots': body['slots'],
-                                               'runs': 0, 'last': ''})
+    """One more card labelled `body`, given oldest label first: the newest label names the intent (its name,
+    description and slots), the rule the planner's procedure list follows too (`named`)."""
+    entry = out.setdefault(body['intent_id'], {'id': body['intent_id'], 'runs': 0, 'last': ''})
+    entry.update(name=body['name'], description=body['description'], slots=body['slots'])
     entry['runs'] += 1
     entry['last'] = max(entry['last'], recorded_at)
 
@@ -59,7 +60,7 @@ def _ordered(out: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
 
 def intents(learning: Learning) -> list[dict[str, Any]]:
     """The intents the current cards carry, most recently used first (by their newest card): id, name, description,
-    slots, runs, last."""
+    slots (from its newest current label), runs, last."""
     current = _current_cards(learning)
     out: dict[str, dict[str, Any]] = {}
     for node in learning.items(INTENT_KIND):
@@ -92,8 +93,8 @@ def named(learning: Learning, intent_ids: Iterable[str]) -> dict[str, dict[str, 
 
 
 def counted(known: list[dict[str, Any]], body: dict[str, Any], card: dict[str, Any]) -> list[dict[str, Any]]:
-    """`known` (as `intents` returns it) with one more card labelled `body`: what `intents` returns now, without
-    reading every card and label again."""
+    """`known` (as `intents` returns it) with one more card labelled `body` (the newest label, so it names its intent):
+    what `intents` returns now, without reading every card and label again."""
     out = {i['id']: dict(i) for i in known}
     _count(out, body, card['recorded_at'])
     return _ordered(out)

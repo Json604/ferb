@@ -1709,7 +1709,7 @@ intent's job. Code rollups cite their child cards.
   "counter 3"); from then on, and whenever it has a procedure, it is consolidated again on any change to its runs (a
   new run, verified or failed, or a card read again, e.g. for a verdict). So the number of calls follows what changed,
   while each call re-sends the intent's runs up to the window. One call per intent (`_context`) carries:
-  - the intent (id, name, description, slot types, from its oldest label);
+  - the intent (id, name, description, slot types, from its newest label, as the labeler and the planner see it);
   - its procedure (`_procedures`: the current one keyed by the intent id, and those the owner turned down, by their
     intent text) and its current lessons (`_built_on`: lessons whose lineage, through earlier lesson versions such as
     the owner's feedback or edit, reaches a run of the intent; an owner-edited one marked `owner_edited`, never to be
@@ -1745,7 +1745,8 @@ intent's job. Code rollups cite their child cards.
   call (`intents.carry_forward`), so a card rebuild never renames an intent; each label whose card was superseded is
   closed (`valid_to`). Every other card gets one no-tool call with the prompt `memory/intent.md`: the card's
   `card_digest` and the intents already seen (`intents.intents`, read once a pass and counted as labels are stored:
-  `intents.counted`; id, name, description, slot types; most recently used first by their newest card, as many as fit
+  `intents.counted`; id, and name, description and slot types from its newest label, the rule the planner's list and
+  the consolidation call follow too; most recently used first by their newest card, as many as fit
   the window and the character cap: `_fit_intents`; no count of FERB's own; a card that alone doesn't fit is never
   sent and its job says why). The model answers an offered intent id with this run's slot values, or a new intent
   (name, description, typed slots, values) (`INTENT_SCHEMA`). It decides sameness (R2); code only checks the answer

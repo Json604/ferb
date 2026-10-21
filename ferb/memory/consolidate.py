@@ -210,13 +210,13 @@ class Consolidator:
 
     def _groups(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """The current episode cards by intent label (L29): the intent (id, name, description and slot types, as
-        `intents.intents` gives them: its oldest label's) and its cards (`_newest_first` orders them by when each task
-        ended). A card without a label waits for one."""
-        labels = intents.labels(self.learning)
+        `intents.intents` and the planner give them: its newest label's) and its cards (`_newest_first` orders them by
+        when each task ended). A card without a label waits for one."""
+        labels = intents.labels(self.learning)            # oldest label first: the newest one names the intent
         about: dict[str, dict[str, Any]] = {}
         for body in labels.values():
-            about.setdefault(body['intent_id'], {'id': body['intent_id'], 'name': body['name'],
-                                                 'description': body['description'], 'slots': body['slots']})
+            about[body['intent_id']] = {'id': body['intent_id'], 'name': body['name'],
+                                        'description': body['description'], 'slots': body['slots']}
         groups: dict[str, list[dict[str, Any]]] = {}
         for node in self.learning.items('episode'):
             if node['id'] in labels:
