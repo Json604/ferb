@@ -1814,7 +1814,25 @@ intent's job. Code rollups cite their child cards.
   capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`); a
   deferred capture journals them in `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values
   that are missing or of the wrong type give a receipt without slot values. An ignored procedure (I5) drops its slot
-  values too. **Redaction stays JSON (L29 fix rounds 1–4):** a node's body (`Learning.put`) and a receipt's slot
+  values too. **Worker start (L29, spec §5):** `Learning.procedure_parts(procedure, apps, slots)` gives what a worker
+  gets for its procedure as `ProcedurePart`s (label, text, protected, origins, refs, reference): first the procedure
+  (its mode, UI hints and steps as a tool plan: each step's arguments with the planner's typed slot values filled in
+  by `render_slots` and its expected result; a slot without a value keeps its `{slot}` template, and with no values the
+  steps' heading says to fill each from the request), protected; then, when any, the current lessons built on its
+  intent's runs (`Learning.built_on`, lineage through a lesson's earlier versions, shared with the consolidator),
+  protected; then one part per verified run of its intent (`intents.cards`: the current cards whose current label names
+  it, one query), newest first by the card's `ended_at` (else `recorded_at`), with that run's successful tool calls as
+  `tool args → result`. `procedure_text` is the first part's text. `Supervisor._context` gets the slot values from
+  `_planner_slots` (a failed read is journaled and gives None) and builds the blocks (`_procedure_blocks`): the
+  procedure through `_source_block` with `PROCEDURE_LABEL` (the card capture cites what it cites), now protected; the
+  lessons and each run in FERB's data wrapper. Every block's origin is the procedure's origins, `external:procedure` and
+  the origins of the nodes it shows, which it cites (a shown run's card goes into `task_memory_refs`, so forgetting the
+  card reaches the task). The runs are optional blocks above the activity and memory layers (priority 3 and up, the
+  newest highest); one left out is a marker read by `memory.learned item_id=<card>`, and when even the markers can't
+  all fit, the oldest fold into one counted note (`context_layers.PROCEDURE_RUNS_ROUTE`). `assemble` folds only until
+  the markers fit, so in a window that small no run is shown whole. `worker.md` tells the worker to start from those
+  tools and arguments instead of searching again and to check each step's expected result. **Redaction stays JSON (L29
+  fix rounds 1–4):** a node's body (`Learning.put`) and a receipt's slot
   values are redacted by `redacted_json`. Its whole-text passes read the JSON with a space after `,` and `:`
   (`spaced`; stored compact): the redactor reads text as prose, and in compact JSON a word near a string's end ("Pin
   message", "Token usage") would label a value running across the following keys. First the text whole (a key still

@@ -320,11 +320,11 @@ class Consolidator:
         lessons = [{'id': n['id'], 'body': n['body'] | {k: current(n['body'].get(k)) for k in ('failure', 'success')
                                                         if k in n['body']}}
                    | ({'owner_edited': True} if n['origin'] == origin.OWNER else {})
-                   for n in l.items('lesson') if self._built_on(n, tasks)]
+                   for n in l.items('lesson') if l.built_on(n, tasks)]
         turned_down = [{'lesson': n['body'].get('text', '')} | {k: n['body'][k] for k in ('scope', 'trigger')
                                                                 if k in n['body']}
                        for n in l.items('lesson', history=True)
-                       if n['state'] == 'retired' and self._built_on(n, tasks)]
+                       if n['state'] == 'retired' and l.built_on(n, tasks)]
         out = {'intent': about, **procedures, 'existing_procedures': shown, 'existing_lessons': lessons,
                'rejected_by_owner': procedures['rejected_by_owner'] + turned_down}
         if l.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id = ?',
@@ -333,22 +333,6 @@ class Consolidator:
         if any('intent' in r for r in procedures['rejected_by_owner']):     # a procedure of it the owner turned down
             out['procedure_rejected'] = True
         return out
-
-    def _built_on(self, lesson: dict[str, Any], tasks: set[str]) -> bool:
-        """Whether a lesson is built on a run of these tasks (any version of its card), through the lesson's earlier
-        versions (the owner's feedback and edits cite the version before): lineage, never words (R2)."""
-        l = self.learning
-        seen: set[str] = set()
-        frontier = list(lesson['sources'])
-        while frontier:
-            ref = frontier.pop()
-            node = None if ref in seen else l.get(ref)
-            seen.add(ref)
-            if node is not None and node['kind'] == 'episode' and node['key'] in tasks:
-                return True
-            if node is not None and node['kind'] == 'lesson':
-                frontier.extend(node['sources'])
-        return False
 
     def _intent_job(self, intent: str, inputs: str, error: str | None, results: list[dict[str, Any]]) -> bool:
         if error:

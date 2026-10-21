@@ -1292,8 +1292,8 @@ class Daemon:
             self.supervisor.settle = self._settle_forgets
             self.supervisor.procedure_context = self._learning_context
             self.supervisor.memory_candidates = self._learning_candidates
-            self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
-            self.supervisor.procedure_source = lambda ident: self.learning.get(ident) or {}
+            self.supervisor.procedure_details = lambda ident, task, slots: self.learning.procedure_parts(
+                ident, self._app_versions(), slots)
             self.supervisor.procedure_problem = self._procedure_problem
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode

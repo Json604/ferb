@@ -116,7 +116,8 @@ Each step names its status. File paths are given for traceability only.
     to the owner as a digest. **Shipped**; the bugs that made learning fail in practice are fixed **Landing this week —
     integrated, not live-tested (L16)**. Learning by intent: each task is labelled with the kind of task it was, and a
     kind of task is first learned from three verified runs of it, whatever tools they used; the planner sees every
-    usable procedure by its kind of task and picks one by meaning, with this request's values for its blanks
+    usable procedure by its kind of task and picks one by meaning, with this request's values for its blanks, and the
+    worker starts from its filled-in steps, its lessons and the tool calls of its latest verified runs
     **Landing this week — integrated, not live-tested (L29)**.
 
 Things that can happen along the way:
@@ -647,7 +648,11 @@ This section matters most for an automated campaign. It says exactly what runs u
   as many as fit the model's window, the rest counted in one note. It chooses one by meaning, the same kind of task
   even in other words, and gives this request's value for each blank; code checks the values against the blanks'
   types (values that don't fit are noted in the task's trace and left out) and the run's record of the procedure (its
-  receipt) keeps them, so runs with different values count toward "learned" (L29). A planner's procedure id that
+  receipt) keeps them, so runs with different values count toward "learned" (L29). The worker then gets, as data, the
+  chosen procedure's steps with this request's values filled in (a blank without a value stays for the worker to fill
+  from the request), the lessons learned from that kind of task, and the tool calls of its latest verified runs (tool,
+  arguments, what came back), newest first, as many as fit the model's window, the rest listed or counted in a note;
+  it starts from those instead of searching for the right tools again (L29). A planner's procedure id that
   isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not

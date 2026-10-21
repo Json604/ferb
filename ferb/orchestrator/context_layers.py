@@ -5,6 +5,8 @@ from ferb.core import origin
 
 # L29: the fold route of the planner's learned-procedure lines (an item's `fold`): what lists them all
 PROCEDURES_ROUTE = 'memory.learned kind=procedure'
+# L29: the fold route of the verified earlier runs a worker gets with its procedure (each read in full by its card's id)
+PROCEDURE_RUNS_ROUTE = "memory.learned kind=episode, the verified earlier runs of this procedure's kind of task"
 
 
 def ranked_memory_blocks(candidates: list[dict[str, Any]]) -> list[tuple[Any, set[str]]]:

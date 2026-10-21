@@ -63,23 +63,31 @@ def on_loop(daemon: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
 FOOD_DISHES = ("egg curry", "paneer", "dal")
 
 
+def store_intent_run(store: Learning, *, name: str, slots: dict[str, str], task_id: str, dish: str, ended_at: str,
+                     verified: bool = True) -> Any:
+    """One run of the intent `name`: its card (one browser.type of `dish`, ending at `ended_at`) and its label."""
+    from ferb.memory import intents
+    c = store.put("episode", task_id, {"task_id": task_id, "verified": verified, "request": f"cheapest {dish}",
+                                       "apps": {}, "slots": {}, "status": "done" if verified else "failed",
+                                       "ended_at": ended_at,
+                                       "actions": [{"id": f"{task_id}-a", "tool": "browser.type",
+                                                    "args": {"text": dish}, "outside_action": False,
+                                                    "result": {"ok": True}}]},
+                  [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    store.put(intents.INTENT_KIND, c["id"], {"intent_id": intents.intent_id(name), "name": name,
+                                             "description": "the cheapest dish", "slots": slots,
+                                             "values": {"dish": dish}},
+              [c["id"]], made_by="model:test", state="active")
+    return c
+
+
 def store_intent_procedure(store: Learning, *, name: str, slots: dict[str, str]) -> str:
     """Three verified cards of one intent (food0..food2, one dish each, food2 the latest to end), each with its label,
     and the procedure they teach, keyed by the intent id (L29). Its id."""
     from ferb.memory import intents
     iid = intents.intent_id(name)
-    cards = []
-    for n, dish in enumerate(FOOD_DISHES):
-        c = store.put("episode", f"food{n}", {"task_id": f"food{n}", "verified": True, "request": f"cheapest {dish}",
-                                              "apps": {}, "slots": {}, "status": "done",
-                                              "ended_at": f"2026-10-21T09:0{n}:00+00:00",
-                                              "actions": [{"id": f"food{n}-a", "tool": "browser.type",
-                                                           "args": {"text": dish}, "outside_action": False}]},
-                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
-        store.put(intents.INTENT_KIND, c["id"], {"intent_id": iid, "name": name, "description": "the cheapest dish",
-                                                 "slots": slots, "values": {"dish": dish}},
-                  [c["id"]], made_by="model:test", state="active")
-        cards.append(c)
+    cards = [store_intent_run(store, name=name, slots=slots, task_id=f"food{n}", dish=dish,
+                              ended_at=f"2026-10-21T09:0{n}:00+00:00") for n, dish in enumerate(FOOD_DISHES)]
     p = store.propose_procedure({"intent": name, "slots": slots, "preconditions": {"apps": {}},
                                  "steps": [{"tool": "browser.type", "args": {"text": "{dish}"}, "expect": "typed",
                                             "optional": False,
@@ -93,6 +101,28 @@ def store_intent_procedure(store: Learning, *, name: str, slots: dict[str, str])
 def intent_procedure(daemon: Any, *, name: str, slots: dict[str, str]) -> str:
     """`store_intent_procedure` in a test daemon's learning store, on its loop."""
     return str(on_loop(daemon, store_intent_procedure, daemon.daemon.learning, name=name, slots=slots))
+
+
+def worker_context_for(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
+                       worker_limits: Any = None) -> str:
+    """The worker's assembled context for a task whose planner chose `procedure_id` with these `procedure_slots`
+    ({name, value} pairs, each value JSON text), as its runtime was given it. `worker_limits`: the worker runtime's
+    model limits (a ModelLimits; e.g. a small per-input character cap), the planner's unchanged."""
+    from tests.conftest import chat, done, install, outcome, sup, task
+    spec = task("order the cheapest dish")
+    spec["procedure_id"], spec["procedure_slots"] = procedure_id, slots
+    script = install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    if worker_limits is not None:
+        make = daemon.daemon.supervisor.make_runtime
+
+        def limited(role: str, *, mode: str, tool_names: list[str], schema: Any) -> Any:
+            runtime = make(role, mode=mode, tool_names=tool_names, schema=schema)
+            if mode == "worker":
+                runtime.limits = worker_limits
+            return runtime
+        daemon.daemon.supervisor.make_runtime = limited
+    assert outcome(chat(daemon, "order the cheapest dish"))["status"] == "done"
+    return next(context for _, key, context, _ in script.contexts if key == "worker")
 
 
 def label_card(store: Learning, node: dict[str, Any], name: str = "a test intent") -> Any:

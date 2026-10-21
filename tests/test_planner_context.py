@@ -1243,8 +1243,10 @@ def test_slot_values_the_procedure_refuses_leave_a_trace_note(daemon) -> None:
 
 
 def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
-    """A database error reading the slot values at the task's end is journaled; the card is still captured and the
+    """A database error reading the slot values is journaled, at the task's end and wherever its worker's context is
+    built (the worker then gets the steps with their {slot} templates, L29); the card is still captured and the
     receipt recorded without slot values."""
+    from ferb.memory.lineage import PROCEDURE_LABEL
     proc = _food_procedure(daemon)
 
     def broken(procedure_id, pairs):
@@ -1252,7 +1254,7 @@ def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
     daemon.daemon.supervisor.slot_values = broken
     spec = task("order the cheapest rajma")
     spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": '"rajma"'}]
-    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    script = install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
     assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
 
@@ -1263,7 +1265,10 @@ def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
                 d.journal.of_kind("memory.episode_hook_failed"))
     task_id, failed, hook_failed = daemon.run(facts())
     assert _receipt_slots(daemon, proc, task_id) == [{}] and not hook_failed
-    assert failed == [{"task_id": task_id, "procedure_id": proc, "error": "RuntimeError: database is locked"}]
+    assert failed and all(entry == {"task_id": task_id, "procedure_id": proc, "error": "RuntimeError: database is locked"}
+                          for entry in failed)
+    worker = next(context for _, key, context, _ in script.contexts if key == "worker")
+    assert 'browser.type {"text":"{dish}"}' in worker.split(PROCEDURE_LABEL + ":\n", 1)[1]
 
 
 def test_procedures_are_listed_by_their_intents_latest_run(tmp_path) -> None:

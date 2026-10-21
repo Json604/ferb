@@ -33,6 +33,7 @@ from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
 from ferb.memory.items import whole_clauses
 from ferb.memory.journal import Journal, JournalEntry
+from ferb.memory.learning import ProcedurePart
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
@@ -407,8 +408,10 @@ class Supervisor(WorkerRuns):
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
         self.memory_candidates: Callable[[str], Any] | None = None      # ranked items, or an awaitable of them
-        self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
-        self.procedure_source: Callable[[str], dict[str, Any]] = lambda ident: {}
+        # what a worker gets for its procedure, given the planner's typed slot values (L29): the procedure, then its
+        # intent's lessons and latest verified runs (`Learning.procedure_parts`)
+        self.procedure_details: Callable[[str, Task, dict[str, Any] | None], list[ProcedurePart]] = \
+            lambda procedure_id, task, slots: []
         # why a planner's procedure_id can't be used (not stored, not a procedure, not current), or None (I5)
         self.procedure_problem: Callable[[str], str | None] = lambda ident: None
         self.identity_context: Callable[[], str] = lambda: ''
@@ -2671,15 +2674,13 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock('Layer 6 — current plan step and handed results (data):\n' +
                          wrap_untrusted(tree.step_context), 'task.evidence', protected=True))
         if spec.procedure_id:
+            slots = self._planner_slots(tree.id, spec)      # None without values its slots accept: steps keep {slot}
             try:
-                source = self.procedure_source(spec.procedure_id)
-                details = self.procedure_details(spec.procedure_id, tree.worker)
+                details = self.procedure_details(spec.procedure_id, tree.worker, slots)
             except Exception as exc:          # forgotten or rolled back since the plan (I5): run without it
                 self._ignore_procedure(tree, None, f"{type(exc).__name__}: {exc}")
             else:
-                labels = set(source.get('origins', ())) | {origins_.external('procedure')}
-                parts.append(self._source_block(tree, PROCEDURE_LABEL, details, origins_.join(labels),
-                                                tuple([spec.procedure_id, *source.get('sources', ())])))
+                parts.extend(self._procedure_blocks(tree, details))
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
@@ -2703,6 +2704,29 @@ class Supervisor(WorkerRuns):
                                       'reopened that No, so FERB asks it again if it comes up):\n' +
                                       json.dumps(confirmations), 'task.evidence', protected=True))
         return parts
+
+    def _procedure_blocks(self, tree: _Tree, details: list[ProcedurePart]) -> list[ContextBlock]:
+        """A worker's blocks for its selected procedure (L29), each with the procedure's origins and its own, citing
+        what it shows: the procedure first, always shown and recorded as its source (PROCEDURE_LABEL: the card capture
+        cites what that block cites); then its intent's lessons, always shown, and its verified earlier runs, each in
+        FERB's data wrapper. The runs are optional blocks above the activity and memory layers, newest first, so the
+        newest stay whole when space runs out; one left out is read by its card's id, and runs whose markers can't
+        all fit fold into one counted note (PROCEDURE_RUNS_ROUTE)."""
+        from ferb.orchestrator.context_layers import PROCEDURE_RUNS_ROUTE
+        if not details:
+            return []
+        first, rest = details[0], details[1:]
+        labels = set(first.origins) | {origins_.external('procedure')}
+        blocks = [dataclasses.replace(self._source_block(tree, PROCEDURE_LABEL, first.text, origins_.join(labels),
+                                                         first.refs), protected=first.protected)]
+        priority = 2 + sum(not part.protected for part in rest)       # the oldest run 3: above memory (2), activity (1)
+        for part in rest:
+            blocks.append(ContextBlock(part.label + ':\n' + wrap_untrusted(part.text), part.reference,
+                                       protected=part.protected, priority=0 if part.protected else priority,
+                                       origin=origins_.join(labels | part.origins), source_refs=part.refs,
+                                       payload=part.text, fold='' if part.protected else PROCEDURE_RUNS_ROUTE))
+            priority -= not part.protected
+        return blocks
 
     def _ignore_procedure(self, tree: _Tree, parent: str | None, why: str) -> None:
         """A selected procedure that can't be used: a note in the task's trace, and the task goes on without it (I5)."""

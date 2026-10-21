@@ -97,6 +97,18 @@ def named(learning: Learning, intent_ids: Iterable[str]) -> dict[str, dict[str, 
     return out
 
 
+def cards(learning: Learning, intent_id: str) -> list[dict[str, Any]]:
+    """The current episode cards whose current label names this intent, oldest written first: one query for their ids
+    (never every label read), then each card."""
+    rows = learning.db.conn.execute(
+        "SELECT DISTINCT c.id, c.recorded_at FROM learning_nodes l JOIN learning_nodes c ON c.id = l.key "
+        "WHERE l.kind = ? AND l.valid_to IS NULL AND l.state NOT IN ('retired', 'rolled_back') "
+        "AND c.kind = 'episode' AND c.valid_to IS NULL AND c.state NOT IN ('retired', 'rolled_back') "
+        "AND json_extract(l.body_json, '$.intent_id') = ? ORDER BY c.recorded_at, c.id",
+        (INTENT_KIND, intent_id)).fetchall()
+    return [card for r in rows if (card := learning.get(r[0])) is not None]
+
+
 def counted(known: list[dict[str, Any]], body: dict[str, Any], card: dict[str, Any]) -> list[dict[str, Any]]:
     """`known` (as `intents` returns it) with one more card labelled `body` (the newest label, so it names its intent):
     what `intents` returns now, without reading every card and label again."""

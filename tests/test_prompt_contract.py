@@ -38,6 +38,10 @@ SENTENCES = [
      'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying what is stuck.'),
         ("question.md",
      "A worker asking to do work the owner handed to a named agent or person (not an app FERB uses as a tool) is the owner's decision about who does the work, not a method question: ask_owner=true, saying what is stuck and what FERB would do instead."),
+    ("worker.md",                                                     # L29: the worker starts from what was learned
+     "A selected procedure lists its steps with this run's values filled in, then lessons and verified earlier runs of "
+     "the same kind of task: start from those tools and arguments instead of searching again, and check each step's "
+     "expected result as you go."),
         ("verifier.md",
      'A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.'),
 ]
