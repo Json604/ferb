@@ -1463,7 +1463,8 @@ class Daemon:
                  'reference': 'memory.learned item_id=' + p['id'],
                  'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
                  'source_refs': [p['id']]}
-                for p in self.learning.search(words, query_vector=vector, embed=embed) if p['kind'] != 'identity']
+                for p in self.learning.search(words, query_vector=vector, embed=embed)
+                if p['kind'] not in ('identity', 'episode_intent')]       # a label groups cards for the learner (L29)
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:

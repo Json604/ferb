@@ -21,6 +21,7 @@ from ferb.sanitize.redact import REDACTED, Redactor, payment_card
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.trace import compose
+from tests.support.learning_fixtures import label_card
 from tests.support.strict_schema import strict_problems
 from tests.support.trace_builder import TraceBuilder
 
@@ -209,6 +210,7 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
         'actions': [{'id': 't-1-action', 'tool': 'mail.send', 'args': {'to': 'a@kartikey.xyz', 'cc': []},
                      'outside_action': False}]}, [], origin_label='ferb', made_by='code:evidence-card/1',
         state='active')
+    label_card(learning, card, 'send the weekly report')        # labelled (L29): only the consolidation call
     slot = [{'name': 'recipient', 'value': '"a@kartikey.xyz"'}]
     rt = ProposalRuntime({
         'episodes': [

@@ -612,9 +612,11 @@ proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`
 A pending identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal
 `/memory confirm ID` records an explicit confirmation.
 
-The sleep service runs incrementally when no task is active: it reads again only cards whose inputs changed, sends
-new episodes grouped by the tools and apps they used (split to fit the model's window), and retries a failed job only
-when its group changes or on `ferb memory consolidate`, which requests a pass.
+The sleep service runs incrementally when no task is active: it reads again only cards whose inputs changed, gives
+each finished task an intent label (the learning model names what kind of task it was, reusing a kind it has seen
+before when the goal is the same), sends new episodes grouped by the tools and apps they used (split to fit the
+model's window), and retries a failed job only when its card or group changes or on `ferb memory consolidate`, which
+requests a pass.
 Procedures contain text tool templates and expect lines and cite verified episodes. A step some runs skipped is
 optional and must reproduce the runs that cite it; every other step must reproduce every run. Procedures become
 learned after three verified successes across two slot values, with the latest on current captured app versions.

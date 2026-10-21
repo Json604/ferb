@@ -10,6 +10,7 @@ from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent
 from ferb.cli.client import Client
 from ferb.runtimes.codex_stream import ProtocolError
 from tests.conftest import FakeDistillRuntime, RunningDaemon, trail_row
+from tests.support.learning_fixtures import label_card
 
 CODEX_REFUSAL = ("Codex could not complete turn/start: Input exceeds the maximum length of 1048576 characters. "
                  "(code -32602; input_too_large, 1100000 characters sent)")
@@ -30,12 +31,16 @@ class Answers(FakeDistillRuntime):
         yield RuntimeEvent("final", {"text": json.dumps(self.answer)})
 
 
-def _card(d: Any, ident: str) -> Any:
-    return d.learning.put("episode", ident, {"task_id": ident, "verified": True, "request": REQUEST, "apps": {},
+def _card(d: Any, ident: str, labelled: bool = True) -> Any:
+    """A card, labelled (L29) unless `labelled` is False: a test about consolidation sees only its calls."""
+    node = d.learning.put("episode", ident, {"task_id": ident, "verified": True, "request": REQUEST, "apps": {},
                                              "slots": {}, "status": "done",
                                              "actions": [{"id": ident + "-a", "tool": "browser.open",
                                                           "args": {"n": ident}}]},
                           [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    if labelled:
+        label_card(d.learning, node)
+    return node
 
 
 def _learning_spans(daemon: RunningDaemon) -> list[dict[str, Any]]:
@@ -68,6 +73,22 @@ def test_a_failed_consolidation_call_is_a_span_with_codexs_error_and_size_never_
 
 async def _put(d: Any) -> None:
     _card(d, "e1")
+
+
+def test_a_label_call_is_a_span_of_its_own_role_named_by_its_card(daemon) -> None:
+    """L29: a card's intent label is a learning call like the others: one `model.learning` span, role "intent"."""
+    d = daemon.daemon
+
+    async def put() -> str:
+        return str(_card(d, "e1", labelled=False)["id"])
+    card_id = daemon.run(put())
+    d.consolidator.make_runtime = lambda *a, **k: RefusedAtStart({})
+    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
+    spans = _learning_spans(daemon)
+    assert [s["input"]["role"] for s in spans] == ["intent", "consolidate"]
+    assert spans[0]["input"]["call"] == "label-" + card_id and spans[0]["output"]["outcome"] == "failed"
+    assert "Input exceeds the maximum length of 1048576 characters." in spans[0]["error"]
+    assert REQUEST not in json.dumps(spans[0])
 
 
 async def _job_error(d: Any) -> str:

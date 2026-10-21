@@ -15,9 +15,12 @@ import pytest
 
 from ferb.core.types import ModelLimits
 from ferb.memory.consolidate import Consolidator
+from ferb.memory.intents import INTENT_SCHEMA
 from ferb.memory.learning import Learning
 from ferb.store.db import Database
 from tests.conftest import FakeDistillRuntime
+from tests.support.learning_fixtures import label_card, new_intent
+from tests.support.learning_runtime import SchemaAnswers
 
 
 class Clock:
@@ -46,10 +49,13 @@ EMPTY = {"procedures": [], "lessons": [], "identity": [], "episodes": []}
 
 
 def card(store: Learning, ident: str, tool: str = "browser.open", request: str = "open the page and read it") -> Any:
-    return store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
+    """A card already labelled (L29): these tests count consolidation calls only."""
+    node = store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
                                         "slots": {}, "status": "done",
                                         "actions": [{"id": ident + "-a", "tool": tool, "args": {"n": ident}}]},
                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    label_card(store, node)
+    return node
 
 
 def consolidator(store: Learning, rt: Any, **kw: Any) -> Consolidator:
@@ -115,7 +121,11 @@ def test_a_second_pass_with_nothing_changed_reads_no_card_and_calls_no_model(lea
         captured.append(task_id)
         return learning.capture_episode(task_id)
     rt = FakeDistillRuntime(EMPTY)
-    sleep = consolidator(learning, rt, capture=capture)
+    labels = SchemaAnswers({id(INTENT_SCHEMA): lambda ctx: new_intent("open pages", "a page")})
+
+    def runtimes(role: str, **k: Any) -> Any:              # each new card's label call (L29) is answered apart
+        return labels.make(role, **k) if k["schema"] is INTENT_SCHEMA else rt
+    sleep = Consolidator(learning, NoMemory(), runtimes, capture=capture)
     asyncio.run(sleep.catch_up())
     assert sorted(captured) == [f"e{i}" for i in range(5)] and len(rt.contexts) == 1
     asyncio.run(sleep.catch_up())

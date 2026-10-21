@@ -628,9 +628,10 @@ This section matters most for an automated campaign. It says exactly what runs u
   save exploration but never skips gateway checks, step checks or the final check. Procedures with steps that came
   from outside content are quarantined until the owner confirms. An app update sends a learned procedure back to
   candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
-  down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed and sends
-  episodes grouped by the tools and apps they used, split to fit the model's window; a failed job waits for a change
-  or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a note.
+  down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
+  learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
+  is the same; L29), and sends episodes grouped by the tools and apps they used, split to fit the model's window; a
+  failed job waits for a change or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured

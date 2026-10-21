@@ -24,8 +24,9 @@ class LearningRefused(FerbError):
     pass
 
 
-# Kinds whose key is one of FERB's own ids: an episode card (its task id) and its annotation (the card's node id).
-ID_KEYED = frozenset({'episode', 'episode_annotation'})
+# Kinds whose key is one of FERB's own ids: an episode card (its task id), its annotation and its intent label (L29)
+# (the card's node id).
+ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 # The episode card's composer. 2: a card cites its task's direct sources only (memory review C1); a card an older
 # composer built is rebuilt once by the consolidator.
 CARD_MAKER = 'code:evidence-card/2'
@@ -630,7 +631,8 @@ class Learning:
                                      [(direct(ref), now) for ref in sorted(set(requested) | doomed)])
             for ident in doomed:
                 self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
-                self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref=?', (ident,))
+                # its consolidation job, and its card's label job (L29), whose error may name what was forgotten
+                self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref IN (?,?)', (ident, 'label:' + ident))
                 self.db.conn.execute('DELETE FROM learning_nodes WHERE id=?', (ident,))
             self.db.conn.execute('RELEASE learning_forget')
         except BaseException:

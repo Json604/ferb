@@ -1,9 +1,10 @@
 """Idle, incremental learning from redacted evidence. No tools; every model proposal is checked against storage.
 
 A pass works on what changed (memory review I3): it reads again only the cards whose inputs changed
-(`Learning.cards_to_read`), and sends the episodes not yet consolidated to the model grouped by structure (the same
-tools and apps: `card_shape`), one call per group, with the group's own procedures and only the consolidated cards
-related to the new ones by structure (`_examples`): a cost that follows what changed. A group the model's real window
+(`Learning.cards_to_read`), gives each card without an intent label one (L29, `_label`: one call per card; the model
+decides the intent, `memory/intents.py` checks the answer), and sends the episodes not yet consolidated to the model
+grouped by structure (the same tools and apps: `card_shape`), one call per group, with the group's own procedures and
+only the consolidated cards related to the new ones by structure (`_examples`): a cost that follows what changed. A group the model's real window
 can't hold is split into calls that fit; a single card too large for it is never shortened or sent, and its job says
 why. A failed job keeps its error and is tried again when its group changes or on `ferb memory consolidate`
 (`force`), never on every idle hour. No count or size limit of FERB's own decides any of this."""
@@ -18,7 +19,9 @@ from ferb.core.context import count_tokens, overhead_chars, overhead_tokens, run
 from ferb.core.errors import Deferred
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
+from ferb.memory import intents
 from ferb.memory.calls import learning_call
+from ferb.memory.intents import INTENT_SCHEMA
 from ferb.memory.learning import Learning, LearningRefused, card_digest, card_shape, digest, encoded
 from ferb.memory.strict import JSON_TEXT, pairs, to_map
 
@@ -111,6 +114,8 @@ class Consolidator:
                 await asyncio.sleep(0)               # the loop runs between episodes
             self.cards_refreshed()
             results: list[dict[str, Any]] = []
+            if not await self._label(force, results):
+                return {'status': 'busy', 'sources': results}
             jobs = {r[0]: (r[1], r[2]) for r in l.db.conn.execute('SELECT source_ref, status, inputs FROM learning_jobs')}
             for members in self._groups():
                 done = await self._consolidate(members, jobs, force, results)
@@ -126,6 +131,52 @@ class Consolidator:
                 except Exception as e:
                     l.publish('memory.embedding_unavailable', {'error': l.redact(str(e))})
             return {'status': 'done', 'sources': results}
+
+    async def _label(self, force: bool, results: list[dict[str, Any]]) -> bool:
+        """L29: each current card without an intent label gets one, one call per card, offered the intents already
+        seen (most recently used first, as many as fit the window: `_fit_intents`). A failed label waits for its card
+        to change (a new card node, so a new job) or `force`. False when a task started (the next pass goes on)."""
+        l = self.learning
+        failed = {r[0] for r in l.db.conn.execute(
+            "SELECT source_ref FROM learning_jobs WHERE source_ref LIKE 'label:%' AND status = 'failed'")}
+        todo = [c for c in intents.unlabelled(l) if force or 'label:' + c['id'] not in failed]
+        if not todo:
+            return True
+        system = load_prompt('memory/intent.md')
+        try:
+            rt = self.make_runtime('worker', mode='supervisor', tool_names=[], schema=INTENT_SCHEMA)
+            limits = runtime_limits(rt)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                       # no runtime or no documented window: every label job says so
+            error = l.redact(f'{type(e).__name__}: {e}')
+            for c in todo:
+                self._job('label:' + c['id'], 'label/1', error)
+                results.append({'label': c['id'], 'error': error})
+            return True
+        maker = (f'model:{rt.name}:{getattr(rt, "model", None) or "default"}'
+                 f'|prompt:intent@{hashlib.sha256(system.encode()).hexdigest()}')
+        for c in todo:
+            if not self.idle():
+                return False
+            known = intents.intents(l)
+            task = Task('label-' + c['id'], None, 'memory intent label', 'local', Identity.OWNER, set(), 'verifier',
+                        'sleep', [], None)
+            try:
+                ctx = encoded({'episode': card_digest(c), 'intents': _fit_intents(c, known, system, limits, rt.name)})
+                answer = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence',
+                                                        INTENT_SCHEMA, role='intent', spans=self.spans,
+                                                        usage=self.usage))
+                intents.label(l, c, answer, {i['id']: i for i in known}, maker)
+                self._job('label:' + c['id'], 'label/1', None)
+                results.append({'label': c['id']})
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                error = l.redact(f'{type(e).__name__}: {e}')
+                self._job('label:' + c['id'], 'label/1', error)
+                results.append({'label': c['id'], 'error': error})
+        return True
 
     def _groups(self) -> list[list[dict[str, Any]]]:
         """The current episode cards by structure (`card_shape`), each group oldest first."""
@@ -398,6 +449,33 @@ class Consolidator:
                                              role='consolidate', spans=self.spans, usage=self.usage))
         maker = f'model:{rt.name}:{getattr(rt, "model", None) or "default"}|prompt:consolidate@{hashlib.sha256(system.encode()).hexdigest()}'
         return out, maker
+
+
+def _fit_intents(card: dict[str, Any], known: list[dict[str, Any]], system: str, limits: Any,
+                 runtime: str) -> list[dict[str, Any]]:
+    """The known intents a label call carries beside its card, most recently used first, while they fit the window and
+    the runtime's per-input character cap (L28); no count of FERB's own. A card that alone doesn't fit is never
+    shortened or sent: LearningRefused says why (its job keeps it)."""
+    window = limits.context_budget
+    base = encoded({'episode': card_digest(card), 'intents': []})
+    room = window - count_tokens(system) - overhead_tokens(window, count_tokens(system)) - count_tokens(base)
+    chars = (None if limits.max_input_chars is None else
+             limits.max_input_chars - overhead_chars(window, count_tokens(system)) - len(base))
+    if room < 0:
+        raise LearningRefused("too large for the model's window; sent whole or not at all")
+    if chars is not None and chars < 0:
+        raise LearningRefused(f"too long for one {runtime} input ({limits.max_input_chars} characters at most); "
+                              "sent whole or not at all")
+    out, used, used_chars = [], 0, 0
+    for intent in known:
+        shown = {k: intent[k] for k in ('id', 'name', 'description', 'slots')}
+        text = encoded(shown)
+        cost, size = count_tokens(text) + count_tokens(','), len(text) + len(',')
+        if used + cost > room or (chars is not None and used_chars + size > chars):
+            break
+        out.append(shown)
+        used, used_chars = used + cost, used_chars + size
+    return out
 
 
 def _chunks(pending: list[dict[str, Any]], examples: list[dict[str, Any]],

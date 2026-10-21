@@ -17,6 +17,7 @@ from ferb.memory.learning import Learning
 from ferb.runtimes.codex_exec import CodexRuntime
 from ferb.store.db import Database
 from tests.conftest import FakeDistillRuntime, FakeRuntime, chat, install, sup, task
+from tests.support.learning_fixtures import label_card
 
 WIDE = 1_000_000          # a token window that holds everything these tests send
 CODEX_START = CodexRuntime.start          # the real one: offline tests replace it with a refusal (conftest)
@@ -206,10 +207,13 @@ EMPTY = {"procedures": [], "lessons": [], "identity": [], "episodes": []}
 
 
 def _card(store: Learning, ident: str, request: str) -> Any:
-    return store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
+    """A card already labelled (L29): these tests see consolidation calls only."""
+    node = store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
                                         "slots": {}, "status": "done",
                                         "actions": [{"id": ident + "-a", "tool": "browser.open", "args": {"n": ident}}]},
                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    label_card(store, node)
+    return node
 
 
 def test_a_group_that_fits_the_window_but_not_one_input_is_split_by_characters(learning, monkeypatch) -> None:
