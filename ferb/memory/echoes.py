@@ -20,8 +20,9 @@ runs it):
 A forgotten learned item has its own, scoped pass (`finish_node`).
 Every row is written only while it still holds what was read (`swap`, spans through `rewrite_recorded`), and each
 span pass runs again while a span running when it started took a live write meanwhile (`rewrite_until_still`): a span
-finishing during the scrub keeps its output and loses the item; one recorded after the scrub is not reached (fix wave
-6a). Journal rows are append-only (they are only ever deleted, for a forget): a changed row is deleted and written again
+finishing during the scrub keeps its output and loses the item. For a task or chat turn running at the forget the
+daemon runs the scrub again when it ends, with the rules it settled the first time (`Forgotten.lines`; fix wave 6a).
+Journal rows are append-only (they are only ever deleted, for a forget): a changed row is deleted and written again
 with the same sequence number, id, time, kind and origin. The owner's own messages are never rewritten."""
 import json
 import re

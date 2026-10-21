@@ -1211,8 +1211,8 @@ def test_a_task_running_at_the_forget_loses_the_item_from_what_it_records_afterw
     assert _answers(daemon, "task.answer", "task_id", "t-run") == [f"{REMOVED}\nAll set"]
     assert _task_records(daemon, "t-run") == ([({"tool": "calendar.add"}, {"text": f"{REMOVED}\nok"})],
                                               [REMOVED])
-    assert _task_records(daemon, "t-other") == ([({"tool": "calendar.read"}, {"text": "Quillfeather confirmed the slot"})],
-                                                ["Quillfeather confirmed the slot"])
+    kept = "Quillfeather confirmed the slot"
+    assert _task_records(daemon, "t-other") == ([({"tool": "calendar.read"}, {"text": kept})], [kept])
     assert _on_loop(daemon, lambda: len(d._rescrubs)) == 0               # its rules went with the last such task
 
 
@@ -1287,7 +1287,8 @@ def test_shutdown_runs_the_scrub_again_for_a_task_it_stops(home: Any) -> None:
     db = sqlite3.connect(home / "ferb.db")
     try:
         texts = [json.loads(r[0])["text"] for r in db.execute(
-            "SELECT data_json FROM journal WHERE kind = 'task.answer' AND json_extract(data_json, '$.task_id') = 't-stop'")]
+            "SELECT data_json FROM journal WHERE kind = 'task.answer' AND "
+            "json_extract(data_json, '$.task_id') = 't-stop'")]
     finally:
         db.close()
     assert texts == [f"{REMOVED}\nStopped"]

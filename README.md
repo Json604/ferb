@@ -592,8 +592,9 @@ uv run python scripts/check_doc_sources.py
 `ferb memory dashboard` prints a private localhost link; leave that terminal open while reviewing memories.
 It shows identity, facts, entity summaries, past tasks, procedures, lessons and rollups, with source IDs and history.
 Confirm a pending identity proposal, procedure or memory, edit a fact, forget a memory and its derived records
-(FERB's own lines that hold its words, and what tasks given it did with it, go too; a paraphrase in other words can
-survive, and so can what a task still running at the forget records afterwards), or roll back a consolidation batch. Forgetting a learned item removes FERB's naming of it and what it
+(FERB's own lines that hold its words, and what tasks given it did with it, go too, also what a task still running
+at the forget records later; a paraphrase in other words can survive, and so can what such a task recorded before a
+crash), or roll back a consolidation batch. Forgetting a learned item removes FERB's naming of it and what it
 states from the replies and stored turns that were shown it (never from other tasks, even with the same goal); a
 procedure's steps shown to a worker, records deleted only because they
 were built on it, a lesson's scope labels (app, site, intent) and an entity summary's multi-line text (unless

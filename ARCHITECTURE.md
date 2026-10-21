@@ -1632,19 +1632,30 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
   built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
   site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.
-- **Scrubs and live writes (fix wave 6a).** A scrub (a memory forget's, a learned item's, the notice purge's
-  `expire_derived`) writes a row only while it still holds what was read (`store/db.swap`; a span's input and output
-  through `store/spans.rewrite_recorded`): when another connection wrote it in between (the loop finishing a span or
-  adding measured input, a task's outcome, a notice the purge cleared), the row is read and changed again, and a journal
-  row deleted meanwhile is never written back. Each scrub's span pass runs again while a span that was running when
-  the scrub started took a live write during the pass (`SpanWatch`, `rewrite_until_still`), until a pass sees none,
-  so a span finishing during the scrub keeps its output and loses the item; a re-run of a learned item's pass reads
-  its span scope again. No cap: each further pass needs a write by one of those spans, and each finishes once.
-  `SpanStore.update_input` is compare-and-set too, so it never undoes a scrub. Boundary: only spans are watched, so a
-  task's answer row or record written during the scrub after it was read is not re-read; and nothing recorded after
-  the scrub ends is scrubbed: a task still running at the forget keeps what its model was shown, in the spans, answer
-  and records it writes afterwards (new chat turns wait for the scrub, `Supervisor.settle`; the same item is never
-  saved again unless the owner states it, `memory_forgotten`; a card built on it is never written, its tombstones).
+- **Scrubs and live writes (fix wave 6a).** A forget's scrub (a memory item's, a learned item's) writes a row only
+  while it still holds what was read (`store/db.swap`; a span's input and output through
+  `store/spans.rewrite_recorded`): when another connection wrote it in between (the loop finishing a span or adding
+  measured input, a task's outcome, a notice the purge cleared), the row is read and changed again. A journal row is
+  deleted and written again in one short transaction, so a row deleted meanwhile is never written back and no reader
+  sees it missing. Each scrub's span pass runs again while a span that was running when the scrub started took a
+  write during the pass (`SpanWatch`, `rewrite_until_still`), until a pass sees none, so a span finishing during the
+  scrub keeps its output and loses the item; a re-run of a learned item's pass reads its span scope again. No cap:
+  each further pass needs a write to one of those spans, its own (it finishes once; its input is measured a bounded
+  number of times) or another scrub's, which only removes text and is idempotent. `SpanStore.update_input` is
+  compare-and-set too, so it never undoes a scrub.
+- **Work running at a forget (fix wave 6a).** The scrub runs again, through `_after_forgets` (the next chat turn
+  waits), as each job that was running at the forget ends (`Daemon._forget_scrub`: chat turns, resumed plans,
+  scheduled runs and attention turns, `_turns` and `_runs`). A job ends after its last record: a task's
+  `task_results` row is written inside its job, and a tree that ends without an outcome still ends its job. It uses
+  the same rules: the line rules the memory forget settled the first time, kept on its `Forgotten` (rare words and
+  tasks), or the learned item's `NodeEcho`. So a running task's later spans, answer, records and "while you were
+  away" result, and a running chat turn's reply, lose the item too, as does a record a task wrote during the scrub
+  after it was read. One queued run covers jobs ending before it starts. The rules stay in memory only
+  (`_Rescrub`) and are let go when the last such job ends; shutdown settles forgets again after it stops the task
+  turns. Residual: after a crash or a kill before those jobs end, the run that was due is lost, since writing it down
+  would keep the forgotten text on disk; what they recorded between the scrub and the crash keeps the item. Work that
+  starts after the forget waits for the scrub (`Supervisor.settle`) and reads what it left; the same item is never
+  saved again unless the owner states it (`memory_forgotten`); a card built on it is never written (its tombstones).
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
@@ -2073,8 +2084,10 @@ protected FERB state (16.9).
 - **Audit.** `trail.attention` is live; its decision rows record the effect ("told in chat: notice …").
 - **Purge.** `expire_derived` clears a notice derived from expired typed or clipboard rows from the notice row, its
   journal entry, told receipts, span inputs and outputs, and the exposure payloads that showed it (`notice_payload`,
-  `_scrub_payloads`). Its span rewrites are compare-and-set and run until still, like a forget's scrub ("Scrubs and
-  live writes", F8).
+  `_scrub_payloads`). It runs on the loop's own connection, where no span can finish while it runs, so it takes one
+  pass with no watch; it clears each notice, and rewrites each span, only while it still holds what was read (a
+  forget's scrub in its thread may rewrite them), and removes the copies of the text it actually replaced ("Scrubs
+  and live writes", F8).
 - **Bounds.** The told list for an app is bounded by trail retention (30 days), since it joins the notices' trail rows.
   Residual: a `task.evidence` listing preview cut at 500 characters may keep a notice fragment in that tool call's
   output until trace retention (30 days).

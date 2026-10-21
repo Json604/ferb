@@ -1491,7 +1491,8 @@ class Daemon:
     def _forget_scrub(self, work: Callable[[], Awaitable[None]]) -> None:
         """A forget's echo scrub, now (behind those still running), and again as each task or chat turn running at the
         forget ends, after its last record (a task's `task_results` row is written inside its job): what it recorded
-        after the scrub loses the item too (`_Rescrub`). Unrelated rows are untouched: the scrub's rules are the same."""
+        after the scrub loses the item too (`_Rescrub`). The rules are the forget's own, so what it never reached
+        stays as it is."""
         self._after_forgets(work)
         running = {job for job in self._turns | self._runs if not job.done()}
         if running:

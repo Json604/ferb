@@ -1309,8 +1309,10 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     colour, and check each one". When the first file appears, run `ferb memory forget <id>` (`ferb memory list` shows
     the id), answer y, and note the time it prints "Forgotten." (it returns once the clean-up is done). When the task
     ends, `ferb trace TASK --full`: every step that finished shows its result (none ended with an empty result where
-    its tool returns one), and no step that finished before "Forgotten." holds "quokka". Record any step that finished
-    later and still holds it (expected: the task's model had already been shown the item). Delete the folder after.
+    its tool returns one), and no step holds "quokka", including the steps that finished after "Forgotten.", and the
+    task's answer in the chat doesn't either (the clean-up runs again when the task ends; send your next message
+    after that, since it waits for the clean-up). Record any step or answer that still holds it. Delete the folder
+    after.
 75. Checker reads (6b): after `ferb setup --update`, ask "turn on Low Power Mode and tell me" (or "turn Bluetooth off
     and tell me"; turn it back afterwards). `ferb trace TASK --full`: the checker's input has "Recorded tool calls of
     this task: N" and each call with its result. Count the checker's `task_evidence` calls and its rounds, and
@@ -1335,8 +1337,8 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     file.
 
 Residuals to know during the week (accepted or recorded, not checks):
-- A task still running when you forget an item keeps what its model was shown: the steps, answer and records it
-  writes after the forget's clean-up ends can still hold the item (a step finishing during the clean-up is cleaned).
+- A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
+  ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
   password) can show. A field moving during a capture is painted at both places, not between them. A task tab
