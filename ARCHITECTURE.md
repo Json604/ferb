@@ -1814,7 +1814,7 @@ intent's job. Code rollups cite their child cards.
   capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`); a
   deferred capture journals them in `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values
   that are missing or of the wrong type give a receipt without slot values. An ignored procedure (I5) drops its slot
-  values too. **Redaction stays JSON (L29 fix rounds 1–3):** a node's body (`Learning.put`) and a receipt's slot
+  values too. **Redaction stays JSON (L29 fix rounds 1–4):** a node's body (`Learning.put`) and a receipt's slot
   values are redacted by `redacted_json`. Its whole-text passes read the JSON with a space after `,` and `:`
   (`spaced`; stored compact): the redactor reads text as prose, and in compact JSON a word near a string's end ("Pin
   message", "Token usage") would label a value running across the following keys. First the text whole (a key still
@@ -1822,10 +1822,21 @@ intent's job. Code rollups cite their child cards.
   text with numbers and booleans written as strings, each one whose text changed becoming `[redacted]` (or that parse
   as it stands when the redaction changed the shape); as a last resort each value with its key as one unit (a list's
   strings also joined, so a private key split across items is caught). Then each string is redacted on its own too,
-  as the prose it is (inside JSON a secret ending a string, "my password is …", is otherwise missed). Text that a
-  second whole redaction would still change, or whose compact form holds one of the owner's registered secret values
-  (`Learning.secret_values`, the daemon's Redactor's), is refused (`LearningRefused`: "could not be stored safely:
-  redaction would still change it"), never stored. A receipt row whose values don't parse (written before) counts
+  as the prose it is (inside JSON a secret ending a string, "my password is …", is otherwise missed), and each pair of
+  neighbouring values (an object's in key order, a list's items, a list's nodes by their text field) is read as two
+  lines, as the redactor reads a page's nodes: a value that reading masks becomes `[redacted]` (a code whose label
+  ends the previous value: `{"label": "PIN", "value": "4821"}`, `{"a": "UPI PIN", "b": 4821}`). Text that a second
+  whole redaction would still change, or whose compact form holds one of the owner's registered secret values
+  (`Learning.secret_values`, the daemon's Redactor's, also given to the rollup thread's store), is refused
+  (`LearningRefused`: "could not be stored safely: redaction would still change it"), never stored. Slot types (a
+  procedure's or an intent label's `slots`) are a closed set (`SLOT_TYPES`): one the redactor masked by its key (a slot
+  named `token`, `pin`, `password`) is restored after redaction (`slot_types_restored`), and typing values against a
+  type outside the set is a mismatch, never a crash; the task-start slot check is guarded and noted as
+  `procedure.slots_ignored`. Residuals: a quoted secret label ending in a colon inside a string (`I stopped at the
+  "Password:" prompt.`) still runs across the following keys, so a card can be stored with later keys missing or be
+  refused (since before L29; parked 2026-10-21); a value split into separate strings (`["hunt","er2x"]`) is not
+  matched against a registered value; a secret slot's values (a slot named `token`) are redacted in receipts by their
+  key, so its runs count as one slot variant. A receipt row whose values don't parse (written before) counts
   without values, is cleared and journaled once (`memory.receipt_unreadable`), and never breaks a refresh or `ferb
   verdict`. `sync_facts` (every planner turn) reads only fact and identity nodes. Task completion captures app
   versions; old episodes retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load

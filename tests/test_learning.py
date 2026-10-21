@@ -464,61 +464,20 @@ def test_a_secret_that_spans_two_numbers_is_refused_rather_than_stored(tmp_path)
 
 # L29 fix round 3 (re-review R1): ordinary cards and procedures are stored ---------------------------------------
 
-def _ordinary_card():
-    """An episode card shaped as `prepare_episode` writes one (a WhatsApp reply)."""
-    return {'task_id': '4b1f9c2e-7a3d-4e8b-9c1a-2f3e4d5c6b7a', 'request': 'reply to Alex in the FERB test group',
-            'intent': 'reply on WhatsApp', 'slots': {}, 'apps': {'net.whatsapp.WhatsApp': '24.20.79'},
-            'app_versions_captured': True, 'app_version_scope': 'identified apps and browser inventory',
-            'surfaces': {'gui.click': 2, 'gui.read': 1},
-            'actions': [{'id': '9d8c7b6a-5f4e-4d3c-2b1a-0f9e8d7c6b5a', 'tool': 'gui.click',
-                         'args': {'app': 'net.whatsapp.WhatsApp', 'text': 'FERB test group'}, 'kind': 'act',
-                         'outside_action': False, 'arg_sources': {'text': ['owner']}, 'error': None,
-                         'result': {'ok': True}},
-                        {'id': '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d', 'tool': 'gui.click',
-                         'args': {'app': 'net.whatsapp.WhatsApp', 'text': 'Reply'}, 'kind': 'act',
-                         'outside_action': False, 'arg_sources': {'text': ['ferb']}, 'error': None,
-                         'result': {'ok': True}}],
-            'status': 'done', 'verified': True, 'conditions': [],
-            'feedback': [{'verdict': 'pass', 'note': 'good', 'at': '2026-10-21T10:15:00+05:30'}],
-            'narrative': 'Replied to Alex in FERB test group.', 'problems': [],
-            'started_at': '2026-10-21T10:12:03+05:30', 'ended_at': '2026-10-21T10:12:41+05:30',
-            'usage': {'input_tokens': 18234, 'output_tokens': 912}}
-
-
-# Ordinary UI and request text that reads like a labelled secret in compact JSON (the reviewer's corpus)
-_ORDINARY = ['Pin message', 'Pin', 'Unpin', 'Pin chat', 'Pinned the message.', 'Token usage', 'Show password',
-             'Forgot password?', 'Change password', 'Reset your password here', 'Session expired', 'Enter OTP',
-             'Resend OTP', 'API keys', 'Copy API key', 'Secret Santa', 'Security key', 'Passkey', 'Enter PIN',
-             'UPI PIN', 'Wrong password', 'Type your password here', "I couldn't find the password field.",
-             'The session ended before the message was pinned.', 'Rotated the API key for staging.',
-             'Opened the token settings page.', 'Saved the secret santa list to Notes.',
-             'Turned on 2FA with an authenticator app.', 'The login page asked for a code; I stopped.', 'Pin the tab',
-             'pin the message from Alex', 'change my netflix password', "what's my token usage",
-             'open the secret santa list', 'reset the router password', 'show my API keys page']
-_FIELDS = {'request': lambda b, t: b.__setitem__('request', t),
-           'intent': lambda b, t: b.__setitem__('intent', t),
-           'click text': lambda b, t: b['actions'][1]['args'].__setitem__('text', t),
-           'narrative': lambda b, t: b.__setitem__('narrative', t),
-           'problems': lambda b, t: b.__setitem__('problems', [t]),
-           'feedback note': lambda b, t: b['feedback'][0].__setitem__('note', t)}
-
-
 def test_ordinary_cards_are_never_refused():
     """Re-review R1: compact JSON read as prose ran a label ("Pin", "Token", "password") across the following keys to a
     value with digits, so the final check refused ordinary cards (WhatsApp's "Pin message", "Pin chat"). The whole-text
     passes and the check read JSON with a space after ',' and ':': none of the 216 is refused."""
     from ferb.memory.learning import redacted_json
     from ferb.sanitize.redact import Redactor
+    from tests.support.redaction_corpus import ordinary_cards
     redactor = Redactor()
     refused = []
-    for text in _ORDINARY:
-        for field, place in _FIELDS.items():
-            body = _ordinary_card()
-            place(body, text)
-            try:
-                redacted_json(redactor.text, body, redactor.secret_values())
-            except LearningRefused:
-                refused.append((field, text))
+    for name, body in ordinary_cards():
+        try:
+            redacted_json(redactor.text, body, redactor.secret_values())
+        except LearningRefused:
+            refused.append(name)
     assert refused == []
 
 
@@ -532,7 +491,8 @@ def test_a_whatsapp_card_with_a_pin_click_is_stored(tmp_path, click):
     redactor = Redactor()
     store = Learning(db, Clock(), lambda *args: None, redactor.text)
     store.secret_values = redactor.secret_values
-    body = _ordinary_card()
+    from tests.support.redaction_corpus import ordinary_card
+    body = ordinary_card()
     body['actions'][1]['args']['text'] = click
     try:
         node = store.put('episode', body['task_id'], body, [], origin_label='ferb', made_by='code:evidence-card/2',
@@ -585,3 +545,69 @@ def test_a_secret_ending_a_string_is_redacted(redacting, body):
     node = store.put('lesson', 'k', body, [], made_by='model:test')
     text = json.dumps(node['body'])
     assert 'sunshine' not in text and 'password is [redacted]' in text
+
+
+# L29 fix round 4 (re-review Q1): a code labelled by its previous sibling value ------------------------------------
+
+_SIBLING_CODES = [('PIN', '4821'), ('PIN:', '4821'), ('UPI PIN', '4821'), ('passcode', '7392'), ('Passcode:', '7392'),
+                  ('the code is', '482913'), ('Enter the code', '482913')]
+
+
+@pytest.mark.parametrize('body, code', [(shape(label, code), code) for label, code in _SIBLING_CODES for shape in (
+    lambda label, code: {'label': label, 'value': code},
+    lambda label, code: {'name': label, 'text': code},
+    lambda label, code: {'a': label, 'b': code, 'c': 'x'},
+    lambda label, code: {'a': label, 'b': int(code)},
+    lambda label, code: {'nodes': [{'text': label}, {'text': code}]})])
+def test_a_code_labelled_by_its_previous_sibling_is_redacted(redacting, body, code):
+    """Re-review Q1: compact JSON read a label ending one value ("PIN") together with the next value; the spaced
+    reading stops at the structure and stored the code in clear. Neighbouring values (a list's nodes by their text too)
+    are also read as two lines of prose, and a value that reading masks is redacted."""
+    store, _ = redacting
+    node = store.put('lesson', 'k', body, [], made_by='model:test')
+    assert code not in json.dumps(node['body']), node['body']
+
+
+def test_the_sibling_reading_leaves_ordinary_bodies_as_they_were(monkeypatch):
+    """The 216 ordinary cards and re-review 4's 443 realistic bodies: never refused, and stored exactly as without the
+    sibling reading ("Pin message" beside an id, "Token usage" beside a count, "Enter OTP" beside a date)."""
+    import ferb.memory.learning as learning_module
+    from ferb.memory.learning import encoded, redacted_json
+    from ferb.sanitize.redact import Redactor
+    from tests.support.redaction_corpus import ordinary_cards, realistic_bodies
+    redactor = Redactor()
+    bodies = [*ordinary_cards(), *realistic_bodies()]
+    stored = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
+    monkeypatch.setattr(learning_module, '_siblings', lambda redact, value: value, raising=False)
+    without = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
+    assert len(stored) == 659 and [n for n in stored if stored[n] != without[n]] == []
+
+
+# L29 fix round 4 (re-review O3): slot types are a closed set, never redacted -----------------------------------
+
+@pytest.mark.parametrize('name', ['token', 'pin', 'password', 'passcode', 'api_key', 'secret'])
+def test_a_slot_named_like_a_secret_keeps_its_type_and_never_crashes(redacting, name):
+    """Re-review O3: a slot named like a credential had its type redacted by key (`{"token": "[redacted]"}`), and
+    typing the planner's values against it raised KeyError. Slot types come from a closed set: restored after
+    redaction, for a procedure and for an intent label, and the planner's values type against them."""
+    from ferb.memory import intents
+    store, _ = redacting
+    procedure = store.put('procedure', 'check price', {'intent': 'check price', 'slots': {name: 'string'},
+                          'preconditions': {'apps': {}}, 'steps': []}, [], made_by='model:test')
+    assert procedure['body']['slots'] == {name: 'string'}
+    assert store.slot_values(procedure['id'], [{'name': name, 'value': '"BTC"'}]) is not None
+    assert store.slot_problem(procedure['id'], [{'name': name, 'value': '"BTC"'}]) is None
+    assert store.slot_problem(procedure['id'], [{'name': name, 'value': '3'}]) == f'slot {name} is not a string'
+    c = card(store, 'slot-' + name)
+    label = store.put(intents.INTENT_KIND, c['id'], {'intent_id': intents.intent_id('check price'),
+                                                     'name': 'check price', 'description': 'a price',
+                                                     'slots': {name: 'string'}, 'values': {name: 'BTC'}},
+                      [c['id']], made_by='model:test', state='active')
+    assert label['body']['slots'] == {name: 'string'}
+
+
+def test_an_unknown_slot_type_is_a_mismatch_not_a_crash():
+    """A type outside the closed set (a slot type stored redacted before the fix) is refused like any mismatch."""
+    from ferb.memory import intents
+    with pytest.raises(LearningRefused, match='JSON type'):
+        intents.typed({'token': 'BTC'}, {'token': '[redacted]'})

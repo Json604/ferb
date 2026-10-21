@@ -314,3 +314,21 @@ def test_one_failing_hourly_memory_job_never_stops_the_others(daemon) -> None:
             "SELECT kind, data_json FROM journal WHERE kind LIKE 'memory.%failed' ORDER BY seq")]
     assert daemon.run(failures()) == [('memory.consolidate_failed', 'RuntimeError: Codex runtime reported an error'),
                         ('memory.distill_failed', "AttributeError: 'str' object has no attribute 'get'")]
+
+
+def test_the_rollup_threads_store_checks_the_owners_registered_values(tmp_path, monkeypatch):
+    """Re-review O1: the rollups' own Learning (a worker thread's connection) gets the store's registered-values
+    hook, so its puts make the same literal check."""
+    import asyncio
+    from ferb.memory.consolidate import Consolidator
+    from tests.support.learning_fixtures import NoMemory, new_store
+    db, store = new_store(tmp_path / "memory.db")
+    store.secret_values = lambda: {"zq7-house-key"}
+    seen = []
+    monkeypatch.setattr(Consolidator, "rollups", lambda self, learning=None, stop=None:
+                        seen.append(set(learning.secret_values())))
+    try:
+        asyncio.run(Consolidator(store, NoMemory(), lambda *a, **k: None)._rollups_off_loop())
+    finally:
+        db.close()
+    assert seen == [{"zq7-house-key"}]

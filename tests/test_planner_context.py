@@ -1339,3 +1339,84 @@ def test_the_planners_procedure_list_doesnt_read_every_label(tmp_path) -> None:
         assert costs == [1, 1]
     finally:
         db.close()
+
+
+def test_the_daemon_checks_its_registered_secret_values_when_learning_stores(daemon) -> None:
+    """Re-review Q2: the daemon wires its Learning to its Redactor's registered values; a value spanning JSON
+    punctuation is refused through the daemon's own store, and stored once the owner's value is forgotten."""
+    from ferb.memory.learning import LearningRefused
+
+    async def go():
+        d = daemon.daemon
+        d.redact.add_secret_value("1234,5678")
+        try:
+            d.learning.put("lesson", "k", {"a": [1234, 5678]}, [], made_by="model:test")
+            refused = None
+        except LearningRefused as e:
+            refused = str(e)
+        d.redact.forget_secret_value("1234,5678")
+        return refused, d.learning.put("lesson", "k", {"a": [1234, 5678]}, [], made_by="model:test")["body"]
+    refused, body = daemon.run(go())
+    assert refused and "stored safely" in refused and body == {"a": [1234, 5678]}
+
+
+@pytest.mark.parametrize("name", ["token", "pin", "password", "passcode", "api_key", "secret"])
+def test_a_procedure_whose_slot_is_named_like_a_secret_runs_end_to_end(daemon, name) -> None:
+    """Re-review O3, end to end: the planner picks a learned procedure whose slot is named like a credential and gives
+    its value; the task runs (no KeyError at the task's start or end), the trace notes nothing ignored, and the run's
+    receipt is recorded."""
+    from ferb.memory import intents
+    from tests.support.learning_fixtures import on_loop
+
+    def make() -> str:
+        learning = daemon.daemon.learning
+        iid = intents.intent_id("check a price")
+        cards = []
+        for n, value in enumerate(("BTC", "ETH", "SOL")):
+            c = learning.put("episode", f"price{n}", {"task_id": f"price{n}", "verified": True, "apps": {},
+                             "request": f"price of {value}", "slots": {}, "status": "done",
+                             "ended_at": f"2026-10-21T09:0{n}:00+00:00",
+                             "actions": [{"id": f"price{n}-a", "tool": "browser.type", "args": {"text": value},
+                                          "outside_action": False}]},
+                             [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+            learning.put(intents.INTENT_KIND, c["id"], {"intent_id": iid, "name": "check a price",
+                                                        "description": "a price", "slots": {name: "string"},
+                                                        "values": {name: value}},
+                         [c["id"]], made_by="model:test", state="active")
+            cards.append((c, value))
+        return learning.propose_procedure({
+            "intent": "check a price", "slots": {name: "string"}, "preconditions": {"apps": {}},
+            "steps": [{"tool": "browser.type", "args": {"text": "{" + name + "}"}, "expect": "typed",
+                       "optional": False, "evidence": [f"price{n}-a" for n in range(3)]}],
+            "ui_hints": "", "examples": [{"episode": c["id"], "slots": {name: v}} for c, v in cards]},
+            "b", "model:test|prompt:1", intent_id=iid)["id"]
+    proc = on_loop(daemon, make)
+    spec = task("check the price of DOGE")
+    spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": name, "value": '"DOGE"'}]
+    install(daemon, [sup("task", "Checking.", spec)], {"worker": done("done")})
+    assert outcome(chat(daemon, "check the price of DOGE"))["status"] == "done"
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+    kinds = on_loop(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT kind FROM spans WHERE kind IN ('procedure.slots_ignored', 'procedure.ignored')")])
+    assert kinds == []
+    task_id = on_loop(daemon, lambda: daemon.daemon.db.conn.execute(
+        "SELECT task_id FROM episodes ORDER BY ended_at DESC").fetchone()[0])
+    assert len(_receipt_slots(daemon, proc, task_id)) == 1
+
+
+def test_a_slot_check_that_fails_at_the_tasks_start_is_noted_and_never_crashes_the_task(daemon) -> None:
+    """The task-start slot check is guarded: an error there is noted in the trace (`procedure.slots_ignored`, with
+    why) and the task runs with the procedure, without the slot values."""
+    from tests.support.learning_fixtures import on_loop
+    proc = _food_procedure(daemon)
+
+    def broken(procedure_id, pairs):
+        raise RuntimeError("database is locked")
+    daemon.daemon.supervisor.slot_problem = broken
+    spec = task("order the cheapest rajma")
+    spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": '"rajma"'}]
+    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
+    query = "SELECT output_json FROM spans WHERE kind='procedure.slots_ignored'"
+    notes = on_loop(daemon, lambda: [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(query)])
+    assert len(notes) == 1 and "RuntimeError: database is locked" in notes[0]["why"]

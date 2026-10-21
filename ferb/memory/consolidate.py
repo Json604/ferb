@@ -471,6 +471,7 @@ class Consolidator:
             db = Database(l.db.path)
             try:
                 own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id)
+                own.secret_values = l.secret_values      # its puts check the owner's registered values too
                 self.rollups(own, stop=stop)
             finally:
                 db.close()

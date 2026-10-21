@@ -1831,8 +1831,7 @@ class Supervisor(WorkerRuns):
         if spec.procedure_id and (why := self.procedure_problem(spec.procedure_id)):
             # I5: a procedure id that isn't a usable procedure is noted and left out; the task runs without the hint
             self._ignore_procedure(tree, root_span.id, why)
-        elif spec.procedure_id and (why := self.slot_problem(spec.procedure_id,
-                                                             [s.model_dump() for s in spec.procedure_slots])):
+        elif spec.procedure_id and (why := self._slot_problem(spec)):
             # L29: values the procedure's slots refuse are noted and left out; the procedure is used without them
             note = self.spans.start("procedure.slots_ignored", task_id=tree.id, parent_id=root_span.id,
                                     input={"procedure_id": spec.procedure_id,
@@ -1954,6 +1953,14 @@ class Supervisor(WorkerRuns):
                 episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
                 self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(tree_id, spec))
         yield final
+
+    def _slot_problem(self, spec: TaskSpec) -> str | None:
+        """Why the chosen procedure's slots refuse the planner's values, or None (L29). A check that fails is a reason
+        too: it never crashes the task's start."""
+        try:
+            return self.slot_problem(str(spec.procedure_id), [s.model_dump() for s in spec.procedure_slots])
+        except Exception as exc:
+            return f'the slot values could not be checked: {type(exc).__name__}: {exc}'
 
     def _planner_slots(self, tree_id: str, spec: TaskSpec) -> dict[str, Any] | None:
         """The planner's values for its chosen procedure's slots, typed against the procedure (L29); None without a

@@ -17,7 +17,7 @@ from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
 from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
-from ferb.sanitize.redact import REDACTED
+from ferb.sanitize.redact import NODE_TEXT, REDACTED
 
 
 class LearningRefused(FerbError):
@@ -32,6 +32,11 @@ ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 CARD_MAKER = 'code:evidence-card/2'
 # Model-written suggestions the owner can turn down ("Not right": retire); one turned down never comes back (M3).
 SUGGESTIONS = frozenset({'procedure', 'identity_proposal', 'lesson'})
+# The JSON types a slot may declare: a closed set, so a slot type the redactor masked by its key ("token": "string")
+# is restored, never free text (L29 re-review O3).
+SLOT_TYPES = ('string', 'number', 'boolean', 'array', 'object')
+# Kinds whose body declares slot types
+TYPED_SLOTS = frozenset({'procedure', 'episode_intent'})
 # Card fields a consolidation doesn't need (usage, the tool tally, wording about version scope): left out of its digest.
 _NOT_FOR_CONSOLIDATION = ('usage', 'surfaces', 'app_version_scope')
 
@@ -70,10 +75,11 @@ def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[st
     3. else each value redacted together with its key (the `"key": value` text as one unit, nested values in turn, a
        list's strings also joined, so a private key split across items is caught), REDACTED where that doesn't parse.
     Then each string is redacted on its own too, as the prose it is: inside JSON the redactor misses a secret that
-    ends a string ("my password is sunshine" followed by another key). Last, the result is checked: redacted once more
-    as a whole it must not change, and the compact text to be stored must hold none of the owner's registered secret
-    `secrets` (one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`, matches only there). Else it is
-    refused, as before this helper existed (L29 re-review N1, R1)."""
+    ends a string ("my password is sunshine" followed by another key), and each pair of neighbouring values is read as
+    two lines (a code whose label ends the previous value, "PIN" then "4821"). Last, the result is checked: redacted
+    once more as a whole it must not change, and the compact text to be stored must hold none of the owner's registered
+    secret `secrets` (one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`, matches only there). Else it is
+    refused, as before this helper existed (L29 re-review N1, R1, Q1)."""
     try:
         out = json.loads(redact(spaced(value)))
     except ValueError:
@@ -86,11 +92,76 @@ def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[st
                 out = _restored(value, seen)
             except ValueError:
                 out = seen
-    out = _strings_alone(redact, out)
+    out = _siblings(redact, _strings_alone(redact, out))
     text, stored = spaced(out), encoded(out)
     if redact(text) != text or any(secret and secret in stored for secret in secrets):
         raise LearningRefused('could not be stored safely: redaction would still change it')
     return out
+
+
+def _line(value: Any) -> str | None:
+    """A scalar as a line of prose: a string as written, a number as JSON; None for anything else."""
+    if isinstance(value, str):
+        return value
+    return encoded(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _node_text(item: Any) -> str | None:
+    """A list item's own text: a node's first text field (`NODE_TEXT`, as the redactor reads a page's nodes)."""
+    if not isinstance(item, dict):
+        return None
+    return next((k for k in NODE_TEXT if isinstance(item.get(k), str) and item[k].strip()), None)
+
+
+def _siblings(redact: Callable[[str], str], value: Any) -> Any:
+    """`value` with each pair of neighbouring scalar values (an object's in key order, a list's items, a list's nodes by
+    their text) also read as two lines of prose, as the redactor reads a page's neighbouring nodes: a value that
+    reading masks becomes REDACTED (a code whose label ends the previous value: "PIN" then "4821"; L29 re-review Q1)."""
+    if isinstance(value, dict):
+        keys: list[Any] | None = sorted(value, key=str)
+        values = [_siblings(redact, value[k]) for k in keys or ()]
+        texts: list[str | None] = [None] * len(values)
+    elif isinstance(value, list):
+        keys, values = None, [_siblings(redact, v) for v in value]
+        texts = [_node_text(v) for v in values]
+    else:
+        return value
+    lines = [values[i][t] if t is not None else _line(values[i]) for i, t in enumerate(texts)]
+    # a string is already redacted on its own (`_strings_alone`); a number is read alone here
+    alone = [redact(line) if isinstance(values[i], (int, float)) and texts[i] is None and line is not None else line
+             for i, line in enumerate(lines)]
+    out = list(values)
+    for i in range(1, len(values)):
+        a, b = lines[i - 1], lines[i]
+        if a is None or b is None:
+            continue
+        pair = redact(a + '\n' + b)
+        if pair == f'{alone[i - 1]}\n{alone[i]}':
+            continue
+        parts = pair.split('\n')
+        if len(parts) != a.count('\n') + b.count('\n') + 2:
+            out[i - 1], out[i] = _masked(out[i - 1], texts[i - 1]), _masked(out[i], texts[i])
+            continue
+        cut = a.count('\n') + 1
+        if '\n'.join(parts[cut:]) != alone[i]:
+            out[i] = _masked(out[i], texts[i])
+        if '\n'.join(parts[:cut]) != alone[i - 1]:
+            out[i - 1] = _masked(out[i - 1], texts[i - 1])
+    return dict(zip(keys, out)) if keys is not None else out
+
+
+def _masked(value: Any, text: str | None) -> Any:
+    """A value the sibling reading masked: REDACTED, or for a node its text field."""
+    return value | {text: REDACTED} if text is not None else REDACTED
+
+
+def slot_types_restored(given: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    """`body` (`given` redacted) with each slot type the redactor masked put back: a type is one of `SLOT_TYPES`, never
+    free text, so a slot named like a credential ("token", "pin") keeps its type (L29 re-review O3)."""
+    declared, kept = given.get('slots'), body.get('slots')
+    if not isinstance(declared, dict) or not isinstance(kept, dict):
+        return body
+    return body | {'slots': {k: declared[k] if declared.get(k) in SLOT_TYPES else v for k, v in kept.items()}}
 
 
 def _strings_alone(redact: Callable[[str], str], value: Any) -> Any:
@@ -302,7 +373,9 @@ class Learning:
             raise LearningRefused('the owner said this suggestion was not right')
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
-        body = redacted_json(self.redact, body, self.secret_values())
+        given, body = body, redacted_json(self.redact, body, self.secret_values())
+        if kind in TYPED_SLOTS:
+            body = slot_types_restored(given, body)
         key = self.redact_id(key) if kind in ID_KEYED else self.redact(key)
         refs = sorted(set(sources))
         labels = set(labels) if labels is not None else self.labels(refs)
@@ -544,7 +617,7 @@ class Learning:
         if not examples or not steps or not proposal.get('intent'):
             raise LearningRefused('a procedure needs intent, steps and verified examples')
         slot_types = proposal.get('slots', {})
-        if not isinstance(slot_types, dict) or any(t not in ('string', 'number', 'boolean', 'array', 'object')
+        if not isinstance(slot_types, dict) or any(t not in SLOT_TYPES
                                                    for t in slot_types.values()):
             raise LearningRefused('slots must declare JSON types')
         cards, actions = [], {}

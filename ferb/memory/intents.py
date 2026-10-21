@@ -9,11 +9,10 @@ card's label is closed. Labels are the learner's bookkeeping: search never recal
 import json
 from typing import Any, Iterable
 
-from ferb.memory.learning import Learning, LearningRefused, digest
+from ferb.memory.learning import SLOT_TYPES, Learning, LearningRefused, digest
 from ferb.memory.strict import JSON_TEXT, pairs, to_map
 
 INTENT_KIND = 'episode_intent'
-SLOT_TYPES = ('string', 'number', 'boolean', 'array', 'object')
 _TYPES: dict[str, Any] = {'string': str, 'number': (int, float), 'boolean': bool, 'array': list, 'object': dict}
 # An intent id's characters: letters only, so no redaction pattern (a card number, a code) matches one, in a label's
 # body or as a procedure's key (Learning.put redacts both); only a secret the owner stored, spelled in the letters a-p,
@@ -150,6 +149,8 @@ def typed(values: dict[str, Any], slots: dict[str, str]) -> None:
     if set(values) != set(slots):
         raise LearningRefused("the slot values must name exactly the intent's slots")
     for k, t in slots.items():
+        if t not in _TYPES:                 # e.g. a type stored masked before slot types were restored (L29 O3)
+            raise LearningRefused(f'slot {k} has no JSON type')
         v = values[k]
         if not isinstance(v, _TYPES[t]) or (t == 'number' and isinstance(v, bool)):
             raise LearningRefused(f'slot {k} is not a {t}')
