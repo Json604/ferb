@@ -1311,8 +1311,9 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     ends, `ferb trace TASK --full`: every step that finished shows its result (none ended with an empty result where
     its tool returns one), and no step holds "quokka", including the steps that finished after "Forgotten.", and the
     task's answer in the chat doesn't either (the clean-up runs again when the task ends; send your next message
-    after that, since it waits for the clean-up). Record any step or answer that still holds it. Delete the folder
-    after.
+    after that, since it waits for the clean-up). Record any step or answer that still holds it. Then repeat, and
+    while the task still runs, say "remember that my test lab colour is amber-quokka" again: once the task ends, that
+    message's reply still says it (nothing started after the forget is changed). Delete the folder after.
 75. Checker reads (6b): after `ferb setup --update`, ask "turn on Low Power Mode and tell me" (or "turn Bluetooth off
     and tell me"; turn it back afterwards). `ferb trace TASK --full`: the checker's input has "Recorded tool calls of
     this task: N" and each call with its result. Count the checker's `task_evidence` calls and its rounds, and

@@ -21,7 +21,8 @@ A forgotten learned item has its own, scoped pass (`finish_node`).
 Every row is written only while it still holds what was read (`swap`, spans through `rewrite_recorded`), and each
 span pass runs again while a span running when it started took a live write meanwhile (`rewrite_until_still`): a span
 finishing during the scrub keeps its output and loses the item. For a task or chat turn running at the forget the
-daemon runs the scrub again when it ends, with the rules it settled the first time (`Forgotten.lines`; fix wave 6a).
+daemon runs the scrub again when it ends, with the rules it settled the first time (`Forgotten.lines`), touching only
+what that work recorded (`Running`; fix wave 6a).
 Journal rows are append-only (they are only ever deleted, for a forget): a changed row is deleted and written again
 with the same sequence number, id, time, kind and origin. The owner's own messages are never rewritten."""
 import json
@@ -614,7 +615,8 @@ class _Index:
             def within(at: str) -> bool:
                 return start <= _utc(at) and (end is None or _utc(at) <= end)
             tasks |= {_root(str(t["id"])) for t in self.tasks if within(str(t["created_at"]))}
-            spans |= {str(s["id"]) for s in self.spans if (s["task_id"] or s["prompt"]) and within(str(s["started_at"]))}
+            spans |= {str(s["id"]) for s in self.spans
+                      if (s["task_id"] or s["prompt"]) and within(str(s["started_at"]))}
         spans |= self.task_spans(tasks)
         saw = {r for s in self.spans if str(s["id"]) in spans and s["saw"] for r in json.loads(s["saw"])}
         notices = {ident for ident, refs in self.notices if refs & saw}

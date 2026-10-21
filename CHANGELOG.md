@@ -373,9 +373,11 @@ Fix wave 6a — forgets while FERB is working (2026-10-21; not installed or live
   the notice text it actually replaced; recording a running step's measured input never brings forgotten words back.
 - A task or chat turn still running when you forget an item: when it ends, the clean-up runs again with the same
   rules, so what it recorded afterwards (later steps, its answer and "while you were away" result, a chat reply) loses
-  the item too, and quitting FERB waits for that. After a crash before such a task ends, what it recorded since the
-  forget can still hold the item: FERB keeps the pending clean-up in memory only, so the forgotten words are never
-  written down.
+  the item too, and quitting FERB waits for that; your next message waits for it once the task has answered. That
+  second clean-up touches only the work that was running at the forget: if you state the item again, or start a new
+  task, nothing of it is changed. After a crash before such a task ends, what it recorded since the forget can still
+  hold the item: FERB keeps the pending clean-up in memory only (for as long as the task runs, which can be days if it
+  waits on you), so the forgotten words are never written down.
 
 Licensed under Apache-2.0.
 

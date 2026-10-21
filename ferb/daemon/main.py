@@ -134,11 +134,11 @@ def _named_node(node: dict[str, Any]) -> str:
 
 class _Rescrub:
     """A forget's echo scrub to run again as the work running at the forget ends (fix wave 6a): what that work records
-    after the scrub (spans, answer, records, chat reply) loses the item too, and nothing else is touched. `work` runs the
-    same scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho) for `running` (the task
+    after the scrub (spans, answer, records, chat reply) loses the item too, and nothing else is touched. `work` runs
+    the same scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho) for `running` (the task
     trees, requests and unfinished spans of that moment); both are kept in memory only, never written down, until the
-    last job in `waiting` ends or the daemon stops, which can be days for a task waiting on the owner. `queued`: a run is
-    waiting to start, and will see what was recorded meanwhile."""
+    last job in `waiting` ends or the daemon stops, which can be days for a task waiting on the owner. `queued`: a run
+    is waiting to start, and will see what was recorded meanwhile."""
 
     def __init__(self, work: Callable[[], Awaitable[None]], waiting: set[asyncio.Task[Any]], running: Any) -> None:
         self.work, self.waiting, self.running, self.queued = work, waiting, running, False
@@ -1502,9 +1502,9 @@ class Daemon:
         if not jobs:
             return
         assert self.db is not None
-        unfinished = self.db.conn.execute("SELECT id, kind, CASE WHEN kind = 'model.turn' THEN "
-                                          "json_extract(input_json, '$.request_id') END FROM spans WHERE ended_at IS NULL"
-                                          ).fetchall()
+        unfinished = self.db.conn.execute(
+            "SELECT id, kind, CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END "
+            "FROM spans WHERE ended_at IS NULL").fetchall()
         running = Running({key for key, _ in self.supervisor.running_trees()} if self.supervisor else set(),
                           {self._turn_requests[job] for job in jobs if job in self._turn_requests}
                           | {str(r[2]) for r in unfinished if r[2] is not None},       # a planner turn under way
