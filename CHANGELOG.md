@@ -354,8 +354,9 @@ Fix wave 6c (2026-10-21, "tell me when …" survives restarts and updates; not i
   check's report of the condition is judged by its final check like any condition. A one-shot watch stops itself after
   a confirmed check finds its condition met (journaled `schedule.met`, its recorded send scope withdrawn as a cancel
   does), and that answer says FERB stopped checking; an unconfirmed or failed check never ends it.
-- You're told once each time the condition becomes true, judged against the last check that reported it (a failed
-  check in between doesn't make it tell again; an unconfirmed alert counts). A met condition comes as a "FERB alert"
+- You're told once each time the condition becomes true, judged against the last check that reported it, which is
+  stored with the watch (a failed check in between doesn't make it tell again; an unconfirmed alert counts). A check
+  succeeds by checking and reporting; a condition that doesn't hold yet is not a failed task. A met condition comes as a "FERB alert"
   notification, as a reminder does, even with the app open or while you're away. A check with nothing new to tell is
   recorded but reaches neither the app nor `ferb chat`, and no client lists it as running. Checks run on the
   schedule's interval (every 15 minutes or more); there is no battery or file event.

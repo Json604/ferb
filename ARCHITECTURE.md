@@ -768,18 +768,24 @@ Each check (`run_tree(watch=True)`, `_Tree.watch`):
   FERB's report condition, which stays last; a false or unknown verdict keeps the run from `done`, and `_report` says
   it in the owner's terms (WATCH_FALSE / WATCH_UNKNOWN / WATCH_UNCHECKED). No `_verifier` or `verifier.md` change:
   the condition carries the reported value.
-- `_final` adds `watch_met` to the outcome and the `task.answer` row records it. `_previous_run(watch=True)` also
-  returns `last_reported`: what the latest earlier check that reported the condition found (a finished run, `done` or
-  `done_unverified`; failed and unanswered runs are passed over). The run's Schedule facts carry `watch` and
-  `last_reported_met`, and `scheduled.md` tells the run to stay quiet (no new alert of its own) when it is true;
-  `run_scheduled` returns it as `previously_met`.
+- `_final` adds `watch_met` to the outcome only for a watch's check (whose check judged it), and the `task.answer` row
+  records it. `scheduled.md` makes a check's success conditions "the check was made and its answer reports the fresh
+  observation", never the watched condition itself, so a condition that doesn't hold yet is a finished check, not a
+  failed task.
+- What the latest finished check (`done` or `done_unverified`) that reported the condition found is stored with the
+  schedule (`schedules.last_reported_met`, migration 0042, `Schedules.reported`, written by `_run_schedule`; failed
+  runs and planner replies leave it as it was), so a check reads it in one row instead of the watch's history
+  (re-review N1: with 600 failed checks since the last report, the journal scan took 1.41 s per check on the event
+  loop; the row read takes 0.005 s, as for any schedule). The run's Schedule facts carry `watch` and
+  `last_reported_met`, and `scheduled.md` tells the run to stay quiet (no new alert of its own) when it is true.
+  `_previous_run` is unchanged (the latest answered run, for its answer).
 - Its start isn't published (no `task.created`) and `chat.status` leaves it out of `running`
   (`running_trees(watches=False)`), so no client lists or adopts it; a result the daemon publishes arrives as work
   started elsewhere, with the watch's request as its goal (the app and `ferb chat` already place such results).
 
 `Daemon._run_schedule` then decides (`schedules.watch_met`: a finished run whose outcome says met):
-- a met condition is an alert unless `previously_met` (an unconfirmed met check's alert counts as told, so a watch
-  that never confirms alerts once): `_task_result(alert=True)` posts a "FERB alert" notification the way a reminder
+- a met condition is an alert unless `last_reported_met` was true when the check started (an unconfirmed met check's
+  alert counts as told, so a watch that never confirms alerts once): `_task_result(alert=True)` posts a "FERB alert" notification the way a reminder
   does (urgent, with or without a client showing `task.result`, the owner idle or not), and stores and publishes the
   result;
 - a `done` met run of an `until_met` watch ends it (`_end_watch`): state `done`, the next check's timer cancelled,
@@ -799,8 +805,8 @@ The stop is the owner's stored words for that schedule (MP2): a run's report, ju
 one-shot watch, never create or widen a schedule. The check interval is the schedule's (`supervisor.md`: every 15
 minutes or more); there is no battery, power or file event, so a crossing is seen at the next check. Residuals: a
 watch check resumed as a saved plan after a restart (`scheduled.md` asks for one task without a plan) is delivered as
-any resumed task, without the watch rules (the next check applies them); a check interrupted by a restart leaves the
-usual "interrupted … pick it up again?" result.
+any resumed task, without the watch rules: it records no `watch_met` and doesn't touch `last_reported_met`, so the next
+check applies them; a check interrupted by a restart leaves the usual "interrupted … pick it up again?" result.
 
 **The report check (P16 V4/V6, D34; F4 live fixes).** `checked_conditions`
 ([`supervisor.py`](ferb/orchestrator/supervisor.py)) adds `REPORT_CONDITION` ("My report to you says truthfully what was
