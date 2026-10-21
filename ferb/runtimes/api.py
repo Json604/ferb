@@ -383,7 +383,7 @@ def _retry_after(resp: httpx.Response) -> float | None:
 
 
 def _window_exceeded(resp: httpx.Response) -> bool:
-    """Whether an error response carries a documented window-exceeded code (WINDOW_EXCEEDED_CODES)."""
+    """Whether an error response carries a window-exceeded code in its `error.code` (WINDOW_EXCEEDED_CODES)."""
     try:
         err = resp.json().get("error") or {}
     except (ValueError, AttributeError):
