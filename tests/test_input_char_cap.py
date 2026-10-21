@@ -1,7 +1,7 @@
 """L28, D32: a runtime's documented per-input character cap (Codex 0.157.1's app-server refuses a turn whose text input
 holds more than 1,048,576 characters) is a model limit like its token window. Context assembly fits both; a protected
-block that can't fit is refused by name before anything is sent, never sent to be rejected; the learner's calls are
-split to fit it. Live 2026-10-11 to 10-20: every learning job failed at Codex's cap with no visible reason."""
+block that can't fit is refused by name before anything is sent, never sent to be rejected; the learner's calls fit
+it (L29: an intent's runs newest first, each whole). Live 2026-10-11 to 10-20: every learning job failed at Codex's cap with no visible reason."""
 import asyncio
 import json
 from pathlib import Path
@@ -13,11 +13,11 @@ from ferb.core.context import ContextBlock, assemble
 from ferb.core.errors import InputTooLarge
 from ferb.core.types import Identity, ModelLimits, ModelRequest, Task
 from ferb.memory.consolidate import Consolidator
+from ferb.memory.intents import intent_id
 from ferb.memory.learning import Learning
 from ferb.runtimes.codex_exec import CodexRuntime
-from ferb.store.db import Database
 from tests.conftest import FakeDistillRuntime, FakeRuntime, chat, install, sup, task
-from tests.support.learning_fixtures import label_card
+from tests.support.learning_fixtures import EMPTY, NoMemory, TickingClock, label_card, new_store
 
 WIDE = 1_000_000          # a token window that holds everything these tests send
 CODEX_START = CodexRuntime.start          # the real one: offline tests replace it with a refusal (conftest)
@@ -181,61 +181,49 @@ def test_a_worker_context_over_the_character_cap_is_refused_by_name_never_sent(d
 
 # ---------- the learner and the distiller ----------
 
-class _Clock:
-    def now(self) -> Any:
-        from datetime import datetime, timezone
-        return datetime(2026, 10, 11, tzinfo=timezone.utc)
-
-
-class _NoMemory:
-    def items(self, **_: Any) -> list[Any]:
-        return []
-
-    def get(self, _ident: str) -> None:
-        return None
-
-
 @pytest.fixture
 def learning(tmp_path):
-    db = Database(tmp_path / "memory.db")
-    db.migrate()
-    yield Learning(db, _Clock(), lambda *args: None, lambda s: s)
+    db, store = new_store(tmp_path / "memory.db", TickingClock())       # each card recorded after the one before
+    yield store
     db.close()
 
 
-EMPTY = {"procedures": [], "lessons": [], "identity": [], "episodes": []}
-
-
-def _card(store: Learning, ident: str, request: str) -> Any:
+def _card(store: Learning, ident: str, request: str, intent: str = "a test intent") -> Any:
     """A card already labelled (L29): these tests see consolidation calls only."""
     node = store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
                                         "slots": {}, "status": "done",
                                         "actions": [{"id": ident + "-a", "tool": "browser.open", "args": {"n": ident}}]},
                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
-    label_card(store, node)
+    label_card(store, node, intent)
     return node
 
 
-def test_a_group_that_fits_the_window_but_not_one_input_is_split_by_characters(learning, monkeypatch) -> None:
+def test_runs_that_fit_the_window_but_not_one_input_go_newest_first_within_it(learning, monkeypatch) -> None:
+    """L29: an intent's runs go in one call, newest first, as many as fit both the window and one input."""
     cards = [_card(learning, f"t{i}", "open the page " + "word " * 300) for i in range(8)]
     rt = FakeDistillRuntime(EMPTY)
     monkeypatch.setattr(FakeDistillRuntime, "limits", capped(6_000))
-    out = asyncio.run(Consolidator(learning, _NoMemory(), lambda *a, **k: rt).catch_up())
-    assert len(rt.contexts) > 1 and all(len(context) <= 6_000 for context in rt.contexts)
-    assert all(sum(c["id"] in context for context in rt.contexts) == 1 for c in cards)
+    out = asyncio.run(Consolidator(learning, NoMemory(), lambda *a, **k: rt).catch_up())
+    [context] = rt.contexts
+    sent = [c["id"] in context for c in cards]
+    assert len(context) <= 6_000 and sent[-1] and not sent[0] and sent == sorted(sent)     # the newest that fit
     assert not [r for r in out["sources"] if "error" in r]
     assert {r[0] for r in learning.db.conn.execute("SELECT status FROM learning_jobs")} == {"done"}
 
 
-def test_a_card_longer_than_one_input_is_never_sent_and_its_job_names_the_cap(learning, monkeypatch) -> None:
-    small, big = _card(learning, "s", "open the page"), _card(learning, "b", "open the page " + "word " * 2_000)
+def test_a_run_longer_than_one_input_is_never_sent_and_a_job_none_of_whose_runs_fit_names_the_cap(learning,
+                                                                                                   monkeypatch) -> None:
+    small = [_card(learning, f"s{i}", "open the page") for i in range(2)]
+    big = _card(learning, "b", "open the page " + "word " * 2_000)
+    huge = [_card(learning, f"h{i}", "open the page " + "word " * 2_000, intent="huge") for i in range(3)]
     rt = FakeDistillRuntime(EMPTY)
     monkeypatch.setattr(FakeDistillRuntime, "limits", capped(6_000))
-    asyncio.run(Consolidator(learning, _NoMemory(), lambda *a, **k: rt).catch_up())
-    assert not any(big["id"] in context for context in rt.contexts)
-    assert any(small["id"] in context for context in rt.contexts)
+    asyncio.run(Consolidator(learning, NoMemory(), lambda *a, **k: rt).catch_up())
+    assert not any(c["id"] in context for c in [big, *huge] for context in rt.contexts)
+    assert all(any(c["id"] in context for context in rt.contexts) for c in small)
     rows = dict(learning.db.conn.execute("SELECT source_ref, error FROM learning_jobs WHERE status = 'failed'"))
-    assert set(rows) == {big["id"]} and "characters" in rows[big["id"]] and "6000" in rows[big["id"]]
+    job = "intent:" + intent_id("huge")
+    assert set(rows) == {job} and "characters" in rows[job] and "6000" in rows[job]
 
 
 def test_a_day_over_the_character_cap_is_refused_by_name_never_sent(daemon, monkeypatch) -> None:

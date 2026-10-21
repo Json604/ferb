@@ -614,9 +614,12 @@ A pending identity digest is shown in chat at most once per day: the app shows C
 
 The sleep service runs incrementally when no task is active: it reads again only cards whose inputs changed, gives
 each finished task an intent label (the learning model names what kind of task it was, reusing a kind it has seen
-before when the goal is the same; a task's card read again keeps its label), sends new episodes grouped by the tools
-and apps they used (split to fit the model's window), and retries a failed job only when its card or group changes or
-on `ferb memory consolidate`, which requests a pass; a label whose model call failed is tried again on the next pass.
+before when the goal is the same; a task's card read again keeps its label), and learns by intent: once a kind of task
+has three verified runs, one model call gets its runs (failed ones too, newest first, as many as fit the model's
+window, whatever tools they used) to write a procedure and lessons, and once it has a procedure, every new run of it
+updates them. A model call that failed is tried again on the next pass; an answer outside the expected form, or input
+too large for the window, waits until what it was about changes (that kind of task's runs, or for a label the task's
+card) or `ferb memory consolidate`, which requests a pass.
 Procedures contain text tool templates and expect lines and cite verified episodes. A step some runs skipped is
 optional and must reproduce the runs that cite it; every other step must reproduce every run. Procedures become
 learned after three verified successes across two slot values, with the latest on current captured app versions.

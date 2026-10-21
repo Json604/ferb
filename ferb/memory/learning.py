@@ -43,14 +43,6 @@ def card_digest(node: dict[str, Any]) -> dict[str, Any]:
             'body': {k: v for k, v in node['body'].items() if k not in _NOT_FOR_CONSOLIDATION}}
 
 
-def card_shape(node: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """An episode's structure: the tools its actions used and the apps it ran in. Episodes of one shape are consolidated
-    together (I3): a shared word in their requests says nothing about sameness."""
-    body = node['body']
-    return (tuple(sorted({str(a.get('tool')) for a in body.get('actions') or [] if isinstance(a, dict)})),
-            tuple(sorted(body.get('apps') or {})))
-
-
 def encoded(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)
 
@@ -618,10 +610,14 @@ class Learning:
                 versions.update(r[0] for r in self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=?',
                                                                   (node['kind'], node['key'])))
         doomed = self.descendants(versions)
-        for row in self.db.conn.execute(f"SELECT kind,key FROM learning_nodes WHERE id IN ({','.join('?' * len(doomed))})",
-                                        sorted(doomed)).fetchall() if doomed else []:
+        rows = self.db.conn.execute(f"SELECT kind,key,body_json FROM learning_nodes WHERE id IN "
+                                    f"({','.join('?' * len(doomed))})", sorted(doomed)).fetchall() if doomed else []
+        jobs = set()
+        for row in rows:
             if row['kind'] in ID_KEYED:                       # a card or annotation of one task: never rebuilt
                 logical.append('key-' + digest([row['kind'], row['key']]))
+            if row['kind'] == 'episode_intent':               # a card's label (L29): its intent's job goes too
+                jobs.add('intent:' + str(json.loads(row['body_json']).get('intent_id')))
         now = self.now()
         self.db.conn.execute('SAVEPOINT learning_forget')
         try:
@@ -631,9 +627,13 @@ class Learning:
                                      [(direct(ref), now) for ref in sorted(set(requested) | doomed)])
             for ident in doomed:
                 self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, now))
-                # its consolidation job, and its card's label job (L29), whose error may name what was forgotten
+                # a card's label job (and a job keyed by the card, from before L29), whose error may name what was
+                # forgotten
                 self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref IN (?,?)', (ident, 'label:' + ident))
                 self.db.conn.execute('DELETE FROM learning_nodes WHERE id=?', (ident,))
+            # the jobs of the intents whose labels go (L29): an error may quote what the call was sent, and the
+            # intent's runs changed anyway
+            self.db.conn.executemany('DELETE FROM learning_jobs WHERE source_ref=?', [(j,) for j in sorted(jobs)])
             self.db.conn.execute('RELEASE learning_forget')
         except BaseException:
             self.db.conn.execute('ROLLBACK TO learning_forget')

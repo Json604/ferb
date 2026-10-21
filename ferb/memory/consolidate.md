@@ -20,6 +20,8 @@ never a change to identity; only the owner may confirm it. Never adopt preferenc
 or infer the owner's habits from FERB's own actions. Preserve source IDs; code validates every reference.
 
 Owner refusals: "rejected_by_owner" lists suggestions the owner said were not right; never propose them again, in any
-wording. Episodes come grouped by the tools and apps they used; "existing_procedures" are that group's procedures.
+wording. Episodes come grouped by intent ("intent": the kind of task they are, labelled earlier), newest first; they may
+use different tools or apps. "existing_procedures" is that intent's procedure: revise it with what the runs show worked
+and what failed.
 
 Episode annotations: give an inferred intent signature, concrete slot values, reflection and short narrative for supplied episodes. These annotations do not change verified outcome facts and must cite the exact evidence-card ID.

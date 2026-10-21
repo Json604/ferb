@@ -1698,20 +1698,29 @@ with valid/recorded time; state and success receipts are derived metadata. Conso
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
 
 `memory/consolidate.py` uses a no-tool runtime during idle periods, validates cited verified episodes and actual
-instantiated tool arguments, creates scoped failure/success lessons and pending identity proposals, and records
-per-source job completion. Code rollups cite their child cards.
-- **Incremental (fix wave 3, I3).** A pass reads again only cards whose inputs changed (`Learning.cards_to_read`:
-  `learning_card_inputs` holds each card's input digest: composer, episode `built_at`/status/verified, latest verdict).
-  Pending episodes go to the model grouped by `card_shape` (tools and apps), one call per group with compact
-  `card_digest`s, that group's procedures and owner refusals, and only the consolidated cards related to the new ones
-  (`_examples`: the same action shape and a request term most of the group lacks, as `Memory.recall` filters terms; or
-  cited by the group's procedures and lessons), split by `_chunks` to fit `runtime_limits(rt)` (a card too large for
-  the window is never sent; its job says why; procedures that alone fill it are named) and by `_within_chars` to fit
-  the runtime's per-input character cap (fix wave 5; a card no input can hold whole is never sent and its job names the
-  cap). A failed card read is tried once more, then parked until its inputs change. `learning_jobs.inputs` holds the
-  group digest: a failed job is retried when its group changes or on `ferb memory consolidate`
-  (`catch_up(force=True)`); a failed distill day waits for its summary row to change (`distill_runs.inputs`) or
-  `ferb memory distill DAY`.
+instantiated tool arguments, creates scoped failure/success lessons and pending identity proposals, and records each
+intent's job. Code rollups cite their child cards.
+- **Incremental (fix wave 3, I3; by intent, L29).** A pass reads again only cards whose inputs changed
+  (`Learning.cards_to_read`: `learning_card_inputs` holds each card's input digest: composer, episode
+  `built_at`/status/verified, latest verdict); a failed card read is tried once more, then parked until its inputs
+  change. After the labels (next item), `Consolidator._groups` groups the current cards by their intent label (a card
+  without one waits); each run's tools and apps stay in its `card_digest`, never a grouping key. An intent is first
+  consolidated once it has `FIRST_LEARNING_RUNS` verified runs (3, the owner's "counter 3"), and once it has a
+  procedure, again whenever its runs change (a new run, verified or failed, revises the procedure and its lessons).
+  One call per intent carries the intent (id, name, description, slot types, from its oldest label), its runs'
+  `card_digest`s newest first (by `recorded_at`), as many as fit `runtime_limits(rt)` and the runtime's per-input
+  character cap (`_newest_first`; each whole: a run that doesn't fit is left out, never shortened; failed runs go too,
+  for lessons), its procedure (`_procedures`: the current one keyed by the intent id, and those the owner turned down,
+  by their intent text) and the identity suggestions the owner turned down. `apply` keys an accepted procedure by the
+  intent id (`propose_procedure(..., intent_id=)`), so once the owner turns an intent's procedure down,
+  `Learning.put` refuses a new one for that intent (M3). The job is `learning_jobs.source_ref = intent:<intent id>`,
+  `inputs` the digest of the intent's current card ids: a done job waits for its runs to change; an answer code
+  refused or outside the schema (`InvalidAnswer`), procedures that alone fill the window (named as the reason), or
+  runs none of which fits (the job names the window and the cap) wait for the runs to change or
+  `ferb memory consolidate` (`catch_up(force=True)`) (inputs: the digest); a failed call (the service, the
+  connection, a timeout, the runtime, or no runtime to make) is tried on the next pass (inputs: the digest and
+  `:retry`). A forget deletes the job of each intent whose label goes (its error may quote what the call was sent).
+  A failed distill day waits for its summary row to change (`distill_runs.inputs`) or `ferb memory distill DAY`.
 - **Intent labels (L29).** After the card reads and before grouping, `Consolidator._label` gives each current card
   without a label one (`memory/intents.py`; backfill is the same pass). A card read again (a new node of the same
   task: a verdict, a rebuilt episode, a new card composer) keeps its task's label unchanged, with its maker, and no

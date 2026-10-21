@@ -72,7 +72,8 @@ def test_a_failed_consolidation_call_is_a_span_with_codexs_error_and_size_never_
 
 
 async def _put(d: Any) -> None:
-    _card(d, "e1")
+    for n in range(3):                       # an intent is first consolidated from three verified runs (L29)
+        _card(d, f"e{n}")
 
 
 def test_a_label_call_is_a_span_of_its_own_role_named_by_its_card(daemon) -> None:
@@ -80,7 +81,8 @@ def test_a_label_call_is_a_span_of_its_own_role_named_by_its_card(daemon) -> Non
     d = daemon.daemon
 
     async def put() -> str:
-        return str(_card(d, "e1", labelled=False)["id"])
+        await _put(d)                        # an intent with three runs: consolidated after the label call
+        return str(_card(d, "u1", labelled=False)["id"])
     card_id = daemon.run(put())
     d.consolidator.make_runtime = lambda *a, **k: RefusedAtStart({})
     daemon.run(d.consolidator.catch_up(force=True), timeout=30)

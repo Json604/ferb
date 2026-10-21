@@ -14,6 +14,7 @@ import pytest
 from ferb.core.ids import SequentialIds
 from ferb.core.types import ModelLimits, RuntimeEvent
 from ferb.memory.consolidate import PROPOSAL_SCHEMA, Consolidator
+from ferb.memory.intents import intent_id
 from ferb.memory.learning import Learning
 from ferb.orchestrator import episodes
 from ferb.policy import security_digest
@@ -211,6 +212,11 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
                      'outside_action': False}]}, [], origin_label='ferb', made_by='code:evidence-card/1',
         state='active')
     label_card(learning, card, 'send the weekly report')        # labelled (L29): only the consolidation call
+    for n in (2, 3):                                            # three verified runs of the intent (L29)
+        label_card(learning, learning.put('episode', f't-{n}', {
+            'task_id': f't-{n}', 'request': 'send the weekly report', 'verified': True, 'status': 'done',
+            'apps': {'com.apple.mail': '16.0'}, 'slots': {}, 'actions': []}, [], origin_label='ferb',
+            made_by='code:evidence-card/1', state='active'), 'send the weekly report')
     slot = [{'name': 'recipient', 'value': '"a@kartikey.xyz"'}]
     rt = ProposalRuntime({
         'episodes': [
@@ -244,8 +250,10 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
     assert procedure['steps'][0]['optional'] is False
     assert procedure['examples'] == [{'episode': card['id'], 'slots': {'recipient': 'a@kartikey.xyz'}}]
     assert kinds['identity_proposal'] == {'text': 'Sends the weekly report by mail'}
+    iid = intent_id('send the weekly report')
+    assert [learning.get(i)['key'] for i in source['accepted'] if learning.get(i)['kind'] == 'procedure'] == [iid]
     assert learning.db.conn.execute("SELECT status FROM learning_jobs WHERE source_ref=?",
-                                    (card['id'],)).fetchone()[0] == 'done'
+                                    ('intent:' + iid,)).fetchone()[0] == 'done'
 
 
 def test_a_value_that_is_not_json_text_is_kept_as_the_literal_string(stores) -> None:

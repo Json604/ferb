@@ -2,13 +2,14 @@
 
 A pass works on what changed (memory review I3): it reads again only the cards whose inputs changed
 (`Learning.cards_to_read`), gives each card without an intent label one (L29, `_label`: a re-read card keeps its
-task's label; any other, one call; the model decides the intent, `memory/intents.py` checks the answer), and sends the
-episodes not yet consolidated to the model grouped by structure (the same tools and apps: `card_shape`), one call per
-group, with the group's own procedures and only the consolidated cards related to the new ones by structure
-(`_examples`): a cost that follows what changed. A group the model's real window can't hold is split into calls that
-fit; a single card too large for it is never shortened or sent, and its job says why. A failed job keeps its error and
-is tried again when its group changes or on `ferb memory consolidate` (`force`), never on every idle hour (a label whose
-call failed is tried on the next pass). No count or size limit of FERB's own decides any of this."""
+task's label; any other, one call; the model decides the intent, `memory/intents.py` checks the answer), and then
+consolidates by intent (L29), one call per intent: an intent is first learned once it has FIRST_LEARNING_RUNS verified
+runs, and once it has a procedure, again whenever its runs change. A call carries the intent, its runs newest first (as
+many as fit the model's real window and per-input cap, each whole: a run is never shortened), its procedure and the
+owner's refusals: a cost that follows what changed. A call that failed (the service, the connection, a timeout, the
+runtime) is tried on the next pass; an answer refused by code or outside the schema, or input too large, keeps its error
+and waits for its inputs to change (a label: its card; an intent: its runs) or `ferb memory consolidate` (`force`). No
+count or size limit of FERB's own decides any of this; three runs is the owner's."""
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +25,7 @@ from ferb.core.types import Identity, Task
 from ferb.memory import intents
 from ferb.memory.calls import learning_call
 from ferb.memory.intents import INTENT_SCHEMA
-from ferb.memory.learning import Learning, LearningRefused, card_digest, card_shape, digest, encoded
+from ferb.memory.learning import Learning, LearningRefused, card_digest, digest, encoded
 from ferb.memory.strict import JSON_TEXT, pairs, to_map
 
 
@@ -65,9 +66,21 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
                 'evidence': {'type': 'array', 'items': {'type': 'string'}}}}}}}
 
 
-# A label job's inputs (L29): an answer refused by code or outside the schema, or a card too large, waits for its card
-# to change or `force`; a failed call is tried on the next pass.
-LABEL_JOB, LABEL_RETRY = 'label/1', 'label/1:retry'
+# The owner's "counter 3" (L29, 2026-10-21): an intent is first learned from three verified runs.
+FIRST_LEARNING_RUNS = 3
+
+# A job's inputs (L29): LABEL_JOB for a label job (`learning_jobs.source_ref` 'label:<card id>'), its runs' digest for
+# an intent job ('intent:<intent id>'). An answer refused by code or outside the schema, or input too large, waits for
+# them to change or `force`; a failed call is tried on the next pass (RETRY appended, so they never match).
+RETRY = ':retry'
+LABEL_JOB, LABEL_RETRY = 'label/1', 'label/1' + RETRY
+
+
+def _waits(e: Exception) -> bool:
+    """The model's answer, not the call, failed (refused by code or outside the schema), or the input is too large for
+    any call: tried again on a change or `force`. Anything else failed the call itself (the service, the connection, a
+    timeout, the runtime): tried on the next pass."""
+    return isinstance(e, (LearningRefused, InvalidAnswer, InputTooLarge))
 
 
 def _procedure(p: dict[str, Any]) -> dict[str, Any]:
@@ -124,9 +137,8 @@ class Consolidator:
             if not await self._label(force, results):
                 return {'status': 'busy', 'sources': results}
             jobs = {r[0]: (r[1], r[2]) for r in l.db.conn.execute('SELECT source_ref, status, inputs FROM learning_jobs')}
-            for members in self._groups():
-                done = await self._consolidate(members, jobs, force, results)
-                if not done:
+            for about, members in self._groups():
+                if not await self._consolidate(about, members, jobs, force, results):
                     return {'status': 'busy', 'sources': results}
             if not self.idle():                      # I4: never once a task has started
                 return {'status': 'busy', 'sources': results}
@@ -189,105 +201,84 @@ class Consolidator:
                 # an answer refused by code or outside the schema, or a card too large for any call: waits; the call
                 # itself failed (the service, the connection, a timeout, the runtime): the next pass
                 error = l.redact(f'{type(e).__name__}: {e}')
-                waits = isinstance(e, (LearningRefused, InvalidAnswer, InputTooLarge))
-                self._job('label:' + c['id'], LABEL_JOB if waits else LABEL_RETRY, error)
+                self._job('label:' + c['id'], LABEL_JOB if _waits(e) else LABEL_RETRY, error)
                 results.append({'label': c['id'], 'error': error})
         return True
 
-    def _groups(self) -> list[list[dict[str, Any]]]:
-        """The current episode cards by structure (`card_shape`), each group oldest first."""
-        groups: dict[Any, list[dict[str, Any]]] = {}
+    def _groups(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+        """The current episode cards by intent label (L29): the intent (id, name, description and slot types, as
+        `intents.intents` gives them: its oldest label's) and its cards, oldest first. A card without a label waits for
+        one."""
+        labels = intents.labels(self.learning)
+        about: dict[str, dict[str, Any]] = {}
+        for body in labels.values():
+            about.setdefault(body['intent_id'], {'id': body['intent_id'], 'name': body['name'],
+                                                 'description': body['description'], 'slots': body['slots']})
+        groups: dict[str, list[dict[str, Any]]] = {}
         for node in self.learning.items('episode'):
-            groups.setdefault(card_shape(node), []).append(node)
-        return list(groups.values())
+            if node['id'] in labels:
+                groups.setdefault(labels[node['id']]['intent_id'], []).append(node)
+        return [(about[intent], members) for intent, members in groups.items()]
 
-    async def _consolidate(self, members: list[dict[str, Any]], jobs: dict[str, tuple[str, str]], force: bool,
-                           results: list[dict[str, Any]]) -> bool:
-        """One group: its cards not yet consolidated, with the already consolidated cards related to them by structure
-        (`_examples`), in as many calls as the window needs. False when a task started (the next pass goes on)."""
-        l = self.learning
+    async def _consolidate(self, about: dict[str, Any], members: list[dict[str, Any]],
+                           jobs: dict[str, tuple[str, str]], force: bool, results: list[dict[str, Any]]) -> bool:
+        """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs; once it has a procedure, again
+        whenever its runs change (a new run, verified or failed, revises the procedure and its lessons). One call: the
+        intent, its runs newest first, as many as fit, each whole (failed ones too, for lessons), its procedure and the
+        owner's refusals. The job (`intent:<intent id>`, inputs: the runs' digest) waits for the runs to change or
+        `force` when the answer or the fit failed; a failed call is tried on the next pass. False when a task started
+        (the next pass goes on)."""
+        l, intent = self.learning, about['id']
         group = digest(sorted(n['id'] for n in members))
-        pending = [n for n in members if n['id'] not in jobs or
-                   (jobs[n['id']][0] == 'failed' and (force or jobs[n['id']][1] != group))]
-        if not pending:
+        status, inputs = jobs.get('intent:' + intent, ('', ''))
+        if inputs == group and (status == 'done' or not force):
             return True
-        waiting = {n['id'] for n in pending}
-        done = [n for n in reversed(members) if jobs.get(n['id'], ('',))[0] == 'done']
-        examples = self._examples(pending, done, members)
-        procedures = self._procedures(members)
+        procedures = self._procedures(intent)
+        if not procedures['existing_procedures'] and \
+                sum(n['body'].get('verified') is True for n in members) < FIRST_LEARNING_RUNS:
+            return True
         system = load_prompt('memory/consolidate.md')
         try:
             rt = self.make_runtime('worker', mode='supervisor', tool_names=[], schema=PROPOSAL_SCHEMA)
             limits = runtime_limits(rt)
-            window = limits.context_budget
         except asyncio.CancelledError:
             raise
-        except Exception as e:                       # no runtime or no documented window: every pending job says so
-            self._record(pending, group, f'{type(e).__name__}: {e}', results)
-            return True
-        room = (window - count_tokens(system) - overhead_tokens(window, count_tokens(system)) -
-                count_tokens(encoded({'episodes': [], **procedures})))
-        if room <= 0:                                # the group's procedures alone fill the window: say that
-            self._record(pending, group, "the group's procedures and the prompt alone don't fit the model's window",
-                         results)
-            return True
-        chunks, too_big = _chunks(pending, examples, room)
-        for node in too_big:
-            self._record([node], group, "too large for the model's window; sent whole or not at all", results)
-        if limits.max_input_chars is not None:       # and the runtime's per-input character cap (Codex, L28)
-            chunks, too_long = _within_chars(chunks, waiting, limits.max_input_chars -
-                                             overhead_chars(window, count_tokens(system)) -
-                                             len(encoded({'episodes': [], **procedures})))
-            for node in too_long:
-                self._record([node], group, f"too long for one {rt.name} input ({limits.max_input_chars} characters "
-                             "at most); sent whole or not at all", results)
-        for chunk in chunks:
-            if not self.idle():
-                return False
-            batch = 'sleep-' + digest(sorted(n['id'] for n in chunk))
-            try:
-                proposals, maker = await self._model(chunk, procedures, system, rt)
-                accepted, refused = self.apply(proposals, {n['id'] for n in chunk}, batch, maker)
-                results.append({'episodes': [n['id'] for n in chunk], 'accepted': accepted, 'refused': refused})
-                error = None
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                error = l.redact(f'{type(e).__name__}: {e}')
-                results.append({'episodes': [n['id'] for n in chunk], 'error': error})
-            for node in chunk:
-                if node['id'] in waiting:
-                    self._job(node['id'], group, error)
+        except Exception as e:                       # no runtime or no documented window: tried on the next pass
+            return self._intent_job(intent, group + RETRY, l.redact(f'{type(e).__name__}: {e}'), results)
+        window, reserved = limits.context_budget, count_tokens(system)
+        base = encoded({'intent': about, 'episodes': [], **procedures})
+        room = window - reserved - overhead_tokens(window, reserved) - count_tokens(base)
+        chars = (None if limits.max_input_chars is None else
+                 limits.max_input_chars - overhead_chars(window, reserved) - len(base))
+        cap = f"one {rt.name} input ({limits.max_input_chars} characters at most)"
+        if room <= 0 or (chars is not None and chars <= 0):      # its procedures alone fill the window: say that
+            return self._intent_job(intent, group, "the intent's procedures and the prompt alone don't fit " +
+                                    ("the model's window" if room <= 0 else cap), results)
+        fitted = _newest_first(members, room, chars)
+        if not fitted:
+            return self._intent_job(intent, group, "none of its runs fits the model's window" +
+                                    ("" if chars is None else " and " + cap) + " beside its procedures and the "
+                                    "prompt; sent whole or not at all", results)
+        if not self.idle():
+            return False
+        batch = 'sleep-' + digest(sorted(n['id'] for n in fitted))
+        try:
+            proposals, maker = await self._model(fitted, procedures, system, rt, about)
+            accepted, refused = self.apply(proposals, {n['id'] for n in fitted}, batch, maker, intent)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return self._intent_job(intent, group if _waits(e) else group + RETRY, l.redact(f'{type(e).__name__}: {e}'),
+                                    results)
+        results.append({'intent': intent, 'episodes': [n['id'] for n in fitted], 'accepted': accepted,
+                        'refused': refused})
+        return self._intent_job(intent, group, None, results)
+
+    def _intent_job(self, intent: str, inputs: str, error: str | None, results: list[dict[str, Any]]) -> bool:
+        if error:
+            results.append({'intent': intent, 'error': error})
+        self._job('intent:' + intent, inputs, error)
         return True
-
-    def _examples(self, pending: list[dict[str, Any]], done: list[dict[str, Any]],
-                  members: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """The already consolidated cards a call carries beside the new ones, chosen by structure, never to fill the
-        window (fix round, review Q5): those with a new card's action shape (its tools in order, with their argument
-        names) whose request shares a term with that card that most of the group doesn't have (the data-driven rule of
-        `Memory.recall`), and those the group's procedures and lessons are built on."""
-        from ferb.memory.items import query_terms
-
-        def shape(node: dict[str, Any]) -> tuple[Any, ...]:
-            return tuple((str(a.get('tool')), tuple(sorted(a.get('args') or {}))) for a in node['body'].get('actions')
-                         or [] if isinstance(a, dict))
-
-        def terms(node: dict[str, Any]) -> set[str]:
-            return set(query_terms(f"{node['body'].get('request', '')} {node['body'].get('intent', '')}"))
-        counts: dict[str, int] = {}
-        for node in members:
-            for term in terms(node):
-                counts[term] = counts.get(term, 0) + 1
-        telling = {t for t, n in counts.items() if n <= max(2, len(members) / 2)}
-        ids = {n['id'] for n in members}
-        cited = {s for kind in ('procedure', 'lesson') for p in self.learning.items(kind) for s in p['sources']} & ids
-        wanted = [(shape(p), terms(p) & telling) for p in pending]
-        return [n for n in done if n['id'] in cited or any(shape(n) == s and terms(n) & t for s, t in wanted)]
-
-    def _record(self, nodes: list[dict[str, Any]], group: str, error: str, results: list[dict[str, Any]]) -> None:
-        results.append({'episodes': [n['id'] for n in nodes], 'error': error})
-        for node in nodes:
-            self._job(node['id'], group, error)
 
     def _job(self, source: str, group: str, error: str | None) -> None:
         l = self.learning
@@ -296,26 +287,28 @@ class Consolidator:
                           'error=excluded.error, inputs=excluded.inputs',
                           (source, 'failed' if error else 'done', l.now(), error, group))
 
-    def _procedures(self, members: list[dict[str, Any]]) -> dict[str, Any]:
-        """The group's own procedures: those built on its episodes or whose steps use only its tools, current ones to
-        revise and the ones the owner turned down, never to be proposed again (M3)."""
-        ids = {n['id'] for n in members}
-        tools = {t for n in members for t in card_shape(n)[0]}
+    def _procedures(self, intent: str) -> dict[str, Any]:
+        """The intent's own procedure (keyed by its id, L29): the current one to revise, and those the owner turned
+        down, by their intent text, never to be proposed again (M3), with the identity suggestions turned down."""
+        l = self.learning
         current, rejected = [], []
-        for p in self.learning.items('procedure', history=True):
-            steps = {str(s.get('tool')) for s in p['body'].get('steps') or [] if isinstance(s, dict)}
-            if not (ids & set(p['sources']) or (steps and steps <= tools)):
+        for row in l.db.conn.execute("SELECT id FROM learning_nodes WHERE kind = 'procedure' AND key = ? "
+                                     "ORDER BY recorded_at, id", (intent,)).fetchall():
+            p = l.get(row[0])
+            if p is None:
                 continue
             if p['state'] == 'retired':
-                rejected.append({'intent': p['key']})
+                rejected.append({'intent': p['body'].get('intent', p['key'])})
             elif not p['valid_to'] and p['state'] != 'rolled_back':
                 current.append({'id': p['id'], 'state': p['state'], 'body': p['body']})
-        rejected += [{'identity': p['body'].get('text', '')} for p in self.learning.items('identity_proposal', history=True)
+        rejected += [{'identity': p['body'].get('text', '')} for p in l.items('identity_proposal', history=True)
                      if p['state'] == 'retired']
         return {'existing_procedures': current, 'rejected_by_owner': rejected}
 
-    def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str) -> tuple[list[str], list[str]]:
-        """Check each proposal of a PROPOSAL_SCHEMA answer against storage; a refused one never stops the others."""
+    def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str,
+              intent: str | None = None) -> tuple[list[str], list[str]]:
+        """Check each proposal of a PROPOSAL_SCHEMA answer against storage; a refused one never stops the others. A
+        procedure is keyed by `intent`, the intent its runs were labelled with (L29), when given."""
         accepted, refused = [], []
         l = self.learning
         for p in proposals.get('episodes', []):
@@ -332,7 +325,7 @@ class Consolidator:
                 p = _procedure(p)
                 if any(e['episode'] not in available for e in p['examples']):
                     raise LearningRefused('procedure cites evidence outside its supplied context')
-                accepted.append(l.propose_procedure(p, batch, maker)['id'])
+                accepted.append(l.propose_procedure(p, batch, maker, intent_id=intent)['id'])
             except (LearningRefused, KeyError, TypeError) as e:
                 refused.append(str(e))
         for p in proposals.get('lessons', []):
@@ -455,9 +448,9 @@ class Consolidator:
             except LearningRefused:
                 continue
 
-    async def _model(self, cards: list[dict[str, Any]], procedures: dict[str, Any], system: str,
-                     rt: Any) -> tuple[dict[str, Any], str]:
-        ctx = encoded({'episodes': [card_digest(c) for c in cards], **procedures})
+    async def _model(self, cards: list[dict[str, Any]], procedures: dict[str, Any], system: str, rt: Any,
+                     about: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        ctx = encoded({'intent': about, 'episodes': [card_digest(c) for c in cards], **procedures})
         task = Task('sleep-' + digest(sorted(c['id'] for c in cards)), None, 'memory consolidation', 'local',
                     Identity.OWNER, set(), 'verifier', 'sleep', [], None)
         # within the model's window and the runtime's character cap (L28); recorded as a model.learning span
@@ -494,57 +487,15 @@ def _fit_intents(card: dict[str, Any], known: list[dict[str, Any]], system: str,
     return out
 
 
-def _chunks(pending: list[dict[str, Any]], examples: list[dict[str, Any]],
-            room: int) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
-    """Pending cards in calls that each fit `room` tokens, the last one given the related examples (`_examples`) while
-    they fit (never padded with others); and the pending cards no call can hold whole."""
-    chunks: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
-    used = 0
-    too_big = []
-    separator = count_tokens(',')
-    for node in pending:
-        cost = count_tokens(encoded(card_digest(node))) + separator
-        if cost > room:
-            too_big.append(node)
+def _newest_first(members: list[dict[str, Any]], room: int, chars: int | None) -> list[dict[str, Any]]:
+    """An intent's runs that fit `room` tokens (and `chars`, a runtime's per-input character cap, L28), newest first,
+    each whole: a run that doesn't fit what is left is left out, never shortened."""
+    out, used, used_chars = [], 0, 0
+    for node in sorted(members, key=lambda n: (n['recorded_at'], n['id']), reverse=True):
+        text = encoded(card_digest(node))
+        cost, size = count_tokens(text) + count_tokens(','), len(text) + len(',')
+        if used + cost > room or (chars is not None and used_chars + size > chars):
             continue
-        if current and used + cost > room:
-            chunks.append(current)
-            current, used = [], 0
-        current.append(node)
-        used += cost
-    for node in examples:
-        cost = count_tokens(encoded(card_digest(node))) + separator
-        if not current or used + cost > room:
-            break
-        current.append(node)
-        used += cost
-    if current:
-        chunks.append(current)
-    return chunks, too_big
-
-
-def _within_chars(chunks: list[list[dict[str, Any]]], waiting: set[str],
-                  room: int) -> tuple[list[list[dict[str, Any]]], list[dict[str, Any]]]:
-    """`_chunks`' calls split again so each call's cards also fit `room` characters (a runtime's per-input cap, L28);
-    and the pending cards (`waiting`) no call can hold whole. An example that doesn't fit is left out; a call left with
-    examples only is not made."""
-    out: list[list[dict[str, Any]]] = []
-    too_long = []
-    for chunk in chunks:
-        current: list[dict[str, Any]] = []
-        used = 0
-        for node in chunk:
-            cost = len(encoded(card_digest(node))) + len(',')
-            if cost > room:
-                if node['id'] in waiting:
-                    too_long.append(node)
-                continue
-            if current and used + cost > room:
-                out.append(current)
-                current, used = [], 0
-            current.append(node)
-            used += cost
-        if current:
-            out.append(current)
-    return [c for c in out if any(n['id'] in waiting for n in c)], too_long
+        out.append(node)
+        used, used_chars = used + cost, used_chars + size
+    return out

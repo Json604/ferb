@@ -114,7 +114,9 @@ Each step names its status. File paths are given for traceability only.
 10. **Learning.** Every task is written as a permanent episode (request, steps, checks, outcome, origins, desktop
     changes). An idle-time consolidator turns verified episodes into lessons and procedures; identity suggestions go
     to the owner as a digest. **Shipped**; the bugs that made learning fail in practice are fixed **Landing this week —
-    integrated, not live-tested (L16)**.
+    integrated, not live-tested (L16)**. Learning by intent: each task is labelled with the kind of task it was, and a
+    kind of task is first learned from three verified runs of it, whatever tools they used **Landing this week —
+    integrated, not live-tested (L29)**.
 
 Things that can happen along the way:
 - **Questions.** A worker's question goes to the planner first; only real what/who/which choices reach the owner.
@@ -630,9 +632,12 @@ This section matters most for an automated campaign. It says exactly what runs u
   candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
   down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
   learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
-  is the same; L29), and sends episodes grouped by the tools and apps they used, split to fit the model's window; a
-  failed job waits for a change or `ferb memory consolidate` (a label whose model call failed is tried on the next
-  pass). A planner's procedure id that isn't a current procedure is ignored with a note.
+  is the same; L29), and consolidates by intent: an intent is first learned once it has three verified runs, and once
+  it has a procedure, every new run of it (verified or failed) updates the procedure and its lessons; one call per
+  intent carries its runs newest first, as many as fit the model's window, whatever tools they used (L29). A model
+  call that failed is tried on the next pass; an answer outside the schema, or input too large for the window, waits
+  for a change or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a
+  note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured
