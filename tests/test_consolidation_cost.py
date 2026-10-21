@@ -672,24 +672,34 @@ def test_lessons_the_owner_turned_down_or_wrote_are_never_proposed_again(learnin
     assert "procedure_rejected" not in shown
 
 
-def test_a_model_lesson_never_stands_beside_the_owners_lesson_of_its_scope_and_trigger(learning) -> None:
+@pytest.mark.parametrize("trigger, redact", [
+    ("the page is slow", None),
+    # a trigger the store masks: the owner's lesson is found by its key as stored, redacted (Task 6 review M4c)
+    ("the code box shows 4821", lambda s: s.replace("4821", "[redacted]")),
+])
+def test_a_model_lesson_never_stands_beside_the_owners_lesson_of_its_scope_and_trigger(tmp_path, trigger,
+                                                                                       redact) -> None:
     """Task 3 re-review 2, N1: the owner edited a lesson; a later call proposed the same scope and trigger with other
     text, and it was stored beside the owner's, both current. Code refuses it: the owner wrote that lesson."""
-    done, failed = runs(learning, "s", "x"), card(learning, "sf", intent="x", verified=False)
-    scope = {"app": "", "site": "shop.example", "intent": "x"}
+    db, learning = new_store(tmp_path / "memory.db", TickingClock(), redact)
+    try:
+        done, failed = runs(learning, "s", "x"), card(learning, "sf", intent="x", verified=False)
+        scope = {"app": "", "site": "shop.example", "intent": "x"}
 
-    def lesson(text: str) -> dict[str, Any]:
-        return {**EMPTY, "lessons": [{"scope": scope, "trigger": "the page is slow", "text": text,
-                                      "failure": failed["id"], "success": done[0]["id"]}]}
-    asyncio.run(consolidator(learning, fake(lesson("wait")).make).catch_up())
-    [model] = learning.items("lesson")
-    learning.edit(model["id"], "wait for the price to load")
-    card(learning, "s3", intent="x")                                            # a new run: another call
-    out = asyncio.run(consolidator(learning, fake(lesson("reload instead")).make).catch_up())
-    current = [(n["origin"], n["body"]["text"]) for n in learning.items("lesson") if n["key"] == model["key"]]
-    assert current == [("owner", "wait for the price to load")]
-    [result] = [r for r in out["sources"] if "refused" in r]
-    assert result["accepted"] == [] and result["refused"] == ["the owner wrote this lesson"]
+        def lesson(text: str) -> dict[str, Any]:
+            return {**EMPTY, "lessons": [{"scope": scope, "trigger": trigger, "text": text,
+                                          "failure": failed["id"], "success": done[0]["id"]}]}
+        asyncio.run(consolidator(learning, fake(lesson("wait")).make).catch_up())
+        [model] = learning.items("lesson")
+        learning.edit(model["id"], "wait for the price to load")
+        card(learning, "s3", intent="x")                                        # a new run: another call
+        out = asyncio.run(consolidator(learning, fake(lesson("reload instead")).make).catch_up())
+        current = [(n["origin"], n["body"]["text"]) for n in learning.items("lesson") if n["key"] == model["key"]]
+        assert current == [("owner", "wait for the price to load")]
+        [result] = [r for r in out["sources"] if "refused" in r]
+        assert result["accepted"] == [] and result["refused"] == ["the owner wrote this lesson"]
+    finally:
+        db.close()
 
 
 def test_a_revision_keeps_the_verified_examples_it_needs_never_one_the_owner_failed(learning) -> None:

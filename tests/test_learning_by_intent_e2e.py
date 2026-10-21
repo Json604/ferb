@@ -54,7 +54,8 @@ def test_three_runs_become_a_procedure_the_worker_starts_from(learning) -> None:
     assert filled == {"dish": "rajma"}
     # the worker gets the steps with rajma filled in, then each earlier run's tool calls (optional, fitted)
     parts = learning.procedure_parts(ident, {}, filled)
-    assert parts[0].label == PROCEDURE_LABEL and parts[0].protected and '"rajma"' in parts[0].text
+    assert parts[0].label == PROCEDURE_LABEL and parts[0].protected
+    assert '1. browser.type {"text":"rajma"} — expect: "typed"' in parts[0].text     # the step itself, filled
     runs = [p for p in parts if p.label == RUN_LABEL]
     assert len(runs) == 3 and not any(p.protected for p in runs)
     assert {p.refs for p in runs} == {(c["id"],) for c in cards}

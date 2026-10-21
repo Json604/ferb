@@ -34,10 +34,11 @@ class NoMemory:
         return None
 
 
-def new_store(path: Path, clock: Any = None) -> tuple[Database, Learning]:
+def new_store(path: Path, clock: Any = None, redact: Any = None) -> tuple[Database, Learning]:
+    """A learning store on a fresh database; `redact`: its text redactor (default: none, the identity)."""
     db = Database(path)
     db.migrate()
-    return db, Learning(db, clock or Clock(), lambda *args: None, lambda s: s)
+    return db, Learning(db, clock or Clock(), lambda *args: None, redact or (lambda s: s))
 
 
 def card(store: Learning, ident: str, request: str, dish: str = "egg curry") -> Any:
@@ -64,15 +65,16 @@ FOOD_DISHES = ("egg curry", "paneer", "dal")
 
 
 def store_intent_run(store: Learning, *, name: str, slots: dict[str, str], task_id: str, dish: str, ended_at: str,
-                     verified: bool = True) -> Any:
-    """One run of the intent `name`: its card (one browser.type of `dish`, ending at `ended_at`) and its label."""
+                     verified: bool = True, result: Any = None) -> Any:
+    """One run of the intent `name`: its card (one browser.type of `dish`, ending at `ended_at`, which returned
+    `result`, default ok) and its label."""
     from ferb.memory import intents
     c = store.put("episode", task_id, {"task_id": task_id, "verified": verified, "request": f"cheapest {dish}",
                                        "apps": {}, "slots": {}, "status": "done" if verified else "failed",
                                        "ended_at": ended_at,
                                        "actions": [{"id": f"{task_id}-a", "tool": "browser.type",
                                                     "args": {"text": dish}, "outside_action": False,
-                                                    "result": {"ok": True}}]},
+                                                    "result": {"ok": True} if result is None else result}]},
                   [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
     store.put(intents.INTENT_KIND, c["id"], {"intent_id": intents.intent_id(name), "name": name,
                                              "description": "the cheapest dish", "slots": slots,
