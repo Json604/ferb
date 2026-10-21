@@ -210,7 +210,7 @@ class Consolidator:
 
     def _groups(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """The current episode cards by intent label (L29): the intent (id, name, description and slot types, as
-        `intents.intents` and the planner give them: its newest label's) and its cards (`_newest_first` orders them by
+        `intents.intents` and the planner give them: its newest label's) and its cards (`_fit_runs` orders them by
         when each task ended). A card without a label waits for one."""
         labels = intents.labels(self.learning)            # oldest label first: the newest one names the intent
         about: dict[str, dict[str, Any]] = {}
@@ -227,8 +227,8 @@ class Consolidator:
                            jobs: dict[str, tuple[str, str]], force: bool, results: list[dict[str, Any]]) -> bool:
         """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs, and from then on (or once it
         has a procedure) again whenever its runs change. One call (`_context`): the intent, its procedure and lessons,
-        the owner's refusals, and its runs: the procedure's example runs first (a revision must cite them), then the
-        newest others that fit, each whole (failed ones too, for lessons). The job (`intent:<intent id>`, inputs: the
+        the owner's refusals, and its runs: the procedure's example runs first (a revision keeps those it needs, so
+        each is shown), then the newest others that fit, each whole (failed ones too, for lessons). The job (`intent:<intent id>`, inputs: the
         runs' digest) waits for the runs to change or `force` when the answer or the fit failed, or every procedure the
         model proposed was refused; a failed call is tried on the next pass. False when a task started (the next pass
         goes on)."""
@@ -270,7 +270,7 @@ class Consolidator:
                                     ("the model's window" if room <= 0 else cap), results)
         fitted = _fit_runs(members, examples, entries, room, chars)
         if fitted is None:
-            return self._intent_job(intent, group, f"its procedure's example runs (a revision cites them all) don't "
+            return self._intent_job(intent, group, f"its procedure's example runs (a revision may keep any of them) don't "
                                     f"fit {limit} beside its procedures, lessons and the prompt", results)
         if not fitted:
             return self._intent_job(intent, group, f"none of its runs fits {limit} beside its procedures, lessons and "
@@ -372,7 +372,8 @@ class Consolidator:
         procedure is keyed by `intent`, the intent its runs were labelled with (L29), when given; each procedure's
         refusal is also added to `procedure_refusals`. Only the runs in `annotate`, when given, are annotated (M5: the
         others are annotated already); an annotation of another is ignored. A revised lesson (the same scope and
-        trigger) keeps the owner's helpful/harmful counts."""
+        trigger) keeps the owner's helpful/harmful counts; one with the scope and trigger of a current lesson the owner
+        wrote or edited is refused (provenance: `Learning.put` would store it beside the owner's, never over it)."""
         accepted, refused = [], []
         l = self.learning
         for p in proposals.get('episodes', []):
@@ -408,6 +409,8 @@ class Consolidator:
                 if not any(p.get('scope', {}).values()) or not p.get('trigger'):
                     raise LearningRefused('lesson needs an app/site/intent scope and trigger')
                 key = encoded(p['scope']) + ':' + p['trigger']
+                if self._owners_lesson(key):     # never revised or restated beside it (Task 3 re-review N1)
+                    raise LearningRefused('the owner wrote this lesson')
                 body = p | self._lesson_counts(key)
                 accepted.append(l.put('lesson', key, body, [a['id'], b['id']], made_by=maker, batch=batch)['id'])
             except (LearningRefused, KeyError, TypeError) as e:
@@ -422,6 +425,13 @@ class Consolidator:
                 refused.append(str(e))
         l.publish('memory.consolidated', {'batch': batch, 'accepted': accepted, 'refused': refused})
         return accepted, refused
+
+    def _owners_lesson(self, key: str) -> bool:
+        """Whether a current version of the lesson with this key (redacted as `Learning.put` stores it) is the
+        owner's."""
+        return self.learning.db.conn.execute(
+            "SELECT 1 FROM learning_nodes WHERE kind = 'lesson' AND key = ? AND valid_to IS NULL AND origin = ? LIMIT 1",
+            (self.learning.redact(key), origin.OWNER)).fetchone() is not None
 
     def _lesson_counts(self, key: str) -> dict[str, int]:
         """The owner's helpful/harmful counts of the lesson a proposal with this key revises: the current version

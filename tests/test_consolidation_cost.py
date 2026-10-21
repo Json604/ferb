@@ -670,3 +670,48 @@ def test_lessons_the_owner_turned_down_or_wrote_are_never_proposed_again(learnin
     assert lessons == [{"lesson": "never reload", "scope": scope, "trigger": "the cart is empty"}]
     assert [(n["id"], n.get("owner_edited")) for n in shown["existing_lessons"]] == [(mine["id"], True)]
     assert "procedure_rejected" not in shown
+
+
+def test_a_model_lesson_never_stands_beside_the_owners_lesson_of_its_scope_and_trigger(learning) -> None:
+    """Task 3 re-review 2, N1: the owner edited a lesson; a later call proposed the same scope and trigger with other
+    text, and it was stored beside the owner's, both current. Code refuses it: the owner wrote that lesson."""
+    done, failed = runs(learning, "s", "x"), card(learning, "sf", intent="x", verified=False)
+    scope = {"app": "", "site": "shop.example", "intent": "x"}
+
+    def lesson(text: str) -> dict[str, Any]:
+        return {**EMPTY, "lessons": [{"scope": scope, "trigger": "the page is slow", "text": text,
+                                      "failure": failed["id"], "success": done[0]["id"]}]}
+    asyncio.run(consolidator(learning, fake(lesson("wait")).make).catch_up())
+    [model] = learning.items("lesson")
+    learning.edit(model["id"], "wait for the price to load")
+    card(learning, "s3", intent="x")                                            # a new run: another call
+    out = asyncio.run(consolidator(learning, fake(lesson("reload instead")).make).catch_up())
+    current = [(n["origin"], n["body"]["text"]) for n in learning.items("lesson") if n["key"] == model["key"]]
+    assert current == [("owner", "wait for the price to load")]
+    [result] = [r for r in out["sources"] if "refused" in r]
+    assert result["accepted"] == [] and result["refused"] == ["the owner wrote this lesson"]
+
+
+def test_a_revision_keeps_the_verified_examples_it_needs_never_one_the_owner_failed(learning) -> None:
+    """Task 3 re-review 2, N2 and out-of-scope 1: "keep all examples" asked a revision to keep an example run the owner
+    later failed (refused: procedures learn only from verified runs), and let the example set only grow until it no
+    longer fit the window. The prompt now asks for the verified examples needed (no number of FERB's own), and code
+    accepts a revision that drops the failed one."""
+    from ferb.core.prompts import load_prompt
+    words = " ".join(load_prompt("memory/consolidate.md").split())
+    assert "Keep all examples" not in words
+    assert "keep only the verified examples needed to show each step" in words
+    assert "never an example whose run is no longer verified" in words
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    failed = learning.put("episode", "d0", {**cards[0]["body"], "verified": False, "feedback": [{"verdict": "fail"}]},
+                          [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    label_card(learning, failed, "food")
+    new = dish_run(learning, 3)
+    rt = fake(proposing(food_procedure([cards[1], cards[2], new])))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [shown] = context_of(consolidation_calls(rt)[0])["existing_procedures"]
+    assert failed["id"] in [e["episode"] for e in shown["body"]["examples"]]    # shown as its current card
+    [revised] = learning.items("procedure")
+    assert [e["episode"] for e in revised["body"]["examples"]] == [cards[1]["id"], cards[2]["id"], new["id"]]
+    assert learning.procedure(revised["id"], {})["state"] == "learned" and job(learning, "food")[:2] == ("done", None)

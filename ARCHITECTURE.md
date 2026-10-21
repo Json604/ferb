@@ -1721,8 +1721,10 @@ intent's job. Code rollups cite their child cards.
     to be revised or restated), each citing its runs by their current cards (a card read again has a new id);
   - the identity suggestions and the lessons of these runs the owner turned down (`rejected_by_owner`), and
     `procedure_forgotten` / `procedure_rejected` when the owner forgot or turned down the intent's procedure;
-  - its runs (`_fit_runs`): the procedure's example runs first, all of them, since a revision must cite them (when they
-    don't all fit, the job waits, naming them), then the other runs newest first by when the task ended (the card's
+  - its runs (`_fit_runs`): the procedure's example runs first, all of them, since a revision may keep any of them
+    (`memory/consolidate.md` asks it to keep only the verified examples needed to show each step and each way the
+    slots vary, enough to stay learned, never one whose run is no longer verified, so the set doesn't only grow; when
+    they don't all fit, the job waits, naming them), then the other runs newest first by when the task ended (the card's
     `ended_at`, else `recorded_at`), as many as fit `runtime_limits(rt)` and the runtime's per-input character cap,
     each whole (a run that doesn't fit is left out, never shortened; failed runs go too, for lessons). A run without a
     current annotation is marked `annotate` (only those are annotated; `apply` ignores the others). A run forgotten or
@@ -1731,7 +1733,9 @@ intent's job. Code rollups cite their child cards.
   owner turns an intent's procedure down, `Learning.put` refuses any new one for that intent (M3). Once the owner
   forgets it, its key's tombstone does the same, so it is never relearned from the same runs. The call says
   `procedure_rejected` or `procedure_forgotten` so the model proposes none. A lesson revised under the same scope and
-  trigger keeps the owner's helpful/harmful counts (`_lesson_counts`).
+  trigger keeps the owner's helpful/harmful counts (`_lesson_counts`); a model lesson with the scope and trigger of a
+  current lesson the owner wrote or edited is refused (`_owners_lesson`: `Learning.put` never supersedes the owner's
+  version, so it would otherwise stand beside it).
   The job is `learning_jobs.source_ref = intent:<intent id>`, and its `inputs` are the digest of the intent's current
   card ids. A done job waits for its runs to change. These wait for the runs to change or `ferb memory consolidate`
   (`catch_up(force=True)`), with inputs set to the digest:
