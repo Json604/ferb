@@ -1313,6 +1313,16 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished. A rerun shows as one round: a
     "↻ … the same check ran again without the recorded calls" Checker step, then "rerun of the same check: …"; count
     them as one round and record the reason the ↻ step gives.
+76. Watches (6c): on battery, send "turn on Low Power Mode and alert me loudly when the battery is at or below N%"
+    (N a few percent below now). The answer says Low Power Mode is on and ends with "🗓 Scheduled: … — every 15
+    minutes, first on …, each time it happens" (or another interval of 15 minutes or more); `ferb schedules` lists it
+    "(each time it happens)". While it waits, run `ferb setup --update`: afterwards `ferb schedules` still lists it with
+    its next check. Each check's answer appears in the chat with no banner until the level is crossed; then one "FERB
+    alert" banner arrives (plus the loud alert, if the run made one), and later checks while it stays at or below N%
+    bring no banner. Record each check's time and what the banner said; cancel the watch afterwards (`ferb schedules
+    cancel ID`). Then send "tell me when ~/Downloads/ferb-watch-76.txt exists" and create that disposable file after
+    the first check: the next check brings a "FERB alert" whose text ends "🗓 Stopped checking: …", `ferb schedules`
+    no longer lists it, and `ferb timeline` shows `schedule.met`. Delete the file.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture

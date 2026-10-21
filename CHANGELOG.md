@@ -343,6 +343,20 @@ live-tested):
 - A page of a recorded call never cuts a value FERB knows as a secret in two, in the check's context or an evidence
   read: the page ends before it, so it is masked whole.
 
+Fix wave 6c (2026-10-21, "tell me when …" survives restarts and updates; not installed or live-tested):
+- "Tell me when …", "alert me if …" and "whenever …" are watches: schedules, so they survive restarts and
+  `ferb setup --update`. On 2026-10-15 "turn on Low Power Mode and alert me loudly at 10% battery" put the alert in a
+  shell loop inside the task, which died on the next update. The planner now makes the work asked for now a task and
+  the alert a watch in the same turn, and never waits for a condition with a loop or sleep inside a task.
+- A watch either ends once it happens or keeps watching; the scheduling line and `ferb schedules` say which. A one-shot
+  watch stops itself after a confirmed check finds its condition met (journaled `schedule.met`), and that answer says
+  FERB stopped checking; an unconfirmed or failed check never ends it. A standing watch tells you once each time the
+  condition becomes true: each run sees what the previous one found.
+- A met condition comes as a "FERB alert" notification, as a reminder does, even with the app open or while you're
+  away; a check that finds nothing raises no notification and isn't replayed by `ferb chat` (the app's chat still
+  shows its answer). Checks run on the schedule's interval (every 15 minutes or more); there is no battery or file
+  event.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

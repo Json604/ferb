@@ -525,6 +525,21 @@ This section matters most for an automated campaign. It says exactly what runs u
   agents for usefulness. An unattended browser task needs the browser and its paired profile already open with a
   window (creating a window needs the owner's permission).
 
+#### Watches ("tell me when …")
+- What: "tell me when ~/Downloads/report.pdf exists", "alert me whenever the battery is at or below 10%". The planner
+  makes a schedule that checks every N minutes and marks it a watch that ends once it happens or a standing one
+  (stored with the schedule, so it survives restarts and `ferb setup --update`; a loop inside a task did not). Work
+  asked for in the same message ("turn on Low Power Mode") is a task that runs now. Each check is an unattended run
+  whose worker reports whether the condition holds now. A met condition reaches the owner as a "FERB alert"
+  notification, as a reminder does (even with the app open or the owner away); a standing watch tells once each time
+  the condition becomes true; a check that finds nothing raises no notification. A confirmed check that finds a
+  one-shot watch's condition met ends it, and that answer says FERB stopped checking; an unconfirmed or failed check
+  never does. `ferb schedules` shows each watch's kind.
+- Status: **Landing this week — integrated, not live-tested (fix wave 6c, live check 76).**
+- Limits: the interval is the schedule's (the planner uses every 15 minutes or more); no battery, power or file event
+  exists, so a crossing is seen at the next check. Each check's answer still appears in the app's chat and an open
+  `ferb chat`. A loud alert is the run's own doing with its tools when the owner asked for one; code adds no sound.
+
 #### Durable plans with waits
 - What: multi-step plans with step types do / map / reduce / wait / ask / converse; waits on a time or an event
   (e.g. a reply); completed steps stay complete across daemon restarts; unknown outcomes are never replayed.

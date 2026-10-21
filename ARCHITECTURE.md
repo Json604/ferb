@@ -748,6 +748,37 @@ entry's origins and lineage reference (MP2), or a block saying no earlier run is
 gets no resumable-attempts block: earlier runs are data to compare, not attempts to continue. `scheduled.md` tells the
 planner to compare with the previous run when the request asks about change. Notification delivery is unchanged.
 
+**Watches (fix wave 6c, 2026-10-21; owner live case 2026-10-15).** "Tell me when …", "alert me if …" and "whenever …"
+are watches: schedules like any other, so they survive restarts and `ferb setup --update` (the next check is a durable
+`schedule` timer; only `sleep` timers are cancelled at start). The 10% battery alert was a shell loop inside a task,
+which died on every restart. The planner marks a watch when the owner's turn makes it (`ScheduleRequest.watch`:
+`none`, `until_met` or `standing`, stored in `schedules.watch`, migration 0042) and names the check, what to tell and
+whether it ends in the request; `supervisor.md` makes it an `every` schedule, forbids waiting for a condition with a
+loop or sleep inside a task, and says work asked for now is a task in the same turn (the schema and `Supervisor._send`
+always took a task and a schedule together; the prompt's "No task now" said otherwise). `worker.md` tells a worker
+never to build the wait itself. The scheduling line, `ferb schedules` and the planner's facts say which kind it is
+(`schedules.WATCH_SAID`). Each run's Schedule facts carry `watch`; its worker reports `watch_met` (its fresh
+observation; null in any other task), which `_final` adds to the outcome and the `task.answer` row records, so
+`_previous_run` gives the next run `previous_run.watch_met` and `scheduled.md` tells a standing watch's run to stay
+quiet when the previous run already found the condition holding. `run_scheduled` returns `previously_met` for a watch
+(its previous run finished and found it met). `Daemon._run_schedule` decides from those facts (`schedules.watch_met`:
+a finished run, `done` or `done_unverified`, whose outcome says met):
+- a met condition is an alert, every time for `until_met` and once per crossing for `standing` (not when the previous
+  run found it met): `_task_result(alert=True)` posts a "FERB alert" notification the way a reminder does (urgent, with
+  or without a client showing `task.result`, the owner idle or not), and stores and publishes the result as usual;
+- a finished check that reports `watch_met` and isn't an alert is stored as told (`shown=1`: no banner, no `ferb chat`
+  replay); connected clients still file its answer, as they file every scheduled run's;
+- a `done` met run of an `until_met` watch ends it (`_end_watch`): state `done`, the next check's timer cancelled,
+  `schedule.met` journaled with the run's task id, and the answer (and the delivered short text) ends with
+  "🗓 Stopped checking: <request>". A `done_unverified`, failed or not-met run never ends one, nor does any run of a
+  watch the owner paused or cancelled meanwhile; a standing watch is never ended this way.
+
+The stop is the owner's stored words for that schedule (MP2): a run's report can at most end a one-shot watch, never
+create or widen a schedule. The check interval is the schedule's (`supervisor.md`: every 15 minutes or more); there is
+no battery, power or file event, so a crossing is seen at the next check. `chat.status` (the app's restore, `ferb
+chat`'s replay) takes a result's short text from the task's recorded outcome, so there the stop line is in the full
+answer only, as "(ran late)" is.
+
 **The report check (P16 V4/V6, D34; F4 live fixes).** `checked_conditions`
 ([`supervisor.py`](ferb/orchestrator/supervisor.py)) adds `REPORT_CONDITION` ("My report to you says truthfully what was
 done, who did each part (FERB itself, or the agent, app or person you named) and with what, and leaves out nothing that
@@ -2135,3 +2166,5 @@ protected FERB state (16.9).
 `memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
 `memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
+Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch` and
+`task.answer` gained `watch_met` (a watch run's).
