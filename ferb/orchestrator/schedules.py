@@ -8,7 +8,11 @@ HH:MM, or every positive N minutes, in the owner's local time zone (so a daily 0
 saving changes). Each next run is a durable timer (exactly once).
 
 Missed runs are presented to the orchestrator with lateness and prior failures. Those observations do not cancel
-an occurrence or pause the owner's schedule automatically."""
+an occurrence or pause the owner's schedule automatically.
+
+A schedule can be a watch ("tell me when …"), marked by the planner when the owner's turn made it: "until_met" ends
+once a confirmed run finds its condition met (code applying the owner's stored words, never a run widening anything);
+"standing" keeps watching. A watch survives restarts and updates as every schedule does."""
 
 import json
 from dataclasses import dataclass
@@ -22,6 +26,16 @@ from ferb.store.db import Database
 
 REPEATS = ("none", "daily", "weekdays", "weekly", "every")
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+WATCHES = ("none", "until_met", "standing")
+# How a watch is said to the owner and the planner (its scheduling line, `ferb schedules`, the planner's facts)
+WATCH_SAID = {"none": "", "until_met": "until it happens, then it stops", "standing": "each time it happens"}
+FINISHED = ("done", "done_unverified")      # a run that finished: confirmed, or done but not confirmed (V4)
+
+
+def watch_met(status: Any, met: Any) -> bool:
+    """Whether a watch run found its condition met: it finished and its outcome says so (`watch_met`: the worker's
+    report of its fresh observation, given beside the answer the check judged). A failed run never did."""
+    return met is True and status in FINISHED
 
 
 class ScheduleError(ValueError):
@@ -95,6 +109,11 @@ class Schedule:
     state: str
     failures: int
     first_run: datetime
+    watch: str = "none"              # WATCHES
+
+    def describe(self) -> str:
+        """Its rule, and what kind of watch it is (if it is one), in plain words."""
+        return ", ".join(part for part in (self.rule.describe(), WATCH_SAID[self.watch]) if part)
 
 
 class Schedules:
@@ -106,18 +125,21 @@ class Schedules:
         first = datetime.fromisoformat(rule.pop("first"))
         return Schedule(r["id"], r["request"], r["own_words"], json.loads(r["intent_json"]), Rule(**rule),
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
-                        int(r["failures"]), first)
+                        int(r["failures"]), first, r["watch"])
 
-    def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime) -> Schedule:
+    def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime,
+            watch: str = "none") -> Schedule:
         if first <= self.clock.now():
             raise ScheduleError("the first run must be in the future")
+        if watch not in WATCHES:
+            raise ScheduleError(f"unknown watch {watch!r}")
         sid = "sc-" + self.ids.new_id()[:10]
         self.db.conn.execute(
-            "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at, watch) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
             (sid, request, own_words, json.dumps(targets), json.dumps(rule.__dict__ | {
                 "first": first.astimezone(timezone.utc).isoformat()}),
-             first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat()))
+             first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat(), watch))
         s = self.get(sid)
         assert s is not None
         return s

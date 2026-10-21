@@ -1,14 +1,18 @@
-"""Shared schedule test support: run code on the daemon's loop, make and fire a schedule, read waiting answers, and the
-planner's reply that creates a schedule."""
+"""Shared schedule test support: run code on the daemon's loop, make and fire a schedule, read waiting answers, the
+planner's reply that creates a schedule, and a test daemon of its own (for a restart)."""
 import json
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from ferb.cli.client import Client
+from ferb.clock.clock import FakeClock
+from ferb.core.ids import SequentialIds
 from ferb.orchestrator.schedules import Rule
 from ferb.policy.targets import Targets
 from tests.conftest import RunningDaemon
+from tests.support import egress
 
 
 def run(d: RunningDaemon, fn: Any) -> Any:
@@ -24,19 +28,20 @@ def mins(delta: timedelta) -> dict[str, Any]:
 
 def schedule_reply(d: RunningDaemon, request: str, quote: str, first: datetime, repeat: str = "none",
                    recipients: tuple[str, ...] = (), paths: tuple[str, ...] = ("report.md",),
-                   every: int | None = None) -> str:
+                   every: int | None = None, watch: str = "none") -> str:
     return json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
                        "schedule": {"request": request, "when": mins(first - d.daemon.clock.now()), "repeat": repeat,
                                     "weekday": None, "every_minutes": every, "quote": quote,
                                     "targets": {"apps": [], "sites": [], "paths": list(paths),
-                                                "recipients": list(recipients)}},
+                                                "recipients": list(recipients)}, "watch": watch},
                        "schedule_changes": []})
 
 
 def make_schedule(d: RunningDaemon, request: str, own: str, targets: Targets, first: datetime,
-                  repeat: str = "daily") -> Any:
+                  repeat: str = "daily", every: int | None = None, watch: str = "none") -> Any:
     def go() -> Any:
-        s = d.daemon.schedules.add(request, own, targets.to_json(), Rule.build(repeat, first), first)
+        s = d.daemon.schedules.add(request, own, targets.to_json(), Rule.build(repeat, first, every_minutes=every),
+                                   first, watch)
         t = d.daemon.timers.add("schedule", first, s.id)
         d.daemon.schedules.set_timer(s.id, t.id, first)
         return s
@@ -58,3 +63,14 @@ def fire(d: RunningDaemon, seconds: float) -> None:
         if not d.daemon._runs or all(t.done() for t in d.daemon._runs):
             break
         time.sleep(0.05)
+
+
+def own_daemon(home: Path, ids: str) -> RunningDaemon:
+    """A test daemon the test stops itself, set up as the `daemon` fixture's is; a second one on the same home is FERB
+    after a restart (its own id prefix, so its new rows never collide with the first one's)."""
+    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds(ids), watch_owner_input=False)
+    d.daemon._permissions = lambda: {"accessibility": True, "screen": True}   # type: ignore[method-assign]
+    egress.install(getattr(d.daemon, "proxy", None))
+    if d.daemon.supervisor is not None:
+        d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
+    return d

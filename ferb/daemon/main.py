@@ -2128,9 +2128,10 @@ class Daemon:
 
     # ---------- chat continuity ----------
 
-    async def _task_result(self, ev: dict[str, Any], shown: bool) -> None:
+    async def _task_result(self, ev: dict[str, Any], shown: bool, alert: bool = False) -> None:
         """What FERB told (or will tell) the owner about a task; a macOS notification only when chat was closed and no
-        connected FERB client receives `task.result` to show it (L9)."""
+        connected FERB client receives `task.result` to show it (L9). An `alert` (a watch's condition met) is told the
+        way a reminder is: a notification now, whether or not a client shows it, even while the owner is away."""
         assert self.db is not None
         ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
@@ -2139,7 +2140,9 @@ class Daemon:
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], at, ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
-        if not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
+        if alert:
+            await self._notify("FERB alert", str(ev.get("display_text") or answer), urgent=True)
+        elif not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
             await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
             row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
@@ -2460,7 +2463,7 @@ class Daemon:
         """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future.
         `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2).
         `request_origins`: what that request itself carried, its runs' request origins for the sink rule (S4, L4)."""
-        from ferb.orchestrator.schedules import Rule, ScheduleError
+        from ferb.orchestrator.schedules import WATCH_SAID, Rule, ScheduleError
         from ferb.policy.targets import Targets
         norm = " ".join(own_words.lower().split())
         if len(spec.quote.strip()) < 3 or " ".join(spec.quote.lower().split()) not in norm:
@@ -2478,7 +2481,8 @@ class Daemon:
             # scope whose destinations the owner typed (now, or when stating a remembered item) is recorded (S3, MP2)
             scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words, request_id)
             s = self.schedules.add(spec.request, own_words,
-                                   recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first)
+                                   recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first,
+                                   spec.watch)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}."
         t = self.timers.add("schedule", first, s.id)
@@ -2486,13 +2490,13 @@ class Daemon:
         # the statement the owner is shown: each run's grant (`schedule:<id>`) links back to these recorded scopes
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
                                                     "request_id": request_id, "standing_sends": scopes,
-                                                    "not_recorded": unnamed}
+                                                    "not_recorded": unnamed, "watch": s.watch}
                                | ({"request_origins": sorted(request_origins)} if request_origins else {}),
                                origin=origin_.join(origins))
         # The owner's line in plain words (L11); the schedule's id stays in the journal row above
         at = f"{first.astimezone():%a %d %b %H:%M}"
         when = f"on {at}" if rule.repeat == "none" else f"{rule.describe()}, first on {at}"
-        said = f"🗓 Scheduled: {s.request} — {when}"
+        said = ", ".join(part for part in (f"🗓 Scheduled: {s.request} — {when}", WATCH_SAID[s.watch]) if part)
         from ferb.orchestrator.plans import SendScope
         from ferb.policy import confirm
         if scopes:
@@ -2658,6 +2662,7 @@ class Daemon:
 
     async def _run_schedule(self, sid: str, overdue_s: float) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""
+        from ferb.orchestrator.schedules import FINISHED, watch_met
         s = self.schedules.get(sid)
         if s is None or s.state != "active":
             return
@@ -2686,16 +2691,43 @@ class Daemon:
         status = final.get("status")
         self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
         answer = str(final.get("answer") or final.get("summary") or "")
+        # A watch (fix wave 6c): a met condition is told like a reminder, once per crossing for a standing watch (the
+        # run before found it met: the owner was told then); a check that finished without one says nothing. A
+        # confirmed met run of a one-shot watch ends it, as the owner's stored words for it say.
+        told_before = bool(final.pop("previously_met", False))
+        met = s.watch != "none" and watch_met(status, final.get("watch_met"))
+        alert = met and (s.watch == "until_met" or not told_before)
+        quiet = s.watch != "none" and status in FINISHED and final.get("watch_met") is not None and not alert
+        result = {**final, "goal": s.request}
+        if met and s.watch == "until_met" and status == "done" and self._end_watch(sid, str(final.get("task_id"))):
+            line = f"🗓 Stopped checking: {s.request}"
+            answer = f"{answer}\n\n{line}"
+            if final.get("display_text"):
+                result["display_text"] = f"{final['display_text']}\n{line}"
         if overdue_s > 60:
             answer = f"(ran late) {answer}"
-        await self._task_result({**final, "goal": s.request, "answer": answer}, shown=False)
+        await self._task_result(result | {"answer": answer}, shown=quiet, alert=alert)
+
+    def _end_watch(self, sid: str, task_id: str) -> bool:
+        """A one-shot watch's confirmed run found its condition met: it ends (done, its next check cleared, journaled
+        `schedule.met`). The stop is the owner's own words stored for that schedule; nothing a run reads can create or
+        widen one. A watch the owner paused or cancelled meanwhile is left as they set it."""
+        s = self.schedules.get(sid)
+        if s is None or s.state != "active":
+            return False
+        if s.timer_id:
+            self.timers.cancel(s.timer_id)
+        self.schedules.set_timer(sid, None, None)
+        self.schedules.set_state(sid, "done")
+        self._journal().append("schedule.met", {"schedule_id": sid, "task_id": task_id})
+        return True
 
     # ---------- progressive setup ----------
 
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
-                               "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures}
-                              for s in self._listed_schedules()]}
+                               "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures,
+                               "watch": s.watch} for s in self._listed_schedules()]}
 
     async def _schedules_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"text": self._schedule_change(str(params["id"]), str(params["action"]))}
@@ -3303,7 +3335,7 @@ class Daemon:
                   for s in self.secrets.specs()]
         for sc in (self._listed_schedules() if self.schedules is not None else []):
             state = "done; its last run is under way" if sc.state == "done" else sc.state
-            lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.rule.describe()}")
+            lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.describe()}")
         for t in (self.timers.pending(("reminder",)) if self.timers is not None else []):
             lines.append(f"- Reminder {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
         for phrase, meaning in self._time_meanings():

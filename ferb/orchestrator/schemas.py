@@ -88,6 +88,8 @@ SCHEDULE_SCHEMA = _obj({
     "targets": TARGETS_SCHEMA,
     # D30: the scopes the runs may send within without asking, stated when the schedule is made (an owner turn)
     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA},
+    # "tell me when …": until_met ends itself once a confirmed run finds the condition met; standing keeps watching
+    "watch": {"type": "string", "enum": ["none", "until_met", "standing"]},
 })
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
@@ -131,6 +133,8 @@ WORKER_SCHEMA: dict[str, Any] = _obj({
     "conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA},
     "input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
                       "note": {"type": "string"}, "evidence": _strings()})},
+    # a watch's run only: whether the watched condition holds now, from the worker's fresh observation (null otherwise)
+    "watch_met": {"type": ["boolean", "null"]},
 })
 
 DISPATCH_SCHEMA = _obj({
@@ -282,6 +286,7 @@ class ScheduleRequest(BaseModel):
     quote: str
     targets: TargetsSpec = TargetsSpec()
     standing_sends: list[SendScope] = []   # stated now, with the owner here; a run can't add to them (D30)
+    watch: Literal["none", "until_met", "standing"] = "none"      # a spec written before watches is ordinary work
 
 
 class ScheduleChange(BaseModel):
@@ -332,6 +337,7 @@ class WorkerOutcome(BaseModel):
     input_notes: list[dict[str, Any]] = []
     conversation_action: Literal['wait', 'handover', 'finished', 'blocked'] | None = None
     conversation_proposals: list[dict[str, Any]] = []
+    watch_met: bool | None = None
 
 
 class DispatchOutcome(BaseModel):

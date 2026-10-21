@@ -43,6 +43,7 @@ from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
+from ferb.orchestrator.schedules import watch_met
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
@@ -311,6 +312,7 @@ class _Tree:
     input_notes: list[dict[str, Any]] = field(default_factory=list)
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
+    watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
     step_context: str = ''
     required_inputs: list[str] = field(default_factory=list)
     steering: Steering = field(default_factory=Steering)
@@ -637,19 +639,31 @@ class Supervisor(WorkerRuns):
         return out
 
     async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
-        """Decide an unattended run from its recorded request; report missing input when the owner is absent."""
-        request_id = self.ids.new_id()
+        """Decide an unattended run from its recorded request; report missing input when the owner is absent. A
+        watch's result also says whether the run before it found the condition met (`previously_met`): the owner was
+        told then, so the daemon doesn't alert again while it stays true (fix wave 6c)."""
         previous = self._previous_run(sched.id)          # before this run's own record
+        final = await self._run_scheduled(sched, late, overdue_s, previous)
+        if sched.watch == "none":
+            return final
+        return final | {"previously_met": previous is not None and watch_met(previous["status"], previous["watch_met"])}
+
+    async def _run_scheduled(self, sched: Any, late: bool, overdue_s: float,
+                             previous: dict[str, Any] | None) -> dict[str, Any]:
+        request_id = self.ids.new_id()
         self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
         recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
+        # when the last run that answered ran, and how it ended (a watch's: whether it found the condition met); its
+        # answer is its own block, with its origins
+        last = None if previous is None else {"ran_at": previous["ran_at"], "status": previous["status"],
+                                              "later_runs_without_answer": previous["skipped"]} | (
+            {"watch_met": previous["watch_met"]} if sched.watch != "none" else {})
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
-            "rule": sched.rule.describe(), "late": late, "overdue_s": overdue_s,
+            "rule": sched.rule.describe(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
             "standing_sends": [scope.model_dump() for scope in recorded_scopes],
-            # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
-            "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
-                             "later_runs_without_answer": previous["skipped"]} if previous else None})
+            "previous_run": last})
         session = ChatSession(SCHEDULE_SESSION + sched.id, task_floor=self.tasks.max_rowid())
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
@@ -690,7 +704,7 @@ class Supervisor(WorkerRuns):
 
     def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
         """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
-        the journal, with how many later runs left none. Runs before 2026-10-15 had no conversation, so this reads
+        the journal, with how many later runs left none and, for a watch, whether it found the condition met. Runs before 2026-10-15 had no conversation, so this reads
         each run's request id rather than the schedule's conversation."""
         skipped = 0
         for run in reversed(self.journal.of_kind("schedule.run", "schedule_id", schedule_id)):
@@ -702,7 +716,8 @@ class Supervisor(WorkerRuns):
                 continue
             entry = max(answers, key=lambda e: e.at)
             status = str(entry.data.get("status") or ("needs_user" if entry.kind == "chat.clarify" else "done"))
-            return {"ran_at": run.at.isoformat(), "status": status, "entry": entry, "skipped": skipped}
+            return {"ran_at": run.at.isoformat(), "status": status, "entry": entry, "skipped": skipped,
+                    "watch_met": entry.data.get("watch_met")}        # a watch run's task answer records it
         return None
 
     @staticmethod
@@ -1877,7 +1892,8 @@ class Supervisor(WorkerRuns):
                 final["goal"] = spec.goal
                 made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
                 self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
-                                                    "text": final["answer"], "display_text": final["display_text"]}, origin=made)
+                                                    "text": final["answer"], "display_text": final["display_text"]}
+                                    | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}), origin=made)
                 self.spans.finish(root_span, output=final)
                 self.tasks.set_status(tree_id, final["status"], final)
                 self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
@@ -2419,6 +2435,7 @@ class Supervisor(WorkerRuns):
                 tree.input_notes = getattr(w, 'input_notes', [])
                 tree.conversation_action = getattr(w, 'conversation_action', None)
                 tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
+                tree.watch_met = getattr(w, 'watch_met', None)
                 if out.status == 'done' and tree.required_inputs:
                     covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
                     missing = [p for p in tree.required_inputs if covered.count(p) != 1]
@@ -2918,7 +2935,8 @@ class Supervisor(WorkerRuns):
                 "display_text": confirm.from_task_lines(display),
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
-                "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason}
+                "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason} | (
+                {"watch_met": tree.watch_met} if tree.watch_met is not None else {})
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
