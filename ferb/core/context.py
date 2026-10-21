@@ -173,7 +173,8 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
         folded[route].append(index)
         used -= gap.pop(index) + separator
         used_chars -= len(omission[index]) + 2
-    first_folded = {min(run): route for route, run in folded.items()}
+    first_folded = {min(run) for run in folded.values()}
+    in_folds = {index for run in folded.values() for index in run}
     for index in reversed(history):
         chars = len(active[index].text) + 2
         if used + cost[index] + separator > budget_tokens or used_chars + chars > cap:
@@ -200,7 +201,7 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
                 parts.append(_note(omitted_history, block.reference.split(" ", 1)[0]))
                 repeats.append(block.cache)
                 noted = True
-        elif block.fold in folded and index in folded[block.fold]:
+        elif index in in_folds:
             if index in first_folded:    # a run's folded blocks: one note where the first one stood
                 run = sorted(folded[block.fold])
                 parts.append(_fold(len(run), active[run[0]].reference, active[run[-1]].reference, block.fold))
