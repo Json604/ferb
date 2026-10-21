@@ -680,7 +680,11 @@ class Learning:
                           intent_id: str | None = None) -> dict[str, Any]:
         """Check a proposed procedure against its examples' evidence and store it, keyed by `intent_id` (the intent
         its examples were labelled with, L29) when given, else by the proposal's intent. A step without `optional`
-        is stored as required (false)."""
+        is stored as required (false). A step citing an action built on outside content quarantines it, unless it
+        revises a version the owner confirmed and every such step (tool and template arguments) was already one of
+        that version's: the confirm then carries over (L29 final review I1; a code rule, never a model's judgement).
+        A revision that adds such a step is quarantined again: noted (`memory.procedure_requarantined`) and returned
+        with `requarantined` (the reason)."""
         examples = proposal.get('examples') or []
         steps = proposal.get('steps') or []
         if not examples or not steps or not proposal.get('intent'):
@@ -710,7 +714,8 @@ class Learning:
                 raise LearningRefused('preconditions must preserve captured app versions')
             cards.append(node)
             actions.update({a['id']: a for a in node['body'].get('actions', [])})
-        selected = []
+        selected: list[dict[str, Any]] = []
+        outside_steps: list[bool] = []                  # per step: it cites an outside-built action
         action_card = {a['id']: card['id'] for card in cards for a in card['body'].get('actions', [])}
         for step in steps:
             refs = step.get('evidence') or []
@@ -731,14 +736,35 @@ class Learning:
                 if not any(ref in actual and actual[ref].get('args') == expected for ref in refs):
                     raise LearningRefused('template arguments do not reproduce a cited action for each example')
             selected.extend(actions[ref] for ref in refs)
+            outside_steps.append(any(actions[ref].get('outside_action', True) for ref in refs))
         key = str(intent_id or proposal['intent'])
         proposal = proposal | {'steps': [s | {'optional': s.get('optional', False)} for s in steps]}
-        state = 'quarantined' if any(a.get('outside_action', True) for a in selected) else 'candidate'
+        state = 'quarantined' if any(outside_steps) else 'candidate'
+        before = self._current_procedure(key)
         result = self.put('procedure', key, proposal, [c['id'] for c in cards], made_by=made_by,
                           batch=batch, state=state)
+        requarantined = None
+        if before is not None and before['confirmed'] and before['id'] != result['id']:
+            # compared as stored (both redacted alike): the steps the owner read when they confirmed
+            confirmed = {(s.get('tool'), encoded(s.get('args') or {})) for s in before['body'].get('steps') or []}
+            if all((s.get('tool'), encoded(s.get('args') or {})) in confirmed
+                   for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
+                self._mark_confirmed(result['id'])
+            else:
+                requarantined = 'a step built on outside content that the confirmed version did not have'
+                self.note('memory.procedure_requarantined', {'procedure_id': result['id'],
+                                                             'confirmed_id': before['id'], 'reason': requarantined})
         for ex, card in zip(examples, cards):
             self.receipt(result['id'], card['id'], ex['slots'])
-        return self.get(result['id'])  # type: ignore[return-value]
+        stored: dict[str, Any] = self.get(result['id'])  # type: ignore[assignment]
+        return stored | ({'requarantined': requarantined} if requarantined else {})
+
+    def _current_procedure(self, key: str) -> dict[str, Any] | None:
+        """The current version of the procedure with this key (`key` as given; stored redacted), the one a new
+        version supersedes (`put`)."""
+        row = self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind = 'procedure' AND key = ? AND valid_to IS "
+                                   "NULL ORDER BY recorded_at DESC, rowid DESC LIMIT 1", (self.redact(key),)).fetchone()
+        return self.get(row[0]) if row else None
 
     def receipt(self, procedure_id: str, episode_id: str, slots: dict[str, Any] | None = None) -> None:
         p, ep = self.get(procedure_id), self.get(episode_id)
@@ -754,13 +780,21 @@ class Learning:
                              'DO UPDATE SET successful=excluded.successful',
             (procedure_id, episode_id, encoded(values), int(successful), ep['recorded_at']))
         self._refresh(procedure_id, None)
+        # a run whose planner chose a version since revised counts for the key's current version too (I2)
+        for row in self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind = 'procedure' AND key = ? AND "
+                                        "valid_to IS NULL AND id != ?", (p['key'], procedure_id)).fetchall():
+            self._refresh(row[0], None)
 
     def _refresh(self, node_id: str, apps: dict[str, str] | None) -> dict[str, Any]:
+        """A procedure's state from the receipts of every version of its key (L29 final review I2: a model revision
+        after each run is a new node, and the runs, failures and slot values the key has seen still count), one per
+        task (its latest), leaving out a rolled-back version's receipts and a forgotten run's (its card is gone)."""
         p = self.get(node_id)
         if p is None or p['kind'] != 'procedure':
             raise LearningRefused('not a procedure')
-        rows = list(self.db.conn.execute('SELECT * FROM learning_receipts WHERE procedure_id=? ORDER BY at, rowid',
-                                         (node_id,)))
+        rows = list(self.db.conn.execute(
+            "SELECT r.* FROM learning_receipts r JOIN learning_nodes n ON n.id = r.procedure_id WHERE n.kind = "
+            "'procedure' AND n.key = ? AND n.state != 'rolled_back' ORDER BY r.at, r.rowid", (p['key'],)))
         unique: dict[str, Any] = {}
         for row in rows:
             ep = self.get(row['episode_id'])
@@ -769,9 +803,14 @@ class Learning:
         rows = list(unique.values())
         ok = [r for r in rows if r['successful']]
         expected = p['body'].get('preconditions', {}).get('apps', {})
-        declared = set(p['body'].get('slots') or {})
-        # M1: a slot value counts only when it supplies the procedure's slots; a run's receipt without values doesn't
-        variants = {r['slots_json'] for r in ok if declared and declared <= set(self._receipt_slots(node_id, r))}
+        declared = sorted(p['body'].get('slots') or {})
+        # M1: a slot value counts only when it supplies the procedure's slots; a run's receipt without values doesn't.
+        # Only the slots this version declares count (a receipt of an earlier version may hold others: I2).
+        variants = set()
+        for r in ok if declared else []:
+            values = self._receipt_slots(r)
+            if set(declared) <= set(values):
+                variants.add(encoded([values[k] for k in declared]))
         latest = self.get(ok[-1]['episode_id']) if ok else None
         latest_apps = latest['body'].get('apps', {}) if latest else {}
         # M6: "current" is the versions installed now when known: an update sends a learned procedure back to
@@ -792,7 +831,7 @@ class Learning:
                          'slot_variants': len(variants)}
         return p
 
-    def _receipt_slots(self, node_id: str, row: Any) -> dict[str, Any]:
+    def _receipt_slots(self, row: Any) -> dict[str, Any]:
         """A receipt row's slot values. A row whose values don't parse (written before they were redacted as JSON, L29
         fix round 1) counts without values: it is noted once and its values cleared, never raising on a refresh."""
         try:
@@ -802,8 +841,8 @@ class Learning:
         if isinstance(slots, dict):
             return slots
         self.db.conn.execute("UPDATE learning_receipts SET slots_json='{}' WHERE procedure_id=? AND episode_id=?",
-                             (node_id, row['episode_id']))
-        self.note('memory.receipt_unreadable', {'procedure_id': node_id, 'episode_id': row['episode_id']})
+                             (row['procedure_id'], row['episode_id']))
+        self.note('memory.receipt_unreadable', {'procedure_id': row['procedure_id'], 'episode_id': row['episode_id']})
         return {}
 
     def procedure(self, node_id: str, apps: dict[str, str]) -> dict[str, Any]:
@@ -816,10 +855,15 @@ class Learning:
         if p['kind'] == 'identity_proposal':
             self.put('identity', p['key'], p['body'], [p['id']], origin_label=origin.OWNER,
                      made_by='owner:confirmed-digest/1', state='active', owner=True)
-        self.db.conn.execute('UPDATE learning_nodes SET confirmed=1,state=CASE WHEN state=\'quarantined\' '
-                             'THEN \'candidate\' ELSE state END WHERE id=?', (node_id,))
+        self._mark_confirmed(node_id)
         self.publish('memory.confirmed_derived', {'id': node_id})
         return self._refresh(node_id, None) if p['kind'] == 'procedure' else self.get(node_id)  # type: ignore[return-value]
+
+    def _mark_confirmed(self, node_id: str) -> None:
+        """The owner's confirm on a node (`confirm`, or carried to a procedure's revision: `propose_procedure`): a
+        quarantined one becomes a candidate; its state is then refreshed by its caller."""
+        self.db.conn.execute('UPDATE learning_nodes SET confirmed=1,state=CASE WHEN state=\'quarantined\' '
+                             'THEN \'candidate\' ELSE state END WHERE id=?', (node_id,))
 
     def edit(self, node_id: str, text: str) -> dict[str, Any]:
         p = self.get(node_id)

@@ -705,13 +705,14 @@ def test_a_model_lesson_never_stands_beside_the_owners_lesson_of_its_scope_and_t
 def test_a_revision_keeps_the_verified_examples_it_needs_never_one_the_owner_failed(learning) -> None:
     """Task 3 re-review 2, N2 and out-of-scope 1: "keep all examples" asked a revision to keep an example run the owner
     later failed (refused: procedures learn only from verified runs), and let the example set only grow until it no
-    longer fit the window. The prompt now asks for the verified examples needed (no number of FERB's own), and code
-    accepts a revision that drops the failed one."""
+    longer fit the window. The prompt now advises keeping the verified examples needed (no number: the key's receipts
+    keep counting, final review I2), and code accepts a revision that drops the failed one."""
     from ferb.core.prompts import load_prompt
     words = " ".join(load_prompt("memory/consolidate.md").split())
     assert "Keep all examples" not in words
-    assert "keep only the verified examples needed to show each step" in words
-    assert "never an example whose run is no longer verified" in words
+    assert "keep the verified examples needed to show each step" in words
+    assert "never keep an example whose run is no longer verified" in words
+    assert "three verified runs" not in words                    # advice: no longer what keeps a procedure learned
     cards = [dish_run(learning, n) for n in range(3)]
     asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
     failed = learning.put("episode", "d0", {**cards[0]["body"], "verified": False, "feedback": [{"verdict": "fail"}]},
@@ -725,3 +726,31 @@ def test_a_revision_keeps_the_verified_examples_it_needs_never_one_the_owner_fai
     [revised] = learning.items("procedure")
     assert [e["episode"] for e in revised["body"]["examples"]] == [cards[1]["id"], cards[2]["id"], new["id"]]
     assert learning.procedure(revised["id"], {})["state"] == "learned" and job(learning, "food")[:2] == ("done", None)
+
+
+def test_a_revision_quarantined_again_is_named_in_the_pass_result(learning) -> None:
+    """L29 final review I1: a revision of a procedure the owner confirmed that adds a step built on outside content is
+    quarantined again; `ferb memory consolidate` prints the pass result, which names it."""
+    cards = []
+    for n in range(3):
+        node = learning.put("episode", f"d{n}", {"task_id": f"d{n}", "verified": True, "status": "done", "apps": {},
+                                                 "slots": {}, "request": "find the cheapest dish",
+                                                 "actions": [{"id": f"d{n}-a", "tool": "browser.type",
+                                                              "args": {"text": DISHES[n]}, "outside_action": False},
+                                                             {"id": f"d{n}-b", "tool": "browser.click",
+                                                              "args": {"button": "order"}, "outside_action": True}]},
+                            [], origin_label="ferb", made_by="code:evidence-card/3", state="active")
+        label_card(learning, node, "food")
+        cards.append(node)
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [first] = learning.items("procedure")
+    learning.confirm(first["id"])
+    clicking = food_procedure(cards)
+    clicking["steps"].append({"tool": "browser.click", "args": [{"name": "button", "value": '"order"'}],
+                              "expect": "ordered", "optional": False, "evidence": [f"d{n}-b" for n in range(3)]})
+    dish_run(learning, 3)                                                          # a new run: another call
+    out = asyncio.run(consolidator(learning, fake(proposing(clicking)).make).catch_up(force=True))
+    [revised] = learning.items("procedure")
+    assert (revised["state"], revised["confirmed"]) == ("quarantined", False)
+    [result] = [r for r in out["sources"] if r.get("intent") and "accepted" in r]
+    assert result["requarantined"] == [revised["id"]]

@@ -701,3 +701,148 @@ def test_a_card_read_before_the_provenance_fix_is_read_again_once(tmp_path):
         assert store.cards_to_read() == []
     finally:
         db.close()
+
+
+# Procedure identity across model revisions (L29 final review I1, I2): since L29 an intent's procedure is revised after
+# every run, so the owner's confirm and the key's receipts must survive a revision.
+REVISION_DISHES = ('egg curry', 'paneer', 'dal')
+
+
+def _revision_store(tmp_path, *, outside=True):
+    """A store with three verified runs of one intent (each one browser.type of its dish; `outside`: built on outside
+    content, as a step that records no target provenance is) and a journal of what it noted."""
+    from tests.support.learning_fixtures import TickingClock
+    db = Database(tmp_path / 'memory.db')
+    db.migrate()
+    noted: list = []
+    store = Learning(db, TickingClock(), lambda *args: None, lambda s: s)
+    store.note = lambda kind, data: noted.append((kind, data))
+    cards = [_revision_run(store, f'food{n}', dish, outside=outside) for n, dish in enumerate(REVISION_DISHES)]
+    return db, store, cards, noted
+
+
+def _revision_run(store, task_id, dish, *, verified=True, outside=True, extra=None, bread=None):
+    actions = [{'id': f'{task_id}-a', 'tool': 'browser.type', 'args': {'text': dish}, 'outside_action': outside}]
+    if extra:
+        actions.append({'id': f'{task_id}-b', 'tool': extra, 'args': {'button': 'order'}, 'outside_action': True})
+    return store.put('episode', task_id, {'task_id': task_id, 'verified': verified, 'request': f'cheapest {dish}',
+                                          'apps': {}, 'slots': {}, 'status': 'done' if verified else 'failed',
+                                          'actions': actions}, [], origin_label='ferb',
+                     made_by='code:evidence-card/3', state='active')
+
+
+def _revise(store, cards, dishes, *, ui='', extra=None, slots=None):
+    """The intent's procedure as a model proposes it, keyed by the intent (`propose_procedure(intent_id=)`)."""
+    steps = [{'tool': 'browser.type', 'args': {'text': '{dish}'}, 'expect': 'typed', 'optional': False,
+              'evidence': [c['body']['actions'][0]['id'] for c in cards]}]
+    if extra:
+        steps.append({'tool': extra, 'args': {'button': 'order'}, 'expect': 'ordered', 'optional': False,
+                      'evidence': [c['body']['actions'][1]['id'] for c in cards]})
+    slots = slots or (lambda d: {'dish': d})
+    return store.propose_procedure({'intent': 'cheapest food order', 'slots': {k: 'string' for k in slots('x')},
+                                    'preconditions': {'apps': {}}, 'ui_hints': ui, 'steps': steps,
+                                    'examples': [{'episode': c['id'], 'slots': slots(d)}
+                                                 for c, d in zip(cards, dishes)]},
+                                   'b-' + ui + str(len(cards)), 'model:test', intent_id='i-food')
+
+
+def test_a_confirmed_procedure_stays_usable_through_a_revision_that_adds_no_outside_step(tmp_path):
+    db, store, cards, noted = _revision_store(tmp_path)
+    try:
+        first = _revise(store, cards, REVISION_DISHES)
+        assert first['state'] == 'quarantined'                       # its step was built on outside content
+        assert store.confirm(first['id'])['state'] == 'learned'      # the owner read it and confirmed
+        revised = _revise(store, cards, REVISION_DISHES, ui='scroll to the prices first')
+        assert revised['id'] != first['id'] and store.get(first['id'])['valid_to']
+        assert (revised['state'], revised['confirmed']) == ('learned', True)
+        assert store.procedure(revised['id'], {})['counters'] == {'verified_successes': 3, 'failures': 0,
+                                                                  'slot_variants': 3}
+        assert [p['node']['id'] for p in store.learned_procedures()] == [revised['id']]
+        assert noted == []
+    finally:
+        db.close()
+
+
+def test_a_revision_that_adds_an_outside_step_is_quarantined_again_and_says_so(tmp_path):
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = [_revision_run(store, f'food{n}', d, extra='browser.click') for n, d in enumerate(REVISION_DISHES)]
+        first = _revise(store, cards, REVISION_DISHES)
+        store.confirm(first['id'])
+        revised = _revise(store, cards, REVISION_DISHES, extra='browser.click')   # a new outside-built step
+        assert (revised['state'], revised['confirmed']) == ('quarantined', False)
+        assert revised['requarantined'] and store.learned_procedures() == []
+        assert noted == [('memory.procedure_requarantined', {
+            'procedure_id': revised['id'], 'confirmed_id': first['id'],
+            'reason': 'a step built on outside content that the confirmed version did not have'})]
+    finally:
+        db.close()
+
+
+def test_receipts_belong_to_the_procedures_key_so_two_failures_across_a_revision_make_it_suspect(tmp_path):
+    db, store, cards, _ = _revision_store(tmp_path)
+    try:
+        first = _revise(store, cards, REVISION_DISHES)
+        store.confirm(first['id'])
+        store.receipt(first['id'], _revision_run(store, 'food4', 'rajma', verified=False)['id'], {'dish': 'rajma'})
+        assert store.procedure(first['id'], {})['state'] == 'learned'               # one failure
+        revised = _revise(store, cards, REVISION_DISHES, ui='scroll first')
+        assert store.procedure(revised['id'], {})['counters']['failures'] == 1       # the key's, not the node's
+        # the next run's planner had chosen the version before the revision: its receipt still counts
+        store.receipt(first['id'], _revision_run(store, 'food5', 'kadhi', verified=False)['id'], {'dish': 'kadhi'})
+        assert store.get(revised['id'])['state'] == 'suspect'                        # refreshed with the receipt
+        assert store.procedure(revised['id'], {})['counters'] == {'verified_successes': 3, 'failures': 2,
+                                                                  'slot_variants': 3}
+    finally:
+        db.close()
+
+
+def test_a_planner_run_still_counts_after_a_revision_keeps_only_two_examples(tmp_path):
+    db, store, cards, _ = _revision_store(tmp_path, outside=False)
+    try:
+        first = _revise(store, cards, REVISION_DISHES)
+        assert first['state'] == 'learned'
+        store.receipt(first['id'], _revision_run(store, 'food3', 'rajma', outside=False)['id'], {'dish': 'rajma'})
+        revised = _revise(store, cards[:2], REVISION_DISHES[:2], ui='two examples are enough')
+        assert len(revised['body']['examples']) == 2
+        assert (revised['state'], store.procedure(revised['id'], {})['counters']) == (
+            'learned', {'verified_successes': 4, 'failures': 0, 'slot_variants': 4})
+    finally:
+        db.close()
+
+
+def test_slot_variety_counts_only_the_slots_the_current_version_declares(tmp_path):
+    db, store, _, _ = _revision_store(tmp_path, outside=False)
+    try:
+        cards = [_revision_run(store, f'curry{n}', 'egg curry', outside=False) for n in range(4)]
+        breads = ('naan', 'roti', 'paratha', 'kulcha')
+        both = lambda bread: (lambda d: {'dish': d, 'bread': bread})               # noqa: E731
+        first = store.propose_procedure({
+            'intent': 'cheapest food order', 'slots': {'dish': 'string', 'bread': 'string'},
+            'preconditions': {'apps': {}}, 'ui_hints': '',
+            'steps': [{'tool': 'browser.type', 'args': {'text': '{dish}'}, 'expect': 'typed',
+                       'evidence': [c['body']['actions'][0]['id'] for c in cards[:3]]}],
+            'examples': [{'episode': c['id'], 'slots': both(b)('egg curry')} for c, b in zip(cards, breads[:3])]},
+            'b1', 'model:test', intent_id='i-food')
+        assert first['state'] == 'learned'                                         # three breads
+        store.receipt(first['id'], cards[3]['id'], both(breads[3])('egg curry'))   # a planner run
+        revised = _revise(store, cards[:3], ('egg curry',) * 3, ui='the bread does not matter')
+        counters = store.procedure(revised['id'], {})['counters']
+        assert (revised['state'], counters['verified_successes'], counters['slot_variants']) == ('candidate', 4, 1)
+    finally:
+        db.close()
+
+
+def test_a_rolled_back_versions_receipts_no_longer_count(tmp_path):
+    db, store, cards, _ = _revision_store(tmp_path, outside=False)
+    try:
+        first = _revise(store, cards, REVISION_DISHES)
+        store.receipt(first['id'], _revision_run(store, 'food4', 'rajma', verified=False, outside=False)['id'],
+                      {'dish': 'rajma'})
+        revised = _revise(store, cards, REVISION_DISHES, ui='scroll first')
+        assert store.procedure(revised['id'], {})['counters']['failures'] == 1
+        store.rollback(first['batch_id'])
+        assert store.procedure(revised['id'], {})['counters'] == {'verified_successes': 3, 'failures': 0,
+                                                                  'slot_variants': 3}
+    finally:
+        db.close()
