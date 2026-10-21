@@ -68,6 +68,17 @@ def intents(learning: Learning) -> list[dict[str, Any]]:
     return _ordered(out)
 
 
+def namers(learning: Learning) -> dict[str, dict[str, Any]]:
+    """Intent id -> the label node its name and description come from (the oldest current card label, as `intents`
+    names it), for what shows that name with the label's origins."""
+    current = _current_cards(learning)
+    out: dict[str, dict[str, Any]] = {}
+    for node in learning.items(INTENT_KIND):
+        if node['key'] in current:
+            out.setdefault(node['body']['intent_id'], node)
+    return out
+
+
 def counted(known: list[dict[str, Any]], body: dict[str, Any], card: dict[str, Any]) -> list[dict[str, Any]]:
     """`known` (as `intents` returns it) with one more card labelled `body`: what `intents` returns now, without
     reading every card and label again."""
@@ -114,8 +125,9 @@ def carry_forward(learning: Learning) -> list[dict[str, Any]]:
     return carried
 
 
-def _typed(values: dict[str, Any], slots: dict[str, str]) -> None:
-    """LearningRefused unless `values` name exactly `slots` and each value has its slot's JSON type."""
+def typed(values: dict[str, Any], slots: dict[str, str]) -> None:
+    """LearningRefused unless `values` name exactly `slots` and each value has its slot's JSON type (a label's values,
+    and the planner's values for a procedure's slots: `Learning.slot_values`)."""
     if set(values) != set(slots):
         raise LearningRefused("the slot values must name exactly the intent's slots")
     for k, t in slots.items():
@@ -138,12 +150,12 @@ def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]]) -> dict[st
             slots = to_map(answer['slots'])
             if any(not k.strip() for k in slots) or any(t not in SLOT_TYPES for t in slots.values()):
                 raise LearningRefused('slots must be named and declare JSON types')
-            _typed(values, slots)
+            typed(values, slots)
             return {'intent_id': chosen, 'name': name, 'description': description, 'slots': slots, 'values': values}
     if chosen not in offered:
         raise LearningRefused('the intent id is not one of the offered intents')
     intent = offered[chosen]
-    _typed(values, intent['slots'])
+    typed(values, intent['slots'])
     return {'intent_id': chosen, 'name': intent['name'], 'description': intent['description'],
             'slots': intent['slots'], 'values': values}
 

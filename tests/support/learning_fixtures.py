@@ -1,4 +1,4 @@
-"""Shared learning test fixtures (L29): a store on a fresh database, cards, intent answers."""
+"""Shared learning test fixtures (L29): a store on a fresh database, cards, intent answers, an intent's procedure."""
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -51,6 +51,47 @@ def card(store: Learning, ident: str, request: str, dish: str = "egg curry") -> 
 def new_intent(name: str, dish: str) -> dict[str, Any]:
     return {"intent_id": "", "name": name, "description": "find the cheapest dish with breads",
             "slots": [{"name": "dish", "value": "string"}], "values": [{"name": "dish", "value": json.dumps(dish)}]}
+
+
+def on_loop(daemon: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """`fn(*args, **kwargs)` on a test daemon's loop thread (its SQLite connection belongs to that thread)."""
+    async def go() -> Any:
+        return fn(*args, **kwargs)
+    return daemon.run(go())
+
+
+FOOD_DISHES = ("egg curry", "paneer", "dal")
+
+
+def store_intent_procedure(store: Learning, *, name: str, slots: dict[str, str]) -> str:
+    """Three verified cards of one intent (food0..food2, one dish each), each with its label, and the procedure they
+    teach, keyed by the intent id (L29). Its id."""
+    from ferb.memory import intents
+    iid = intents.intent_id(name)
+    cards = []
+    for n, dish in enumerate(FOOD_DISHES):
+        c = store.put("episode", f"food{n}", {"task_id": f"food{n}", "verified": True, "request": f"cheapest {dish}",
+                                              "apps": {}, "slots": {}, "status": "done",
+                                              "actions": [{"id": f"food{n}-a", "tool": "browser.type",
+                                                           "args": {"text": dish}, "outside_action": False}]},
+                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+        store.put(intents.INTENT_KIND, c["id"], {"intent_id": iid, "name": name, "description": "the cheapest dish",
+                                                 "slots": slots, "values": {"dish": dish}},
+                  [c["id"]], made_by="model:test", state="active")
+        cards.append(c)
+    p = store.propose_procedure({"intent": name, "slots": slots, "preconditions": {"apps": {}},
+                                 "steps": [{"tool": "browser.type", "args": {"text": "{dish}"}, "expect": "typed",
+                                            "optional": False,
+                                            "evidence": [f"food{n}-a" for n in range(len(FOOD_DISHES))]}],
+                                 "ui_hints": "", "examples": [{"episode": c["id"], "slots": {"dish": d}}
+                                                              for c, d in zip(cards, FOOD_DISHES)]},
+                                "b", "model:test|prompt:1", intent_id=iid)
+    return str(p["id"])
+
+
+def intent_procedure(daemon: Any, *, name: str, slots: dict[str, str]) -> str:
+    """`store_intent_procedure` in a test daemon's learning store, on its loop."""
+    return str(on_loop(daemon, store_intent_procedure, daemon.daemon.learning, name=name, slots=slots))
 
 
 def label_card(store: Learning, node: dict[str, Any], name: str = "a test intent") -> Any:

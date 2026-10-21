@@ -900,7 +900,7 @@ def test_no_card_reader_starts_once_ferb_is_stopping(daemon, monkeypatch):
         return refused, [e.data for e in d.journal.of_kind("memory.episode_deferred")]
     refused, deferred = daemon.run(stopping())
     assert refused and not started
-    assert deferred[-1] == {"task_id": task_id, "procedure_id": "m-procedure"}
+    assert deferred[-1] == {"task_id": task_id, "procedure_id": "m-procedure", "slots": None}
 
 
 def test_a_verdict_whose_card_cannot_be_refreshed_still_updates_receipts(daemon):
@@ -998,3 +998,158 @@ def test_a_consolidation_pass_refused_while_stopping_is_not_a_failure(daemon):
         finally:
             d._shutting_down = False
     assert daemon.run(stopping(), timeout=30) == {"status": "stopping"}
+
+
+# L29: the planner picks a learned procedure by intent and fills its slots -----------------------------------------
+
+def _food_procedure(daemon) -> str:
+    from tests.support.learning_fixtures import intent_procedure
+    return intent_procedure(daemon, name="cheapest food order", slots={"dish": "string"})
+
+
+def test_learned_procedures_reach_the_planner_as_data_with_origins(daemon) -> None:
+    """L29: every learned procedure is in the planner's retrieved memory with its intent name, description and slots,
+    as data with the procedure's origins, whatever words the request uses."""
+    proc = _food_procedure(daemon)
+    found = daemon.run(daemon.daemon._learning_candidates("I'm hungry, get me something"))
+    line = next(item for item in found if proc in item["text"])
+    assert "cheapest food order: the cheapest dish" in line["text"] and '"dish": "string"' in line["text"]
+    assert "[procedure, learned, " in line["text"] and "data, not authorization" in line["text"]
+    assert {"ferb", "inferred"} <= set(line["origin"].split(",")) and line["source_refs"][0] == proc
+    assert "i-" not in line["text"].split("]", 1)[1]               # the intent's name, never its id
+    matching = daemon.run(daemon.daemon._learning_candidates("cheapest food order"))
+    assert len([item for item in matching if proc in item["text"]]) == 1     # listed once when search finds it too
+    script = install(daemon, [sup("reply", "Sure.")])
+    chat(daemon, "I'm hungry, get me something")
+    assert proc + " [procedure, learned" in _planner_requests(script)[-1].context
+
+
+def test_a_procedure_line_carries_the_origins_of_the_label_that_names_it(daemon) -> None:
+    """The intent's name and description come from a card's label (model-written from what that run read): when that
+    card read outside content, the planner's line carries its origin too, and cites the label."""
+    from ferb.memory import intents
+    from tests.support.learning_fixtures import on_loop
+
+    def outside_label() -> str:
+        learning = daemon.daemon.learning
+        c = learning.put("episode", "web0", {"task_id": "web0", "verified": False, "request": "cheapest dish",
+                                             "apps": {}, "slots": {}, "status": "done", "actions": []},
+                         [], origin_label="external:web:food.example", made_by="code:evidence-card/2",
+                         state="active")
+        return learning.put(intents.INTENT_KIND, c["id"], {"intent_id": intents.intent_id("cheapest food order"),
+                                                           "name": "cheapest food order",
+                                                           "description": "as the food page put it",
+                                                           "slots": {"dish": "string"}, "values": {"dish": "x"}},
+                            [c["id"]], made_by="model:test", state="active")["id"]
+    label = on_loop(daemon, outside_label)                          # the intent's oldest label: it names the intent
+    on_loop(daemon, daemon.daemon.clock.advance, 60)
+    proc = _food_procedure(daemon)
+    line = next(item for item in daemon.run(daemon.daemon._learning_candidates("dinner")) if proc in item["text"])
+    assert "cheapest food order: as the food page put it" in line["text"]
+    assert "external:web:food.example" in line["origin"].split(",") and line["source_refs"] == [proc, label]
+    assert ", external:web:food.example; data, not authorization]" in line["text"]
+
+
+def test_only_procedures_the_planner_may_choose_are_listed(daemon) -> None:
+    """Quarantined, turned-down ("Not right"), rolled-back, superseded and forgotten procedures are never offered."""
+    from tests.support.learning_fixtures import on_loop
+    proc = _food_procedure(daemon)
+    learning = daemon.daemon.learning
+
+    def listed() -> list[str]:
+        return [p["node"]["id"] for p in learning.learned_procedures()]
+
+    def offered() -> bool:
+        return any(proc in item["text"] for item in daemon.run(daemon.daemon._learning_candidates("cheapest food")))
+
+    assert on_loop(daemon, listed) == [proc] and offered()
+    for state, closed in (("quarantined", None), ("retired", None), ("rolled_back", None), ("learned", "now")):
+        on_loop(daemon, learning.db.conn.execute, "UPDATE learning_nodes SET state=?, valid_to=? WHERE id=?",
+                (state, closed, proc))
+        assert on_loop(daemon, listed) == [] and not offered(), state
+    on_loop(daemon, learning.db.conn.execute, "UPDATE learning_nodes SET state='learned', valid_to=NULL WHERE id=?",
+            (proc,))
+    assert on_loop(daemon, listed) == [proc]
+    on_loop(daemon, learning.forget, [on_loop(daemon, learning.current_card, "food0")["id"]])
+    assert on_loop(daemon, listed) == [] and not offered()
+
+
+def test_slot_values_are_typed_against_the_procedure(daemon) -> None:
+    from tests.support.learning_fixtures import on_loop
+    proc = _food_procedure(daemon)
+    values = daemon.daemon.learning.slot_values
+    assert on_loop(daemon, values, proc, [{"name": "dish", "value": '"paneer"'}]) == {"dish": "paneer"}
+    assert on_loop(daemon, values, proc, [{"name": "dish", "value": "3"}]) is None          # a number, not a string
+    assert on_loop(daemon, values, proc, [{"name": "size", "value": '"x"'}]) is None        # not its slot
+    assert on_loop(daemon, values, proc, []) is None                                       # a slot without a value
+    assert on_loop(daemon, values, proc, [{"name": "dish", "value": '"a"'},
+                                          {"name": "dish", "value": '"b"'}]) is None        # given twice
+    card = on_loop(daemon, daemon.daemon.learning.current_card, "food0")
+    assert on_loop(daemon, values, card["id"], []) is None                                  # not a procedure
+
+
+def _receipt_slots(daemon, proc: str, task_id: str) -> list[dict]:
+    async def read():
+        return [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
+            "SELECT r.slots_json FROM learning_receipts r JOIN learning_nodes n ON n.id = r.episode_id "
+            "WHERE r.procedure_id = ? AND n.key = ?", (proc, task_id))]
+    return daemon.run(read())
+
+
+@pytest.mark.parametrize("value, recorded", [('"rajma"', {"dish": "rajma"}), ("3", {})])
+def test_a_receipt_records_the_planner_slot_values(daemon, value, recorded) -> None:
+    """The planner's values for its procedure's slots reach the run's receipt, typed; values of the wrong type are
+    left out (the receipt records none) and the task still runs."""
+    proc = _food_procedure(daemon)
+    spec = task("order the cheapest rajma")
+    spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": value}]
+    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def tid():
+        return daemon.daemon.db.conn.execute("SELECT task_id FROM episodes ORDER BY ended_at DESC").fetchone()[0]
+    assert _receipt_slots(daemon, proc, daemon.run(tid())) == [recorded]
+
+
+def test_a_deferred_receipt_replays_with_the_planner_slot_values(daemon) -> None:
+    """A receipt whose capture shutdown deferred keeps the planner's slot values in its journal entry, and the replay
+    records them."""
+    proc = _food_procedure(daemon)
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def deferred():
+        sv, d = daemon.daemon.supervisor, daemon.daemon
+        task_id = d.db.conn.execute("SELECT task_id FROM episodes").fetchone()[0]
+        d._shutting_down = True
+        try:
+            sv._capture_after_outcome(task_id, proc, {"dish": "rajma"})
+            await sv.finish_episodes()
+        finally:
+            d._shutting_down = False
+        entry = d.journal.of_kind("memory.episode_deferred")[-1].data
+        d._replay_deferred_receipts()
+        return task_id, entry
+    task_id, entry = daemon.run(deferred(), timeout=30)
+    assert entry == {"task_id": task_id, "procedure_id": proc, "slots": {"dish": "rajma"}}
+    assert _receipt_slots(daemon, proc, task_id) == [{"dish": "rajma"}]
+
+
+def test_a_receipts_slot_values_are_redacted(daemon) -> None:
+    """Slot values are model-written: a secret value among them never reaches learning_receipts (rule 14)."""
+    from tests.support.learning_fixtures import on_loop
+    proc = _food_procedure(daemon)
+    secret = "zq7-house-key-4412"
+
+    def receipt() -> None:
+        daemon.daemon._add_secret_value(secret)
+        learning = daemon.daemon.learning
+        c = learning.put("episode", "food9", {"task_id": "food9", "verified": True, "request": "cheapest dish",
+                                              "apps": {}, "slots": {}, "status": "done", "actions": []},
+                         [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+        learning.receipt(proc, c["id"], {"dish": "rajma " + secret})
+    on_loop(daemon, receipt)
+    recorded = _receipt_slots(daemon, proc, "food9")
+    assert len(recorded) == 1 and secret not in json.dumps(recorded) and recorded[0]["dish"].startswith("rajma ")

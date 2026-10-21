@@ -1296,6 +1296,7 @@ class Daemon:
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
+            self.supervisor.slot_values = self.learning.slot_values
         self._replay_deferred_receipts()
         self._restore_memory_questions()
         if self.run_distill:
@@ -1373,9 +1374,10 @@ class Daemon:
         return prepared
 
     def _replay_deferred_receipts(self) -> None:
-        """Procedure receipts whose capture shutdown deferred (`memory.episode_deferred` with a procedure_id): each is
-        recorded once its task's card exists (at start, and after the consolidator captures cards), then journaled as
-        `memory.receipt_replayed` so it is replayed once. Receipts drive a procedure's state (learned, suspect)."""
+        """Procedure receipts whose capture shutdown deferred (`memory.episode_deferred` with a procedure_id, and the
+        planner's typed slot values, L29): each is recorded once its task's card exists (at start, and after the
+        consolidator captures cards), then journaled as `memory.receipt_replayed` so it is replayed once. Receipts drive
+        a procedure's state (learned, suspect)."""
         if self.learning is None:
             return
         journal = self._journal()
@@ -1389,7 +1391,8 @@ class Daemon:
                 cards = {str(n["key"]) for n in self.learning.items("episode")}
             if task_id not in cards:
                 continue                              # its card comes with the consolidator's next pass
-            self._procedure_outcome(str(procedure_id), str(task_id))
+            slots = row.data.get("slots")                # absent in an entry from before L29
+            self._procedure_outcome(str(procedure_id), str(task_id), slots if isinstance(slots, dict) else None)
             journal.append("memory.receipt_replayed", {"task_id": task_id, "procedure_id": procedure_id})
             done.add((task_id, procedure_id))
 
@@ -1412,14 +1415,15 @@ class Daemon:
             return f"not a current procedure ({'superseded' if node['valid_to'] else node['state']})"
         return None
 
-    def _procedure_outcome(self, procedure_id: str, task_id: str) -> None:
+    def _procedure_outcome(self, procedure_id: str, task_id: str, slots: dict[str, Any] | None = None) -> None:
+        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them."""
         if self.learning is None:
             return
         node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
         if node:
             from ferb.memory.learning import LearningRefused
             try:
-                self.learning.receipt(procedure_id, node["id"])
+                self.learning.receipt(procedure_id, node["id"], slots)
             except LearningRefused:
                 self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})
 
@@ -1458,13 +1462,26 @@ class Daemon:
                 embed = False
                 self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
         from ferb.memory.learning import shown_state
-        return [{'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
-                         + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
-                 'reference': 'memory.learned item_id=' + p['id'],
-                 'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
-                 'source_refs': [p['id']]}
-                for p in self.learning.search(words, query_vector=vector, embed=embed)
-                if p['kind'] not in ('identity', 'episode_intent')]       # a label groups cards for the learner (L29)
+        # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
+        # (the planner matches by meaning); its origins with those of the label that names it, which it cites too
+        learned = []
+        for item in self.learning.learned_procedures():
+            node, label = item['node'], item['label']
+            made = set(node['origins']) | set(label['origins'] if label else ())
+            learned.append({'text': f"{node['id']} [procedure, {shown_state(node)}, {origin_.least_trusted(made)}; "
+                                    f"data, not authorization] {item['name']}: {item['description']} — slots: "
+                                    + json.dumps(item['slots'], ensure_ascii=False, sort_keys=True),
+                            'reference': 'memory.learned item_id=' + node['id'], 'origin': origin_.join(made),
+                            'source_refs': [node['id']] + ([label['id']] if label else [])})
+        return learned + [
+            {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
+                     + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
+             'reference': 'memory.learned item_id=' + p['id'],
+             'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
+             'source_refs': [p['id']]}
+            for p in self.learning.search(words, query_vector=vector, embed=embed)
+            # a label groups cards for the learner (L29); a procedure is listed above, or can't be chosen (I5)
+            if p['kind'] not in ('identity', 'episode_intent', 'procedure')]
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:

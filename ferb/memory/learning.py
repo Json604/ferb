@@ -489,9 +489,10 @@ class Learning:
         last = self.db.conn.execute('SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1',
                                     (ep['key'],)).fetchone()
         successful = ep['body'].get('verified') is True and not (last and last[0] == 'fail')
+        # the slot values are model-written (the planner's, L29, or a proposal's examples): redacted like a node's body
         self.db.conn.execute('INSERT INTO learning_receipts VALUES (?,?,?,?,?) ON CONFLICT(procedure_id,episode_id) '
                              'DO UPDATE SET successful=excluded.successful',
-            (procedure_id, episode_id, encoded(slots or ep['body'].get('slots') or {}),
+            (procedure_id, episode_id, self.redact(encoded(slots or ep['body'].get('slots') or {})),
              int(successful), ep['recorded_at']))
         self._refresh(procedure_id, None)
 
@@ -718,6 +719,39 @@ class Learning:
     def candidates(self, query: str) -> str:
         return '\n'.join(f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] {p['key']}"
                          for p in self.search(query) if p['kind'] != 'identity')
+
+    def learned_procedures(self) -> list[dict[str, Any]]:
+        """L29: every procedure the planner may choose (current: not superseded, retired, rolled back or forgotten; and
+        not quarantined), newest first, each with its intent's name and description, the label node they come from
+        (`intents.namers`; None, and the procedure's own intent text, when no current card carries the intent) and
+        its slot types."""
+        from ferb.memory import intents
+        procedures = [p for p in reversed(self.items('procedure')) if p['state'] != 'quarantined']
+        named = intents.namers(self) if procedures else {}
+        out = []
+        for p in procedures:
+            label = named.get(p['key'])
+            about = label['body'] if label else {}
+            out.append({'node': p, 'label': label,
+                        'name': str(about.get('name') or p['body'].get('intent') or p['key']),
+                        'description': str(about.get('description', '')), 'slots': p['body'].get('slots') or {}})
+        return out
+
+    def slot_values(self, procedure_id: str, pairs: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """The planner's values for a procedure's slots (strict {name, value} pairs, each value JSON text, read as a
+        label's values are), typed (L29); None when the id isn't a procedure, or the values don't name exactly its
+        slots or one has the wrong JSON type."""
+        from ferb.memory.intents import typed
+        from ferb.memory.strict import to_map
+        p = self.get(procedure_id)
+        if p is None or p['kind'] != 'procedure':
+            return None
+        try:
+            values = to_map(pairs, json_text=True)
+            typed(values, p['body'].get('slots') or {})
+        except LearningRefused:
+            return None
+        return values
 
     def procedure_text(self, node_id: str, apps: dict[str, str]) -> str:
         p = self.procedure(node_id, apps)

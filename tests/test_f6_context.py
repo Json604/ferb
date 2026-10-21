@@ -33,7 +33,7 @@ def test_selected_procedure_and_owner_answer_are_checked_in_same_task(daemon):
     supervisor.procedure_problem = lambda key: None           # a current procedure (I5 checks it before the task)
     supervisor.procedure_details = lambda key, worker: inspected.append((key, worker.id)) or 'Read and verify the file.'
     supervisor.on_episode = lambda key: inspected.append(('episode', key))
-    supervisor.procedure_outcome = lambda key, task_id: inspected.append(('outcome', key, task_id))
+    supervisor.procedure_outcome = lambda key, task_id, slots: inspected.append(('outcome', key, task_id, slots))
     install(daemon, [sup('task', 'Checking your file.', spec)], {'worker': json.dumps({
         'status': 'done', 'summary': 'Technical file inspection evidence.', 'answer': 'Your session file is complete.',
         'artifacts': [], 'evidence': ['File inspected'], 'input_notes': []})})
@@ -41,7 +41,7 @@ def test_selected_procedure_and_owner_answer_are_checked_in_same_task(daemon):
     assert result['answer'] == 'Your session file is complete.' and result['verified']   # the flag, no prefix (L11)
     assert any(row[0] == 'procedure-session' for row in inspected)
     assert any(row[0] == 'episode' for row in inspected)
-    assert any(row[0] == 'outcome' for row in inspected)
+    assert ('outcome', 'procedure-session', result['task_id'], None) in inspected    # no slot values given (L29)
 
 
 def test_ranked_memory_budget_keeps_best_item_when_all_candidates_do_not_fit(monkeypatch):

@@ -413,7 +413,12 @@ class Supervisor(WorkerRuns):
         self.procedure_problem: Callable[[str], str | None] = lambda ident: None
         self.identity_context: Callable[[], str] = lambda: ''
         self.on_episode: Callable[[str], Any] = lambda task_id: None      # may return an awaitable
-        self.procedure_outcome: Callable[[str, str], None] = lambda procedure_id, task_id: None
+        # a procedure run's receipt: the procedure, the task and the planner's typed slot values (L29) or None
+        self.procedure_outcome: Callable[[str, str, dict[str, Any] | None], None] = \
+            lambda procedure_id, task_id, slots: None
+        # the planner's {name, value} pairs for a procedure's slots, typed against it, or None (L29)
+        self.slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None] = \
+            lambda procedure_id, pairs: None
         self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
@@ -1931,15 +1936,23 @@ class Supervisor(WorkerRuns):
                 # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
                 # nothing it does can skip the cleanup; it never raises for a failed build or write.
                 episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                self._capture_after_outcome(tree_id, spec.procedure_id)
+                self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(spec))
         yield final
 
-    def _capture_after_outcome(self, tree_id: str, procedure_id: str | None) -> None:
+    def _planner_slots(self, spec: TaskSpec) -> dict[str, Any] | None:
+        """The planner's values for its chosen procedure's slots, typed against the procedure (L29); None without a
+        procedure, or when they don't name exactly its slots with their JSON types."""
+        if not spec.procedure_id:
+            return None
+        return self.slot_values(spec.procedure_id, [s.model_dump() for s in spec.procedure_slots])
+
+    def _capture_after_outcome(self, tree_id: str, procedure_id: str | None,
+                               slots: dict[str, Any] | None = None) -> None:
         """The task's learning capture (its episode card, whose lineage resolution reads every entry and task the
-        planner was shown, and the procedure receipt that needs the card) runs after the owner has the outcome (L28):
-        a tracked job; a failure is journaled, never raised. At shutdown it is cancelled (`stop_episodes`), or refused
-        (`Deferred`), and journaled as deferred: the hourly consolidator captures the card again, and the daemon then
-        records the procedure receipt."""
+        planner was shown, and the procedure receipt that needs the card, with the planner's slot values) runs after
+        the owner has the outcome (L28): a tracked job; a failure is journaled, never raised. At shutdown it is
+        cancelled (`stop_episodes`), or refused (`Deferred`), and journaled as deferred with the slot values: the hourly
+        consolidator captures the card again, and the daemon then records the procedure receipt."""
         async def capture() -> None:
             try:
                 await asyncio.sleep(0)               # the outcome goes out first
@@ -1948,11 +1961,12 @@ class Supervisor(WorkerRuns):
                     if inspect.isawaitable(done):
                         await done
                     if procedure_id:
-                        self.procedure_outcome(procedure_id, tree_id)
+                        self.procedure_outcome(procedure_id, tree_id, slots)
             except (asyncio.CancelledError, Deferred) as exc:
                 # The daemon replays the procedure receipt once the card is captured again (receipts drive the
                 # procedure's state: a lost failure could leave a failing procedure learned).
-                self.journal.append('memory.episode_deferred', {'task_id': tree_id, 'procedure_id': procedure_id})
+                self.journal.append('memory.episode_deferred', {'task_id': tree_id, 'procedure_id': procedure_id,
+                                                                'slots': slots})
                 if isinstance(exc, asyncio.CancelledError):
                     raise
             except Exception as exc:
@@ -2666,6 +2680,7 @@ class Supervisor(WorkerRuns):
                                 input={"procedure_id": tree.spec.procedure_id})
         self.spans.finish(note, output={"why": why})
         tree.spec.procedure_id = None
+        tree.spec.procedure_slots = []
 
     def _saved_plan(self, tree_id: str) -> dict[str, Any]:
         """This task's saved plan and its step states, when it has one."""

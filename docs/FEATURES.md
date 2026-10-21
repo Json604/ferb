@@ -115,8 +115,9 @@ Each step names its status. File paths are given for traceability only.
     changes). An idle-time consolidator turns verified episodes into lessons and procedures; identity suggestions go
     to the owner as a digest. **Shipped**; the bugs that made learning fail in practice are fixed **Landing this week —
     integrated, not live-tested (L16)**. Learning by intent: each task is labelled with the kind of task it was, and a
-    kind of task is first learned from three verified runs of it, whatever tools they used **Landing this week —
-    integrated, not live-tested (L29)**.
+    kind of task is first learned from three verified runs of it, whatever tools they used; the planner sees every
+    usable procedure by its kind of task and picks one by meaning, with this request's values for its blanks
+    **Landing this week — integrated, not live-tested (L29)**.
 
 Things that can happen along the way:
 - **Questions.** A worker's question goes to the planner first; only real what/who/which choices reach the owner.
@@ -611,8 +612,9 @@ This section matters most for an automated campaign. It says exactly what runs u
   live-tested (fix wave 3)**. The Mac app's own chat archive still keeps its copy of a forgotten line.
 
 #### Similar past tasks and recall
-- What: before planning, FERB retrieves relevant facts, past episodes, procedures and lessons (keyword search that
-  keeps Devanagari words whole; optional local embeddings only if an owner-labelled evaluation shows they help).
+- What: before planning, FERB retrieves relevant facts, past episodes and lessons (keyword search that keeps
+  Devanagari words whole; optional local embeddings only if an owner-labelled evaluation shows they help). Procedures
+  are not matched by words: the planner is shown every procedure it may use (L29, below).
 - Status: **Shipped**; no embedding model adopted yet.
 
 #### Episodes
@@ -639,8 +641,12 @@ This section matters most for an automated campaign. It says exactly what runs u
   keeps the owner's helpful/harmful ratings; a procedure the owner forgot or turned down is never learned again for
   that intent. A model call that failed is tried on the next pass; an answer outside the schema, a call whose every
   proposed procedure was refused (its job says why), or input too large for the window, waits for a change or
-  `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a
-  note.
+  `ferb memory consolidate`. The planner is shown every procedure it may use (not quarantined, turned down, rolled
+  back, replaced or forgotten), whatever words the request uses, as data: its kind of task's name and description,
+  its blanks (slots) with their types, its state and where it came from. It chooses one by meaning, the same kind of
+  task even in other words, and gives this request's value for each blank; code checks the values against the
+  blanks' types and the run's record of the procedure (its receipt) keeps them, so runs with different values count
+  toward "learned" (L29). A planner's procedure id that isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured

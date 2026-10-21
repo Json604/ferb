@@ -65,6 +65,8 @@ PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_pat
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
                     "cost_estimate": {"type": "string"},
                     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA}})
+# L29: the planner's value for one of its chosen procedure's slots, as JSON text ("paneer" with its quotes)
+PROCEDURE_SLOT_SCHEMA = _obj({"name": {"type": "string"}, "value": {"type": "string"}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -73,6 +75,7 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
     "procedure_id": _nullable("string"),
+    "procedure_slots": {"type": "array", "items": PROCEDURE_SLOT_SCHEMA},
 })
 
 REMEMBER_SCHEMA = _obj({
@@ -206,6 +209,13 @@ class Condition(BaseModel):
     layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
 
 
+class ProcedureSlot(BaseModel):
+    """The planner's value for one slot of its chosen procedure, as JSON text (L29); typed against the procedure's
+    slots by code (`Learning.slot_values`)."""
+    name: str
+    value: str
+
+
 class TaskSpec(BaseModel):
     goal: str
     identity: Literal["owner", "ferb"]
@@ -214,6 +224,7 @@ class TaskSpec(BaseModel):
     success_conditions: list[Condition] = []
     plan: Plan | None = None
     procedure_id: str | None = None
+    procedure_slots: list[ProcedureSlot] = []
 
 
 class Remember(BaseModel):
