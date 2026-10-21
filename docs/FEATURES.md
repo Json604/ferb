@@ -103,6 +103,8 @@ Each step names its status. File paths are given for traceability only.
 8. **The checker verifies.** A separate final check judges every outcome condition plus one extra: "my report to you
    says truthfully what was done, who did each part and with what". The checker gets observation-only tools, enforced
    by code: it can look but not click, type, send or write. **Shipped, live-verified (F4).**
+   It starts with every tool call the worker made and its result, so it reads the records only for what didn't fit
+   or got cut. **Landing — integrated (fix wave 6b)**; not live-tested.
 9. **The answer.** One of three results: **done** (every condition confirmed), **done, but not confirmed** (nothing
    wrong found, but not everything could be confirmed from the background; each unconfirmed item is listed), or
    **failed** (with the real reason). A short answer shows first; full details stay under Details. **Shipped.**

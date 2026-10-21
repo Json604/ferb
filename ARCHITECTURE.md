@@ -69,7 +69,8 @@ A liveness watchdog observes the runtime; registered owner/process/sleep waits d
 
 A worker’s completion report is a claim. Literal predicates are collected as mechanical observations; every condition then receives checker judgment
 against the full request, including account identity, artifact quality and uncertain outcomes. The checker receives the full request, specification,
-intake receipts, artifacts and actual evidence. It must judge the state where it exists, not require a redundant
+intake receipts, artifacts and actual evidence, starting with the worker's recorded tool calls and their results
+("The checker's starting evidence"). It must judge the state where it exists, not require a redundant
 worker action or paths repeated in prose. Uploaded/sent artifacts require source/content identity evidence.
 
 A task's tabs are known by tab id (`task_tabs`): a borrowed tab keeps the page it held when the task took it over
@@ -779,6 +780,35 @@ the owner's tabs, and a checker's open never creates a window that may switch Sp
 where they are. A check that needs a click or typing stays `met=null` with what is missing, and the orchestrator can send a worker
 to gather it. Every refused call (an acting tool asked of the checker, an unknown or out-of-scope tool) leaves a
 `tool.refused` span; the story adds "⚠ N tool calls refused".
+
+**The checker's starting evidence (fix wave 6b, 2026-10-21; W4, MP2, L28).** `_verifier` gives the checker, after the
+report block, the worker task's recorded tool calls with their results (`recorded_calls` in
+[`orchestrator/evidence.py`](ferb/orchestrator/evidence.py)), so it no longer pages through `task.evidence` to see
+what the worker did (owner live case 2026-10-15: three rounds, about 50 reads, after two minutes of work). The records
+are the ones `task.evidence` serves (`SpanStore.tool_calls`/`tool_call`: the same filter, the stored redacted rows; no
+new capture path, and the worker's own `task.evidence`, `chat.history` and `memory.read` calls are not among them, as
+before), in recorded order, every run of the worker included: a repair round runs as the same worker task, so a
+re-check gets the earlier run's calls and the repair's, each labelled with its run when there was more than one. A
+protected line gives the count ("This task recorded no tool calls." when none). Each call is one optional
+`ContextBlock`: a code-made header (tool, its recorded `kind`, observation or action as the capability declares it
+(`observes`), start time, its origin's kinds, failed or no result, the `span_id`), then the record text in
+`wrap_untrusted`, up to `task.evidence`'s default page (`PAGE_CHARS`, its `max_chars` default 12000); a longer record
+says where its rest starts ("cut at 12000 of N characters, the rest from offset=12000"), exactly as that read pages
+it. `assemble` fits them to the checker runtime's window and per-input character cap like every other optional
+block; one left out stays in its place as "[Context omitted; fetch full text: task.evidence span_id=… (recorded call
+n of N: tool, observation|action, time)]". Which stay when space runs out: every action first (its record is the only
+evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
+re-establish current state), newest first within each, the latest being closest to the final state; all above the
+context's other optional blocks (their highest priority plus one). A record is shown up to its page or left out
+whole, never cut to fit. The blocks carry no `origin`, so no `context.exposure` copy is written: the records are this
+tree's own tool calls, whose origins `task_origins` already holds; the checker's recorded `context` keeps them like
+any model input, and a forget scrubs spans as before. [`verifier.md`](ferb/orchestrator/prompts/verifier.md) says the
+calls are in context and `task_evidence` is for a record cut or left out, the root's intake, context, cleanup and
+disturbance records, and searches. A scripted complete check of 53 recorded calls (50 short, 3 of about 30,000
+characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`). Residual: on a
+task whose recorded calls hold more than the checker's window (many long snapshots), the bundle fills the window at
+the checker's start, leaving its own later reads to the runtime's context handling; and a task with thousands of
+calls left out lists one marker each.
 
 **After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
 too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).

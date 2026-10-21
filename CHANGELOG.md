@@ -324,6 +324,17 @@ with "Which internship is this?"; not installed or live-tested):
   capture, so a recording and a screenshot of it don't collide and a held download stays held), and a tab's input
   readiness failing never refuses a capture: the result says so.
 
+Fix wave 6b — the checker starts with what the worker did (2026-10-21, after the owner's "low power mode + loud alert
+at 10% battery" took two minutes of work and then three check rounds with about 50 evidence reads; not installed or
+live-tested):
+- The final check now starts with every tool call the worker made and its result, in order, every attempt included
+  (a re-check after a repair gets both). Before, it had only the report and paged through the records one read at a
+  time. A long result shows its first 12,000 characters (one evidence read's page) and where the rest starts; when
+  the check's window can't hold everything, what was done stays first, then the newest observations, and each one
+  left out is listed with its record id in its place. Results stay marked as outside data and keep their origin;
+  secrets stay redacted as recorded. In a scripted complete check of 53 recorded calls, evidence reads went from 62
+  to 6.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

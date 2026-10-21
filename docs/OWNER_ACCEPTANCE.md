@@ -1303,6 +1303,15 @@ Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension fi
     picture; if `input` says input readiness failed, note it (the capture goes on regardless, round 5). A download
     FERB is holding in a tab (D35) is still there after a screenshot of that tab.
 
+Fix wave 6 (2026-10-21; pending, checkout tests only so far):
+75. Checker reads (6b): after `ferb setup --update`, ask "turn on Low Power Mode and tell me" (or "turn Bluetooth off
+    and tell me"; turn it back afterwards). `ferb trace TASK --full`: the checker's input has "Recorded tool calls of
+    this task: N" and each call with its result. Count the checker's `task_evidence` calls and its rounds, and
+    compare with the 2026-10-15 case (3 rounds, about 50 reads); `ferb baseline` has no verify-phase latency, so
+    record the checker step's time from the trace. Then your original request once ("low power mode + loud alert at
+    10% battery"): the same counts. Also note, for one long browser task, the checker's "Context budget" line
+    (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
