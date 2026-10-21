@@ -361,6 +361,17 @@ Fix wave 6c (2026-10-21, "tell me when …" survives restarts and updates; not i
   recorded but reaches neither the app nor `ferb chat`, and no client lists it as running. Checks run on the
   schedule's interval (every 15 minutes or more); there is no battery or file event.
 
+Fix wave 6a — forgets while FERB is working (2026-10-21; not installed or live-tested):
+- A forget no longer wipes the output of a step that finishes while its clean-up runs, and no longer misses that
+  step's output. The clean-up runs beside the tasks still working; it read a step's record, worked out the new text,
+  and wrote the whole record back, so a step finishing in between lost its result (the record kept the empty output
+  it had when read), and a step finishing after it was read kept the forgotten words. Each record is now written only
+  while it still holds what was read (otherwise it is read and cleaned again), and the clean-up goes over the steps
+  again while one that was running when it started finished or changed meanwhile, until a pass finds none. The same
+  holds for a task's outcome, a notice's text and a chat entry the clean-up rewrites, and for the seven-day notice
+  purge; recording a running step's measured input never brings forgotten words back. What a task still running at
+  the forget records after the clean-up ends (later steps, its answer) can still hold the item.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

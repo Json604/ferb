@@ -596,7 +596,8 @@ This section matters most for an automated campaign. It says exactly what runs u
   summary entries and vectors, FERB's own lines that hold its words (its "Remembered" line, its answer to the forgotten
   message, reply lines that restate it), and what a task given it did with it (its answer, outcome, saved plan,
   permanent record, stored tool calls and turns, and its episode card when that restates it); a tombstone keeps the deleted ids, never their content. A paraphrase in other
-  words can survive. Forget from the CLI, the dashboard or chat: FERB names each item that goes and deletes only after
+  words can survive, and so can what a task still running at the forget records afterwards (a step finishing while
+  the forget's clean-up runs keeps its result and loses the item). Forget from the CLI, the dashboard or chat: FERB names each item that goes and deletes only after
   a Yes. Forgetting a learned item (a lesson, a procedure) also removes FERB's naming of it, and what it states from
   the replies and stored turns that were shown it (never from other tasks, even with the same goal); what can survive: a procedure's steps shown to a worker (in that task's stored
   turns), records deleted only because they were built on it (deleted, but their words not scrubbed), a lesson's scope

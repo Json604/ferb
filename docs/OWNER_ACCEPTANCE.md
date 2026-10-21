@@ -1304,6 +1304,13 @@ Fix wave 4 rounds 2–5 (extension 0.15.6 / protocol 17; reload the extension fi
     FERB is holding in a tab (D35) is still there after a screenshot of that tab.
 
 Fix wave 6 (2026-10-21; pending, checkout tests only so far):
+74. A forget while a task given the item is working (6a). In the notch: "remember that my test lab colour is
+    amber-quokka", then "make three text files in ~/Desktop/ferb-forget-test, one at a time, each holding my test lab
+    colour, and check each one". When the first file appears, run `ferb memory forget <id>` (`ferb memory list` shows
+    the id), answer y, and note the time it prints "Forgotten." (it returns once the clean-up is done). When the task
+    ends, `ferb trace TASK --full`: every step that finished shows its result (none ended with an empty result where
+    its tool returns one), and no step that finished before "Forgotten." holds "quokka". Record any step that finished
+    later and still holds it (expected: the task's model had already been shown the item). Delete the folder after.
 75. Checker reads (6b): after `ferb setup --update`, ask "turn on Low Power Mode and tell me" (or "turn Bluetooth off
     and tell me"; turn it back afterwards). `ferb trace TASK --full`: the checker's input has "Recorded tool calls of
     this task: N" and each call with its result. Count the checker's `task_evidence` calls and its rounds, and
@@ -1328,6 +1335,8 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     file.
 
 Residuals to know during the week (accepted or recorded, not checks):
+- A task still running when you forget an item keeps what its model was shown: the steps, answer and records it
+  writes after the forget's clean-up ends can still hold the item (a step finishing during the clean-up is cleaned).
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
   password) can show. A field moving during a capture is painted at both places, not between them. A task tab

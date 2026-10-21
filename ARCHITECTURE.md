@@ -1632,6 +1632,19 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   forget leaves: a procedure's steps shown to a worker stay in that task's spans; items deleted only because they were
   built on the forgotten one (and named by no question) are deleted with no echo pass; a lesson's scope labels (app,
   site, intent) stay where its key was listed; an entity's multi-line text is found only where it was recorded exactly.
+- **Scrubs and live writes (fix wave 6a).** A scrub (a memory forget's, a learned item's, the notice purge's
+  `expire_derived`) writes a row only while it still holds what was read (`store/db.swap`; a span's input and output
+  through `store/spans.rewrite_recorded`): when another connection wrote it in between (the loop finishing a span or
+  adding measured input, a task's outcome, a notice the purge cleared), the row is read and changed again, and a journal
+  row deleted meanwhile is never written back. Each scrub's span pass runs again while a span that was running when
+  the scrub started took a live write during the pass (`SpanWatch`, `rewrite_until_still`), until a pass sees none,
+  so a span finishing during the scrub keeps its output and loses the item; a re-run of a learned item's pass reads
+  its span scope again. No cap: each further pass needs a write by one of those spans, and each finishes once.
+  `SpanStore.update_input` is compare-and-set too, so it never undoes a scrub. Boundary: only spans are watched, so a
+  task's answer row or record written during the scrub after it was read is not re-read; and nothing recorded after
+  the scrub ends is scrubbed: a task still running at the forget keeps what its model was shown, in the spans, answer
+  and records it writes afterwards (new chat turns wait for the scrub, `Supervisor.settle`; the same item is never
+  saved again unless the owner states it, `memory_forgotten`; a card built on it is never written, its tombstones).
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
@@ -2060,7 +2073,8 @@ protected FERB state (16.9).
 - **Audit.** `trail.attention` is live; its decision rows record the effect ("told in chat: notice …").
 - **Purge.** `expire_derived` clears a notice derived from expired typed or clipboard rows from the notice row, its
   journal entry, told receipts, span inputs and outputs, and the exposure payloads that showed it (`notice_payload`,
-  `_scrub_payloads`).
+  `_scrub_payloads`). Its span rewrites are compare-and-set and run until still, like a forget's scrub ("Scrubs and
+  live writes", F8).
 - **Bounds.** The told list for an app is bounded by trail retention (30 days), since it joins the notices' trail rows.
   Residual: a `task.evidence` listing preview cut at 500 characters may keep a notice fragment in that tool call's
   output until trace retention (30 days).
