@@ -110,6 +110,7 @@ class Schedule:
     failures: int
     first_run: datetime
     watch: str = "none"              # WATCHES
+    last_reported_met: bool | None = None   # a watch: what its latest finished check that reported it found
 
     def describe(self) -> str:
         """Its rule, and what kind of watch it is (if it is one), in plain words."""
@@ -125,7 +126,8 @@ class Schedules:
         first = datetime.fromisoformat(rule.pop("first"))
         return Schedule(r["id"], r["request"], r["own_words"], json.loads(r["intent_json"]), Rule(**rule),
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
-                        int(r["failures"]), first, r["watch"])
+                        int(r["failures"]), first, r["watch"],
+                        None if r["last_reported_met"] is None else bool(r["last_reported_met"]))
 
     def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime,
             watch: str = "none") -> Schedule:
@@ -159,6 +161,10 @@ class Schedules:
 
     def set_state(self, sid: str, state: str) -> None:
         self.db.conn.execute("UPDATE schedules SET state = ? WHERE id = ?", (state, sid))
+
+    def reported(self, sid: str, met: bool) -> None:
+        """A watch's finished check reported its condition: what the next check compares with (once per crossing)."""
+        self.db.conn.execute("UPDATE schedules SET last_reported_met = ? WHERE id = ?", (int(met), sid))
 
     def ran(self, sid: str, ok: bool | None) -> int:
         """Record a run; returns the failures in a row. ok=None is a run that finished but a check couldn't confirm

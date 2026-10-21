@@ -38,10 +38,13 @@ def schedule_reply(d: RunningDaemon, request: str, quote: str, first: datetime, 
 
 
 def make_schedule(d: RunningDaemon, request: str, own: str, targets: Targets, first: datetime,
-                  repeat: str = "daily", every: int | None = None, watch: str = "none") -> Any:
+                  repeat: str = "daily", every: int | None = None, watch: str = "none",
+                  standing: list[dict[str, Any]] | None = None) -> Any:
+    """`standing`: the send scopes recorded with it (as `_schedule_create` records the owner's stated ones, D30)."""
     def go() -> Any:
-        s = d.daemon.schedules.add(request, own, targets.to_json(), Rule.build(repeat, first, every_minutes=every),
-                                   first, watch)
+        recorded = targets.to_json() | ({"standing_sends": standing} if standing else {})
+        s = d.daemon.schedules.add(request, own, recorded, Rule.build(repeat, first, every_minutes=every), first,
+                                   watch)
         t = d.daemon.timers.add("schedule", first, s.id)
         d.daemon.schedules.set_timer(s.id, t.id, first)
         return s

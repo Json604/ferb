@@ -2697,12 +2697,15 @@ class Daemon:
         self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
         answer = str(final.get("answer") or final.get("summary") or "")
         # A watch (fix wave 6c): a met condition (its check judged the reported condition) is told like a reminder,
-        # once per crossing: not when the latest earlier check that reported it found it met, an unconfirmed one
-        # included (the owner was told then). A confirmed met run of a one-shot watch ends it, as the owner's stored
-        # words for it say, and says so. A finished check with nothing new to tell is recorded but reaches no client
-        # (review I3), and so does a check of a one-shot watch that another check ended meanwhile (M1).
-        told_before = bool(final.pop("previously_met", False))
-        reported = final.get("watch_met")
+        # once per crossing: not when the latest earlier finished check that reported it found it met, an unconfirmed
+        # one included (the owner was told then; stored with the schedule, re-review N1). A confirmed met run of a
+        # one-shot watch ends it, as the owner's stored words for it say, and says so. A finished check with nothing
+        # new to tell is recorded but reaches no client (review I3), and so does a check of a one-shot watch that
+        # another check ended meanwhile (M1).
+        told_before = s.last_reported_met is True            # as this run's planner was shown it
+        reported = final.get("watch_met")                    # recorded only by a watch's check, which judged it
+        if s.watch != "none" and status in FINISHED and reported is not None:
+            self.schedules.reported(sid, bool(reported))
         met = s.watch != "none" and watch_met(status, reported)
         superseded = s.watch == "until_met" and self._watch_ended(sid)
         alert = met and not told_before and not superseded

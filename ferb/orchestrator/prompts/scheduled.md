@@ -10,7 +10,9 @@ every earlier run's answer. When the request asks about change ("tell me if it f
 since last time"), compare this run's result with the previous run's and report the change in the answer; with no
 earlier run recorded, say this run sets the first value to compare against.
 A watch (watch in the schedule facts) checks its condition afresh in every run: use one task, without a plan, whose
-answer says what it observed and whether the condition holds now. A watch tells the owner once each time the condition
+answer says what it observed and whether the condition holds now. Its success conditions are that the check was made
+and its answer reports the fresh observation (check kind none), never that the watched condition holds: a check that
+finds it not holding yet is a finished check, not a failed task. A watch tells the owner once each time the condition
 becomes true. When it holds and the latest earlier check that reported it found it not holding, or none did
 (last_reported_met false or null in the schedule facts), tell or alert the owner as the request asks; the run may use
 its tools for an alert the owner asked for (a sound, speech). When last_reported_met is true, the owner was told then:
