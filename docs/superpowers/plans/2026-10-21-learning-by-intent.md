@@ -417,7 +417,7 @@ def test_a_failed_label_is_recorded_and_tried_again_only_when_forced(learning) -
 def test_the_intent_list_is_fitted_to_a_small_window(learning) -> None:
     for n in range(40):                                  # forty labelled cards, forty intents
         c = card(learning, f"old{n}", f"task number {n}")
-        learning.put(intents.INTENT_KIND, c["id"], {"intent_id": f"i-{n:02}", "name": f"intent {n} " + "x" * 400,
+        learning.put(intents.INTENT_KIND, c["id"], {"intent_id": f"i-{n:02}", "name": f"intent {n} " + "x" * 2000,
                                                     "description": "d", "slots": {}, "values": {}},
                      [c["id"]], made_by="model:test", state="active")
     card(learning, "new", "something new")
@@ -666,8 +666,8 @@ from ferb.memory.consolidate import PROPOSAL_SCHEMA
 from tests.support.learning_runtime import SchemaAnswers
 
 
-def labelled(store, ident, intent, tool="browser.type", verified=True):
-    c = card(store, ident, tool=tool)
+def labelled(store, ident, intent, tool="browser.type", verified=True, request="open the page and read it"):
+    c = card(store, ident, tool=tool, request=request)
     if not verified:
         store.put("episode", ident, {**c["body"], "verified": False, "status": "failed"}, [],
                   origin_label="ferb", made_by="code:evidence-card/2", state="active")
@@ -736,7 +736,7 @@ def test_an_intent_with_a_procedure_is_consolidated_again_on_each_new_run(learni
 
 def test_runs_that_do_not_all_fit_go_newest_first(learning) -> None:
     for n in range(12):
-        labelled(learning, f"w{n:02}", "i-w")
+        labelled(learning, f"w{n:02}", "i-w", request="read " * 300)   # each run ~300 tokens
     rt = fake(limits=ModelLimits("fake-model", 3_000, 500, "test double"))
     asyncio.run(consolidator(learning, rt.make).catch_up())
     call = consolidation_calls(rt)[0]
