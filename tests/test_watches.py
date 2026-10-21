@@ -212,6 +212,24 @@ def test_a_met_watch_reaches_the_owner_like_a_reminder_with_the_app_open_or_the_
         d.owner_input.running = False
 
 
+def test_ferb_schedules_says_which_kind_of_watch_each_one_is(daemon: RunningDaemon) -> None:
+    import io
+    from ferb.cli import admin
+    _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    _watch(daemon, BATTERY_WATCH, BATTERY_WORDS, "standing")
+    make_schedule(daemon, "write report.md", "every day at 9 write report.md", Targets.of(),
+                  daemon.daemon.clock.now() + timedelta(minutes=30))
+    out = io.StringIO()
+    c = Client(daemon.sock)
+    try:
+        assert admin.schedules(c, "list", None, out) == 0
+    finally:
+        c.close()
+    ends = {line.rsplit("  ", 1)[-1] for line in out.getvalue().splitlines()}
+    assert ends == {f"{FILE_WATCH} (until it happens, then it stops)", f"{BATTERY_WATCH} (each time it happens)",
+                    "write report.md"}
+
+
 # ---------- restarts and updates ----------
 
 def test_a_watch_and_its_next_check_survive_a_restart(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
