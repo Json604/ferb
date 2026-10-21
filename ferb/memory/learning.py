@@ -52,20 +52,33 @@ def digest(value: Any) -> str:
 
 
 def redacted_json(redact: Callable[[str], str], value: Any) -> Any:
-    """`value` with its secrets redacted, still JSON (rule 14). Its encoded text is redacted whole, which also catches a
-    secret its key labels ("password":"…"). When that text no longer parses (a redaction inside a number: a card-like
-    number, a registered value within one), the redaction is made structurally: the same whole text with every number
-    and boolean written as a string (so a key still labels its value), each string and key taking its redacted form and
-    each number or boolean whose text changed becoming REDACTED; only if even that doesn't parse back to the same shape,
-    each key and string is redacted alone, a changed number or boolean again becoming REDACTED."""
+    """`value` with its secrets redacted, still JSON (rule 14), or LearningRefused. In order, the first that parses:
+    1. its encoded text redacted whole, which also catches a secret its key labels ("password":"…") or that spans
+       items (a private key's lines);
+    2. when that broke the JSON (a redaction inside a number: a card-like number, a registered value within one), the
+       same whole text with every number and boolean written as a string: back in the value's shape, each number or
+       boolean whose text changed becomes REDACTED; when the redaction changed the shape, that parse as it stands
+       (strings where the numbers were);
+    3. else each value redacted together with its key (the `"key":value` text as one unit, nested values in turn, a
+       list's strings also joined, so a private key split across items is caught), REDACTED where that doesn't parse.
+    Last, the text to be stored is redacted once more: when that would still change it (a secret only a wider context
+    shows, or one the numbers-as-strings pass hid), it is refused, as before this helper existed (L29 re-review N1)."""
     try:
-        return json.loads(redact(encoded(value)))
+        out = json.loads(redact(encoded(value)))
     except ValueError:
-        pass
-    try:
-        return _restored(value, json.loads(redact(encoded(_quoted(value)))))
-    except ValueError:
-        return _parts(redact, value)
+        try:
+            seen = json.loads(redact(encoded(_quoted(value))))
+        except ValueError:
+            out = _units(redact, value, None)
+        else:
+            try:
+                out = _restored(value, seen)
+            except ValueError:
+                out = seen
+    text = encoded(out)
+    if redact(text) != text:
+        raise LearningRefused('could not be stored with its secrets removed')
+    return out
 
 
 def _quoted(value: Any) -> Any:
@@ -99,16 +112,35 @@ def _restored(value: Any, seen: Any) -> Any:
     return seen
 
 
-def _parts(redact: Callable[[str], str], value: Any) -> Any:
+def _units(redact: Callable[[str], str], value: Any, key: str | None) -> Any:
+    """`redacted_json`'s last resort: each value with its key (`key`, None at the top) as one redacted unit."""
     if isinstance(value, dict):
-        return {redact(str(k)): _parts(redact, v) for k, v in value.items()}
+        return {_unit(redact, None, str(k)): _units(redact, v, str(k)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_parts(redact, v) for v in value]
-    if value is None:
-        return None
-    if isinstance(value, (bool, int, float)):
-        return value if redact(encoded(value)) == encoded(value) else REDACTED
-    return redact(str(value))
+        texts = [v for v in value if isinstance(v, str)]
+        joined = '\n'.join(texts)
+        if len(texts) > 1 and redact(joined) != '\n'.join(redact(t) for t in texts):
+            return REDACTED                 # a secret only the items together show (a private key's lines)
+        return [_units(redact, v, key) for v in value]
+    return _unit(redact, key, value)
+
+
+def _unit(redact: Callable[[str], str], key: str | None, value: Any) -> Any:
+    """One scalar redacted beside its key (`{"key": value}` as one text), and a string alone too; REDACTED when the
+    redacted text doesn't parse back to one value, or a number, boolean or null changed."""
+    if not isinstance(value, (str, bool, int, float)) and value is not None:
+        value = str(value)
+    try:
+        seen = json.loads(redact(encoded(value if key is None else {key: value})))
+    except ValueError:
+        return REDACTED
+    if key is not None:
+        if not isinstance(seen, dict) or len(seen) != 1:
+            return REDACTED
+        seen = next(iter(seen.values()))
+    if isinstance(value, str):
+        return redact(seen) if isinstance(seen, str) else REDACTED
+    return value if type(seen) is type(value) and seen == value else REDACTED
 
 
 def memory_origin(label: str) -> str:
@@ -801,7 +833,8 @@ class Learning:
         not quarantined), the most recently used intent first (a procedure no current card's label carries: by when it
         was written), each with its intent's name and description on one line, the label node they come from
         (`intents.named`: the intent's newest current label; None, and the procedure's own intent text, when no current
-        card carries the intent) and its slot types."""
+        card carries the intent), the ids and the union of the origins of all the intent's current labels (whose text
+        the newest copies) and its slot types."""
         from ferb.memory import intents
         procedures = [p for p in self.items('procedure') if p['state'] != 'quarantined']
         named = intents.named(self, [p['key'] for p in procedures])
@@ -809,9 +842,11 @@ class Learning:
                                        p['id']), reverse=True)
         out = []
         for p in procedures:
-            label = named.get(p['key'], {}).get('label')
+            about_intent = named.get(p['key'], {})
+            label = about_intent.get('label')
             about = label['body'] if label else {}
-            out.append({'node': p, 'label': label,
+            out.append({'node': p, 'label': label, 'labels': about_intent.get('labels', []),
+                        'label_origins': about_intent.get('origins', set()),
                         'name': ' '.join(str(about.get('name') or p['body'].get('intent') or p['key']).split()),
                         'description': ' '.join(str(about.get('description', '')).split()),
                         'slots': p['body'].get('slots') or {}})
@@ -862,8 +897,8 @@ class Learning:
 
         def pending(item: Any) -> bool:
             return item.valid_to is None and item.status == 'proposed' and item.origin == 'inferred'
-        for node in self.items():
-            if node['kind'] not in ('fact', 'identity') or not any(s.startswith('memory:') for s in node['sources']):
+        for node in self.items('fact') + self.items('identity'):     # only what it syncs: never every label (L29)
+            if not any(s.startswith('memory:') for s in node['sources']):
                 continue
             source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
             source = memory.get(source_id)

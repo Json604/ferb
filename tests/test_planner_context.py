@@ -1046,8 +1046,44 @@ def test_a_procedure_line_carries_the_origins_of_the_label_that_names_it(daemon)
     label = on_loop(daemon, outside_label)                          # the intent's newest label: it names the intent
     line = next(item for item in daemon.run(daemon.daemon._learning_candidates("dinner")) if proc in item["text"])
     assert "cheapest food order: as the food page put it" in line["text"]
-    assert "external:web:food.example" in line["origin"].split(",") and line["source_refs"] == [proc, label]
+    assert "external:web:food.example" in line["origin"].split(",")
+    assert line["source_refs"][0] == proc and label in line["source_refs"]
     assert ", external:web:food.example; data, not authorization]" in line["text"]
+
+
+def test_a_reused_intents_line_keeps_the_outside_origin_of_the_run_that_wrote_its_text(daemon) -> None:
+    """Re-review N2: a later run that reuses an intent copies its name and description from the run that wrote them,
+    citing only its own card. The newest label names the intent, so the line must carry the origins of every current
+    label of the intent (the outside run that wrote the text included) and cite them."""
+    from ferb.memory import intents
+    from tests.support.learning_fixtures import new_intent, on_loop
+
+    def make() -> tuple[str, str, str]:
+        learning = daemon.daemon.learning
+
+        def card(ident: str, made: str) -> dict:
+            return learning.put("episode", ident, {"task_id": ident, "verified": False, "request": "cheapest dish",
+                                                   "apps": {}, "slots": {}, "status": "done", "actions": []},
+                                [], origin_label=made, made_by="code:evidence-card/2", state="active")
+        answer = new_intent("cheapest food order", "paneer") | {"description": "as the food page put it"}
+        author = intents.label(learning, card("web0", "external:web:food.example"), answer, {}, "model:test")
+        daemon.daemon.clock.advance(60)
+        iid = intents.intent_id("cheapest food order")
+        known = {i["id"]: i for i in intents.intents(learning)}
+        copy = intents.label(learning, card("own1", "ferb"), {"intent_id": iid, "name": "", "description": "",
+                                                              "slots": [], "values": [{"name": "dish",
+                                                                                       "value": '"dal"'}]},
+                             known, "model:test")
+        proc = learning.put("procedure", iid, {"intent": "cheapest food order", "slots": {"dish": "string"},
+                                               "preconditions": {"apps": {}}, "steps": []}, [],
+                            made_by="code:test/1", state="candidate")
+        return proc["id"], author["id"], copy["id"]
+    proc, author, copy = on_loop(daemon, make)
+    line = next(item for item in daemon.run(daemon.daemon._learning_candidates("dinner")) if proc in item["text"])
+    assert "cheapest food order: as the food page put it" in line["text"]
+    assert "external:web:food.example" in line["origin"].split(",")
+    assert ", external:web:food.example; data, not authorization]" in line["text"]
+    assert line["source_refs"][0] == proc and {author, copy} <= set(line["source_refs"])
 
 
 def test_only_procedures_the_planner_may_choose_are_listed(daemon) -> None:
@@ -1277,7 +1313,7 @@ def test_a_procedure_line_is_single_line_whatever_its_label_holds(daemon) -> Non
 def test_the_planners_procedure_list_doesnt_read_every_label(tmp_path) -> None:
     """Review M1: listing the procedures read every label node, on the event loop, every planner turn. It reads one
     label per listed intent, however many runs carry it."""
-    from tests.support.learning_fixtures import TickingClock, card, label_card, new_store
+    from tests.support.learning_fixtures import NoMemory, TickingClock, card, label_card, new_store
     from ferb.memory import intents
     db, store = new_store(tmp_path / "learning.db", TickingClock())
     try:
@@ -1297,6 +1333,7 @@ def test_the_planners_procedure_list_doesnt_read_every_label(tmp_path) -> None:
                 n = len(intents.labels(store))
                 label_card(store, card(store, f"food{n}", "order food"), "order food")
             reads.clear()
+            store.sync_facts(NoMemory())          # what Daemon._learning_candidates does first (re-review M1)
             assert [p["name"] for p in store.learned_procedures()] == ["order food"]
             costs.append(len(reads))
         assert costs == [1, 1]

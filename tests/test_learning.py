@@ -391,14 +391,71 @@ def test_an_unreadable_receipt_row_is_noted_and_never_breaks_the_procedure(redac
     assert noted == [('memory.receipt_unreadable', {'procedure_id': p['id'], 'episode_id': cards[0]['id']})]
 
 
-def test_redacted_json_falls_back_part_by_part_when_structure_breaks():
+def test_redacted_json_falls_back_value_by_value_when_structure_breaks():
     """The last resort: a redaction that breaks the JSON even with every number written as a string (here one that
-    eats the text between keys) redacts each key and string alone; a number whose text changes becomes the marker."""
+    eats a closing quote) redacts each value with its key as one unit; a unit that no longer parses, or a number
+    whose text changes, becomes the marker. A redaction that isn't stable on the stored text is refused."""
     from ferb.memory.learning import redacted_json
     from ferb.sanitize.redact import REDACTED
 
-    def mangling(text: str) -> str:
-        return text.replace('7', '#').replace('","', '')
-    assert redacted_json(mangling, {'a': 17, 'b': 'x7', 'c': [2, 'q'], 'd': None, 'e': False}) == \
-        {'a': REDACTED, 'b': 'x#', 'c': [2, 'q'], 'd': None, 'e': False}
+    def quote_eating(text: str) -> str:
+        return text.replace('7', '#').replace('tok"', '[r]')
+    assert redacted_json(quote_eating, {'a': 17, 'b': 'tok', 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x7'}) == \
+        {'a': REDACTED, 'b': REDACTED, 'c': [2, 'q'], 'd': None, 'e': False, 'f': 'x#'}
     assert redacted_json(lambda t: t, {'a': 17, 'b': 'x7'}) == {'a': 17, 'b': 'x7'}       # no redaction: unchanged
+    with pytest.raises(LearningRefused, match='secrets removed'):                          # never stable: refused
+        redacted_json(lambda t: t + ' ', {'a': 1})
+
+
+# L29 fix round 2 (re-review N1, N3): the last resort never stores a secret the whole text shows ------------------
+
+_KEY = ["-----BEGIN RSA PRIVATE KEY-----", "MIIEowIBAAKCAQEAsecretkeymaterial", "-----END RSA PRIVATE KEY-----"]
+
+
+@pytest.mark.parametrize('body, secrets', [
+    ({'a': 'x', 'pin': '1234', 'z': 'password=abc', 'zz': ['y']}, ['1234', 'abc']),
+    ({'password': 'hunter2', 'z': 'token=abc', 'zz': ['y']}, ['hunter2', 'abc']),
+    ({'code': '482913', 'note': 'secret=abc', 'x': {'y': 'z'}}, ['482913', 'abc']),
+    ({'actions': [{'args': {'command': 'mysql --password=hunter2'}, 'id': 'a1', 'tool': 'shell.run'}],
+      'request': 'my pin: 4821', 'slots': {'pin': '4821'}}, ['hunter2', '4821']),
+    ({'k': _KEY, 'n': 4111111111111111}, ['MIIEow', '4111111111111111']),
+    ({'k': _KEY, 'z': 'password=abc', 'zz': ['y']}, ['MIIEow', 'abc']),       # the key's lines, in the last resort
+])
+def test_a_body_is_never_stored_with_a_secret_only_its_whole_text_shows(redacting, body, secrets):
+    """Re-review N1: when both whole-text passes broke the JSON, the last resort redacted each key and string alone and
+    stored a secret only its key labels ("pin":"1234") or a private key split across list items, in clear. Such a body
+    is stored with them redacted (each value redacted with its key; the numbers-as-strings parse kept when only its
+    shape changed), never with a secret its stored text would still show."""
+    from ferb.sanitize.redact import Redactor
+    store, _ = redacting
+    node = store.put('lesson', 'k', body, [], made_by='model:test')
+    text = json.dumps(node['body'], ensure_ascii=False)
+    assert not any(s in text for s in secrets), text
+    redactor = Redactor()
+    redactor.add_secret_value('2345')
+    stored = json.dumps(node['body'], ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    assert redactor.text(stored) == stored                         # nothing left for a second redaction to find
+
+
+def test_a_shape_changing_redaction_keeps_its_numbers_as_strings_parse(redacting):
+    """When the numbers-as-strings pass parses but its shape changed (a private key's lines joined into one marker),
+    that parse is kept, strings where the numbers were."""
+    store, _ = redacting
+    node = store.put('lesson', 'k', {'k': _KEY, 'n': 4111111111111111}, [], made_by='model:test')
+    assert node['body'] == {'k': ['[redacted]'], 'n': '[redacted]'}
+
+
+def test_a_secret_that_spans_two_numbers_is_refused_rather_than_stored(tmp_path):
+    """Re-review N3: a registered value spanning two numbers (`1234,5678`) was un-redacted by writing the numbers as
+    strings. The final check finds it again in the text to be stored, so the write is refused."""
+    from ferb.sanitize.redact import Redactor
+    db = Database(tmp_path / 'memory.db')
+    db.migrate()
+    redactor = Redactor()
+    redactor.add_secret_value('1234,5678')
+    store = Learning(db, Clock(), lambda *args: None, redactor.text)
+    try:
+        with pytest.raises(LearningRefused, match='secrets removed'):
+            store.put('lesson', 'k', {'a': [1234, 5678]}, [], made_by='model:test')
+    finally:
+        db.close()

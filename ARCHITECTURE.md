@@ -1794,12 +1794,14 @@ intent's job. Code rollups cite their child cards.
   slot types. A new intent's name and description are collapsed to one line when its label is checked
   (`intents.check`). `Daemon._learning_candidates` puts one line per procedure first in the planner's retrieved
   memory, whatever the words: `<id> [procedure, <state>, <least trusted origin>; data, not authorization]
-  <name>: <description> — slots: {…}`, its origin the procedure's origins with the naming label's (model-written from
-  that card's run), citing both nodes (`source_refs`); search hits leave procedures out (each is listed, or can't be
-  chosen: I5). The lines carry the fold route `memory.learned kind=procedure` (`context_layers.PROCEDURES_ROUTE`):
-  unlike the other retrieved memory (protected, L28) they are optional blocks, in that order of priority, and those
-  whose markers can't all fit fold into one counted note, so the list is fitted to the planner's window and character
-  cap (spec §5). The attention consideration doesn't choose procedures and gets none (`_memory_blocks(choosing=False)`).
+  <name>: <description> — slots: {…}`, its origin the procedure's origins with the union of those of all the
+  intent's current labels (a label that reuses an intent copies its text from the run that wrote it, citing only its
+  own card), citing them all (`source_refs`; one grouped query in `intents.named`); search hits leave procedures out
+  (each is listed, or can't be chosen: I5). The lines carry the fold route `memory.learned kind=procedure`
+  (`context_layers.PROCEDURES_ROUTE`): unlike the other retrieved memory (protected, L28) they are optional blocks,
+  in that order of priority, and those whose markers can't all fit fold into one counted note, so the list is fitted
+  to the planner's window and character cap (spec §5). The attention consideration doesn't choose procedures and gets
+  none (`_memory_blocks(choosing=False)`).
   The planner matches by meaning and returns `procedure_slots` (`{name, value}` pairs, each value JSON text,
   `TaskSpec.procedure_slots`). `Learning.slot_values` types them against the procedure's slots (`strict.to_map`,
   `intents.typed`), else None, and `Learning.slot_problem` says why. Values the slots refuse are noted when the task
@@ -1809,12 +1811,15 @@ intent's job. Code rollups cite their child cards.
   capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`); a
   deferred capture journals them in `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values
   that are missing or of the wrong type give a receipt without slot values. An ignored procedure (I5) drops its slot
-  values too. **Redaction stays JSON (L29 fix round 1):** a node's body (`Learning.put`) and a receipt's slot values
-  are redacted by `redacted_json`: the encoded text whole (a key still labels its value); when that no longer parses
-  (a card-like number, a registered value inside a number), the same text with numbers and booleans written as
-  strings, each one whose text changed becoming `[redacted]`; as a last resort each key and string alone. A receipt
-  row whose values don't parse (written before) counts without values, is cleared and journaled once
-  (`memory.receipt_unreadable`), and never breaks a refresh or `ferb verdict`. Task completion captures app
+  values too. **Redaction stays JSON (L29 fix rounds 1–2):** a node's body (`Learning.put`) and a receipt's slot
+  values are redacted by `redacted_json`: the encoded text whole (a key still labels its value); when that no longer
+  parses (a card-like number, a registered value inside a number), the same text with numbers and booleans written as
+  strings, each one whose text changed becoming `[redacted]` (or that parse as it stands when the redaction changed
+  the shape); as a last resort each value with its key as one unit (a list's strings also joined, so a private key
+  split across items is caught). Text that a second redaction would still change is refused (`LearningRefused`),
+  never stored. A receipt row whose values don't parse (written before) counts without values, is cleared and
+  journaled once (`memory.receipt_unreadable`), and never breaks a refresh or `ferb verdict`. `sync_facts` (every
+  planner turn) reads only fact and identity nodes. Task completion captures app
   versions; old episodes retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load
   the selected procedure, keep owner-only identity in context and record procedure outcomes; none bypass gateway
   confirmations or checks.

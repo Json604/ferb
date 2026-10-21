@@ -4,6 +4,7 @@ types and stores it as the card's own `episode_intent` node (keyed by the card's
 so forgetting a card removes only its label. The intent list is derived from the current cards' labels. A card read
 again (a new node of the same task) keeps its task's label (`carry_forward`), and a superseded card's label is closed.
 Labels are the learner's bookkeeping: search never recalls them (`Learning.search`)."""
+import json
 from typing import Any, Iterable
 
 from ferb.memory.learning import Learning, LearningRefused, digest
@@ -70,25 +71,28 @@ def intents(learning: Learning) -> list[dict[str, Any]]:
 
 
 def named(learning: Learning, intent_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
-    """For each of these intents that a current card carries: {label, last}: its newest current label node (its name
-    and description, for what shows them with the label's origins) and when it was last used (its newest card, as
-    `intents` orders them). One query over the labels' ids and times, then one node read per intent, so the planner's
-    turn never reads every label (L29 review M1)."""
+    """For each of these intents that a current card carries: {label, last, labels, origins}: its newest current label
+    node (its name and description), when it was last used (its newest card, as `intents` orders them), and the ids
+    and the union of the origins of all its current labels. A label that reuses an intent copies its text from the
+    one whose run wrote it, citing only its own card, so what shows that text carries and cites them all (L29
+    re-review N2). One grouped query, then one node read per intent, so a planner turn never reads every label."""
     wanted = sorted(set(intent_ids))
     if not wanted:
         return {}
     rows = learning.db.conn.execute(
-        "SELECT json_extract(l.body_json, '$.intent_id'), max(l.recorded_at || ' ' || l.id), max(c.recorded_at) "
-        "FROM learning_nodes l JOIN learning_nodes c ON c.id = l.key "
+        "SELECT json_extract(l.body_json, '$.intent_id'), max(l.recorded_at || ' ' || l.id), max(c.recorded_at), "
+        "json_group_array(DISTINCT l.id), json_group_array(DISTINCT o.value) "
+        "FROM learning_nodes l JOIN learning_nodes c ON c.id = l.key LEFT JOIN json_each(l.origins_json) o "
         "WHERE l.kind = ? AND l.valid_to IS NULL AND l.state NOT IN ('retired', 'rolled_back') "
         "AND c.kind = 'episode' AND c.valid_to IS NULL AND c.state NOT IN ('retired', 'rolled_back') "
         f"AND json_extract(l.body_json, '$.intent_id') IN ({','.join('?' * len(wanted))}) "
         "GROUP BY json_extract(l.body_json, '$.intent_id')", (INTENT_KIND, *wanted)).fetchall()
     out: dict[str, dict[str, Any]] = {}
-    for iid, newest, last in rows:
+    for iid, newest, last, ids, made in rows:
         label = learning.get(str(newest).rsplit(' ', 1)[1])
         if label is not None:
-            out[str(iid)] = {'label': label, 'last': str(last)}
+            out[str(iid)] = {'label': label, 'last': str(last), 'labels': sorted(json.loads(ids)),
+                             'origins': {o for o in json.loads(made) if o}}
     return out
 
 

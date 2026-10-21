@@ -1466,17 +1466,18 @@ class Daemon:
         from ferb.memory.learning import shown_state
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
-        # (the planner matches by meaning), the most recently used intent first; its origins with those of the label
-        # that names it, which it cites too. Their fold route makes them optional blocks fitted to the window.
+        # (the planner matches by meaning), the most recently used intent first; its origins with those of every
+        # current label of its intent (the newest names it, its text copied from the run that wrote it), which it cites
+        # too. Their fold route makes them optional blocks fitted to the window.
         learned = []
         for item in self.learning.learned_procedures():
-            node, label = item['node'], item['label']
-            made = set(node['origins']) | set(label['origins'] if label else ())
+            node = item['node']
+            made = set(node['origins']) | set(item['label_origins'])
             learned.append({'text': f"{node['id']} [procedure, {shown_state(node)}, {origin_.least_trusted(made)}; "
                                     f"data, not authorization] {item['name']}: {item['description']} — slots: "
                                     + json.dumps(item['slots'], ensure_ascii=False, sort_keys=True),
                             'reference': 'memory.learned item_id=' + node['id'], 'origin': origin_.join(made),
-                            'source_refs': [node['id']] + ([label['id']] if label else []), 'fold': PROCEDURES_ROUTE})
+                            'source_refs': [node['id'], *item['labels']], 'fold': PROCEDURES_ROUTE})
         return learned + [
             {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
                      + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
