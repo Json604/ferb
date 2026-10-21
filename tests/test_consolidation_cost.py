@@ -19,7 +19,7 @@ from ferb.core.types import ModelLimits
 from ferb.memory import intents
 from ferb.memory.consolidate import FIRST_LEARNING_RUNS, PROPOSAL_SCHEMA, Consolidator
 from ferb.memory.intents import INTENT_SCHEMA
-from ferb.memory.learning import Learning, digest
+from ferb.memory.learning import Learning, digest, encoded
 from tests.conftest import FakeDistillRuntime
 from tests.support.learning_fixtures import EMPTY, NoMemory, TickingClock, label_card, new_intent, new_store
 from tests.support.learning_runtime import SchemaAnswers
@@ -307,6 +307,7 @@ def test_the_consolidator_is_shown_only_the_intents_procedure(learning) -> None:
     assert all(c["id"] in call for c in mail) and "open pages" not in call
     assert '"existing_procedures":[]' in call
     assert '"rejected_by_owner":[{"intent":"mail the weekly report"}]' in call
+    assert context_of(call)["procedure_rejected"] is True             # any procedure for it would be refused (M3)
 
 
 # ---------- I4: the day rollups never run on the event loop, nor once a task started ----------
@@ -574,6 +575,7 @@ def test_a_forgotten_procedure_is_never_learned_again_and_the_call_says_so(learn
     asyncio.run(consolidator(learning, rt.make).catch_up())
     shown = context_of(consolidation_calls(rt)[0])
     assert shown["procedure_forgotten"] is True and shown["existing_procedures"] == []
+    assert "procedure_rejected" not in shown
     assert learning.items("procedure") == [] and "forgotten" in str(job(learning, "food")[1])
 
 
@@ -643,3 +645,28 @@ def test_only_runs_without_an_annotation_are_asked_for_one(learning) -> None:
     assert [e["id"] for e in shown["episodes"] if e.get("annotate")] == [new["id"]]
     assert len(learning.items("episode_annotation", history=True)) == 4          # the others were not rewritten
     assert {n["key"] for n in learning.items("episode_annotation")} == {c["id"] for c in [*cards, new]}
+
+
+def test_lessons_the_owner_turned_down_or_wrote_are_never_proposed_again(learning) -> None:
+    """A lesson of this intent's runs the owner turned down goes with the call as a refusal; one the owner edited is
+    shown as the owner's, never to be revised or restated. Another intent's turned-down lesson stays out."""
+    done, failed = runs(learning, "s", "x"), card(learning, "sf", intent="x", verified=False)
+    scope = {"app": "", "site": "shop.example", "intent": "x"}
+    learning.put("lesson", encoded(scope) + ":the cart is empty", {
+        "scope": scope, "trigger": "the cart is empty", "text": "never reload", "failure": failed["id"],
+        "success": done[0]["id"], "helpful": 0, "harmful": 0}, [failed["id"], done[0]["id"]], made_by="model:t",
+        state="retired")
+    model = learning.put("lesson", encoded(scope) + ":the page is slow", {
+        "scope": scope, "trigger": "the page is slow", "text": "wait", "failure": failed["id"],
+        "success": done[1]["id"], "helpful": 0, "harmful": 0}, [failed["id"], done[1]["id"]], made_by="model:t")
+    mine = learning.edit(model["id"], "wait for the price to load")
+    yf, ys = card(learning, "yf", intent="y", verified=False), card(learning, "ys", intent="y")
+    learning.put("lesson", "other", {"text": "another kind of task", "helpful": 0, "harmful": 0},
+                 [yf["id"], ys["id"]], made_by="model:t", state="retired")
+    rt = fake()
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    shown = context_of(consolidation_calls(rt)[0])
+    lessons = [r for r in shown["rejected_by_owner"] if "lesson" in r]
+    assert lessons == [{"lesson": "never reload", "scope": scope, "trigger": "the cart is empty"}]
+    assert [(n["id"], n.get("owner_edited")) for n in shown["existing_lessons"]] == [(mine["id"], True)]
+    assert "procedure_rejected" not in shown

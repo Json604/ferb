@@ -302,11 +302,14 @@ class Consolidator:
 
     def _context(self, about: dict[str, Any], members: list[dict[str, Any]],
                  procedures: dict[str, Any]) -> dict[str, Any]:
-        """What a call carries besides the runs: the intent, its procedure (`procedures`) and current lessons (spec 3),
-        their runs named by each run's current card (a card read again has a new id), the owner's refusals, and
-        `procedure_forgotten` when the owner forgot the intent's procedure (M2: `Learning.put` never stores another)."""
+        """What a call carries besides the runs: the intent, its procedure (`procedures`) and current lessons (spec 3;
+        an owner-edited one marked `owner_edited`), their runs named by each run's current card (a card read again has
+        a new id), the owner's refusals (with the lessons of these runs the owner turned down), and
+        `procedure_forgotten` / `procedure_rejected` when the owner forgot or turned down the intent's procedure
+        (`Learning.put` never stores another for it)."""
         l = self.learning
         now = {n['key']: n['id'] for n in members}
+        tasks = set(now)
 
         def current(ref: Any) -> Any:
             node = l.get(ref) if isinstance(ref, str) else None
@@ -315,31 +318,37 @@ class Consolidator:
             e | {'episode': current(e.get('episode'))} if isinstance(e, dict) else e
             for e in p['body'].get('examples') or []]}} for p in procedures['existing_procedures']]
         lessons = [{'id': n['id'], 'body': n['body'] | {k: current(n['body'].get(k)) for k in ('failure', 'success')
-                                                        if k in n['body']}} for n in self._lessons(set(now))]
-        out = {'intent': about, **procedures, 'existing_procedures': shown, 'existing_lessons': lessons}
+                                                        if k in n['body']}}
+                   | ({'owner_edited': True} if n['origin'] == origin.OWNER else {})
+                   for n in l.items('lesson') if self._built_on(n, tasks)]
+        turned_down = [{'lesson': n['body'].get('text', '')} | {k: n['body'][k] for k in ('scope', 'trigger')
+                                                                if k in n['body']}
+                       for n in l.items('lesson', history=True)
+                       if n['state'] == 'retired' and self._built_on(n, tasks)]
+        out = {'intent': about, **procedures, 'existing_procedures': shown, 'existing_lessons': lessons,
+               'rejected_by_owner': procedures['rejected_by_owner'] + turned_down}
         if l.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id = ?',
                              ('key-' + digest(['procedure', about['id']]),)).fetchone():
             out['procedure_forgotten'] = True
+        if any('intent' in r for r in procedures['rejected_by_owner']):     # a procedure of it the owner turned down
+            out['procedure_rejected'] = True
         return out
 
-    def _lessons(self, tasks: set[str]) -> list[dict[str, Any]]:
-        """The current lessons built on runs of these tasks (any version of their cards), through the earlier versions
-        of a lesson (the owner's feedback and edits cite the version before): lineage, never words (R2)."""
+    def _built_on(self, lesson: dict[str, Any], tasks: set[str]) -> bool:
+        """Whether a lesson is built on a run of these tasks (any version of its card), through the lesson's earlier
+        versions (the owner's feedback and edits cite the version before): lineage, never words (R2)."""
         l = self.learning
-        out = []
-        for lesson in l.items('lesson'):
-            seen: set[str] = set()
-            frontier = list(lesson['sources'])
-            while frontier:
-                ref = frontier.pop()
-                node = None if ref in seen else l.get(ref)
-                seen.add(ref)
-                if node is not None and node['kind'] == 'episode' and node['key'] in tasks:
-                    out.append(lesson)
-                    break
-                if node is not None and node['kind'] == 'lesson':
-                    frontier.extend(node['sources'])
-        return out
+        seen: set[str] = set()
+        frontier = list(lesson['sources'])
+        while frontier:
+            ref = frontier.pop()
+            node = None if ref in seen else l.get(ref)
+            seen.add(ref)
+            if node is not None and node['kind'] == 'episode' and node['key'] in tasks:
+                return True
+            if node is not None and node['kind'] == 'lesson':
+                frontier.extend(node['sources'])
+        return False
 
     def _intent_job(self, intent: str, inputs: str, error: str | None, results: list[dict[str, Any]]) -> bool:
         if error:
