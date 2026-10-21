@@ -2490,7 +2490,7 @@ class Supervisor(WorkerRuns):
             tree.owner_display = ""
             tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
             self.tasks.set_status(task.id, "running")
-            raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree)) + [ContextBlock(instructions, "current continuation", protected=True)],
+            raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
             attempt_revision = len(tree.steering.messages)
             try:
@@ -2623,7 +2623,11 @@ class Supervisor(WorkerRuns):
             self.spans.finish(decision_span, output={'text': final}, error=f'{type(exc).__name__}: {exc}')
             raise
 
-    async def _context(self, tree: _Tree) -> list[ContextBlock]:
+    async def _context(self, tree: _Tree, *, learned: bool = False) -> list[ContextBlock]:
+        """The task's context for a role that runs or judges it. `learned`: a worker run's, which alone gets its
+        procedure's lessons and verified earlier runs (L29); every other role (the checker, the next-attempt and
+        question choices, the resource reconcile) gets the procedure block alone, so a checker never sees another
+        task's successful calls as evidence for this one (review I1)."""
         spec = tree.spec
         request = self.state.requests.get(tree.worker.request_id)
         words = request.words
@@ -2646,8 +2650,10 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock("Completed intake operations (chat-layer receipts, not worker actions):\n" +
                                        wrap_untrusted(json.dumps(tree.intake_receipts)), "task.evidence kind=task.intake",
                                        protected=True))
+        attempts = None
         if tree.reports:             # model-written from what the attempts read (MP2), as task.evidence labels them
             reports_origin = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id))
+            attempts = len(parts)
             parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports)),
                                             reports_origin))
         # Every worker of this tree (and of the task it continues): actions that may or may not have happened (P19, V7)
@@ -2680,7 +2686,7 @@ class Supervisor(WorkerRuns):
             except Exception as exc:          # forgotten or rolled back since the plan (I5): run without it
                 self._ignore_procedure(tree, None, f"{type(exc).__name__}: {exc}")
             else:
-                parts.extend(self._procedure_blocks(tree, details))
+                parts.extend(self._procedure_blocks(tree, details if learned else details[:1]))
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
@@ -2703,13 +2709,15 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock('Layer 6 — recorded confirmations (data; "reopened": the owner\'s later message '
                                       'reopened that No, so FERB asks it again if it comes up):\n' +
                                       json.dumps(confirmations), 'task.evidence', protected=True))
+        if attempts is not None:     # this task's own attempts rank above every other optional block, runs too (M2)
+            parts[attempts] = dataclasses.replace(parts[attempts], priority=1 + max(b.priority for b in parts))
         return parts
 
     def _procedure_blocks(self, tree: _Tree, details: list[ProcedurePart]) -> list[ContextBlock]:
-        """A worker's blocks for its selected procedure (L29), each with the procedure's origins and its own, citing
-        what it shows: the procedure first, always shown and recorded as its source (PROCEDURE_LABEL: the card capture
-        cites what that block cites); then its intent's lessons, always shown, and its verified earlier runs, each in
-        FERB's data wrapper. The runs are optional blocks above the activity and memory layers, newest first, so the
+        """The blocks for the selected procedure's parts it is given (L29: a worker run's are all of them; another
+        role's the procedure alone), each with the procedure's origins and its own, citing what it shows: the procedure
+        first, always shown and recorded as its source (PROCEDURE_LABEL: the card capture cites what that block cites);
+        then its intent's lessons, always shown, and its verified earlier runs, each in FERB's data wrapper. The runs are optional blocks above the activity and memory layers, newest first, so the
         newest stay whole when space runs out; one left out is read by its card's id, and runs whose markers can't
         all fit fold into one counted note (PROCEDURE_RUNS_ROUTE)."""
         from ferb.orchestrator.context_layers import PROCEDURE_RUNS_ROUTE

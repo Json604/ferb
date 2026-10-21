@@ -103,15 +103,16 @@ def intent_procedure(daemon: Any, *, name: str, slots: dict[str, str]) -> str:
     return str(on_loop(daemon, store_intent_procedure, daemon.daemon.learning, name=name, slots=slots))
 
 
-def worker_context_for(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
-                       worker_limits: Any = None) -> str:
-    """The worker's assembled context for a task whose planner chose `procedure_id` with these `procedure_slots`
-    ({name, value} pairs, each value JSON text), as its runtime was given it. `worker_limits`: the worker runtime's
-    model limits (a ModelLimits; e.g. a small per-input character cap), the planner's unchanged."""
+def procedure_task_contexts(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
+                            worker_limits: Any = None, workers: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    """Every context the runtimes were given, by role key ("worker", "worker.verify", "worker.dispatch", …, each in
+    order), for a task whose planner chose `procedure_id` with these `procedure_slots` ({name, value} pairs, each value
+    JSON text). `worker_limits`: the worker runtime's model limits (a ModelLimits; e.g. a small per-input character
+    cap), the other roles' unchanged. `workers`: the scripted worker steps (default: one done report)."""
     from tests.conftest import chat, done, install, outcome, sup, task
     spec = task("order the cheapest dish")
     spec["procedure_id"], spec["procedure_slots"] = procedure_id, slots
-    script = install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    script = install(daemon, [sup("task", "Ordering.", spec)], workers or {"worker": done("done")})
     if worker_limits is not None:
         make = daemon.daemon.supervisor.make_runtime
 
@@ -122,7 +123,17 @@ def worker_context_for(daemon: Any, procedure_id: str, slots: list[dict[str, str
             return runtime
         daemon.daemon.supervisor.make_runtime = limited
     assert outcome(chat(daemon, "order the cheapest dish"))["status"] == "done"
-    return next(context for _, key, context, _ in script.contexts if key == "worker")
+    contexts: dict[str, list[str]] = {}
+    for _, key, context, _ in script.contexts:
+        contexts.setdefault(key, []).append(context)
+    return contexts
+
+
+def worker_context_for(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
+                       worker_limits: Any = None) -> str:
+    """The worker's assembled context for a task whose planner chose `procedure_id` with these `procedure_slots`, as
+    its runtime was given it (`procedure_task_contexts`)."""
+    return procedure_task_contexts(daemon, procedure_id, slots, worker_limits=worker_limits)["worker"][0]
 
 
 def label_card(store: Learning, node: dict[str, Any], name: str = "a test intent") -> Any:
