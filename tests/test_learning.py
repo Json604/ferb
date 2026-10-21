@@ -678,7 +678,7 @@ def test_an_actions_target_provenance_is_read_in_the_gateways_vocabulary(tmp_pat
     finally:
         db.close()
     from ferb.memory.learning import outside_targets
-    assert outside_targets({'site': ['owner']}) is False                # a label read before that vocabulary
+    assert outside_targets({'site': ['owner']}) is True                 # not a provenance label: no writer uses it
     assert outside_targets({'site': ['a-label-it-does-not-know']}) is True     # an unknown label counts as outside
     assert outside_targets({'site': ['owner_words'], 'recipient:0': ['external:mail']}) is True    # per key
     assert outside_targets({}) is False                                 # an action without a target value
@@ -844,5 +844,29 @@ def test_a_rolled_back_versions_receipts_no_longer_count(tmp_path):
         store.rollback(first['batch_id'])
         assert store.procedure(revised['id'], {})['counters'] == {'verified_successes': 3, 'failures': 0,
                                                                   'slot_variants': 3}
+    finally:
+        db.close()
+
+
+def test_a_card_read_again_after_its_trace_aged_out_reads_its_stored_provenance_again(tmp_path):
+    """Task 6 re-review 2, N2: a card the earlier composer built whose trace retention has since deleted kept its
+    actions as stored, with the old reading's outside flag, though it stores the provenance to read it right. Each
+    kept action's flag is read again from its stored `arg_sources`; one without stays outside."""
+    from tests.support.cards import card_store, finished_task
+    db, _, spans, store = card_store(tmp_path)
+    try:
+        finished_task(db, spans, store, 't')                         # its episode, no tool call kept
+        old = store.put('episode', 't', {'task_id': 't', 'verified': True, 'request': 'email the shop', 'apps': {},
+                                         'slots': {}, 'status': 'done', 'actions': [
+            {'id': 'c1', 'tool': 'mail.send', 'args': {'to': 'a@x.example'}, 'kind': 'send',
+             'outside_action': True, 'arg_sources': {'recipient:0': ['owner_words']}},
+            {'id': 'c2', 'tool': 'mail.send', 'args': {'to': 'b@x.example'}, 'kind': 'send',
+             'outside_action': True, 'arg_sources': None},
+            {'id': 'c3', 'tool': 'fs.read', 'args': {'path': '/tmp/a'}, 'kind': 'read', 'outside_action': False,
+             'arg_sources': None}]}, [], origin_label='ferb', made_by='code:evidence-card/2', state='active')
+        again = store.capture_episode('t')
+        assert again['id'] != old['id']
+        assert [(a['id'], a['outside_action']) for a in again['body']['actions']] == [
+            ('c1', False), ('c2', True), ('c3', False)]
     finally:
         db.close()

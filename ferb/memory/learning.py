@@ -288,10 +288,13 @@ def _unit(redact: Callable[[str], str], key: str | None, value: Any) -> Any:
     return value if type(seen) is type(value) and seen == value else REDACTED
 
 
-# Where an action's target value appeared, as the gateway records it (`policy.provenance.arg_sources`): in the owner's
-# typed words or answers ("owner" too: a label read before that vocabulary, kept for old rows)
-_OWNER_SOURCES = frozenset({'owner_words', 'owner_answer', origin.OWNER})
-_NEITHER = 'unknown'                 # found in neither the owner's words nor outside content (FERB's or the model's)
+# Where an action's target value appeared, as the gateway records it (`policy.provenance.arg_sources`, its only
+# writer since F3): in the owner's typed words or answers, the same set `policy/confirm.py` reads (OWNER_SOURCES)
+_OWNER_SOURCES = frozenset({'owner_words', 'owner_answer'})
+# Found in neither the owner's words nor outside content: chosen by FERB or the model, or an outside value code can't
+# match (spelled differently, read from a picture); not outside, as confirmations read it (Task 6 re-review 2, N3)
+_NEITHER = 'unknown'
+_READS = ('read', 'search', 'mailbox_read')
 
 
 def outside_targets(arg_sources: Any) -> bool:
@@ -305,6 +308,12 @@ def outside_targets(arg_sources: Any) -> bool:
         return True
     return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)
                for labels in (v if isinstance(v, list) else [v] for v in arg_sources.values()))
+
+
+def outside_action(action: dict[str, Any]) -> bool:
+    """Whether a card's action was built on outside content (F8): any kind but a read, whose targets
+    `outside_targets` reads as outside."""
+    return action.get('kind') not in _READS and outside_targets(action.get('arg_sources'))
 
 
 def memory_origin(label: str) -> str:
@@ -566,7 +575,7 @@ class Learning:
                     ('com.google.Chrome', 'com.brave.Browser', 'com.apple.Safari', 'com.microsoft.edgemac')}
                 used_apps.update(browsers or {'unresolved-browser'})
             arg_sources = inp.get('arg_sources')
-            outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and outside_targets(arg_sources)
+            outside = outside_action(inp)
             result = json.loads(r['output_json']) if r['output_json'] else {}
             # Missing evidence stays an edge (`_card_labels`): dropping it would let a forgotten fact's descendants
             # be reconstructed from old task traces without their deletion lineage.
@@ -592,7 +601,10 @@ class Learning:
             body['apps'] = old['body'].get('apps', {})
             body['app_versions_captured'] = old['body'].get('app_versions_captured', False)
             if not actions:
-                body['actions'] = old['body'].get('actions', [])
+                # its trace aged out: the actions as stored, each flag read again from its stored provenance (Task 6
+                # re-review 2, N2: a card an earlier composer built read it in the wrong vocabulary)
+                body['actions'] = [a | {'outside_action': outside_action(a)} if isinstance(a, dict) else a
+                                   for a in old['body'].get('actions', [])]
             if not traced:
                 # Its trace reached retention: the card keeps the lineage it was captured with.
                 source_refs.update(old['sources'])
