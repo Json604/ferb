@@ -1337,6 +1337,20 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     after reopening the app), `ferb schedules` no longer lists it, and `ferb timeline` shows `schedule.met`. Delete the
     file.
 
+Fix wave 7 (2026-10-21; pending, checkout tests only so far):
+77. A lost AI service connection is said at once. After `ferb setup --update`, in the notch send a task that takes a
+    minute or more (e.g. "read the three newest posts on kartikey.xyz and summarise each in ~/Desktop/ferb-77.md").
+    Once its live line shows a step, turn Wi-Fi off for about 10 s and back on. Record the times: the live line
+    should say "Your Mac seems to be offline: I'll carry on when it's back." as Codex starts retrying (or "Lost the
+    connection to the AI service I use (codex); it's retrying …" if the Mac kept a route), once only however many
+    retries, then "Reconnected to the AI service I use (codex)." when work resumes, and the task should finish with
+    its answer. Repeat with an open `ferb chat`: both lines print as `ferb>` lines. `ferb trace TASK --full` shows a
+    `model.retry` span per retry; with none (no model call was in flight while Wi-Fi was off), nothing is said: record
+    that and repeat with a longer gap. Then, with Wi-Fi off before you send, send "hi": record what appears (the offline
+    line while Codex retries, or FERB's offline reply if Codex can't start at all), turn Wi-Fi back on, and record
+    whether the reply arrives after the reconnect line. A watch check or the hourly learning that retries meanwhile
+    shows nothing. Delete the file after.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
   ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).

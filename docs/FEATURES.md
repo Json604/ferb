@@ -153,8 +153,9 @@ over an owner-only Unix socket (`docs/RPC.md`).
 #### Instant acknowledgement, plan line and live progress line in chat
 - What: the ack appears at once, the plan line follows when the planner returns, and one live line shows the current
   step with elapsed time until the answer arrives. Each event carries its request id, so two requests in flight never
-  mix.
-- Status: **Landing this week — integrated, not live-tested (L6–L8).**
+  mix. A dropped AI service connection is said on that line the moment the service starts retrying (the Mac seems
+  offline, or the service and its words), once per outage, and again when it reconnects; the task carries on.
+- Status: **Landing this week — integrated, not live-tested (L6–L8; the connection line: fix wave 7).**
 
 #### Late answers appear at the bottom as replies
 - What: when an older request finishes after a newer one, its answer appears at the bottom quoting the original

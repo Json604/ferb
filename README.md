@@ -166,7 +166,8 @@ there, the packaged app with `scripts/build-app.sh`). It uses the same local dae
 [RPC contract](docs/RPC.md) for its events and reconnect behavior. In its chat:
 - a short acknowledgement ("Got it.", "On it.") appears as soon as you send, then the plan line when FERB has a plan,
   then one live line with the current step ("reading github.com", "writing notes.md") and the time elapsed, until the
-  answer arrives;
+  answer arrives; if FERB loses its AI service mid-task, that line says so at once ("Your Mac seems to be offline:
+  I'll carry on when it's back.") and again when it reconnects, while the task carries on (`ferb chat` prints both);
 - an answer to an earlier message that arrives after a newer one appears at the bottom, quoting your question, and
   the earlier message says "Answered below";
 - FERB's questions appear inline and you can keep typing; reply in your own words ("yes", "the payment one"), or use

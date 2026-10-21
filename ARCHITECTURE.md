@@ -525,7 +525,17 @@ default-on `unbounded_connection_retries` retries a lost connection without end 
 network", 5 s doubling to 60 s; openai/codex rust-v0.157.1 `features/src/lib.rs:1283-1288`,
 `core/src/responses_retry.rs:16-17, 68-92`), so a worker or checker run that only retries for `STALL_S` (180 s)
 ends as a stall, its outcome naming the last retry (`worker.retry_stall_problem`; the offline sentence with no network
-route). Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeout.
+route). Supervisor-mode calls (planner, learners) keep the runtime's 900 s timeout. The owner hears of a retry at once
+(fix wave 7; owner 2026-10-21: "it should be instant"): `WorkerRuns._run` gives each run whose work the owner waits on
+a `ConnectionNotice`, whose first retry of an outage puts a `progress` line marked `connection: "lost"` where that
+work's live line goes (`worker.connection_lost`: "Your Mac seems to be offline: I'll carry on when it's back." with no
+network route, else "Lost the connection to the AI service I use (codex); it's retrying and the task carries on." and
+the service's words). Further retries stay quiet; the run's next event other than a retry, an error or a violation, or
+a tool call it starts (`tool_progress`, before that call's own line), puts one `connection: "back"` line ("Reconnected
+to the AI service I use (codex)."). A task's runs (worker, checker, next-attempt and question choices, conversation
+turns) tell their tree's queue; the planner's chat turn tells its own stream (`_supervise(notify=…)`, no task id yet).
+A run with neither (learning calls, the attention check, the chat summary) records the retry only; a scheduled run's
+tree queue is read by `run_scheduled`, which keeps only its outcome, so a scheduled or watch check tells no one.
 
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
@@ -1897,9 +1907,11 @@ protected FERB state (16.9).
 - **Live line (L8).** `Observer.tool_started` → `WorkerRuns.tool_progress` → `progress.describe(tool, args, kind,
   site, app)` puts `progress {task_id, text, started_at}` on that tree's own queue. The text is the tool's verb and
   target (a browser-parsed host, an app named from the Mac's app list or "an app", a file's basename), never model
-  text; a failing line journals `progress.failed` and never stops the call.
+  text; a failing line journals `progress.failed` and never stops the call. A lost or restored AI service connection
+  is a `progress` line too, marked `connection` (section 9); in the planner's turn it has no `task_id`.
 - **Latency.** `ferb baseline` adds `latency_s {ack, plan, answer, context}`.
-- **CLI (L19).** No client-side auto-answer: typed text is always a `chat.send`; the CLI prints the daemon's ack.
+- **CLI (L19).** No client-side auto-answer: typed text is always a `chat.send`; the CLI prints the daemon's ack and
+  the connection lines (`ferb>`), never the step lines.
 - **Notch app.** Renders the ack, plan line and live line under the owner's turn; files the plan line in chat, not the
   activity feed; places a late answer at the bottom as a reply quoting its turn, which reads "Answered below" (L6);
   shows a check mark for `verified`; drops an event naming another turn's `request_id`. Questions are inline cards and

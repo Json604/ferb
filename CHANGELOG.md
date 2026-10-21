@@ -382,6 +382,17 @@ Fix wave 6a — forgets while FERB is working (2026-10-21; not installed or live
   in memory only (for as long as the task runs, which can be days if it waits on you), so the forgotten words are
   never written down.
 
+Fix wave 7 — FERB says at once when it loses its AI service (2026-10-21; owner: "it should be instant"; not installed
+or live-tested):
+- When Codex starts retrying a dropped connection during work you're waiting on (a message being planned, a task's
+  worker or check), the live line says so the moment it happens: "Your Mac seems to be offline: I'll carry on when
+  it's back." when the Mac has no network route, otherwise "Lost the connection to the AI service I use (codex); it's
+  retrying and the task carries on." with Codex's own words. Before, you learned only if the run later stalled or
+  failed. Further retries stay quiet; when the run moves again, one line says it reconnected, and the task goes on.
+  `ferb chat` prints both lines. A worker or check that only retries still stops after 3 minutes, as before.
+- Background work (scheduled and watch checks, learning, the attention check) records the retry in its trace and tells
+  no one; a scheduled run's failure still reaches you as before.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
