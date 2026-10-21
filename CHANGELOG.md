@@ -331,9 +331,13 @@ live-tested):
   (a re-check after a repair gets both). Before, it had only the report and paged through the records one read at a
   time. A long result shows its first 12,000 characters (one evidence read's page) and where the rest starts; when
   the check's window can't hold everything, what was done stays first, then the newest observations, and each one
-  left out is listed with its record id in its place. Results stay marked as outside data and keep their origin;
-  secrets stay redacted as recorded. In a scripted complete check of 53 recorded calls, evidence reads went from 62
-  to 6.
+  left out is listed with its record id in its place, or, past a few thousand calls, counted in a note naming the
+  first and last of a run, so the check's input always fits. Results stay marked as outside data and keep their
+  origin; they pass the same redaction as every evidence read, so a code you sealed mid-task is masked for the check
+  too. A record shows its result before a long input. In a scripted complete check of 53 recorded calls, evidence
+  reads went from 62 to 6.
+- A check whose AI service reports its context window overflowed (or that FERB refuses as too large to send) runs
+  once more without the recorded calls, as checks ran before; the trace shows it.
 
 Licensed under Apache-2.0.
 

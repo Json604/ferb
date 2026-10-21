@@ -1310,7 +1310,8 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     compare with the 2026-10-15 case (3 rounds, about 50 reads); `ferb baseline` has no verify-phase latency, so
     record the checker step's time from the trace. Then your original request once ("low power mode + loud alert at
     10% battery"): the same counts. Also note, for one long browser task, the checker's "Context budget" line
-    (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished.
+    (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished; a `verify.rerun` step in the trace
+    means the check overflowed its window and ran again without the recorded calls: record the reason it gives.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture

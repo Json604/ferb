@@ -794,9 +794,19 @@ protected line gives the count ("This task recorded no tool calls." when none). 
 (`observes`), start time, its origin's kinds, failed or no result, the `span_id`), then the record text in
 `wrap_untrusted`, up to `task.evidence`'s default page (`PAGE_CHARS`, its `max_chars` default 12000); a longer record
 says where its rest starts ("cut at 12000 of N characters, the rest from offset=12000"), exactly as that read pages
-it. `assemble` fits them to the checker runtime's window and per-input character cap like every other optional
-block; one left out stays in its place as "[Context omitted; fetch full text: task.evidence span_id=… (recorded call
-n of N: tool, observation|action, time)]". Which stay when space runs out: every action first (its record is the only
+it. The record text (`record_text`, shared with `task.evidence`, so offsets match) puts ids, times, error and origin
+first, then the shorter of input and output, so a long input never pushes the result out of the page (round 1, M2).
+Each shown page passes the gateway's redaction after the cut, as every `task.evidence` page does, so a value sealed
+after the call was recorded is masked here too (rule 14; round 1, M1). `assemble` fits them to the checker runtime's
+window and per-input character cap like every other optional block; one left out stays in its place as "[Context
+omitted; fetch full text: task.evidence span_id=… (recorded call n of N: tool, observation|action, time)]". Markers
+are charged before any block is added, so thousands of calls once overflowed the window with markers alone (review 1:
+3,500 calls over budget, 6,000 refused as too large). Each call's block names its run (`ContextBlock.fold`, one per
+role: "task.evidence kind=tool.call, the observations among these recorded calls"); when a run's markers can't all
+fit beside the protected text, `assemble` folds its lowest-priority blocks, one by one until the rest fit (the note
+charged at its longest), into one note in the first one's place: "[N more not shown or listed one by one; fetch full
+text: … — from task.evidence span_id=… (recorded call a …) to task.evidence span_id=… (recorded call b …)]" (round 1,
+I1; tested at 3,500 and 6,000 calls with Codex's limits). Which stay when space runs out: every action first (its record is the only
 evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
 re-establish current state), newest first within each, the latest being closest to the final state; all above the
 context's other optional blocks (their highest priority plus one). A record is shown up to its page or left out
@@ -805,11 +815,20 @@ tree's own tool calls, whose origins `task_origins` already holds; the checker's
 any model input, and a forget scrubs spans as before. [`verifier.md`](ferb/orchestrator/prompts/verifier.md) says the
 calls are in context and `task_evidence` is for a record cut or left out, the root's intake, context, cleanup and
 disturbance records, and searches. A scripted complete check of 53 recorded calls (50 short, 3 of about 30,000
-characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`). Residual: on a
-task whose recorded calls hold more than the checker's window (many long snapshots), the bundle fills the window at
-the checker's start, leaving its own later reads to the runtime's context handling; and every call left out keeps
-its own marker (about 82 tokens), so markers alone would fill Codex's window at about 3,100 left-out calls, and that
-check would then report it couldn't run.
+characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`).
+A check whose model window overflowed runs once more without the recorded calls, as checks ran before fix wave 6b
+(round 1, ruling 7): `_run_worker_once` returns `Overflowed` (an `Outcome`) for FERB's `InputTooLarge` and for a
+`ContextOverflow`, the runtime's window-exceeded error as its adapter marks it (`overflow` on the error event: Codex's
+`codexErrorInfo` `contextWindowExceeded`, OpenAI's error code `context_length_exceeded`, Anthropic's stop
+`model_context_window_exceeded`; Google documents no code, and Anthropic's "prompt is too long" 400 has none, so
+those stay ordinary service errors). `_verifier` then journals `task.check_rerun`, records a `verify.rerun` span and
+runs the check once with its report saying the context holds no recorded calls and to read them with
+`task_evidence`; a second failure is the check's result, as before. Residual: on a task whose recorded calls hold more
+than the checker's window (many long snapshots, or a few thousand calls), the check starts near the window's end,
+leaving its own later reads to the runtime: Codex compacts its context (the default checker); a direct-API checker's
+first read past the window ends that run and the check reruns without the calls. How much of the window recorded
+calls may take is the owner's number to decide, if any; token counts are o200k estimates, whose error matters more
+for other providers' models now that a check's input can approach the budget.
 
 **After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
 too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).

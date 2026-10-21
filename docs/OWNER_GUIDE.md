@@ -79,7 +79,8 @@ still exist, and an oversized provider request can fail visibly.
 
 `task.evidence` reads recorded task observations, reports, intake receipts and context sources. The final checker
 starts with the worker's recorded tool calls and their results (each up to one `task.evidence` page; one left out for
-space is listed with its record id), so it reads with `task.evidence` only what didn't fit. `chat.history` reads
+space is listed with its record id, or counted in a range when even the list doesn't fit), so it reads with
+`task.evidence` only what didn't fit. `chat.history` reads
 older messages. `memory.read` reads complete items and pages candidates. Long tool output is paged with a cursor;
 file writes and artifact content are not shortened for a chat-sized display. A compact trace is a preview; `--full`
 or `--json` is the way to inspect all recorded fields. Redaction still removes secrets intentionally.
