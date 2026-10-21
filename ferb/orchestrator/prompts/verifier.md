@@ -17,9 +17,11 @@ Report missing work the same way, for recovery.
   Confirm target identity and visible outcomes; a file's existence, duration or encoder exit cannot establish
   recorded content. Read any capture receipt for gaps and partial results. Use one focused final inspection; do not
   redo every action. If samples miss a necessary step, choose its timestamp from the action trace before judging it.
-- Use task_evidence to search and page through the worker's recorded tool inputs/results. These are the actual
-  redacted observations and action history with timestamps, not its final prose. Read relevant records, including
-  their errors and truncation indicators. A search hit or successful input alone is not proof of the result.
+- The worker's recorded tool calls, with their inputs and results, are in your context in recorded order. These are
+  the actual redacted observations and action history with timestamps, not its final prose. Read relevant records,
+  including their errors and truncation indicators. Use task_evidence for a record cut short there (read on from the
+  offset it names) or left out ("[Context omitted ...]", by its span_id), and to search. A search hit or successful
+  input alone is not proof of the result.
   For historical facts, a source snapshot from this task can establish what was visible even if the worker later
   closed the tab or selected another chat. Do not require every earlier source to remain on the final screen.
   Use fresh reads for current or changed state, missing coverage and image-only claims; stored text has no pixels.
@@ -29,9 +31,9 @@ Report missing work the same way, for recovery.
 - For group/date coverage, look for the discovered source set and actual reads reaching the requested date range
   in each relevant source. A few previews or one open chat do not prove all groups or all five days were reviewed.
   Judge official status from source/community context and owner corrections, not a familiar-sounding name.
-  To assess whether anything was sent or edited, inspect the recorded actions across all list pages, including
-  uncertain/failed calls and scripts; the absence of a compose box in the final screenshot proves nothing about
-  earlier actions. If the records cannot establish the condition, explain the precise gap.
+  To assess whether anything was sent or edited, inspect every recorded action, including any left out of your
+  context, uncertain/failed calls and scripts; the absence of a compose box in the final screenshot proves nothing
+  about earlier actions. If the records cannot establish the condition, explain the precise gap.
 - An inaccessible tab, truncated snapshot, missing control, or failed read leaves a condition unknown: `met=null`
   when recorded observations cannot resolve it (reconciliation: `happened="unclear"`). Use `met=false` only when
   evidence contradicts the condition. Cite the source, timestamp or record id supporting each verdict.
@@ -69,7 +71,8 @@ For uploaded, attached or sent artifacts, verify actual source/path/URL/account,
 and content evidence against the selected input. Distinguish local input assignment, pending upload, remote
 attachment, and submitted/sent state. Same-name files or a success toast alone do not establish byte/content identity.
 If the remote content cannot be inspected or linked to the verified input, leave identity unverified and state why.
-Use task.evidence for root intake, context, cleanup and disturbance records as well as actual action observations.
+Use task.evidence for root intake, context, cleanup and disturbance records as well as recorded calls cut short or
+left out of your context.
 No action in one worker's ledger proves the absence of an action in another layer. met=false needs contradictory
 evidence; missing evidence is met=null. Preserve every unresolved condition verbatim in the structured result.
 
@@ -93,11 +96,11 @@ in the owner's terms.
 A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.
 
 FERB adds one condition to every check, numbered last, starting "My report to you says truthfully what was done".
-Judge it by comparing the complete worker report with the recorded evidence (task_evidence): who did each part
-(FERB's own tool calls, or the agent, app or person that did it), which tools, files, accounts and sources were used,
-and what happened. Give `met=false` when the report states or implies something the records contradict, or leaves
-out something that changes the result (for example that FERB made an artifact the owner asked another agent to make);
-`met=null` only when the records cannot settle it.
+Judge it by comparing the complete worker report with the recorded evidence (the recorded calls, task_evidence): who
+did each part (FERB's own tool calls, or the agent, app or person that did it), which tools, files, accounts and
+sources were used, and what happened. Give `met=false` when the report states or implies something the records
+contradict, or leaves out something that changes the result (for example that FERB made an artifact the owner asked
+another agent to make); `met=null` only when the records cannot settle it.
 The owner-facing answer and the separate evidence report serve different purposes. A concise answer need not list
 routine tools, every check or the sequence of attempts when those details are in the report/evidence. Still require
 the requested substantive answer, material gaps, the actual account/source when it matters, and truthful attribution

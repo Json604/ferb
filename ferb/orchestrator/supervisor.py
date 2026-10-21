@@ -30,7 +30,7 @@ from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_cha
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
-from ferb.daemon.gateway import FsRoots, Gateway, Observer
+from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
 from ferb.memory.items import whole_clauses
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
@@ -45,7 +45,7 @@ from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
-from ferb.orchestrator.evidence import memory_origin
+from ferb.orchestrator.evidence import memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
@@ -2788,8 +2788,12 @@ class Supervisor(WorkerRuns):
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
-        report += "\nFull observations: task_evidence; memory.read; chat.history"
+        report += "\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; chat.history"
         ctx = (await self._context(tree)) + [ContextBlock(report, "complete report and inspection evidence", protected=True)]
+        # Fix wave 6b: every run's recorded calls (a re-check after a repair round too), ahead of the context's other
+        # optional blocks; the checker reads with task_evidence only what didn't fit, and the root's other records
+        ctx += recorded_calls(self.spans, task.id, tree.id, lambda tool: observes(self.gateway.caps.get(tool)),
+                              above=1 + max(block.priority for block in ctx))
         vtask = Task(f"{task.id}.verify", task.id, "verify", self.device_id, task.identity,
                      set(task.scopes),
                      "verifier", task.request_id, [], task.deadline)
