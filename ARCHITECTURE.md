@@ -1704,24 +1704,41 @@ intent's job. Code rollups cite their child cards.
   (`Learning.cards_to_read`: `learning_card_inputs` holds each card's input digest: composer, episode
   `built_at`/status/verified, latest verdict); a failed card read is tried once more, then parked until its inputs
   change. After the labels (next item), `Consolidator._groups` groups the current cards by their intent label (a card
-  without one waits); each run's tools and apps stay in its `card_digest`, never a grouping key. An intent is first
-  consolidated once it has `FIRST_LEARNING_RUNS` verified runs (3, the owner's "counter 3"), and once it has a
-  procedure, again whenever its runs change (a new run, verified or failed, revises the procedure and its lessons).
-  One call per intent carries the intent (id, name, description, slot types, from its oldest label), its runs'
-  `card_digest`s newest first (by when the task ended: the card's `ended_at`, else `recorded_at`, so a card re-read
-  for a verdict keeps its run's place), as many as fit `runtime_limits(rt)` and the runtime's per-input
-  character cap (`_newest_first`; each whole: a run that doesn't fit is left out, never shortened; failed runs go too,
-  for lessons), its procedure (`_procedures`: the current one keyed by the intent id, and those the owner turned down,
-  by their intent text) and the identity suggestions the owner turned down. `apply` keys an accepted procedure by the
-  intent id (`propose_procedure(..., intent_id=)`), so once the owner turns an intent's procedure down,
-  `Learning.put` refuses a new one for that intent (M3). The job is `learning_jobs.source_ref = intent:<intent id>`,
-  `inputs` the digest of the intent's current card ids: a done job waits for its runs to change; an answer code
-  refused or outside the schema (`InvalidAnswer`), procedures that alone fill the window (named as the reason), or
-  runs none of which fits (the job names the window and the cap) wait for the runs to change or
-  `ferb memory consolidate` (`catch_up(force=True)`) (inputs: the digest); a failed call (the service, the
-  connection, a timeout, the runtime, or no runtime to make) is tried on the next pass (inputs: the digest and
-  `:retry`). A forget deletes the job of each intent whose label goes (its error may quote what the call was sent).
-  A failed distill day waits for its summary row to change (`distill_runs.inputs`) or `ferb memory distill DAY`.
+  without one, or with only a stale label, waits); each run's tools and apps stay in its `card_digest`, never a
+  grouping key. An intent is first consolidated once it has `FIRST_LEARNING_RUNS` verified runs (3, the owner's
+  "counter 3"); from then on, and whenever it has a procedure, it is consolidated again on any change to its runs (a
+  new run, verified or failed, or a card read again, e.g. for a verdict). So the number of calls follows what changed,
+  while each call re-sends the intent's runs up to the window. One call per intent (`_context`) carries:
+  - the intent (id, name, description, slot types, from its oldest label);
+  - its procedure (`_procedures`: the current one keyed by the intent id, and those the owner turned down, by their
+    intent text) and its current lessons (`_lessons`: lessons whose lineage, through earlier lesson versions such as
+    the owner's feedback, reaches a run of the intent), each citing its runs by their current cards (a card read again
+    has a new id);
+  - the identity suggestions the owner turned down, and `procedure_forgotten` when the owner forgot the intent's
+    procedure;
+  - its runs (`_fit_runs`): the procedure's example runs first, all of them, since a revision must cite them (when they
+    don't all fit, the job waits, naming them), then the other runs newest first by when the task ended (the card's
+    `ended_at`, else `recorded_at`), as many as fit `runtime_limits(rt)` and the runtime's per-input character cap,
+    each whole (a run that doesn't fit is left out, never shortened; failed runs go too, for lessons). A run without a
+    current annotation is marked `annotate` (only those are annotated; `apply` ignores the others). A run forgotten or
+    read again during another intent's call (the groups are read once a pass) is dropped just before the call.
+  `apply` keys an accepted procedure by the intent id (`propose_procedure(..., intent_id=)`). As a result, once the
+  owner turns an intent's procedure down, `Learning.put` refuses any new one for that intent (M3). Once the owner
+  forgets it, its key's tombstone does the same, so it is never relearned from the same runs. The call says
+  `procedure_forgotten` so the model proposes none. A lesson revised under the same scope and trigger keeps the
+  owner's helpful/harmful counts (`_lesson_counts`).
+  The job is `learning_jobs.source_ref = intent:<intent id>`, and its `inputs` are the digest of the intent's current
+  card ids. A done job waits for its runs to change. These wait for the runs to change or `ferb memory consolidate`
+  (`catch_up(force=True)`), with inputs set to the digest:
+  - an answer outside the schema (`InvalidAnswer`);
+  - a call whose every procedure was refused (the job's error lists why);
+  - procedures, lessons and prompt that alone fill the window (named as the reason);
+  - example runs that don't all fit;
+  - runs none of which fits (the job names the window and the cap).
+  A failed call (the service, the connection, a timeout, the runtime, or no runtime to make) is tried on the next pass
+  (inputs: the digest and `:retry`). A forget deletes the job of each intent whose label goes (its error may quote
+  what the call was sent). A failed distill day waits for its summary row to change (`distill_runs.inputs`) or
+  `ferb memory distill DAY`.
 - **Intent labels (L29).** After the card reads and before grouping, `Consolidator._label` gives each current card
   without a label one (`memory/intents.py`; backfill is the same pass). A card read again (a new node of the same
   task: a verdict, a rebuilt episode, a new card composer) keeps its task's label unchanged, with its maker, and no

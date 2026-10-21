@@ -1,12 +1,14 @@
-"""Memory review I3, M5 (fix wave 3) and L29: the sleep service's cost grows with what changed, not history squared.
+"""Memory review I3, M5 (fix wave 3) and L29: the sleep service's calls follow what changed, never one per episode.
 
 A pass re-reads only cards whose inputs changed (missing, built by an older composer, the episode rebuilt, a new owner
 verdict). Cards go to the model by intent (L29: the label the learning model gave each card), one call per intent,
 never one call per episode carrying every episode that shares a word: an intent is first consolidated once it has three
-verified runs, and again whenever its runs change once it has a procedure; its runs go newest first, as many as fit the
-model's window, each whole. A call that failed is tried on the next pass; an answer outside the schema, or runs that
-don't fit, wait for the intent's runs to change or for `ferb memory consolidate`; a failed distill day waits for its
-evidence to change or `ferb memory distill`. Ported from the review's probes P5 and P5b, which asserted the bug."""
+verified runs, and from then on (or once it has a procedure) again whenever its runs change; a call carries its
+procedure's example runs, then the newest others, as many as fit the model's window, each whole (so each call re-sends
+the intent's runs up to the window). A call that failed is tried on the next pass; an answer outside the schema, a call
+whose procedures were all refused, or runs that don't fit, wait for the intent's runs to change or for `ferb memory
+consolidate`; a failed distill day waits for its evidence to change or `ferb memory distill`. Ported from the review's
+probes P5 and P5b, which asserted the bug."""
 import asyncio
 import json
 from typing import Any, Callable
@@ -142,16 +144,18 @@ def test_an_intent_with_a_procedure_is_consolidated_again_on_each_new_run(learni
     assert len(calls) == 2 and new["id"] in calls[1] and first["id"] in calls[1]
 
 
-def _window_for(cards_room: int, intent: str = "a test intent") -> ModelLimits:
+def _window_for(cards_room: int, intent: str = "a test intent", procedures: tuple[Any, ...] = ()) -> ModelLimits:
     """A window that leaves room for about `cards_room` tokens of runs beside the consolidation prompt and the intent's
-    (empty) procedures, measured with the same count FERB uses (o200k, or its byte ceiling when the tokenizer is
+    `procedures` (no lessons), measured with the same count FERB uses (o200k, or its byte ceiling when the tokenizer is
     missing)."""
     from ferb.core.context import count_tokens, overhead_tokens
     from ferb.core.prompts import load_prompt
     from ferb.memory.learning import encoded
     system = count_tokens(load_prompt("memory/consolidate.md"))
     about = {"id": intents.intent_id(intent), "name": intent, "description": intent, "slots": {}}
-    base = count_tokens(encoded({"intent": about, "episodes": [], "existing_procedures": [], "rejected_by_owner": []}))
+    base = count_tokens(encoded({"intent": about, "episodes": [], "existing_lessons": [], "rejected_by_owner": [],
+                                 "existing_procedures": [{"id": p["id"], "state": p["state"], "body": p["body"]}
+                                                         for p in procedures]}))
     budget = system + overhead_tokens(10 ** 6, system) + base + cards_room
     return ModelLimits("small", budget + 1_000, 1_000, "test double")
 
@@ -413,9 +417,229 @@ def test_procedures_too_large_for_the_window_are_named_as_the_reason_and_wait(le
 
 def test_forgetting_a_run_deletes_its_intents_job(learning) -> None:
     """A job's error may quote what its call was sent (Codex's words, an answer outside the schema): forgetting one of
-    the intent's runs deletes the job with the run's label, as a forget always deleted the card's own job."""
-    cards = runs(learning, "a", "a test intent")
-    asyncio.run(consolidator(learning, fake({"procedures": "not a list"}).make).catch_up())
-    assert job(learning, "a test intent")[0] == "failed"
+    the intent's runs deletes the job with the run's label, as a forget always deleted the card's own job. Only that
+    intent's job goes; with two runs left and no procedure, the next pass makes no call and writes no job."""
+    cards, others = runs(learning, "a", "a test intent"), runs(learning, "o", "other")
+    asyncio.run(consolidator(learning, fake(lambda ctx: {"procedures": "not a list"} if cards[0]["id"] in ctx
+                                            else EMPTY).make).catch_up())
+    assert job(learning, "a test intent")[0] == "failed" and job(learning, "other")[0] == "done"
     learning.forget([cards[0]["id"]])
-    assert job(learning, "a test intent") == ()
+    assert job(learning, "a test intent") == () and job(learning, "other")[:2] == ("done", None)
+    rt = fake()
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    assert consolidation_calls(rt) == [] and job(learning, "a test intent") == ()
+
+
+# ---------- fix round 1 (Task 3 review I1, I2, M2-M5) ----------
+
+DISHES = ("egg curry", "paneer", "dal", "rajma", "chole", "biryani", "korma", "saag", "aloo", "gobi", "tikka", "kofta",
+          "pulao", "idli")
+
+
+def dish_run(store: Learning, n: int, intent: str = "food") -> Any:
+    """A verified run of a dish search: one typed dish, the slot a procedure abstracts."""
+    node = store.put("episode", f"d{n}", {"task_id": f"d{n}", "verified": True, "status": "done", "apps": {},
+                                          "slots": {}, "request": "find the cheapest dish " + "word " * 300,
+                                          "actions": [{"id": f"d{n}-a", "tool": "browser.type",
+                                                       "args": {"text": DISHES[n]}, "outside_action": False}]},
+                     [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    label_card(store, node, intent)
+    return node
+
+
+def food_procedure(cards: list[Any]) -> dict[str, Any]:
+    """A procedure proposal (PROPOSAL_SCHEMA shape) built on `cards`, each an example with its dish."""
+    return {"intent": "food", "slots": [{"name": "dish", "value": "string"}], "preconditions": {"apps": []},
+            "ui_hints": "", "steps": [{"tool": "browser.type", "args": [{"name": "text", "value": '"{dish}"'}],
+                                       "expect": "typed", "optional": False,
+                                       "evidence": [c["body"]["actions"][0]["id"] for c in cards]}],
+            "examples": [{"episode": c["id"], "slots": [{"name": "dish", "value": json.dumps(
+                c["body"]["actions"][0]["args"]["text"])}]} for c in cards]}
+
+
+def proposing(*procedures: dict[str, Any]) -> dict[str, Any]:
+    return {**EMPTY, "procedures": list(procedures)}
+
+
+def run_tokens(node: Any) -> int:
+    """One run's cost in a call, as sent: its card digest, marked for annotation."""
+    from ferb.core.context import count_tokens
+    from ferb.memory.learning import card_digest, encoded
+    return count_tokens(encoded(card_digest(node) | {"annotate": True})) + count_tokens(",")
+
+
+def context_of(call: str) -> Any:
+    return json.loads(call.split("\n\n")[0])
+
+
+def test_a_procedures_example_runs_go_first_so_its_revision_is_never_cut_out(learning) -> None:
+    """Review I2: newest-first fitting cut a procedure's example runs once its intent had more runs than the window
+    held; every revision keeping its examples was refused while the job said done."""
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [first] = learning.items("procedure")
+    newer = [dish_run(learning, n) for n in range(3, 12)]
+    one = run_tokens(newer[-1])
+    rt = fake(proposing(food_procedure(cards + [newer[-1]])),                   # keeps its examples, adds the newest
+              limits=_window_for(4 * one + one // 2, "food", (first,)))          # about four runs beside it
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [call] = consolidation_calls(rt)
+    sent = [c["id"] for c in context_of(call)["episodes"]]
+    assert set(sent) == {c["id"] for c in cards + [newer[-1]]}                  # its examples, then the newest
+    assert sent == [newer[-1]["id"], *reversed([c["id"] for c in cards])]       # shown newest first
+    [revised] = learning.items("procedure")
+    assert revised["id"] != first["id"] and len(revised["body"]["examples"]) == 4
+    assert job(learning, "food")[:2] == ("done", None)
+
+
+def test_a_procedure_whose_example_runs_dont_fit_waits_naming_them(learning) -> None:
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [first] = learning.items("procedure")
+    new = dish_run(learning, 3)
+    rt = fake(limits=_window_for(2 * run_tokens(new), "food", (first,)))         # two runs: not its three examples
+    out = asyncio.run(consolidator(learning, rt.make).catch_up())
+    assert consolidation_calls(rt) == [] and "example runs" in out["sources"][0]["error"]
+    status, _, inputs = job(learning, "food")
+    assert status == "failed" and inputs == group([*cards, new])                # waits for its runs to change
+
+
+def test_a_call_whose_procedures_were_all_refused_says_why_and_waits(learning) -> None:
+    """Review I2: a call whose every procedure was refused wrote its job as done, so nothing showed it."""
+    cards = [dish_run(learning, n) for n in range(3)]
+    stranger = dish_run(learning, 3, intent="other")                            # never supplied with these runs
+    rt = fake(proposing(food_procedure(cards + [stranger])))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    status, error, inputs = job(learning, "food")
+    assert status == "failed" and "procedure cites evidence outside its supplied context" in str(error)
+    assert inputs == group(cards) and learning.items("procedure") == []
+    asyncio.run(consolidator(learning, rt.make).catch_up())                     # waits: no call each pass
+    assert len(consolidation_calls(rt)) == 1
+    asyncio.run(consolidator(learning, rt.make).catch_up(force=True))
+    assert len(consolidation_calls(rt)) == 2
+
+
+def test_an_example_run_read_again_is_named_by_its_current_card(learning) -> None:
+    """A card read again (a verdict, a new card composer) has a new id: the procedure is shown citing the run's current
+    card, which goes first, so a revision keeping its examples passes."""
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    again = learning.put("episode", "d0", {**cards[0]["body"], "feedback": [{"verdict": "pass"}]}, [],
+                         origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    label_card(learning, again, "food")
+    rt = fake(proposing(food_procedure([again, *cards[1:]])))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [call] = consolidation_calls(rt)
+    [shown] = context_of(call)["existing_procedures"]
+    assert [e["episode"] for e in shown["body"]["examples"]] == [again["id"], cards[1]["id"], cards[2]["id"]]
+    [revised] = learning.items("procedure")
+    assert [e["episode"] for e in revised["body"]["examples"]] == [again["id"], cards[1]["id"], cards[2]["id"]]
+
+
+def test_the_intents_lessons_go_with_its_next_call_and_a_revised_lesson_keeps_the_owners_counts(learning) -> None:
+    """Review I1 (spec 3): a call carries the intent's current lessons, so the model revises them instead of deriving
+    them again from the same failed run; a revision (the same scope and trigger) keeps the owner's helpful/harmful
+    counts. Another intent's lesson stays out."""
+    done, failed = runs(learning, "s", "x"), card(learning, "sf", intent="x", verified=False)
+    scope = {"app": "", "site": "shop.example", "intent": "x"}
+
+    def lesson(text: str) -> dict[str, Any]:
+        return {**EMPTY, "lessons": [{"scope": scope, "trigger": "the cart is empty", "text": text,
+                                      "failure": failed["id"], "success": done[0]["id"]}]}
+    asyncio.run(consolidator(learning, fake(lesson("reload the cart first")).make).catch_up())
+    [first] = learning.items("lesson")
+    rated = learning.lesson_feedback(first["id"], True)                         # cites the lesson, not the runs
+    yf, ys = card(learning, "yf", intent="y", verified=False), card(learning, "ys", intent="y")
+    elsewhere = learning.put("lesson", "elsewhere", {"text": "another kind of task", "helpful": 0, "harmful": 0},
+                             [yf["id"], ys["id"]], made_by="model:t")
+    card(learning, "s3", intent="x")                                            # a new run
+    rt = fake(lesson("reload the cart, then wait for it"))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [call] = consolidation_calls(rt)
+    assert [n["id"] for n in context_of(call)["existing_lessons"]] == [rated["id"]] and elsewhere["id"] not in call
+    revised = next(n for n in learning.items("lesson") if n["key"] == first["key"])
+    assert revised["body"]["text"] == "reload the cart, then wait for it"
+    assert (revised["body"]["helpful"], revised["body"]["harmful"]) == (1, 0)
+
+
+def test_a_forgotten_procedure_is_never_learned_again_and_the_call_says_so(learning) -> None:
+    """Review M2: the owner forgot the intent's procedure; relearning it from the same runs would undo the forget. The
+    call says so (`procedure_forgotten`), and a procedure proposed anyway is refused, visibly."""
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [procedure] = learning.items("procedure")
+    learning.forget([procedure["id"]])
+    dish_run(learning, 3)
+    rt = fake(proposing(food_procedure(cards)))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    shown = context_of(consolidation_calls(rt)[0])
+    assert shown["procedure_forgotten"] is True and shown["existing_procedures"] == []
+    assert learning.items("procedure") == [] and "forgotten" in str(job(learning, "food")[1])
+
+
+def test_a_run_forgotten_or_read_again_during_another_intents_call_is_not_sent(learning) -> None:
+    """Review M3: the groups are read once a pass; a run forgotten (or read again) while another intent's call ran was
+    still sent to the model."""
+    first, second = runs(learning, "a", "first"), runs(learning, "b", "second")
+
+    def answer(ctx: str) -> Any:
+        if first[0]["id"] in ctx:                      # meanwhile, the owner forgets one run and a verdict re-reads one
+            learning.forget([second[0]["id"]])
+            learning.put("episode", "b1", {**second[1]["body"], "feedback": [{"verdict": "pass"}]}, [],
+                         origin_label="ferb", made_by="code:evidence-card/2", state="active")
+        return EMPTY
+    rt = fake(answer)
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    calls = consolidation_calls(rt)
+    assert len(calls) == 2 and second[2]["id"] in calls[1]
+    assert second[0]["id"] not in calls[1] and second[1]["id"] not in calls[1]
+
+
+def test_unlabelled_cards_and_stale_labels_stay_out_of_a_call(learning) -> None:
+    labelled = runs(learning, "a", "a test intent")
+    unlabelled = learning.put("episode", "u", {**labelled[0]["body"], "task_id": "u"}, [], origin_label="ferb",
+                              made_by="code:evidence-card/2", state="active")
+    old = card(learning, "s", intent="a test intent")
+    moved = learning.put("episode", "s", {**old["body"], "feedback": [{"verdict": "pass"}]}, [], origin_label="ferb",
+                         made_by="code:evidence-card/2", state="active")
+    label_card(learning, moved, "elsewhere")              # read again and labelled anew: its old label is stale
+    refused = {"intent_id": "", "name": "", "description": "", "slots": [], "values": []}   # its label is refused
+    rt = SchemaAnswers({id(INTENT_SCHEMA): lambda ctx: refused, id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [call] = [ctx for schema, ctx in rt.calls if schema == id(PROPOSAL_SCHEMA)]
+    assert all(c["id"] in call for c in labelled)
+    assert unlabelled["id"] not in call and old["id"] not in call and moved["id"] not in call
+
+
+def test_a_runtime_that_cannot_be_made_is_tried_again_on_the_next_pass(learning) -> None:
+    cards = runs(learning, "a", "a test intent")
+    tried: list[Any] = []
+
+    def make(role: str, **k: Any) -> Any:
+        tried.append(k["schema"])
+        raise RuntimeError("no learning runtime is configured")
+    out = asyncio.run(consolidator(learning, make).catch_up())
+    assert "no learning runtime is configured" in out["sources"][0]["error"]
+    status, _, inputs = job(learning, "a test intent")
+    assert status == "failed" and inputs == group(cards) + ":retry"
+    asyncio.run(consolidator(learning, make).catch_up())
+    assert tried == [PROPOSAL_SCHEMA, PROPOSAL_SCHEMA]
+
+
+def test_only_runs_without_an_annotation_are_asked_for_one(learning) -> None:
+    """Review M5: every call re-annotated every run it carried."""
+    cards = runs(learning, "a", "a test intent")
+
+    def annotating(reflection: str) -> Any:
+        return lambda ctx: {**EMPTY, "episodes": [{"episode": e["id"], "intent_signature": "s", "slots": [],
+                                                   "reflection": reflection, "narrative": "n"}
+                                                  for e in context_of(ctx)["episodes"]]}
+    asyncio.run(consolidator(learning, fake(annotating("first")).make).catch_up())
+    assert len(learning.items("episode_annotation")) == 3
+    new = card(learning, "a3", intent="a test intent")
+    rt = fake(annotating("again"))
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    shown = context_of(consolidation_calls(rt)[0])
+    assert [e["id"] for e in shown["episodes"] if e.get("annotate")] == [new["id"]]
+    assert len(learning.items("episode_annotation", history=True)) == 4          # the others were not rewritten
+    assert {n["key"] for n in learning.items("episode_annotation")} == {c["id"] for c in [*cards, new]}

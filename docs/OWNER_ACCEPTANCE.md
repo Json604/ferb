@@ -1236,11 +1236,13 @@ Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pendin
     the answer says you closed it, not that it is missing.
 
 Fix wave 5 (2026-10-20; background learning, pending; checkout tests only so far):
-64. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one model call per group of
-    episodes). Then `ferb stats`: the "Learning model calls" line counts the calls; record how many failed and the
-    errors it lists. Every new `learning_jobs` row is `done`, or `failed` with a named reason: Codex's own words
-    (e.g. "Input exceeds the maximum length of 1048576 characters."), "too long for one codex input", or "too large
-    for the model's window", never a bare "Codex could not complete turn/start". `ferb trace <the call it names>`
+64. After `ferb setup --update`, run `ferb memory consolidate` (it can take a while: one label call per unlabelled
+    task, then one model call per kind of task with three verified runs, L29). Then `ferb stats`: the "Learning model
+    calls" line counts the calls; record how many failed and the errors it lists. Every new `learning_jobs` row is
+    `done`, or `failed` with a named reason: Codex's own words (e.g. "Input exceeds the maximum length of 1048576
+    characters."), "too long for one codex input" (a label), "none of its runs fits the model's window and one codex
+    input", "its procedure's example runs ... don't fit", or "every procedure proposed was refused: ...", never a bare
+    "Codex could not complete turn/start". `ferb trace <the call it names>`
     shows that call's span. Then check that procedures and lessons appear (`ferb memory search <a word from a
     repeated task> --kind procedure`, `--kind lesson`, or the memory dashboard) and record what appeared. Also
     `ferb doctor`: the context window lines end "at most 1048576 characters in one input".

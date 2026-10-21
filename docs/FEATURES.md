@@ -632,11 +632,14 @@ This section matters most for an automated campaign. It says exactly what runs u
   candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
   down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
   learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
-  is the same; L29), and consolidates by intent: an intent is first learned once it has three verified runs, and once
-  it has a procedure, every new run of it (verified or failed) updates the procedure and its lessons; one call per
-  intent carries its runs newest first, as many as fit the model's window, whatever tools they used (L29). A model
-  call that failed is tried on the next pass; an answer outside the schema, or input too large for the window, waits
-  for a change or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a
+  is the same; L29), and consolidates by intent: an intent is first learned once it has three verified runs, and from
+  then on every change to its runs (a new run, verified or failed, or a verdict) brings another call to revise its
+  procedure and lessons; one call per intent carries its procedure, its lessons and its runs, whatever tools they used
+  (the procedure's example runs first, then the newest, as many as fit the model's window) (L29). A revised lesson
+  keeps the owner's helpful/harmful ratings; a procedure the owner forgot or turned down is never learned again for
+  that intent. A model call that failed is tried on the next pass; an answer outside the schema, a call whose every
+  proposed procedure was refused (its job says why), or input too large for the window, waits for a change or
+  `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a
   note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not

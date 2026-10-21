@@ -4,12 +4,14 @@ A pass works on what changed (memory review I3): it reads again only the cards w
 (`Learning.cards_to_read`), gives each card without an intent label one (L29, `_label`: a re-read card keeps its
 task's label; any other, one call; the model decides the intent, `memory/intents.py` checks the answer), and then
 consolidates by intent (L29), one call per intent: an intent is first learned once it has FIRST_LEARNING_RUNS verified
-runs, and once it has a procedure, again whenever its runs change. A call carries the intent, its runs newest first (as
-many as fit the model's real window and per-input cap, each whole: a run is never shortened), its procedure and the
-owner's refusals: a cost that follows what changed. A call that failed (the service, the connection, a timeout, the
-runtime) is tried on the next pass; an answer refused by code or outside the schema, or input too large, keeps its error
-and waits for its inputs to change (a label: its card; an intent: its runs) or `ferb memory consolidate` (`force`). No
-count or size limit of FERB's own decides any of this; three runs is the owner's."""
+runs, and from then on (or once it has a procedure) again whenever its runs change. So the number of calls follows what
+changed; each call carries the intent's runs again, up to the model's window. A call carries the intent, its procedure
+and lessons, the owner's refusals, and its runs: the procedure's example runs first, then the newest others, as many as
+fit the model's real window and per-input cap, each whole (a run is never shortened). A call that failed (the service,
+the connection, a timeout, the runtime) is tried on the next pass; an answer refused by code (for an intent: every
+procedure it proposed) or outside the schema, or input too large, keeps its error and waits for its inputs to change
+(a label: its card; an intent: its runs) or `ferb memory consolidate` (`force`). No count or size limit of FERB's own
+decides any of this; three runs is the owner's."""
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +19,7 @@ import hashlib
 import json
 from typing import Any, Awaitable, Callable
 
+from ferb.core import origin
 from ferb.core.context import count_tokens, overhead_chars, overhead_tokens, runtime_limits
 from ferb.core.errors import Deferred, InputTooLarge
 from ferb.core.prompts import load_prompt
@@ -222,12 +225,13 @@ class Consolidator:
 
     async def _consolidate(self, about: dict[str, Any], members: list[dict[str, Any]],
                            jobs: dict[str, tuple[str, str]], force: bool, results: list[dict[str, Any]]) -> bool:
-        """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs; once it has a procedure, again
-        whenever its runs change (a new run, verified or failed, revises the procedure and its lessons). One call: the
-        intent, its runs newest first, as many as fit, each whole (failed ones too, for lessons), its procedure and the
-        owner's refusals. The job (`intent:<intent id>`, inputs: the runs' digest) waits for the runs to change or
-        `force` when the answer or the fit failed; a failed call is tried on the next pass. False when a task started
-        (the next pass goes on)."""
+        """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs, and from then on (or once it
+        has a procedure) again whenever its runs change. One call (`_context`): the intent, its procedure and lessons,
+        the owner's refusals, and its runs: the procedure's example runs first (a revision must cite them), then the
+        newest others that fit, each whole (failed ones too, for lessons). The job (`intent:<intent id>`, inputs: the
+        runs' digest) waits for the runs to change or `force` when the answer or the fit failed, or every procedure the
+        model proposed was refused; a failed call is tried on the next pass. False when a task started (the next pass
+        goes on)."""
         l, intent = self.learning, about['id']
         group = digest(sorted(n['id'] for n in members))
         status, inputs = jobs.get('intent:' + intent, ('', ''))
@@ -245,34 +249,97 @@ class Consolidator:
             raise
         except Exception as e:                       # no runtime or no documented window: tried on the next pass
             return self._intent_job(intent, group + RETRY, l.redact(f'{type(e).__name__}: {e}'), results)
+        context = self._context(about, members, procedures)
+        ids = {n['id'] for n in members}
+        examples = {e['episode'] for p in context['existing_procedures'] for e in p['body'].get('examples') or []
+                    if isinstance(e, dict) and e.get('episode') in ids}
+        annotated = {r[0] for r in l.db.conn.execute(
+            "SELECT key FROM learning_nodes WHERE kind = 'episode_annotation' AND valid_to IS NULL "
+            "AND state NOT IN ('retired', 'rolled_back')")}
+        # a run without a current annotation is marked for one (M5): the others are annotated already
+        entries = {n['id']: card_digest(n) | ({} if n['id'] in annotated else {'annotate': True}) for n in members}
         window, reserved = limits.context_budget, count_tokens(system)
-        base = encoded({'intent': about, 'episodes': [], **procedures})
+        base = encoded(context | {'episodes': []})
         room = window - reserved - overhead_tokens(window, reserved) - count_tokens(base)
         chars = (None if limits.max_input_chars is None else
                  limits.max_input_chars - overhead_chars(window, reserved) - len(base))
         cap = f"one {rt.name} input ({limits.max_input_chars} characters at most)"
+        limit = "the model's window" + ("" if chars is None else " and " + cap)
         if room <= 0 or (chars is not None and chars <= 0):      # its procedures alone fill the window: say that
-            return self._intent_job(intent, group, "the intent's procedures and the prompt alone don't fit " +
+            return self._intent_job(intent, group, "the intent's procedures, lessons and the prompt alone don't fit " +
                                     ("the model's window" if room <= 0 else cap), results)
-        fitted = _newest_first(members, room, chars)
+        fitted = _fit_runs(members, examples, entries, room, chars)
+        if fitted is None:
+            return self._intent_job(intent, group, f"its procedure's example runs (a revision cites them all) don't "
+                                    f"fit {limit} beside its procedures, lessons and the prompt", results)
         if not fitted:
-            return self._intent_job(intent, group, "none of its runs fits the model's window" +
-                                    ("" if chars is None else " and " + cap) + " beside its procedures and the "
-                                    "prompt; sent whole or not at all", results)
+            return self._intent_job(intent, group, f"none of its runs fits {limit} beside its procedures, lessons and "
+                                    "the prompt; sent whole or not at all", results)
         if not self.idle():
             return False
-        batch = 'sleep-' + digest(sorted(n['id'] for n in fitted))
+        # the groups are read once a pass: a run forgotten or read again during another intent's call is not sent (M3)
+        fitted = [n for n in fitted if (now := l.get(n['id'])) and not now['valid_to'] and not l.forgotten(n['id'])]
+        if not fitted:
+            return True                              # its runs changed: the next pass sees them
+        sent = [n['id'] for n in fitted]
+        batch = 'sleep-' + digest(sorted(sent))
+        why: list[str] = []
         try:
-            proposals, maker = await self._model(fitted, procedures, system, rt, about)
-            accepted, refused = self.apply(proposals, {n['id'] for n in fitted}, batch, maker, intent)
+            proposals, maker = await self._model(context | {'episodes': [entries[i] for i in sent]}, system, rt)
+            accepted, refused = self.apply(proposals, set(sent), batch, maker, intent, procedure_refusals=why,
+                                           annotate={i for i in sent if 'annotate' in entries[i]})
         except asyncio.CancelledError:
             raise
         except Exception as e:
             return self._intent_job(intent, group if _waits(e) else group + RETRY, l.redact(f'{type(e).__name__}: {e}'),
                                     results)
-        results.append({'intent': intent, 'episodes': [n['id'] for n in fitted], 'accepted': accepted,
-                        'refused': refused})
+        results.append({'intent': intent, 'episodes': sent, 'accepted': accepted, 'refused': refused})
+        if proposals.get('procedures') and len(why) == len(proposals['procedures']):
+            # every procedure it proposed was refused: the job says why, and waits for the runs to change (I2)
+            return self._intent_job(intent, group, l.redact('every procedure proposed was refused: ' + '; '.join(why)),
+                                    results)
         return self._intent_job(intent, group, None, results)
+
+    def _context(self, about: dict[str, Any], members: list[dict[str, Any]],
+                 procedures: dict[str, Any]) -> dict[str, Any]:
+        """What a call carries besides the runs: the intent, its procedure (`procedures`) and current lessons (spec 3),
+        their runs named by each run's current card (a card read again has a new id), the owner's refusals, and
+        `procedure_forgotten` when the owner forgot the intent's procedure (M2: `Learning.put` never stores another)."""
+        l = self.learning
+        now = {n['key']: n['id'] for n in members}
+
+        def current(ref: Any) -> Any:
+            node = l.get(ref) if isinstance(ref, str) else None
+            return now.get(str(node['key']), ref) if node and node['kind'] == 'episode' else ref
+        shown = [p | {'body': p['body'] | {'examples': [
+            e | {'episode': current(e.get('episode'))} if isinstance(e, dict) else e
+            for e in p['body'].get('examples') or []]}} for p in procedures['existing_procedures']]
+        lessons = [{'id': n['id'], 'body': n['body'] | {k: current(n['body'].get(k)) for k in ('failure', 'success')
+                                                        if k in n['body']}} for n in self._lessons(set(now))]
+        out = {'intent': about, **procedures, 'existing_procedures': shown, 'existing_lessons': lessons}
+        if l.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id = ?',
+                             ('key-' + digest(['procedure', about['id']]),)).fetchone():
+            out['procedure_forgotten'] = True
+        return out
+
+    def _lessons(self, tasks: set[str]) -> list[dict[str, Any]]:
+        """The current lessons built on runs of these tasks (any version of their cards), through the earlier versions
+        of a lesson (the owner's feedback and edits cite the version before): lineage, never words (R2)."""
+        l = self.learning
+        out = []
+        for lesson in l.items('lesson'):
+            seen: set[str] = set()
+            frontier = list(lesson['sources'])
+            while frontier:
+                ref = frontier.pop()
+                node = None if ref in seen else l.get(ref)
+                seen.add(ref)
+                if node is not None and node['kind'] == 'episode' and node['key'] in tasks:
+                    out.append(lesson)
+                    break
+                if node is not None and node['kind'] == 'lesson':
+                    frontier.extend(node['sources'])
+        return out
 
     def _intent_job(self, intent: str, inputs: str, error: str | None, results: list[dict[str, Any]]) -> bool:
         if error:
@@ -306,12 +373,18 @@ class Consolidator:
         return {'existing_procedures': current, 'rejected_by_owner': rejected}
 
     def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str,
-              intent: str | None = None) -> tuple[list[str], list[str]]:
+              intent: str | None = None, annotate: set[str] | None = None,
+              procedure_refusals: list[str] | None = None) -> tuple[list[str], list[str]]:
         """Check each proposal of a PROPOSAL_SCHEMA answer against storage; a refused one never stops the others. A
-        procedure is keyed by `intent`, the intent its runs were labelled with (L29), when given."""
+        procedure is keyed by `intent`, the intent its runs were labelled with (L29), when given; each procedure's
+        refusal is also added to `procedure_refusals`. Only the runs in `annotate`, when given, are annotated (M5: the
+        others are annotated already); an annotation of another is ignored. A revised lesson (the same scope and
+        trigger) keeps the owner's helpful/harmful counts."""
         accepted, refused = [], []
         l = self.learning
         for p in proposals.get('episodes', []):
+            if annotate is not None and isinstance(p, dict) and p.get('episode') not in annotate:
+                continue
             try:
                 p = p | {'slots': to_map(p['slots'], json_text=True)}
                 if p['episode'] not in available:
@@ -328,6 +401,8 @@ class Consolidator:
                 accepted.append(l.propose_procedure(p, batch, maker, intent_id=intent)['id'])
             except (LearningRefused, KeyError, TypeError) as e:
                 refused.append(str(e))
+                if procedure_refusals is not None:
+                    procedure_refusals.append(str(e))
         for p in proposals.get('lessons', []):
             try:
                 a, b = l.get(p['failure']), l.get(p['success'])
@@ -339,9 +414,9 @@ class Consolidator:
                     raise LearningRefused('lesson needs failed-to-verified-success contrast')
                 if not any(p.get('scope', {}).values()) or not p.get('trigger'):
                     raise LearningRefused('lesson needs an app/site/intent scope and trigger')
-                body = p | {'helpful': 0, 'harmful': 0}
-                accepted.append(l.put('lesson', encoded(p['scope']) + ':' + p['trigger'], body,
-                    [a['id'], b['id']], made_by=maker, batch=batch)['id'])
+                key = encoded(p['scope']) + ':' + p['trigger']
+                body = p | self._lesson_counts(key)
+                accepted.append(l.put('lesson', key, body, [a['id'], b['id']], made_by=maker, batch=batch)['id'])
             except (LearningRefused, KeyError, TypeError) as e:
                 refused.append(str(e))
         for p in proposals.get('identity', []):
@@ -354,6 +429,17 @@ class Consolidator:
                 refused.append(str(e))
         l.publish('memory.consolidated', {'batch': batch, 'accepted': accepted, 'refused': refused})
         return accepted, refused
+
+    def _lesson_counts(self, key: str) -> dict[str, int]:
+        """The owner's helpful/harmful counts of the lesson a proposal with this key revises: the current version
+        `Learning.put` supersedes (never an owner's own lesson, which it doesn't); zero for a new lesson."""
+        l = self.learning
+        row = l.db.conn.execute("SELECT id FROM learning_nodes WHERE kind = 'lesson' AND key = ? AND valid_to IS NULL "
+                                "ORDER BY recorded_at DESC, rowid DESC LIMIT 1", (l.redact(key),)).fetchone()
+        prev = l.get(row[0]) if row else None
+        if prev is None or prev['origin'] == origin.OWNER:
+            return {'helpful': 0, 'harmful': 0}
+        return {k: int(prev['body'].get(k) or 0) for k in ('helpful', 'harmful')}
 
     async def _rollups_off_loop(self) -> None:
         """The rollups (I4) in a worker thread on a connection of their own, never on the event loop; they stop between
@@ -448,11 +534,10 @@ class Consolidator:
             except LearningRefused:
                 continue
 
-    async def _model(self, cards: list[dict[str, Any]], procedures: dict[str, Any], system: str, rt: Any,
-                     about: dict[str, Any]) -> tuple[dict[str, Any], str]:
-        ctx = encoded({'intent': about, 'episodes': [card_digest(c) for c in cards], **procedures})
-        task = Task('sleep-' + digest(sorted(c['id'] for c in cards)), None, 'memory consolidation', 'local',
-                    Identity.OWNER, set(), 'verifier', 'sleep', [], None)
+    async def _model(self, context: dict[str, Any], system: str, rt: Any) -> tuple[dict[str, Any], str]:
+        ctx = encoded(context)
+        task = Task('sleep-' + digest(sorted(e['id'] for e in context['episodes'])), None, 'memory consolidation',
+                    'local', Identity.OWNER, set(), 'verifier', 'sleep', [], None)
         # within the model's window and the runtime's character cap (L28); recorded as a model.learning span
         out = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence', PROPOSAL_SCHEMA,
                                              role='consolidate', spans=self.spans, usage=self.usage))
@@ -487,16 +572,23 @@ def _fit_intents(card: dict[str, Any], known: list[dict[str, Any]], system: str,
     return out
 
 
-def _newest_first(members: list[dict[str, Any]], room: int, chars: int | None) -> list[dict[str, Any]]:
-    """An intent's runs that fit `room` tokens (and `chars`, a runtime's per-input character cap, L28), newest first
-    by when the task ended (a card re-read later, e.g. for a verdict, keeps its run's place), each whole: a run that
-    doesn't fit what is left is left out, never shortened."""
+def _fit_runs(members: list[dict[str, Any]], required: set[str], entries: dict[str, dict[str, Any]], room: int,
+             chars: int | None) -> list[dict[str, Any]] | None:
+    """The runs a call carries, as `entries` shows them, within `room` tokens (and `chars`, a runtime's per-input
+    character cap, L28): every run in `required` (the procedure's examples), or None when they don't all fit; then the
+    others newest first, as many as fit what is left, each whole: a run is left out, never shortened. Returned newest
+    first, by when the task ended (a card read again later, e.g. for a verdict, keeps its run's place)."""
+    def newest(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(nodes, key=lambda n: (n['body'].get('ended_at') or n['recorded_at'], n['id']), reverse=True)
     out, used, used_chars = [], 0, 0
-    for node in sorted(members, key=lambda n: (n['body'].get('ended_at') or n['recorded_at'], n['id']), reverse=True):
-        text = encoded(card_digest(node))
+    for node in newest([n for n in members if n['id'] in required]) + newest([n for n in members
+                                                                             if n['id'] not in required]):
+        text = encoded(entries[node['id']])
         cost, size = count_tokens(text) + count_tokens(','), len(text) + len(',')
         if used + cost > room or (chars is not None and used_chars + size > chars):
+            if node['id'] in required:
+                return None
             continue
         out.append(node)
         used, used_chars = used + cost, used_chars + size
-    return out
+    return newest(out)
