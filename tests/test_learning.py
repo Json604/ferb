@@ -919,6 +919,25 @@ def test_a_proposal_identical_to_an_older_version_changes_nothing(tmp_path):
         db.close()
 
 
+def test_a_rolled_back_revision_proposed_again_changes_nothing(tmp_path):
+    """F3's other half (final re-review 2, G3): the owner rolls back a requarantined revision B, which reopens A, the
+    version B revised; the same B proposed again comes back from `put` as the rolled-back node, whose `supersedes` is
+    the current A. It was not written now, so it is unchanged: no second note for a node that is never current."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        a = store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        b = _named(store, cards, 'nav', 'nav_other', 'type')
+        assert b['requarantined'] and len(noted) == 1
+        store.rollback(b['batch_id'])
+        assert store._current_procedure('i-food')['id'] == a['id'] and store.get(b['id'])['supersedes'] == a['id']
+        again = _named(store, cards, 'nav', 'nav_other', 'type')
+        assert again['id'] == b['id'] and again['unchanged'] and 'requarantined' not in again
+        assert len(noted) == 1 and store.get(b['id'])['state'] == 'rolled_back'
+    finally:
+        db.close()
+
+
 def test_receipts_belong_to_the_procedures_key_so_two_failures_across_a_revision_make_it_suspect(tmp_path):
     db, store, cards, _ = _revision_store(tmp_path)
     try:
