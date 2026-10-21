@@ -1653,17 +1653,24 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   turns, resumed plans, scheduled runs and attention turns, `_turns` and `_runs`; a task's `task_results` row is
   written inside its job, and a tree that ends without an outcome still ends its job). A run again touches only what
   those requests wrote (`Running.ours`): their journal rows (by request; a task's outcome goes with its run's answer;
-  never a notice), the records and cards of the trees they run now, and the spans of their runs (a tree's spans
-  belong to the run its latest root `task` span starts, which records the run's request), the told pass included. A
-  tree resumed in place under a new request after the forget (a continue, retry or correction) is new work and is
-  never touched; a tree a recorded request starts after the forget is scrubbed whole (spans, answer, records, card).
-  It uses the same rules: the line rules the memory forget settled the first time, kept on its `Forgotten` (rare
-  words and tasks; a tree started since counts as given the item when its refs or exposures cite it), or the learned
-  item's `NodeEcho`, with the tasks its first pass reached (`NodeEcho.reached`, plus trees started since); an identity
-  statement's "since" scope ends at the forget (`NodeEcho.until`). So a running task's later spans, answer, records and
-  "while you were away" result, and a running chat turn's reply, lose the item too, as does a record a task wrote
-  during the scrub after it was read; nothing that started after the forget is touched (the owner stating the item
-  again, a new task, its card, a resumed run). One queued run covers what is recorded before it starts. The rules stay
+  never a notice) and the spans of their runs (a tree's spans belong to the run its latest root `task` span starts,
+  which records the run's request), the told pass included. Its result does not depend on when it reads `tasks`
+  (`Ours`): a tree running at the forget stays paired with the request recorded then, so its rows and spans take the
+  task's rules even once a correction has resumed it under a new request; its task rows and saved plan, which a
+  resume upserts at once, are touched while the recorded request still runs it, and its permanent record, "while you
+  were away" result and card, written as a run ends, while its latest answer is that request's. A run resumed under
+  a new request after the forget (a continue, retry or correction) is new work and is never touched; a resume in place
+  settles forgets before it reads the task's saved state (`Supervisor._send`), so the last result it carries into the
+  resumed goal is read after the clean-up. A tree a recorded request starts after the forget is scrubbed whole (spans,
+  answer, records, card). It uses the same rules: the line rules the memory forget settled the first time, kept on
+  its `Forgotten` (rare words and tasks; a tree started since counts as given the item when its refs or exposures cite
+  it), or the learned item's `NodeEcho`, with the tasks its first pass reached (`NodeEcho.reached`, plus trees started
+  since). An identity statement's "since" scope ends at the forget (`NodeEcho.until`), except for the trees that a
+  request planning at the forget (the statement in its system prompt) starts since: they take it too. So a running
+  task's later spans, answer, records and "while you were away" result, and a running chat turn's reply, lose the
+  item too, as does a record a task wrote during the scrub after it was read; nothing that started after the forget
+  is touched (the owner stating the item again, a new task, its card, a run resumed under a new request: a continue,
+  retry or correction). One queued run covers what is recorded before it starts. The rules stay
   in memory only (`_Rescrub`) until the last such job ends or the daemon stops, which can be days for a task waiting
   on the owner; shutdown settles forgets again after it stops the task turns. Residuals: after a crash or a kill
   before those jobs end, the run that was due is lost, since writing it down would keep the forgotten text on disk;

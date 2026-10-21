@@ -376,9 +376,11 @@ Fix wave 6a — forgets while FERB is working (2026-10-21; not installed or live
   the item too, and quitting FERB waits for that; your next message waits for it once the task has answered. That
   second clean-up touches only the work that was running at the forget: if you state the item again, start a new
   task, or have a finished task carry on (a continue, retry or correction), nothing of it is changed; a task that a
-  message still being planned at the forget starts afterwards is cleaned whole. After a crash before such a task
-  ends, what it recorded since the forget can still hold the item: FERB keeps the pending clean-up in memory only (for
-  as long as the task runs, which can be days if it waits on you), so the forgotten words are never written down.
+  message still being planned at the forget starts afterwards is cleaned whole (a forgotten identity note included),
+  and a correction sent just as the task finishes waits for the clean-up before it picks the task up. After a crash
+  before such a task ends, what it recorded since the forget can still hold the item: FERB keeps the pending clean-up
+  in memory only (for as long as the task runs, which can be days if it waits on you), so the forgotten words are
+  never written down.
 
 Licensed under Apache-2.0.
 
