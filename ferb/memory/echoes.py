@@ -25,9 +25,12 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from typing import Any, Callable
 
 from ferb.memory.items import contains_words, query_terms
+from ferb.store.db import swap
+from ferb.store.spans import SpanWatch, rewrite_recorded, rewrite_until_still
 
 REMOVED = "[removed: it held something the owner asked FERB to forget]"
 CHAT_KINDS = ("chat.reply", "chat.clarify")
@@ -305,51 +308,48 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
-    index = _Index(db, set())                            # the tasks' own records, spans and planner turns, at once
     change = (lambda text: lines.text(text, lines.mentions), lambda value: lines.value(value, lines.mentions))
-    _scrub_records(db, {task: change for task in forgotten.tasks})
-    _rewrite_spans(db, [{"id": i} for i in index.task_spans(forgotten.tasks)], change[1])
+    _scrub_records(db, {task: change for task in forgotten.tasks})     # the tasks' own records
     for task in sorted(forgotten.tasks):                 # its card
         for card in db.conn.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'episode' AND key = ?",
                                     (task,)).fetchall():
             # a card goes only when its body restates the item, never on one rare word (re-review F2)
             if any(lines.restates(s) for s in _strings(json.loads(card["body_json"]))):
                 out.cards.append(card["id"])
-    for request in sorted(forgotten.requests):           # the planner's own answer to a forgotten message goes whole
-        for span in db.conn.execute("SELECT id, output_json FROM spans WHERE kind = 'model.turn' AND "
-                                    "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall():
-            out_value = json.loads(span["output_json"] or "null")
-            if isinstance(out_value, dict) and out_value.get("text") not in (None, REMOVED):
-                db.conn.execute("UPDATE spans SET output_json = ? WHERE id = ?",
-                                (json.dumps(out_value | {"text": REMOVED}), span["id"]))
-    scrub_told(db, {*lines.removed, *phrases})
+
+    def spans(watch: SpanWatch) -> None:                 # their spans and planner turns, then every span
+        index = _Index(db, set())
+        _rewrite_spans(db, [{"id": i} for i in index.task_spans(forgotten.tasks)], change[1], watch=watch)
+        for request in sorted(forgotten.requests):       # the planner's own answer to a forgotten message goes whole
+            for span in db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
+                                        "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall():
+                rewrite_recorded(db, span["id"], _answer_removed, watch=watch,
+                                 held=(span["input_json"], span["output_json"]))
+        scrub_told(db, {*lines.removed, *phrases}, watch)
+    rewrite_until_still(db, spans)
     return out
+
+
+def _answer_removed(inp: Any, out: Any) -> tuple[Any, Any]:
+    return inp, (out | {"text": REMOVED} if isinstance(out, dict) and out.get("text") not in (None, REMOVED) else out)
 
 
 def _rewrite(db: Any, row: Any, data: dict[str, Any]) -> None:
     """An append-only journal row changed by a forget: deleted and written again with the same seq, id, time, kind
-    and origin."""
-    db.conn.execute("DELETE FROM journal WHERE seq=?", (row["seq"],))
-    db.conn.execute("INSERT INTO journal (seq, id, at, kind, data_json, origin) VALUES (?,?,?,?,?,?)",
-                    (row["seq"], row["id"], row["at"], row["kind"], json.dumps(data), row["origin"]))
+    and origin, only while it still holds what was read (a row the loop deleted meanwhile, such as a notice's chat
+    entry the purge removed, is never written back: fix wave 6a)."""
+    if db.conn.execute("DELETE FROM journal WHERE seq=? AND data_json=?", (row["seq"], row["data_json"])).rowcount:
+        db.conn.execute("INSERT INTO journal (seq, id, at, kind, data_json, origin) VALUES (?,?,?,?,?,?)",
+                        (row["seq"], row["id"], row["at"], row["kind"], json.dumps(data), row["origin"]))
 
 
-def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any], needles: Any = None) -> None:
-    """Each span once, read as it is now (a span listed twice is never rewritten from an old copy). `needles`: a span
+def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any], needles: Any = None,
+                   watch: SpanWatch | None = None) -> None:
+    """Each span once, read as it is now and written only while it still holds what was read (`rewrite_recorded`: a
+    span listed twice, or one a live write changed meanwhile, is never rewritten from an old copy). `needles`: a span
     whose stored text (lowercased) holds none of them can't change, and isn't decoded."""
     for ident in dict.fromkeys(span["id"] for span in spans):
-        row = db.conn.execute("SELECT input_json, output_json FROM spans WHERE id = ?", (ident,)).fetchone()
-        if row is None:
-            continue
-        if needles is not None:
-            stored = (row["input_json"] + (row["output_json"] or "")).lower()
-            if not any(n in stored for n in needles):
-                continue
-        before_in, before_out = json.loads(row["input_json"]), json.loads(row["output_json"] or "null")
-        new_in, new_out = change(before_in), change(before_out)
-        if new_in != before_in or new_out != before_out:
-            db.conn.execute("UPDATE spans SET input_json = ?, output_json = ? WHERE id = ?",
-                            (json.dumps(new_in), None if new_out is None else json.dumps(new_out), ident))
+        rewrite_recorded(db, ident, lambda inp, out: (change(inp), change(out)), watch=watch, needles=needles)
 
 
 Change = tuple[Callable[[str], str], Callable[[Any], Any]]      # how one task's records change: a text, a JSON value
@@ -357,32 +357,32 @@ Change = tuple[Callable[[str], str], Callable[[Any], Any]]      # how one task's
 
 def _scrub_records(db: Any, changes: dict[str, Change]) -> None:
     """The tasks' own records, each changed by its root task's rule, one pass per table (never a scan per task): their
-    stored goal and outcome, saved spec, permanent record and "while you were away" result."""
+    stored goal and outcome, saved spec, permanent record and "while you were away" result. Each row is written only
+    while it still holds what was read (`swap`): an outcome the loop wrote meanwhile is changed, never lost."""
     if not changes:
         return
-    for row in db.conn.execute("SELECT id, goal, outcome_json FROM tasks").fetchall():
-        if (change := changes.get(_root(str(row["id"])))) is not None:
-            goal, outcome = change[0](row["goal"]), json.dumps(change[1](json.loads(row["outcome_json"] or "{}")))
-            if goal != row["goal"] or outcome != (row["outcome_json"] or "{}"):
-                db.conn.execute("UPDATE tasks SET goal = ?, outcome_json = ? WHERE id = ?", (goal, outcome, row["id"]))
-    for row in db.conn.execute("SELECT task_id, spec_json FROM task_context").fetchall():
-        if (change := changes.get(str(row["task_id"]))) is not None:
-            spec = json.dumps(change[1](json.loads(row["spec_json"])))       # its saved plan, to resume
-            if spec != row["spec_json"]:
-                db.conn.execute("UPDATE task_context SET spec_json = ? WHERE task_id = ?", (spec, row["task_id"]))
-    for row in db.conn.execute(f"SELECT task_id, {', '.join(EPISODE_FIELDS)} FROM episodes").fetchall():
-        if (change := changes.get(str(row["task_id"]))) is not None:
-            new_values = [change[0](row[k]) if not k.endswith("_json") else
-                          json.dumps(change[1](json.loads(row[k])), ensure_ascii=False) for k in EPISODE_FIELDS]
-            if new_values != [row[k] for k in EPISODE_FIELDS]:
-                db.conn.execute(f"UPDATE episodes SET {', '.join(k + ' = ?' for k in EPISODE_FIELDS)} "
-                                "WHERE task_id = ?", (*new_values, row["task_id"]))
-    for row in db.conn.execute("SELECT task_id, goal, answer FROM task_results").fetchall():
-        if (change := changes.get(str(row["task_id"]))) is not None:
-            goal, answer = change[0](row["goal"]), change[0](row["answer"])
-            if (goal, answer) != (row["goal"], row["answer"]):
-                db.conn.execute("UPDATE task_results SET goal = ?, answer = ? WHERE task_id = ?",
-                                (goal, answer, row["task_id"]))
+
+    def task(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:
+        goal, outcome = change[0](held[0]), json.dumps(change[1](json.loads(held[1] or "{}")))
+        return held if goal == held[0] and outcome == (held[1] or "{}") else (goal, outcome)
+
+    def spec(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:       # its saved plan, to resume
+        return (json.dumps(change[1](json.loads(held[0]))),)
+
+    def episode(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:
+        return tuple(change[0](v) if not k.endswith("_json") else
+                     json.dumps(change[1](json.loads(v)), ensure_ascii=False) for k, v in zip(EPISODE_FIELDS, held))
+
+    def result(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:
+        return change[0](held[0]), change[0](held[1])
+    for table, key, columns, root, rule in (
+            ("tasks", "id", ("goal", "outcome_json"), _root, task),
+            ("task_context", "task_id", ("spec_json",), str, spec),
+            ("episodes", "task_id", EPISODE_FIELDS, str, episode),
+            ("task_results", "task_id", ("goal", "answer"), str, result)):
+        for row in db.conn.execute(f"SELECT {key}, {', '.join(columns)} FROM {table}").fetchall():
+            if (change := changes.get(root(str(row[key])))) is not None:
+                swap(db, table, key, row[key], columns, partial(rule, change), tuple(row[c] for c in columns))
 
 
 def _wordlike(ch: str) -> bool:
@@ -440,7 +440,7 @@ class _Words:
         return value
 
 
-def scrub_told(db: Any, told: set[str]) -> None:
+def scrub_told(db: Any, told: set[str], watch: SpanWatch | None = None) -> None:
     """Every span loses each told text of two words or more, matched as whole words (`_Words`); a single word is
     never told (final fix)."""
     texts = {t.strip() for t in told if len(t.split()) >= 2}
@@ -455,7 +455,7 @@ def scrub_told(db: Any, told: set[str]) -> None:
             "n.needle) > 0 OR instr(lower(COALESCE(s.output_json, '')), n.needle) > 0)").fetchall()]
     finally:
         db.conn.execute("DELETE FROM told_needles")
-    _rewrite_spans(db, [{"id": i} for i in ids], words.value)
+    _rewrite_spans(db, [{"id": i} for i in ids], words.value, watch=watch)
 
 
 @dataclass
@@ -565,18 +565,7 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
     statements = sorted({t.strip() for t in echo.statements.values() if len(t.split()) >= 2})
     if not naming and not statements and not any(said.values()):
         return out
-    index = _Index(db, {ref for ref, texts in said.items() if texts})
-    in_tasks: dict[str, set[str]] = {}
-    in_spans: dict[str, set[str]] = {}
-    in_rows: dict[str, set[str]] = {}
-    in_notices: dict[str, set[str]] = {}
-    for ref, texts in said.items():
-        if not texts:
-            continue
-        tasks, spans, rows, notices = index.shown(ref, echo.in_prompts_since.get(ref))
-        for scope, keys in ((in_tasks, tasks), (in_spans, spans), (in_rows, rows), (in_notices, notices)):
-            for key in keys:
-                scope.setdefault(key, set()).update(texts)
+    in_tasks, in_spans, in_rows, in_notices = _scopes(db, echo, said)
     lines: dict[frozenset[str], _Lines] = {}
 
     def lines_of(phrases: set[str]) -> _Lines:
@@ -615,21 +604,43 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
 
     def words_of(phrases: set[str]) -> _Words:
         return words.setdefault(frozenset(phrases), _Words(phrases))
-    by_phrases: dict[frozenset[str], list[dict[str, str]]] = {}
-    for span, phrases in in_spans.items():
-        by_phrases.setdefault(frozenset(phrases), []).append({"id": span})
-    for phrases, spans in by_phrases.items():       # whole words, never a whole line (a one-line output keeps the rest)
-        _rewrite_spans(db, spans, words_of(set(phrases)).value, words_of(set(phrases)).needles)
     for row in db.conn.execute("SELECT id, text FROM attention_notices").fetchall():
-        phrases = set(statements) | in_notices.get(str(row["id"]), set())
-        text = words_of(phrases).text(row["text"]) if phrases else row["text"]
-        if text != row["text"]:
-            db.conn.execute("UPDATE attention_notices SET text = ? WHERE id = ?", (text, row["id"]))
-    scrub_told(db, {*named.removed, *named.phrases, *stated.removed,
-                    *(line for own in lines.values() for line in own.removed)})
+        about = set(statements) | in_notices.get(str(row["id"]), set())
+        if about:                                   # written only while it holds what was read (a purge may clear it)
+            swap(db, "attention_notices", "id", row["id"], ("text",), partial(_notice_text, words_of(about)),
+                 (row["text"],))
+    told = {*named.removed, *named.phrases, *stated.removed, *(line for own in lines.values() for line in own.removed)}
+
+    def spans(watch: SpanWatch) -> None:            # a span that moved may now name it: its scope is read again
+        by_phrases: dict[frozenset[str], list[dict[str, str]]] = {}
+        for span, phrases in (_scopes(db, echo, said)[1] if watch.again else in_spans).items():
+            by_phrases.setdefault(frozenset(phrases), []).append({"id": span})
+        for shown, ids in by_phrases.items():       # whole words, never a whole line (a one-line output keeps the rest)
+            own = words_of(set(shown))
+            _rewrite_spans(db, ids, own.value, own.needles, watch)
+        scrub_told(db, told, watch)
+    rewrite_until_still(db, spans)
     _drop_folded(db, set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     return out
+
+
+def _notice_text(words: _Words, held: tuple[Any, ...]) -> tuple[Any, ...]:
+    return (words.text(held[0]),)
+
+
+def _scopes(db: Any, echo: NodeEcho, said: dict[str, list[str]]) -> tuple[dict[str, set[str]], ...]:
+    """Where each forgotten version was shown or cited (`_Index.shown`), as (tasks, spans, chat rows, notices), each
+    with the texts that go from it."""
+    index = _Index(db, {ref for ref, texts in said.items() if texts})
+    scopes: tuple[dict[str, set[str]], ...] = ({}, {}, {}, {})
+    for ref, texts in said.items():
+        if not texts:
+            continue
+        for scope, keys in zip(scopes, index.shown(ref, echo.in_prompts_since.get(ref))):
+            for key in keys:
+                scope.setdefault(key, set()).update(texts)
+    return scopes
 
 
 def finish_node_at(path: Any, echo: NodeEcho) -> Scrubbed:

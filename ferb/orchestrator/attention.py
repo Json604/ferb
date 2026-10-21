@@ -8,6 +8,7 @@ from typing import Any
 from ferb.core import origin
 from ferb.memory.lineage import ENTRY
 from ferb.sense.batches import app_of
+from ferb.store.spans import SpanWatch, rewrite_recorded, rewrite_until_still
 
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
 
@@ -87,7 +88,9 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     consideration that saw one of the rows loses its recorded model context and its answer's text; any other model
     context that was told the notice (already_told, the chat history) loses that notice's text. Audit rows stay.
     Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge (I3) and by
-    an explicit forget. Returns how many notices it cleared."""
+    an explicit forget. Its span rewrites are written only while a span still holds what was read, and run again while
+    a span running when it started took a live write meanwhile (`rewrite_until_still`, fix wave 6a). Returns how many
+    notices it cleared."""
     cleared, said = 0, []
     entries: dict[str, str] = {}                  # the notices' chat entries (lineage handle) -> their plain text
     for row in db.conn.execute("SELECT * FROM attention_notices").fetchall():
@@ -111,22 +114,23 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     # as a `context.exposure` output, and in a `chat.history` or `task.evidence` read (written without ASCII escapes,
     # or with that context encoded once more as a JSON string).
     told = list({form: (form, new) for text in said if text for form, new in _forms(text, replacement)}.values())
-    if told:
-        scrub_spans(db, told)
-    if entries:
-        _scrub_payloads(db, entries, replacement)
-    for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
-        inp = json.loads(span["input_json"])
-        out = json.loads(span["output_json"]) if span["output_json"] else None
+
+    def considered(inp: Any, out: Any) -> tuple[Any, Any]:
         if refs.intersection(inp.get("source_refs") or []):
-            new_inp = inp | ({"context": CONTEXT_REMOVED} if "context" in inp else {})
-            new_out = out | {"text": replacement, "quotes": []} if isinstance(out, dict) and (
-                out.get("text") or out.get("quotes")) else out
-        else:
-            new_inp, new_out = {k: _without(v, told) for k, v in inp.items()}, out
-        if new_inp != inp or new_out != out:
-            db.conn.execute("UPDATE spans SET input_json=?,output_json=? WHERE id=?",
-                            (json.dumps(new_inp), None if new_out is None else json.dumps(new_out), span["id"]))
+            return (inp | ({"context": CONTEXT_REMOVED} if "context" in inp else {}),
+                    out | {"text": replacement, "quotes": []} if isinstance(out, dict) and (
+                        out.get("text") or out.get("quotes")) else out)
+        return {k: _without(v, told) for k, v in inp.items()}, out
+
+    def spans(watch: SpanWatch) -> None:
+        if told:
+            scrub_spans(db, told, watch=watch)
+        if entries:
+            _scrub_payloads(db, entries, replacement, watch)
+        for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'"
+                                    ).fetchall():
+            rewrite_recorded(db, span["id"], considered, watch=watch, held=(span["input_json"], span["output_json"]))
+    rewrite_until_still(db, spans)
     return cleared
 
 
@@ -156,7 +160,8 @@ def notice_sources(db: Any, notice_id: str) -> list[str]:
     return sorted(set(json.loads(row[0])) | set(json.loads(row[1] or "[]"))) if row is not None else []
 
 
-def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = False) -> None:
+def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = False,
+                watch: SpanWatch | None = None) -> None:
     """Every span but the considerations (handled by the caller, unless `every_kind`: a memory forget, I2) whose
     recorded input or output holds one of the told strings loses it. One scan, matched in SQL against a temporary table
     of the strings, so any number of them fits."""
@@ -170,16 +175,12 @@ def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = Fals
             (int(every_kind),)).fetchall()
     finally:
         db.conn.execute("DELETE FROM expiring_text")
-    for span in rows:
-        inp = json.loads(span["input_json"])
-        out = json.loads(span["output_json"]) if span["output_json"] else None
-        new_inp, new_out = _without(inp, told), _without(out, told)
-        if new_inp != inp or new_out != out:
-            db.conn.execute("UPDATE spans SET input_json=?,output_json=? WHERE id=?",
-                            (json.dumps(new_inp), None if new_out is None else json.dumps(new_out), span["id"]))
+    for span in rows:                                 # each written only while it holds what was read
+        rewrite_recorded(db, span["id"], lambda inp, out: (_without(inp, told), _without(out, told)), watch=watch,
+                         held=(span["input_json"], span["output_json"]))
 
 
-def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str) -> None:
+def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str, watch: SpanWatch | None = None) -> None:
     """A planner turn's conversation exposure keeps the shown entries' own texts as its `payload` (L28), a notice's as
     plain text (notice_payload) that no told JSON form matches. Every exposure whose source refs name one of these
     notice entries loses exactly that text; an exposure that never showed the notice is not touched."""
@@ -193,19 +194,19 @@ def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str) -> None:
         ).fetchall()
     finally:
         db.conn.execute("DELETE FROM expiring_entries")
-    for span in rows:
-        out = json.loads(span["output_json"])
+
+    def cleared(inp: Any, out: Any) -> tuple[Any, Any]:
         payload = out.get("payload") if isinstance(out, dict) else None
         if not isinstance(payload, str):
-            continue
-        shown = set(json.loads(span["input_json"]).get("source_refs") or [])
+            return inp, out
+        shown = set(inp.get("source_refs") or [])
         new = payload
         for ref, text in entries.items():
             if ref in shown and text:
                 new = new.replace(text, replacement)
-        if new != payload:
-            db.conn.execute("UPDATE spans SET output_json=? WHERE id=?",
-                            (json.dumps(out | {"payload": new}), span["id"]))
+        return inp, (out | {"payload": new} if new != payload else out)
+    for span in rows:                                 # each written only while it holds what was read
+        rewrite_recorded(db, span["id"], cleared, watch=watch, held=(span["input_json"], span["output_json"]))
 
 
 def _without(value: Any, told: list[tuple[str, str]]) -> Any:

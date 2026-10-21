@@ -59,6 +59,33 @@ class Database:
         self.conn.close()
 
 
+Row = tuple[Any, ...]
+
+
+def swap(db: Any, table: str, key: str, ident: Any, columns: tuple[str, ...], change: Callable[[Row], Row],
+         held: Row | None = None) -> Row | None:
+    """One row's `columns` rewritten through `change` from what they hold now (fix wave 6a). The write applies only
+    while the row still holds what was read (compare and set): when another connection wrote the row in between, it is
+    read and changed again, so a rewrite never writes from a stale read. `held`: the values as the caller already read
+    them. `change` giving them back unchanged writes nothing. Returns the values written, or None. Table and column
+    names are FERB's own constants, never input."""
+    read = f"SELECT {', '.join(columns)} FROM {table} WHERE {key} = ?"
+    write = (f"UPDATE {table} SET {', '.join(c + ' = ?' for c in columns)} WHERE {key} = ? AND "
+             + " AND ".join(c + " IS ?" for c in columns))
+    while True:
+        if held is None:
+            row = db.conn.execute(read, (ident,)).fetchone()
+            if row is None:
+                return None
+            held = tuple(row)
+        new = tuple(change(held))
+        if new == held:
+            return None
+        if db.conn.execute(write, (*new, ident, *held)).rowcount:
+            return new
+        held = None
+
+
 def _split_sql(script: str) -> list[str]:
     """Split a migration into statements (executescript would commit implicitly, breaking the transaction).
     Uses sqlite3.complete_statement so triggers with inner semicolons stay whole."""
