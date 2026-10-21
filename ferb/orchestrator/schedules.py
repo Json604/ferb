@@ -135,8 +135,8 @@ class Schedules:
             raise ScheduleError(f"unknown watch {watch!r}")
         sid = "sc-" + self.ids.new_id()[:10]
         self.db.conn.execute(
-            "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at, watch) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+            "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at, "
+            "watch) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
             (sid, request, own_words, json.dumps(targets), json.dumps(rule.__dict__ | {
                 "first": first.astimezone(timezone.utc).isoformat()}),
              first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat(), watch))

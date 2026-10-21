@@ -263,14 +263,14 @@ def _words(name: str) -> str:
 
 
 WATCH_PLANNER = (
-    "Watches: a request to be told or alerted when something becomes true (\"tell me when the download finishes\", "
-    "\"alert me when the battery is at 10%\", \"whenever …\") is a schedule with repeat \"every\" whose request names "
-    "what to check, what to tell or alert, and whether it ends once that happens (watch \"until_met\": \"when the "
-    "download finishes\", \"once it's back in stock\") or keeps watching (watch \"standing\": \"whenever the battery "
-    "hits 10%\"). A standing watch tells the owner once each time the condition becomes true, not again while it stays "
-    "true. Never wait for a condition with a loop or sleep inside a task: those die when FERB restarts or updates. "
-    "\"Turn on Low Power Mode and alert me at 10%\" is a task for the work now plus the watch in \"schedule\", in the "
-    "same turn.")
+    'Watches: a request to be told or alerted when something becomes true ("tell me when the download finishes", '
+    '"alert me when the battery is at 10%", "whenever …") is a schedule with repeat "every" whose request names '
+    'what to check, what to tell or alert, and whether it ends once that happens (watch "until_met": "when the '
+    'download finishes", "once it\'s back in stock") or keeps watching (watch "standing": "whenever the battery '
+    'hits 10%"). A standing watch tells the owner once each time the condition becomes true, not again while it stays '
+    'true. Never wait for a condition with a loop or sleep inside a task: those die when FERB restarts or updates. '
+    '"Turn on Low Power Mode and alert me at 10%" is a task for the work now plus the watch in "schedule", in the '
+    'same turn.')
 WATCH_RUN = (
     "A watch (watch in the schedule facts) checks its condition afresh in every run: use a task whose answer says what "
     "it observed and whether the condition holds now. When it holds, tell or alert the owner as the request asks; the "

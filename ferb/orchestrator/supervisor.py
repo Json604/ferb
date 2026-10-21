@@ -704,8 +704,9 @@ class Supervisor(WorkerRuns):
 
     def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
         """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
-        the journal, with how many later runs left none and, for a watch, whether it found the condition met. Runs before 2026-10-15 had no conversation, so this reads
-        each run's request id rather than the schedule's conversation."""
+        the journal, with how many later runs left none and, for a watch's run, whether it found the condition met.
+        Runs before 2026-10-15 had no conversation, so this reads each run's request id rather than the schedule's
+        conversation."""
         skipped = 0
         for run in reversed(self.journal.of_kind("schedule.run", "schedule_id", schedule_id)):
             rid = str(run.data.get("request_id", ""))
