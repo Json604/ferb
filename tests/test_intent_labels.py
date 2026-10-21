@@ -12,7 +12,8 @@ from ferb.memory.consolidate import PROPOSAL_SCHEMA, Consolidator
 from ferb.memory.learning import Learning, LearningRefused
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
-from tests.support.learning_fixtures import EMPTY, Clock, NoMemory, card, new_intent, new_store
+from tests.support.learning_fixtures import (EMPTY, Clock, NoMemory, TickingClock, card, label_card, new_intent,
+                                             new_store)
 from tests.support.learning_runtime import SchemaAnswers
 from tests.support.strict_schema import strict_problems
 
@@ -93,8 +94,9 @@ def test_a_failed_label_is_recorded_and_tried_again_only_when_forced(learning) -
                                                                  "slots": [], "values": []},
                          id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
     run(learning, bad)
-    row = learning.db.conn.execute("SELECT status, error FROM learning_jobs WHERE source_ref LIKE 'label:%'").fetchone()
-    assert row[0] == "failed" and row[1]
+    row = learning.db.conn.execute("SELECT status, error, inputs FROM learning_jobs WHERE source_ref LIKE 'label:%'"
+                                   ).fetchone()
+    assert row[0] == "failed" and row[1] and row[2] == "label/1"          # a refused answer: waits
     calls = len(bad.calls)
     run(learning, bad)
     assert len(bad.calls) == calls                      # waits
@@ -113,19 +115,59 @@ def test_a_failed_label_is_tried_again_when_its_card_changes(learning) -> None:
     assert intents.labels(learning)[changed["id"]]["name"] == "cheapest food order"
 
 
-def test_the_intent_list_is_fitted_to_a_small_window(learning) -> None:
-    for n in range(40):                                  # forty labelled cards, forty intents
-        c = card(learning, f"old{n}", f"task number {n}")
-        learning.put(intents.INTENT_KIND, c["id"], {"intent_id": f"i-{n:02}", "name": f"intent {n} " + "x" * 2000,
-                                                    "description": "d", "slots": {}, "values": {}},
-                     [c["id"]], made_by="model:test", state="active")
-    card(learning, "new", "something new")
-    small = ModelLimits("fake-model", 4_000, 500, "test double")
-    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("something", "x"),
-                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}, limits=small)
+def _forty_intents(store: Learning) -> None:
+    """Forty labelled cards, each newer than the one before (a ticking clock); intent ids number against recency, so
+    the newest card's intent is i-00 and an order by id alone would offer the oldest first."""
+    for n in range(40):
+        c = card(store, f"old{n}", f"task number {n}")
+        store.put(intents.INTENT_KIND, c["id"], {"intent_id": f"i-{39 - n:02}", "name": f"intent {n} " + "x" * 2000,
+                                                 "description": "d", "slots": {}, "values": {}},
+                  [c["id"]], made_by="model:test", state="active")
+
+
+def _label_contexts(rt: SchemaAnswers) -> list[str]:
+    return [ctx for schema, ctx in rt.calls if schema == id(intents.INTENT_SCHEMA)]
+
+
+def test_the_intent_list_offers_the_most_recently_used_intents_that_fit_the_window(tmp_path) -> None:
+    db, store = new_store(tmp_path / "memory.db", TickingClock())
+    try:
+        _forty_intents(store)
+        card(store, "new", "something new")
+        rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("something", "x"),
+                            id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}, limits=ModelLimits("small", 4_000, 500, "test"))
+        run(store, rt)
+        [offered] = _label_contexts(rt)
+        assert "i-00" in offered and "i-39" not in offered                # newest first, not by id
+    finally:
+        db.close()
+
+
+def test_the_intent_list_is_fitted_to_the_runtimes_character_cap(tmp_path) -> None:
+    db, store = new_store(tmp_path / "memory.db", TickingClock())
+    try:
+        _forty_intents(store)
+        card(store, "new", "something new")
+        capped = ModelLimits("fake-model", 1_000_000, 100_000, "test", max_input_chars=10_000)   # tokens hold all
+        rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("something", "x"),
+                            id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}, limits=capped)
+        run(store, rt)
+        [offered] = _label_contexts(rt)
+        assert len(offered) <= 10_000 and "i-00" in offered and "i-39" not in offered
+    finally:
+        db.close()
+
+
+def test_a_card_longer_than_one_input_is_never_sent_and_its_job_names_the_cap(learning) -> None:
+    big = card(learning, "big", "cheapest egg curry " + "word " * 3_000)
+    capped = ModelLimits("fake-model", 1_000_000, 100_000, "test", max_input_chars=10_000)
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}, limits=capped)
     run(learning, rt)
-    label_calls = [ctx for schema, ctx in rt.calls if schema == id(intents.INTENT_SCHEMA)]
-    assert label_calls and "i-39" in label_calls[0] and "i-00" not in label_calls[0]   # newest intents offered first
+    assert _label_contexts(rt) == []
+    error, inputs = learning.db.conn.execute("SELECT error, inputs FROM learning_jobs WHERE source_ref = ?",
+                                             ("label:" + big["id"],)).fetchone()
+    assert "10000 characters" in error and inputs == "label/1"
 
 
 def test_a_card_too_large_for_the_window_is_never_sent_and_its_job_says_why(learning) -> None:
@@ -137,6 +179,95 @@ def test_a_card_too_large_for_the_window_is_never_sent_and_its_job_says_why(lear
     error = learning.db.conn.execute("SELECT error FROM learning_jobs WHERE source_ref = ?",
                                      ("label:" + big["id"],)).fetchone()[0]
     assert "window" in error
+
+
+def test_a_label_whose_call_failed_is_tried_again_on_the_next_pass(learning) -> None:
+    """N1: an outage or a dropped connection says nothing about the card: its label is tried on the next pass."""
+    c = card(learning, "t1", "cheapest egg curry")
+    answers = iter([RuntimeError("stream disconnected"), new_intent("cheapest food order", "egg curry")])
+
+    def flaky(ctx: str) -> dict[str, Any]:
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): flaky, id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    status, inputs = learning.db.conn.execute("SELECT status, inputs FROM learning_jobs WHERE source_ref = ?",
+                                              ("label:" + c["id"],)).fetchone()
+    assert status == "failed" and inputs == "label/1:retry"
+    run(learning, rt)                                    # no force, no card change
+    assert intents.labels(learning)[c["id"]]["name"] == "cheapest food order"
+    assert tuple(learning.db.conn.execute("SELECT status, inputs FROM learning_jobs WHERE source_ref = ?",
+                                          ("label:" + c["id"],)).fetchone()) == ("done", "label/1")
+
+
+def test_a_card_whose_label_the_owner_rolled_back_is_not_labelled_again_until_it_changes(learning) -> None:
+    c = card(learning, "t1", "cheapest egg curry")
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    label = learning.items(intents.INTENT_KIND)[0]
+    learning.rollback(label["id"])                      # `ferb memory rollback <label id>`
+    calls = len(_label_contexts(rt))
+    for _ in range(2):
+        run(learning, rt)
+    assert len(_label_contexts(rt)) == calls and c["id"] not in intents.labels(learning)
+    changed = card(learning, "t1", "cheapest egg curry, with naan")
+    run(learning, rt)
+    assert changed["id"] in intents.labels(learning)
+
+
+def test_the_intent_list_is_read_once_a_pass_and_counts_each_new_label(learning, monkeypatch) -> None:
+    """M3: a pass reads the intents once and adds each label it stores, so a card labelled later in the same pass is
+    offered the intent an earlier card created, with its runs counted."""
+    for n in range(3):
+        card(learning, f"t{n}", f"cheapest dish number {n}")
+    reads: list[int] = []
+    real = intents.intents
+
+    def counted(store: Learning) -> list[dict[str, Any]]:
+        reads.append(1)
+        return real(store)
+    monkeypatch.setattr(intents, "intents", counted)
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    contexts = [json.loads(ctx.split("\n\n")[0]) for ctx in _label_contexts(rt)]
+    iid = intents.intent_id("cheapest food order")
+    assert reads == [1]
+    assert [[i["id"] for i in ctx["intents"]] for ctx in contexts] == [[], [iid], [iid]]
+    assert [i["runs"] for i in real(learning)] == [3]
+
+
+def test_a_card_read_again_keeps_its_tasks_label_without_a_model_call(learning) -> None:
+    """N2, N3: a re-read card (a new node of the same task) carries its task's label forward unchanged, so a card
+    rebuild never renames an intent; the old card's label is closed."""
+    old = card(learning, "t1", "cheapest egg curry")
+    run(learning, SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                                 id(PROPOSAL_SCHEMA): lambda ctx: EMPTY}))
+    before = intents.labels(learning)[old["id"]]
+    new = card(learning, "t1", "cheapest egg curry, with naan")
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("a renamed intent", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    assert _label_contexts(rt) == []
+    assert intents.labels(learning) == {new["id"]: before}
+    assert [n["key"] for n in learning.items(intents.INTENT_KIND)] == [new["id"]]   # the old label is closed
+    closed = learning.db.conn.execute("SELECT valid_to FROM learning_nodes WHERE kind = ? AND key = ?",
+                                      (intents.INTENT_KIND, old["id"])).fetchone()[0]
+    assert closed
+
+
+def test_labels_are_never_recalled_as_memory(learning) -> None:
+    """N3: a label is the learner's bookkeeping: search (memory.learned, the planner's candidates) never returns one."""
+    c = card(learning, "t1", "find me the cheapest egg curry with breads")
+    label_card(learning, c, "zorblat food order")
+    assert learning.db.conn.execute("SELECT count(*) FROM learning_fts WHERE learning_fts MATCH '\"zorblat\"'"
+                                    ).fetchone()[0] == 1                  # indexed, so a search would find it
+    assert [p for p in learning.search("zorblat food order") if p["kind"] == intents.INTENT_KIND] == []
+    assert learning.search("zorblat", kind=intents.INTENT_KIND) == []
+    assert "zorblat" not in learning.candidates("zorblat food order")
 
 
 def test_no_label_call_once_a_task_has_started(learning) -> None:
@@ -188,7 +319,7 @@ def test_a_label_is_never_offered_to_the_planner_as_learned_memory(daemon) -> No
                                                       "slots": {}, "values": {}},
                        [c["id"]], made_by="model:test", state="active")
         return [p["kind"] for p in d.learning.search("zorblat food order")]
-    assert intents.INTENT_KIND in daemon.run(put())      # the label is in learned memory
+    assert intents.INTENT_KIND not in daemon.run(put())
     found = daemon.run(d._learning_candidates("zorblat food order"))
     assert not [f for f in found if intents.INTENT_KIND in f["text"]]
 

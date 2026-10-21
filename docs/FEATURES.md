@@ -631,7 +631,8 @@ This section matters most for an automated campaign. It says exactly what runs u
   down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
   learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
   is the same; L29), and sends episodes grouped by the tools and apps they used, split to fit the model's window; a
-  failed job waits for a change or `ferb memory consolidate`. A planner's procedure id that isn't a current procedure is ignored with a note.
+  failed job waits for a change or `ferb memory consolidate` (a label whose model call failed is tried on the next
+  pass). A planner's procedure id that isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured

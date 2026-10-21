@@ -1,13 +1,14 @@
 """Idle, incremental learning from redacted evidence. No tools; every model proposal is checked against storage.
 
 A pass works on what changed (memory review I3): it reads again only the cards whose inputs changed
-(`Learning.cards_to_read`), gives each card without an intent label one (L29, `_label`: one call per card; the model
-decides the intent, `memory/intents.py` checks the answer), and sends the episodes not yet consolidated to the model
-grouped by structure (the same tools and apps: `card_shape`), one call per group, with the group's own procedures and
-only the consolidated cards related to the new ones by structure (`_examples`): a cost that follows what changed. A group the model's real window
-can't hold is split into calls that fit; a single card too large for it is never shortened or sent, and its job says
-why. A failed job keeps its error and is tried again when its group changes or on `ferb memory consolidate`
-(`force`), never on every idle hour. No count or size limit of FERB's own decides any of this."""
+(`Learning.cards_to_read`), gives each card without an intent label one (L29, `_label`: a re-read card keeps its
+task's label; any other, one call; the model decides the intent, `memory/intents.py` checks the answer), and sends the
+episodes not yet consolidated to the model grouped by structure (the same tools and apps: `card_shape`), one call per
+group, with the group's own procedures and only the consolidated cards related to the new ones by structure
+(`_examples`): a cost that follows what changed. A group the model's real window can't hold is split into calls that
+fit; a single card too large for it is never shortened or sent, and its job says why. A failed job keeps its error and
+is tried again when its group changes or on `ferb memory consolidate` (`force`), never on every idle hour (a label whose
+call failed is tried on the next pass). No count or size limit of FERB's own decides any of this."""
 from __future__ import annotations
 
 import asyncio
@@ -16,7 +17,7 @@ import json
 from typing import Any, Awaitable, Callable
 
 from ferb.core.context import count_tokens, overhead_chars, overhead_tokens, runtime_limits
-from ferb.core.errors import Deferred
+from ferb.core.errors import Deferred, InputTooLarge
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory import intents
@@ -61,6 +62,11 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
         'identity': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['key', 'text', 'evidence'], 'properties': {'key': {'type': 'string'}, 'text': {'type': 'string'},
                 'evidence': {'type': 'array', 'items': {'type': 'string'}}}}}}}
+
+
+# A label job's inputs (L29): a refused answer or a card too large waits for its card to change or `force`; a failed
+# call is tried on the next pass.
+LABEL_JOB, LABEL_RETRY = 'label/1', 'label/1:retry'
 
 
 def _procedure(p: dict[str, Any]) -> dict[str, Any]:
@@ -133,13 +139,18 @@ class Consolidator:
             return {'status': 'done', 'sources': results}
 
     async def _label(self, force: bool, results: list[dict[str, Any]]) -> bool:
-        """L29: each current card without an intent label gets one, one call per card, offered the intents already
-        seen (most recently used first, as many as fit the window: `_fit_intents`). A failed label waits for its card
-        to change (a new card node, so a new job) or `force`. False when a task started (the next pass goes on)."""
+        """L29: each current card without an intent label gets one. A re-read card keeps its task's label without a
+        call (`intents.carry_forward`); every other card gets one call, offered the intents already seen (read once a
+        pass and counted as labels are stored; most recently used first, as many as fit the window: `_fit_intents`).
+        A refused answer or a card too large waits for its card to change (a new card node, so a new job) or `force`
+        (job inputs LABEL_JOB); a failed call is tried on the next pass (LABEL_RETRY). False when a task started (the
+        next pass goes on)."""
         l = self.learning
-        failed = {r[0] for r in l.db.conn.execute(
-            "SELECT source_ref FROM learning_jobs WHERE source_ref LIKE 'label:%' AND status = 'failed'")}
-        todo = [c for c in intents.unlabelled(l) if force or 'label:' + c['id'] not in failed]
+        results.extend({'label': n['key'], 'carried': True} for n in intents.carry_forward(l))
+        waiting = {r[0] for r in l.db.conn.execute(
+            "SELECT source_ref FROM learning_jobs WHERE source_ref LIKE 'label:%' AND status = 'failed' AND inputs = ?",
+            (LABEL_JOB,))}
+        todo = [c for c in intents.unlabelled(l) if force or 'label:' + c['id'] not in waiting]
         if not todo:
             return True
         system = load_prompt('memory/intent.md')
@@ -148,18 +159,18 @@ class Consolidator:
             limits = runtime_limits(rt)
         except asyncio.CancelledError:
             raise
-        except Exception as e:                       # no runtime or no documented window: every label job says so
+        except Exception as e:                       # no runtime or no documented window: tried on the next pass
             error = l.redact(f'{type(e).__name__}: {e}')
             for c in todo:
-                self._job('label:' + c['id'], 'label/1', error)
+                self._job('label:' + c['id'], LABEL_RETRY, error)
                 results.append({'label': c['id'], 'error': error})
             return True
         maker = (f'model:{rt.name}:{getattr(rt, "model", None) or "default"}'
                  f'|prompt:intent@{hashlib.sha256(system.encode()).hexdigest()}')
+        known = intents.intents(l)
         for c in todo:
             if not self.idle():
                 return False
-            known = intents.intents(l)
             task = Task('label-' + c['id'], None, 'memory intent label', 'local', Identity.OWNER, set(), 'verifier',
                         'sleep', [], None)
             try:
@@ -167,14 +178,17 @@ class Consolidator:
                 answer = json.loads(await learning_call(rt, task, system, ctx, 'redacted learning evidence',
                                                         INTENT_SCHEMA, role='intent', spans=self.spans,
                                                         usage=self.usage))
-                intents.label(l, c, answer, {i['id']: i for i in known}, maker)
-                self._job('label:' + c['id'], 'label/1', None)
+                node = intents.label(l, c, answer, {i['id']: i for i in known}, maker)
+                known = intents.counted(known, node['body'], c)
+                self._job('label:' + c['id'], LABEL_JOB, None)
                 results.append({'label': c['id']})
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                # code refused the answer, or the card is too large for any call: waits; the call failed: next pass
                 error = l.redact(f'{type(e).__name__}: {e}')
-                self._job('label:' + c['id'], 'label/1', error)
+                self._job('label:' + c['id'], LABEL_JOB if isinstance(e, (LearningRefused, InputTooLarge))
+                          else LABEL_RETRY, error)
                 results.append({'label': c['id'], 'error': error})
         return True
 

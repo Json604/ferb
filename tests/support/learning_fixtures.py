@@ -1,6 +1,6 @@
 """Shared learning test fixtures (L29): a store on a fresh database, cards, intent answers."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,17 @@ class Clock:
         return datetime(2026, 10, 21, tzinfo=timezone.utc)
 
 
+class TickingClock:
+    """A clock one second later at every reading: each node a store writes is newer than the one before."""
+
+    def __init__(self) -> None:
+        self.at = datetime(2026, 10, 21, tzinfo=timezone.utc)
+
+    def now(self) -> datetime:
+        self.at += timedelta(seconds=1)
+        return self.at
+
+
 class NoMemory:
     def items(self, **_: Any) -> list[Any]:
         return []
@@ -23,10 +34,10 @@ class NoMemory:
         return None
 
 
-def new_store(path: Path) -> tuple[Database, Learning]:
+def new_store(path: Path, clock: Any = None) -> tuple[Database, Learning]:
     db = Database(path)
     db.migrate()
-    return db, Learning(db, Clock(), lambda *args: None, lambda s: s)
+    return db, Learning(db, clock or Clock(), lambda *args: None, lambda s: s)
 
 
 def card(store: Learning, ident: str, request: str, dish: str = "egg curry") -> Any:

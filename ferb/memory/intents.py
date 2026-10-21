@@ -1,7 +1,9 @@
 """Owns each episode card's intent label (L29): what kind of task it was, as the learning model reads it, and the list
 labels are chosen from. Must not decide sameness itself (R2): the model labels; code checks the answer's shape and
 types and stores it as the card's own `episode_intent` node (keyed by the card's node id, its only source the card),
-so forgetting a card removes only its label. The intent list is derived from the current cards' labels."""
+so forgetting a card removes only its label. The intent list is derived from the current cards' labels. A card read
+again (a new node of the same task) keeps its task's label (`carry_forward`), and a superseded card's label is closed.
+Labels are the learner's bookkeeping: search never recalls them (`Learning.search`)."""
 from typing import Any
 
 from ferb.memory.learning import Learning, LearningRefused, digest
@@ -10,8 +12,9 @@ from ferb.memory.strict import JSON_TEXT, pairs, to_map
 INTENT_KIND = 'episode_intent'
 SLOT_TYPES = ('string', 'number', 'boolean', 'array', 'object')
 _TYPES: dict[str, Any] = {'string': str, 'number': (int, float), 'boolean': bool, 'array': list, 'object': dict}
-# An intent id's characters: letters only, so no redaction rule (a card number, a code) can ever match one, in a
-# label's body or as a procedure's key (Learning.put redacts both).
+# An intent id's characters: letters only, so no redaction pattern (a card number, a code) matches one, in a label's
+# body or as a procedure's key (Learning.put redacts both); only a secret the owner stored, spelled in the letters a-p,
+# could still alter one (Redactor replaces a stored value wherever it appears).
 _LETTERS = str.maketrans('0123456789abcdef', 'abcdefghijklmnop')
 INTENT_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False,
@@ -29,34 +32,86 @@ def intent_id(name: str) -> str:
     return 'i-' + digest(' '.join(name.casefold().split()))[:16].translate(_LETTERS)
 
 
+def _current_cards(learning: Learning) -> dict[str, str]:
+    """The current episode cards' node ids -> recorded_at, read without their bodies (`Learning.items`' rule)."""
+    return {r[0]: r[1] for r in learning.db.conn.execute(
+        "SELECT id, recorded_at FROM learning_nodes WHERE kind = 'episode' AND valid_to IS NULL "
+        "AND state NOT IN ('retired', 'rolled_back')")}
+
+
 def labels(learning: Learning) -> dict[str, dict[str, Any]]:
     """Current card node id -> its label body (current cards only: a superseded card's label is stale)."""
-    current = {n['id'] for n in learning.items('episode')}
+    current = _current_cards(learning)
     return {n['key']: n['body'] for n in learning.items(INTENT_KIND) if n['key'] in current}
+
+
+def _count(out: dict[str, dict[str, Any]], body: dict[str, Any], recorded_at: str) -> None:
+    entry = out.setdefault(body['intent_id'], {'id': body['intent_id'], 'name': body['name'],
+                                               'description': body['description'], 'slots': body['slots'],
+                                               'runs': 0, 'last': ''})
+    entry['runs'] += 1
+    entry['last'] = max(entry['last'], recorded_at)
+
+
+def _ordered(out: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(out.values(), key=lambda i: (i['last'], i['id']), reverse=True)
 
 
 def intents(learning: Learning) -> list[dict[str, Any]]:
     """The intents the current cards carry, most recently used first (by their newest card): id, name, description,
     slots, runs, last."""
-    current = {n['id']: n for n in learning.items('episode')}
+    current = _current_cards(learning)
     out: dict[str, dict[str, Any]] = {}
     for node in learning.items(INTENT_KIND):
-        card = current.get(node['key'])
-        if card is None:
-            continue
-        b = node['body']
-        entry = out.setdefault(b['intent_id'], {'id': b['intent_id'], 'name': b['name'],
-                                                'description': b['description'], 'slots': b['slots'],
-                                                'runs': 0, 'last': ''})
-        entry['runs'] += 1
-        entry['last'] = max(entry['last'], card['recorded_at'])
-    return sorted(out.values(), key=lambda i: (i['last'], i['id']), reverse=True)
+        if node['key'] in current:
+            _count(out, node['body'], current[node['key']])
+    return _ordered(out)
+
+
+def counted(known: list[dict[str, Any]], body: dict[str, Any], card: dict[str, Any]) -> list[dict[str, Any]]:
+    """`known` (as `intents` returns it) with one more card labelled `body`: what `intents` returns now, without
+    reading every card and label again."""
+    out = {i['id']: dict(i) for i in known}
+    _count(out, body, card['recorded_at'])
+    return _ordered(out)
 
 
 def unlabelled(learning: Learning) -> list[dict[str, Any]]:
-    """The current episode cards without a current label, oldest first."""
-    done = labels(learning)
+    """The current episode cards without a current label, oldest first. A card whose label the owner rolled back
+    waits until it changes (a new card node): its old answer would only be stored again."""
+    done = labels(learning).keys() | _rolled_back(learning)
     return [n for n in learning.items('episode') if n['id'] not in done]
+
+
+def _rolled_back(learning: Learning) -> set[str]:
+    """The cards whose label the owner rolled back."""
+    return {r[0] for r in learning.db.conn.execute(
+        "SELECT key FROM learning_nodes WHERE kind = ? AND state = 'rolled_back'", (INTENT_KIND,))}
+
+
+def carry_forward(learning: Learning) -> list[dict[str, Any]]:
+    """Close each label whose card was superseded; a re-read card (a new node of the same task) without a label of its
+    own first gets that label unchanged, as its maker wrote it, without a model call, so a card rebuild never renames
+    an intent. The carried labels."""
+    current = _current_cards(learning)
+    stale = [n for n in reversed(learning.items(INTENT_KIND)) if n['key'] not in current]     # newest first
+    if not stale:
+        return []
+    own = {n['key'] for n in learning.items(INTENT_KIND) if n['key'] in current} | _rolled_back(learning)
+    carried = []
+    for old in stale:
+        card = learning.get(old['key'])
+        task_card = learning.current_card(str(card['key'])) if card and card['kind'] == 'episode' else None
+        if task_card is not None and task_card['id'] not in own:
+            try:
+                carried.append(learning.put(INTENT_KIND, task_card['id'], old['body'], [task_card['id']],
+                                            made_by=old['made_by'], state='active'))
+                own.add(task_card['id'])
+            except LearningRefused:
+                pass                                     # e.g. forgotten: the card is labelled by the model instead
+        learning.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=? AND valid_to IS NULL',
+                                 (learning.now(), old['id']))
+    return carried
 
 
 def _typed(values: dict[str, Any], slots: dict[str, str]) -> None:

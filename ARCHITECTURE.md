@@ -1713,21 +1713,27 @@ per-source job completion. Code rollups cite their child cards.
   (`catch_up(force=True)`); a failed distill day waits for its summary row to change (`distill_runs.inputs`) or
   `ferb memory distill DAY`.
 - **Intent labels (L29).** After the card reads and before grouping, `Consolidator._label` gives each current card
-  without a label one (`memory/intents.py`; backfill is the same pass), one no-tool call per card with the prompt
-  `memory/intent.md`: the card's `card_digest` and the intents already seen (`intents.intents`: id, name, description,
-  slot types; most recently used first by their newest card, as many as fit the window and the character cap:
-  `_fit_intents`; no count of FERB's own; a card that alone doesn't fit is never sent and its job says why). The model
-  answers an offered intent id with this run's slot values, or a new intent (name, description, typed slots, values)
-  (`INTENT_SCHEMA`). It decides sameness (R2); code only checks the answer (`intents.check`: an offered id, or a new
-  intent with a name, description and JSON slot types; the values name exactly the intent's slots with their types; a
-  new name equal to a known one, case and spacing aside, is that intent) and stores it as the card's own
-  `episode_intent` node (ID-keyed by the card's node id, its only source the card), so forgetting a card removes only
-  its label, and the intent list is derived from the current cards' labels. An intent id is `i-` and 16 letters from
-  a digest of the normalized name (letters only, so redaction never alters one in a body or as a procedure key). The
-  job is `learning_jobs.source_ref = label:<card node id>`, inputs `label/1`: a failed label waits for its card to
-  change (a new card node) or `ferb memory consolidate`; a forget deletes it with the card. Each call is a
-  `model.learning` span, role `intent`, call id `label-<card node id>`. Labels stay out of the planner's learned
-  memory (`_learning_candidates`).
+  without a label one (`memory/intents.py`; backfill is the same pass). A card read again (a new node of the same
+  task: a verdict, a rebuilt episode, a new card composer) keeps its task's label unchanged, with its maker, and no
+  call (`intents.carry_forward`), so a card rebuild never renames an intent; each label whose card was superseded is
+  closed (`valid_to`). Every other card gets one no-tool call with the prompt `memory/intent.md`: the card's
+  `card_digest` and the intents already seen (`intents.intents`, read once a pass and counted as labels are stored:
+  `intents.counted`; id, name, description, slot types; most recently used first by their newest card, as many as fit
+  the window and the character cap: `_fit_intents`; no count of FERB's own; a card that alone doesn't fit is never
+  sent and its job says why). The model answers an offered intent id with this run's slot values, or a new intent
+  (name, description, typed slots, values) (`INTENT_SCHEMA`). It decides sameness (R2); code only checks the answer
+  (`intents.check`: an offered id, or a new intent with a name, description and JSON slot types; the values name
+  exactly the intent's slots with their types; a new name equal to a known one, case and spacing aside, is that
+  intent) and stores it as the card's own `episode_intent` node (ID-keyed by the card's node id, its only source the
+  card), so forgetting a card removes only its label, and the intent list is derived from the current cards' labels.
+  An intent id is `i-` and 16 letters a–p from a digest of the normalized name: no redaction pattern (a card number, a
+  code) matches one in a body or as a procedure key; only a secret the owner stored, spelled in the letters a–p, could
+  still alter one. The job is `learning_jobs.source_ref = label:<card node id>`: a refused answer or a card too large
+  waits for its card to change (a new card node) or `ferb memory consolidate` (inputs `label/1`); a failed call (the
+  service, the connection, a timeout, the runtime) is tried on the next pass (inputs `label/1:retry`); a card whose
+  label the owner rolled back waits for the card to change; a forget deletes the job with the card. Each call is a
+  `model.learning` span, role `intent`, call id `label-<card node id>`. Labels are the learner's bookkeeping, never
+  recalled: `Learning.search` (so `memory.learned` and the planner's candidates) leaves them out.
 - **Learning calls (fix wave 5).** Each consolidation and distillation call runs through `memory/calls.learning_call`
   (assembly within the window and the character cap, the run, the schema check) and is one `model.learning` span: role,
   call id (`sleep-…`, `distill-<day>`), runtime and model as input; outcome, input characters and estimated tokens and

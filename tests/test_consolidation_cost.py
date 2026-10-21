@@ -15,6 +15,7 @@ import pytest
 
 from ferb.core.types import ModelLimits
 from ferb.memory.consolidate import Consolidator
+from ferb.memory import intents
 from ferb.memory.intents import INTENT_SCHEMA
 from ferb.memory.learning import Learning
 from ferb.store.db import Database
@@ -127,13 +128,14 @@ def test_a_second_pass_with_nothing_changed_reads_no_card_and_calls_no_model(lea
         return labels.make(role, **k) if k["schema"] is INTENT_SCHEMA else rt
     sleep = Consolidator(learning, NoMemory(), runtimes, capture=capture)
     asyncio.run(sleep.catch_up())
-    assert sorted(captured) == [f"e{i}" for i in range(5)] and len(rt.contexts) == 1
+    assert sorted(captured) == [f"e{i}" for i in range(5)] and len(rt.contexts) == 1 and len(labels.calls) == 5
     asyncio.run(sleep.catch_up())
-    assert len(captured) == 5 and len(rt.contexts) == 1
+    assert len(captured) == 5 and len(rt.contexts) == 1 and len(labels.calls) == 5
     learning.db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES "
                              "('v1', 'e2', 'fail', '', 'now')")                 # one card's input changed
     asyncio.run(sleep.catch_up())
-    assert captured[5:] == ["e2"]
+    assert captured[5:] == ["e2"] and len(labels.calls) == 5                   # its re-read card keeps its label
+    assert len(intents.labels(learning)) == 5
 
 
 def test_a_failed_job_waits_for_a_change_or_an_explicit_consolidate(learning) -> None:

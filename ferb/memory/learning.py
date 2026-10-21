@@ -701,6 +701,8 @@ class Learning:
             if not p or p['valid_to'] or p['state'] in ('retired', 'rolled_back', 'proposed') or \
                     (kind and p['kind'] != kind):   # 'proposed': a memory item waiting for the owner's Yes
                 continue
+            if p['kind'] == 'episode_intent':        # a card's intent label (L29): bookkeeping, never recalled
+                continue
             body = p['body']
             if app and app not in body.get('apps', {}) and body.get('scope', {}).get('app') != app and \
                     app not in body.get('preconditions', {}).get('apps', {}):
