@@ -130,7 +130,11 @@ def assemble(blocks: list[ContextBlock], *, budget_tokens: int, reserved_tokens:
 Every optional block's marker is charged before any block is added. When the markers of a run (`fold`, one retrieval
 route, e.g. a task's recorded calls) can't all fit beside the protected text, its lowest-priority blocks fold, one by
 one until the rest fit, into one note in the first one's place that counts them and names the first and last of them
-and the route (fix wave 6b round 1). Blocks without `fold` keep their markers as before.
+and the route (fix wave 6b round 1). Then, as the optional blocks are added by priority, one that doesn't fit folds
+more of the lower-priority run markers still listed, lowest first, until it fits; when even all of them wouldn't make
+room, none is folded for it (L29 Task 5 fix round 1). So a block is never left out while lower-priority markers that
+could make room for it are still listed. Blocks without `fold` keep their markers as before, and a context without a
+run is assembled exactly as before.
 
 Protected source text can exceed the budget. Reporting that fact is preferable to changing it.
 The budget is a context allocation (the model's window minus room for its reply), not a task/output/token-spend limit.
@@ -161,20 +165,44 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
     used_chars = (len(_report(budget_tokens, reserved_tokens, 10 ** 9, True, len(active))) + 2 + note_chars +
                   sum(len(active[index].text) + 2 for index in kept) + sum(len(omission[index]) + 2 for index in gap))
     folded: dict[str, list[int]] = {}        # fold route -> its folded blocks, lowest priority first
-    for index in sorted((i for i in gap if active[i].fold), key=lambda i: active[i].priority):
-        if used <= budget_tokens and used_chars <= cap:
-            break
+
+    def note(route: str) -> tuple[int, int]:
+        """A run's note at its longest (two of its longest listed references), charged when its first block folds."""
+        run = [i for i in gap if active[i].fold == route and i not in kept]
+        return (count_tokens(_fold(10 ** 9, "", "", route)) + 2 * max(gap[i] for i in run) + separator,
+                len(_fold(10 ** 9, "", "", route)) + 2 * max(len(active[i].reference) for i in run) + 2)
+
+    def fold(index: int) -> None:
+        nonlocal used, used_chars
         route = active[index].fold
-        if route not in folded:              # the run's note, at its longest: two of its longest references
-            run = [i for i in gap if active[i].fold == route]
-            used += count_tokens(_fold(10 ** 9, "", "", route)) + 2 * max(gap[i] for i in run) + separator
-            used_chars += len(_fold(10 ** 9, "", "", route)) + 2 * max(len(active[i].reference) for i in run) + 2
+        if route not in folded:
+            tokens, chars = note(route)
+            used, used_chars = used + tokens, used_chars + chars
             folded[route] = []
         folded[route].append(index)
         used -= gap.pop(index) + separator
         used_chars -= len(omission[index]) + 2
-    first_folded = {min(run) for run in folded.values()}
-    in_folds = {index for run in folded.values() for index in run}
+
+    def room(index: int, extra: int, extra_chars: int) -> list[int] | None:
+        """The listed run markers of lower priority than `index` that, folded lowest first, make room for it whole:
+        the fewest that do; None when even all of them wouldn't."""
+        tokens, chars, noted, chosen = used + extra, used_chars + extra_chars, set(folded), []
+        for i in sorted((i for i in gap if active[i].fold and i not in kept
+                         and active[i].priority < active[index].priority), key=lambda i: active[i].priority):
+            if active[i].fold not in noted:
+                note_tokens, note_chars = note(active[i].fold)
+                tokens, chars = tokens + note_tokens, chars + note_chars
+                noted.add(active[i].fold)
+            tokens, chars = tokens - gap[i] - separator, chars - len(omission[i]) - 2
+            chosen.append(i)
+            if tokens <= budget_tokens and chars <= cap:
+                return chosen
+        return None
+
+    for index in sorted((i for i in gap if active[i].fold), key=lambda i: active[i].priority):
+        if used <= budget_tokens and used_chars <= cap:
+            break
+        fold(index)
     for index in reversed(history):
         chars = len(active[index].text) + 2
         if used + cost[index] + separator > budget_tokens or used_chars + chars > cap:
@@ -182,12 +210,22 @@ protected text over the cap is refused (InputTooLarge) rather than sent to be re
         kept.add(index)
         used += cost[index] + separator
         used_chars += chars
-    for index, block in sorted(((i, active[i]) for i in gap), key=lambda pair: -pair[1].priority):
+    for index in sorted(gap, key=lambda i: -active[i].priority):
+        if index not in gap:                 # folded meanwhile to make room for a higher-priority block
+            continue
+        block = active[index]
         extra, extra_chars = count_tokens(block.text) - gap[index], len(block.text) - len(omission[index])
-        if used + extra <= budget_tokens and used_chars + extra_chars <= cap:
-            kept.add(index)
-            used += extra
-            used_chars += extra_chars
+        if used + extra > budget_tokens or used_chars + extra_chars > cap:
+            make_room = room(index, extra, extra_chars)
+            if make_room is None:
+                continue
+            for i in make_room:
+                fold(i)
+        kept.add(index)
+        used += extra
+        used_chars += extra_chars
+    first_folded = {min(run) for run in folded.values()}
+    in_folds = {index for run in folded.values() for index in run}
     omitted_history = sum(1 for index in history if index not in kept)
     parts: list[str] = []
     repeats: list[bool] = []             # per part: repeats across this role's calls

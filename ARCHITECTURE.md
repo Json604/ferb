@@ -880,7 +880,12 @@ role: "task.evidence kind=tool.call, the observations among these recorded calls
 fit beside the protected text, `assemble` folds its lowest-priority blocks, one by one until the rest fit (the note
 charged at its longest), into one note in the first one's place: "[N more not shown or listed one by one; fetch full
 text: … — from task.evidence span_id=… (recorded call a …) to task.evidence span_id=… (recorded call b …)]" (round 1,
-I1; tested at 3,500 and 6,000 calls with Codex's limits). Which stay when space runs out: every action first (its record is the only
+I1; tested at 3,500 and 6,000 calls with Codex's limits). As the optional blocks are then added by priority, one that
+doesn't fit folds more of the lower-priority markers still listed (lowest first, the fewest that make room; none when
+even all of them wouldn't), so the highest-priority calls are shown whole beside the note instead of every call being a
+marker, and no block is left out while lower-priority markers that could make room for it are listed (L29 Task 5 fix
+round 1; a context without a run assembles byte for byte as before, checked against the earlier `assemble` in random
+trials, `tests/support/context_reference.py`). Which stay when space runs out: every action first (its record is the only
 evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
 re-establish current state), newest first within each, the latest being closest to the final state; all above the
 context's other optional blocks (their highest priority plus one). A record is shown up to its page or left out
@@ -1835,10 +1840,10 @@ intent's job. Code rollups cite their child cards.
   `task_memory_refs`, so forgetting the card reaches the task). The runs are optional blocks above the activity and
   memory layers (priority 3 and up, the newest highest), and this task's own "Previous attempts" block ranks above
   every other optional block, the runs included (one more than the highest, as the checker's recorded calls do;
-  review M2); a run left out is a marker read by `memory.learned item_id=<card>`, and when even the markers can't all
-  fit, the oldest fold into one counted note (`context_layers.PROCEDURE_RUNS_ROUTE`). `assemble` folds only until the
-  markers fit, so in a window that small no optional block longer than its marker is shown whole (runs, or this
-  task's earlier attempts). `worker.md` tells the worker to start from those tools and arguments instead of searching
+  review M2); a run left out is a marker read by `memory.learned item_id=<card>`, and when the markers can't all fit,
+  or folding older ones makes room for a higher-priority block (this task's earlier attempts, a newer run), the oldest
+  fold into one counted note (`context_layers.PROCEDURE_RUNS_ROUTE`), so the attempts and the newest runs stay whole
+  in a small window. `worker.md` tells the worker to start from those tools and arguments instead of searching
   again and to check each step's expected result. **Redaction stays JSON (L29 fix rounds 1–4):** a node's body
   (`Learning.put`) and a receipt's slot values are redacted by `redacted_json`. Its whole-text passes read the JSON with a space after `,` and `:`
   (`spaced`; stored compact): the redactor reads text as prose, and in compact JSON a word near a string's end ("Pin

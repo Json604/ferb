@@ -168,9 +168,10 @@ def test_the_worker_gets_its_intents_lessons_only(daemon) -> None:
 
 
 def test_the_runs_fold_to_fit_a_small_worker_window(daemon) -> None:
-    """Spec 5: the runs are fitted to the worker's window. They are optional blocks, newest first: in a small window
-    the newest stay whole and each older one is a marker naming its card; in a smaller one, where even their markers
-    can't all fit, the oldest fold into one counted note naming their route. The turn is never refused as too large."""
+    """Spec 5: the runs are fitted to the worker's window. They are optional blocks, newest first: in a window too
+    small for them all, even for all their markers, the newest stay whole and the oldest fold into one counted note
+    naming their route and the first and last card (fix round 1: the run's markers fold to make room for its newest).
+    The turn is never refused as too large."""
     from ferb.core.types import ModelLimits
     from tests.support.learning_fixtures import intent_procedure, on_loop, store_intent_run, worker_context_for
     proc = intent_procedure(daemon, name=FOOD, slots={"dish": "string"})
@@ -186,16 +187,13 @@ def test_the_runs_fold_to_fit_a_small_worker_window(daemon) -> None:
     on_loop(daemon, more)
     oldest = "memory.learned item_id=" + _card(daemon, "food0")["id"]
 
-    def context(room: int) -> str:
-        return worker_context_for(daemon, proc, slots, worker_limits=ModelLimits(
-            "fake-model", 400_000, 100_000, "test double", max_input_chars=len(full) + room))
-    ctx = context(8_000)
+    ctx = worker_context_for(daemon, proc, slots, worker_limits=ModelLimits(
+        "fake-model", 400_000, 100_000, "test double", max_input_chars=len(full) + 3_000))
     shown = [n for n in range(40) if f"Task more{n:02}," in ctx]
     assert shown and shown == list(range(40 - len(shown), 40)) and len(shown) < 40  # the newest shown, in full
-    assert "Task food0," not in ctx and f"[Context omitted; fetch full text: {oldest}]" in ctx
-    ctx = context(3_000)
     assert "Task food0," not in ctx and f"[Context omitted; fetch full text: {oldest}]" not in ctx
     assert "more not shown or listed one by one; fetch full text: memory.learned kind=episode" in ctx
+    assert f"to {oldest}]" in ctx                                                  # the oldest, in the note
 
 
 def test_only_the_worker_gets_the_runs_and_lessons(daemon) -> None:
@@ -217,8 +215,9 @@ def test_only_the_worker_gets_the_runs_and_lessons(daemon) -> None:
 
 
 def test_this_tasks_previous_attempts_rank_above_every_run(daemon) -> None:
-    """Review M2: on a retry in a window too small for every run, this task's own earlier attempt stays whole ahead of
-    the runs, which give way oldest first; the next-attempt choice gets the procedure block but no runs (I1)."""
+    """Review M2: on a retry in a window too small for every run, even for all their markers, this task's own earlier
+    attempt stays whole ahead of the runs, whose newest stay whole too while the oldest fold into one counted note;
+    the next-attempt choice gets the procedure block but no runs (I1)."""
     import json
     from ferb.core.types import ModelLimits
     from ferb.memory.learning import RUN_LABEL
@@ -243,12 +242,13 @@ def test_this_tasks_previous_attempts_rank_above_every_run(daemon) -> None:
                         "question": ""})
     contexts = procedure_task_contexts(
         daemon, proc, slots, workers={"worker": [blocked, done("done")], "worker.dispatch": retry},
-        worker_limits=ModelLimits("fake-model", 400_000, 100_000, "test double", max_input_chars=len(full) + 8_000))
+        worker_limits=ModelLimits("fake-model", 400_000, 100_000, "test double", max_input_chars=len(full) + 3_000))
     second = contexts["worker"][1]
     attempts = second.split("Previous attempts (data):\n", 1)[1].split("\n\n", 1)[0]
     assert "ATTEMPT-ONE the search box was hidden behind the menu" in attempts      # whole
     shown = [n for n in range(40) if f"Task more{n:02}," in second]
     assert shown and shown == list(range(40 - len(shown), 40)) and len(shown) < 40   # the runs give way, oldest first
+    assert "more not shown or listed one by one; fetch full text: memory.learned kind=episode" in second
     [dispatch] = contexts["worker.dispatch"]
     assert PROCEDURE_LABEL in dispatch and RUN_LABEL not in dispatch and "Task more" not in dispatch
 
