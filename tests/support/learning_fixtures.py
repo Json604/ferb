@@ -64,14 +64,15 @@ FOOD_DISHES = ("egg curry", "paneer", "dal")
 
 
 def store_intent_procedure(store: Learning, *, name: str, slots: dict[str, str]) -> str:
-    """Three verified cards of one intent (food0..food2, one dish each), each with its label, and the procedure they
-    teach, keyed by the intent id (L29). Its id."""
+    """Three verified cards of one intent (food0..food2, one dish each, food2 the latest to end), each with its label,
+    and the procedure they teach, keyed by the intent id (L29). Its id."""
     from ferb.memory import intents
     iid = intents.intent_id(name)
     cards = []
     for n, dish in enumerate(FOOD_DISHES):
         c = store.put("episode", f"food{n}", {"task_id": f"food{n}", "verified": True, "request": f"cheapest {dish}",
                                               "apps": {}, "slots": {}, "status": "done",
+                                              "ended_at": f"2026-10-21T09:0{n}:00+00:00",
                                               "actions": [{"id": f"food{n}-a", "tool": "browser.type",
                                                            "args": {"text": dish}, "outside_action": False}]},
                       [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
