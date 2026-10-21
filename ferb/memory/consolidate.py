@@ -289,11 +289,12 @@ class Consolidator:
         batch = 'sleep-' + digest(sorted(sent))
         why: list[str] = []
         requarantined: list[str] = []
+        unchanged: list[str] = []
         try:
             proposals, maker = await self._model(context | {'episodes': [entries[i] for i in sent]}, system, rt)
             accepted, refused = self.apply(proposals, set(sent), batch, maker, intent, procedure_refusals=why,
                                            annotate={i for i in sent if 'annotate' in entries[i]},
-                                           requarantined=requarantined)
+                                           requarantined=requarantined, unchanged=unchanged)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -306,7 +307,8 @@ class Consolidator:
             results.append({'intent': intent, 'forgotten': True})
             return True
         results.append({'intent': intent, 'episodes': sent, 'accepted': accepted, 'refused': refused}
-                       | ({'requarantined': requarantined} if requarantined else {}))
+                       | ({'requarantined': requarantined} if requarantined else {})
+                       | ({'unchanged': unchanged} if unchanged else {}))
         if proposals.get('procedures') and len(why) == len(proposals['procedures']):
             # every procedure it proposed was refused: the job says why, and waits for the runs to change (I2)
             return self._intent_job(intent, group, l.redact('every procedure proposed was refused: ' + '; '.join(why)),
@@ -388,8 +390,8 @@ class Consolidator:
 
     def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str,
               intent: str | None = None, annotate: set[str] | None = None,
-              procedure_refusals: list[str] | None = None,
-              requarantined: list[str] | None = None) -> tuple[list[str], list[str]]:
+              procedure_refusals: list[str] | None = None, requarantined: list[str] | None = None,
+              unchanged: list[str] | None = None) -> tuple[list[str], list[str]]:
         """Check each proposal of a PROPOSAL_SCHEMA answer against storage; a refused one never stops the others. A
         procedure is keyed by `intent`, the intent its runs were labelled with (L29), when given; each procedure's
         refusal is also added to `procedure_refusals`. Only the runs in `annotate`, when given, are annotated (M5: the
@@ -397,7 +399,8 @@ class Consolidator:
         trigger) keeps the owner's helpful/harmful counts; one with the scope and trigger of a current lesson the owner
         wrote or edited is refused (provenance: `Learning.put` would store it beside the owner's, never over it). A
         procedure revision that lost the owner's confirm (`propose_procedure`: a new step built on outside content) is
-        added to `requarantined`."""
+        added to `requarantined`; a procedure proposal identical to a version that exists changed nothing and is added
+        to `unchanged` instead of the accepted ones (when given)."""
         accepted, refused = [], []
         l = self.learning
         for p in proposals.get('episodes', []):
@@ -417,7 +420,10 @@ class Consolidator:
                 if any(e['episode'] not in available for e in p['examples']):
                     raise LearningRefused('procedure cites evidence outside its supplied context')
                 stored = l.propose_procedure(p, batch, maker, intent_id=intent)
-                accepted.append(stored['id'])
+                if stored.get('unchanged') and unchanged is not None:
+                    unchanged.append(stored['id'])
+                else:
+                    accepted.append(stored['id'])
                 if stored.get('requarantined') and requarantined is not None:
                     requarantined.append(stored['id'])
             except (LearningRefused, KeyError, TypeError) as e:

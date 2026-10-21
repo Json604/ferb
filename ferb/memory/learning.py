@@ -693,10 +693,12 @@ class Learning:
         """Check a proposed procedure against its examples' evidence and store it, keyed by `intent_id` (the intent
         its examples were labelled with, L29) when given, else by the proposal's intent. A step without `optional`
         is stored as required (false). A step citing an action built on outside content quarantines it, unless it
-        revises a version the owner confirmed and every such step (tool and template arguments) was already one of
-        that version's: the confirm then carries over (L29 final review I1; a code rule, never a model's judgement).
-        A revision that adds such a step is quarantined again: noted (`memory.procedure_requarantined`) and returned
-        with `requarantined` (the reason)."""
+        revises a confirmed version and every such step (tool and template arguments) was already one of the version
+        the owner confirmed by hand (`_hand_confirmed`): the confirm then carries over, marked as carried (L29 final
+        review I1, final fix 2 F1; a code rule, never a model's judgement). A revision of a confirmed version that
+        adds such a step, or whose hand-confirmed version was rolled back or is gone, is quarantined again: noted
+        (`memory.procedure_requarantined`) and returned with `requarantined` (the reason). A proposal whose content
+        matches an existing node changes nothing and is returned with `unchanged` (F3)."""
         examples = proposal.get('examples') or []
         steps = proposal.get('steps') or []
         if not examples or not steps or not proposal.get('intent'):
@@ -755,21 +757,54 @@ class Learning:
         before = self._current_procedure(key)
         result = self.put('procedure', key, proposal, [c['id'] for c in cards], made_by=made_by,
                           batch=batch, state=state)
+        # `put` returns an existing node whose content matches (the current version, or an older one): then the
+        # current version is unchanged, and no confirm carries or is lost (final fix 2, F3)
+        fresh = not result['valid_to'] and (before is None or result['supersedes'] == before['id'])
         requarantined = None
-        if before is not None and before['confirmed'] and before['id'] != result['id']:
-            # compared as stored (both redacted alike): the steps the owner read when they confirmed
-            confirmed = {(s.get('tool'), encoded(s.get('args') or {})) for s in before['body'].get('steps') or []}
-            if all((s.get('tool'), encoded(s.get('args') or {})) in confirmed
-                   for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
-                self._mark_confirmed(result['id'])
-            else:
-                requarantined = 'a step built on outside content that the confirmed version did not have'
-                self.note('memory.procedure_requarantined', {'procedure_id': result['id'],
-                                                             'confirmed_id': before['id'], 'reason': requarantined})
+        if fresh and before is not None and self._confirmed_raw(before['id']):     # it revises a confirmed version
+            hand = self._hand_confirmed(before['id'])
+            if hand is not None:
+                # compared as stored (both redacted alike) with the steps the owner read when they confirmed by hand
+                read = {(s.get('tool'), encoded(s.get('args') or {})) for s in hand['body'].get('steps') or []}
+                if all((s.get('tool'), encoded(s.get('args') or {})) in read
+                       for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
+                    self._mark_confirmed(result['id'], carried=True)
+                else:
+                    requarantined = 'a step built on outside content that the version the owner confirmed did not have'
+            elif any(outside_steps):
+                requarantined = 'the version the owner confirmed was rolled back or is gone'
+            if requarantined:
+                self.note('memory.procedure_requarantined', {
+                    'procedure_id': result['id'], 'revises': before['id'],
+                    'confirmed_id': hand['id'] if hand is not None else None, 'reason': requarantined})
         for ex, card in zip(examples, cards):
             self.receipt(result['id'], card['id'], ex['slots'])
         stored: dict[str, Any] = self.get(result['id'])  # type: ignore[assignment]
-        return stored | ({'requarantined': requarantined} if requarantined else {})
+        return stored | ({'requarantined': requarantined} if requarantined else {}) | \
+            ({} if fresh else {'unchanged': True})
+
+    def _confirmed_raw(self, node_id: str) -> int:
+        """A node's stored confirm: 0 none, 1 the owner's own (`confirm`), 2 carried to a revision
+        (`propose_procedure`). `get` reports any as True."""
+        row = self.db.conn.execute('SELECT confirmed FROM learning_nodes WHERE id = ?', (node_id,)).fetchone()
+        return int(row[0]) if row else 0
+
+    def _hand_confirmed(self, node_id: str) -> dict[str, Any] | None:
+        """The version of this procedure the owner confirmed by hand: this one, or the nearest earlier one reached
+        through versions whose confirm was carried (`supersedes`), so a carried confirm never counts as the owner's
+        own (final fix 2, F1, MP2). None when it was rolled back or is gone."""
+        ident: str | None = node_id
+        seen: set[str] = set()
+        while ident and ident not in seen:
+            seen.add(ident)
+            row = self.db.conn.execute('SELECT confirmed, supersedes, state FROM learning_nodes WHERE id = ?',
+                                       (ident,)).fetchone()
+            if row is None or row[0] not in (1, 2):
+                return None
+            if row[0] == 1:
+                return None if row[2] == 'rolled_back' else self.get(ident)
+            ident = row[1]
+        return None
 
     def _current_procedure(self, key: str) -> dict[str, Any] | None:
         """The current version of the procedure with this key (`key` as given; stored redacted), the one a new
@@ -871,11 +906,12 @@ class Learning:
         self.publish('memory.confirmed_derived', {'id': node_id})
         return self._refresh(node_id, None) if p['kind'] == 'procedure' else self.get(node_id)  # type: ignore[return-value]
 
-    def _mark_confirmed(self, node_id: str) -> None:
-        """The owner's confirm on a node (`confirm`, or carried to a procedure's revision: `propose_procedure`): a
+    def _mark_confirmed(self, node_id: str, *, carried: bool = False) -> None:
+        """The owner's confirm on a node (`confirm`: 1, also over a carried one, since the owner has now read it), or
+        one carried to a procedure's revision (`propose_procedure`: 2, never the owner's own, `_hand_confirmed`): a
         quarantined one becomes a candidate; its state is then refreshed by its caller."""
-        self.db.conn.execute('UPDATE learning_nodes SET confirmed=1,state=CASE WHEN state=\'quarantined\' '
-                             'THEN \'candidate\' ELSE state END WHERE id=?', (node_id,))
+        self.db.conn.execute('UPDATE learning_nodes SET confirmed=?,state=CASE WHEN state=\'quarantined\' '
+                             'THEN \'candidate\' ELSE state END WHERE id=?', (2 if carried else 1, node_id))
 
     def edit(self, node_id: str, text: str) -> dict[str, Any]:
         p = self.get(node_id)

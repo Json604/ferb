@@ -773,8 +773,148 @@ def test_a_revision_that_adds_an_outside_step_is_quarantined_again_and_says_so(t
         assert (revised['state'], revised['confirmed']) == ('quarantined', False)
         assert revised['requarantined'] and store.learned_procedures() == []
         assert noted == [('memory.procedure_requarantined', {
-            'procedure_id': revised['id'], 'confirmed_id': first['id'],
-            'reason': 'a step built on outside content that the confirmed version did not have'})]
+            'procedure_id': revised['id'], 'revises': first['id'], 'confirmed_id': first['id'],
+            'reason': 'a step built on outside content that the version the owner confirmed did not have'})]
+    finally:
+        db.close()
+
+
+# Final fix 2 (F1-F3): which confirm carries, and when. Steps by name over runs with these actions (outside-built or
+# not); `fill` is outside-built only in the runs made with fill_outside (the page showed the number).
+def _named_run(store, task_id, dish, *, fill_outside=False):
+    acts = [('nav', 'browser.navigate', {'url': 'https://shop.example'}, True),
+            ('nav_other', 'browser.navigate', {'url': 'https://other.example'}, True),
+            ('type', 'browser.type', {'text': dish}, False),
+            ('fill', 'browser.fill_form', {'phone': '9876543210'}, fill_outside)]
+    return store.put('episode', task_id, {'task_id': task_id, 'verified': True, 'request': f'cheapest {dish}',
+                                          'apps': {}, 'slots': {}, 'status': 'done',
+                                          'actions': [{'id': f'{task_id}-{n}', 'tool': t, 'args': a,
+                                                       'outside_action': o} for n, t, a, o in acts]},
+                     [], origin_label='ferb', made_by='code:evidence-card/3', state='active')
+
+
+def _named_runs(store, prefix, **kw):
+    return [_named_run(store, f'{prefix}{n}', d, **kw) for n, d in enumerate(REVISION_DISHES)]
+
+
+def _named(store, cards, *names, ui=''):
+    templates = {'nav': ('browser.navigate', {'url': 'https://shop.example'}),
+                 'nav_other': ('browser.navigate', {'url': 'https://other.example'}),
+                 'type': ('browser.type', {'text': '{dish}'}), 'fill': ('browser.fill_form', {'phone': '9876543210'})}
+    steps = [{'tool': templates[n][0], 'args': templates[n][1], 'expect': 'ok', 'optional': False,
+              'evidence': [f"{c['body']['task_id']}-{n}" for c in cards]} for n in names]
+    return store.propose_procedure({'intent': 'cheapest food order', 'slots': {'dish': 'string'},
+                                    'preconditions': {'apps': {}}, 'ui_hints': ui, 'steps': steps,
+                                    'examples': [{'episode': c['id'], 'slots': {'dish': d}}
+                                                 for c, d in zip(cards, REVISION_DISHES)]},
+                                   'b-' + '-'.join(names) + ui, 'model:test', intent_id='i-food')
+
+
+def _raw_confirmed(store, ident):
+    return store.db.conn.execute('SELECT confirmed FROM learning_nodes WHERE id = ?', (ident,)).fetchone()[0]
+
+
+def test_a_revision_nobody_confirmed_stays_quarantined_without_a_note(tmp_path):
+    """F2 (1): the carry needs the owner's confirm: an unconfirmed procedure's revision repeating its outside steps
+    stays quarantined, and nothing says requarantined."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        assert _named(store, cards, 'nav', 'type')['state'] == 'quarantined'
+        revised = _named(store, cards, 'nav', 'type', ui='scroll first')
+        assert (revised['state'], revised['confirmed'], 'requarantined' in revised) == ('quarantined', False, False)
+        assert noted == []
+    finally:
+        db.close()
+
+
+def test_the_same_tool_with_other_arguments_is_a_new_outside_step(tmp_path):
+    """F2 (2): the comparison reads a step's template arguments, not only its tool: navigating to another site is a
+    step the owner never read."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        first = store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        revised = _named(store, cards, 'nav_other', 'type')
+        assert (revised['state'], revised['confirmed']) == ('quarantined', False) and revised['requarantined']
+        assert [kind for kind, _ in noted] == ['memory.procedure_requarantined'] and first['state'] == 'learned'
+    finally:
+        db.close()
+
+
+def test_a_revision_adding_a_step_not_built_on_outside_content_keeps_the_confirm(tmp_path):
+    """F2 (3): only steps built on outside content need the owner's confirm; another step keeps it."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        revised = _named(store, cards, 'nav', 'type', 'fill')
+        assert (revised['state'], revised['confirmed']) == ('learned', True) and noted == []
+    finally:
+        db.close()
+
+
+def test_a_carried_confirm_never_counts_as_the_owners_own(tmp_path):
+    """F1 (MP2, the reviewer's probe 7): the owner confirmed A; B added a step not built on outside content, so
+    the confirm carried; C cites the same step now built on outside content. It is compared with A, the version the
+    owner confirmed by hand, so C is quarantined again. Once the owner confirms B (they have read it), C carries."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        a = store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        b = _named(store, cards, 'nav', 'type', 'fill')
+        assert (b['confirmed'], _raw_confirmed(store, a['id']), _raw_confirmed(store, b['id'])) == (True, 1, 2)
+        shown = _named_runs(store, 's', fill_outside=True)                    # the page now shows the number
+        c = _named(store, shown, 'nav', 'type', 'fill')
+        assert (c['state'], c['confirmed']) == ('quarantined', False) and c['requarantined']
+        assert noted == [('memory.procedure_requarantined', {
+            'procedure_id': c['id'], 'revises': b['id'], 'confirmed_id': a['id'],
+            'reason': 'a step built on outside content that the version the owner confirmed did not have'})]
+    finally:
+        db.close()
+    db, store, _, noted = _revision_store(tmp_path / 'again')
+    try:
+        cards = _named_runs(store, 'r')
+        store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        b = _named(store, cards, 'nav', 'type', 'fill')
+        store.confirm(b['id'])                                                 # the owner read B
+        assert _raw_confirmed(store, b['id']) == 1
+        c = _named(store, _named_runs(store, 's', fill_outside=True), 'nav', 'type', 'fill')
+        assert (c['state'], c['confirmed']) == ('learned', True) and noted == []
+    finally:
+        db.close()
+
+
+def test_a_carried_confirm_whose_hand_confirmed_version_was_rolled_back_carries_nothing(tmp_path):
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        a = store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        b = _named(store, cards, 'nav', 'type', ui='b')                         # carried
+        store.rollback(a['batch_id'])
+        assert store.get(b['id'])['valid_to'] is None and _raw_confirmed(store, b['id']) == 2
+        c = _named(store, cards, 'nav', 'type', ui='c')
+        assert (c['state'], c['confirmed']) == ('quarantined', False) and c['requarantined']
+        assert noted[-1][1]['confirmed_id'] is None
+    finally:
+        db.close()
+
+
+def test_a_proposal_identical_to_an_older_version_changes_nothing(tmp_path):
+    """F3 (the reviewer's probe 13): `put` returns an existing node whose content matches, here the superseded X; the
+    carry and requarantine apply only to a node written now over the current version, so nothing is said about X and
+    the current version Y is unchanged."""
+    db, store, _, noted = _revision_store(tmp_path)
+    try:
+        cards = _named_runs(store, 'r')
+        x = _named(store, cards, 'nav', 'nav_other', 'type')                    # quarantined, never confirmed
+        y = store.confirm(_named(store, cards, 'nav', 'type')['id'])
+        again = _named(store, cards, 'nav', 'nav_other', 'type')                # identical to X
+        assert again['id'] == x['id'] and again['unchanged'] and 'requarantined' not in again
+        assert noted == [] and _raw_confirmed(store, x['id']) == 0
+        assert store._current_procedure('i-food')['id'] == y['id'] and store.get(y['id'])['state'] == 'learned'
+        same = _named(store, cards, 'nav', 'type')                              # identical to the current Y
+        assert same['id'] == y['id'] and same['unchanged']
     finally:
         db.close()
 

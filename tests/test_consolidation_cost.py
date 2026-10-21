@@ -768,3 +768,16 @@ def test_an_intent_whose_runs_were_all_forgotten_during_its_call_leaves_no_job(l
     out = asyncio.run(consolidator(learning, fake(forgetting).make).catch_up())
     assert {"intent": intents.intent_id("a test intent"), "forgotten": True} in out["sources"]
     assert job(learning, "a test intent") == ()
+
+
+def test_a_proposal_identical_to_the_current_procedure_is_reported_unchanged(learning) -> None:
+    """Final fix 2, F3: a proposal whose content is a version that exists changes nothing; the pass result says
+    unchanged instead of accepted."""
+    cards = [dish_run(learning, n) for n in range(3)]
+    asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [procedure] = learning.items("procedure")
+    dish_run(learning, 3)                                                          # a new run: another call
+    out = asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())
+    [result] = [r for r in out["sources"] if r.get("intent") and "accepted" in r]
+    assert procedure["id"] not in result["accepted"] and result["unchanged"] == [procedure["id"]]
+    assert [p["id"] for p in learning.items("procedure")] == [procedure["id"]]
