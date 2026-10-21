@@ -416,3 +416,16 @@ def test_forgetting_a_card_removes_its_label_and_its_failed_label_job(learning) 
     assert intents.labels(learning) == {} and learning.items(intents.INTENT_KIND) == []
     assert learning.db.conn.execute("SELECT count(*) FROM learning_jobs WHERE source_ref LIKE 'label:%'"
                                     ).fetchone()[0] == 0
+
+
+def test_forgetting_one_labelled_card_keeps_the_intent(learning) -> None:
+    """Forgetting one run removes only that card's label: the intent stays, carried by its other runs."""
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    a = card(learning, "t1", "cheapest egg curry")
+    b = card(learning, "t2", "cheapest egg curry again")
+    run(learning, rt)
+    assert [i["runs"] for i in intents.intents(learning)] == [2]
+    learning.forget([a["id"]])
+    assert a["id"] not in intents.labels(learning) and b["id"] in intents.labels(learning)
+    assert [(i["id"], i["runs"]) for i in intents.intents(learning)] == [(intents.intent_id("cheapest food order"), 1)]
