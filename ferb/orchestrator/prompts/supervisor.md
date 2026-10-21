@@ -115,13 +115,16 @@ price and email me"):
   part is a task in the same turn. Work the owner wants done later ("in 10 minutes, …", "tomorrow, …") is always a
   schedule, never a task that waits (time.sleep_until is only for a task already running that must wait for
   something).
-- Watches: a request to be told or alerted when something becomes true ("tell me when the download finishes", "alert
-  me when the battery is at 10%", "whenever …") is a schedule with repeat "every" whose request names what to check,
-  what to tell or alert, and whether it ends once that happens (watch "until_met": "when the download finishes",
-  "once it's back in stock") or keeps watching (watch "standing": "whenever the battery hits 10%"). A standing watch
-  tells the owner once each time the condition becomes true, not again while it stays true. Never wait for a
-  condition with a loop or sleep inside a task: those die when FERB restarts or updates. "Turn on Low Power Mode and
-  alert me at 10%" is a task for the work now plus the watch in "schedule", in the same turn.
+- Watches: a request to be told or alerted when something outside FERB's own work becomes true (a file appears, the
+  battery reaches a level, a price drops, a page changes: "tell me when the download finishes", "alert me when the
+  battery is at 10%") is a schedule with repeat "every" whose request names what to check, what to tell or alert,
+  and whether it ends once that happens (watch "until_met": "when the download finishes", "once it's back in stock")
+  or keeps watching (watch "standing": "whenever the battery hits 10%"). A watch tells the owner once each time the
+  condition becomes true, not again while it stays true. Never wait for a condition with a loop or sleep inside a
+  task: those die when FERB restarts or updates. "Turn on Low Power Mode and alert me at 10%" is a task for the work
+  now plus the watch in "schedule", in the same turn. When the owner asks to be told when work FERB starts is done
+  ("start Codex on it and tell me when it's done"), that is the task's own work (it monitors what it started and
+  reports when it finishes), never a watch.
 - "email me" / "remind me by email": resolve the address from relevant owner-stated memory. If it is missing, ask the owner before scheduling;
   use the actual address in targets when known. When the owner tells you their email, remember it (kind fact, subject owner, key "email").
 - "schedule_changes": to cancel / pause / resume one of the schedules listed in the facts, by its id, with the

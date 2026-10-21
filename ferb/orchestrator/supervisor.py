@@ -43,7 +43,7 @@ from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
-from ferb.orchestrator.schedules import watch_met
+from ferb.orchestrator.schedules import FINISHED
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
@@ -87,10 +87,22 @@ REPORT_CONDITION = Condition(
     check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
 
 
-def checked_conditions(spec: TaskSpec) -> list[Condition]:
-    """What a check judges: the planner's conditions, then FERB's report condition, numbered last. None when the plan
-    has none (no check runs then)."""
-    return [*spec.success_conditions, REPORT_CONDITION] if spec.success_conditions else []
+def watch_condition(met: bool | None) -> Condition:
+    """A watch run's report of its condition (`watch_met`), as a condition the check judges like any other (fix wave
+    6c, review I2): met only when the evidence shows the condition as the worker reported it. Owner terms: WATCH_*."""
+    said = {True: "The condition this watch checks holds now, as my report says (watch_met true)",
+            False: "The condition this watch checks does not hold now, as my report says (watch_met false)",
+            None: "My report says whether the condition this watch checks holds now (it gave no watch_met)"}[met]
+    return Condition(text=said, check=Check(kind="none", path=None, text=None, url_contains=None, site=None,
+                                            expected=None), layer="outcome")
+
+
+def checked_conditions(spec: TaskSpec, watch: bool = False, watch_met: bool | None = None) -> list[Condition]:
+    """What a check judges: the planner's conditions, then (a watch's run) whether its condition holds as the worker
+    reported, then FERB's report condition, numbered last. None when the plan has none (no check runs then)."""
+    if not spec.success_conditions:
+        return []
+    return [*spec.success_conditions, *([watch_condition(watch_met)] if watch else []), REPORT_CONDITION]
 
 
 async def _value(result: Any) -> Any:
@@ -313,6 +325,7 @@ class _Tree:
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
+    watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
     step_context: str = ''
     required_inputs: list[str] = field(default_factory=list)
     steering: Steering = field(default_factory=Steering)
@@ -640,30 +653,30 @@ class Supervisor(WorkerRuns):
 
     async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
         """Decide an unattended run from its recorded request; report missing input when the owner is absent. A
-        watch's result also says whether the run before it found the condition met (`previously_met`): the owner was
-        told then, so the daemon doesn't alert again while it stays true (fix wave 6c)."""
-        previous = self._previous_run(sched.id)          # before this run's own record
+        watch's result also says whether the latest earlier check that reported the condition found it met
+        (`previously_met`): the owner was told then, so the daemon doesn't alert again for that crossing (fix wave 6c,
+        review I1)."""
+        previous = self._previous_run(sched.id, sched.watch != "none")          # before this run's own record
         final = await self._run_scheduled(sched, late, overdue_s, previous)
         if sched.watch == "none":
             return final
-        return final | {"previously_met": previous is not None and watch_met(previous["status"], previous["watch_met"])}
+        return final | {"previously_met": previous is not None and previous["last_reported"] is True}
 
     async def _run_scheduled(self, sched: Any, late: bool, overdue_s: float,
                              previous: dict[str, Any] | None) -> dict[str, Any]:
         request_id = self.ids.new_id()
         self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
         recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
-        # when the last run that answered ran, and how it ended (a watch's: whether it found the condition met); its
-        # answer is its own block, with its origins
-        last = None if previous is None else {"ran_at": previous["ran_at"], "status": previous["status"],
-                                              "later_runs_without_answer": previous["skipped"]} | (
-            {"watch_met": previous["watch_met"]} if sched.watch != "none" else {})
+        # a watch: what the latest earlier check that reported the condition found (the owner was told then)
+        watched = {} if sched.watch == "none" else {"last_reported_met": previous and previous["last_reported"]}
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
             "rule": sched.rule.describe(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
             "standing_sends": [scope.model_dump() for scope in recorded_scopes],
-            "previous_run": last})
+            # when the last run that answered ran, and how it ended; its answer is its own block, with its origins
+            "previous_run": {"ran_at": previous["ran_at"], "status": previous["status"],
+                             "later_runs_without_answer": previous["skipped"]} if previous else None} | watched)
         session = ChatSession(SCHEDULE_SESSION + sched.id, task_floor=self.tasks.max_rowid())
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
@@ -695,31 +708,38 @@ class Supervisor(WorkerRuns):
                                           conversation_id=session.id,      # the next run sees this one's answer
                                           origins=self._env.get(request_id, {}).get("turn_origins"),
                                           unattended_scopes=recorded_scopes,
-                                          start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id)):
+                                          start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id),
+                                          watch=sched.watch != "none"):
                 if ev.get("type") == "outcome":
                     final = ev
             return final
         finally:
             self._env.pop(request_id, None)
 
-    def _previous_run(self, schedule_id: str) -> dict[str, Any] | None:
+    def _previous_run(self, schedule_id: str, watch: bool = False) -> dict[str, Any] | None:
         """This schedule's most recent earlier run that left an answer (a task's answer, or the planner's reply), from
-        the journal, with how many later runs left none and, for a watch's run, whether it found the condition met.
-        Runs before 2026-10-15 had no conversation, so this reads each run's request id rather than the schedule's
-        conversation."""
-        skipped = 0
+        the journal, with how many later runs left none. Runs before 2026-10-15 had no conversation, so this reads
+        each run's request id rather than the schedule's conversation. For a watch, also `last_reported`: what the
+        latest earlier check that reported the condition found (a finished run's `watch_met` on its task answer;
+        failed and unanswered runs are passed over; None when no check reported it) (fix wave 6c, review I1)."""
+        skipped, found = 0, None
         for run in reversed(self.journal.of_kind("schedule.run", "schedule_id", schedule_id)):
             rid = str(run.data.get("request_id", ""))
             answers = [e for kind in ("task.answer", "chat.reply", "chat.clarify")
                        for e in self.journal.of_kind(kind, "request_id", rid)]
             if not answers:
-                skipped += 1
+                if found is None:
+                    skipped += 1
                 continue
             entry = max(answers, key=lambda e: e.at)
             status = str(entry.data.get("status") or ("needs_user" if entry.kind == "chat.clarify" else "done"))
-            return {"ran_at": run.at.isoformat(), "status": status, "entry": entry, "skipped": skipped,
-                    "watch_met": entry.data.get("watch_met")}        # a watch run's task answer records it
-        return None
+            found = found or {"ran_at": run.at.isoformat(), "status": status, "entry": entry, "skipped": skipped,
+                              "last_reported": None}
+            if not watch:
+                return found
+            if status in FINISHED and entry.data.get("watch_met") is not None:
+                return found | {"last_reported": entry.data["watch_met"]}
+        return found
 
     @staticmethod
     def _previous_run_block(previous: dict[str, Any] | None) -> tuple[ContextBlock, set[str]]:
@@ -789,8 +809,11 @@ class Supervisor(WorkerRuns):
             refs.append(TASK + r["id"])
         return rows, origins, refs
 
-    def running_trees(self) -> list[tuple[str, str]]:
-        return [(key, tree.spec.goal) for key, tree in self._tree_of.items() if key == tree.id]
+    def running_trees(self, watches: bool = True) -> list[tuple[str, str]]:
+        """Running task trees; `watches=False` leaves out watch checks, which clients hear of only through a result the
+        daemon publishes (fix wave 6c, review I3)."""
+        return [(key, tree.spec.goal) for key, tree in self._tree_of.items() if key == tree.id
+                and (watches or not tree.watch)]
 
 
     def cancel_all(self) -> None:
@@ -1753,8 +1776,11 @@ class Supervisor(WorkerRuns):
                        conversation_id: str | None = None, prior_task: str | None = None,
                        origins: set[str] | None = None, resume_id: str | None = None,
                        unattended_scopes: list[Any] | None = None,
-                       start_grant: tuple[list[Any], str] | None = None) -> AsyncIterator[dict[str, Any]]:
-        """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content."""
+                       start_grant: tuple[list[Any], str] | None = None,
+                       watch: bool = False) -> AsyncIterator[dict[str, Any]]:
+        """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content.
+        `watch`: a watch's check (fix wave 6c): its check judges the reported condition, and clients hear of it only
+        when the daemon publishes its result (review I3)."""
         tree_id = resume_id or self.ids.new_id()
         now = self.clock.now()
         limit = None  # the owner may give a task of any length; explicit stop still cancels all input
@@ -1763,7 +1789,7 @@ class Supervisor(WorkerRuns):
         root = Task(tree_id, None, spec.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], limit)
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], limit)
-        tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes)
+        tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes, watch=watch)
         tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
         front = self._env.get(request_id, {}).get("front_window")
         if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
@@ -1816,7 +1842,8 @@ class Supervisor(WorkerRuns):
             self.spans.finish(receipt_span, output={"memory_receipts": tree.intake_receipts})
         self._tree_of[tree_id] = tree
         self._tree_of[worker.id] = tree
-        self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
+        if not watch:
+            self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
         runner: asyncio.Task[None] | None = None
         unattended = request_id in self.state.approvals.unattended
         try:
@@ -2424,6 +2451,7 @@ class Supervisor(WorkerRuns):
             tree.checked_display = ""
             tree.recovery_display = ""
             tree.owner_display = ""
+            tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree)) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
@@ -2464,7 +2492,8 @@ class Supervisor(WorkerRuns):
                                          "error": f"{type(exc).__name__}: {exc}"})
                     tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
-                                         for i, c in enumerate(checked_conditions(tree.spec))]
+                                         for i, c in enumerate(checked_conditions(tree.spec, tree.watch,
+                                                                                  tree.watch_met))]
                 if checking_revision != len(tree.steering.messages) and not tree.stop:
                     tree.verification = []
                     continue
@@ -2784,7 +2813,7 @@ class Supervisor(WorkerRuns):
         ctx = ToolContext(task.id, "verifier", task.request_id, task.identity, frozenset(task.scopes),
                           self.device_id, None, self.roots.workspace, self.roots.owner_roots, self.roots.untrusted_roots)
         observations = []
-        judged = list(enumerate(checked_conditions(tree.spec)))
+        judged = list(enumerate(checked_conditions(tree.spec, tree.watch, tree.watch_met)))
         for i, condition in judged:
             if self.checks is not None and self.checks.code_checkable(condition, task.id):
                 observations.append(await self.checks.run(i, condition, task.id, ctx))
@@ -2866,7 +2895,8 @@ class Supervisor(WorkerRuns):
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
         attempted = bool(tree.verification)        # the last attempt finished and its conditions went to the check
         # FERB's report condition is judged only by a check: work that stopped before one has no report checked.
-        conditions = checked_conditions(tree.spec) if attempted else tree.spec.success_conditions
+        conditions = (checked_conditions(tree.spec, tree.watch, tree.watch_met) if attempted
+                      else tree.spec.success_conditions)
         by_index = {result.index: result for result in tree.verification}
         results = [by_index.get(index) or ConditionResult(index, condition.text, None, UNCHECKED, NOT_CHECKED)
                    for index, condition in enumerate(conditions)]
@@ -2948,6 +2978,10 @@ NOT_FINISHED = "I couldn't finish this task."
 REPORT_FALSE = "What I reported didn't match the records"
 REPORT_UNKNOWN = "I couldn't confirm my report matches the records"
 REPORT_UNCHECKED = "Whether what I reported matches the records"
+# A watch's condition as its check judged it (watch_condition), in the owner's terms
+WATCH_FALSE = "What I reported about whether it has happened didn't match the records"
+WATCH_UNKNOWN = "I couldn't confirm whether it has happened"
+WATCH_UNCHECKED = "Whether it has happened"
 
 
 def _sentence(text: str) -> str:
@@ -2969,13 +3003,18 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
     def owner_text(result: ConditionResult) -> str:
         conditions = tree.spec.success_conditions
         return (conditions[result.index].owner_text or result.text) if result.index < len(conditions) else result.text
-    # FERB's report condition, numbered last when a check ran. Found by index: a planner condition in the same words
-    # is its own condition. The owner never saw the worker's report, so it is said in their terms (P27).
-    mine = len(tree.spec.success_conditions) if tree.verification else -1
+    # FERB's report condition, numbered last when a check ran, and a watch's condition before it. Found by index: a
+    # planner condition in the same words is its own condition. The owner never saw the worker's report, so they are
+    # said in their terms (P27): false, unknown, unchecked.
+    planned = len(tree.spec.success_conditions)
+    mine = planned + int(tree.watch) if tree.verification else -1
+    said = {mine: (REPORT_FALSE, REPORT_UNKNOWN, REPORT_UNCHECKED)}
+    if tree.verification and tree.watch:
+        said[planned] = (WATCH_FALSE, WATCH_UNKNOWN, WATCH_UNCHECKED)
     for r in results:
         if r.met is not True and r.path != UNCHECKED:
-            if r.index == mine:
-                lines.append(f"- {REPORT_FALSE if r.met is False else REPORT_UNKNOWN}: {r.evidence}")
+            if r.index in said:
+                lines.append(f"- {said[r.index][0] if r.met is False else said[r.index][1]}: {r.evidence}")
             else:
                 lines.append(f"- {owner_text(r)} — {'failed' if r.met is False else 'unverified'}: {r.evidence}")
             if r.met is None and r.how:
@@ -2983,14 +3022,14 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
     why = tree.stop_reason or reason
     if why:
         lines += ["", "Why work stopped: " + why]
-    met = [r for r in results if r.met is True and r.index != mine]   # FERB's own check: shown when not met
+    met = [r for r in results if r.met is True and r.index not in said]   # FERB's own checks: shown when not met
     if met:
         lines += ["", "Confirmed:"] + [f"- {owner_text(r)}" for r in met]
     unchecked = [r for r in results if r.path == UNCHECKED]
     if unchecked:
         heading = ("Still to check (the check couldn't run, a problem on my side):" if tree.verification
                    else "Still to do:")
-        lines += ["", heading] + [f"- {REPORT_UNCHECKED if r.index == mine else owner_text(r)}" for r in unchecked]
+        lines += ["", heading] + [f"- {said[r.index][2] if r.index in said else owner_text(r)}" for r in unchecked]
     if out.artifacts:
         lines += ["", "Artifact paths (these do not establish completeness):"] + [f"- {path}" for path in out.artifacts]
     return "\n".join(lines)

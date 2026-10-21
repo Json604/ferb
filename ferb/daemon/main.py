@@ -2128,10 +2128,11 @@ class Daemon:
 
     # ---------- chat continuity ----------
 
-    async def _task_result(self, ev: dict[str, Any], shown: bool, alert: bool = False) -> None:
+    async def _task_result(self, ev: dict[str, Any], shown: bool, alert: bool = False, publish: bool = True) -> None:
         """What FERB told (or will tell) the owner about a task; a macOS notification only when chat was closed and no
         connected FERB client receives `task.result` to show it (L9). An `alert` (a watch's condition met) is told the
-        way a reminder is: a notification now, whether or not a client shows it, even while the owner is away."""
+        way a reminder is: a notification now, whether or not a client shows it, even while the owner is away. Without
+        `publish` (a watch check with nothing to tell) it is only recorded: no client hears of it (fix wave 6c, I3)."""
         assert self.db is not None
         ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
@@ -2140,6 +2141,8 @@ class Daemon:
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], at, ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
+        if not publish:
+            return
         if alert:
             await self._notify("FERB alert", str(ev.get("display_text") or answer), urgent=True)
         elif not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
@@ -2218,7 +2221,8 @@ class Daemon:
         if persona.get('approval'):
             pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
                        for p in pending]
-        running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
+        running = [{"task_id": t, "goal": g}                  # a watch check isn't listed: no client adopts it (I3)
+                   for t, g in (self.supervisor.running_trees(watches=False) if self.supervisor else [])]
         results = []
         for row in rows:
             recorded = json.loads(row['outcome_json'] or '{}')
@@ -2581,7 +2585,7 @@ class Daemon:
         from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
         assert self.db is not None
         if sid in self._last_runs:
-            return not self._paused_last_run(sid)
+            return not self._last_run_withdrawn(sid)
         standing = self.supervisor.standing if self.supervisor is not None else StandingPermissions(self.db)
         return standing.held(SCHEDULE_GRANT + sid)
 
@@ -2648,17 +2652,18 @@ class Daemon:
     def _schedule_live(self, sid: str) -> bool:
         """Whether a schedule's runs may still hold its recorded scope: it exists and wasn't cancelled or paused. A
         done schedule counts (`_run_schedule` marks it done just before running its last occurrence, D30) unless the
-        owner paused it during that run: a pause of a schedule with no future runs leaves it done (journaled)."""
+        owner paused it during that run (a pause of a schedule with no future runs leaves it done, journaled) or it is
+        a one-shot watch that ended (`schedule.met`): that withdraws its scope as a cancel does (fix wave 6c, M1)."""
         s = self.schedules.get(sid)
-        return s is not None and (s.state == "active" or s.state == "done" and not self._paused_last_run(sid))
+        return s is not None and (s.state == "active" or s.state == "done" and not self._last_run_withdrawn(sid))
 
-    def _paused_last_run(self, sid: str) -> bool:
-        """A `schedule.pause` journaled after the schedule's latest run started."""
+    def _last_run_withdrawn(self, sid: str) -> bool:
+        """A `schedule.pause` or `schedule.met` journaled after the schedule's latest run started."""
         assert self.db is not None
         row = self.db.conn.execute(
-            "SELECT kind FROM journal WHERE kind IN ('schedule.run', 'schedule.pause') "
+            "SELECT kind FROM journal WHERE kind IN ('schedule.run', 'schedule.pause', 'schedule.met') "
             "AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1", (sid,)).fetchone()
-        return row is not None and row[0] == "schedule.pause"
+        return row is not None and row[0] in ("schedule.pause", "schedule.met")
 
     async def _run_schedule(self, sid: str, overdue_s: float) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""
@@ -2691,27 +2696,53 @@ class Daemon:
         status = final.get("status")
         self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
         answer = str(final.get("answer") or final.get("summary") or "")
-        # A watch (fix wave 6c): a met condition is told like a reminder, once per crossing for a standing watch (the
-        # run before found it met: the owner was told then); a check that finished without one says nothing. A
-        # confirmed met run of a one-shot watch ends it, as the owner's stored words for it say.
+        # A watch (fix wave 6c): a met condition (its check judged the reported condition) is told like a reminder,
+        # once per crossing: not when the latest earlier check that reported it found it met, an unconfirmed one
+        # included (the owner was told then). A confirmed met run of a one-shot watch ends it, as the owner's stored
+        # words for it say, and says so. A finished check with nothing new to tell is recorded but reaches no client
+        # (review I3), and so does a check of a one-shot watch that another check ended meanwhile (M1).
         told_before = bool(final.pop("previously_met", False))
-        met = s.watch != "none" and watch_met(status, final.get("watch_met"))
-        alert = met and (s.watch == "until_met" or not told_before)
-        quiet = s.watch != "none" and status in FINISHED and final.get("watch_met") is not None and not alert
+        reported = final.get("watch_met")
+        met = s.watch != "none" and watch_met(status, reported)
+        superseded = s.watch == "until_met" and self._watch_ended(sid)
+        alert = met and not told_before and not superseded
         result = {**final, "goal": s.request}
-        if met and s.watch == "until_met" and status == "done" and self._end_watch(sid, str(final.get("task_id"))):
+        ended = (met and not superseded and s.watch == "until_met" and status == "done"
+                 and self._end_watch(sid, str(final.get("task_id"))))
+        if ended:                        # decided before `quiet`: the stop line always reaches the owner
             line = f"🗓 Stopped checking: {s.request}"
             answer = f"{answer}\n\n{line}"
             if final.get("display_text"):
                 result["display_text"] = f"{final['display_text']}\n{line}"
+            self._record_stop_line(str(final.get("task_id")), line)
+        quiet = s.watch != "none" and not ended and (
+            superseded or status in FINISHED and reported is not None and not alert)
         if overdue_s > 60:
             answer = f"(ran late) {answer}"
-        await self._task_result(result | {"answer": answer}, shown=quiet, alert=alert)
+        await self._task_result(result | {"answer": answer}, shown=quiet, alert=alert, publish=not quiet)
+
+    def _watch_ended(self, sid: str) -> bool:
+        """A one-shot watch already ended by one of its checks (`schedule.met`)."""
+        return bool(self._journal().of_kind("schedule.met", "schedule_id", sid))
+
+    def _record_stop_line(self, task_id: str, line: str) -> None:
+        """The stop line in the ending task's recorded outcome as well, so a client restoring it from `chat.status`
+        (whose short text comes from there) shows it too (review M3)."""
+        assert self.db is not None
+        row = self.db.conn.execute("SELECT status, outcome_json FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if row is None:
+            return
+        outcome, line = json.loads(row["outcome_json"] or "{}"), self._redact_text(line)
+        outcome["answer"] = f"{outcome.get('answer', '')}\n\n{line}"
+        if outcome.get("display_text"):
+            outcome["display_text"] = f"{outcome['display_text']}\n{line}"
+        self.tasks.set_status(task_id, row["status"], outcome)
 
     def _end_watch(self, sid: str, task_id: str) -> bool:
         """A one-shot watch's confirmed run found its condition met: it ends (done, its next check cleared, journaled
-        `schedule.met`). The stop is the owner's own words stored for that schedule; nothing a run reads can create or
-        widen one. A watch the owner paused or cancelled meanwhile is left as they set it."""
+        `schedule.met`, its recorded scope withdrawn as a cancel withdraws it). The stop is the owner's own words stored
+        for that schedule; nothing a run reads can create or widen one. A watch the owner paused or cancelled meanwhile
+        is left as they set it."""
         s = self.schedules.get(sid)
         if s is None or s.state != "active":
             return False
@@ -2719,7 +2750,8 @@ class Daemon:
             self.timers.cancel(s.timer_id)
         self.schedules.set_timer(sid, None, None)
         self.schedules.set_state(sid, "done")
-        self._journal().append("schedule.met", {"schedule_id": sid, "task_id": task_id})
+        self._journal().append("schedule.met", {"schedule_id": sid, "task_id": task_id})   # before the withdrawal:
+        self._withdraw_schedule_scope(sid, "met")             # a grant checks it from now on, as for a cancel (M1)
         return True
 
     # ---------- progressive setup ----------

@@ -14,6 +14,7 @@ from ferb.cli.client import Client
 from ferb.orchestrator.schemas import SCHEDULE_SCHEMA, WORKER_SCHEMA, ScheduleRequest
 from ferb.policy.targets import Targets
 from tests.conftest import RunningDaemon, chat, done, install, outcome, sup, task
+from tests.support.bus import Subscriber, until
 from tests.support.schedules import fire, make_schedule, own_daemon, results, run, schedule_reply
 
 PROMPTS = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
@@ -176,11 +177,11 @@ def test_a_standing_watch_tells_once_per_crossing_and_never_ends_itself(daemon: 
     assert [r["answer"] for r in results(daemon)] == ["The battery is at 12%."]
     still = _next_run(daemon, s.id, {"worker": _check(True, "The battery is at 11%, still at or below 12%.")})
     # the run sees what its previous run found (the mechanism the Kaggle-rank schedule's runs use, live check 55)
-    assert '"watch_met": true' in still.contexts[0][2] and "The battery is at 12%." in still.contexts[0][2]
+    assert '"last_reported_met": true' in still.contexts[0][2] and "The battery is at 12%." in still.contexts[0][2]
     _next_run(daemon, s.id, {"worker": _check(False, "The battery is at 40%.")})
     assert len(notes) == 1 and results(daemon) == []                     # still true, then not: both quiet
     again = _next_run(daemon, s.id, {"worker": _check(True, "The battery is at 10%.")})
-    assert '"watch_met": false' in again.contexts[0][2]
+    assert '"last_reported_met": false' in again.contexts[0][2]
     assert notes[1:] == [("FERB alert", "The battery is at 10%.")]       # it crossed again: told again
     current = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
     assert current.state == "active" and current.next_run > daemon.daemon.clock.now()
@@ -230,6 +231,213 @@ def test_ferb_schedules_says_which_kind_of_watch_each_one_is(daemon: RunningDaem
                     "write report.md"}
 
 
+# ---------- once per crossing: judged against the last check that reported the condition (review I1) ----------
+
+def _refuted(i: int, why: str) -> str:
+    return json.dumps({"results": [{"index": i, "met": False, "evidence": why}]})
+
+
+def test_a_failed_or_unanswered_check_between_two_met_ones_does_not_tell_again(daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    s = _watch(daemon, BATTERY_WATCH, BATTERY_WORDS, "standing")
+    install(daemon, [sup("task", "Checking.", task("check the battery level"))],
+            {"worker": _check(True, "The battery is at 12%.")})
+    fire(daemon, 15 * 60 + 1)
+    _next_run(daemon, s.id, {"worker": _check(True, "The battery is at 11%."),
+                             "worker.verify": _refuted(0, "pmset wasn't read.")})          # this check failed
+    install(daemon, [sup("reply", "I'll look again next time.")])                           # an unanswered one
+    nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id)).next_run
+    fire(daemon, (nxt - daemon.daemon.clock.now()).total_seconds() + 1)
+    again = _next_run(daemon, s.id, {"worker": _check(True, "The battery is at 10%.")})
+    assert '"last_reported_met": true' in again.contexts[0][2]        # the last check that reported it found it met
+    # told once for the crossing; the failed check and the reply are told as any scheduled run's are
+    assert [title for title, _ in notes] == ["FERB alert", "FERB", "FERB finished"]
+
+
+def test_a_never_confirmed_one_shot_watch_alerts_once(daemon: RunningDaemon) -> None:
+    """A page the checker can't confirm: every check ends done but not confirmed, and the watch never ends."""
+    notes = _notes(daemon)
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    unconfirmed = {"worker": _check(True, "done.txt is there."), "worker.verify": UNRESOLVED,
+                   "worker.dispatch": FINISH_UNCONFIRMED}
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))], dict(unconfirmed))
+    fire(daemon, 15 * 60 + 1)
+    for _ in range(2):
+        _next_run(daemon, s.id, dict(unconfirmed))
+    assert [title for title, _ in notes] == ["FERB alert"]
+    assert [r["status"] for r in results(daemon)] == ["done_unverified"]      # the later ones say nothing new
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "active"
+
+
+def test_a_one_shot_told_while_unconfirmed_ends_with_only_the_stop_line(daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
+            {"worker": _check(True, "done.txt is there."), "worker.verify": UNRESOLVED,
+             "worker.dispatch": FINISH_UNCONFIRMED})
+    fire(daemon, 15 * 60 + 1)
+    _next_run(daemon, s.id, {"worker": _check(True, "done.txt is in Downloads now.")})
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "done"
+    assert [title for title, _ in notes] == ["FERB alert", "FERB finished"]     # no second alert for one crossing
+    ending = results(daemon)[-1]
+    assert ending["answer"].endswith(f"🗓 Stopped checking: {FILE_WATCH}")      # but the stop line reaches the owner
+
+
+# ---------- the checker judges the reported condition (review I2) ----------
+
+def test_the_checker_judges_the_reported_condition_and_a_contradicting_flag_never_ends_a_watch(
+        daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    script = install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
+                     {"worker": _check(True, "done.txt isn't in Downloads yet."),
+                      "worker.verify": json.dumps({"results": [
+                          {"index": 0, "met": True, "evidence": "Downloads was listed."},
+                          {"index": 1, "met": False, "evidence": "Downloads has no done.txt."}]})})
+    fire(daemon, 15 * 60 + 1)
+    checker = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
+    assert "1. The condition this watch checks holds now, as my report says (watch_met true)\n" in checker
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "active"
+    assert _journal(daemon, "schedule.met", s.id) == [] and [title for title, _ in notes] == ["FERB"]
+    [failed] = results(daemon)
+    assert failed["status"] == "failed"
+    assert "- What I reported about whether it has happened didn't match the records: Downloads has no done.txt." \
+        in failed["answer"]
+
+
+def test_an_ordinary_task_gets_no_watch_condition(daemon: RunningDaemon) -> None:
+    script = install(daemon, [sup("task", "On it.", task("write report.md"))], {"worker": done("wrote it")})
+    chat(daemon, "write report.md")
+    checker = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
+    assert "watch" not in checker.split("Conditions:", 1)[1].split("Condition layers", 1)[0]
+
+
+# ---------- a quiet check reaches no client (review I3) ----------
+
+def test_a_quiet_check_is_recorded_but_never_reaches_a_client(daemon: RunningDaemon) -> None:
+    s = _watch(daemon, BATTERY_WATCH, BATTERY_WORDS, "standing")
+    seen: dict[str, Any] = {}
+
+    def check(token: str) -> str:                           # while the check runs, as the app's 5 s refresh does
+        c = Client(daemon.sock)
+        try:
+            seen["running"] = c.call("chat.status", {"peek": True})["running"]
+        finally:
+            c.close()
+        return _check(False, "The battery is at 64%.")(token)
+    client = Subscriber(daemon)
+    try:
+        install(daemon, [sup("task", "Checking.", task("check the battery level"))], {"worker": check})
+        fire(daemon, 15 * 60 + 1)
+        quiet = run(daemon, lambda: daemon.daemon.db.conn.execute(
+            "SELECT task_id, shown, answer FROM task_results").fetchall())
+        assert [(r["shown"], r["answer"]) for r in quiet] == [(1, "The battery is at 64%.")]     # recorded
+        assert seen["running"] == []                    # never listed as running, so no client adopts it
+        assert client.topic("task.created") == [] and client.topic("task.result") == []
+        _next_run(daemon, s.id, {"worker": _check(True, "The battery is at 12%.")})
+        told = until(lambda: client.topic("task.result"), "the alert's result")
+        assert [r["answer"] for r in told] == ["The battery is at 12%."] and told[0]["goal"] == BATTERY_WATCH
+        assert client.topic("task.created") == []       # it arrives as work started elsewhere, as clients expect
+    finally:
+        client.close()
+
+
+# ---------- the watch text leaves FERB's own work alone (review I4) ----------
+
+OWN_WORK_PLANNER = (
+    "When the owner asks to be told when work FERB starts is done (\"start Codex on it and tell me when it's done\"), "
+    "that is the task's own work (it monitors what it started and reports when it finishes), never a watch.")
+OWN_WORK_WORKER = (
+    "Observing a process or agent your task started (shell_wait, monitoring a coding agent until it finishes) is not a "
+    "watch: it stays your task.")
+
+
+@pytest.mark.parametrize("name, sentence", [("supervisor.md", OWN_WORK_PLANNER), ("worker.md", OWN_WORK_WORKER)])
+def test_watching_work_ferb_started_stays_the_tasks_own_work(name: str, sentence: str) -> None:
+    assert " ".join(sentence.split()) in _words(name)
+
+
+def test_the_watch_examples_leave_any_time_is_fine_alone() -> None:
+    """A bare "whenever …" example clashed with the Times section, where "whenever" means any time is fine (M5)."""
+    assert '"whenever …"' not in _words("supervisor.md")
+
+
+# ---------- ending a watch, overlapping runs, pauses (review M1, M3, M6, M7) ----------
+
+def test_an_ended_watch_withdraws_its_recorded_scope_as_a_cancel_does(daemon: RunningDaemon) -> None:
+    from ferb.policy.standing import SCHEDULE_GRANT
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
+            {"worker": _check(True, "done.txt is in Downloads now.")})
+    fire(daemon, 15 * 60 + 1)
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "done"
+    assert run(daemon, lambda: daemon.daemon._schedule_live(s.id)) is False
+    assert run(daemon, lambda: supervisor._grant_in_force(SCHEDULE_GRANT + s.id)) is False
+
+
+def test_a_check_overlapping_the_one_that_ended_the_watch_tells_nothing(daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+
+    def overlapped(token: str) -> str:                      # another check of it ends the watch meanwhile
+        run(daemon, lambda: daemon.daemon._end_watch(s.id, "tree-other"))
+        return _check(True, "done.txt is in Downloads now.")(token)
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))], {"worker": overlapped})
+    fire(daemon, 15 * 60 + 1)
+    assert notes == [] and results(daemon) == []
+    assert [e.data["task_id"] for e in _journal(daemon, "schedule.met", s.id)] == ["tree-other"]
+
+
+@pytest.mark.parametrize("change", ["pause", "cancel"])
+def test_a_watch_paused_or_cancelled_during_its_ending_run_stays_as_the_owner_set_it(
+        daemon: RunningDaemon, change: str) -> None:
+    notes = _notes(daemon)
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+
+    def meanwhile(token: str) -> str:
+        run(daemon, lambda: daemon.daemon._schedule_change(s.id, change))
+        return _check(True, "done.txt is in Downloads now.")(token)
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))], {"worker": meanwhile})
+    fire(daemon, 15 * 60 + 1)
+    kept = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
+    assert kept.state == {"pause": "paused", "cancel": "cancelled"}[change]
+    assert _journal(daemon, "schedule.met", s.id) == [] and _pending_checks(daemon) == []
+    assert notes == [("FERB alert", "done.txt is in Downloads now.")]       # told, without a stop line
+
+
+def test_the_stop_line_is_in_the_short_text_a_client_restores(daemon: RunningDaemon) -> None:
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
+            {"worker": _check(True, "done.txt is in Downloads now.")})
+    fire(daemon, 15 * 60 + 1)
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "done"
+    c = Client(daemon.sock)
+    try:
+        [restored] = c.call("chat.status", {"peek": True})["results"]         # the app's restore path (M3)
+    finally:
+        c.close()
+    assert restored["display_text"].endswith(f"🗓 Stopped checking: {FILE_WATCH}")
+
+
+def test_a_failed_attempt_does_not_keep_an_earlier_attempts_report(daemon: RunningDaemon) -> None:
+    retry = json.dumps({"action": "retry", "worker_type": "default", "instructions": "Look again.", "question": "",
+                        "stop_reason": ""})
+    finish = json.dumps({"action": "finish", "worker_type": "default", "instructions": "Stop and report.",
+                         "question": "", "stop_reason": ""})
+    s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
+    install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
+            {"worker": [_check(True, "done.txt is there.")(""), json.dumps({"status": "done"})],   # invalid
+             "worker.verify": _refuted(1, "Downloads has no done.txt."), "worker.dispatch": [retry, finish]})
+    fire(daemon, 15 * 60 + 1)
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    [answer] = run(daemon, lambda: [e for e in supervisor.journal.entries_of("task.answer")])
+    assert answer.data["status"] == "failed" and "watch_met" not in answer.data
+    assert run(daemon, lambda: daemon.daemon.schedules.get(s.id)).state == "active"
+
+
 # ---------- restarts and updates ----------
 
 def test_a_watch_and_its_next_check_survive_a_restart(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -263,29 +471,31 @@ def _words(name: str) -> str:
 
 
 WATCH_PLANNER = (
-    'Watches: a request to be told or alerted when something becomes true ("tell me when the download finishes", '
-    '"alert me when the battery is at 10%", "whenever …") is a schedule with repeat "every" whose request names '
-    'what to check, what to tell or alert, and whether it ends once that happens (watch "until_met": "when the '
-    'download finishes", "once it\'s back in stock") or keeps watching (watch "standing": "whenever the battery '
-    'hits 10%"). A standing watch tells the owner once each time the condition becomes true, not again while it stays '
-    'true. Never wait for a condition with a loop or sleep inside a task: those die when FERB restarts or updates. '
-    '"Turn on Low Power Mode and alert me at 10%" is a task for the work now plus the watch in "schedule", in the '
-    'same turn.')
+    "Watches: a request to be told or alerted when something outside FERB's own work becomes true (a file appears, "
+    'the battery reaches a level, a price drops, a page changes: "tell me when the download finishes", "alert me '
+    'when the battery is at 10%") is a schedule with repeat "every" whose request names what to check, what to tell'
+    ' or alert, and whether it ends once that happens (watch "until_met": "when the download finishes", "once it\'s '
+    'back in stock") or keeps watching (watch "standing": "whenever the battery hits 10%"). A watch tells the owner'
+    ' once each time the condition becomes true, not again while it stays true. Never wait for a condition with a '
+    'loop or sleep inside a task: those die when FERB restarts or updates. "Turn on Low Power Mode and alert me at '
+    '10%" is a task for the work now plus the watch in "schedule", in the same turn.')
 WATCH_RUN = (
-    "A watch (watch in the schedule facts) checks its condition afresh in every run: use a task whose answer says what "
-    "it observed and whether the condition holds now. When it holds, tell or alert the owner as the request asks; the "
-    "run may use its tools for an alert the owner asked for (a sound, speech). In a standing watch whose previous run "
-    "already found it holding (previous_run.watch_met true), the owner was told then: stay quiet, with no new alert, "
-    "and say it still holds. FERB itself ends an until_met watch once a confirmed run finds the condition met, and "
-    "tells the owner it stopped checking.")
+    'A watch (watch in the schedule facts) checks its condition afresh in every run: use one task, without a plan, '
+    'whose answer says what it observed and whether the condition holds now. A watch tells the owner once each time'
+    ' the condition becomes true. When it holds and the latest earlier check that reported it found it not holding,'
+    ' or none did (last_reported_met false or null in the schedule facts), tell or alert the owner as the request '
+    'asks; the run may use its tools for an alert the owner asked for (a sound, speech). When last_reported_met is '
+    'true, the owner was told then: stay quiet, with no new alert, and say it still holds. FERB itself ends an '
+    'until_met watch once a confirmed run finds the condition met, and tells the owner it stopped checking.')
 WATCH_WORKER = (
     "- watch_met: only when your task checks a condition the owner asked to be told about (a watch): true when your "
     "fresh observation shows it holds now, false when it doesn't; null for any other task.")
 NO_LOOP_WORKER = (
-    "A request to be told or alerted when something becomes true later is FERB's watch, a schedule that survives "
-    "restarts and checks it once per run: check it once when that is your task, do only your own part when your task "
-    "is other work from the same request, and never wait for the condition with a loop, sleep or background process "
-    "(those die when FERB restarts or updates).")
+    "A request to be told or alerted when something outside your task's work becomes true later (a file appearing, "
+    "a battery level, a price) is FERB's watch, a schedule that survives restarts and checks it once per run: check"
+    ' it once when that is your task, do only your own part when your task is other work from the same request, and'
+    ' never wait for such a condition with a loop, sleep or background process (those die when FERB restarts or '
+    'updates).')
 
 
 @pytest.mark.parametrize("name, sentence", [("supervisor.md", WATCH_PLANNER), ("scheduled.md", WATCH_RUN),
