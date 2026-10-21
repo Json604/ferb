@@ -139,7 +139,8 @@ def _new_task(d: Any, task_id: str, request: str, outcome: dict[str, Any] | None
     now = d.clock.now().isoformat()
     d.db.conn.execute(
         "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
-        "outcome_json, created_at, updated_at) VALUES (?, ?, NULL, ?, 'book', 'worker', 'worker', '[]', 'done', ?, ?, ?)",
+        "outcome_json, created_at, updated_at) VALUES (?, ?, NULL, ?, 'book', 'worker', 'worker', '[]', 'done', ?, ?, "
+        "?)",
         (task_id, task_id, request, json.dumps(outcome or {}), now, now))
 
 
@@ -324,3 +325,132 @@ def test_only_a_recorded_trees_finish_queues_a_run_not_a_workers(daemon: Running
     assert _on_loop(daemon, lambda: queued("t-run")) == 1
     daemon.run(d._settle_forgets())
     _end(daemon, gate, job)
+
+
+# ---------- closing round (re-review 4: N-1, N-2) ----------
+
+def _resume(d: Any, tree: str, request: str) -> None:
+    """A resume in place (supervisor.run_tree, resume_id): the tasks row's upsert to the new request, its root span."""
+    d.db.conn.execute("UPDATE tasks SET request_id = ?, status = 'running', outcome_json = '{}' WHERE id = ?",
+                      (request, tree))
+    d.spans.start("task", task_id=tree, input={"goal": "book it", "request_id": request})
+
+
+def _race(daemon: RunningDaemon, forget: Any, given: str, answer: str, tool_out: str) -> dict[str, Any]:
+    """T (given the item) runs at the forget; it finishes (answer, result, task.finished) and a correction that raced
+    its completion resumes it in place under r-corr before the queued tree-finish run reads `tasks`."""
+    d = daemon.daemon
+    made: dict[str, Any] = {}
+    _on_loop(daemon, lambda: d.db.conn.execute("INSERT INTO task_memory_refs VALUES ('t-run', ?)", (given,)))
+
+    def writes() -> None:
+        root = d.spans.start("task", task_id="t-run", input={"goal": "book it", "request_id": "r-run"})
+        tool = d.spans.start("tool.call", task_id="t-run", parent_id=root.id, input={"tool": "calendar.add"})
+        d.spans.finish(tool, output={"text": tool_out})
+        d.journal.append("task.answer", {"task_id": "t-run", "request_id": "r-run", "status": "done",
+                                         "text": f"{answer}\nAll set"})
+        d.spans.finish(root, output={"answer": answer})
+        _result(daemon, "t-run", answer)
+        d._publish("task.finished", {"task_id": "t-run", "status": "done"})
+        _resume(d, "t-run", "r-corr")                      # the correction carries on in place
+        made["tool"] = tool.id
+    gate, job = _running_across_the_forget(daemon, writes, "r-run", "t-run")
+    real = d.supervisor.running_trees
+    d.supervisor.running_trees = lambda: [("t-run", "book it")]
+    try:
+        _on_loop(daemon, forget)
+    finally:
+        d.supervisor.running_trees = real
+    daemon.run(d._settle_forgets())
+    _end(daemon, gate, job)
+    return made
+
+
+def _cleaned(daemon: RunningDaemon, made: dict[str, Any]) -> Any:
+    return (_answers(daemon, "task.answer", "request_id", "r-run"), _span_out(daemon, made["tool"]),
+            _task_records(daemon, "t-run")[1])
+
+
+def test_a_correction_resuming_the_task_before_its_run_reads_tasks_leaves_nothing_of_the_item(
+        daemon: RunningDaemon) -> None:
+    """Re-review 4, N-1: a correction racing the task's completion resumed it in place before the run queued at the
+    tree's finish read `tasks`, so that run took the finished run's answer, spans and result as not its own and the
+    item stayed. A tree running at the forget stays paired with the request recorded then."""
+    d = daemon.daemon
+    item = daemon.run(d._memory_add(None, {"content": QUILL, "key": "dentist"}))      # type: ignore[arg-type]
+    made = _race(daemon, lambda: d._forget_memory(item["id"]), "memory:" + item["id"],
+                 "Booked with Quillfeather on Monday", "Booked with Quillfeather Monday")
+    assert _cleaned(daemon, made) == ([f"{REMOVED}\nAll set"], {"text": REMOVED}, [REMOVED])
+
+
+def test_a_correction_resuming_the_task_before_its_run_after_a_learned_items_forget(daemon: RunningDaemon) -> None:
+    """N-1 for a learned item: the finished run's answer and result lose the lesson too."""
+    d = daemon.daemon
+    lesson = "always cc Zorblat on invoices"
+    node = _lesson(daemon, lesson)
+    made = _race(daemon, lambda: d._forget_nodes([node["id"]]), node["id"], f"Sent; {lesson}", lesson)
+    assert _cleaned(daemon, made) == ([f"{REMOVED}\nAll set"], {"text": REMOVED}, [REMOVED])
+
+
+def test_a_resume_in_place_waits_for_the_forget_scrub_before_reading_the_task(daemon: RunningDaemon) -> None:
+    """N-1, the supervisor's path: a continue, retry or correction reads the task's saved state (its last recorded
+    result goes into the resumed goal) and upserts it; it settles forgets first, so the scrub queued as that task
+    finished has run, and the state is read again after it."""
+    from tests.conftest import chat, install, outcome, sup, task
+    d_sup = daemon.daemon.supervisor                     # the real supervisor path
+    install(daemon, [sup("task", "Starting", task("tidy the notes folder", "owner"))],
+            {"worker": json.dumps({"status": "done", "summary": "Tidied.", "artifacts": [], "evidence": []})})
+    first = outcome(chat(daemon, "tidy the notes folder"))
+    calls: list[str] = []
+    settle, load = d_sup.settle, d_sup.continuity.load
+
+    async def settled() -> None:
+        calls.append("settle")
+        await settle()
+
+    def loaded(*args: Any) -> Any:
+        calls.append("load")
+        return load(*args)
+    d_sup.settle, d_sup.continuity.load = settled, loaded
+    retry = json.loads(sup("task", "Retrying", task("tidy the notes folder again", "owner")))
+    retry["control"] = {"task_id": first["task_id"], "action": "retry", "standing_sends": "unchanged",
+                        "supersedes": []}
+    install(daemon, [json.dumps(retry)],
+            {"worker": json.dumps({"status": "done", "summary": "Tidied again.", "artifacts": [], "evidence": []})})
+    try:
+        assert outcome(chat(daemon, "try that again"))["status"] == "done"
+    finally:
+        d_sup.settle, d_sup.continuity.load = settle, load
+    # the turn's settle, the planner output's check and the control path's read, then the resume's own read after a
+    # settle
+    assert calls[:3] == ["settle", "load", "load"] and calls[-2:] == ["settle", "load"]
+
+
+def test_an_identity_forgets_tree_started_since_by_a_message_planning_at_it_loses_the_statement(
+        daemon: RunningDaemon) -> None:
+    """Re-review 4, N-2: a message still being planned at an identity forget (the statement in its planner's system
+    prompt) starts its task a minute later; that tree is the work running at the forget, so its answer, spans and
+    outcome lose the statement as a tree running then does (the identity's "since" scope still ends at the forget for
+    everything else)."""
+    d = daemon.daemon
+    node = _identity(daemon, "I sign emails as Kestrovan")
+    made: dict[str, Any] = {}
+
+    def writes() -> None:
+        d.clock.advance(60)                              # the task starts after the forget
+        _new_task(d, "t-late", "r-plan", {"answer": "I sign emails as Kestrovan"})
+        root = d.spans.start("task", task_id="t-late", input={"goal": "sign as Kestrovan", "request_id": "r-plan"})
+        tool = d.spans.start("tool.call", task_id="t-late", parent_id=root.id, input={"tool": "mail.draft"})
+        d.spans.finish(tool, output={"text": "I sign emails as Kestrovan"})
+        d.journal.append("task.answer", {"task_id": "t-late", "request_id": "r-plan", "status": "done",
+                                         "text": "Signed it: I sign emails as Kestrovan\nDone"})
+        d.spans.finish(root, output={"answer": "x"})
+        made["tool"] = tool.id
+    gate, job = _running_across_the_forget(daemon, writes, "r-plan")
+    _on_loop(daemon, lambda: d._forget_nodes([node["id"]]))
+    daemon.run(d._settle_forgets())
+    _end(daemon, gate, job)
+    assert _answers(daemon, "task.answer", "task_id", "t-late") == [f"{REMOVED}\nDone"]
+    assert _span_out(daemon, made["tool"]) == {"text": REMOVED}
+    assert _on_loop(daemon, lambda: json.loads(d.db.conn.execute(
+        "SELECT outcome_json FROM tasks WHERE id = 't-late'").fetchone()[0])) == {"answer": REMOVED}

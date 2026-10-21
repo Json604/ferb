@@ -37,8 +37,9 @@ def _identity(d: RunningDaemon, text: str) -> Any:
 
 
 def _held_in_spans(d: RunningDaemon, text: str, where: str = "1", *args: Any) -> int:
-    return _on_loop(d, lambda: sum((r[0] or "").count(text) + (r[1] or "").count(text) for r in d.daemon.db.conn.execute(
-        f"SELECT input_json, output_json FROM spans WHERE {where}", args)))
+    return _on_loop(d, lambda: sum((r[0] or "").count(text) + (r[1] or "").count(text)
+                                   for r in d.daemon.db.conn.execute(
+                                       f"SELECT input_json, output_json FROM spans WHERE {where}", args)))
 
 
 def _texts(d: RunningDaemon, kind: str) -> list[str]:

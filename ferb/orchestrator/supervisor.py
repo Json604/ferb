@@ -1122,7 +1122,6 @@ class Supervisor(WorkerRuns):
             if control.action in ('steer', 'continue') and active is not None and not active.accepting_updates:
                 # Work already completed; let its normal finalization finish, without requesting cancellation.
                 await active.finished.wait()
-                prior = self.continuity.load(control.task_id, session.id) or prior
             # A correction racing natural completion becomes an ordinary continuation of that saved task.
             controlled_ids = self._tree_task_ids(self._tree_of[control.task_id]) if control.task_id in self._tree_of else set()
             was_running = self.stop_tree(control.task_id) if control.action in ('stop', 'retry') else False
@@ -1137,6 +1136,10 @@ class Supervisor(WorkerRuns):
                 yield {"type": "reply", "text": "Stopped, as you asked." if was_running else "That attempt has already ended."}
                 self._env.pop(request_id, None)
                 return
+            # A forget's scrub queued as that task finished runs first, so its saved state (its last result goes into
+            # the resumed goal) is read after the clean-up, and the resume in place starts from it (fix wave 6a).
+            await self.settle()
+            prior = self.continuity.load(control.task_id, session.id) or prior
             prior_spec, prior_request, prior_state = prior
             # Every continue and retry of an ended task carries on in place (resume_id), so completed work, uncertain
             # effects (P19's repeat check is per tree: a send or payment whose outcome is unknown is never repeated
