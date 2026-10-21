@@ -8,6 +8,10 @@ from typing import Any
 import jsonschema
 
 
+class InvalidAnswer(ValueError):
+    """The model answered, but its answer doesn't match the requested schema: output validation, not a failed call."""
+
+
 def check_final(text: str, schema: dict[str, Any] | None) -> str:
     """The answer unchanged when it is JSON matching schema; ValueError naming the first problem otherwise."""
     if not schema:

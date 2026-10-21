@@ -17,7 +17,7 @@ from ferb.clock import context
 from ferb.core.context import ContextBlock, assemble, count_tokens, runtime_limits
 from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, RuntimeUnavailable
 from ferb.core.prompts import load_prompt
-from ferb.core.structured import check_final
+from ferb.core.structured import InvalidAnswer, check_final
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
@@ -133,10 +133,6 @@ def told(e: BaseException, fallback: str) -> str:
 
 class RuntimeViolation(Exception):
     pass
-
-
-class InvalidAnswer(ValueError):
-    """The model answered, but its answer doesn't match the requested schema: output validation, not a failed call."""
 
 
 def reserve_tokens(system: str, tool_schemas: list[Any], output_schema: Any) -> int:

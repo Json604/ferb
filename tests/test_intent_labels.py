@@ -202,6 +202,41 @@ def test_a_label_whose_call_failed_is_tried_again_on_the_next_pass(learning) -> 
                                           ("label:" + c["id"],)).fetchone()) == ("done", "label/1")
 
 
+def test_an_answer_outside_the_schema_waits_like_a_refused_one(learning) -> None:
+    """The model answered, wrongly: like a refused answer, it waits for its card to change or `force`."""
+    c = card(learning, "t1", "cheapest egg curry")
+    rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: {"intent_id": 3},
+                        id(PROPOSAL_SCHEMA): lambda ctx: EMPTY})
+    run(learning, rt)
+    status, error, inputs = learning.db.conn.execute(
+        "SELECT status, error, inputs FROM learning_jobs WHERE source_ref = ?", ("label:" + c["id"],)).fetchone()
+    assert status == "failed" and "schema" in error and inputs == "label/1"
+    calls = len(_label_contexts(rt))
+    run(learning, rt)
+    assert len(_label_contexts(rt)) == calls
+
+
+def test_a_runtimes_invalid_answer_is_an_answer_outside_the_schema_not_a_failed_call() -> None:
+    from ferb.core.structured import InvalidAnswer
+    from ferb.core.types import Identity, RunHandle, RuntimeEvent, Task
+    from ferb.memory.calls import learning_call
+
+    class Invalid:
+        name, limits = "fake", ModelLimits("fake-model", 1_000_000, 100_000, "test double")
+
+        async def start(self, task: Any, request: Any, token: str) -> RunHandle:
+            return RunHandle("r", "fake", task.id, {})
+
+        async def events(self, run: RunHandle) -> Any:
+            yield RuntimeEvent("invalid_answer", {"message": "the answer doesn't match the schema"})
+
+        async def cancel(self, run: RunHandle) -> None:
+            return None
+    task = Task("label-x", None, "memory intent label", "local", Identity.OWNER, set(), "verifier", "sleep", [], None)
+    with pytest.raises(InvalidAnswer, match="schema"):
+        asyncio.run(learning_call(Invalid(), task, "system", "{}", "ref", intents.INTENT_SCHEMA, role="intent"))
+
+
 def test_a_card_whose_label_the_owner_rolled_back_is_not_labelled_again_until_it_changes(learning) -> None:
     c = card(learning, "t1", "cheapest egg curry")
     rt = SchemaAnswers({id(intents.INTENT_SCHEMA): lambda ctx: new_intent("cheapest food order", "egg curry"),

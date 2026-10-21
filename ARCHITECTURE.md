@@ -1728,9 +1728,10 @@ per-source job completion. Code rollups cite their child cards.
   card), so forgetting a card removes only its label, and the intent list is derived from the current cards' labels.
   An intent id is `i-` and 16 letters a–p from a digest of the normalized name: no redaction pattern (a card number, a
   code) matches one in a body or as a procedure key; only a secret the owner stored, spelled in the letters a–p, could
-  still alter one. The job is `learning_jobs.source_ref = label:<card node id>`: a refused answer or a card too large
-  waits for its card to change (a new card node) or `ferb memory consolidate` (inputs `label/1`); a failed call (the
-  service, the connection, a timeout, the runtime) is tried on the next pass (inputs `label/1:retry`); a card whose
+  still alter one. The job is `learning_jobs.source_ref = label:<card node id>`: an answer code refused or outside the
+  schema (`InvalidAnswer`, from FERB's check or the runtime's own) or a card too large waits for its card to change (a
+  new card node) or `ferb memory consolidate` (inputs `label/1`); a failed call (the service, including its refusing
+  the input, the connection, a timeout, the runtime) is tried on the next pass (inputs `label/1:retry`); a card whose
   label the owner rolled back waits for the card to change; a forget deletes the job with the card. Each call is a
   `model.learning` span, role `intent`, call id `label-<card node id>`. Labels are the learner's bookkeeping, never
   recalled: `Learning.search` (so `memory.learned` and the planner's candidates) leaves them out.

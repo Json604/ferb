@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from ferb.core.context import ContextBlock, assemble, count_tokens, runtime_limits
 from ferb.core.errors import InputTooLarge
-from ferb.core.structured import check_final
+from ferb.core.structured import InvalidAnswer, check_final
 from ferb.core.types import ModelRequest, Task
 
 
@@ -18,7 +18,8 @@ async def learning_call(rt: Any, task: Task, system: str, ctx: str, reference: s
                         role: str, spans: Any = None,
                         usage: Callable[[str, dict[str, Any]], None] = lambda *args: None) -> str:
     """`ctx` as one protected block within the runtime's documented limits (L28: its window and per-input character
-    cap; over the cap it is refused, never sent), run without tools; the answer checked against `schema`."""
+    cap; over the cap it is refused, never sent), run without tools; the answer checked against `schema` (an answer
+    outside it, by FERB's check or the runtime's own, raises InvalidAnswer)."""
     span = spans.start("model.learning", task_id=None, input={
         "role": role, "call": task.id, "goal": task.goal, "runtime": getattr(rt, "name", "unknown"),
         "model": getattr(rt, "model", None)}) if spans is not None else None
@@ -47,10 +48,13 @@ async def learning_call(rt: Any, task: Task, system: str, ctx: str, reference: s
                 elif event.kind in ("error", "violation"):
                     raise RuntimeError(str(event.data.get("message") or event.data))
                 elif event.kind == "invalid_answer":     # the runtime's own schema check: its reason, not "not JSON"
-                    raise ValueError(str(event.data.get("message", "")))
+                    raise InvalidAnswer(str(event.data.get("message", "")))
         finally:
             await rt.cancel(run)
-        answer = check_final(final, schema)
+        try:
+            answer = check_final(final, schema)
+        except ValueError as e:              # the model's answer is wrong, not the call: callers may tell them apart
+            raise InvalidAnswer(str(e)) from None
     except asyncio.CancelledError:           # FERB stopping (shutdown), not a failure of the learner
         if span is not None:
             spans.finish(span, output={"outcome": "cancelled", **facts})

@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable
 from ferb.core.context import count_tokens, overhead_chars, overhead_tokens, runtime_limits
 from ferb.core.errors import Deferred, InputTooLarge
 from ferb.core.prompts import load_prompt
+from ferb.core.structured import InvalidAnswer
 from ferb.core.types import Identity, Task
 from ferb.memory import intents
 from ferb.memory.calls import learning_call
@@ -64,8 +65,8 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
                 'evidence': {'type': 'array', 'items': {'type': 'string'}}}}}}}
 
 
-# A label job's inputs (L29): a refused answer or a card too large waits for its card to change or `force`; a failed
-# call is tried on the next pass.
+# A label job's inputs (L29): an answer refused by code or outside the schema, or a card too large, waits for its card
+# to change or `force`; a failed call is tried on the next pass.
 LABEL_JOB, LABEL_RETRY = 'label/1', 'label/1:retry'
 
 
@@ -142,9 +143,9 @@ class Consolidator:
         """L29: each current card without an intent label gets one. A re-read card keeps its task's label without a
         call (`intents.carry_forward`); every other card gets one call, offered the intents already seen (read once a
         pass and counted as labels are stored; most recently used first, as many as fit the window: `_fit_intents`).
-        A refused answer or a card too large waits for its card to change (a new card node, so a new job) or `force`
-        (job inputs LABEL_JOB); a failed call is tried on the next pass (LABEL_RETRY). False when a task started (the
-        next pass goes on)."""
+        A refused answer, an answer outside the schema or a card too large waits for its card to change (a new card
+        node, so a new job) or `force` (job inputs LABEL_JOB); a failed call is tried on the next pass (LABEL_RETRY).
+        False when a task started (the next pass goes on)."""
         l = self.learning
         results.extend({'label': n['key'], 'carried': True} for n in intents.carry_forward(l))
         waiting = {r[0] for r in l.db.conn.execute(
@@ -185,10 +186,11 @@ class Consolidator:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                # code refused the answer, or the card is too large for any call: waits; the call failed: next pass
+                # an answer refused by code or outside the schema, or a card too large for any call: waits; the call
+                # itself failed (the service, the connection, a timeout, the runtime): the next pass
                 error = l.redact(f'{type(e).__name__}: {e}')
-                self._job('label:' + c['id'], LABEL_JOB if isinstance(e, (LearningRefused, InputTooLarge))
-                          else LABEL_RETRY, error)
+                waits = isinstance(e, (LearningRefused, InvalidAnswer, InputTooLarge))
+                self._job('label:' + c['id'], LABEL_JOB if waits else LABEL_RETRY, error)
                 results.append({'label': c['id'], 'error': error})
         return True
 
