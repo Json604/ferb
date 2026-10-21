@@ -2788,7 +2788,8 @@ class Supervisor(WorkerRuns):
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
-        report += "\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; chat.history"
+        report += ("\nThe worker's recorded tool calls and their results follow. More: task_evidence; memory.read; "
+                   "chat.history")
         ctx = (await self._context(tree)) + [ContextBlock(report, "complete report and inspection evidence", protected=True)]
         # Fix wave 6b: every run's recorded calls (a re-check after a repair round too), ahead of the context's other
         # optional blocks; the checker reads with task_evidence only what didn't fit, and the root's other records
