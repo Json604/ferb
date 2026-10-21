@@ -4,7 +4,7 @@ types and stores it as the card's own `episode_intent` node (keyed by the card's
 so forgetting a card removes only its label. The intent list is derived from the current cards' labels. A card read
 again (a new node of the same task) keeps its task's label (`carry_forward`), and a superseded card's label is closed.
 Labels are the learner's bookkeeping: search never recalls them (`Learning.search`)."""
-from typing import Any
+from typing import Any, Iterable
 
 from ferb.memory.learning import Learning, LearningRefused, digest
 from ferb.memory.strict import JSON_TEXT, pairs, to_map
@@ -68,16 +68,26 @@ def intents(learning: Learning) -> list[dict[str, Any]]:
     return _ordered(out)
 
 
-def named(learning: Learning) -> dict[str, dict[str, Any]]:
-    """Intent id -> {label, last}: the label node its name and description come from (the oldest current card label,
-    as `intents` names it), for what shows that name with the label's origins; and when it was last used (its newest
-    card, as `intents` orders them)."""
-    current = _current_cards(learning)
+def named(learning: Learning, intent_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """For each of these intents that a current card carries: {label, last}: its newest current label node (its name
+    and description, for what shows them with the label's origins) and when it was last used (its newest card, as
+    `intents` orders them). One query over the labels' ids and times, then one node read per intent, so the planner's
+    turn never reads every label (L29 review M1)."""
+    wanted = sorted(set(intent_ids))
+    if not wanted:
+        return {}
+    rows = learning.db.conn.execute(
+        "SELECT json_extract(l.body_json, '$.intent_id'), max(l.recorded_at || ' ' || l.id), max(c.recorded_at) "
+        "FROM learning_nodes l JOIN learning_nodes c ON c.id = l.key "
+        "WHERE l.kind = ? AND l.valid_to IS NULL AND l.state NOT IN ('retired', 'rolled_back') "
+        "AND c.kind = 'episode' AND c.valid_to IS NULL AND c.state NOT IN ('retired', 'rolled_back') "
+        f"AND json_extract(l.body_json, '$.intent_id') IN ({','.join('?' * len(wanted))}) "
+        "GROUP BY json_extract(l.body_json, '$.intent_id')", (INTENT_KIND, *wanted)).fetchall()
     out: dict[str, dict[str, Any]] = {}
-    for node in learning.items(INTENT_KIND):
-        if node['key'] in current:
-            entry = out.setdefault(node['body']['intent_id'], {'label': node, 'last': ''})
-            entry['last'] = max(entry['last'], current[node['key']])
+    for iid, newest, last in rows:
+        label = learning.get(str(newest).rsplit(' ', 1)[1])
+        if label is not None:
+            out[str(iid)] = {'label': label, 'last': str(last)}
     return out
 
 
@@ -144,7 +154,8 @@ def check(answer: dict[str, Any], offered: dict[str, dict[str, Any]]) -> dict[st
     values = to_map(answer['values'], json_text=True)
     chosen = str(answer.get('intent_id') or '')
     if not chosen:
-        name, description = str(answer['name']).strip(), str(answer['description']).strip()
+        # model-written free text later shown to the planner: one line (L29 review M2)
+        name, description = ' '.join(str(answer['name']).split()), ' '.join(str(answer['description']).split())
         if not name or not description:
             raise LearningRefused('a new intent needs a name and a description')
         chosen = intent_id(name)

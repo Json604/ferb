@@ -51,6 +51,66 @@ def digest(value: Any) -> str:
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
 
+def redacted_json(redact: Callable[[str], str], value: Any) -> Any:
+    """`value` with its secrets redacted, still JSON (rule 14). Its encoded text is redacted whole, which also catches a
+    secret its key labels ("password":"…"). When that text no longer parses (a redaction inside a number: a card-like
+    number, a registered value within one), the redaction is made structurally: the same whole text with every number
+    and boolean written as a string (so a key still labels its value), each string and key taking its redacted form and
+    each number or boolean whose text changed becoming REDACTED; only if even that doesn't parse back to the same shape,
+    each key and string is redacted alone, a changed number or boolean again becoming REDACTED."""
+    try:
+        return json.loads(redact(encoded(value)))
+    except ValueError:
+        pass
+    try:
+        return _restored(value, json.loads(redact(encoded(_quoted(value)))))
+    except ValueError:
+        return _parts(redact, value)
+
+
+def _quoted(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _quoted(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_quoted(v) for v in value]
+    if value is None or isinstance(value, str):
+        return value
+    return encoded(value) if isinstance(value, (bool, int, float)) else str(value)
+
+
+def _restored(value: Any, seen: Any) -> Any:
+    """`value` with the redacted forms `seen` holds (`_quoted(value)` encoded, so with its keys sorted, and redacted),
+    or ValueError when the shapes differ."""
+    if isinstance(value, dict):
+        if not isinstance(seen, dict) or len(seen) != len(value):
+            raise ValueError('the redacted text changed the shape')
+        ordered = sorted(value.items(), key=lambda item: str(item[0]))
+        return {k: _restored(v, w) for (_, v), (k, w) in zip(ordered, seen.items())}
+    if isinstance(value, (list, tuple)):
+        if not isinstance(seen, list) or len(seen) != len(value):
+            raise ValueError('the redacted text changed the shape')
+        return [_restored(v, w) for v, w in zip(value, seen)]
+    if value is None:
+        return None if seen is None else REDACTED
+    if isinstance(value, (bool, int, float)):
+        return value if seen == encoded(value) else REDACTED
+    if not isinstance(seen, str):
+        raise ValueError('the redacted text changed the shape')
+    return seen
+
+
+def _parts(redact: Callable[[str], str], value: Any) -> Any:
+    if isinstance(value, dict):
+        return {redact(str(k)): _parts(redact, v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_parts(redact, v) for v in value]
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float)):
+        return value if redact(encoded(value)) == encoded(value) else REDACTED
+    return redact(str(value))
+
+
 def memory_origin(label: str) -> str:
     return {'owner_stated': origin.OWNER, 'observed': origin.PRIVATE, 'inferred': origin.INFERRED,
             'third_party': origin.external('memory')}.get(label, origin.external('unlabeled'))
@@ -83,6 +143,8 @@ class Learning:
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
         self.redact_id = redact_id or redact
         self.embedder: Any = None
+        # where a problem the owner should be able to find later is recorded (the daemon: its journal)
+        self.note: Callable[[str, dict[str, Any]], Any] = publish
         # Bumped by every change to an episode card's inputs (a forget, an owner verdict, a write of a card): a card
         # read before one is read again before it is written (L28).
         self.generation = 0
@@ -185,7 +247,7 @@ class Learning:
             raise LearningRefused('the owner said this suggestion was not right')
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
-        body = json.loads(self.redact(encoded(body)))
+        body = redacted_json(self.redact, body)
         key = self.redact_id(key) if kind in ID_KEYED else self.redact(key)
         refs = sorted(set(sources))
         labels = set(labels) if labels is not None else self.labels(refs)
@@ -492,7 +554,7 @@ class Learning:
         # the slot values are model-written (the planner's, L29, or a proposal's examples): redacted like a node's body
         self.db.conn.execute('INSERT INTO learning_receipts VALUES (?,?,?,?,?) ON CONFLICT(procedure_id,episode_id) '
                              'DO UPDATE SET successful=excluded.successful',
-            (procedure_id, episode_id, self.redact(encoded(slots or ep['body'].get('slots') or {})),
+            (procedure_id, episode_id, encoded(redacted_json(self.redact, slots or ep['body'].get('slots') or {})),
              int(successful), ep['recorded_at']))
         self._refresh(procedure_id, None)
 
@@ -512,7 +574,7 @@ class Learning:
         expected = p['body'].get('preconditions', {}).get('apps', {})
         declared = set(p['body'].get('slots') or {})
         # M1: a slot value counts only when it supplies the procedure's slots; a run's receipt without values doesn't
-        variants = {r['slots_json'] for r in ok if declared and declared <= set(json.loads(r['slots_json']) or {})}
+        variants = {r['slots_json'] for r in ok if declared and declared <= set(self._receipt_slots(node_id, r))}
         latest = self.get(ok[-1]['episode_id']) if ok else None
         latest_apps = latest['body'].get('apps', {}) if latest else {}
         # M6: "current" is the versions installed now when known: an update sends a learned procedure back to
@@ -532,6 +594,20 @@ class Learning:
         p['counters'] = {'verified_successes': len(ok), 'failures': len(rows) - len(ok),
                          'slot_variants': len(variants)}
         return p
+
+    def _receipt_slots(self, node_id: str, row: Any) -> dict[str, Any]:
+        """A receipt row's slot values. A row whose values don't parse (written before they were redacted as JSON, L29
+        fix round 1) counts without values: it is noted once and its values cleared, never raising on a refresh."""
+        try:
+            slots = json.loads(row['slots_json'])
+        except ValueError:
+            slots = None
+        if isinstance(slots, dict):
+            return slots
+        self.db.conn.execute("UPDATE learning_receipts SET slots_json='{}' WHERE procedure_id=? AND episode_id=?",
+                             (node_id, row['episode_id']))
+        self.note('memory.receipt_unreadable', {'procedure_id': node_id, 'episode_id': row['episode_id']})
+        return {}
 
     def procedure(self, node_id: str, apps: dict[str, str]) -> dict[str, Any]:
         return self._refresh(node_id, apps)
@@ -723,11 +799,12 @@ class Learning:
     def learned_procedures(self) -> list[dict[str, Any]]:
         """L29: every procedure the planner may choose (current: not superseded, retired, rolled back or forgotten; and
         not quarantined), the most recently used intent first (a procedure no current card's label carries: by when it
-        was written), each with its intent's name and description, the label node they come from (`intents.named`;
-        None, and the procedure's own intent text, when no current card carries the intent) and its slot types."""
+        was written), each with its intent's name and description on one line, the label node they come from
+        (`intents.named`: the intent's newest current label; None, and the procedure's own intent text, when no current
+        card carries the intent) and its slot types."""
         from ferb.memory import intents
         procedures = [p for p in self.items('procedure') if p['state'] != 'quarantined']
-        named = intents.named(self) if procedures else {}
+        named = intents.named(self, [p['key'] for p in procedures])
         procedures.sort(key=lambda p: (named.get(p['key'], {}).get('last') or p['recorded_at'], p['recorded_at'],
                                        p['id']), reverse=True)
         out = []
@@ -735,8 +812,9 @@ class Learning:
             label = named.get(p['key'], {}).get('label')
             about = label['body'] if label else {}
             out.append({'node': p, 'label': label,
-                        'name': str(about.get('name') or p['body'].get('intent') or p['key']),
-                        'description': str(about.get('description', '')), 'slots': p['body'].get('slots') or {}})
+                        'name': ' '.join(str(about.get('name') or p['body'].get('intent') or p['key']).split()),
+                        'description': ' '.join(str(about.get('description', '')).split()),
+                        'slots': p['body'].get('slots') or {}})
         return out
 
     def slot_values(self, procedure_id: str, pairs: list[dict[str, Any]]) -> dict[str, Any] | None:

@@ -1261,6 +1261,7 @@ class Daemon:
         from ferb.memory.consolidate import Consolidator
         from ferb.memory.tools import LearningRead
         self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id)
+        self.learning.note = lambda kind, data: self._journal().append(kind, data)
         self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
             usage=self._record_learning_usage("consolidate"),

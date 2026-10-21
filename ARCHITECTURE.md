@@ -1787,10 +1787,12 @@ intent's job. Code rollups cite their child cards.
   passed with it, else by the proposal's intent. **Planner choice (L29):** `Learning.learned_procedures` lists every
   procedure the planner may choose (current: not superseded, retired, rolled back or forgotten; not quarantined),
   the most recently used intent first (by its newest labelled card; a procedure no current label carries, by when it
-  was written), with its intent's name and description from the label that names the intent (`intents.named`: its
-  oldest current card label, as `intents.intents` names it; the procedure's own intent text when no current card
-  carries it) and its slot types. `Daemon._learning_candidates` puts one line per procedure first in the planner's
-  retrieved memory, whatever the words: `<id> [procedure, <state>, <least trusted origin>; data, not authorization]
+  was written), with its intent's name and description on one line from the label that names the intent
+  (`intents.named`: its newest current card label, found by one query over the labels' ids and times and read alone,
+  so a planner turn never reads every label; the procedure's own intent text when no current card carries it) and its
+  slot types. A new intent's name and description are collapsed to one line when its label is checked
+  (`intents.check`). `Daemon._learning_candidates` puts one line per procedure first in the planner's retrieved
+  memory, whatever the words: `<id> [procedure, <state>, <least trusted origin>; data, not authorization]
   <name>: <description> — slots: {…}`, its origin the procedure's origins with the naming label's (model-written from
   that card's run), citing both nodes (`source_refs`); search hits leave procedures out (each is listed, or can't be
   chosen: I5). The lines carry the fold route `memory.learned kind=procedure` (`context_layers.PROCEDURES_ROUTE`):
@@ -1803,13 +1805,18 @@ intent's job. Code rollups cite their child cards.
   starts as a `procedure.slots_ignored` span (input: the procedure id and the planner's values; output: why) and left
   out; the procedure is still used. When the task ends the supervisor computes them (`Supervisor._planner_slots`, the
   `slot_values` hook; a failed read is journaled as `memory.slot_values_failed` and gives None, never skipping the
-  capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`, which
-  redacts the slot values it stores); a deferred capture journals them in `memory.episode_deferred` and
-  `_replay_deferred_receipts` passes them on. Values that are missing or of the wrong type give a receipt without slot
-  values. An ignored procedure (I5) drops its slot values too. Task completion
-  captures app versions; old episodes
-retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load the selected procedure,
-keep owner-only identity in context and record procedure outcomes; none bypass gateway confirmations or checks.
+  capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`); a
+  deferred capture journals them in `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values
+  that are missing or of the wrong type give a receipt without slot values. An ignored procedure (I5) drops its slot
+  values too. **Redaction stays JSON (L29 fix round 1):** a node's body (`Learning.put`) and a receipt's slot values
+  are redacted by `redacted_json`: the encoded text whole (a key still labels its value); when that no longer parses
+  (a card-like number, a registered value inside a number), the same text with numbers and booleans written as
+  strings, each one whose text changed becoming `[redacted]`; as a last resort each key and string alone. A receipt
+  row whose values don't parse (written before) counts without values, is cleared and journaled once
+  (`memory.receipt_unreadable`), and never breaks a refresh or `ferb verdict`. Task completion captures app
+  versions; old episodes retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load
+  the selected procedure, keep owner-only identity in context and record procedure outcomes; none bypass gateway
+  confirmations or checks.
 
 `memory/embeddings.py` implements optional pinned local MLX inference and int8 vectors, indexed by model/month.
 Keyword/trigram search always works; hybrid ranking is enabled only by an exact-model owner-history comparison.

@@ -322,3 +322,83 @@ def test_a_step_proposed_without_optional_is_stored_as_required(learning):
     a, b, c = card(learning, 'u1', slot='a'), card(learning, 'u2', slot='b'), card(learning, 'u3', slot='a')
     p = procedure(learning, [a, b, c])                            # its step names no `optional`
     assert p['key'] == 'send report' and [s['optional'] for s in p['body']['steps']] == [False]
+
+
+# L29 fix round 1 (I1): redaction keeps stored JSON valid ---------------------------------------------------------
+
+@pytest.fixture
+def redacting(tmp_path):
+    """A store redacting as the daemon does (Redactor.text), with a registered secret value."""
+    from ferb.sanitize.redact import Redactor
+    db = Database(tmp_path / 'memory.db')
+    db.migrate()
+    redactor = Redactor()
+    redactor.add_secret_value('2345')
+    store = Learning(db, Clock(), lambda *args: None, redactor.text)
+    noted = []
+    store.note = lambda kind, data: noted.append((kind, data))
+    yield store, noted
+    db.close()
+
+
+def test_a_body_whose_text_redaction_breaks_its_json_is_stored_redacted_and_valid(redacting):
+    """A card-like number, or a registered secret inside a number, made the redacted text invalid JSON and the write
+    raise. The body is redacted part by part instead: such a number becomes the redaction marker, and a code its key
+    labels is still caught (it is only redacted beside its key)."""
+    from ferb.sanitize.redact import REDACTED
+    store, _ = redacting
+    node = store.put('lesson', 'numbers', {'card': 4111111111111111, 'qty': 12345, 'code': '482913', 'dish': 'paneer',
+                                           'count': 3, 'note': 'pin 2345 inside', 'ok': True}, [],
+                     made_by='model:test')
+    body = node['body']
+    text = json.dumps(body)
+    assert '4111111111111111' not in text and '2345' not in text and '482913' not in text
+    assert body['card'] == REDACTED and body['qty'] == REDACTED and body['code'] == REDACTED
+    assert (body['dish'], body['count'], body['ok']) == ('paneer', 3, True)
+
+
+def test_a_receipts_number_slot_redaction_keeps_the_procedure_readable(redacting):
+    """Review I1: a number slot whose digits hit a card pattern, or hold a registered secret, was stored as invalid
+    JSON (`{"n":[redacted]}`), and every later refresh of the procedure raised (its state, its worker text,
+    `ferb verdict`)."""
+    from ferb.sanitize.redact import REDACTED
+    store, noted = redacting
+    cards = [card(store, f'n{i}', slot=s) for i, s in enumerate(('a', 'b', 'a'))]
+    p = procedure(store, cards)
+    runs = [card(store, ident, slot='c')['id'] for ident in ('n-card', 'n-secret')]
+    for run, value in zip(runs, (4111111111111111, 12345)):
+        store.receipt(p['id'], run, {'n': value})
+    rows = [r[0] for r in store.db.conn.execute('SELECT slots_json FROM learning_receipts WHERE procedure_id=?',
+                                                (p['id'],))]
+    assert all(isinstance(json.loads(r), dict) for r in rows)
+    assert not any('4111111111111111' in r or '2345' in r for r in rows)
+    kept = [json.loads(r[0]) for r in store.db.conn.execute(
+        f"SELECT slots_json FROM learning_receipts WHERE episode_id IN ({','.join('?' * len(runs))})", runs)]
+    assert kept == [{'n': REDACTED}, {'n': REDACTED}] and not noted       # written valid, never repaired
+    assert store.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'learned'
+
+
+def test_an_unreadable_receipt_row_is_noted_and_never_breaks_the_procedure(redacting):
+    """Defense in depth: a receipt row whose slot values don't parse (written before the fix) counts without values,
+    is noted once and repaired, instead of raising on every refresh."""
+    store, noted = redacting
+    cards = [card(store, f'b{i}', slot=s) for i, s in enumerate(('a', 'b', 'a'))]
+    p = procedure(store, cards)
+    store.db.conn.execute('UPDATE learning_receipts SET slots_json=? WHERE episode_id=?',
+                          ('{"recipient":[redacted]}', cards[0]['id']))
+    for _ in range(2):
+        assert store.procedure(p['id'], {'com.apple.mail': '1'})['counters']['verified_successes'] == 3
+    assert noted == [('memory.receipt_unreadable', {'procedure_id': p['id'], 'episode_id': cards[0]['id']})]
+
+
+def test_redacted_json_falls_back_part_by_part_when_structure_breaks():
+    """The last resort: a redaction that breaks the JSON even with every number written as a string (here one that
+    eats the text between keys) redacts each key and string alone; a number whose text changes becomes the marker."""
+    from ferb.memory.learning import redacted_json
+    from ferb.sanitize.redact import REDACTED
+
+    def mangling(text: str) -> str:
+        return text.replace('7', '#').replace('","', '')
+    assert redacted_json(mangling, {'a': 17, 'b': 'x7', 'c': [2, 'q'], 'd': None, 'e': False}) == \
+        {'a': REDACTED, 'b': 'x#', 'c': [2, 'q'], 'd': None, 'e': False}
+    assert redacted_json(lambda t: t, {'a': 17, 'b': 'x7'}) == {'a': 17, 'b': 'x7'}       # no redaction: unchanged
