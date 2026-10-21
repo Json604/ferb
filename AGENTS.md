@@ -90,6 +90,13 @@ U7b, U8 and U9 are reviewed and integrated; Task 19 is these docs. What landed, 
   requests and the Chrome Web Store kit, the launch campaign path through standing permissions and schedules;
 - the license is Apache-2.0.
 
+**Learning by intent (L29, 2026-10-21), not yet installed or live-tested.** Spec
+`docs/superpowers/specs/2026-10-21-learning-by-intent-design.md` (owner-approved: "yes proceed"); plan
+`docs/superpowers/plans/2026-10-21-learning-by-intent.md`; ledger `.superpowers/sdd/2026-10-21-learning-by-intent/
+progress.md`. Each card gets a model-written intent label; runs are consolidated by intent after three verified runs;
+the planner picks a procedure by intent and fills its slots; the worker starts from the filled steps, lessons and the
+latest runs' tool calls. Live check 78 in `docs/OWNER_ACCEPTANCE.md`; residuals in CHANGELOG.
+
 **Pending, in order:**
 1. The whole-branch final review on the most capable model, then one fix wave (the Task 7+18 and Task 21
    integration follow-ups are in, up to `6ac9fb5`).

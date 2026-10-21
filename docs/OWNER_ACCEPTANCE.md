@@ -1353,6 +1353,21 @@ Fix wave 7 (2026-10-21; pending, checkout tests only so far):
     whether the reply arrives after the reconnect line. A watch check or the hourly learning that retries meanwhile
     shows nothing. Delete the file after.
 
+Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
+78. Learning by intent (L29): after `ferb setup --update`, ask FERB three times, on different occasions, for the same
+    kind of task with different values (e.g. "find the cheapest egg curry with breads", then paneer, then dal). A run
+    whose check didn't confirm it, or that you mark `ferb verdict TASK fail`, doesn't count toward the three. Then
+    `ferb memory consolidate`: its output lists a `label` entry per new task and one entry for the kind of task with
+    the three runs under `episodes` and the new procedure's id under `accepted` (if the hourly pass got there first it
+    shows nothing new: go on with the next steps). `ferb stats` counts them under "Learning model calls" (one label
+    call per new task, one consolidation call for the three); `ferb trace label-<card id>` shows a label call (role
+    `intent`) and `ferb trace <the procedure's batch_id>` the consolidation call (role `consolidate`). `ferb memory
+    search egg --kind procedure` (or the memory dashboard) shows a procedure named like the task, state `learned`.
+    Ask a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that procedure
+    (the task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the worker's input
+    has the steps with rajma filled in and the earlier runs' tool calls. Record its tool calls and time against the
+    first three runs (`ferb baseline`).
+
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
   ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).
@@ -1390,3 +1405,6 @@ Residuals to know during the week (accepted or recorded, not checks):
 - Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
+- Learning by intent (L29): a procedure you forget is never learned again for that kind of task, and one you turned
+  down blocks any procedure for it; forgetting the run that first named a kind of task leaves that name in its other
+  runs' labels; a procedure whose slot is named like a credential never becomes learned (CHANGELOG lists them all).

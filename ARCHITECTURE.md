@@ -886,7 +886,8 @@ even all of them wouldn't), so the highest-priority calls are shown whole beside
 marker. With one run, or runs in disjoint priority bands (every current caller), no block is left out while
 lower-priority markers that could make room for it are listed; when runs interleave in priority, folding stays lowest
 first and a run's first fold also costs its note, so a block can be left out that folding only some of those markers
-would have fitted (L29 Task 5 fix round 1; a context without a run assembles byte for byte as before, checked against the earlier `assemble` in random
+would have fitted (L29 Task 5 fix round 1; a context without a run assembles byte for byte as before,
+checked against the earlier `assemble` in random
 trials, `tests/support/context_reference.py`). Which stay when space runs out: every action first (its record is the only
 evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
 re-establish current state), newest first within each, the latest being closest to the final state; all above the
@@ -1932,8 +1933,9 @@ local dashboard assets. Installing and the owner's verdict remain separate from 
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
-clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L28 to their tests. What follows is the design as built. Nothing
-here is live-accepted yet ([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
+clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L29 to their tests (L29, learning by intent of 2026-10-21, is
+described with the learning store above). What follows is the design as built. Nothing here is live-accepted yet
+([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
 
 ### 16.1 Questions and security (L1–L5, L24)
 

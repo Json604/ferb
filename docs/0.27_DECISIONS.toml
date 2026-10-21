@@ -605,3 +605,9 @@ milestone = "L"
 tests = ["tests/test_planner_context.py", "tests/test_daily_activity.py", "tests/test_episode_capture.py", "tests/test_attention_understanding.py", "tests/test_input_char_cap.py", "tests/test_learning_calls_visible.py"]
 note = "Owner 2026-10-14: the model's real window (Codex: the catalog's input window, 258,400 tokens for gpt-5.6-sol, FERB's Codex default); the raw last-10-minutes trail dump is fetch-only; the running summary refreshes only when uncovered entries fall out. The hidden 32,768-token cap was never an owner decision. Fix wave 5 (2026-10-20): the runtime's documented per-input character cap is a limit too (Codex 0.157.1: MAX_USER_INPUT_TEXT_CHARS = 1 << 20, openai/codex rust-v0.157.1 codex-rs/protocol/src/user_input.rs:10); every call fits it, and every learning call is a model.learning span."
 summary = "The planner's prompt uses each model's real context window; situation, running tasks, questions, memory and today's activity always go in, then chat newest-first with older chat summarized, ordered for caching"
+
+[L29]
+milestone = "L"
+tests = ["tests/test_intent_labels.py", "tests/test_consolidation_cost.py", "tests/test_learning.py", "tests/test_learning_by_intent_e2e.py", "tests/test_planner_context.py", "tests/test_f6_context.py", "tests/test_context_budget.py"]
+note = "Owner 2026-10-21: \"i go with your recommended run. BUT just have some connection to the tools used for the previous learned things so that model gets faster with steps\"; spec docs/superpowers/specs/2026-10-21-learning-by-intent-design.md approved (\"yes proceed\"). FIRST_LEARNING_RUNS = 3 is the owner's \"counter 3\"; no other count or size limit."
+summary = "Learning by intent: model-assigned intent labels per card, consolidation by intent after three verified runs, optional procedure steps, the planner picks procedures by intent and fills slots, and the worker gets the filled steps, lessons and latest runs' tool calls."

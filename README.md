@@ -6,8 +6,8 @@ and changes approach when needed. Agents interpret your request and decide what 
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
 Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 passed combined checkout
-validation; owner live acceptance remains pending. The launch-week fixes (L1–L28, 2026-10-13/14) are integrated
-here and not yet installed or live-tested. The running installation is separate from this checkout. Earlier F0–F4
+validation; owner live acceptance remains pending. The launch-week fixes (L1–L28, 2026-10-13/14) and learning by
+intent (L29, 2026-10-21) are integrated here and not yet installed or live-tested. The running installation is separate from this checkout. Earlier F0–F4
 owner verdicts remain in the acceptance record.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
@@ -484,7 +484,7 @@ no automated test proves that the owner experienced no disturbance.
 
 ## Current limitations
 
-- Nothing from the launch week (L1–L28) is live-tested yet; the pending checks are in
+- Nothing from the launch week (L1–L29) is live-tested yet; the pending checks are in
   [owner acceptance](docs/OWNER_ACCEPTANCE.md).
 - FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
   update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is

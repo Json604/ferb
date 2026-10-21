@@ -259,9 +259,9 @@ Fix wave 3 (2026-10-15, after the memory and learning review):
   text (unless recorded exactly) can survive. A failure to record that
   a task read a memory is noted in the journal and never fails the read.
 - The sleep service works on what changed: a card is read again only when its inputs change; episodes go to the model
-  grouped by the tools and apps they used, one call per group with only the earlier episodes related to them, split
-  to fit the model's window; a failed job waits for
-  a change or `ferb memory consolidate`, and a failed distill day for its evidence to change, instead of retrying every
+  grouped by the kind of task they were, one call per kind, fitted to the model's window (learning by intent, L29,
+  below; this wave first grouped them by the tools and apps they used); a failed job waits for a change or `ferb
+  memory consolidate`, and a failed distill day for its evidence to change, instead of retrying every
   hour. The day rollups run off the event loop and never once a task has started; forget no longer rebuilds search
   indexes on it.
 - A planner's procedure id that isn't a current procedure is noted in the trace and ignored; the task runs.
@@ -393,6 +393,45 @@ or live-tested):
   `ferb chat` prints both lines. A worker or check that only retries still stops after 3 minutes, as before.
 - Background work (scheduled and watch checks, learning, the attention check) records the retry in its trace and tells
   no one; a scheduled run's failure still reaches you as before.
+
+Learning by intent (L29, 2026-10-21; owner: "just have some connection to the tools used for the previous learned
+things so that model gets faster with steps"; not installed or live-tested):
+- FERB now learns the tasks you repeat. Before, runs were grouped by the exact tools and apps they used, so "find me the
+  cheapest egg curry with some breads", asked three times, fell into three groups and nothing was ever learned. Now
+  each finished task gets a label saying what kind of task it was and what changes between runs (the dish), written by
+  the learning model; code only checks the label's shape and value types, never whether two tasks are the same. A
+  task read again keeps its label, and forgetting a task removes only its label.
+- Once a kind of task has three verified runs (your "counter 3"), one learning call gets its runs, failed ones too (as
+  many as fit the model's window, each whole), with its procedure, its lessons and what you turned down, and writes
+  the procedure: its tool steps with blanks for what changes, plus lessons from what failed. Every new run of that
+  kind is learned from again. A step only some runs needed is marked optional instead of blocking the procedure. A
+  revision keeps only the example runs it needs, never one you later marked failed, so the examples don't pile up
+  until they no longer fit. A lesson you wrote or edited is never rewritten by the model: a model lesson for the same
+  situation is refused.
+- The planner sees every procedure FERB can use by its kind of task (name, description, what changes), most recently
+  used first and fitted to its window instead of matched by your words, and picks one by meaning with this request's
+  values (dish = rajma). Values of the wrong type are noted in the task's trace and left out.
+- The worker starts from that procedure's steps with this request's values filled in, its lessons with your ratings,
+  and the exact tool calls of the latest verified runs (newest first; the oldest give way first when space is short),
+  so it reuses what worked instead of finding the tools again. A learned procedure is the fast path (follow the steps,
+  check every expected result, full reasoning on any mismatch); a candidate is evidence only; neither grants
+  permission. Only the worker gets the earlier runs: the checker judges this task's own calls.
+- Learning records stay valid when secrets are masked in them, so a run whose text holds a card-like number or a
+  labelled secret is still saved; one that can't be saved without a secret showing is refused, never stored.
+- `ferb memory consolidate` lists each label and each kind of task's call; `ferb trace label-<card id>` and `ferb trace
+  <a procedure's batch_id>` show the calls; the planner's choice and the worker's input are in `ferb trace TASK
+  --full`.
+
+Accepted residuals (L29):
+- A procedure you forgot is never learned again for that kind of task, and one you turned down ("Not right") blocks
+  any procedure for it (the M3 rule).
+- Forgetting the run whose label first named a kind of task leaves that name and description in its other runs'
+  labels and the planner's line (they describe the kind of task, not that run).
+- In a very tight worker window the earlier runs may show only as markers or one counted note; some odd text shapes
+  (a quoted "Password:" label inside a sentence, a value split across strings) can be masked more, or matched less,
+  than intended (ARCHITECTURE, "Redaction stays JSON").
+- A procedure whose slot is named like a credential (a token, a PIN) never becomes learned: those values are masked
+  when stored, so its runs count as one value.
 
 Licensed under Apache-2.0.
 
