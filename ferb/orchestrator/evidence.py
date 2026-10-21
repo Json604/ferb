@@ -187,12 +187,12 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
     task.evidence returns for its span_id (the same filter and stored, already redacted rows: no new capture), shown up
     to that read's default page (PAGE_CHARS) in FERB's data wrapper (MP2); a longer one says where its rest starts.
     Each call is an optional block: `assemble` keeps what fits the checker's window and leaves, in its place, a marker
-    with the read pointer for each one left out; the lowest-priority markers fold into a note per role naming the first
-    and last of them when even the markers can't all fit (round 1, I1), or to make room for a call of higher priority
-    (L29 Task 5 fix round 1). Which stay whole when space runs out: every
-    action first, since its record is the only evidence of what was done, sent or edited (no fresh read recovers it),
-    then observations, whose current state a fresh read can also re-establish; newest first within each, the latest
-    being closest to the final state. All of them come before the context's other optional blocks (`above`, their
+    with the read pointer for each one left out; the lowest-priority markers fold into a note per role naming the
+    first and last of them when even the markers can't all fit (round 1, I1), or to make room for a call of higher
+    priority (L29 Task 5 fix round 1). Which stay whole when space runs out: every action first, since its record is
+    the only evidence of what was done, sent or edited (no fresh read recovers it), then observations, whose current
+    state a fresh read can also re-establish; newest first within each, the latest being closest to the final state.
+    All of them come before the context's other optional blocks (`above`, their
     highest priority plus one). `redact`: the gateway's, applied to each shown page as to every task.evidence page the
     gateway returns (rule 14, round 1 M1): a value sealed after the call was recorded is masked here too; it runs after
     the page is cut, so offsets stay on the stored text, as they do for task.evidence. `secrets`: the values FERB knows

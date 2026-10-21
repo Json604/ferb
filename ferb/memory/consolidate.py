@@ -225,13 +225,13 @@ class Consolidator:
 
     async def _consolidate(self, about: dict[str, Any], members: list[dict[str, Any]],
                            jobs: dict[str, tuple[str, str]], force: bool, results: list[dict[str, Any]]) -> bool:
-        """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs, and from then on (or once it
-        has a procedure) again whenever its runs change. One call (`_context`): the intent, its procedure and lessons,
-        the owner's refusals, and its runs: the procedure's example runs first (a revision keeps those it needs, so
-        each is shown), then the newest others that fit, each whole (failed ones too, for lessons). The job (`intent:<intent id>`, inputs: the
-        runs' digest) waits for the runs to change or `force` when the answer or the fit failed, or every procedure the
-        model proposed was refused; a failed call is tried on the next pass. False when a task started (the next pass
-        goes on)."""
+        """One intent (L29): first learned once it has FIRST_LEARNING_RUNS verified runs, and from then on (or once
+        it has a procedure) again whenever its runs change. One call (`_context`): the intent, its procedure and
+        lessons, the owner's refusals, and its runs: the procedure's example runs first (a revision keeps those it
+        needs, so each is shown), then the newest others that fit, each whole (failed ones too, for lessons). The job
+        (`intent:<intent id>`, inputs: the runs' digest) waits for the runs to change or `force` when the answer or
+        the fit failed, or every procedure the model proposed was refused; a failed call is tried on the next pass.
+        False when a task started (the next pass goes on)."""
         l, intent = self.learning, about['id']
         group = digest(sorted(n['id'] for n in members))
         status, inputs = jobs.get('intent:' + intent, ('', ''))
@@ -270,8 +270,8 @@ class Consolidator:
                                     ("the model's window" if room <= 0 else cap), results)
         fitted = _fit_runs(members, examples, entries, room, chars)
         if fitted is None:
-            return self._intent_job(intent, group, f"its procedure's example runs (a revision may keep any of them) don't "
-                                    f"fit {limit} beside its procedures, lessons and the prompt", results)
+            return self._intent_job(intent, group, f"its procedure's example runs (a revision may keep any of them) "
+                                    f"don't fit {limit} beside its procedures, lessons and the prompt", results)
         if not fitted:
             return self._intent_job(intent, group, f"none of its runs fits {limit} beside its procedures, lessons and "
                                     "the prompt; sent whole or not at all", results)
@@ -430,8 +430,8 @@ class Consolidator:
         """Whether a current version of the lesson with this key (redacted as `Learning.put` stores it) is the
         owner's."""
         return self.learning.db.conn.execute(
-            "SELECT 1 FROM learning_nodes WHERE kind = 'lesson' AND key = ? AND valid_to IS NULL AND origin = ? LIMIT 1",
-            (self.learning.redact(key), origin.OWNER)).fetchone() is not None
+            "SELECT 1 FROM learning_nodes WHERE kind = 'lesson' AND key = ? AND valid_to IS NULL AND origin = ? "
+            "LIMIT 1", (self.learning.redact(key), origin.OWNER)).fetchone() is not None
 
     def _lesson_counts(self, key: str) -> dict[str, int]:
         """The owner's helpful/harmful counts of the lesson a proposal with this key revises: the current version
