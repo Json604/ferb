@@ -1585,17 +1585,35 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
   source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
   keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/3`.
-- **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` unless its kind reads
-  (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the gateway's vocabulary
-  (`policy/provenance.py`): a key with `owner_words` or `owner_answer` (or a literal `owner`, from old rows) is the
-  owner's; `unknown` (in neither the owner's words nor outside content: FERB's or the model's choice) is not outside,
-  as confirmations read it; any other label (an outside origin, or one it doesn't know) on a key without an owner label
-  is outside; no `arg_sources` at all is outside (fail-safe). Before, it tested origin labels (`owner`, an outside
-  rank) that the gateway never records, so every targeted action was outside; composer 3 reads such cards again once.
-  Reversible kinds (browser, GUI) record no `arg_sources` (`gateway.py`, consequential kinds only), so their steps
-  stay outside: a procedure using them is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm`:
-  candidate, then refreshed, so learned at once when its receipts qualify). Recording provenance for every action is
-  the owner's decision (friction against memory poisoning).
+- **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` (`learning.outside_action`)
+  unless its kind reads (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the
+  gateway's vocabulary (`policy/provenance.py`, their only writer since F3): a key with `owner_words` or
+  `owner_answer` (the set `policy/confirm.py` reads) is the owner's; `unknown` (in neither the owner's words nor
+  outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed from a
+  number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one it
+  doesn't know) on a key without an owner label is outside; no `arg_sources` at all is outside (fail-safe). Before, it
+  tested origin labels (`owner`, an outside rank) that the gateway never records, so every targeted action was
+  outside; composer 3 reads such cards again once, and a card whose trace has aged out has each kept action's flag
+  recomputed from its stored `arg_sources`. The gateway records `arg_sources` for consequential kinds only
+  (`gateway.py`), so the reversible kinds (`policy/rules.py` REVERSIBLE: opening or navigating a site, opening or
+  closing a tab, opening an app, focusing a window, moving to the Trash, a timer, a recovery point) stay
+  outside, while typing and clicking (fill_form, click, mac input) record it. A procedure using one is `quarantined`
+  until the owner's `ferb memory confirm` (`Learning.confirm` via `_mark_confirmed`: candidate, then refreshed, so
+  learned at once when its key's receipts qualify). Recording provenance for every step is the owner's decision
+  (friction against memory poisoning).
+- **Procedure identity across revisions (L29 final review I1, I2).** Since L29 an intent's procedure is revised after
+  each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
+  receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten
+  run's are left out), so a planner run, a failure and a slot value outlive a revision: "learned" (≥3 verified, ≥2
+  slot variants, current app versions) and "suspect" (two failures in a row) hold across revisions, and slot variety
+  counts only the slots the current version declares. A receipt recorded on a superseded version refreshes the key's
+  current version too. Receipts are read across versions rather than copied forward on `put`: one record per run, and
+  rollback and forget apply at read time. `propose_procedure` carries the owner's confirm to a revision whose steps
+  built on outside content (by tool and template arguments, as stored) were all steps of the confirmed version
+  (`_mark_confirmed`, the path `confirm` uses); a revision that adds such a step is stored `quarantined` with
+  `confirmed` 0, noted as `memory.procedure_requarantined` (ids and the reason) and named in the pass result
+  (`requarantined`, printed by `ferb memory consolidate`). A revision after two failures starts `suspect` (sticky, as
+  before); the next revision after a successful run starts afresh.
 - **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
   (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
   keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later
@@ -1736,13 +1754,14 @@ intent's job. Code rollups cite their child cards.
   - the identity suggestions and the lessons of these runs the owner turned down (`rejected_by_owner`), and
     `procedure_forgotten` / `procedure_rejected` when the owner forgot or turned down the intent's procedure;
   - its runs (`_fit_runs`): the procedure's example runs first, all of them, since a revision may keep any of them
-    (`memory/consolidate.md` asks it to keep only the verified examples needed to show each step and each way the
-    slots vary, enough to stay learned, never one whose run is no longer verified, so the set doesn't only grow; when
-    they don't all fit, the job waits, naming them), then the other runs newest first by when the task ended (the card's
-    `ended_at`, else `recorded_at`), as many as fit `runtime_limits(rt)` and the runtime's per-input character cap,
-    each whole (a run that doesn't fit is left out, never shortened; failed runs go too, for lessons). A run without a
-    current annotation is marked `annotate` (only those are annotated; `apply` ignores the others). A run forgotten or
-    read again during another intent's call (the groups are read once a pass) is dropped just before the call.
+    (`memory/consolidate.md` advises keeping only the verified examples needed to show each step and each way the
+    slots vary, never one whose run is no longer verified, so the set doesn't only grow; the key's receipts, not the
+    examples, decide its state; when they don't all fit, the job waits, naming them), then the other runs newest
+    first by when the task ended (the card's `ended_at`, else `recorded_at`), as many as fit `runtime_limits(rt)` and
+    the runtime's per-input character cap, each whole (a run that doesn't fit is left out, never shortened; failed
+    runs go too, for lessons). A run without a current annotation is marked `annotate` (only those are annotated;
+    `apply` ignores the others). A run forgotten or read again during another intent's call (the groups are read once
+    a pass) is dropped just before the call.
   `apply` keys an accepted procedure by the intent id (`propose_procedure(..., intent_id=)`). As a result, once the
   owner turns an intent's procedure down, `Learning.put` refuses any new one for that intent (M3). Once the owner
   forgets it, its key's tombstone does the same, so it is never relearned from the same runs. The call says

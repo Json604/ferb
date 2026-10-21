@@ -631,32 +631,34 @@ This section matters most for an automated campaign. It says exactly what runs u
   run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
   save exploration but never skips gateway checks, step checks or the final check. Procedures with steps whose
-  targets came from outside content, or that record no target provenance (browser and screen steps), are quarantined
-  until the owner confirms (`ferb memory confirm`); a target the owner typed or answered, or FERB chose, is not
-  outside (L29). An app update sends a learned procedure back to
-  candidate until it succeeds on the new version; two failures in a row mark it suspect. A suggestion the owner turned
-  down ("Not right") is never proposed again. The consolidator reads only cards whose inputs changed, has the
-  learning model label each card with its intent (what kind of task it was, reusing a kind already seen when the goal
-  is the same; L29), and consolidates by intent: an intent is first learned once it has three verified runs, and from
-  then on every change to its runs (a new run, verified or failed, or a verdict) brings another call to revise its
-  procedure and lessons; one call per intent carries its procedure, its lessons and its runs, whatever tools they used
-  (the procedure's example runs first, then the newest, as many as fit the model's window) (L29). A revised lesson
-  keeps the owner's helpful/harmful ratings; a procedure the owner forgot or turned down is never learned again for
-  that intent. A model call that failed is tried on the next pass; an answer outside the schema, a call whose every
-  proposed procedure was refused (its job says why), or input too large for the window, waits for a change or
-  `ferb memory consolidate`. The planner is shown every procedure it may use (not quarantined, turned down, rolled
-  back, replaced or forgotten), whatever words the request uses, as data: its kind of task's name and description,
-  its blanks (slots) with their types, its state and where it came from; the most recently used kinds of task first,
-  as many as fit the model's window, the rest counted in one note. It chooses one by meaning, the same kind of task
-  even in other words, and gives this request's value for each blank; code checks the values against the blanks'
-  types (if any value is missing or of the wrong type, the values are noted in the task's trace and left out, and the
-  procedure is used with its blanks) and the run's record of the procedure (its receipt) keeps them, so runs with
-  different values count toward "learned" (L29). The worker then gets, as data, the
-  chosen procedure's steps with this request's values filled in (a blank without a value stays for the worker to fill
-  from the request), the lessons learned from that kind of task, and the tool calls of its latest verified runs (tool,
-  arguments, what came back), newest first, as many as fit the model's window, the rest listed or counted in a note;
-  it starts from those instead of searching for the right tools again (L29). A planner's procedure id that
-  isn't a current procedure is ignored with a note.
+  targets came from outside content, or that record no target provenance (the reversible kinds: opening a site, tab
+  or app, focusing a window, moving to the Trash, a timer, a recovery point), are quarantined until the
+  owner confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words
+  nor outside content, is not outside (L29). A model revision is the same procedure: the runs of every version count
+  toward its state, and the owner's confirm carries over unless the revision adds a step built on outside content. An
+  app update sends a learned procedure back to candidate until it succeeds on the new version; two failures in a row
+  mark it suspect. A suggestion the owner turned down ("Not right") is never proposed again. The consolidator reads
+  only cards whose inputs changed, has the learning model label each card with its intent (what kind of task it was,
+  reusing a kind already seen when the goal is the same; L29), and consolidates by intent: an intent is first learned
+  once it has three verified runs, and from then on every change to its runs (a new run, verified or failed, or a
+  verdict) brings another call to revise its procedure and lessons; one call per intent carries its procedure, its
+  lessons and its runs, whatever tools they used (the procedure's example runs first, then the newest, as many as fit
+  the model's window) (L29). A revised lesson keeps the owner's helpful/harmful ratings; a procedure the owner forgot
+  or turned down is never learned again for that intent. A model call that failed is tried on the next pass; an
+  answer outside the schema, a call whose every proposed procedure was refused (its job says why), or input too large
+  for the window, waits for a change or `ferb memory consolidate`. The planner is shown every procedure it may use
+  (not quarantined, turned down, rolled back, replaced or forgotten), whatever words the request uses, as data: its
+  kind of task's name and description, its blanks (slots) with their types, its state and where it came from; the
+  most recently used kinds of task first, as many as fit the model's window, the rest counted in one note. It chooses
+  one by meaning, the same kind of task even in other words, and gives this request's value for each blank; code
+  checks the values against the blanks' types (if any value is missing or of the wrong type, the values are noted in
+  the task's trace and left out, and the procedure is used with its blanks) and the run's record of the procedure
+  (its receipt) keeps them, so runs with different values count toward "learned" (L29). The worker then gets, as
+  data, the chosen procedure's steps with this request's values filled in (a blank without a value stays for the
+  worker to fill from the request), the lessons learned from that kind of task, and the tool calls of its latest
+  verified runs (tool, arguments, what came back), newest first, as many as fit the model's window, the rest listed
+  or counted in a note; it starts from those instead of searching for the right tools again (L29). A planner's
+  procedure id that isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured

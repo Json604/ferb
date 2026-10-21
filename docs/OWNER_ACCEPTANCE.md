@@ -1364,13 +1364,17 @@ Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
     task, one consolidation call for the three; distillation calls count there too). `ferb trace label-<card id>
     --full` shows a label call (role `intent`) and `ferb trace <the procedure's batch_id> --full` the consolidation
     call (role `consolidate`). `ferb memory search egg --kind procedure` (or the memory dashboard) shows a procedure
-    named like the task with its `state` and `batch_id`. A browser task's procedure shows `quarantined`: browser and
-    screen steps record no target provenance, so they count as outside content. Read its steps, then run `ferb memory
-    confirm <procedure id>`; the search should then show `learned` (`Learning.confirm` makes it a candidate and
-    refreshes it: three verified runs with different dishes make it learned). Record which state you saw before and
-    after. Ask a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that
-    procedure (the task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the
-    worker's input has the steps with rajma filled in and the earlier runs' tool calls. For each of the four tasks,
+    named like the task with its `state`, `confirmed` and `batch_id`. A browser task's procedure shows `quarantined`:
+    opening the site records no target provenance (a reversible kind), so that step counts as outside content. Read
+    its steps, then run `ferb memory confirm <procedure id>`; the search should then show `learned` and `confirmed`
+    true (`Learning.confirm` makes it a candidate and refreshes it: three verified runs with different dishes make it
+    learned). Record which state you saw before and after. Ask a fourth time ("cheapest rajma with breads"): `ferb
+    trace TASK --full` shows the planner chose that procedure (the task span's `task_spec`: `procedure_id`, and
+    `procedure_slots` with dish = "rajma"), and the worker's input has the steps with rajma filled in and the earlier
+    runs' tool calls. After the fourth run, `ferb memory consolidate` (or the next hourly pass) revises the procedure
+    with that run: search again and record the current version's `state` and `confirmed` (a revision that only
+    reuses the steps you confirmed should stay `learned` and `confirmed` true; one with a new step built on outside
+    content shows `quarantined` and the consolidate output names it under `requarantined`). For each of the four tasks,
     count its tool calls with `ferb trace TASK --steps` (one line per tool call) and take its time from the task span
     in `ferb trace TASK --json` (`started_at` to `ended_at`); record the fourth against the first three, then run
     `ferb baseline` again for the totals before and after.
@@ -1412,7 +1416,8 @@ Residuals to know during the week (accepted or recorded, not checks):
 - Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
-- Learning by intent (L29): a procedure that uses browser or screen steps starts quarantined until you confirm it; a
-  procedure you forget is never learned again for that kind of task, and one you turned down blocks any procedure for
-  it; forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
-  slot is named like a credential never becomes learned (CHANGELOG lists them all).
+- Learning by intent (L29): a procedure with a step of a reversible kind (opening a site, tab or app, focusing a
+  window, the Trash, a timer, a recovery point) starts quarantined until you confirm it; a procedure you
+  forget is never learned again for that kind of task, and one you turned down blocks any procedure for it; forgetting
+  the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose slot is named
+  like a credential never becomes learned (CHANGELOG lists them all).

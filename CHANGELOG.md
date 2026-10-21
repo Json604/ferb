@@ -405,9 +405,14 @@ things so that model gets faster with steps"; not installed or live-tested):
   many as fit the model's window, each whole), with its procedure, its lessons and what you turned down, and writes
   the procedure: its tool steps with blanks for what changes, plus lessons from what failed. Every new run of that
   kind is learned from again. A step only some runs needed is marked optional instead of blocking the procedure. A
-  revision is asked to keep only the example runs it needs, so the examples don't pile up until they no longer fit;
+  revision is advised to keep only the example runs it needs, so the examples don't pile up until they no longer fit;
   code refuses one that cites a run you marked failed. A lesson you wrote or edited is never rewritten by the model: a
   model lesson with the same scope and trigger is refused (the prompt also tells the model never to restate it).
+- A revision is still the same procedure. Every run it was credited with keeps counting toward "learned" (three
+  verified runs with two different values), whatever examples the revision keeps, and two failed runs in a row make it
+  suspect across revisions. Your confirm carries over to a revision whose steps built on outside content were all
+  steps of the version you confirmed; a revision that adds such a step waits for your confirm again, and `ferb memory
+  consolidate` names it (`requarantined`).
 - The planner sees every procedure FERB can use by its kind of task (name, description, what changes), most recently
   used first and fitted to its window instead of matched by your words, and picks one by meaning with this request's
   values (dish = rajma). If any value is missing or of the wrong type, the values are noted in the task's trace and
@@ -417,11 +422,13 @@ things so that model gets faster with steps"; not installed or live-tested):
   so it reuses what worked instead of finding the tools again. A learned procedure is the fast path (follow the steps,
   check every expected result, full reasoning on any mismatch); a candidate is evidence only; neither grants
   permission. Only the worker gets the earlier runs: the checker judges this task's own calls.
-- A procedure waits for your confirm (quarantined) only when a step's target came from outside content. Since
-  learning was built (F8), the card reader read the gateway's record of where each target came from in the wrong
-  vocabulary, so every step with a target (a recipient, a file, a site) counted as outside, even one you typed, and
-  nearly every procedure would have waited. Now a target you typed or answered is yours, one FERB or the model chose
-  is not outside, and one found only in a page or message is; cards built before are read again once.
+- A procedure waits for your confirm (quarantined) when a step's target came from outside content, or when a step
+  records no target provenance (below). Since learning was built (F8), the card reader read the gateway's record of
+  where each target came from in the wrong vocabulary, so every step with a target (a recipient, a file, a site)
+  counted as outside, even one you typed, and nearly every procedure would have waited. Now a target you typed or
+  answered is yours, one found only in a page or message is outside, and one found in neither (FERB's or the model's
+  choice) is not; cards built before are read again once, from their stored provenance when their trace has aged
+  out.
 - Learning records stay valid when secrets are masked in them, so a run whose text holds a card-like number or a
   labelled secret is still saved; one that can't be saved without a secret showing is refused, never stored.
 - `ferb memory consolidate` lists each label and each kind of task's call; `ferb trace label-<card id>` and `ferb trace
@@ -438,9 +445,18 @@ Accepted residuals (L29):
   than intended (ARCHITECTURE, "Redaction stays JSON").
 - A procedure whose slot is named like a credential (a token, a PIN) never becomes learned: those values are masked
   when stored, so its runs count as one value.
-- Browser and screen actions (reversible kinds) record no argument provenance, so a procedure that uses them (opening a
-  site, typing into a page) starts quarantined until you read its steps and confirm it (`ferb memory confirm <id>`).
-  Recording provenance for every action is your decision: more friction against memory poisoning.
+- Steps of the reversible kinds record no target provenance: opening or navigating a site, opening or closing a tab,
+  opening an app, focusing a window, moving to the Trash, a timer, a recovery point (`policy/rules.py`,
+  REVERSIBLE). A procedure with one of these starts quarantined until you read its steps and confirm it (`ferb memory
+  confirm <id>`). Typing and clicking do record provenance (the page's or app's host, the recipients): a host you
+  didn't name, found only in the page, counts as outside. Recording provenance for every step is your decision: more
+  friction against memory poisoning.
+- "Found in neither" includes an outside value code can't match: one a page gave in another form (digits typed from a
+  number written in words), read from a picture, or recalled from memory. It counts as chosen, not outside, as FERB's
+  confirmations already read it; a send to a destination FERB doesn't know still asks each time. Treating it as
+  outside when the run read outside content is your decision.
+- A new intent name that is a known intent the labeling call wasn't shown (its list didn't fit the window), with other
+  blanks, is refused; the job's error names that intent, and the card waits until it changes. Rare.
 - A procedure whose line doesn't fit the planner's window (many procedures, a long chat on a small-window runtime:
   chat is fitted before the procedure lines) is only counted in a note on that turn and can't be chosen.
 - The procedure block a worker gets is marked as data in its header, not wrapped in FERB's untrusted-data wrapper; its
