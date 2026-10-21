@@ -17,7 +17,7 @@ from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
 from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
-from ferb.sanitize.redact import NODE_TEXT, REDACTED
+from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED
 
 
 class LearningRefused(FerbError):
@@ -113,20 +113,28 @@ def _node_text(item: Any) -> str | None:
     return next((k for k in NODE_TEXT if isinstance(item.get(k), str) and item[k].strip()), None)
 
 
+# Keys whose values are FERB's own ids (an action's id, a label's intent id, a procedure example's card, step evidence):
+# never read as a neighbour or masked by that reading (L29 re-review 5, V1); the other passes still redact them.
+_SIBLING_ID_KEYS = frozenset(INTERNAL_ID_KEYS | {'id', 'intent_id', 'episode', 'evidence'})
+
+
 def _siblings(redact: Callable[[str], str], value: Any) -> Any:
     """`value` with each pair of neighbouring scalar values (an object's in key order, a list's items, a list's nodes by
     their text) also read as two lines of prose, as the redactor reads a page's neighbouring nodes: a value that
     reading masks becomes REDACTED (a code whose label ends the previous value: "PIN" then "4821"; L29 re-review Q1)."""
+    ids: set[int] = set()
     if isinstance(value, dict):
         keys: list[Any] | None = sorted(value, key=str)
-        values = [_siblings(redact, value[k]) for k in keys or ()]
+        ids = {i for i, k in enumerate(keys or ()) if k in _SIBLING_ID_KEYS}
+        values = [value[k] if i in ids else _siblings(redact, value[k]) for i, k in enumerate(keys or ())]
         texts: list[str | None] = [None] * len(values)
     elif isinstance(value, list):
         keys, values = None, [_siblings(redact, v) for v in value]
         texts = [_node_text(v) for v in values]
     else:
         return value
-    lines = [values[i][t] if t is not None else _line(values[i]) for i, t in enumerate(texts)]
+    lines = [None if i in ids else values[i][t] if t is not None else _line(values[i])
+             for i, t in enumerate(texts)]
     # a string is already redacted on its own (`_strings_alone`); a number is read alone here
     alone = [redact(line) if isinstance(values[i], (int, float)) and texts[i] is None and line is not None else line
              for i, line in enumerate(lines)]

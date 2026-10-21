@@ -1825,7 +1825,9 @@ intent's job. Code rollups cite their child cards.
   as the prose it is (inside JSON a secret ending a string, "my password is …", is otherwise missed), and each pair of
   neighbouring values (an object's in key order, a list's items, a list's nodes by their text field) is read as two
   lines, as the redactor reads a page's nodes: a value that reading masks becomes `[redacted]` (a code whose label
-  ends the previous value: `{"label": "PIN", "value": "4821"}`, `{"a": "UPI PIN", "b": 4821}`). Text that a second
+  ends the previous value: `{"label": "PIN", "value": "4821"}`, `{"a": "UPI PIN", "b": 4821}`); FERB's own ids (an
+  action's `id`, a label's `intent_id`, a procedure example's `episode`, step `evidence`, the redactor's internal id
+  keys) are never read as a neighbour or masked by it, so a description ending "PIN:" can't move an intent. Text that a second
   whole redaction would still change, or whose compact form holds one of the owner's registered secret values
   (`Learning.secret_values`, the daemon's Redactor's, also given to the rollup thread's store), is refused
   (`LearningRefused`: "could not be stored safely: redaction would still change it"), never stored. Slot types (a

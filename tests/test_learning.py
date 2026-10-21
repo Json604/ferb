@@ -578,9 +578,27 @@ def test_the_sibling_reading_leaves_ordinary_bodies_as_they_were(monkeypatch):
     redactor = Redactor()
     bodies = [*ordinary_cards(), *realistic_bodies()]
     stored = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
-    monkeypatch.setattr(learning_module, '_siblings', lambda redact, value: value, raising=False)
+    monkeypatch.setattr(learning_module, '_siblings', lambda redact, value: value)
     without = {name: encoded(redacted_json(redactor.text, body, ())) for name, body in bodies}
     assert len(stored) == 659 and [n for n in stored if stored[n] != without[n]] == []
+
+
+@pytest.mark.parametrize('label', ['PIN:', 'Password:', 'Passcode:', 'API key:', 'Token:'])
+def test_the_sibling_reading_never_masks_ferbs_own_ids(redacting, label):
+    """Re-review 5, V1: a value ending in a secret label with a colon masked the FERB id beside it (an action's `id`
+    after its `error`; a label's `intent_id` after its `description`), moving the intent under "[redacted]". FERB's own
+    ids are neither read as a neighbour nor masked by that reading."""
+    from ferb.memory import intents
+    store, _ = redacting
+    iid = intents.intent_id('enter the code')
+    label_node = store.put(intents.INTENT_KIND, 'card-x', {'intent_id': iid, 'name': 'enter the code',
+                           'description': f'Type the code where the page asks {label}', 'slots': {}, 'values': {}},
+                           [], made_by='model:test')
+    assert label_node['body']['intent_id'] == iid
+    card = store.put('episode', 't-ids', {'task_id': 't-ids', 'actions': [
+        {'error': f'no field labelled {label}', 'id': 't-ids-a1', 'tool': 'browser.type'}]},
+        [], made_by='code:evidence-card/2')
+    assert card['body']['actions'][0]['id'] == 't-ids-a1' and card['body']['task_id'] == 't-ids'
 
 
 # L29 fix round 4 (re-review O3): slot types are a closed set, never redacted -----------------------------------
