@@ -133,14 +133,15 @@ def _named_node(node: dict[str, Any]) -> str:
 
 
 class _Rescrub:
-    """A forget's echo scrub to run again as each task or chat turn that was running at the forget ends (fix wave 6a):
-    what those record after the scrub (spans, answer, records, chat reply) loses the item too. `work` runs the same
-    scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho); it is kept in memory only, never
-    written down, until the last job in `waiting` ends. `queued`: a run is waiting to start, and will see what a job
-    ending now recorded."""
+    """A forget's echo scrub to run again as the work running at the forget ends (fix wave 6a): what that work records
+    after the scrub (spans, answer, records, chat reply) loses the item too, and nothing else is touched. `work` runs the
+    same scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho) for `running` (the task
+    trees, requests and unfinished spans of that moment); both are kept in memory only, never written down, until the
+    last job in `waiting` ends or the daemon stops, which can be days for a task waiting on the owner. `queued`: a run is
+    waiting to start, and will see what was recorded meanwhile."""
 
-    def __init__(self, work: Callable[[], Awaitable[None]], waiting: set[asyncio.Task[Any]]) -> None:
-        self.work, self.waiting, self.queued = work, waiting, False
+    def __init__(self, work: Callable[[], Awaitable[None]], waiting: set[asyncio.Task[Any]], running: Any) -> None:
+        self.work, self.waiting, self.running, self.queued = work, waiting, running, False
 
 
 class _PurgePlan(NamedTuple):
@@ -287,6 +288,7 @@ class Daemon:
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
         self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
         self._rescrubs: set[_Rescrub] = set()           # forgets waiting for jobs running at them to end (fix wave 6a)
+        self._turn_requests: dict[asyncio.Task[Any], str] = {}  # a running chat turn -> its request
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -1485,28 +1487,52 @@ class Daemon:
         """A forget's deletions, now, on the event loop; its echo scrub then runs in a worker thread on a connection of
         its own (`_finish_forget`, review minor), and a chat turn waits for it first (`_settle_forgets`)."""
         plan = self.memory.forget(item_id, keep_sources, finish=False)
-        self._forget_scrub(lambda: self._finish_forget(plan))
+        self._forget_scrub(lambda running: self._finish_forget(plan, running))
         return plan
 
-    def _forget_scrub(self, work: Callable[[], Awaitable[None]]) -> None:
-        """A forget's echo scrub, now (behind those still running), and again as each task or chat turn running at the
-        forget ends, after its last record (a task's `task_results` row is written inside its job): what it recorded
-        after the scrub loses the item too (`_Rescrub`). The rules are the forget's own, so what it never reached
-        stays as it is."""
-        self._after_forgets(work)
-        running = {job for job in self._turns | self._runs if not job.done()}
-        if running:
-            again = _Rescrub(work, running)
-            self._rescrubs.add(again)
-            for job in running:
-                job.add_done_callback(partial(self._ran_at_a_forget, again))
+    def _forget_scrub(self, work: Callable[[Any], Awaitable[None]]) -> None:
+        """A forget's echo scrub, now (behind those still running), and again for the work running at the forget as it
+        ends (`_Rescrub`): a tree as it finishes (`task.finished`, before its job writes the "while you were away"
+        result, so the next chat turn already waits) and each job (chat turns, resumed plans, scheduled runs, attention
+        turns) after its last record. A run again touches only what that work recorded (`echoes.Running`): the trees
+        and requests running now and the spans unfinished now, never anything started after the forget."""
+        from ferb.memory.echoes import Running
+        self._after_forgets(lambda: work(None))
+        jobs = {job for job in self._turns | self._runs if not job.done()}
+        if not jobs:
+            return
+        assert self.db is not None
+        unfinished = self.db.conn.execute("SELECT id, kind, CASE WHEN kind = 'model.turn' THEN "
+                                          "json_extract(input_json, '$.request_id') END FROM spans WHERE ended_at IS NULL"
+                                          ).fetchall()
+        running = Running({key for key, _ in self.supervisor.running_trees()} if self.supervisor else set(),
+                          {self._turn_requests[job] for job in jobs if job in self._turn_requests}
+                          | {str(r[2]) for r in unfinished if r[2] is not None},       # a planner turn under way
+                          {str(r[0]) for r in unfinished})
+        again = _Rescrub(lambda: work(running), jobs, running)
+        self._rescrubs.add(again)
+        for job in jobs:
+            job.add_done_callback(partial(self._ran_at_a_forget, again))
 
     def _ran_at_a_forget(self, again: _Rescrub, job: asyncio.Task[Any]) -> None:
-        """A job that was running at a forget ended: its scrub runs again (one queued run covers jobs ending before it
-        starts); once none is left, the forget's rules are let go."""
+        """A job that was running at a forget ended: its scrub runs again; once none is left, the forget's rules are let
+        go."""
         again.waiting.discard(job)
         if not again.waiting:
             self._rescrubs.discard(again)
+        self._scrub_again(again)
+
+    def _tree_finished_at_a_forget(self, tree_id: str) -> None:
+        """A tree of the work running at a forget finished (its answer and outcome are journaled): its scrub runs again
+        now, so a chat turn that starts before the tree's job ends (still writing its result) waits for it."""
+        assert self.db is not None
+        row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (tree_id,)).fetchone()
+        for again in list(self._rescrubs):
+            if tree_id in again.running.roots or (row is not None and row[0] in again.running.requests):
+                self._scrub_again(again)
+
+    def _scrub_again(self, again: _Rescrub) -> None:
+        """Queue a forget's scrub again; one run waiting to start covers what is recorded before it starts."""
         if again.queued:
             return
         again.queued = True
@@ -1566,26 +1592,27 @@ class Daemon:
         echo = echoes.NodeEcho(sorted({g[0] for g in gone}),
                                {v: said for g in gone for v, said in g[1].items() if v in deleted},
                                {v: at for g in gone for v, at in g[2].items() if v in deleted},
-                               {v: text for g in gone for v, text in g[3].items() if v in deleted})
+                               {v: text for g in gone for v, text in g[3].items() if v in deleted},
+                               until=self.clock.now().isoformat())           # an identity's scope ends at the forget
         if echo.naming:
-            self._forget_scrub(lambda: self._finish_node_forget(echo))
+            self._forget_scrub(lambda running: self._finish_node_forget(echo, running))
         return deleted
 
-    async def _finish_node_forget(self, echo: Any) -> None:
+    async def _finish_node_forget(self, echo: Any, running: Any = None) -> None:
         from ferb.memory import echoes
         try:
-            scrubbed = await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo)
+            scrubbed = await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo, running)
             if scrubbed.cards and self.learning is not None:      # cards that state it go too (no partial card)
                 self._forget_nodes(scrubbed.cards, named=False)
             self.db.truncate_wal("memory.forget")
         except Exception as e:                       # the deletions stand; what's left is said, never raised
             self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
 
-    async def _finish_forget(self, plan: Any) -> None:
+    async def _finish_forget(self, plan: Any, running: Any = None) -> None:
         from ferb.memory import echoes
         try:
             if plan.echoes is not None:
-                plan.scrubbed = await asyncio.to_thread(echoes.finish_at, self.db.path, plan.echoes)
+                plan.scrubbed = await asyncio.to_thread(echoes.finish_at, self.db.path, plan.echoes, running)
             self._forget_stating_cards(plan)
             self.db.truncate_wal("memory.forget")
         except Exception as e:                       # the deletions stand; what's left is said, never raised
@@ -3448,6 +3475,8 @@ class Daemon:
             self.supervisor.conversations.observe(self.redact(data))
         if topic == 'perception.attention' and not self._shutting_down:
             self._attention_arrived(self.redact(data))
+        if topic == "task.finished" and self._rescrubs:
+            self._tree_finished_at_a_forget(str(data.get("task_id", "")))
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
@@ -3717,6 +3746,8 @@ class Daemon:
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())
         self._turns.add(t1)
         t1.add_done_callback(self._turns.discard)
+        self._turn_requests[t1] = request_id                 # what a forget meanwhile finds running (fix wave 6a)
+        t1.add_done_callback(lambda done: self._turn_requests.pop(done, None))
         try:
             while (item := await queue.get()) is not None:
                 yield item

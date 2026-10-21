@@ -146,6 +146,27 @@ def test_a_span_naming_the_node_only_in_the_output_it_finished_with_is_found_by_
     two.close()
 
 
+def test_an_identity_statements_scope_ends_at_the_forget(tmp_path: Path) -> None:
+    """Re-review I-A (round 2): an identity statement is in every model run's system prompt from when it was recorded,
+    so its scope is every run since; it ends at the forget (`NodeEcho.until`): a run that starts after it, the owner
+    having stated it again, keeps it."""
+    two = TwoConnections(tmp_path)
+    said = "I sign emails as Kestrovan"
+    echo = echoes.NodeEcho(naming=["your identity note"], versions={NODE: [said]},
+                           in_prompts_since={NODE: two.clock.now().isoformat()})
+    before = two.spans.start("model.turn", task_id="t7", input={"system_prompt": f"Owner: {said}"})
+    two.spans.finish(before, output={"text": "ok"})
+    two.clock.advance(60)
+    echo.until = two.clock.now().isoformat()            # the forget
+    two.clock.advance(60)
+    after = two.spans.start("model.turn", task_id="t8", input={"system_prompt": f"Owner: {said}"})
+    two.spans.finish(after, output={"text": "ok"})
+    echoes.finish_node(two.scrub, echo)
+    assert two.held(before.id)[0] == {"system_prompt": f"Owner: {REMOVED}"}
+    assert two.held(after.id)[0] == {"system_prompt": f"Owner: {said}"}
+    two.close()
+
+
 # ---------- the notice purge (`attention.expire_derived`) ----------
 
 NOTICE = "You copied the unicorn invoice"

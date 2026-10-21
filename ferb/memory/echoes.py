@@ -69,6 +69,40 @@ class Forgotten:
 
 
 @dataclass
+class Running:
+    """The work running when a forget was asked (fix wave 6a): the task trees and the requests (chat turns, resumed
+    plans, scheduled runs) then running, and the spans then unfinished (an attention check's consideration among them).
+    The scrub run again as that work ends touches only what it recorded (`ours`), never a row, span, record or card of
+    work that started after the forget."""
+    roots: set[str] = field(default_factory=set)
+    requests: set[str] = field(default_factory=set)
+    spans: set[str] = field(default_factory=set)
+
+    def ours(self, db: Any) -> "Running":
+        """As it stands now: with the trees its requests made (a request can start its task after the forget) and the
+        requests of its trees."""
+        roots, requests = set(self.roots), set(self.requests)
+        for tree, request in db.conn.execute("SELECT tree_id, request_id FROM tasks").fetchall():
+            if request in self.requests:
+                roots.add(str(tree))
+            if tree in self.roots:
+                requests.add(str(request))
+        return Running(roots, requests, set(self.spans))
+
+    def holds(self, data: dict[str, Any]) -> bool:
+        """A journal row it wrote: by one of its tasks or for one of its requests."""
+        return _root(str(data.get("task_id", ""))) in self.roots or data.get("request_id") in self.requests
+
+    def reach(self, db: Any) -> set[str]:
+        """The spans it recorded: those then unfinished, its trees' spans and its requests' planner turns."""
+        return {str(r[0]) for r in db.conn.execute(
+            "SELECT id, task_id, CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END "
+            "FROM spans").fetchall()
+                if str(r[0]) in self.spans or (r[1] and _root(str(r[1])) in self.roots)
+                or (r[2] is not None and str(r[2]) in self.requests)}
+
+
+@dataclass
 class Scrubbed:
     rewritten: list[str] = field(default_factory=list)   # journal rows rewritten
     cards: list[str] = field(default_factory=list)       # episode cards whose body states the item: to forget
@@ -236,15 +270,19 @@ def _rare(db: Any, forgotten: Forgotten, given_rows: set[str], ferb: list[Any]) 
 SUMMARY_KIND = "chat.summary"
 
 
-def finish(db: Any, forgotten: Forgotten) -> Scrubbed:
+def finish(db: Any, forgotten: Forgotten, running: Running | None = None) -> Scrubbed:
     """A forget's work after its deletion: `scrub`, then the running summaries that folded a row written with the item
     or rewritten here (or a summary built on one: they are rebuilt from what remains), then an emptied WAL. Run again
-    (a task or chat turn running at the forget ended), it keeps the rules it settled the first time."""
+    for `running` (the work running at the forget, as each of it ends), it keeps the rules it settled the first time
+    and touches only what that work recorded."""
     if forgotten.lines is None:
         forgotten.lines = settle(db, forgotten)
     lines = forgotten.lines
+    ours = running.ours(db) if running is not None else None
     written = given(db, forgotten) | stating(db, forgotten)
-    out = scrub(db, forgotten, lines)
+    if ours is not None:
+        written &= {r[0] for r in _ferb_rows(db) if ours.holds(json.loads(r["data_json"]))}
+    out = scrub(db, forgotten, lines, ours)
     _drop_folded(db, written | set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     return out
@@ -261,12 +299,12 @@ def _drop_folded(db: Any, rows: set[str]) -> None:
         folded = {"entry:" + ident for ident in doomed}
 
 
-def finish_at(path: Any, forgotten: Forgotten) -> Scrubbed:
+def finish_at(path: Any, forgotten: Forgotten, running: Running | None = None) -> Scrubbed:
     """`finish` on a connection of its own (the daemon runs it in a worker thread, off the event loop)."""
     from ferb.store.db import Database
     db = Database(path)
     try:
-        return finish(db, forgotten)
+        return finish(db, forgotten, running)
     finally:
         db.close()
 
@@ -290,8 +328,9 @@ def settle(db: Any, forgotten: Forgotten) -> "_Lines":
     return lines
 
 
-def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrubbed:
-    """Remove what FERB's own records say of the forgotten item (module docstring), after its deletion."""
+def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: Running | None = None) -> Scrubbed:
+    """Remove what FERB's own records say of the forgotten item (module docstring), after its deletion. `ours`: a scrub
+    run again, which touches only the rows, records, cards and spans of the work running at the forget."""
     out = Scrubbed()
     phrases = forgotten.phrases
     if not phrases and not forgotten.requests:
@@ -301,6 +340,8 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
     written_with = given(db, forgotten)
     for row in ferb:
         data = json.loads(row["data_json"])
+        if ours is not None and not ours.holds(data):
+            continue
         answers_forgotten = row["kind"] in CHAT_KINDS and data.get("request_id") in forgotten.requests
         of_task = row["kind"] in TASK_KINDS and _root(str(data.get("task_id", ""))) in forgotten.tasks
         rule = (lines.mentions if of_task else lines.restates if row["id"] in written_with else lines.verbatim)
@@ -318,9 +359,10 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
+    tasks = forgotten.tasks if ours is None else forgotten.tasks & ours.roots
     change = (lambda text: lines.text(text, lines.mentions), lambda value: lines.value(value, lines.mentions))
-    _scrub_records(db, {task: change for task in forgotten.tasks})     # the tasks' own records
-    for task in sorted(forgotten.tasks):                 # its card
+    _scrub_records(db, {task: change for task in tasks})               # the tasks' own records
+    for task in sorted(tasks):                           # its card
         for card in db.conn.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'episode' AND key = ?",
                                     (task,)).fetchall():
             # a card goes only when its body restates the item, never on one rare word (re-review F2)
@@ -329,13 +371,16 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None) -> Scrub
 
     def spans(watch: SpanWatch) -> None:                 # their spans and planner turns, then every span
         index = _Index(db, set())
-        _rewrite_spans(db, [{"id": i} for i in index.task_spans(forgotten.tasks)], change[1], watch=watch)
+        reach = None if ours is None else ours.reach(db)
+        _rewrite_spans(db, [{"id": i} for i in index.task_spans(tasks) if reach is None or i in reach], change[1],
+                       watch=watch)
         for request in sorted(forgotten.requests):       # the planner's own answer to a forgotten message goes whole
             for span in db.conn.execute("SELECT id, input_json, output_json FROM spans WHERE kind = 'model.turn' AND "
                                         "json_extract(input_json, '$.request_id') = ?", (request,)).fetchall():
-                rewrite_recorded(db, span["id"], _answer_removed, watch=watch,
-                                 held=(span["input_json"], span["output_json"]))
-        scrub_told(db, {*lines.removed, *phrases}, watch)
+                if reach is None or span["id"] in reach:
+                    rewrite_recorded(db, span["id"], _answer_removed, watch=watch,
+                                     held=(span["input_json"], span["output_json"]))
+        scrub_told(db, {*lines.removed, *phrases}, watch, reach)
     rewrite_until_still(db, spans)
     return out
 
@@ -359,7 +404,7 @@ def _rewrite(db: Any, row: Any, data: dict[str, Any]) -> None:
         if own:
             db.conn.execute("COMMIT")
     except BaseException:
-        if own:
+        if own and db.conn.in_transaction:          # SQLite may already have rolled it back (a full disk)
             db.conn.execute("ROLLBACK")
         raise
 
@@ -461,9 +506,9 @@ class _Words:
         return value
 
 
-def scrub_told(db: Any, told: set[str], watch: SpanWatch | None = None) -> None:
-    """Every span loses each told text of two words or more, matched as whole words (`_Words`); a single word is
-    never told (final fix)."""
+def scrub_told(db: Any, told: set[str], watch: SpanWatch | None = None, reach: set[str] | None = None) -> None:
+    """Every span (or every one in `reach`) loses each told text of two words or more, matched as whole words
+    (`_Words`); a single word is never told (final fix)."""
     texts = {t.strip() for t in told if len(t.split()) >= 2}
     if not texts:
         return
@@ -476,7 +521,7 @@ def scrub_told(db: Any, told: set[str], watch: SpanWatch | None = None) -> None:
             "n.needle) > 0 OR instr(lower(COALESCE(s.output_json, '')), n.needle) > 0)").fetchall()]
     finally:
         db.conn.execute("DELETE FROM told_needles")
-    _rewrite_spans(db, [{"id": i} for i in ids], words.value, watch=watch)
+    _rewrite_spans(db, [{"id": i} for i in ids if reach is None or i in reach], words.value, watch=watch)
 
 
 @dataclass
@@ -491,6 +536,10 @@ class NodeEcho:
     versions: dict[str, list[str]] = field(default_factory=dict)
     in_prompts_since: dict[str, str] = field(default_factory=dict)
     statements: dict[str, str] = field(default_factory=dict)
+    # when the forget was asked: an identity statement's "since" scope ends there (fix wave 6a)
+    until: str | None = None
+    # the tasks its first pass reached, kept for a pass run again for the work running at the forget (memory only)
+    reached: dict[str, set[str]] | None = field(default=None, repr=False)
 
     @property
     def refs(self) -> set[str]:
@@ -548,28 +597,31 @@ class _Index:
         return {str(s["id"]) for s in self.spans if s["task_id"] and _root(str(s["task_id"])) in roots} | \
             self.turns(requests)
 
-    def shown(self, ref: str, since: str | None) -> tuple[set[str], set[str], set[str], set[str]]:
+    def shown(self, ref: str, since: str | None, until: str | None = None) -> tuple[set[str], set[str], set[str],
+                                                                                     set[str]]:
         """Where one learned item was shown or cited: (tasks, spans, chat rows, notices). The tasks given it
         (`task_memory_refs`); the chat rows whose source refs cite it; spans: those tasks' trees and planner turns, the
         planner turns of those chat rows, and every span naming it by its id (a run with no request, such as the
-        attention check, records no exposure). For an identity statement, from `since` on (compared in UTC): every task
-        created and every span of a task or recording a model run's system prompt. Notices: those made by an
-        attention check among those spans (the rows it saw)."""
+        attention check, records no exposure). For an identity statement, from `since` to `until` (the forget; compared
+        in UTC): every task created and every span of a task or recording a model run's system prompt. Notices: those
+        made by an attention check among those spans (the rows it saw)."""
         tasks = set(self.given.get(ref, set()))
         rows = {row for row, _ in self.listed.get(ref, [])}
         spans = set(self.naming.get(ref, set())) | self.turns({request for _, request in self.listed.get(ref, [])})
         if since is not None:
-            start = _utc(since)
-            tasks |= {_root(str(t["id"])) for t in self.tasks if _utc(str(t["created_at"])) >= start}
-            spans |= {str(s["id"]) for s in self.spans if (s["task_id"] or s["prompt"]) and
-                      _utc(str(s["started_at"])) >= start}
+            start, end = _utc(since), _utc(until) if until is not None else None
+
+            def within(at: str) -> bool:
+                return start <= _utc(at) and (end is None or _utc(at) <= end)
+            tasks |= {_root(str(t["id"])) for t in self.tasks if within(str(t["created_at"]))}
+            spans |= {str(s["id"]) for s in self.spans if (s["task_id"] or s["prompt"]) and within(str(s["started_at"]))}
         spans |= self.task_spans(tasks)
         saw = {r for s in self.spans if str(s["id"]) in spans and s["saw"] for r in json.loads(s["saw"])}
         notices = {ident for ident, refs in self.notices if refs & saw}
         return tasks, spans, rows, notices
 
 
-def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
+def finish_node(db: Any, echo: NodeEcho, running: Running | None = None) -> Scrubbed:
     """A learned item's echo pass, after its deletion (final adjudicated fix).
     - FERB's naming of it goes from FERB's conversation rows (each line holding it) and every span.
     - What each forgotten version states goes where that version was shown or cited (`_Index.shown`), never across
@@ -579,7 +631,10 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
     - A version's statement (a lesson's or an identity's text, two words or more) also goes, word for word, from
       every FERB chat reply and notice wherever written; a trigger, an intent or a key never does.
     - Copies of the FERB lines removed (two words or more) go from every span, as whole words.
-    - The cards of those tasks whose body states it are returned (`Scrubbed.cards`), for the daemon to forget."""
+    - The cards of those tasks whose body states it are returned (`Scrubbed.cards`), for the daemon to forget.
+    Run again for `running` (the work running at the forget, as each of it ends), it reaches only the tasks its first
+    pass reached (`NodeEcho.reached`; an identity's "since" scope ends at the forget, `NodeEcho.until`) and touches
+    only what that work recorded: its rows and spans, never a notice."""
     out = Scrubbed()
     naming = [t for t in echo.naming if t.strip()]
     said = {ref: [t for t in texts if t.strip()] for ref, texts in echo.versions.items()}
@@ -587,6 +642,12 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
     if not naming and not statements and not any(said.values()):
         return out
     in_tasks, in_spans, in_rows, in_notices = _scopes(db, echo, said)
+    if echo.reached is None:
+        echo.reached = in_tasks
+    ours = running.ours(db) if running is not None else None
+    if ours is not None:
+        in_tasks = {task: texts for task, texts in echo.reached.items() if task in ours.roots}
+        in_notices = {}
     lines: dict[frozenset[str], _Lines] = {}
 
     def lines_of(phrases: set[str]) -> _Lines:
@@ -596,6 +657,8 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
                                f"({','.join('?' * (len(FERB_KINDS) + 1))}) ORDER BY seq",
                                (*FERB_KINDS, NOTICE_KIND)).fetchall():
         data = json.loads(row["data_json"])
+        if ours is not None and not ours.holds(data):  # a notice holds neither: a run again never touches one
+            continue
         chat = row["kind"] in CHAT_KINDS or row["kind"] == NOTICE_KIND
         scoped = (in_tasks.get(_root(str(data.get("task_id", "")))) if row["kind"] in TASK_KINDS else
                   in_notices.get(str(data.get("id"))) if row["kind"] == NOTICE_KIND else in_rows.get(row["id"]))
@@ -625,7 +688,7 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
 
     def words_of(phrases: set[str]) -> _Words:
         return words.setdefault(frozenset(phrases), _Words(phrases))
-    for row in db.conn.execute("SELECT id, text FROM attention_notices").fetchall():
+    for row in db.conn.execute("SELECT id, text FROM attention_notices").fetchall() if ours is None else []:
         about = set(statements) | in_notices.get(str(row["id"]), set())
         if about:                                   # written only while it holds what was read (a purge may clear it)
             swap(db, "attention_notices", "id", row["id"], ("text",), partial(_notice_text, words_of(about)),
@@ -633,14 +696,16 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
     told = {*named.removed, *named.phrases, *stated.removed, *(line for own in lines.values() for line in own.removed)}
 
     def spans(watch: SpanWatch) -> None:            # a span that moved may now name it: its scope is read again
-        scope: Scope = _scopes(db, echo, said)[1] if watch.again else in_spans
+        scope: Scope = _scopes(db, echo, said)[1] if watch.again or ours is not None else in_spans
+        reach = None if ours is None else ours.reach(db)
         groups: dict[frozenset[str], list[dict[str, str]]] = {}
         for span_id, texts in scope.items():
-            groups.setdefault(frozenset(texts), []).append({"id": span_id})
+            if reach is None or span_id in reach:
+                groups.setdefault(frozenset(texts), []).append({"id": span_id})
         for group, listed in groups.items():        # whole words, never a whole line (a one-line output keeps the rest)
             own = words_of(set(group))
             _rewrite_spans(db, listed, own.value, own.needles, watch)
-        scrub_told(db, told, watch)
+        scrub_told(db, told, watch, reach)
     rewrite_until_still(db, spans)
     _drop_folded(db, set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -662,17 +727,17 @@ def _scopes(db: Any, echo: NodeEcho, said: dict[str, list[str]]) -> tuple[Scope,
     for ref, texts in said.items():
         if not texts:
             continue
-        for scope, keys in zip(scopes, index.shown(ref, echo.in_prompts_since.get(ref))):
+        for scope, keys in zip(scopes, index.shown(ref, echo.in_prompts_since.get(ref), echo.until)):
             for key in keys:
                 scope.setdefault(key, set()).update(texts)
     return scopes
 
 
-def finish_node_at(path: Any, echo: NodeEcho) -> Scrubbed:
+def finish_node_at(path: Any, echo: NodeEcho, running: Running | None = None) -> Scrubbed:
     """`finish_node` on a connection of its own (the daemon runs it in a worker thread, off the event loop)."""
     from ferb.store.db import Database
     db = Database(path)
     try:
-        return finish_node(db, echo)
+        return finish_node(db, echo, running)
     finally:
         db.close()

@@ -842,11 +842,11 @@ def test_echo_scrubs_run_one_at_a_time(daemon: RunningDaemon) -> None:
     events: list[tuple[str, str]] = []
     real = echoes.finish_node_at
 
-    def slow(path: Any, echo: Any) -> Any:
+    def slow(path: Any, echo: Any, running: Any = None) -> Any:
         [said] = echo.versions.values()
         events.append(("start", said[0]))
         time.sleep(0.3)
-        out = real(path, echo)
+        out = real(path, echo, running)
         events.append(("end", said[0]))
         return out
     echoes.finish_node_at = slow                                          # type: ignore[assignment]
@@ -1134,19 +1134,30 @@ def test_the_span_scrub_matches_whole_words_case_and_spacing_aside() -> None:
 QUILL = "my dentist is Dr. Quillfeather"
 
 
-def _running_across_the_forget(d: RunningDaemon, writes: Any) -> tuple[Any, Any]:
-    """A task or chat turn still running when the owner forgets (a job among the daemon's turns): once let go, it
-    records what `writes` writes, then ends. Returns (gate, job)."""
+def _running_across_the_forget(d: RunningDaemon, writes: Any, request: str | None = None,
+                               task_id: str | None = None) -> tuple[Any, Any]:
+    """A chat turn (for `request`, running its task `task_id`) still running when the owner forgets, as the daemon
+    tracks one: once let go, it records what `writes` writes, then ends. Returns (gate, job)."""
     import asyncio
     gate = asyncio.Event()
 
     async def start() -> Any:
+        if task_id is not None:
+            now = d.daemon.clock.now().isoformat()
+            d.daemon.db.conn.execute(
+                "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
+                "outcome_json, created_at, updated_at) VALUES (?, ?, NULL, ?, 'book it', 'worker', 'worker', '[]', "
+                "'running', '{}', ?, ?)", (task_id, task_id, request, now, now))
+
         async def job() -> None:
             await gate.wait()
             writes()
         task = asyncio.get_running_loop().create_task(job())
         d.daemon._turns.add(task)
         task.add_done_callback(d.daemon._turns.discard)
+        if request is not None:
+            d.daemon._turn_requests[task] = request
+            task.add_done_callback(lambda done: d.daemon._turn_requests.pop(done, None))
         return task
     return gate, d.run(start())
 
@@ -1201,7 +1212,7 @@ def test_a_task_running_at_the_forget_loses_the_item_from_what_it_records_afterw
         span = d.spans.start("tool.call", task_id="t-run", input={"tool": "calendar.add"})
         d.spans.finish(span, output={"text": "Booked Quillfeather\nok"})
         _result(daemon, "t-run", "Booked Dr. Quillfeather for Monday")
-    gate, job = _running_across_the_forget(daemon, writes)
+    gate, job = _running_across_the_forget(daemon, writes, "r-run", "t-run")
     _on_loop(daemon, lambda: d._forget_memory(item["id"]))
     daemon.run(d._settle_forgets())
     assert _on_loop(daemon, lambda: len(d._rescrubs)) == 1
@@ -1229,7 +1240,7 @@ def test_a_chat_turn_running_at_the_forget_loses_its_answer_to_the_forgotten_mes
                                         "display_text": "Also: noted for later."})
         turn = d.spans.start("model.turn", input={"role": "supervisor", "request_id": request})
         d.spans.finish(turn, output={"text": "Also: noted for later."})
-    gate, job = _running_across_the_forget(daemon, writes)
+    gate, job = _running_across_the_forget(daemon, writes, request)
     _on_loop(daemon, lambda: d._forget_memory(item.id))
     daemon.run(d._settle_forgets())
     _let_go(daemon, gate, job)
@@ -1249,7 +1260,7 @@ def test_a_task_running_at_a_learned_items_forget_loses_what_it_states(daemon: R
                                          "text": "Sent; always cc Zorblat on invoices\nDone"})
         span = d.spans.start("tool.call", task_id="t-node", input={"tool": "mail.send"})
         d.spans.finish(span, output={"text": "always cc Zorblat on invoices"})
-    gate, job = _running_across_the_forget(daemon, writes)
+    gate, job = _running_across_the_forget(daemon, writes, "r-node", "t-node")
     _on_loop(daemon, lambda: d._forget_nodes([node["id"]]))
     daemon.run(d._settle_forgets())
     _let_go(daemon, gate, job)
@@ -1269,6 +1280,11 @@ def test_shutdown_runs_the_scrub_again_for_a_task_it_stops(home: Any) -> None:
     item = running.run(d._memory_add(None, {"content": QUILL, "key": "dentist"}))     # type: ignore[arg-type]
 
     async def start() -> None:
+        now = d.clock.now().isoformat()
+        d.db.conn.execute(
+            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
+            "outcome_json, created_at, updated_at) VALUES ('t-stop', 't-stop', NULL, 'r-stop', 'book it', 'worker', "
+            "'worker', '[]', 'running', '{}', ?, ?)", (now, now))
         d.db.conn.execute("INSERT INTO task_memory_refs VALUES ('t-stop', ?)", ("memory:" + item["id"],))
 
         async def job() -> None:
@@ -1279,6 +1295,7 @@ def test_shutdown_runs_the_scrub_again_for_a_task_it_stops(home: Any) -> None:
                                                  "text": "Was booking Dr. Quillfeather\nStopped"})
         task = asyncio.get_running_loop().create_task(job())
         d._turns.add(task)
+        d._turn_requests[task] = "r-stop"
         task.add_done_callback(d._turns.discard)
         d._forget_memory(item["id"])
         await d._settle_forgets()
@@ -1292,3 +1309,118 @@ def test_shutdown_runs_the_scrub_again_for_a_task_it_stops(home: Any) -> None:
     finally:
         db.close()
     assert texts == [f"{REMOVED}\nStopped"]
+
+
+# ---------- fix wave 6a round 2: a scrub run again touches only the work running at the forget ----------
+
+def _texts(d: RunningDaemon, kind: str) -> list[str]:
+    return _on_loop(d, lambda: [str(json.loads(r[0]).get("text")) for r in d.daemon.db.conn.execute(
+        "SELECT data_json FROM journal WHERE kind = ? ORDER BY seq", (kind,))])
+
+
+def test_a_rerun_leaves_a_task_started_after_an_identity_forget_alone(daemon: RunningDaemon) -> None:
+    """Re-review I-A (probe 2): an identity statement's scope is every task since it was set, and the scrub run again
+    when a job running at the forget ended re-read it then, so a task started after the forget (the owner stating it
+    again) lost the statement from its answer, spans and a later chat reply. Nothing started after the forget is
+    rewritten: the scope ends at the forget and a re-run touches only the work then running."""
+    d = daemon.daemon
+    node = _identity(daemon, "I sign emails as Kestrovan")
+    gate, job = _running_across_the_forget(daemon, lambda: None)
+    _on_loop(daemon, lambda: d._forget_nodes([node["id"]]))
+    daemon.run(d._settle_forgets())
+
+    def after() -> None:
+        now = d.clock.now().isoformat()
+        d.db.conn.execute(
+            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
+            "outcome_json, created_at, updated_at) VALUES ('t-new', 't-new', NULL, 'r-new', 'sign it', 'worker', "
+            "'worker', '[]', 'done', ?, ?, ?)", (json.dumps({"answer": "I sign emails as Kestrovan"}), now, now))
+        d.journal.append("task.answer", {"task_id": "t-new", "request_id": "r-new", "status": "done",
+                                         "text": "Signed it: I sign emails as Kestrovan\nDone"})
+        d.journal.append("chat.reply", {"session_id": "s1", "request_id": "r-new2",
+                                        "text": "Noted: I sign emails as Kestrovan", "display_text": "x"})
+        span = d.spans.start("tool.call", task_id="t-new", input={"tool": "mail.draft"})
+        d.spans.finish(span, output={"text": "I sign emails as Kestrovan"})
+    _on_loop(daemon, after)
+    before = (_texts(daemon, "task.answer"), _texts(daemon, "chat.reply"), _held_in_spans(daemon, "Kestrovan"))
+    _let_go(daemon, gate, job)
+    assert (_texts(daemon, "task.answer"), _texts(daemon, "chat.reply"), _held_in_spans(daemon, "Kestrovan")) == before
+
+
+def test_a_rerun_leaves_what_follows_the_owner_restating_a_forgotten_item_alone(daemon: RunningDaemon) -> None:
+    """Re-review I-A (probe 1): after a memory forget the owner states the item again; the scrub run again when a job
+    running at the forget ended removed FERB's "Remembered" line for the new item."""
+    d = daemon.daemon
+    item = _remember(daemon, f"remember that {QUILL}", QUILL, "dentist")
+    gate, job = _running_across_the_forget(daemon, lambda: None)
+    _on_loop(daemon, lambda: d._forget_memory(item.id))
+    daemon.run(d._settle_forgets())
+    _remember(daemon, f"remember that {QUILL}", QUILL, "dentist")               # the owner states it again
+    before = (_texts(daemon, "chat.reply"), _held_in_spans(daemon, "Quillfeather"))
+    _let_go(daemon, gate, job)
+    assert (_texts(daemon, "chat.reply"), _held_in_spans(daemon, "Quillfeather")) == before
+
+
+def test_a_rerun_never_forgets_the_card_of_a_task_started_after_an_identity_forget(daemon: RunningDaemon) -> None:
+    """Re-review I-A (probe 3): the card of a task created after the identity forget, whose body states it, was
+    deleted and tombstoned when the job running at the forget ended."""
+    d = daemon.daemon
+    node = _identity(daemon, "I sign emails as Kestrovan")
+    gate, job = _running_across_the_forget(daemon, lambda: None)
+    _on_loop(daemon, lambda: d._forget_nodes([node["id"]]))
+    daemon.run(d._settle_forgets())
+
+    def after() -> Any:
+        now = d.clock.now().isoformat()
+        d.db.conn.execute(
+            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
+            "outcome_json, created_at, updated_at) VALUES ('T9', 'T9', NULL, 'r-9', 'sign it', 'worker', "
+            "'worker', '[]', 'done', '{}', ?, ?)", (now, now))
+        return d.learning.put("episode", "T9", {"task_id": "T9", "verified": True, "request": "sign the mail",
+                                                "answer": "I sign emails as Kestrovan"}, [], made_by="code:episode",
+                              state="active")
+    card = _on_loop(daemon, after)
+    _let_go(daemon, gate, job)
+    assert _on_loop(daemon, lambda: d.db.conn.execute("SELECT COUNT(*) FROM learning_nodes WHERE id = ?",
+                                                      (card["id"],)).fetchone()[0]) == 1
+
+
+def test_a_task_running_at_the_forget_is_scrubbed_once_its_tree_finishes(daemon: RunningDaemon) -> None:
+    """Re-review m-B: the task's answer is journaled when its tree finishes, but its job ends only after writing its
+    "while you were away" result (which can wait on a notification). A chat turn starting in between passed the forget
+    settle with nothing queued and read the answer. The scrub is queued as the tree finishes (`task.finished`), so the
+    next turn waits for it; the job's end runs it again for the result."""
+    import asyncio
+    d = daemon.daemon
+    item = daemon.run(d._memory_add(None, {"content": QUILL, "key": "dentist"}))      # type: ignore[arg-type]
+    first, second = asyncio.Event(), asyncio.Event()
+
+    async def start() -> Any:
+        now = d.clock.now().isoformat()
+        d.db.conn.execute(
+            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, status, "
+            "outcome_json, created_at, updated_at) VALUES ('t-fin', 't-fin', NULL, 'r-fin', 'book it', 'worker', "
+            "'worker', '[]', 'running', '{}', ?, ?)", (now, now))
+        d.db.conn.execute("INSERT INTO task_memory_refs VALUES ('t-fin', ?)", ("memory:" + item["id"],))
+
+        async def job() -> None:
+            await first.wait()
+            d.journal.append("task.answer", {"task_id": "t-fin", "request_id": "r-fin", "status": "done",
+                                             "text": "Booked Dr. Quillfeather\nAll set"})
+            d._publish("task.finished", {"task_id": "t-fin", "status": "done"})
+            await second.wait()                           # e.g. `_task_result` waiting on a notification
+            _result(daemon, "t-fin", "Booked Dr. Quillfeather")
+        task = asyncio.get_running_loop().create_task(job())
+        d._turns.add(task)
+        d._turn_requests[task] = "r-fin"
+        task.add_done_callback(d._turns.discard)
+        return task
+    job = daemon.run(start())
+    _on_loop(daemon, lambda: d._forget_memory(item["id"]))
+    daemon.run(d._settle_forgets())
+    daemon.call_soon(first.set)
+    daemon.run(asyncio.sleep(0))
+    daemon.run(d._settle_forgets())                       # what a chat turn starting now waits for
+    assert _answers(daemon, "task.answer", "task_id", "t-fin") == [f"{REMOVED}\nAll set"]
+    _let_go(daemon, second, job)
+    assert _task_records(daemon, "t-fin")[1] == [REMOVED]
