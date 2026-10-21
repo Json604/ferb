@@ -15,6 +15,7 @@ from ferb.trace.lines import CameForward, clip, duration, no_on_screen_action, p
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
 PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
+RERUN = "↻"     # a check run whose model window overflowed: the same check round ran again (verify.rerun)
 NO_SCREEN = ("shell.", "fs.")   # a record made before `on_screen` was kept: these families never counted (RQ2)
 OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # nor did recorded reads (FERB's readers, snapshots)
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
@@ -181,8 +182,17 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
 
     steps: list[dict[str, Any]] = []
     retry_starts: list[str] = []
+    reruns = 0                                      # check runs that overflowed and ran again in the same round
     for n in nodes:
         kind, inp = n["kind"], n.get("input") or {}
+        if kind == "verify.rerun":                  # the check run before it overflowed its window: not a failed round
+            last = next((s for s in reversed(steps) if s["role"] == "Checker"), None)
+            if last is not None:
+                last["mark"] = RERUN
+                last["text"] = ("its model window overflowed, so the same check ran again without the recorded calls: "
+                                + clip(str(inp.get("reason") or ""), 120))
+            reruns += 1
+            continue
         if kind in PLANNER_KINDS and (kind != "model.turn" or inp.get("role") == "supervisor"):
             role = "Planner"
         elif kind == "worker":
@@ -199,13 +209,16 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
                 retry_starts.append(n["started_at"])
         elif role == "Checker":
             mark, text = _checker(n, checked_count)
+            if steps and steps[-1]["mark"] == RERUN and steps[-1]["role"] == "Checker":
+                text = "rerun of the same check: " + text
         else:
             mark, text = _worker(n)
         steps.append({"at": n["started_at"], "role": role, "seconds": _secs(n["started_at"], n.get("ended_at")),
                       "text": text, "mark": mark})
     for i, s in enumerate(steps):                   # a worker's claim notes the check that verified it
         if s["role"] == "Worker" and s["mark"] != OPEN:
-            nxt = next((j for j in range(i + 1, len(steps)) if steps[j]["role"] in ("Worker", "Checker")), None)
+            nxt = next((j for j in range(i + 1, len(steps)) if steps[j]["role"] in ("Worker", "Checker")
+                        and steps[j]["mark"] != RERUN), None)
             if nxt is not None and steps[nxt]["role"] == "Checker" and steps[nxt]["mark"] == "✓":
                 s["text"] += f" — verified in step {nxt + 1}"
 
@@ -217,6 +230,9 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
         spent = duration(_secs(retry_starts[0], ended))
         problems.append(f"⚠ {plural(len(retry_starts), 'retry', 'retries')} ({spent} spent after "
                         f"{'it' if len(retry_starts) == 1 else 'the first'})")
+    if reruns:
+        problems.append(f"{RERUN} {plural(reruns, 'check', 'checks')} ran again without the recorded calls "
+                        "(its model window overflowed)")
     unknown = sum(1 for s in steps if s["role"] == "Checker" and s["mark"] == "⚠")
     if unknown:
         problems.append(f"⚠ {plural(unknown, 'check', 'checks')} left conditions unknown")

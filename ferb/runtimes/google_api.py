@@ -112,6 +112,12 @@ class GoogleProvider:
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["contents"].append({"role": "user", "parts": [{"text": message}]})
 
+    def window_exceeded(self, status: int, error: dict[str, Any]) -> bool:
+        """Never marked: Google documents no error code or message for an input over a model's token limit (its
+        troubleshooting page names none), and its own client (Gemini CLI 0.55.1) counts tokens before sending rather
+        than reading the rejection, so FERB has no shape to cite (fix wave 6b round 2; an owner-acceptance residual)."""
+        return False
+
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         parts = []
         for r in results:

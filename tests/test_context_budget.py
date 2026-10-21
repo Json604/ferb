@@ -46,15 +46,16 @@ def test_markers_that_cant_all_fit_fold_the_lowest_priority_run_into_one_note():
     from ferb.core.context import assemble
     blocks = [ContextBlock("OWNER REQUEST", "request", protected=True),
               ContextBlock("unrelated optional " * 50, "memory.read item_id=m1"),
-              *[ContextBlock("call body " * 20, f"call-{i}", priority=1 + i, fold="the calls' route") for i in range(200)]]
+              *[ContextBlock("call body " * 20, f"call-{i}", priority=1 + i, fold="the calls' route")
+                for i in range(200)]]
     out = assemble(blocks, budget_tokens=10 ** 9, max_chars=3_000)
     text = "\n\n".join(out.parts)
     assert out.chars <= 3_000 and "OWNER REQUEST" in text
     assert "[Context omitted; fetch full text: memory.read item_id=m1]" in text
     [note] = [p for p in out.parts if p.startswith("[") and "more not shown" in p]
     count = int(note[1:].split(" ", 1)[0])
-    assert note == (f"[{count} more not shown or listed one by one; fetch full text: the calls' route — from call-0 to "
-                    f"call-{count - 1}]")
+    assert note == (f"[{count} more not shown or listed one by one; fetch full text: the calls' route — from call-0 "
+                    f"to call-{count - 1}]")
     listed = [p for p in out.parts if p.startswith("[Context omitted; fetch full text: call-")]
     assert listed == [f"[Context omitted; fetch full text: call-{i}]" for i in range(count, 200)]   # the newer ones
     assert out.parts.index(note) == 2                                       # where the first folded block stood

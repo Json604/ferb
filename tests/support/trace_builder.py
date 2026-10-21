@@ -69,6 +69,19 @@ class TraceBuilder:
                                                  {"result": json.dumps({"results": results}), "status": None},
                                                  task_id=f"{self.task_id}.worker.verify"))
 
+    def overflowed_check(self, seconds: float, reason: str) -> dict[str, Any]:
+        """A check run that ended because its model window overflowed (fix wave 6b round 1): its worker span's error."""
+        check = {"goal": "verify", "role": "verifier", "scopes": []}
+        return self._child(self.root, self._node("worker", seconds, check, {"result": reason, "status": "blocked"},
+                                                 error=f"anthropic: ContextOverflow: {reason}",
+                                                 task_id=f"{self.task_id}.worker.verify"))
+
+    def rerun(self, reason: str) -> dict[str, Any]:
+        """FERB's note that the same check runs once more without the recorded calls (supervisor._verifier)."""
+        return self._child(self.root, self._node("verify.rerun", 0, {"reason": reason},
+                                                 {"rerun": "once, without the recorded calls"},
+                                                 task_id=f"{self.task_id}.worker.verify"))
+
     def dispatch(self, seconds: float, action: str, instructions: str = "") -> dict[str, Any]:
         decision = {"action": action, "worker_type": "default", "instructions": instructions, "question": ""}
         return self._child(self.root, self._node("model.dispatch", seconds, {}, {"text": json.dumps(decision)}))

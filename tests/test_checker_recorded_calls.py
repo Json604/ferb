@@ -14,11 +14,12 @@ import pytest
 from ferb.core.context import ContextBlock, assemble
 from ferb.core.errors import InputTooLarge
 from ferb.core.types import ModelLimits, RuntimeEvent
-from ferb.orchestrator.evidence import PAGE_CHARS, record_text, recorded_calls
+from ferb.orchestrator.evidence import PAGE_CHARS, page_bounds, record_text, recorded_calls
+from ferb.sanitize.redact import REDACTED
 from ferb.runtimes.codex_exec import MAX_INPUT_CHARS
 from tests.conftest import FakeRuntime, chat, cond, done, install, outcome, sup, task, tool
-from tests.support.checker_calls import (Echo, Saves, add, bundle, checker_context, narrow_checker, rebuild,
-                                         reachable, recorded_task, verdict)
+from tests.support.checker_calls import (Echo, Pads, Saves, add, bundle, checker_context, latest_call, narrow_checker,
+                                         rebuild, reachable, recorded_task, verdict)
 
 LOW_POWER = task("turn on low power mode", conds=(cond("Low Power Mode is on"),))
 
@@ -73,8 +74,8 @@ def test_the_checker_prompt_says_the_calls_are_in_its_context() -> None:
     """Edited minimally: task_evidence is for what is cut or left out, the root's other records and searches; every rule
     about fresh reads, unknown versus false and citing record ids stays."""
     text = " ".join(Path("ferb/orchestrator/prompts/verifier.md").read_text().split())
-    assert ("The worker's recorded tool calls, with their inputs and results, are in your context in recorded order."
-            in text)
+    assert ("The worker's recorded tool calls, with their inputs and results, are in your context in recorded order "
+            "(when your context says it holds none, list and page through them with task_evidence).") in text
     assert ('Use task_evidence for a record cut short there (read on from the offset it names), left out ("[Context '
             'omitted ...]", by its span_id) or counted in a note\'s range (list them with kind=tool.call), and to '
             'search.') in text
@@ -283,7 +284,8 @@ def test_a_long_input_never_pushes_the_result_out_of_its_page(daemon) -> None:
     chat(daemon, "save my notes")
     (span_id, (page, offset)), = bundle(seen["context"])[0].items()
     assert offset == PAGE_CHARS                                   # the long input is cut ...
-    assert '"error": null' in page and '"origin": ' in page and '"output": {"saved": 48000}' in page   # ... not the result
+    assert '"error": null' in page and '"origin": ' in page             # ... not the result
+    assert '"output": {"saved": 48000}' in page
     assert seen["texts"][span_id] == _record(daemon, span_id)    # still exactly what task.evidence pages
 
 
@@ -324,8 +326,8 @@ def test_thousands_of_calls_fit_codex_limits_and_every_record_stays_reachable(da
     ids, roles = recorded_task(daemon, "big.worker", calls)
 
     async def build() -> list[ContextBlock]:
-        return recorded_calls(daemon.daemon.spans, "big.worker", "big", lambda name: name == "probe.read", above=1,
-                              redact=daemon.daemon.redact)
+        return recorded_calls(daemon.daemon.spans, "big.worker", "big", lambda name: name == "probe.read",
+                              daemon.daemon.redact, daemon.daemon.redact.secret_values, above=1)
     # about 10,000 tokens of protected context, as a real check has (request, conditions, report, runtime and time)
     situation = "Owner's complete original request: label these emails\n" + "the report and its conditions " * 1_700
     blocks = [ContextBlock(situation, "task.evidence kind=task", protected=True)] + daemon.run(build(), timeout=120)
@@ -370,6 +372,20 @@ def test_a_check_whose_model_context_overflowed_runs_once_more_without_the_recor
     async def spans() -> list[str]:
         return [r[0] for r in daemon.daemon.db.conn.execute("SELECT kind FROM spans WHERE kind = 'verify.rerun'")]
     assert daemon.run(spans()) == ["verify.rerun"]
+
+    async def root() -> str:
+        return str(daemon.daemon.db.conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL").fetchone()[0])
+    from ferb.cli.client import Client
+    from ferb.trace import compose
+    client = Client(daemon.sock)
+    try:
+        story = compose.compose(client.call("trace.get", {"task_id": daemon.run(root())}))
+    finally:
+        client.close()
+    checks = [s for s in story["steps"] if s["role"] == "Checker"]       # N4: one check round, its rerun marked
+    assert [c["mark"] for c in checks] == ["↻", "✓"] and checks[1]["text"].startswith("rerun of the same check: ")
+    worker = next(s for s in story["steps"] if s["role"] == "Worker")
+    assert worker["text"].endswith(f" — verified in step {story['steps'].index(checks[1]) + 1}")
 
 
 def test_a_check_refused_as_too_large_runs_once_more_without_the_recorded_calls(daemon, monkeypatch) -> None:
@@ -418,3 +434,85 @@ def test_an_ordinary_check_failure_is_not_rerun(daemon) -> None:
                      {"worker": worker, "worker.verify": [failed, verdict(True)]})
     assert not outcome(chat(daemon, "turn on low power mode"))["verified"]
     assert len(_check_runs(script)) == 1 and not _reruns(daemon)
+
+
+# ---------- fix round 2 (re-review 2: N2, N3, N4) ----------
+
+SEALED = "plum-velvet-7781"
+
+
+def test_a_page_never_splits_a_known_secret() -> None:
+    """N2 (rule 14): a page ends where a value FERB knows as a secret starts, when that value would cross its end (or
+    takes it whole when the page starts with it), and starts where one starts when asked to start inside it, so
+    read-time redaction always sees the value whole. Its JSON-escaped form counts too."""
+    text = "a" * 10 + SEALED + "b" * 10
+    assert page_bounds(text, 0, 15, [SEALED]) == (0, 10)                      # ends before it
+    assert page_bounds(text, 10, 5, [SEALED]) == (10, 10 + len(SEALED))       # starts with it: whole
+    assert page_bounds(text, 13, 20, [SEALED]) == (10, 33)                    # asked to start inside it
+    assert page_bounds(text, 0, 15, []) == (0, 15) and page_bounds(text, 30, 100, [SEALED]) == (30, len(text))
+    quoted = 'pin "4471-x"'
+    escaped = json.dumps({"t": "z" * 8 + quoted})
+    cut = escaped.index("4471") + 1
+    assert page_bounds(escaped, 0, cut, [quoted])[1] == escaped.index('pin \\"4471')
+
+
+def test_a_sealed_value_straddling_the_cut_is_never_split_in_the_bundle_or_task_evidence(daemon) -> None:
+    """N2: a value sealed after it was recorded, placed across offset 12000 of its record. The bundle's page and
+    task.evidence's first page both end where it starts (the same offset, still byte for byte), and the next page
+    starts with it whole and masked; a read asked to start inside it starts at its beginning."""
+    add(daemon, Pads("probe.page", "read", True))
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.page", text=SEALED, pad=0)["is_error"]     # the record's layout
+        first = _record(daemon, latest_call(daemon))
+        at = first.index(SEALED, first.index('"output"'))
+        pad = PAGE_CHARS - 8 - at - 4         # 8 characters before the cut; a 5-digit pad adds 4 to the input
+        assert len(str(pad)) == 5
+        assert not tool(daemon.sock, token, "probe.page", text=SEALED, pad=pad)["is_error"]
+        seen["span"] = latest_call(daemon)
+        daemon.call_soon(daemon.daemon._add_secret_value, SEALED)                            # sealed after capture
+        return done("Read the page.")
+
+    def checker(token: str) -> str:
+        seen["context"] = checker_context(script)
+        span = seen["span"]
+        seen["first"] = tool(daemon.sock, token, "task.evidence", span_id=span)["content"]
+        start = seen["first"]["next_offset"]
+        seen["rest"] = tool(daemon.sock, token, "task.evidence", span_id=span, offset=start)["content"]
+        seen["inside"] = tool(daemon.sock, token, "task.evidence", span_id=span, offset=start + 3)["content"]
+        return verdict(True)
+    script = install(daemon, [sup("task", "On it.", LOW_POWER)], {"worker": worker, "worker.verify": checker})
+    chat(daemon, "read the page")
+    stored = _record(daemon, seen["span"])
+    at = stored.index(SEALED, stored.index('"output"'))
+    assert at < PAGE_CHARS < at + len(SEALED)                                     # it does straddle the cut
+    page, offset = bundle(seen["context"])[0][seen["span"]]
+    assert offset == at == seen["first"]["next_offset"] and page == seen["first"]["text"]
+    assert f"cut at {at} of {len(stored)} characters, the rest from offset={at}" in seen["context"]
+    for shown in (page, seen["rest"]["text"], seen["inside"]["text"], seen["context"]):
+        pieces = (SEALED[i:j] for i in range(len(SEALED)) for j in range(i + 4, len(SEALED) + 1))
+        assert not any(piece in shown for piece in pieces), shown[-80:]
+    assert seen["rest"]["text"].startswith(REDACTED)                              # whole, and masked
+    assert seen["inside"]["offset"] == at and seen["inside"]["text"] == seen["rest"]["text"]
+
+
+def test_the_trace_shows_a_rerun_as_the_same_check_round() -> None:
+    """N4: the run that overflowed is marked as rerun (not a failed step), the rerun says it is the same check round,
+    and the worker keeps its "verified in step N" note, so live check 75 counts one round."""
+    from ferb.trace import compose
+    from tests.support.trace_builder import TraceBuilder
+    b = TraceBuilder(conditions=["Low Power Mode is on"])
+    b.planner(5, {"kind": "task", "text": "On it.", "task": {"goal": b.goal}})
+    b.worker(30, "done", "Low Power Mode is on.")
+    b.overflowed_check(4, "The AI service I use (anthropic) reported an error: prompt is too long")
+    b.rerun("The AI service I use (anthropic) reported an error: prompt is too long")
+    b.checker(9, [True], ["pmset shows lowpowermode 1"])
+    c = compose.compose(b.finish())
+    assert [s["role"] for s in c["steps"]] == ["Planner", "Worker", "Checker", "Checker"]
+    assert c["steps"][1]["text"].endswith(" — verified in step 4")
+    assert c["steps"][2]["mark"] == "↻" and "ran again without the recorded calls" in c["steps"][2]["text"]
+    assert "prompt is too long" in c["steps"][2]["text"]
+    assert c["steps"][3]["mark"] == "✓" and c["steps"][3]["text"].startswith("rerun of the same check: verified")
+    assert not any("failed" in p for p in c["problems"])
+    assert "↻ 1 check ran again without the recorded calls (its model window overflowed)" in c["problems"]

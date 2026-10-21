@@ -32,10 +32,6 @@ class ProviderError(Exception):
         self.overflow = overflow
 
 
-# The `error.code` OpenAI's API returns for an input longer than the model's context window; a protocol fact read from
-# the error's code field, never from its message. Anthropic's is a stop reason (anthropic_api); Google's has no code.
-WINDOW_EXCEEDED_CODES = frozenset({"context_length_exceeded"})
-
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -78,6 +74,10 @@ class Provider(Protocol):
     def auth(self, key: str) -> dict[str, str]: ...
     def parse(self, state: dict[str, Any], data: dict[str, Any]) -> Turn: ...
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None: ...
+    # Whether an error response (its status and `error` object) is this provider's own rejection of an input over the
+    # model's window, by the shape the provider defines (fix wave 6b rounds 1-2: a check reruns without its recorded
+    # calls); a provider with none to cite answers False
+    def window_exceeded(self, status: int, error: dict[str, Any]) -> bool: ...
     def add_message(self, state: dict[str, Any], message: str) -> None: ...
 
 
@@ -283,7 +283,9 @@ class ApiRuntime:
                         continue
                     if resp.status_code != 200:
                         await resp.aread()
-                        raise ProviderError(self._error_text(resp, r.key), overflow=_window_exceeded(resp))
+                        error = _error_of(resp)
+                        raise ProviderError(self._error_text(resp, r.key), overflow=self.provider.window_exceeded(
+                            resp.status_code, error if isinstance(error, dict) else {}))
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):
@@ -312,10 +314,7 @@ class ApiRuntime:
         raise ProviderError(f"{self.name}: still failing after {self.retries} retries")
 
     def _error_text(self, resp: httpx.Response, key: str) -> str:
-        try:
-            err = resp.json().get("error") or {}
-        except (ValueError, AttributeError):
-            err = {}
+        err = _error_of(resp)
         detail = (err.get("message") or err.get("type") or err.get("status") or "") if isinstance(err, dict) else str(err)
         detail = str(detail)
         if key:
@@ -382,10 +381,9 @@ def _retry_after(resp: httpx.Response) -> float | None:
         return None
 
 
-def _window_exceeded(resp: httpx.Response) -> bool:
-    """Whether an error response carries a window-exceeded code in its `error.code` (WINDOW_EXCEEDED_CODES)."""
+def _error_of(resp: httpx.Response) -> Any:
+    """An error response's `error` value, as the provider sent it ({} when the body has none)."""
     try:
-        err = resp.json().get("error") or {}
+        return resp.json().get("error") or {}
     except (ValueError, AttributeError):
-        return False
-    return isinstance(err, dict) and err.get("code") in WINDOW_EXCEEDED_CODES
+        return {}

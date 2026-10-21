@@ -45,6 +45,22 @@ class Saves(Echo):
         return ToolResult({"saved": len(args.text) + args.pad})
 
 
+class Pads(Echo):
+    """A probe read whose result puts the text it is given after `pad` letters and before 300 more, so the result is
+    always the longer side of its record and a test can place the text at a chosen offset of the record."""
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        return ToolResult({"text": "a" * args.pad + args.text + "b" * 300})
+
+
+def latest_call(daemon: Any) -> str:
+    """The span id of the latest recorded tool call."""
+    async def go() -> str:
+        return str(daemon.daemon.db.conn.execute(
+            "SELECT id FROM spans WHERE kind = 'tool.call' ORDER BY rowid DESC LIMIT 1").fetchone()[0])
+    return daemon.run(go())                                     # type: ignore[no-any-return]
+
+
 def add(daemon: Any, *caps: Echo) -> None:
     for cap in caps:
         daemon.daemon.registry.capabilities[cap.name] = cap

@@ -108,7 +108,7 @@ class ContextBlock:
     source_refs: tuple[str, ...] = ()
     payload: str | None = None  # source data without presentation/catalogue metadata; None preserves legacy text
     history: bool = False    # one conversation entry: filled newest-first after the protected blocks, never with gaps
-    fold: str = ""           # optional blocks of one run, by its retrieval route: markers that can't all fit fold into a note
+    fold: str = ""           # one run of optional blocks (its retrieval route): markers that can't all fit fold
 
 
 @dataclass(frozen=True)

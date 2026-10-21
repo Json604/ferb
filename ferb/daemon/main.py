@@ -1007,7 +1007,8 @@ class Daemon:
             self._journal().append("shell.unavailable", {"why": self.containment[1]})
         add_trail(self.registry, lambda: self.trail)
         add_evidence(self.registry, self.spans, self._inspection_parent,
-                     lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None), self.evidence)
+                     lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None), self.evidence,
+                     lambda: getattr(self.redact, "secret_values", set)())   # a page never splits one (rule 14)
         add_time(self.registry, lambda: self.timers, self.clock.now, lambda: self._sleep_until,
                  lambda task_id: (rec.task.deadline if (rec := self.tasks.get(task_id)) else None))
 

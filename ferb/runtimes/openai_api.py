@@ -132,6 +132,11 @@ class OpenAIProvider:
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["input"].append({"role": "user", "content": [self._text(message, False)]})
 
+    def window_exceeded(self, status: int, error: dict[str, Any]) -> bool:
+        """The `error.code` OpenAI's API returns for an input longer than the model's context window, read from that
+        code field, never from the message (fix wave 6b round 1)."""
+        return error.get("code") == "context_length_exceeded"
+
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         for r in results:
             text = ("Tool error: " + r.text) if r.is_error else r.text

@@ -468,8 +468,9 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
         if state['violation']:
             yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])})
         elif not state['cancelled']:
-            yield RuntimeEvent('error', {'message': 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)}
-                               | ({'overflow': True} if getattr(exc, 'overflow', False) else {}))
+            message = 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)
+            yield RuntimeEvent('error', {'message': message} | ({'overflow': True} if getattr(exc, 'overflow', False)
+                                                                else {}))
     finally:
         if reading is not None:
             reading.cancel()

@@ -147,11 +147,43 @@ async def test_anthropic_early_stop_is_an_error(stop) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("status, kind, message, overflow", [
+    (400, "invalid_request_error", "prompt is too long: 1012345 tokens > 1000000 maximum", True),
+    (400, "invalid_request_error", "input length and `max_tokens` exceed context limit: 990000 + 32000 > 1000000, "
+                                   "decrease input length or `max_tokens` and try again", True),
+    (400, "invalid_request_error", "This model does not support assistant message prefill.", False),
+    (413, "request_too_large", "prompt is too long: 1012345 tokens > 1000000 maximum", False),
+])
+async def test_anthropic_over_long_prompt_rejection_is_marked_as_an_overflow(status, kind, message, overflow) -> None:
+    """Fix wave 6b round 2 (N1): the Messages API rejects an input over the model's window with a 400
+    invalid_request_error whose message is "prompt is too long: N tokens > M maximum", or, when the input and
+    max_tokens together exceed it, "input length and `max_tokens` exceed context limit: …". Anthropic's own client
+    defines both (Claude Code 2.1.283, bundled in the pinned claude-agent-sdk 0.2.160: `"Prompt is too long"`,
+    `/prompt is too long[^0-9]*(\\d+)\\s*tokens?\\s*>\\s*(\\d+)/i`, and its `max_tokens_context_overflow` class). Only
+    that status, type and prefix count; any other rejection stays an ordinary error."""
+    body = {"type": "error", "error": {"type": kind, "message": message}, "request_id": "req_1"}
+    events = await run(make(CASES["anthropic"], Scripted([(status, body)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and events[-1].data.get("overflow", False) is overflow
+
+
+@pytest.mark.anyio
+async def test_googles_token_count_rejection_stays_unmarked() -> None:
+    """Google documents no error code or message for an input over a model's token limit, and its own client (Gemini CLI
+    0.55.1) counts tokens before sending instead of reading the rejection: with nothing to cite, FERB doesn't mark it
+    (an OWNER_ACCEPTANCE residual)."""
+    body = {"error": {"code": 400, "status": "INVALID_ARGUMENT",
+                      "message": "The input token count (1200000) exceeds the maximum number of tokens allowed "
+                                 "(1048576)."}}
+    events = await run(make(CASES["google"], Scripted([(400, body)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and "overflow" not in events[-1].data
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("code, overflow", [("context_length_exceeded", True), ("invalid_value", False)])
 async def test_openai_window_exceeded_error_is_marked_as_an_overflow(code, overflow) -> None:
     """OpenAI documents error code context_length_exceeded for an input longer than the model's window."""
-    body = {"error": {"message": "This model's maximum context length is 400000 tokens.", "type": "invalid_request_error",
-                      "code": code}}
+    body = {"error": {"message": "This model's maximum context length is 400000 tokens.",
+                      "type": "invalid_request_error", "code": code}}
     events = await run(make(CASES["openai"], Scripted([(400, body)]), mode="supervisor"), token="")
     assert events[-1].kind == "error" and "400" in events[-1].data["message"]
     assert events[-1].data.get("overflow", False) is overflow

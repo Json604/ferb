@@ -2795,7 +2795,8 @@ class Supervisor(WorkerRuns):
         # Fix wave 6b: every run's recorded calls (a re-check after a repair round too), ahead of the context's other
         # optional blocks; the checker reads with task_evidence only what didn't fit, and the root's other records
         ctx += recorded_calls(self.spans, task.id, tree.id, lambda tool: observes(self.gateway.caps.get(tool)),
-                              self.gateway.redact, above=1 + max(block.priority for block in ctx))
+                              self.gateway.redact, lambda: getattr(self.gateway.redact, "secret_values", set)(),
+                              above=1 + max(block.priority for block in ctx))
         # ... and the check as it was before them, for a run whose model window overflowed with them (round 1)
         plain = context + [ContextBlock(report + "\nThis check's context holds no recorded tool calls: with them, it "
                                         "overflowed the model's window; list and read them with task_evidence. Full "

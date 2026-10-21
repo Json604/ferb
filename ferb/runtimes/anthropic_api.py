@@ -38,6 +38,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "claude-haiku-4-5-20251001": (200_000, 64_000),
 }
 LIMITS_SOURCE = "https://platform.claude.com/docs/en/about-claude/models/overview (checked 2026-10-14)"
+# The message prefixes of the API's over-window rejection (`window_exceeded`), lowercased
+WINDOW_EXCEEDED = ("prompt is too long", "input length and `max_tokens` exceed context limit")
 
 
 def limits_for(model: str) -> ModelLimits:
@@ -114,6 +116,16 @@ class AnthropicProvider:
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["messages"].append({"role": "user", "content": [{"type": "text", "text": message}]})
+
+    def window_exceeded(self, status: int, error: dict[str, Any]) -> bool:
+        """The Messages API's rejection of an input over the model's window: a 400 `invalid_request_error` whose message
+        starts "prompt is too long" ("prompt is too long: N tokens > M maximum"), or "input length and `max_tokens`
+        exceed context limit" when the input and the reply ceiling together exceed it. Anthropic's own client defines
+        both shapes (Claude Code 2.1.283, bundled in the pinned claude-agent-sdk 0.2.160: `"Prompt is too long"` with
+        `/prompt is too long[^0-9]*(\\d+)\\s*tokens?\\s*>\\s*(\\d+)/i`, and its `max_tokens_context_overflow` class);
+        the API's errors page documents the status and type, not the message (fix wave 6b round 2)."""
+        message = str(error.get("message") or "").lower()
+        return status == 400 and error.get("type") == "invalid_request_error" and message.startswith(WINDOW_EXCEEDED)
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         blocks = []

@@ -79,6 +79,9 @@ class FakeProvider:
     def add_message(self, state, message) -> None:
         state["body"].setdefault("updates", []).append(message)
 
+    def window_exceeded(self, status, error) -> bool:
+        return False
+
 
 # ---------- Codex app-server ----------
 
