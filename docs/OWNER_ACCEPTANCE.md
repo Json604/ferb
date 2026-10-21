@@ -1374,7 +1374,8 @@ Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
     runs' tool calls. After the fourth run, `ferb memory consolidate` (or the next hourly pass) revises the procedure
     with that run: search again and record the current version's `state` and `confirmed` (a revision that only
     reuses the steps you confirmed should stay `learned` and `confirmed` true; one with a new step built on outside
-    content shows `quarantined` and the consolidate output names it under `requarantined`). For each of the four tasks,
+    content shows `quarantined` and the consolidate output names it under `requarantined`; if the hourly pass revised
+    it, `ferb timeline` shows `memory.procedure_requarantined`). For each of the four tasks,
     count its tool calls with `ferb trace TASK --steps` (one line per tool call) and take its time from the task span
     in `ferb trace TASK --json` (`started_at` to `ended_at`); record the fourth against the first three, then run
     `ferb baseline` again for the totals before and after.
@@ -1416,8 +1417,9 @@ Residuals to know during the week (accepted or recorded, not checks):
 - Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
-- Learning by intent (L29): a procedure with a step of a reversible kind (opening a site, tab or app, focusing a
-  window, the Trash, a timer, a recovery point) starts quarantined until you confirm it; a procedure you
-  forget is never learned again for that kind of task, and one you turned down blocks any procedure for it; forgetting
-  the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose slot is named
-  like a credential never becomes learned (CHANGELOG lists them all).
+- Learning by intent (L29): a procedure with a step of a reversible kind (opening or navigating a site; opening,
+  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder
+  or wait; a recovery point; stopping a command FERB started) starts quarantined until you confirm it; a procedure
+  you forget is never learned again for that kind of task, and one you turned down blocks any procedure for it;
+  forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
+  slot is named like a credential never becomes learned (CHANGELOG lists them all).

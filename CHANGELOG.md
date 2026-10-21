@@ -409,10 +409,12 @@ things so that model gets faster with steps"; not installed or live-tested):
   code refuses one that cites a run you marked failed. A lesson you wrote or edited is never rewritten by the model: a
   model lesson with the same scope and trigger is refused (the prompt also tells the model never to restate it).
 - A revision is still the same procedure. Every run it was credited with keeps counting toward "learned" (three
-  verified runs with two different values), whatever examples the revision keeps, and two failed runs in a row make it
-  suspect across revisions. Your confirm carries over to a revision whose steps built on outside content were all
-  steps of the version you confirmed; a revision that adds such a step waits for your confirm again, and `ferb memory
-  consolidate` names it (`requarantined`).
+  verified runs with two different values), whatever examples the revision keeps, except the runs of a version you
+  rolled back; two failed runs in a row make it suspect across revisions. Your confirm carries over to a revision
+  whose steps built on outside content were all steps of the version you confirmed by hand (a confirm that carried
+  over never counts as yours); a revision that adds such a step waits for your confirm again: `ferb memory
+  consolidate` names it under `requarantined`, and when the hourly pass revised it, `ferb timeline` shows
+  `memory.procedure_requarantined`. A proposal identical to a version that exists changes nothing (`unchanged`).
 - The planner sees every procedure FERB can use by its kind of task (name, description, what changes), most recently
   used first and fitted to its window instead of matched by your words, and picks one by meaning with this request's
   values (dish = rajma). If any value is missing or of the wrong type, the values are noted in the task's trace and
@@ -445,18 +447,21 @@ Accepted residuals (L29):
   than intended (ARCHITECTURE, "Redaction stays JSON").
 - A procedure whose slot is named like a credential (a token, a PIN) never becomes learned: those values are masked
   when stored, so its runs count as one value.
-- Steps of the reversible kinds record no target provenance: opening or navigating a site, opening or closing a tab,
-  opening an app, focusing a window, moving to the Trash, a timer, a recovery point (`policy/rules.py`,
-  REVERSIBLE). A procedure with one of these starts quarantined until you read its steps and confirm it (`ferb memory
-  confirm <id>`). Typing and clicking do record provenance (the page's or app's host, the recipients): a host you
-  didn't name, found only in the page, counts as outside. Recording provenance for every step is your decision: more
-  friction against memory poisoning.
+- Steps of the reversible kinds record no target provenance: opening or navigating a site; opening, switching to,
+  keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder or wait; a
+  recovery point; stopping a command FERB started (`policy/rules.py` REVERSIBLE; browser.open, navigate, use_tab,
+  close and keep_open, mac.open, mac.act focus, fs.trash, the time tools, recovery.snapshot, shell.kill). A procedure
+  with one of these starts quarantined until you read its steps and confirm it (`ferb memory confirm <id>`). Typing
+  and clicking do record provenance (the page's or app's host, the recipients): a host you didn't name, found only in
+  the page, counts as outside. Recording provenance for every step is your decision: more friction against memory
+  poisoning.
 - "Found in neither" includes an outside value code can't match: one a page gave in another form (digits typed from a
   number written in words), read from a picture, or recalled from memory. It counts as chosen, not outside, as FERB's
   confirmations already read it; a send to a destination FERB doesn't know still asks each time. Treating it as
   outside when the run read outside content is your decision.
-- A new intent name that is a known intent the labeling call wasn't shown (its list didn't fit the window), with other
-  blanks, is refused; the job's error names that intent, and the card waits until it changes. Rare.
+- A new intent name that is a known intent the labeling call wasn't shown (its list didn't fit the window), with
+  other blanks, is refused; the job's error names that intent, and the card waits until it changes or `ferb memory
+  consolidate` runs the call again. Rare.
 - A procedure whose line doesn't fit the planner's window (many procedures, a long chat on a small-window runtime:
   chat is fitted before the procedure lines) is only counted in a note on that turn and can't be chosen.
 - The procedure block a worker gets is marked as data in its header, not wrapped in FERB's untrusted-data wrapper; its

@@ -631,11 +631,13 @@ This section matters most for an automated campaign. It says exactly what runs u
   run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
   save exploration but never skips gateway checks, step checks or the final check. Procedures with steps whose
-  targets came from outside content, or that record no target provenance (the reversible kinds: opening a site, tab
-  or app, focusing a window, moving to the Trash, a timer, a recovery point), are quarantined until the
-  owner confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words
-  nor outside content, is not outside (L29). A model revision is the same procedure: the runs of every version count
-  toward its state, and the owner's confirm carries over unless the revision adds a step built on outside content. An
+  targets came from outside content, or that record no target provenance (the reversible kinds: opening or navigating
+  a site; opening, switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a
+  timer, reminder or wait; a recovery point; stopping a command FERB started), are quarantined until the owner
+  confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor
+  outside content, is not outside (L29). A model revision is the same procedure: the runs of every version count
+  toward its state, and the confirm the owner gave by hand carries over unless the revision adds a step built on
+  outside content that the hand-confirmed version didn't have (a carried confirm never counts as the owner's own). An
   app update sends a learned procedure back to candidate until it succeeds on the new version; two failures in a row
   mark it suspect. A suggestion the owner turned down ("Not right") is never proposed again. The consolidator reads
   only cards whose inputs changed, has the learning model label each card with its intent (what kind of task it was,

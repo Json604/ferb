@@ -635,15 +635,17 @@ its blanks; otherwise the run's receipt keeps them (L29). The worker then starts
 as data: its steps with this request's values filled in (a blank without a value is left for the worker to fill from
 your request), the lessons learned from that kind of task, and the tool calls of its latest verified runs, newest first,
 as many as fit the model's window (L29). Procedures still require step checks and final verification.
-Outside-derived action/destination steps are quarantined until confirmed (`ferb memory confirm <id>`): a target
-found only in outside content, or a step that records no target provenance (the reversible kinds: opening a site,
-tab or app, focusing a window, moving to the Trash, a timer, a recovery point; typing and clicking record
-it); a target you typed or answered, or one found in neither (FERB's or the model's choice, or an outside value code
-can't match), is not outside. Reading an outside page alone does not quarantine a procedure. A revision of a
-procedure is the same procedure: its runs keep counting (receipts belong to its key), and your confirm carries over
-unless the revision adds a step built on outside content (then `ferb memory consolidate` names it). An app update
-sends a learned procedure back to candidate until it succeeds on the new version; two consecutive failures mark it
-suspect. A suggestion you turned down ("Not right") is not proposed again.
+Outside-derived action/destination steps are quarantined until confirmed (`ferb memory confirm <id>`): a target found
+only in outside content, or a step that records no target provenance (the reversible kinds: opening or navigating a
+site; opening, switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a
+timer, reminder or wait; a recovery point; stopping a command FERB started; typing and clicking record it); a target
+you typed or answered, or one found in neither (FERB's or the model's choice, or an outside value code can't match),
+is not outside. Reading an outside page alone does not quarantine a procedure. A revision of a procedure is the same
+procedure: its runs keep counting (receipts belong to its key), and the confirm you gave by hand carries over unless
+the revision adds a step built on outside content that the version you confirmed didn't have (then `ferb memory
+consolidate` names it; if the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). An app
+update sends a learned procedure back to candidate until it succeeds on the new version; two consecutive failures
+mark it suspect. A suggestion you turned down ("Not right") is not proposed again.
 Old episodes without captured app versions cannot establish the current-version requirement.
 
 Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra

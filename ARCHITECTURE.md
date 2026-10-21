@@ -1591,16 +1591,18 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   `owner_answer` (the set `policy/confirm.py` reads) is the owner's; `unknown` (in neither the owner's words nor
   outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed from a
   number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one it
-  doesn't know) on a key without an owner label is outside; no `arg_sources` at all is outside (fail-safe). Before, it
-  tested origin labels (`owner`, an outside rank) that the gateway never records, so every targeted action was
+  doesn't know) on a key without an owner label is outside; no `arg_sources` at all is outside (fail-safe). Before,
+  it tested origin labels (`owner`, an outside rank) that the gateway never records, so every targeted action was
   outside; composer 3 reads such cards again once, and a card whose trace has aged out has each kept action's flag
   recomputed from its stored `arg_sources`. The gateway records `arg_sources` for consequential kinds only
-  (`gateway.py`), so the reversible kinds (`policy/rules.py` REVERSIBLE: opening or navigating a site, opening or
-  closing a tab, opening an app, focusing a window, moving to the Trash, a timer, a recovery point) stay
-  outside, while typing and clicking (fill_form, click, mac input) record it. A procedure using one is `quarantined`
-  until the owner's `ferb memory confirm` (`Learning.confirm` via `_mark_confirmed`: candidate, then refreshed, so
-  learned at once when its key's receipts qualify). Recording provenance for every step is the owner's decision
-  (friction against memory poisoning).
+  (`gateway.py`), so the reversible kinds (`policy/rules.py` REVERSIBLE: opening or navigating a site; opening,
+  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer, reminder
+  or wait; a recovery point; stopping a command FERB started; the tools browser.open, navigate, use_tab, close and
+  keep_open, mac.open, mac.act focus, fs.trash, time.remind_at, set_timer and sleep_until, recovery.snapshot and
+  shell.kill; no tool uses `draft`) stay outside, while typing and clicking (fill_form, click, mac input) record it.
+  A procedure using one is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm` via
+  `_mark_confirmed`: candidate, then refreshed, so learned at once when its key's receipts qualify). Recording
+  provenance for every step is the owner's decision (friction against memory poisoning).
 - **Procedure identity across revisions (L29 final review I1, I2).** Since L29 an intent's procedure is revised after
   each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
   receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten
@@ -1608,12 +1610,19 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   slot variants, current app versions) and "suspect" (two failures in a row) hold across revisions, and slot variety
   counts only the slots the current version declares. A receipt recorded on a superseded version refreshes the key's
   current version too. Receipts are read across versions rather than copied forward on `put`: one record per run, and
-  rollback and forget apply at read time. `propose_procedure` carries the owner's confirm to a revision whose steps
-  built on outside content (by tool and template arguments, as stored) were all steps of the confirmed version
-  (`_mark_confirmed`, the path `confirm` uses); a revision that adds such a step is stored `quarantined` with
-  `confirmed` 0, noted as `memory.procedure_requarantined` (ids and the reason) and named in the pass result
-  (`requarantined`, printed by `ferb memory consolidate`). A revision after two failures starts `suspect` (sticky, as
-  before); the next revision after a successful run starts afresh.
+  rollback and forget apply at read time. `propose_procedure` carries a confirm to a revision of a confirmed version
+  whose steps built on outside content (by tool and template arguments, as stored) were all steps of the version the
+  owner confirmed by hand (`_hand_confirmed`: walking `supersedes` back through carried confirms to the nearest one
+  the owner gave; none when it was rolled back or is gone). A carried confirm is stored as `confirmed` 2 (`get`
+  reports a bool, so search, the dashboard and `confirmable` see True), so it never counts as the owner's own; the
+  owner's `confirm` stores 1, also over a carried one (`_mark_confirmed`, one path for both). A revision of a
+  confirmed version that adds such a step, or whose hand-confirmed version is gone, is stored `quarantined` with
+  `confirmed` 0, noted as `memory.procedure_requarantined` (ids: the new version, the one it revises, the
+  hand-confirmed one; the reason; `ferb timeline` prints it) and named in the pass result (`requarantined`, printed
+  by `ferb memory consolidate`). All of this applies only when `put` wrote the node now over the current version
+  (`supersedes` is it): a proposal whose content matches an existing node (the current version or an older one)
+  changes nothing and is listed under `unchanged`, not accepted. A revision after two failures starts `suspect`
+  (sticky, as before), and stays suspect until a verified run and then a revision with a new body.
 - **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
   (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
   keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later
