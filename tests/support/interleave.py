@@ -46,6 +46,11 @@ def lists(fragment: str) -> When:
     return lambda sql, params: sql.lstrip().upper().startswith("SELECT") and fragment in sql
 
 
+def runs(fragment: str) -> When:
+    """Any statement told apart by a fragment of its SQL (a write in the middle of a scrub's rewrite)."""
+    return lambda sql, params: fragment in sql
+
+
 class TwoConnections:
     """The scrub's connection (`scrub`) and the event loop's (`loop`, with its `spans` store) on one database."""
 

@@ -91,7 +91,7 @@ class SpanStore:
         them), in start order."""
         rows = self._task_rows(task_id)
         nodes = {r["id"]: SpanNode(_row_to_span(r)) for r in rows}
-        roots = []
+        roots: list[SpanNode] = []
         for node in nodes.values():
             parent = nodes.get(node.span.parent_id or "")
             (parent.children if parent else roots).append(node)
@@ -473,8 +473,9 @@ class SpanWatch:
 def rewrite_until_still(db: Any, one_pass: Callable[[SpanWatch], None]) -> None:
     """A scrub's pass over recorded span text, run again while a span it watches took a live write during the last
     pass (`SpanWatch`), until a pass sees none: a span finishing during the scrub is scrubbed as it finished. Each
-    further pass needs a live write to a span that was running when the scrub started, and each such span finishes
-    once and has its input measured a bounded number of times, so this ends with no time or count cap."""
+    further pass needs a write to a span that was running when the scrub started: its own (it finishes once; its input
+    is measured a bounded number of times) or another scrub's, which only removes text and is idempotent (rewriting
+    what it already scrubbed changes nothing), so this ends with no time or count cap."""
     watch = SpanWatch(db)
     one_pass(watch)
     while not watch.still(db):

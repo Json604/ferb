@@ -3,12 +3,14 @@ chat (journaled `chat.notice`, published `attention.notice`); from then on it is
 a client showed it, which takes it out of `chat.status`. Its text is model-written from outside observations, so it
 keeps that origin, and outside text it repeats stays apart in `quotes` with its own origin (MP2)."""
 import json
+from functools import partial
 from typing import Any
 
 from ferb.core import origin
 from ferb.memory.lineage import ENTRY
 from ferb.sense.batches import app_of
-from ferb.store.spans import SpanWatch, rewrite_recorded, rewrite_until_still
+from ferb.store.db import swap
+from ferb.store.spans import rewrite_recorded
 
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
 
@@ -88,26 +90,30 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     consideration that saw one of the rows loses its recorded model context and its answer's text; any other model
     context that was told the notice (already_told, the chat history) loses that notice's text. Audit rows stay.
     Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge (I3) and by
-    an explicit forget. Its span rewrites are written only while a span still holds what was read, and run again while
-    a span running when it started took a live write meanwhile (`rewrite_until_still`, fix wave 6a). Returns how many
-    notices it cleared."""
+    an explicit forget. It runs on the event loop's own connection, where no span can finish while it runs, so it takes
+    one pass; each notice and span is written only while it still holds what was read (`swap`, `rewrite_recorded`),
+    since a forget's scrub in its worker thread may rewrite the same rows (fix wave 6a). Returns how many notices it
+    cleared."""
     cleared, said = 0, []
     entries: dict[str, str] = {}                  # the notices' chat entries (lineage handle) -> their plain text
     for row in db.conn.execute("SELECT * FROM attention_notices").fetchall():
         cited = json.loads(row["source_refs_json"])
-        if row["text"] == replacement or (not refs.intersection(cited)
-                                          and not refs.intersection(json.loads(row["considered_refs_json"]))):
+        if not refs.intersection(cited) and not refs.intersection(json.loads(row["considered_refs_json"])):
             continue
-        said += [row["text"], *(q["text"] for q in json.loads(row["quotes_json"]))]
-        db.conn.execute("UPDATE attention_notices SET text=?,quotes_json='[]',delivered_at=COALESCE(delivered_at,?) "
-                        "WHERE id=?", (replacement, now, row["id"]))
+        replaced: list[tuple[Any, ...]] = []        # cleared only while it holds what was read: a forget's scrub may
+        if swap(db, "attention_notices", "id", row["id"], ("text", "quotes_json", "delivered_at"),   # rewrite it
+                partial(_cleared, replacement, now, replaced), (row["text"], row["quotes_json"], row["delivered_at"])
+                ) is None:
+            continue
+        text, quotes = replaced[-1][0], json.loads(replaced[-1][1])
+        said += [text, *(q["text"] for q in quotes)]
         for entry in db.conn.execute("SELECT id,data_json FROM journal WHERE kind='chat.notice' AND "
                                      "json_extract(data_json,'$.id')=?", (row["id"],)).fetchall():
             entries[ENTRY + entry["id"]] = notice_payload(json.loads(entry["data_json"]))
         db.conn.execute("DELETE FROM journal WHERE kind='chat.notice' AND json_extract(data_json,'$.id')=?", (row["id"],))
         for ref in cited:
             db.conn.execute("UPDATE notification_told SET text=? WHERE event_id=? AND text=?",
-                            (replacement, ref.removeprefix("trail:"), row["text"]))
+                            (replacement, ref.removeprefix("trail:"), text))
         cleared += 1
     # A told notice sits in a later consideration's context as a JSON "text" field (already_told, or a quote), and in
     # the chat history (L10) in the same form: in the planner's recorded context, in the history block a task keeps
@@ -122,16 +128,22 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
                         out.get("text") or out.get("quotes")) else out)
         return {k: _without(v, told) for k, v in inp.items()}, out
 
-    def spans(watch: SpanWatch) -> None:
-        if told:
-            scrub_spans(db, told, watch=watch)
-        if entries:
-            _scrub_payloads(db, entries, replacement, watch)
-        for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'"
-                                    ).fetchall():
-            rewrite_recorded(db, span["id"], considered, watch=watch, held=(span["input_json"], span["output_json"]))
-    rewrite_until_still(db, spans)
+    if told:
+        scrub_spans(db, told)
+    if entries:
+        _scrub_payloads(db, entries, replacement)
+    for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
+        rewrite_recorded(db, span["id"], considered, held=(span["input_json"], span["output_json"]))
     return cleared
+
+
+def _cleared(replacement: str, now: str, replaced: list[tuple[Any, ...]], held: tuple[Any, ...]) -> tuple[Any, ...]:
+    """A notice's text and quotes cleared (`held`: text, quotes, delivered_at); what it replaced is kept in `replaced`,
+    so the copies cleared next are those of the text it really held. One already cleared is left as it is."""
+    if held[0] == replacement:
+        return held
+    replaced.append(held)
+    return replacement, "[]", held[2] or now
 
 
 def _forms(text: str, replacement: str) -> list[tuple[str, str]]:
@@ -160,8 +172,7 @@ def notice_sources(db: Any, notice_id: str) -> list[str]:
     return sorted(set(json.loads(row[0])) | set(json.loads(row[1] or "[]"))) if row is not None else []
 
 
-def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = False,
-                watch: SpanWatch | None = None) -> None:
+def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = False) -> None:
     """Every span but the considerations (handled by the caller, unless `every_kind`: a memory forget, I2) whose
     recorded input or output holds one of the told strings loses it. One scan, matched in SQL against a temporary table
     of the strings, so any number of them fits."""
@@ -176,11 +187,11 @@ def scrub_spans(db: Any, told: list[tuple[str, str]], *, every_kind: bool = Fals
     finally:
         db.conn.execute("DELETE FROM expiring_text")
     for span in rows:                                 # each written only while it holds what was read
-        rewrite_recorded(db, span["id"], lambda inp, out: (_without(inp, told), _without(out, told)), watch=watch,
+        rewrite_recorded(db, span["id"], lambda inp, out: (_without(inp, told), _without(out, told)),
                          held=(span["input_json"], span["output_json"]))
 
 
-def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str, watch: SpanWatch | None = None) -> None:
+def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str) -> None:
     """A planner turn's conversation exposure keeps the shown entries' own texts as its `payload` (L28), a notice's as
     plain text (notice_payload) that no told JSON form matches. Every exposure whose source refs name one of these
     notice entries loses exactly that text; an exposure that never showed the notice is not touched."""
@@ -206,7 +217,7 @@ def _scrub_payloads(db: Any, entries: dict[str, str], replacement: str, watch: S
                 new = new.replace(text, replacement)
         return inp, (out | {"payload": new} if new != payload else out)
     for span in rows:                                 # each written only while it holds what was read
-        rewrite_recorded(db, span["id"], cleared, watch=watch, held=(span["input_json"], span["output_json"]))
+        rewrite_recorded(db, span["id"], cleared, held=(span["input_json"], span["output_json"]))
 
 
 def _without(value: Any, told: list[tuple[str, str]]) -> Any:

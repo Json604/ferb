@@ -339,11 +339,22 @@ def _answer_removed(inp: Any, out: Any) -> tuple[Any, Any]:
 
 def _rewrite(db: Any, row: Any, data: dict[str, Any]) -> None:
     """An append-only journal row changed by a forget: deleted and written again with the same seq, id, time, kind
-    and origin, only while it still holds what was read (a row the loop deleted meanwhile, such as a notice's chat
-    entry the purge removed, is never written back: fix wave 6a)."""
-    if db.conn.execute("DELETE FROM journal WHERE seq=? AND data_json=?", (row["seq"], row["data_json"])).rowcount:
-        db.conn.execute("INSERT INTO journal (seq, id, at, kind, data_json, origin) VALUES (?,?,?,?,?,?)",
-                        (row["seq"], row["id"], row["at"], row["kind"], json.dumps(data), row["origin"]))
+    and origin, in one short transaction (the table takes no UPDATE) and only while it still holds what was read. A
+    row the loop deletes meanwhile, such as a notice's chat entry the purge removes, is never written back, and no
+    reader sees the row missing (fix wave 6a)."""
+    own = not db.conn.in_transaction
+    if own:
+        db.conn.execute("BEGIN IMMEDIATE")
+    try:
+        if db.conn.execute("DELETE FROM journal WHERE seq=? AND data_json=?", (row["seq"], row["data_json"])).rowcount:
+            db.conn.execute("INSERT INTO journal (seq, id, at, kind, data_json, origin) VALUES (?,?,?,?,?,?)",
+                            (row["seq"], row["id"], row["at"], row["kind"], json.dumps(data), row["origin"]))
+        if own:
+            db.conn.execute("COMMIT")
+    except BaseException:
+        if own:
+            db.conn.execute("ROLLBACK")
+        raise
 
 
 def _rewrite_spans(db: Any, spans: list[Any], change: Callable[[Any], Any], needles: Any = None,
@@ -615,12 +626,13 @@ def finish_node(db: Any, echo: NodeEcho) -> Scrubbed:
     told = {*named.removed, *named.phrases, *stated.removed, *(line for own in lines.values() for line in own.removed)}
 
     def spans(watch: SpanWatch) -> None:            # a span that moved may now name it: its scope is read again
-        by_phrases: dict[frozenset[str], list[dict[str, str]]] = {}
-        for span, phrases in (_scopes(db, echo, said)[1] if watch.again else in_spans).items():
-            by_phrases.setdefault(frozenset(phrases), []).append({"id": span})
-        for shown, ids in by_phrases.items():       # whole words, never a whole line (a one-line output keeps the rest)
-            own = words_of(set(shown))
-            _rewrite_spans(db, ids, own.value, own.needles, watch)
+        scope: Scope = _scopes(db, echo, said)[1] if watch.again else in_spans
+        groups: dict[frozenset[str], list[dict[str, str]]] = {}
+        for span_id, texts in scope.items():
+            groups.setdefault(frozenset(texts), []).append({"id": span_id})
+        for group, listed in groups.items():        # whole words, never a whole line (a one-line output keeps the rest)
+            own = words_of(set(group))
+            _rewrite_spans(db, listed, own.value, own.needles, watch)
         scrub_told(db, told, watch)
     rewrite_until_still(db, spans)
     _drop_folded(db, set(out.rewritten))
@@ -632,11 +644,14 @@ def _notice_text(words: _Words, held: tuple[Any, ...]) -> tuple[Any, ...]:
     return (words.text(held[0]),)
 
 
-def _scopes(db: Any, echo: NodeEcho, said: dict[str, list[str]]) -> tuple[dict[str, set[str]], ...]:
+Scope = dict[str, set[str]]                     # a task, span, chat row or notice -> the texts that go from it
+
+
+def _scopes(db: Any, echo: NodeEcho, said: dict[str, list[str]]) -> tuple[Scope, Scope, Scope, Scope]:
     """Where each forgotten version was shown or cited (`_Index.shown`), as (tasks, spans, chat rows, notices), each
     with the texts that go from it."""
     index = _Index(db, {ref for ref, texts in said.items() if texts})
-    scopes: tuple[dict[str, set[str]], ...] = ({}, {}, {}, {})
+    scopes: tuple[Scope, Scope, Scope, Scope] = ({}, {}, {}, {})
     for ref, texts in said.items():
         if not texts:
             continue

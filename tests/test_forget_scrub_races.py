@@ -7,7 +7,8 @@ a span, worked out its new text in Python, and wrote both columns back by id, so
 1. lost output: a span finishing between the read and the write had its new output overwritten with the stale one;
 2. missed text: a span finishing after the scrub read it (or listed its candidates) kept the forgotten text.
 Each test drives one interleaving deterministically (`tests/support/interleave.py`): the live write lands right after
-a chosen statement of the scrub, on the other connection."""
+a chosen statement of the scrub, on the other connection. The purge runs on the loop's own connection, where no span
+can finish while it runs, so its tests cover the first failure only (another connection's write: a forget's scrub)."""
 import json
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from ferb.memory import echoes
 from ferb.memory.echoes import REMOVED
 from ferb.orchestrator.attention import AttentionNotices, expire_derived
-from tests.support.interleave import Interleaved, TwoConnections, lists, reads
+from tests.support.interleave import Interleaved, TwoConnections, lists, reads, runs
 
 ITEM = "my dentist is Dr. Quillfeather"
 
@@ -131,6 +132,20 @@ def test_a_span_that_showed_the_node_finishing_after_the_scrub_read_it_loses_its
     two.close()
 
 
+def test_a_span_naming_the_node_only_in_the_output_it_finished_with_is_found_by_the_re_run(tmp_path: Path) -> None:
+    """Review M2: a span names the node only in the output it finishes with during the scrub (a memory read listing
+    the lesson by its id): it was in no scope when the pass began, so the re-run reads the scope again."""
+    two = TwoConnections(tmp_path)
+    shown = two.spans.start("model.turn", task_id="t4", input={"source_refs": [NODE], "context": f"Lesson: {LESSON}"})
+    two.spans.finish(shown, output={"text": "Drafted."})
+    read = two.spans.start("tool.call", task_id="t6", input={"tool": "memory.learned", "query": "invoices"})
+    Interleaved(two.scrub, reads(shown.id),
+                lambda: two.spans.finish(read, output={"items": [{"id": NODE, "text": LESSON}]}))
+    echoes.finish_node(two.scrub, _node_echo())
+    assert two.held(read.id)[1] == {"items": [{"id": NODE, "text": REMOVED}]}
+    two.close()
+
+
 # ---------- the notice purge (`attention.expire_derived`) ----------
 
 NOTICE = "You copied the unicorn invoice"
@@ -161,16 +176,24 @@ def test_a_span_finishing_between_the_notice_scrubs_read_and_write_keeps_its_out
     two.close()
 
 
-def test_a_span_finishing_with_a_told_notice_while_the_notice_scrub_runs_loses_it(tmp_path: Path) -> None:
+def test_the_purge_clears_the_notice_text_it_replaced_not_an_older_read(tmp_path: Path) -> None:
+    """Review M1: the purge read a notice, then a forget's scrub (on its own connection) rewrote the notice and the
+    span that was told it; the purge built its told forms from the text it had read, which no span held any more, so
+    the rest of the expired notice stayed in that span. The notice is cleared only while it holds what was read, and
+    the told forms come from the text actually replaced."""
     two = TwoConnections(tmp_path)
-    _notice(two)
-    holder = two.spans.start("model.turn", input={"role": "worker", "context": _told(NOTICE)})
-    two.spans.finish(holder, output={"text": "ok"})
-    running = two.spans.start("model.turn", input={"role": "worker", "context": "nothing told"})
-    Interleaved(two.scrub, lists("expiring_text e"),
-                lambda: two.spans.finish(running, output={"history": _told(NOTICE)}))
+    before, after = f"You copied the unicorn invoice. {LESSON}", f"You copied the unicorn invoice. {REMOVED}"
+    AttentionNotices(two.loop, two.clock, lambda value: value).add("batch:5", ["trail:copied"], before, [])
+    told = two.spans.start("model.turn", input={"role": "worker", "context": _told(before)})
+    two.spans.finish(told, output={"text": "ok"})
+
+    def node_forget() -> None:                          # the lesson's words leave the notice and the span meanwhile
+        two.loop.conn.execute("UPDATE attention_notices SET text = ?", (after,))
+        two.loop.conn.execute("UPDATE spans SET input_json = ? WHERE id = ?",
+                              (json.dumps({"role": "worker", "context": _told(after)}), told.id))
+    Interleaved(two.scrub, lists("SELECT * FROM attention_notices"), node_forget)
     _purge(two)
-    assert NOTICE not in json.dumps(two.held(running.id)[1])
+    assert two.held(told.id)[0] == {"role": "worker", "context": _told("expired")}
     two.close()
 
 
@@ -199,17 +222,6 @@ def test_an_exposure_payload_is_never_written_from_a_stale_read(tmp_path: Path) 
     two.close()
 
 
-def test_an_exposure_finishing_with_a_notice_payload_while_the_purge_runs_loses_it(tmp_path: Path) -> None:
-    two = TwoConnections(tmp_path)
-    entry = _notice_entry(two)
-    shown = two.spans.start("context.exposure", input={"source_refs": [entry], "reference": "chat.history"})
-    Interleaved(two.scrub, lists("expiring_entries e"),
-                lambda: two.spans.finish(shown, output={"text": "display lines", "payload": f"earlier\n\n{NOTICE}"}))
-    _purge(two)
-    assert two.held(shown.id)[1] == {"text": "display lines", "payload": "earlier\n\nexpired"}
-    two.close()
-
-
 CONSIDERATIONS = "FROM spans WHERE kind='attention.consider'"
 
 
@@ -223,16 +235,6 @@ def test_a_consideration_finishing_between_the_purges_read_and_write_keeps_its_a
     inp, out, ended = two.held(check.id)
     assert ended is not None and out == {"text": "expired", "quotes": [], "kind": "notice"}
     assert inp["context"] != "rows"
-    two.close()
-
-
-def test_a_consideration_finishing_after_the_purge_listed_it_loses_its_answer(tmp_path: Path) -> None:
-    two = TwoConnections(tmp_path)
-    _notice(two)
-    check = two.spans.start("attention.consider", input={"source_refs": ["trail:copied"]})
-    Interleaved(two.scrub, lists(CONSIDERATIONS), lambda: two.spans.finish(check, output={"text": NOTICE}))
-    _purge(two)
-    assert two.held(check.id)[1] == {"text": "expired", "quotes": []}
     two.close()
 
 
@@ -283,6 +285,37 @@ def test_a_journal_row_deleted_between_the_scrubs_read_and_rewrite_is_never_writ
     Interleaved(two.scrub, lists("SELECT seq, id, at, kind, data_json, origin FROM journal"), purged)
     echoes.finish_node(two.scrub, _node_echo())
     assert two.loop.conn.execute("SELECT COUNT(*) FROM journal WHERE id = ?", (entry.id,)).fetchone()[0] == 0
+    two.close()
+
+
+def test_a_journal_row_the_purge_deletes_between_the_scrubs_delete_and_insert_stays_gone(tmp_path: Path) -> None:
+    """Review I1: the rewrite's delete and insert were two statements; a purge deleting the row between them found
+    nothing, and the insert brought the row back. They are one short transaction: the purge's delete waits for it (here
+    it is refused at once and run once the scrub is done, as SQLite's busy wait would) and removes the rewritten row."""
+    import sqlite3
+    from ferb.core.ids import SequentialIds
+    from ferb.memory.journal import Journal
+    two = TwoConnections(tmp_path)
+    Journal(two.loop, two.clock, SequentialIds("j"), lambda value: value).append(
+        "chat.notice", {"id": "batch:4", "text": "About the lesson about invoice copies", "quotes": []},
+        origin="external:observation")
+    later: list[str] = []
+
+    def purge() -> None:
+        two.loop.conn.execute("DELETE FROM journal WHERE kind='chat.notice' AND json_extract(data_json,'$.id')=?",
+                              ("batch:4",))
+
+    def purged() -> None:
+        two.loop.conn.execute("PRAGMA busy_timeout = 0")
+        try:
+            purge()
+        except sqlite3.OperationalError:              # the scrub holds the write: the purge runs once it is done
+            later.append("purge")
+    Interleaved(two.scrub, runs("DELETE FROM journal WHERE seq=?"), purged)
+    echoes.finish_node(two.scrub, _node_echo())
+    if later:
+        purge()
+    assert two.loop.conn.execute("SELECT COUNT(*) FROM journal WHERE kind = 'chat.notice'").fetchone()[0] == 0
     two.close()
 
 
@@ -349,4 +382,17 @@ def test_a_notice_purge_racing_nothing_runs_one_pass(tmp_path: Path) -> None:
     assert two.held(told.id)[:2] == ({"role": "worker", "context": _told("expired")}, {"text": "ok"})
     assert _span_writes(seen) == [told.id]
     assert sum("expiring_text e" in sql for sql, _ in seen.statements) == 1
+    two.close()
+
+
+def test_the_purge_takes_no_snapshot_of_running_spans(tmp_path: Path) -> None:
+    """Review M3: the purge runs on the event loop's own connection (hourly, and inside a forget's transaction), where
+    no span can finish while it runs, so it never reads every running span's text to watch them: one pass, each write
+    compare-and-set (a forget's scrub in its thread may write the same spans)."""
+    two = TwoConnections(tmp_path)
+    _notice(two)
+    two.spans.start("model.turn", input={"role": "worker", "context": "a long running context"})
+    seen = Interleaved(two.scrub, lambda sql, params: False)
+    _purge(two)
+    assert not any("ended_at IS NULL" in sql for sql, _ in seen.statements)
     two.close()
