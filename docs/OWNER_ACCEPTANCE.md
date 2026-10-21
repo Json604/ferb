@@ -1340,6 +1340,11 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
   ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).
+- A message you send, or a background check, while a task that was running at a forget is still going is shown that
+  task's goal and plan as FERB holds them in memory: if they named the item, that turn can see it, and what it
+  records keeps it (it started after the forget, so no clean-up touches it).
+- A notice that a background check running at a forget posts afterwards keeps what a forgotten lesson or identity
+  note said. (A forgotten memory's words leave a notice only when the notice was made from the forgotten rows.)
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
   reaches the model masked by text recognition only: a secret it doesn't recognise as one (an unlabelled shown
   password) can show. A field moving during a capture is painted at both places, not between them. A task tab

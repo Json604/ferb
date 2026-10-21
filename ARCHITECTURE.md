@@ -1643,30 +1643,39 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   each further pass needs a write to one of those spans, its own (it finishes once; its input is measured a bounded
   number of times) or another scrub's, which only removes text and is idempotent. `SpanStore.update_input` is
   compare-and-set too, so it never undoes a scrub.
-- **Work running at a forget (fix wave 6a).** At the forget, `Daemon._forget_scrub` records what is running
-  (`echoes.Running`): the task trees (`Supervisor.running_trees`), the requests of the chat turns (tracked by the
-  daemon) and of planner turns under way, and the spans then unfinished (an attention check's consideration among
-  them). The scrub runs again for that work, through `_after_forgets` (the next chat turn waits): when one of its
-  trees finishes (`task.finished`, once its answer and outcome are journaled, so a turn starting before the tree's
-  job ends already waits) and when each job running then ends (chat turns, resumed plans, scheduled runs and
-  attention turns, `_turns` and `_runs`; a task's `task_results` row is written inside its job, and a tree that ends
-  without an outcome still ends its job). A run again touches only what that work recorded (`Running.ours`): its
-  journal rows (by task or request; never a notice), the records and cards of its trees, and its spans, the told pass
-  included. It uses the same rules: the line rules the memory forget settled the first time, kept on its
-  `Forgotten` (rare words and tasks), or the learned item's `NodeEcho`, with the tasks its first pass reached
-  (`NodeEcho.reached`); an identity statement's "since" scope ends at the forget (`NodeEcho.until`). So a running
-  task's later spans, answer, records and "while you were away" result, and a running chat turn's reply, lose the
-  item too, as does a record a task wrote during the scrub after it was read; nothing that started after the forget
-  is touched (the owner stating the item again, a new task, its card). One queued run covers what is recorded before
-  it starts. The rules stay in memory only (`_Rescrub`) until the last such job ends or the daemon stops, which can
-  be days for a task waiting on the owner; shutdown settles forgets again after it stops the task turns. Residual:
-  after a crash or a kill before those jobs end, the run that was due is lost, since writing it down would keep the
-  forgotten text on disk; what they recorded between the scrub and the crash keeps the item. A planner turn or
-  attention check started after the forget is shown each running task's goal as the task holds it in memory
-  (`running_trees`, the "running tasks" block), so it can see and record the item while that task runs. Otherwise
-  work that starts after the forget waits for the scrub (`Supervisor.settle`) and reads what it left; the same item is
-  never saved again unless the owner states it (`memory_forgotten`); a card built on it is never written (its
-  tombstones).
+- **Work running at a forget (fix wave 6a).** At the forget, `Daemon._forget_scrub` records the work then running
+  by its requests (`echoes.Running`): those of the chat turns (tracked by the daemon), of the running task trees
+  (`Supervisor.running_trees`, each tree's request at that moment) and of planner turns under way, with the trees
+  then running and the spans then unfinished (an attention check's consideration among them). The scrub runs again
+  for that work, through `_after_forgets` (the next chat turn waits): when one of its trees finishes (a root tree whose
+  request was recorded: `task.finished`, once its answer and outcome are journaled, so a turn starting before the
+  tree's job ends already waits; a worker's own finish queues nothing) and when each job running then ends (chat
+  turns, resumed plans, scheduled runs and attention turns, `_turns` and `_runs`; a task's `task_results` row is
+  written inside its job, and a tree that ends without an outcome still ends its job). A run again touches only what
+  those requests wrote (`Running.ours`): their journal rows (by request; a task's outcome goes with its run's answer;
+  never a notice), the records and cards of the trees they run now, and the spans of their runs (a tree's spans
+  belong to the run its latest root `task` span starts, which records the run's request), the told pass included. A
+  tree resumed in place under a new request after the forget (a continue, retry or correction) is new work and is
+  never touched; a tree a recorded request starts after the forget is scrubbed whole (spans, answer, records, card).
+  It uses the same rules: the line rules the memory forget settled the first time, kept on its `Forgotten` (rare
+  words and tasks; a tree started since counts as given the item when its refs or exposures cite it), or the learned
+  item's `NodeEcho`, with the tasks its first pass reached (`NodeEcho.reached`, plus trees started since); an identity
+  statement's "since" scope ends at the forget (`NodeEcho.until`). So a running task's later spans, answer, records and
+  "while you were away" result, and a running chat turn's reply, lose the item too, as does a record a task wrote
+  during the scrub after it was read; nothing that started after the forget is touched (the owner stating the item
+  again, a new task, its card, a resumed run). One queued run covers what is recorded before it starts. The rules stay
+  in memory only (`_Rescrub`) until the last such job ends or the daemon stops, which can be days for a task waiting
+  on the owner; shutdown settles forgets again after it stops the task turns. Residuals: after a crash or a kill
+  before those jobs end, the run that was due is lost, since writing it down would keep the forgotten text on disk;
+  what they recorded between the scrub and the crash keeps the item. A planner turn or attention check started after
+  the forget is shown each running task's goal and each running plan as the supervisor holds them in memory
+  (`running_trees` and the plans in the "running tasks" block), so it can see the item while that task runs, and what
+  it records then is never reached by any run, since it started after the forget. A notice an attention check
+  running at the forget posts afterwards keeps a forgotten learned item's statement (a run again never touches a
+  notice; a memory forget's scrub never rewrites one, and `expire_derived` clears only those made from its rows).
+  Otherwise work that starts after the forget waits for the scrub (`Supervisor.settle`) and reads what it left; the
+  same item is never saved again unless the owner states it (`memory_forgotten`); a card built on it is never written
+  (its tombstones).
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
