@@ -261,3 +261,64 @@ def test_a_suggestion_the_owner_turned_down_never_comes_back(learning):
                      made_by='model:test', batch='next-day')
     assert learning.put('identity', 'reports', {'text': 'I send reports on Fridays'}, [], made_by='owner:identity/1',
                         origin_label='owner', owner=True, state='active')        # the owner's own word still counts
+
+
+def _proposal(cards, steps, intent='send report'):
+    return {'intent': intent, 'slots': {'recipient': 'string'}, 'preconditions': {'apps': {'com.apple.mail': '1'}},
+            'steps': steps, 'ui_hints': '',
+            'examples': [{'episode': c['id'], 'slots': c['body']['slots']} for c in cards]}
+
+
+def _with_extra_action(store, ident, slot):
+    """A verified run that also opened the drafts folder before sending."""
+    return store.put('episode', ident, {'task_id': ident, 'verified': True, 'request': 'send report',
+                     'apps': {'com.apple.mail': '1'}, 'slots': {'recipient': slot},
+                     'actions': [{'id': ident + '-open', 'tool': 'mail.open', 'args': {'folder': 'Drafts'},
+                                  'outside_action': False},
+                                 {'id': ident + '-action', 'tool': 'mail.send', 'args': {'to': slot},
+                                  'outside_action': False}],
+                     'conditions': [{'met': True}], 'status': 'done'}, [], origin_label='ferb',
+                     made_by='code:episode/1')
+
+
+def test_an_optional_step_need_only_reproduce_the_runs_that_did_it(learning):
+    """L29: one extra action in one run blocked the whole procedure; a step some runs skipped is optional."""
+    a, b = card(learning, 'p1', slot='a'), card(learning, 'p2', slot='b')
+    c = _with_extra_action(learning, 'p3', 'c')
+    send = {'tool': 'mail.send', 'args': {'to': '{recipient}'}, 'expect': 'sent', 'optional': False,
+            'evidence': ['p1-action', 'p2-action', 'p3-action']}
+    drafts = {'tool': 'mail.open', 'args': {'folder': 'Drafts'}, 'expect': 'drafts shown', 'optional': True,
+              'evidence': ['p3-open']}
+    p = learning.propose_procedure(_proposal([a, b, c], [drafts, send]), 'b', 'model:test|prompt:1')
+    assert [s['optional'] for s in p['body']['steps']] == [True, False]
+
+
+def test_a_required_step_must_still_reproduce_every_run(learning):
+    a, b = card(learning, 'q1', slot='a'), card(learning, 'q2', slot='b')
+    c = _with_extra_action(learning, 'q3', 'c')
+    drafts = {'tool': 'mail.open', 'args': {'folder': 'Drafts'}, 'expect': 'drafts shown', 'optional': False,
+              'evidence': ['q3-open']}
+    with pytest.raises(LearningRefused, match='reproduce'):
+        learning.propose_procedure(_proposal([a, b, c], [drafts]), 'b', 'model:test|prompt:1')
+
+
+def test_an_optional_step_that_reproduces_no_run_is_refused(learning):
+    a, b, c = card(learning, 'r1', slot='a'), card(learning, 'r2', slot='b'), card(learning, 'r3', slot='c')
+    wrong = {'tool': 'mail.send', 'args': {'to': 'attacker@example.com'}, 'expect': 'sent', 'optional': True,
+             'evidence': ['r1-action']}
+    with pytest.raises(LearningRefused, match='reproduce'):
+        learning.propose_procedure(_proposal([a, b, c], [wrong]), 'b', 'model:test|prompt:1')
+
+
+def test_a_procedure_for_an_intent_is_keyed_by_the_intent_id(learning):
+    a, b, c = card(learning, 's1', slot='a'), card(learning, 's2', slot='b'), card(learning, 's3', slot='a')
+    send = {'tool': 'mail.send', 'args': {'to': '{recipient}'}, 'expect': 'sent', 'optional': False,
+            'evidence': ['s1-action', 's2-action', 's3-action']}
+    p = learning.propose_procedure(_proposal([a, b, c], [send]), 'b', 'model:test|prompt:1', intent_id='i-report')
+    assert p['key'] == 'i-report' and p['body']['intent'] == 'send report'
+
+
+def test_a_step_proposed_without_optional_is_stored_as_required(learning):
+    a, b, c = card(learning, 'u1', slot='a'), card(learning, 'u2', slot='b'), card(learning, 'u3', slot='a')
+    p = procedure(learning, [a, b, c])                            # its step names no `optional`
+    assert p['key'] == 'send report' and [s['optional'] for s in p['body']['steps']] == [False]

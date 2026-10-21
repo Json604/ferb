@@ -20,40 +20,34 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory.calls import learning_call
 from ferb.memory.learning import Learning, LearningRefused, card_digest, card_shape, digest, encoded
+from ferb.memory.strict import JSON_TEXT, pairs, to_map
 
 
-def _pairs(value: dict[str, Any]) -> dict[str, Any]:
-    """An open map in strict form: Codex strict output allows no open object, so a map is a list of {name, value}."""
-    return {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['name', 'value'],
-                                       'properties': {'name': {'type': 'string'}, 'value': value}}}
-
-
-JSON_TEXT = {'type': 'string', 'description': 'the value as JSON text: a string in double quotes, a number, '
-                                              'true/false, a list or an object'}
 PROPOSAL_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False, 'required': ['procedures', 'lessons', 'identity', 'episodes'],
     'properties': {
         'episodes': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['episode', 'intent_signature', 'slots', 'reflection', 'narrative'], 'properties': {
                 'episode': {'type': 'string'}, 'intent_signature': {'type': 'string'},
-                'slots': _pairs(JSON_TEXT), 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
+                'slots': pairs(JSON_TEXT), 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
         'procedures': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['intent', 'slots', 'preconditions', 'steps', 'ui_hints', 'examples'],
             'properties': {
                 'intent': {'type': 'string'},
-                'slots': _pairs({'type': 'string', 'description': "the slot's JSON type: string, number, boolean, "
+                'slots': pairs({'type': 'string', 'description': "the slot's JSON type: string, number, boolean, "
                                                                   "array or object"}),
                 'preconditions': {'type': 'object', 'required': ['apps'], 'additionalProperties': False,
-                                  'properties': {'apps': _pairs({'type': 'string',
+                                  'properties': {'apps': pairs({'type': 'string',
                                                                  'description': 'the captured app version'})}},
                 'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
-                    'required': ['tool', 'args', 'expect', 'evidence'], 'properties': {
-                        'tool': {'type': 'string'}, 'args': _pairs(JSON_TEXT), 'expect': {'type': 'string'},
+                    'required': ['tool', 'args', 'expect', 'optional', 'evidence'], 'properties': {
+                        'tool': {'type': 'string'}, 'args': pairs(JSON_TEXT), 'expect': {'type': 'string'},
+                        'optional': {'type': 'boolean', 'description': 'true when only some examples needed this step'},
                         'evidence': {'type': 'array', 'items': {'type': 'string'}}}}},
                 'ui_hints': {'type': 'string'},
                 'examples': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
                     'required': ['episode', 'slots'], 'properties': {
-                        'episode': {'type': 'string'}, 'slots': _pairs(JSON_TEXT)}}}}}},
+                        'episode': {'type': 'string'}, 'slots': pairs(JSON_TEXT)}}}}}},
         'lessons': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['scope', 'trigger', 'text', 'failure', 'success'], 'properties': {
                 'scope': {'type': 'object', 'additionalProperties': False,
@@ -66,29 +60,12 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
                 'evidence': {'type': 'array', 'items': {'type': 'string'}}}}}}}
 
 
-def _map(pairs: list[dict[str, Any]], *, json_text: bool = False) -> dict[str, Any]:
-    """The map a strict {name, value} list stands for. A repeated name is refused; a value that isn't JSON text is
-    the literal string (a model often writes a bare string where JSON text was asked for)."""
-    out: dict[str, Any] = {}
-    for pair in pairs:
-        name, value = pair['name'], pair['value']
-        if name in out:
-            raise LearningRefused(f'{name} is given twice')
-        if json_text:
-            try:
-                value = json.loads(value)
-            except ValueError:
-                pass                        # not JSON text: the string as written
-        out[name] = value
-    return out
-
-
 def _procedure(p: dict[str, Any]) -> dict[str, Any]:
     """A proposed procedure in the shape Learning checks and stores: its slots, apps and args as maps."""
-    return p | {'slots': _map(p['slots']),
-                'preconditions': p['preconditions'] | {'apps': _map(p['preconditions']['apps'])},
-                'steps': [s | {'args': _map(s['args'], json_text=True)} for s in p['steps']],
-                'examples': [e | {'slots': _map(e['slots'], json_text=True)} for e in p['examples']]}
+    return p | {'slots': to_map(p['slots']),
+                'preconditions': p['preconditions'] | {'apps': to_map(p['preconditions']['apps'])},
+                'steps': [s | {'args': to_map(s['args'], json_text=True)} for s in p['steps']],
+                'examples': [e | {'slots': to_map(e['slots'], json_text=True)} for e in p['examples']]}
 
 
 class Consolidator:
@@ -276,7 +253,7 @@ class Consolidator:
         l = self.learning
         for p in proposals.get('episodes', []):
             try:
-                p = p | {'slots': _map(p['slots'], json_text=True)}
+                p = p | {'slots': to_map(p['slots'], json_text=True)}
                 if p['episode'] not in available:
                     raise LearningRefused('annotation needs a supplied episode')
                 accepted.append(l.put('episode_annotation', p['episode'], p, [p['episode']],

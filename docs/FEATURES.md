@@ -622,7 +622,8 @@ This section matters most for an automated campaign. It says exactly what runs u
 
 #### Procedures, lessons and the fast path
 - What: an idle-time consolidator writes procedures (tool-call templates with expect lines) citing verified
-  episodes; a procedure becomes "learned" after three verified successes across two different slot values on the
+  episodes; a step some runs skipped is optional and must reproduce the runs that cite it, every other step every
+  run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
   save exploration but never skips gateway checks, step checks or the final check. Procedures with steps that came
   from outside content are quarantined until the owner confirms. An app update sends a learned procedure back to

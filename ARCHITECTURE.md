@@ -1730,7 +1730,11 @@ per-source job completion. Code rollups cite their child cards.
   one the owner retired. **Procedure state (M1, M6):** slot variants count only receipts that supply the declared
   slots; "current" versions are the installed ones, so an update demotes to candidate, and only two consecutive
   failures mark suspect. A planner `procedure_id` that isn't a current procedure becomes a `procedure.ignored` span
-  and the task runs without it (I5). Task completion captures app versions; old episodes
+  and the task runs without it (I5). **Procedure steps (L29):** `Learning.propose_procedure` checks that a required
+  step's template reproduces a cited action in every example; an optional step (`optional: true`, one some runs
+  skipped) must reproduce it in every example whose actions it cites, and it cites at least one, so a step no run did
+  is refused. A step without `optional` is stored as required (`false`). A procedure is keyed by the `intent_id`
+  passed with it, else by the proposal's intent. Task completion captures app versions; old episodes
 retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load the selected procedure,
 keep owner-only identity in context and record procedure outcomes; none bypass gateway confirmations or checks.
 
@@ -2194,7 +2198,8 @@ protected FERB state (16.9).
 
 - **Learning (L16).** The card pattern needs a token of its own, so hex ids never match; a card inside a URL's path
   segment is kept, query and fragment are still scanned; OCR masks any Luhn-valid run. The consolidator schema uses
-  `{name, value}` pairs (strict-compatible). `security_digest` accepts the string form of `network`. `_memory_pass`
+  `{name, value}` pairs (strict-compatible), built and read back by `memory/strict.py` (`pairs`, `to_map`).
+  `security_digest` accepts the string form of `network`. `_memory_pass`
   runs distill, consolidate and the embedding restore in separate scopes (`memory.distill_failed`,
   `memory.consolidate_failed`, `memory.embedding_restore_failed`).
 - **Typed text (L17).** `key_text` reads the whole string; terminal apps (`TERMINAL_APPS`), secure fields, Secure Input

@@ -424,7 +424,11 @@ class Learning:
             labels |= {origin.PRIVATE, origin.external('unlabeled')}
         return labels, damaged, expired, forgotten
 
-    def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str) -> dict[str, Any]:
+    def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str,
+                          intent_id: str | None = None) -> dict[str, Any]:
+        """Check a proposed procedure against its examples' evidence and store it, keyed by `intent_id` (the intent
+        its examples were labelled with, L29) when given, else by the proposal's intent. A step without `optional`
+        is stored as required (false)."""
         examples = proposal.get('examples') or []
         steps = proposal.get('steps') or []
         if not examples or not steps or not proposal.get('intent'):
@@ -455,20 +459,28 @@ class Learning:
             cards.append(node)
             actions.update({a['id']: a for a in node['body'].get('actions', [])})
         selected = []
+        action_card = {a['id']: card['id'] for card in cards for a in card['body'].get('actions', [])}
         for step in steps:
             refs = step.get('evidence') or []
             if not step.get('expect') or not step.get('tool') or not isinstance(step.get('args'), dict) or not refs:
                 raise LearningRefused('each tool template needs args, expect and action evidence')
+            if not isinstance(step.get('optional', False), bool):
+                raise LearningRefused('a step is optional (true) or required (false)')
             if any(ref not in actions or actions[ref].get('tool') != step['tool'] or actions[ref].get('error')
                    for ref in refs):
                 raise LearningRefused('step cites a missing, failed or different action')
-            for ex, card in zip(examples, cards):
+            # A required step reproduces a cited action in every example; an optional one (L29) in every example
+            # whose actions it cites, and it cites at least one: a step no run did is never learned.
+            needed = [(ex, card) for ex, card in zip(examples, cards)
+                      if not step.get('optional') or any(action_card[ref] == card['id'] for ref in refs)]
+            for ex, card in needed:
                 actual = {a['id']: a for a in card['body'].get('actions', [])}
                 expected = render_slots(step['args'], ex['slots'])
                 if not any(ref in actual and actual[ref].get('args') == expected for ref in refs):
                     raise LearningRefused('template arguments do not reproduce a cited action for each example')
             selected.extend(actions[ref] for ref in refs)
-        key = str(proposal['intent'])
+        key = str(intent_id or proposal['intent'])
+        proposal = proposal | {'steps': [s | {'optional': s.get('optional', False)} for s in steps]}
         state = 'quarantined' if any(a.get('outside_action', True) for a in selected) else 'candidate'
         result = self.put('procedure', key, proposal, [c['id'] for c in cards], made_by=made_by,
                           batch=batch, state=state)
