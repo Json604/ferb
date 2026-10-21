@@ -1310,8 +1310,9 @@ Fix wave 6 (2026-10-21; pending, checkout tests only so far):
     compare with the 2026-10-15 case (3 rounds, about 50 reads); `ferb baseline` has no verify-phase latency, so
     record the checker step's time from the trace. Then your original request once ("low power mode + loud alert at
     10% battery"): the same counts. Also note, for one long browser task, the checker's "Context budget" line
-    (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished; a `verify.rerun` step in the trace
-    means the check overflowed its window and ran again without the recorded calls: record the reason it gives.
+    (`omitted_blocks`, `content_tokens_estimate`) and whether its check finished. A rerun shows as one round: a
+    "↻ … the same check ran again without the recorded calls" Checker step, then "rerun of the same check: …"; count
+    them as one round and record the reason the ↻ step gives.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - Where FERB can't locate a window's secret fields (an unpaired profile, a page Accessibility can't read), the picture
@@ -1337,4 +1338,9 @@ Residuals to know during the week (accepted or recorded, not checks):
 - In the milliseconds between Codex's timeout and FERB releasing the call, an answer can be lost; the retry asks
   again.
 - `mac.applescript` can still ask Finder to move Trash items.
+- A check on Google's API (`[runtimes] checker = "google"`) whose recorded calls push it past the model's token
+  limit fails with Google's error instead of running again without them (fix wave 6b): Google documents no signal
+  FERB can cite for that rejection. Codex, OpenAI and Anthropic checkers run it again.
+- Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
+  higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.

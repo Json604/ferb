@@ -337,7 +337,11 @@ live-tested):
   too. A record shows its result before a long input. In a scripted complete check of 53 recorded calls, evidence
   reads went from 62 to 6.
 - A check whose AI service reports its context window overflowed (or that FERB refuses as too large to send) runs
-  once more without the recorded calls, as checks ran before; the trace shows it.
+  once more without the recorded calls, as checks ran before. That covers Codex, OpenAI and Anthropic (including its
+  "prompt is too long" rejection); Google gives no recognisable signal, so a Google checker still fails there. The
+  trace shows the rerun as the same check round, and the worker keeps its "verified in step N".
+- A page of a recorded call never cuts a value FERB knows as a secret in two, in the check's context or an evidence
+  read: the page ends before it, so it is masked whole.
 
 Licensed under Apache-2.0.
 

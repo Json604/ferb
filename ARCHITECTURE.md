@@ -797,7 +797,11 @@ says where its rest starts ("cut at 12000 of N characters, the rest from offset=
 it. The record text (`record_text`, shared with `task.evidence`, so offsets match) puts ids, times, error and origin
 first, then the shorter of input and output, so a long input never pushes the result out of the page (round 1, M2).
 Each shown page passes the gateway's redaction after the cut, as every `task.evidence` page does, so a value sealed
-after the call was recorded is masked here too (rule 14; round 1, M1). `assemble` fits them to the checker runtime's
+after the call was recorded is masked here too (rule 14; round 1, M1). Redaction masks whole values only, so neither
+path cuts a page inside a value FERB knows as a secret (`Redactor.secret_values()`, raw or JSON-escaped):
+`page_bounds` ends the page where such a value starts, takes it whole when the page starts with it, and starts a read
+asked to begin inside one where it begins; `task.evidence` returns that start as `offset` and the end as
+`next_offset`, and the bundle's "the rest from offset=" names the same end (round 2, N2). `assemble` fits them to the checker runtime's
 window and per-input character cap like every other optional block; one left out stays in its place as "[Context
 omitted; fetch full text: task.evidence span_id=… (recorded call n of N: tool, observation|action, time)]". Markers
 are charged before any block is added, so thousands of calls once overflowed the window with markers alone (review 1:
@@ -818,17 +822,27 @@ disturbance records, and searches. A scripted complete check of 53 recorded call
 characters) needed 62 `task.evidence` calls before and 6 now (`tests/test_checker_recorded_calls.py`).
 A check whose model window overflowed runs once more without the recorded calls, as checks ran before fix wave 6b
 (round 1, ruling 7): `_run_worker_once` returns `Overflowed` (an `Outcome`) for FERB's `InputTooLarge` and for a
-`ContextOverflow`, the runtime's window-exceeded error as its adapter marks it (`overflow` on the error event: Codex's
-`codexErrorInfo` `contextWindowExceeded`, OpenAI's error code `context_length_exceeded`, Anthropic's stop
-`model_context_window_exceeded`; Google documents no code, and Anthropic's "prompt is too long" 400 has none, so
-those stay ordinary service errors). `_verifier` then journals `task.check_rerun`, records a `verify.rerun` span and
-runs the check once with its report saying the context holds no recorded calls and to read them with
-`task_evidence`; a second failure is the check's result, as before. Residual: on a task whose recorded calls hold more
-than the checker's window (many long snapshots, or a few thousand calls), the check starts near the window's end,
-leaving its own later reads to the runtime: Codex compacts its context (the default checker); a direct-API checker's
-first read past the window ends that run and the check reruns without the calls. How much of the window recorded
-calls may take is the owner's number to decide, if any; token counts are o200k estimates, whose error matters more
-for other providers' models now that a check's input can approach the budget.
+`ContextOverflow`, the runtime's window-exceeded error as its adapter marks it (`overflow` on the error event).
+Exactly these rerun: FERB's `InputTooLarge`; Codex's `codexErrorInfo` `contextWindowExceeded`; OpenAI's HTTP error
+with `error.code` `context_length_exceeded`; Anthropic's stop reason `model_context_window_exceeded`, and its 400
+`invalid_request_error` whose message starts "prompt is too long" or "input length and `max_tokens` exceed context
+limit" (`AnthropicProvider.window_exceeded`; the shapes Anthropic's own client defines: Claude Code 2.1.283, bundled
+in the pinned claude-agent-sdk 0.2.160; round 2, N1). Google's rejection of an input over a model's token limit is not
+marked (`GoogleProvider.window_exceeded` is False): Google documents no code or message for it and its own client
+counts tokens before sending, so there is nothing to cite; it stays an ordinary service error, as do the Claude Agent
+SDK's failures. `_verifier` then journals `task.check_rerun`, records a `verify.rerun` span and runs the check once
+with its report saying the context holds no recorded calls and to read them with `task_evidence` (verifier.md says
+the same for that case; round 2, N3); a second failure is the check's result, as before. The story
+(`trace/compose.py`) marks the run that overflowed "↻ its model window overflowed, so the same check ran again
+without the recorded calls: …", labels the next Checker step "rerun of the same check: …", keeps the worker's
+"verified in step N" on that rerun, and adds "↻ N checks ran again without the recorded calls" to its problems, so a
+rerun reads as one check round (round 2, N4). Residual: on a task whose recorded calls hold more than the checker's
+window (many long snapshots, or a few thousand calls), the check starts near the window's end, leaving its own later
+reads to the runtime: Codex compacts its context (the default checker); on OpenAI or Anthropic a read past the window
+ends that run and the check reruns without the calls; on Google it ends the check. How much of the window recorded
+calls may take is the owner's number to decide, if any. The window is counted with o200k estimates (L28's general
+limit, not this check's): another provider's tokenizer can count the same input higher, so an input fitted to the
+budget can still be over that provider's real window.
 
 **After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
 too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).
