@@ -627,8 +627,10 @@ Procedures contain text tool templates and expect lines and cite verified episod
 optional and must reproduce the runs that cite it; every other step must reproduce every run. Procedures become
 learned after three verified successes across two slot values, with the latest on current captured app versions.
 The planner is shown every procedure it may use, whatever words you use, as data: its kind of task's name and
-description and its slots; it picks one by meaning and gives this request's value for each slot, which code checks
-against the slot's type and the run's receipt keeps (L29). They still require step checks and final verification. Outside-derived action/destination steps are quarantined until
+description and its slots (the most recently used kinds first, as many as fit its window); it picks one by meaning
+and gives this request's value for each slot, which code checks against the slot's type (values that don't fit are
+noted in the task's trace and left out) and the run's receipt keeps (L29). They still require step checks and final
+verification. Outside-derived action/destination steps are quarantined until
 confirmed; reading an outside page alone does not quarantine a procedure. An app update sends a learned procedure back to
 candidate until it succeeds on the new version; two consecutive failures mark it suspect. A suggestion you turned
 down ("Not right") is not proposed again. Old episodes without captured app versions cannot establish the current-version requirement.

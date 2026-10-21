@@ -232,6 +232,22 @@ def test_the_consideration_sees_memory_chat_running_tasks_and_the_apps_told_noti
     assert quotes["items"]["required"] == ["text", "origin"]
 
 
+def test_the_consideration_never_gets_the_learned_procedures(daemon: RunningDaemon) -> None:
+    """L29: the procedure lines are for the planner, which chooses one; the consideration doesn't choose procedures and
+    never gets them, while the rest of the relevant memory still goes in."""
+    from tests.support.learning_fixtures import intent_procedure
+    d = daemon.daemon
+    _notes(daemon)
+    proc = intent_procedure(daemon, name="claude plan upgrade", slots={"dish": "string"})
+    planner = daemon.run(d._learning_candidates("Settings - Claude"))
+    assert any(proc in item["text"] for item in planner)               # what the planner would get
+    script = install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    now = _record(daemon, _tab(SUCCESS, "Settings - Claude"))
+    daemon.run(d._consider_attention({"batch_id": "b-now", "source_refs": ["trail:" + now.id]}))
+    context = script.contexts[-1][2]
+    assert "max_payment_success=true" in context and proc not in context and "claude plan upgrade" not in context
+
+
 def test_the_consideration_fits_the_attention_models_window_with_a_huge_chat(daemon: RunningDaemon,
                                                                             monkeypatch: Any) -> None:
     """Task 22b (L28 with L10), with I2 (owner, 2026-10-14): the consideration reads the chat since the last notice

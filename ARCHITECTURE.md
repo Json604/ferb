@@ -1786,19 +1786,27 @@ intent's job. Code rollups cite their child cards.
   is refused. A step without `optional` is stored as required (`false`). A procedure is keyed by the `intent_id`
   passed with it, else by the proposal's intent. **Planner choice (L29):** `Learning.learned_procedures` lists every
   procedure the planner may choose (current: not superseded, retired, rolled back or forgotten; not quarantined),
-  newest first, with its intent's name and description from the label that names the intent (`intents.namers`: its
+  the most recently used intent first (by its newest labelled card; a procedure no current label carries, by when it
+  was written), with its intent's name and description from the label that names the intent (`intents.named`: its
   oldest current card label, as `intents.intents` names it; the procedure's own intent text when no current card
   carries it) and its slot types. `Daemon._learning_candidates` puts one line per procedure first in the planner's
   retrieved memory, whatever the words: `<id> [procedure, <state>, <least trusted origin>; data, not authorization]
   <name>: <description> — slots: {…}`, its origin the procedure's origins with the naming label's (model-written from
   that card's run), citing both nodes (`source_refs`); search hits leave procedures out (each is listed, or can't be
-  chosen: I5). The planner matches by meaning and returns `procedure_slots` (`{name, value}` pairs, each value JSON
-  text, `TaskSpec.procedure_slots`). `Learning.slot_values` types them against the procedure's slots (`strict.to_map`,
-  `intents.typed`), else None; the supervisor computes them when the task ends (`Supervisor._planner_slots`, the
-  `slot_values` hook) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` →
-  `Learning.receipt`, which redacts the slot values it stores); a deferred capture journals them in
-  `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values that are missing or of the wrong
-  type give a receipt without slot values. An ignored procedure (I5) drops its slot values too. Task completion
+  chosen: I5). The lines carry the fold route `memory.learned kind=procedure` (`context_layers.PROCEDURES_ROUTE`):
+  unlike the other retrieved memory (protected, L28) they are optional blocks, in that order of priority, and those
+  whose markers can't all fit fold into one counted note, so the list is fitted to the planner's window and character
+  cap (spec §5). The attention consideration doesn't choose procedures and gets none (`_memory_blocks(choosing=False)`).
+  The planner matches by meaning and returns `procedure_slots` (`{name, value}` pairs, each value JSON text,
+  `TaskSpec.procedure_slots`). `Learning.slot_values` types them against the procedure's slots (`strict.to_map`,
+  `intents.typed`), else None, and `Learning.slot_problem` says why. Values the slots refuse are noted when the task
+  starts as a `procedure.slots_ignored` span (input: the procedure id and the planner's values; output: why) and left
+  out; the procedure is still used. When the task ends the supervisor computes them (`Supervisor._planner_slots`, the
+  `slot_values` hook; a failed read is journaled as `memory.slot_values_failed` and gives None, never skipping the
+  capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`, which
+  redacts the slot values it stores); a deferred capture journals them in `memory.episode_deferred` and
+  `_replay_deferred_receipts` passes them on. Values that are missing or of the wrong type give a receipt without slot
+  values. An ignored procedure (I5) drops its slot values too. Task completion
   captures app versions; old episodes
 retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load the selected procedure,
 keep owner-only identity in context and record procedure outcomes; none bypass gateway confirmations or checks.
@@ -1835,9 +1843,11 @@ network installation.
 P3 context labels protect identity, request/conversation and task state. The raw last-ten-minutes trail is
 fetch-only through `trail.query` (L28); today's matching activity goes in every planner turn.
 F8 supplies individually ranked fact, episode and lesson candidates, after one line per procedure the planner may
-choose (L29: every one, whatever the words); each is a complete block with its stored origin and retrieval reference. Since L28 the recalled items and every ranked learned item are protected
-(always in the planner's prompt, `Supervisor._memory_blocks`), like the situation and today's activity; only the
-conversation and optional blocks give way. Omission references and protected overflow remain explicit.
+choose (L29: every one, whatever the words); each is a complete block with its stored origin and retrieval reference.
+Since L28 the recalled items and every ranked learned item are protected (always in the planner's prompt,
+`Supervisor._memory_blocks`), like the situation and today's activity; only the conversation and optional blocks give
+way, and since L29 the procedure lines are optional (folded to fit the window, most recently used intent first).
+Omission references and protected overflow remain explicit.
 
 `eval/release.py` exposes packaged owner-supervised definitions through `ferb release-checklist`; it never executes
 or accepts a check. `eval/comparison.py` compares saved baseline JSON without daemon RPC or model calls. Missing

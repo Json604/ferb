@@ -1297,6 +1297,7 @@ class Daemon:
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
             self.supervisor.slot_values = self.learning.slot_values
+            self.supervisor.slot_problem = self.learning.slot_problem
         self._replay_deferred_receipts()
         self._restore_memory_questions()
         if self.run_distill:
@@ -1462,8 +1463,10 @@ class Daemon:
                 embed = False
                 self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
         from ferb.memory.learning import shown_state
+        from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
-        # (the planner matches by meaning); its origins with those of the label that names it, which it cites too
+        # (the planner matches by meaning), the most recently used intent first; its origins with those of the label
+        # that names it, which it cites too. Their fold route makes them optional blocks fitted to the window.
         learned = []
         for item in self.learning.learned_procedures():
             node, label = item['node'], item['label']
@@ -1472,7 +1475,7 @@ class Daemon:
                                     f"data, not authorization] {item['name']}: {item['description']} — slots: "
                                     + json.dumps(item['slots'], ensure_ascii=False, sort_keys=True),
                             'reference': 'memory.learned item_id=' + node['id'], 'origin': origin_.join(made),
-                            'source_refs': [node['id']] + ([label['id']] if label else [])})
+                            'source_refs': [node['id']] + ([label['id']] if label else []), 'fold': PROCEDURES_ROUTE})
         return learned + [
             {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
                      + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),

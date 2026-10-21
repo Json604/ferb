@@ -1153,3 +1153,99 @@ def test_a_receipts_slot_values_are_redacted(daemon) -> None:
     on_loop(daemon, receipt)
     recorded = _receipt_slots(daemon, proc, "food9")
     assert len(recorded) == 1 and secret not in json.dumps(recorded) and recorded[0]["dish"].startswith("rajma ")
+
+
+def test_learned_procedure_lines_fold_to_fit_a_small_window(daemon, monkeypatch) -> None:
+    """Spec §5: the planner's procedure list is fitted to its window. The lines are optional blocks, the most recently
+    used first; those that can't all fit fold into one counted note naming their route, and the turn is never refused
+    as too large."""
+    from tests.support.learning_fixtures import on_loop
+    script = install(daemon, [sup("reply", "First."), sup("reply", "Sure.")])
+    chat(daemon, "hello")
+    base = len(_planner_requests(script)[-1].context)
+    learning, clock = daemon.daemon.learning, daemon.daemon.clock
+
+    def procedures() -> list[str]:
+        made = []
+        for n in range(40):
+            clock.advance(1)
+            made.append(learning.put("procedure", f"old procedure {n:02}", {
+                "intent": f"old procedure {n:02}", "slots": {}, "preconditions": {"apps": {}}, "steps": []}, [],
+                made_by="code:test/1", state="candidate")["id"])
+        return made
+    made = on_loop(daemon, procedures)
+    monkeypatch.setattr(FakeRuntime, "limits", ModelLimits("fake-model", 400_000, 100_000, "test double",
+                                                           max_input_chars=base + 3_000))
+    chat(daemon, "hello")                                              # the same words: the same actions listed
+    requests = _planner_requests(script)
+    assert len(requests) == 2, "the turn was refused"                 # no InputTooLarge
+    context = requests[-1].context
+    shown = [n for n, ident in enumerate(made) if ident + " [procedure, candidate" in context]
+    assert shown and shown == list(range(len(made) - len(shown), len(made)))     # the newest shown, in full
+    assert len(shown) < len(made)                                                 # the oldest folded
+    assert "more not shown or listed one by one; fetch full text: memory.learned kind=procedure" in context
+
+
+def test_slot_values_the_procedure_refuses_leave_a_trace_note(daemon) -> None:
+    """Values the procedure's slots refuse are noted in the task's trace with why (like an ignored procedure), and
+    the task runs with the procedure and without them."""
+    from tests.support.learning_fixtures import on_loop
+    proc = _food_procedure(daemon)
+    spec = task("order the cheapest rajma")
+    spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": "3"}]
+    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
+    query = "SELECT input_json, output_json FROM spans WHERE kind='procedure.slots_ignored'"
+    notes = on_loop(daemon, lambda: [(json.loads(r[0]), json.loads(r[1] or "{}"))
+                                     for r in daemon.daemon.db.conn.execute(query)])
+    [(inp, out)] = notes
+    assert inp == {"procedure_id": proc, "procedure_slots": [{"name": "dish", "value": "3"}]}
+    assert "dish" in out["why"] and "string" in out["why"]
+    ignored = on_loop(daemon, lambda: daemon.daemon.db.conn.execute(
+        "SELECT count(*) FROM spans WHERE kind='procedure.ignored'").fetchone()[0])
+    assert ignored == 0                                                # the procedure itself is still used
+
+
+def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
+    """A database error reading the slot values at the task's end is journaled; the card is still captured and the
+    receipt recorded without slot values."""
+    proc = _food_procedure(daemon)
+
+    def broken(procedure_id, pairs):
+        raise RuntimeError("database is locked")
+    daemon.daemon.supervisor.slot_values = broken
+    spec = task("order the cheapest rajma")
+    spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": '"rajma"'}]
+    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def facts():
+        d = daemon.daemon
+        task_id = d.db.conn.execute("SELECT task_id FROM episodes ORDER BY ended_at DESC").fetchone()[0]
+        return (task_id, [e.data for e in d.journal.of_kind("memory.slot_values_failed")],
+                d.journal.of_kind("memory.episode_hook_failed"))
+    task_id, failed, hook_failed = daemon.run(facts())
+    assert _receipt_slots(daemon, proc, task_id) == [{}] and not hook_failed
+    assert failed == [{"task_id": task_id, "procedure_id": proc, "error": "RuntimeError: database is locked"}]
+
+
+def test_procedures_are_listed_by_their_intents_latest_run(tmp_path) -> None:
+    """The planner's procedure lines go most recently used intent first (by its newest labelled card), whenever each
+    procedure was written."""
+    from ferb.memory import intents
+    from tests.support.learning_fixtures import TickingClock, card, label_card, new_store
+    db, store = new_store(tmp_path / "learning.db", TickingClock())
+
+    def procedure(name: str) -> str:
+        return store.put("procedure", intents.intent_id(name), {"intent": name, "slots": {}, "preconditions":
+                         {"apps": {}}, "steps": []}, [], made_by="code:test/1", state="candidate")["id"]
+    try:
+        label_card(store, card(store, "a1", "send the report"), "send report")
+        label_card(store, card(store, "b1", "order food"), "order food")
+        food, report = procedure("order food"), procedure("send report")       # the report's procedure is newer
+        assert [p["node"]["id"] for p in store.learned_procedures()] == [food, report]
+        label_card(store, card(store, "a2", "send the report again"), "send report")
+        assert [p["node"]["id"] for p in store.learned_procedures()] == [report, food]
+    finally:
+        db.close()

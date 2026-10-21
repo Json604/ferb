@@ -722,15 +722,17 @@ class Learning:
 
     def learned_procedures(self) -> list[dict[str, Any]]:
         """L29: every procedure the planner may choose (current: not superseded, retired, rolled back or forgotten; and
-        not quarantined), newest first, each with its intent's name and description, the label node they come from
-        (`intents.namers`; None, and the procedure's own intent text, when no current card carries the intent) and
-        its slot types."""
+        not quarantined), the most recently used intent first (a procedure no current card's label carries: by when it
+        was written), each with its intent's name and description, the label node they come from (`intents.named`;
+        None, and the procedure's own intent text, when no current card carries the intent) and its slot types."""
         from ferb.memory import intents
-        procedures = [p for p in reversed(self.items('procedure')) if p['state'] != 'quarantined']
-        named = intents.namers(self) if procedures else {}
+        procedures = [p for p in self.items('procedure') if p['state'] != 'quarantined']
+        named = intents.named(self) if procedures else {}
+        procedures.sort(key=lambda p: (named.get(p['key'], {}).get('last') or p['recorded_at'], p['recorded_at'],
+                                       p['id']), reverse=True)
         out = []
         for p in procedures:
-            label = named.get(p['key'])
+            label = named.get(p['key'], {}).get('label')
             about = label['body'] if label else {}
             out.append({'node': p, 'label': label,
                         'name': str(about.get('name') or p['body'].get('intent') or p['key']),
@@ -740,17 +742,28 @@ class Learning:
     def slot_values(self, procedure_id: str, pairs: list[dict[str, Any]]) -> dict[str, Any] | None:
         """The planner's values for a procedure's slots (strict {name, value} pairs, each value JSON text, read as a
         label's values are), typed (L29); None when the id isn't a procedure, or the values don't name exactly its
-        slots or one has the wrong JSON type."""
+        slots or one has the wrong JSON type (`slot_problem` says which)."""
+        try:
+            return self._typed_slots(procedure_id, pairs)
+        except LearningRefused:
+            return None
+
+    def slot_problem(self, procedure_id: str, pairs: list[dict[str, Any]]) -> str | None:
+        """Why `slot_values` refuses the planner's values for a procedure's slots, or None."""
+        try:
+            self._typed_slots(procedure_id, pairs)
+        except LearningRefused as e:
+            return str(e)
+        return None
+
+    def _typed_slots(self, procedure_id: str, pairs: list[dict[str, Any]]) -> dict[str, Any]:
         from ferb.memory.intents import typed
         from ferb.memory.strict import to_map
         p = self.get(procedure_id)
         if p is None or p['kind'] != 'procedure':
-            return None
-        try:
-            values = to_map(pairs, json_text=True)
-            typed(values, p['body'].get('slots') or {})
-        except LearningRefused:
-            return None
+            raise LearningRefused('not a procedure')
+        values = to_map(pairs, json_text=True)
+        typed(values, p['body'].get('slots') or {})
         return values
 
     def procedure_text(self, node_id: str, apps: dict[str, str]) -> str:

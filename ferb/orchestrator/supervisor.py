@@ -419,6 +419,8 @@ class Supervisor(WorkerRuns):
         # the planner's {name, value} pairs for a procedure's slots, typed against it, or None (L29)
         self.slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None] = \
             lambda procedure_id, pairs: None
+        # why the procedure's slots refuse the planner's values, or None (L29)
+        self.slot_problem: Callable[[str, list[dict[str, Any]]], str | None] = lambda procedure_id, pairs: None
         self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
@@ -1461,17 +1463,23 @@ class Supervisor(WorkerRuns):
                                 payload=e.payload),
                    e.origins) for e in entries]], ages
 
-    async def _memory_blocks(self, message: str, remembered: Any, mem_text: str,
-                             procedures: str) -> list[tuple[ContextBlock, set[str]]]:
-        """Relevant memory, always included (L28): the recalled items and every ranked learned item."""
+    async def _memory_blocks(self, message: str, remembered: Any, mem_text: str, procedures: str, *,
+                             choosing: bool = True) -> list[tuple[ContextBlock, set[str]]]:
+        """Relevant memory, always included (L28): the recalled items and every ranked learned item. The procedures the
+        planner may choose (L29: the items whose fold route is `PROCEDURES_ROUTE`) are optional instead, the most
+        recently used intent first, and those that can't all fit fold into one counted note (spec §5: fitted to the
+        window). `choosing` False, for a call that doesn't choose a procedure: without them."""
         if self.memory_candidates is None:
             return [self._memory_block(mem_text, procedures, remembered)]
-        from ferb.orchestrator.context_layers import ranked_memory_blocks
+        from ferb.orchestrator.context_layers import PROCEDURES_ROUTE, ranked_memory_blocks
         found = self.memory_candidates(message)
         if inspect.isawaitable(found):
             found = await found
+        if not choosing:
+            found = [item for item in found if item.get('fold') != PROCEDURES_ROUTE]
         return ([self._memory_block(mem_text, procedures, remembered)] if mem_text else []) + \
-            [(dataclasses.replace(block, protected=True), made) for block, made in ranked_memory_blocks(found)]
+            [(block if block.fold == PROCEDURES_ROUTE else dataclasses.replace(block, protected=True), made)
+             for block, made in ranked_memory_blocks(found)]
 
     def _memory_block(self, mem_text: str, procedures: str, remembered: Any) -> tuple[ContextBlock, set[str]]:
         return (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text + '\n' + wrap_untrusted(procedures), "memory.read",
@@ -1823,6 +1831,14 @@ class Supervisor(WorkerRuns):
         if spec.procedure_id and (why := self.procedure_problem(spec.procedure_id)):
             # I5: a procedure id that isn't a usable procedure is noted and left out; the task runs without the hint
             self._ignore_procedure(tree, root_span.id, why)
+        elif spec.procedure_id and (why := self.slot_problem(spec.procedure_id,
+                                                             [s.model_dump() for s in spec.procedure_slots])):
+            # L29: values the procedure's slots refuse are noted and left out; the procedure is used without them
+            note = self.spans.start("procedure.slots_ignored", task_id=tree.id, parent_id=root_span.id,
+                                    input={"procedure_id": spec.procedure_id,
+                                           "procedure_slots": [s.model_dump() for s in spec.procedure_slots]})
+            self.spans.finish(note, output={"why": why})
+            spec.procedure_slots = []
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
@@ -1936,15 +1952,22 @@ class Supervisor(WorkerRuns):
                 # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
                 # nothing it does can skip the cleanup; it never raises for a failed build or write.
                 episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(spec))
+                self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(tree_id, spec))
         yield final
 
-    def _planner_slots(self, spec: TaskSpec) -> dict[str, Any] | None:
+    def _planner_slots(self, tree_id: str, spec: TaskSpec) -> dict[str, Any] | None:
         """The planner's values for its chosen procedure's slots, typed against the procedure (L29); None without a
-        procedure, or when they don't name exactly its slots with their JSON types."""
+        procedure, or when they don't name exactly its slots with their JSON types. Never raises (it runs as the task
+        ends, before its capture): a failed read is journaled and the receipt goes without slot values."""
         if not spec.procedure_id:
             return None
-        return self.slot_values(spec.procedure_id, [s.model_dump() for s in spec.procedure_slots])
+        try:
+            return self.slot_values(spec.procedure_id, [s.model_dump() for s in spec.procedure_slots])
+        except Exception as exc:
+            with suppress(Exception):
+                self.journal.append('memory.slot_values_failed', {'task_id': tree_id, 'procedure_id': spec.procedure_id,
+                                                                  'error': f'{type(exc).__name__}: {exc}'})
+            return None
 
     def _capture_after_outcome(self, tree_id: str, procedure_id: str | None,
                                slots: dict[str, Any] | None = None) -> None:
@@ -2238,7 +2261,7 @@ class Supervisor(WorkerRuns):
         words = ' '.join(str(v) for row in observations for v in (row.get('data') or {}).values() if isinstance(v, str))
         remembered = self.recall(words) if self.memory_candidates is None else ''
         mem_text = self.recall_items(remembered)[0]
-        memory = (await self._memory_blocks(words, remembered, mem_text, '')
+        memory = (await self._memory_blocks(words, remembered, mem_text, '', choosing=False)
                   if self.memory_candidates is not None or mem_text else [])
         conversation, _ = self._conversation_blocks('', self.continuity.current(), since_last_notice=True)
         notices = json.dumps({'already_told': already_told})     # each told notice keeps its JSON "text" (the purge)

@@ -643,10 +643,12 @@ This section matters most for an automated campaign. It says exactly what runs u
   proposed procedure was refused (its job says why), or input too large for the window, waits for a change or
   `ferb memory consolidate`. The planner is shown every procedure it may use (not quarantined, turned down, rolled
   back, replaced or forgotten), whatever words the request uses, as data: its kind of task's name and description,
-  its blanks (slots) with their types, its state and where it came from. It chooses one by meaning, the same kind of
-  task even in other words, and gives this request's value for each blank; code checks the values against the
-  blanks' types and the run's record of the procedure (its receipt) keeps them, so runs with different values count
-  toward "learned" (L29). A planner's procedure id that isn't a current procedure is ignored with a note.
+  its blanks (slots) with their types, its state and where it came from; the most recently used kinds of task first,
+  as many as fit the model's window, the rest counted in one note. It chooses one by meaning, the same kind of task
+  even in other words, and gives this request's value for each blank; code checks the values against the blanks'
+  types (values that don't fit are noted in the task's trace and left out) and the run's record of the procedure (its
+  receipt) keeps them, so runs with different values count toward "learned" (L29). A planner's procedure id that
+  isn't a current procedure is ignored with a note.
 - Status: **Shipped** in code, but all consolidator runs failed and the hourly loop crashed until the fix
   **Landing this week — integrated, not live-tested (L16)**. No learned procedure has been observed live yet; do not
   claim measured

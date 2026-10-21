@@ -68,14 +68,16 @@ def intents(learning: Learning) -> list[dict[str, Any]]:
     return _ordered(out)
 
 
-def namers(learning: Learning) -> dict[str, dict[str, Any]]:
-    """Intent id -> the label node its name and description come from (the oldest current card label, as `intents`
-    names it), for what shows that name with the label's origins."""
+def named(learning: Learning) -> dict[str, dict[str, Any]]:
+    """Intent id -> {label, last}: the label node its name and description come from (the oldest current card label,
+    as `intents` names it), for what shows that name with the label's origins; and when it was last used (its newest
+    card, as `intents` orders them)."""
     current = _current_cards(learning)
     out: dict[str, dict[str, Any]] = {}
     for node in learning.items(INTENT_KIND):
         if node['key'] in current:
-            out.setdefault(node['body']['intent_id'], node)
+            entry = out.setdefault(node['body']['intent_id'], {'label': node, 'last': ''})
+            entry['last'] = max(entry['last'], current[node['key']])
     return out
 
 
