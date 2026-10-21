@@ -36,7 +36,8 @@ def test_unreadable_literal_predicate_still_reaches_checker(tmp_path, monkeypatc
     supervisor.checks = Checks(lambda _: [])
     supervisor._verifier = AsyncMock(return_value=[])
     worker = Task("task.worker", "task", "Inspect artifact", "test", Identity.FERB, set(), "worker", "request", [], None)
-    tree = SimpleNamespace(worker=worker, spec=SimpleNamespace(success_conditions=conditions))
+    tree = SimpleNamespace(worker=worker, spec=SimpleNamespace(success_conditions=conditions), watch=False,
+                           watch_met=None)
 
     asyncio.run(supervisor.verify(tree, "parent-span"))
 

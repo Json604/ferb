@@ -279,7 +279,7 @@ def test_blocked_spotify_permission_leaves_rpc_and_stop_responsive(daemon, monke
         job.add_done_callback(lambda finished: daemon.daemon.gateway._in_flight.pop(finished, None))
         daemon.daemon.supervisor._tree_of['permission-hang'] = SimpleNamespace(
             id='permission-hang', stop=None, worker=SimpleNamespace(id='permission-hang.worker'),
-            spec=SimpleNamespace(goal='Read Spotify playback'))
+            spec=SimpleNamespace(goal='Read Spotify playback'), watch=False)
         return job
     job = daemon.run(start())
     try:
