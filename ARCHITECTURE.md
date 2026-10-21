@@ -1708,7 +1708,8 @@ intent's job. Code rollups cite their child cards.
   consolidated once it has `FIRST_LEARNING_RUNS` verified runs (3, the owner's "counter 3"), and once it has a
   procedure, again whenever its runs change (a new run, verified or failed, revises the procedure and its lessons).
   One call per intent carries the intent (id, name, description, slot types, from its oldest label), its runs'
-  `card_digest`s newest first (by `recorded_at`), as many as fit `runtime_limits(rt)` and the runtime's per-input
+  `card_digest`s newest first (by when the task ended: the card's `ended_at`, else `recorded_at`, so a card re-read
+  for a verdict keeps its run's place), as many as fit `runtime_limits(rt)` and the runtime's per-input
   character cap (`_newest_first`; each whole: a run that doesn't fit is left out, never shortened; failed runs go too,
   for lessons), its procedure (`_procedures`: the current one keyed by the intent id, and those the owner turned down,
   by their intent text) and the identity suggestions the owner turned down. `apply` keys an accepted procedure by the

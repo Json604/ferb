@@ -207,8 +207,8 @@ class Consolidator:
 
     def _groups(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """The current episode cards by intent label (L29): the intent (id, name, description and slot types, as
-        `intents.intents` gives them: its oldest label's) and its cards, oldest first. A card without a label waits for
-        one."""
+        `intents.intents` gives them: its oldest label's) and its cards (`_newest_first` orders them by when each task
+        ended). A card without a label waits for one."""
         labels = intents.labels(self.learning)
         about: dict[str, dict[str, Any]] = {}
         for body in labels.values():
@@ -488,10 +488,11 @@ def _fit_intents(card: dict[str, Any], known: list[dict[str, Any]], system: str,
 
 
 def _newest_first(members: list[dict[str, Any]], room: int, chars: int | None) -> list[dict[str, Any]]:
-    """An intent's runs that fit `room` tokens (and `chars`, a runtime's per-input character cap, L28), newest first,
-    each whole: a run that doesn't fit what is left is left out, never shortened."""
+    """An intent's runs that fit `room` tokens (and `chars`, a runtime's per-input character cap, L28), newest first
+    by when the task ended (a card re-read later, e.g. for a verdict, keeps its run's place), each whole: a run that
+    doesn't fit what is left is left out, never shortened."""
     out, used, used_chars = [], 0, 0
-    for node in sorted(members, key=lambda n: (n['recorded_at'], n['id']), reverse=True):
+    for node in sorted(members, key=lambda n: (n['body'].get('ended_at') or n['recorded_at'], n['id']), reverse=True):
         text = encoded(card_digest(node))
         cost, size = count_tokens(text) + count_tokens(','), len(text) + len(',')
         if used + cost > room or (chars is not None and used_chars + size > chars):

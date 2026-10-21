@@ -171,6 +171,28 @@ def test_runs_that_do_not_all_fit_go_newest_first(learning) -> None:
     assert status == "done" and inputs == group(cards)          # the older runs wait for the intent's runs to change
 
 
+def test_newest_means_when_the_task_ended_so_a_re_read_card_never_makes_an_old_run_newest(learning) -> None:
+    """A verdict re-reads an old run's card (a new node, written last): its task still ended first, so it is still the
+    oldest run (the card's `ended_at`, not when it was written)."""
+    from ferb.core.context import count_tokens
+    from ferb.memory.learning import card_digest, encoded
+    body = {"verified": True, "request": "read the page " + "word " * 300, "apps": {}, "slots": {}, "status": "done"}
+    runs_ = [learning.put("episode", f"r{n}", {**body, "task_id": f"r{n}", "ended_at": f"2026-10-0{n + 1}T09:00:00",
+                                               "actions": [{"id": f"r{n}-a", "tool": "browser.open", "args": {}}]},
+                          [], origin_label="ferb", made_by="code:evidence-card/2", state="active") for n in range(3)]
+    reread = learning.put("episode", "r0", {**runs_[0]["body"], "feedback": [{"verdict": "pass"}]}, [],
+                          origin_label="ferb", made_by="code:evidence-card/2", state="active")
+    for node in (reread, *runs_[1:]):
+        label_card(learning, node, "r")
+    assert reread["recorded_at"] > runs_[2]["recorded_at"]                       # written last
+    one = count_tokens(encoded(card_digest(reread))) + count_tokens(",")
+    rt = fake(limits=_window_for(2 * one + one // 2, "r"))                      # about two runs
+    asyncio.run(consolidator(learning, rt.make).catch_up())
+    [call] = consolidation_calls(rt)
+    assert runs_[2]["id"] in call and runs_[1]["id"] in call and reread["id"] not in call
+    assert call.index(runs_[2]["id"]) < call.index(runs_[1]["id"])
+
+
 def test_a_second_pass_with_nothing_changed_reads_no_card_and_calls_no_model(learning) -> None:
     """P5b: every pass re-captured every card through the card reader (1.2-1.6 s each)."""
     for i in range(5):
