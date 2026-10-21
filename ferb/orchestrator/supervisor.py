@@ -2717,9 +2717,11 @@ class Supervisor(WorkerRuns):
         """The blocks for the selected procedure's parts it is given (L29: a worker run's are all of them; another
         role's the procedure alone), each with the procedure's origins and its own, citing what it shows: the procedure
         first, always shown and recorded as its source (PROCEDURE_LABEL: the card capture cites what that block cites);
-        then its intent's lessons, always shown, and its verified earlier runs, each in FERB's data wrapper. The runs are optional blocks above the activity and memory layers, newest first, so the
-        newest stay whole when space runs out; one left out is read by its card's id, and runs whose markers can't
-        all fit fold into one counted note (PROCEDURE_RUNS_ROUTE)."""
+        then its intent's lessons, always shown, and its verified earlier runs, each in FERB's data wrapper. The runs
+        are optional blocks above the activity and memory layers, newest first, so the newest stay whole when space
+        runs out; one left out is read by its card's id, and the oldest runs' markers fold into one counted note
+        (PROCEDURE_RUNS_ROUTE) when they can't all fit, or to make room for a block of higher priority (this task's
+        previous attempts)."""
         from ferb.orchestrator.context_layers import PROCEDURE_RUNS_ROUTE
         if not details:
             return []

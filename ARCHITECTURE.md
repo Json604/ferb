@@ -883,8 +883,10 @@ text: … — from task.evidence span_id=… (recorded call a …) to task.evide
 I1; tested at 3,500 and 6,000 calls with Codex's limits). As the optional blocks are then added by priority, one that
 doesn't fit folds more of the lower-priority markers still listed (lowest first, the fewest that make room; none when
 even all of them wouldn't), so the highest-priority calls are shown whole beside the note instead of every call being a
-marker, and no block is left out while lower-priority markers that could make room for it are listed (L29 Task 5 fix
-round 1; a context without a run assembles byte for byte as before, checked against the earlier `assemble` in random
+marker. With one run, or runs in disjoint priority bands (every current caller), no block is left out while
+lower-priority markers that could make room for it are listed; when runs interleave in priority, folding stays lowest
+first and a run's first fold also costs its note, so a block can be left out that folding only some of those markers
+would have fitted (L29 Task 5 fix round 1; a context without a run assembles byte for byte as before, checked against the earlier `assemble` in random
 trials, `tests/support/context_reference.py`). Which stay when space runs out: every action first (its record is the only
 evidence of what was done, sent or edited; no fresh read recovers it), then observations (a fresh read can also
 re-establish current state), newest first within each, the latest being closest to the final state; all above the
@@ -1833,7 +1835,10 @@ intent's job. Code rollups cite their child cards.
   with the consolidator), protected, each trigger and text JSON-encoded with the owner's ratings when it has any
   (`(you rated it: N helpful, M harmful)`, review M4). Then one part per verified run of its intent (`intents.cards`:
   the current cards whose current label names it, one query), newest first by the card's `ended_at` (else
-  `recorded_at`), with that run's successful tool calls as `tool args → result`. `procedure_text` is the first part's
+  `recorded_at`), with that run's successful tool calls as `tool args → result`. Every JSON in these parts, and the
+  slot types on the planner's procedure line, is written line-safe (`learning.prompt_json` / `line_safe`: U+2028,
+  U+2029 and U+0085, which JSON keeps raw and a prompt reader splits lines at, become JSON escapes; `encoded`, used for
+  stored keys, digests and receipts, is unchanged; Task 5 re-review N3). `procedure_text` is the first part's
   text. `Supervisor._context` gets the slot values from `_planner_slots` (a failed read is journaled and gives None)
   and builds the blocks (`_procedure_blocks`): the procedure through `_source_block` with `PROCEDURE_LABEL` (the card
   capture cites what it cites), now protected; the lessons and each run in FERB's data wrapper. Only a worker run

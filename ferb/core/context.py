@@ -108,7 +108,7 @@ class ContextBlock:
     source_refs: tuple[str, ...] = ()
     payload: str | None = None  # source data without presentation/catalogue metadata; None preserves legacy text
     history: bool = False    # one conversation entry: filled newest-first after the protected blocks, never with gaps
-    fold: str = ""           # one run of optional blocks (its retrieval route): markers that can't all fit fold
+    fold: str = ""           # one run of optional blocks (its retrieval route): its lowest markers fold into a note
 
 
 @dataclass(frozen=True)
@@ -132,9 +132,12 @@ route, e.g. a task's recorded calls) can't all fit beside the protected text, it
 one until the rest fit, into one note in the first one's place that counts them and names the first and last of them
 and the route (fix wave 6b round 1). Then, as the optional blocks are added by priority, one that doesn't fit folds
 more of the lower-priority run markers still listed, lowest first, until it fits; when even all of them wouldn't make
-room, none is folded for it (L29 Task 5 fix round 1). So a block is never left out while lower-priority markers that
-could make room for it are still listed. Blocks without `fold` keep their markers as before, and a context without a
-run is assembled exactly as before.
+room, none is folded for it (L29 Task 5 fix round 1). With one run, or runs in disjoint priority bands (every current
+caller: a worker's earlier runs, the planner's procedure lines, the checker's actions above its observations), a block
+is never left out while lower-priority markers that could make room for it are still listed. When runs interleave in
+priority, folding stays lowest first and a run's first fold also costs its note, so a block can be left out that
+folding only some of those markers would have fitted. Blocks without `fold` keep their markers as before, and a
+context without a run is assembled exactly as before.
 
 Protected source text can exceed the budget. Reporting that fact is preferable to changing it.
 The budget is a context allocation (the model's window minus room for its reply), not a task/output/token-spend limit.

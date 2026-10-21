@@ -100,5 +100,3 @@ def assemble_before_priority_folds(blocks: list[Any], *, budget_tokens: int, res
         cacheable += 1
     return ctx.Assembly(parts, cacheable, tuple(index in kept for index in range(len(active))), omitted_history,
                     content, chars)
-
-

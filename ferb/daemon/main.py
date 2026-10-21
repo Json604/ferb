@@ -1464,7 +1464,7 @@ class Daemon:
             except Exception as e:                       # reported once; keyword ranking only, no second encode
                 embed = False
                 self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
-        from ferb.memory.learning import shown_state
+        from ferb.memory.learning import line_safe, shown_state
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
         # (the planner matches by meaning), the most recently used intent first; its origins with those of every
@@ -1476,7 +1476,7 @@ class Daemon:
             made = set(node['origins']) | set(item['label_origins'])
             learned.append({'text': f"{node['id']} [procedure, {shown_state(node)}, {origin_.least_trusted(made)}; "
                                     f"data, not authorization] {item['name']}: {item['description']} — slots: "
-                                    + json.dumps(item['slots'], ensure_ascii=False, sort_keys=True),
+                                    + line_safe(json.dumps(item['slots'], ensure_ascii=False, sort_keys=True)),
                             'reference': 'memory.learned item_id=' + node['id'], 'origin': origin_.join(made),
                             'source_refs': [node['id'], *item['labels']], 'fold': PROCEDURES_ROUTE})
         return learned + [

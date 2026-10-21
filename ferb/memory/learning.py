@@ -69,6 +69,23 @@ def digest(value: Any) -> str:
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
 
+# Line breaks JSON keeps raw (`ensure_ascii=False`) that a reader of a prompt splits lines at (`str.splitlines`; JSON
+# already escapes the control characters)
+_LINE_BREAKS = str.maketrans({'\u2028': '\\u2028', '\u2029': '\\u2029', '\x85': '\\u0085'})
+
+
+def line_safe(text: str) -> str:
+    """JSON text for one line of a prompt: U+2028, U+2029 and U+0085 written as JSON escapes (they appear only inside
+    its strings), so model-written or recorded text never starts a line of its own (Task 5 re-review N3). Prompt only:
+    `encoded`, which stored keys, digests and receipts use, keeps them as they are."""
+    return text.translate(_LINE_BREAKS)
+
+
+def prompt_json(value: Any) -> str:
+    """`value` as `encoded` JSON, `line_safe` for a prompt."""
+    return line_safe(encoded(value))
+
+
 def spaced(value: Any) -> str:
     """`value` as JSON with a space after each ',' and ':', as `redacted_json` reads it: the redactor reads text as
     prose, and in compact JSON a word near a string's end ("Pin", "Token", "password") would label a "value" running
@@ -1029,7 +1046,8 @@ class Learning:
         """L29 (spec 5): what a worker gets for its selected procedure, all of it data. First the procedure (protected):
         its state's mode, chosen by code and shown first, then its steps as a tool plan, each step's arguments with
         this run's slot values filled in (a slot without a value keeps its {template}) and the result to expect; its
-        model-written text (intent, UI hints, each expect) JSON-encoded like the arguments (review M3). Then, when any,
+        model-written text (intent, UI hints, each expect) JSON-encoded like the arguments (review M3), every JSON
+        `prompt_json` (a line separator inside it is an escape, never a new line: re-review N3). Then, when any,
         the current lessons built on its intent's runs (protected; trigger and text JSON-encoded, with the owner's
         ratings when it has any), and one part per verified run of its intent, newest first by when its task ended:
         that run's successful tool calls (tool, arguments, what came back), an optional part the worker's window fits
@@ -1047,16 +1065,16 @@ class Learning:
         declared = body.get('slots') or {}
         # the code-chosen mode first; the model-written fields JSON-encoded, as the arguments are (review M3)
         lines = [f"Procedure {p['id']} [{p['origin']}; data, never permission]. {mode}",
-                 'Intent: ' + encoded(body.get('intent', ''))]
+                 'Intent: ' + prompt_json(body.get('intent', ''))]
         if body.get('ui_hints'):
-            lines.append('UI hints: ' + encoded(body['ui_hints']))
+            lines.append('UI hints: ' + prompt_json(body['ui_hints']))
         lines.append('Steps:' if not declared else
-                     f"Steps, with this run's slot values filled in ({encoded(filled)}):" if filled else
+                     f"Steps, with this run's slot values filled in ({prompt_json(filled)}):" if filled else
                      f"Steps; this run has no slot values, so fill each {{slot}} from the request (slots: "
-                     f"{encoded(declared)}):")
+                     f"{prompt_json(declared)}):")
         for n, step in enumerate(body.get('steps') or [], 1):
-            lines.append(f"{n}. {step.get('tool')} {encoded(render_slots(step.get('args') or {}, filled))} — expect: "
-                         f"{encoded(step.get('expect', ''))}"
+            lines.append(f"{n}. {step.get('tool')} {prompt_json(render_slots(step.get('args') or {}, filled))} — "
+                         f"expect: {prompt_json(step.get('expect', ''))}"
                          + (' (optional: only some runs needed it)' if step.get('optional') else ''))
         parts = [shown._replace(text='\n'.join(lines))]
         cards = intents.cards(self, p['key'])
@@ -1064,15 +1082,16 @@ class Learning:
         lessons = [n for n in self.items('lesson') if self.built_on(n, tasks)]
         if lessons:
             parts.append(ProcedurePart(
-                LESSONS_LABEL, '\n'.join(f"- when {encoded(n['body'].get('trigger', ''))}: "
-                                         f"{encoded(n['body'].get('text', ''))}{_ratings(n['body'])}" for n in lessons),
+                LESSONS_LABEL, '\n'.join(f"- when {prompt_json(n['body'].get('trigger', ''))}: "
+                                         f"{prompt_json(n['body'].get('text', ''))}{_ratings(n['body'])}"
+                                         for n in lessons),
                 True,
                 frozenset(o for n in lessons for o in n['origins']), tuple(n['id'] for n in lessons),
                 'memory.learned kind=lesson'))
         runs = sorted((c for c in cards if c['body'].get('verified') is True),
                       key=lambda c: (c['body'].get('ended_at') or c['recorded_at'], c['id']), reverse=True)
         for run in runs:
-            calls = [f"- {a.get('tool')} {encoded(a.get('args') or {})} → {encoded(a.get('result'))}"
+            calls = [f"- {a.get('tool')} {prompt_json(a.get('args') or {})} → {prompt_json(a.get('result'))}"
                      for a in run['body'].get('actions') or [] if isinstance(a, dict) and not a.get('error')]
             parts.append(ProcedurePart(
                 RUN_LABEL, f"Task {run['body'].get('task_id')}, ended {run['body'].get('ended_at') or run['recorded_at']}"
