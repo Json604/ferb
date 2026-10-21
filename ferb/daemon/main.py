@@ -1494,8 +1494,9 @@ class Daemon:
         """A forget's echo scrub, now (behind those still running), and again for the work running at the forget as it
         ends (`_Rescrub`): a tree as it finishes (`task.finished`, before its job writes the "while you were away"
         result, so the next chat turn already waits) and each job (chat turns, resumed plans, scheduled runs, attention
-        turns) after its last record. A run again touches only what that work recorded (`echoes.Running`): the trees
-        and requests running now and the spans unfinished now, never anything started after the forget."""
+        turns) after its last record. A run again touches only what that work wrote (`echoes.Running`), keyed by the
+        requests running now (the chat turns', the running trees' and planner turns') and the spans unfinished now:
+        never anything started after the forget, a tree resumed in place under a new request included."""
         from ferb.memory.echoes import Running
         self._after_forgets(lambda: work(None))
         jobs = {job for job in self._turns | self._runs if not job.done()}
@@ -1505,10 +1506,13 @@ class Daemon:
         unfinished = self.db.conn.execute(
             "SELECT id, kind, CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END "
             "FROM spans WHERE ended_at IS NULL").fetchall()
-        running = Running({key for key, _ in self.supervisor.running_trees()} if self.supervisor else set(),
-                          {self._turn_requests[job] for job in jobs if job in self._turn_requests}
+        trees = {key for key, _ in self.supervisor.running_trees()} if self.supervisor else set()
+        marks = ','.join('?' * len(trees))
+        runs = {str(r[0]) for r in self.db.conn.execute(f"SELECT request_id FROM tasks WHERE id IN ({marks})",
+                                                       tuple(trees))} if trees else set()
+        running = Running({self._turn_requests[job] for job in jobs if job in self._turn_requests} | runs
                           | {str(r[2]) for r in unfinished if r[2] is not None},       # a planner turn under way
-                          {str(r[0]) for r in unfinished})
+                          trees, {str(r[0]) for r in unfinished})
         again = _Rescrub(lambda: work(running), jobs, running)
         self._rescrubs.add(again)
         for job in jobs:
@@ -1524,11 +1528,15 @@ class Daemon:
 
     def _tree_finished_at_a_forget(self, tree_id: str) -> None:
         """A tree of the work running at a forget finished (its answer and outcome are journaled): its scrub runs again
-        now, so a chat turn that starts before the tree's job ends (still writing its result) waits for it."""
+        now, so a chat turn that starts before the tree's job ends (still writing its result) waits for it. Only a
+        tree run for a request recorded at the forget counts: not a worker's own finish, not a tree resumed in place
+        under a new request since."""
         assert self.db is not None
-        row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (tree_id,)).fetchone()
+        row = self.db.conn.execute("SELECT request_id, parent_id FROM tasks WHERE id = ?", (tree_id,)).fetchone()
+        if row is None or row["parent_id"] is not None:
+            return
         for again in list(self._rescrubs):
-            if tree_id in again.running.roots or (row is not None and row[0] in again.running.requests):
+            if row["request_id"] in again.running.requests:
                 self._scrub_again(again)
 
     def _scrub_again(self, again: _Rescrub) -> None:

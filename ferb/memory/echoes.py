@@ -71,36 +71,67 @@ class Forgotten:
 
 @dataclass
 class Running:
-    """The work running when a forget was asked (fix wave 6a): the task trees and the requests (chat turns, resumed
-    plans, scheduled runs) then running, and the spans then unfinished (an attention check's consideration among them).
-    The scrub run again as that work ends touches only what it recorded (`ours`), never a row, span, record or card of
-    work that started after the forget."""
-    roots: set[str] = field(default_factory=set)
+    """The work running when a forget was asked (fix wave 6a), keyed by its requests: those of the chat turns, task
+    trees (resumed plans, scheduled runs) and planner turns then running; with the trees then running and the spans
+    then unfinished (an attention check's consideration among them). The scrub run again as that work ends touches
+    only what those requests wrote (`ours`), never anything started after the forget: not the owner stating the item
+    again, not a new task, not a tree resumed in place under a new request (a continue, retry or correction)."""
     requests: set[str] = field(default_factory=set)
+    trees: set[str] = field(default_factory=set)
     spans: set[str] = field(default_factory=set)
 
-    def ours(self, db: Any) -> "Running":
-        """As it stands now: with the trees its requests made (a request can start its task after the forget) and the
-        requests of its trees."""
-        roots, requests = set(self.roots), set(self.requests)
-        for tree, request in db.conn.execute("SELECT tree_id, request_id FROM tasks").fetchall():
+    def ours(self, db: Any) -> "Ours":
+        """What those requests wrote, as it stands now."""
+        current = {str(r[0]): str(r[1]) for r in db.conn.execute(
+            "SELECT id, request_id FROM tasks WHERE parent_id IS NULL").fetchall()}
+        rows: set[str] = set()
+        answered: dict[str, Any] = {}                    # a tree -> the request of its latest answer
+        for row in _ferb_rows(db):
+            data = json.loads(row["data_json"])
+            request = data.get("request_id")
+            if row["kind"] in TASK_KINDS:                # an outcome is written right after its run's answer
+                tree = _root(str(data.get("task_id", "")))
+                if request is None:
+                    request = answered.get(tree)
+                else:
+                    answered[tree] = request
             if request in self.requests:
-                roots.add(str(tree))
-            if tree in self.roots:
-                requests.add(str(request))
-        return Running(roots, requests, set(self.spans))
+                rows.add(str(row["id"]))
+        return Ours(self, {tree for tree, request in current.items() if request in self.requests}, rows, current)
 
-    def holds(self, data: dict[str, Any]) -> bool:
-        """A journal row it wrote: by one of its tasks or for one of its requests."""
-        return _root(str(data.get("task_id", ""))) in self.roots or data.get("request_id") in self.requests
+
+@dataclass
+class Ours:
+    """What the requests running at a forget wrote, as it stands now: the trees they run now (one resumed under another
+    request is not theirs any more), their journal rows (`rows`; a task's outcome goes with its answer) and, read when
+    a pass needs them, their spans (`reach`)."""
+    running: Running
+    trees: set[str]
+    rows: set[str]
+    current: dict[str, str]                              # each tree -> the request it runs for now
+
+    @property
+    def new_trees(self) -> set[str]:
+        """The trees those requests started after the forget (a chat turn still planning then)."""
+        return self.trees - self.running.trees
 
     def reach(self, db: Any) -> set[str]:
-        """The spans it recorded: those then unfinished, its trees' spans and its requests' planner turns."""
-        return {str(r[0]) for r in db.conn.execute(
-            "SELECT id, task_id, CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END "
-            "FROM spans").fetchall()
-                if str(r[0]) in self.spans or (r[1] and _root(str(r[1])) in self.roots)
-                or (r[2] is not None and str(r[2]) in self.requests)}
+        """Their spans: those then unfinished, their planner turns, and every span of a run of theirs. A tree's spans
+        belong to the run its latest root `task` span before them starts (it records the run's request); with none,
+        to the request the tree runs for now."""
+        runs: dict[str, str] = {}
+        out: set[str] = set()
+        for ident, task_id, kind, request in db.conn.execute(
+                "SELECT id, task_id, kind, CASE WHEN kind IN ('task', 'model.turn') THEN "
+                "json_extract(input_json, '$.request_id') END FROM spans ORDER BY rowid").fetchall():
+            tree = _root(str(task_id)) if task_id else None
+            if kind == "task" and tree is not None and task_id == tree and request is not None:
+                runs[tree] = str(request)
+            run = (runs.get(tree) or self.current.get(tree)) if tree is not None else None
+            if str(ident) in self.running.spans or run in self.running.requests or (
+                    kind == "model.turn" and request in self.running.requests):
+                out.add(str(ident))
+        return out
 
 
 @dataclass
@@ -282,7 +313,7 @@ def finish(db: Any, forgotten: Forgotten, running: Running | None = None) -> Scr
     ours = running.ours(db) if running is not None else None
     written = given(db, forgotten) | stating(db, forgotten)
     if ours is not None:
-        written &= {r[0] for r in _ferb_rows(db) if ours.holds(json.loads(r["data_json"]))}
+        written &= ours.rows
     out = scrub(db, forgotten, lines, ours)
     _drop_folded(db, written | set(out.rewritten))
     db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -329,7 +360,7 @@ def settle(db: Any, forgotten: Forgotten) -> "_Lines":
     return lines
 
 
-def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: Running | None = None) -> Scrubbed:
+def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: "Ours | None" = None) -> Scrubbed:
     """Remove what FERB's own records say of the forgotten item (module docstring), after its deletion. `ours`: a scrub
     run again, which touches only the rows, records, cards and spans of the work running at the forget."""
     out = Scrubbed()
@@ -339,12 +370,15 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: Ru
     lines = lines or settle(db, forgotten)
     ferb = _ferb_rows(db)
     written_with = given(db, forgotten)
+    # a run again: the given tasks the running requests still run, and the trees they started since, given it as well
+    tasks = forgotten.tasks if ours is None else (forgotten.tasks & ours.trees) | _given_since(db, forgotten, lines,
+                                                                                               ours.new_trees)
     for row in ferb:
         data = json.loads(row["data_json"])
-        if ours is not None and not ours.holds(data):
+        if ours is not None and row["id"] not in ours.rows:
             continue
         answers_forgotten = row["kind"] in CHAT_KINDS and data.get("request_id") in forgotten.requests
-        of_task = row["kind"] in TASK_KINDS and _root(str(data.get("task_id", ""))) in forgotten.tasks
+        of_task = row["kind"] in TASK_KINDS and _root(str(data.get("task_id", ""))) in tasks
         rule = (lines.mentions if of_task else lines.restates if row["id"] in written_with else lines.verbatim)
         new = dict(data)
         for key, value in data.items():
@@ -360,7 +394,6 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: Ru
         if new != data:
             _rewrite(db, row, new)
             out.rewritten.append(row["id"])
-    tasks = forgotten.tasks if ours is None else forgotten.tasks & ours.roots
     change = (lambda text: lines.text(text, lines.mentions), lambda value: lines.value(value, lines.mentions))
     _scrub_records(db, {task: change for task in tasks})               # the tasks' own records
     for task in sorted(tasks):                           # its card
@@ -384,6 +417,25 @@ def scrub(db: Any, forgotten: Forgotten, lines: "_Lines | None" = None, ours: Ru
         scrub_told(db, {*lines.removed, *phrases}, watch, reach)
     rewrite_until_still(db, spans)
     return out
+
+
+def _given_since(db: Any, forgotten: Forgotten, lines: "_Lines", trees: set[str]) -> set[str]:
+    """Of these trees (started after the forget by a request running at it, from what its planner was shown), those
+    given the item, as `capture` and `settle` find a task given it: their memory refs or exposures cite the item itself
+    or a node whose body restates it."""
+    if not trees or not forgotten.refs:
+        return set()
+    cited: dict[str, set[str]] = {}
+    for task, ref in [*_with_refs(db, forgotten.refs, "SELECT DISTINCT t.task_id, t.ref FROM task_memory_refs t JOIN "
+                                                      "forgetting_refs f ON t.ref = f.ref"),
+                      *_with_refs(db, forgotten.refs, "SELECT DISTINCT s.task_id, r.value FROM spans s, "
+                                                      "json_each(s.input_json, '$.source_refs') r JOIN forgetting_refs "
+                                                      "f ON r.value = f.ref WHERE s.kind = 'context.exposure' AND "
+                                                      "s.task_id IS NOT NULL")]:
+        if task and _root(str(task)) in trees:
+            cited.setdefault(_root(str(task)), set()).add(str(ref))
+    return {tree for tree, refs in cited.items() if any(
+        _direct(ref) or any(lines.mentions(text) for text in forgotten.node_texts.get(ref, [])) for ref in refs)}
 
 
 def _answer_removed(inp: Any, out: Any) -> tuple[Any, Any]:
@@ -647,8 +699,9 @@ def finish_node(db: Any, echo: NodeEcho, running: Running | None = None) -> Scru
     if echo.reached is None:
         echo.reached = in_tasks
     ours = running.ours(db) if running is not None else None
-    if ours is not None:
-        in_tasks = {task: texts for task, texts in echo.reached.items() if task in ours.roots}
+    if ours is not None:                             # pinned, but for trees the running requests started since
+        in_tasks = ({task: texts for task, texts in echo.reached.items() if task in ours.trees}
+                    | {task: texts for task, texts in in_tasks.items() if task in ours.new_trees})
         in_notices = {}
     lines: dict[frozenset[str], _Lines] = {}
 
@@ -659,7 +712,7 @@ def finish_node(db: Any, echo: NodeEcho, running: Running | None = None) -> Scru
                                f"({','.join('?' * (len(FERB_KINDS) + 1))}) ORDER BY seq",
                                (*FERB_KINDS, NOTICE_KIND)).fetchall():
         data = json.loads(row["data_json"])
-        if ours is not None and not ours.holds(data):  # a notice holds neither: a run again never touches one
+        if ours is not None and row["id"] not in ours.rows:  # never a notice: none is a request's
             continue
         chat = row["kind"] in CHAT_KINDS or row["kind"] == NOTICE_KIND
         scoped = (in_tasks.get(_root(str(data.get("task_id", "")))) if row["kind"] in TASK_KINDS else
