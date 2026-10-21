@@ -447,16 +447,18 @@ def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30) 
 def turn_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """A chat.send stream as the turn's own events: checks the event contract (L7: the acknowledgement first, every
     event naming the acknowledged request_id and when it was sent; an observation outside any task names none. L8:
-    each live line names its task and when its tool call started), then drops the acknowledgement, the live lines and
-    those two fields, so tests about what a turn did compare its events directly. tests/test_chat_events.py and
-    tests/test_progress_line.py cover the rest."""
+    each live line names its task and when its tool call started; a connection line during the planner's turn has no
+    task yet, fix wave 7), then drops the acknowledgement, the live lines and those two fields, so tests about what a
+    turn did compare its events directly. tests/test_chat_events.py, tests/test_progress_line.py and
+    tests/test_connection_notice.py cover the rest."""
     assert events and events[0]["type"] == "ack", events
 
     def outside(e: dict[str, Any]) -> bool:
         return e["type"] == "event" and e["topic"].startswith("action.") and not e["data"].get("task_id")
     assert all(e.get("request_id") == (None if outside(e) else events[0]["request_id"]) and e.get("at")
                for e in events), events
-    assert all(e.get("task_id") and e.get("text") and e.get("started_at") for e in events if e["type"] == "progress")
+    assert all((e.get("task_id") or e.get("connection")) and e.get("text") and e.get("started_at")
+               for e in events if e["type"] == "progress")
     return [{k: v for k, v in e.items() if k not in ("request_id", "at")} for e in events[1:] if e["type"] != "progress"]
 
 

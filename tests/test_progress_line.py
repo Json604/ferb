@@ -271,7 +271,8 @@ def test_the_live_line_names_apps_from_the_macs_app_list(daemon):
                                            ("com.example.New", "New App", 77)]
         try:
             for name, args, kind, site in calls:
-                supervisor.tool_progress(SimpleNamespace(task_id='tree-x.worker'), name, args, kind, site)
+                supervisor.tool_progress(SimpleNamespace(task_id='tree-x.worker', worker_id='w-x'), name, args, kind,
+                                         site)
             return [live.get_nowait()['text'] for _ in calls]
         finally:
             supervisor._tree_of.pop('tree-x.worker'), supervisor._live.pop('tree-x')

@@ -52,8 +52,8 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import (InvalidAnswer, Overflowed, RuntimeViolation, ServiceError, WorkerRuns,
-                                      model_limits, reserve_tokens, told)
+from ferb.orchestrator.worker import (ConnectionNotice, InvalidAnswer, Overflowed, RuntimeViolation, ServiceError,
+                                      WorkerRuns, model_limits, reserve_tokens, told)
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -420,6 +420,7 @@ class Supervisor(WorkerRuns):
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
         self._retrying: dict[str, tuple[str, str]] = {}   # worker id -> (runtime, last retry) since its last progress
+        self._connection: dict[str, ConnectionNotice] = {}   # worker id -> its run's connection lines (fix wave 7)
         self._tools_seen: dict[str, list[str]] = {}       # worker id -> tool names its runtime reported
         self._tools_offered: dict[str, bool] = {}         # worker id -> whether FERB offered it any tools
         self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}
@@ -607,11 +608,11 @@ class Supervisor(WorkerRuns):
                       recalled: Any = "", *, emit: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
         """Repair an invalid task reference without inferring task intent or account permission."""
         try:
-            out = await self._supervise(session, message, request_id, recalled, emit=emit)
+            out = await self._supervise(session, message, request_id, recalled, emit=emit, notify=emit)
         except (ValidationError, InvalidAnswer) as exc:      # pydantic, FERB's schema check, or the adapter's
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
-            out = await self._supervise(session, message, request_id, recalled, repair=problems)
+            out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
         async def problems_for(candidate: SupervisorOutcome) -> list[str]:
             problems: list[str] = []
             if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
@@ -644,7 +645,7 @@ class Supervisor(WorkerRuns):
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
-        out = await self._supervise(session, message, request_id, recalled, repair=problems)
+        out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
         if await problems_for(out):
             self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair"})
             raise ValueError("The planner returned an unknown task reference after format repair")
@@ -1303,11 +1304,14 @@ class Supervisor(WorkerRuns):
 
     async def _supervise(self, session: ChatSession, message: str, request_id: str,
                          remembered: Any = "", repair: list[str] | None = None, *,
-                         emit: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
+                         emit: Callable[[dict[str, Any]], None] | None = None,
+                         notify: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
         """One planner turn (L28, owner 2026-10-14). Always in the prompt: the system prompt, the owner's message, the
         situation (Layer 2), running tasks and open questions, relevant memory and today's activity. The conversation
         fills what is left of the model's real window newest-first; older chat is FERB's running summary. Order for
-        prompt caching: system, Layer 1, the conversation (append-only), then the blocks that change every turn."""
+        prompt caching: system, Layer 1, the conversation (append-only), then the blocks that change every turn.
+        `emit` streams the reply's draft; `notify` is the turn's live line for a lost connection (fix wave 7): the
+        owner's chat stream, never a scheduled run's."""
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         conversation, ages = self._conversation_blocks(request_id, session.id)
         mem_text, mem_ages = self.recall_items(remembered)
@@ -1396,7 +1400,8 @@ class Supervisor(WorkerRuns):
         usage: dict[str, Any] = {}
         try:
             final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "",
-                                    on_usage=usage.update, images=images, **({'on_delta': draft.feed} if draft else {}))
+                                    on_usage=usage.update, images=images, notify=notify,
+                                    **({'on_delta': draft.feed} if draft else {}))
             result = SupervisorOutcome.model_validate_json(final)
             if draft:
                 draft.finish(final)
@@ -1424,7 +1429,7 @@ class Supervisor(WorkerRuns):
         # L12: a model that won't take the screenshot must not fail the message: once more without it, saying so
         self.journal.append("screen.image_refused", {"request_id": request_id, "error": refused})
         self._env.setdefault(request_id, {}).update(front_image=None, image_withheld=IMAGE_REFUSED)
-        return await self._supervise(session, message, request_id, remembered, repair, emit=emit)
+        return await self._supervise(session, message, request_id, remembered, repair, emit=emit, notify=notify)
 
     def _conversation_blocks(self, request_id: str, conversation: str, *, since_last_notice: bool = False
                              ) -> tuple[list[tuple[ContextBlock, set[str]]], dict[str, datetime]]:

@@ -128,6 +128,8 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
         return f"ferb: {OUTCOME.get(ev['status'], ev['status'])} — {ev['summary']}{arts}\nferb> {answer}"
     if t == "error":
         return f"ferb> {ev['text']}"
+    if t == "progress" and ev.get("connection"):  # the AI service connection dropped or came back (fix wave 7)
+        return f"ferb> {ev['text']}"
     if t == "event":
         d, topic = ev["data"], ev["topic"]
         if not verbose:

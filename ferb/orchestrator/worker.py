@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from functools import partial
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from pydantic import ValidationError
@@ -77,6 +78,41 @@ def retry_stall_problem(runtime: str, message: str, stall_s: float) -> str:
             f"Its last word: {message.rstrip('.')}.")
 
 
+def connection_lost(runtime: str, message: str) -> str:
+    """The owner's line the moment a run's AI service connection drops and the runtime retries it itself (fix wave 7;
+    owner 2026-10-21: "it should be instant"): the offline sentence when this Mac has no network route, else the
+    service and its own words."""
+    from ferb.sense import network as route
+    if route.has_route() is False:
+        return "Your Mac seems to be offline: I'll carry on when it's back."
+    said = f" It said: {message.rstrip('.')}." if message else ""
+    return f"Lost the connection to the AI service I use ({runtime}); it's retrying and the task carries on.{said}"
+
+
+class ConnectionNotice:
+    """One run's connection lines on the live line of the work the owner waits on (fix wave 7): the first retry of an
+    outage says so at once, further retries stay quiet, and the run's next real event (or tool call) says once that it
+    reconnected. `tell` puts a `progress` event, marked `connection: lost|back`, where that work's live line goes."""
+
+    def __init__(self, runtime: str, tell: Callable[[dict[str, Any]], None], now: Callable[[], str],
+                 redact: Callable[[str], str]) -> None:
+        self.runtime, self.tell, self.now, self.redact = runtime, tell, now, redact
+        self.lost = False
+
+    def retrying(self, message: str) -> None:
+        if not self.lost:
+            self.lost = True
+            self._say("lost", connection_lost(self.runtime, message))
+
+    def back(self) -> None:
+        if self.lost:
+            self.lost = False
+            self._say("back", f"Reconnected to the AI service I use ({self.runtime}).")
+
+    def _say(self, state: str, text: str) -> None:
+        self.tell({"type": "progress", "text": self.redact(text), "started_at": self.now(), "connection": state})
+
+
 def too_large_problem(e: InputTooLarge) -> str:
     """The owner-facing sentence for a call FERB didn't send: over the runtime's documented per-input character cap
     (L28). FERB refused it; the service reported nothing."""
@@ -125,7 +161,7 @@ class Stalled(Exception):
 class WorkerRuns:
     """Needs from the host: make_runtime, gateway, tokens, spans, tasks, publish, journal, clock, ids, device_id,
     activity, on_violation, heartbeat_poll_s, stall_s, apps(), running_apps(), _system(), _active, _tree_of, _stalled,
-    _retrying,
+    _retrying, _connection,
     _live, cancel_tree()."""
     make_runtime: Any
     gateway: Any
@@ -149,6 +185,7 @@ class WorkerRuns:
     _tree_of: dict[str, Any]
     _stalled: set[str]
     _retrying: dict[str, tuple[str, str]]
+    _connection: dict[str, ConnectionNotice]
     _tools_seen: dict[str, list[str]]
     _tools_offered: dict[str, bool]
     _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
@@ -162,7 +199,10 @@ class WorkerRuns:
     def tool_progress(self, grant: Any, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
         """L8: a worker (or the final checker) started a tool call. Its task's live line says what it is doing, built
         by code from the tool and its target (`progress.describe`), never from the worker's words: a Mac app by the
-        name FERB knows it by. A line that can't be built is noted in the journal; the call goes on."""
+        name FERB knows it by. A line that can't be built is noted in the journal; the call goes on. A call the model
+        asks for after an outage is the connection back: that line comes first (fix wave 7)."""
+        if (notice := self._connection.get(grant.worker_id)) is not None:
+            notice.back()
         tree = self._tree_of.get(grant.task_id)
         live = self._live.get(tree.id) if tree is not None else None
         if tree is None or live is None:        # no running task stream to show it on
@@ -174,6 +214,11 @@ class WorkerRuns:
             self.journal.append("progress.failed", {"task_id": grant.task_id, "tool": name, "error": type(e).__name__})
             return
         live.put_nowait({"type": "progress", "task_id": tree.id, "text": text, "started_at": self.clock.now().isoformat()})
+
+    def _tell_tree(self, tree_id: str, event: dict[str, Any]) -> None:
+        """An event on a tree's live line (its run's stream, L8), while the tree runs."""
+        if (live := self._live.get(tree_id)) is not None:
+            live.put_nowait({**event, "task_id": tree_id})
 
     async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:
@@ -283,7 +328,10 @@ class WorkerRuns:
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
                    tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None,
                    on_usage: Callable[[dict[str, Any]], None] | None = None,
-                   images: tuple[ModelImage, ...] = ()) -> str:
+                   images: tuple[ModelImage, ...] = (),
+                   notify: Callable[[dict[str, Any]], None] | None = None) -> str:
+        """`notify`: where a chat turn's live line goes (its stream); a task's run tells its tree's live line, and a run
+        with neither (a learner, the attention check, the chat summary) tells no one of a lost connection."""
         revision = len(tree.steering.messages) if tree is not None else 0
         if tree is not None and task.role == 'worker':
             # A startup failure is a current-attempt failure, not a stale result to retry forever.
@@ -346,8 +394,14 @@ class WorkerRuns:
             raise
         started.append(run)
         self._active[run.id] = (rt, run)
+        if notify is None and tree is not None:
+            notify = partial(self._tell_tree, tree.id)
+        notice = (ConnectionNotice(rt.name, notify, lambda: self.clock.now().isoformat(), self.gateway.redact)
+                  if notify is not None else None)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)
+            if notice is not None:
+                self._connection[worker_id] = notice
         if tree is not None:
             tree.steering.delivered[run.id] = revision
         final = ""
@@ -363,6 +417,8 @@ class WorkerRuns:
                 if worker_id and ev.kind != "retrying":
                     self.activity.beat(worker_id)
                     self._retrying.pop(worker_id, None)
+                if notice is not None and ev.kind not in ("retrying", "error", "violation"):
+                    notice.back()                        # a real event: the connection is back (an error ends the run)
                 if ev.kind == "text_delta":
                     if on_delta is not None:
                         on_delta(str(ev.data.get('text', '')))
@@ -379,6 +435,8 @@ class WorkerRuns:
                     self.spans.finish(s, error=message)
                     if worker_id:
                         self._retrying[worker_id] = (rt.name, message)
+                    if notice is not None:               # the owner hears at once, once per outage (fix wave 7)
+                        notice.retrying(message)
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
@@ -408,6 +466,7 @@ class WorkerRuns:
                         tree.result_revision = applied
                 self._active.pop(run.id, None)
                 self._worker_runs.pop(worker_id, None)
+                self._connection.pop(worker_id, None)
                 await rt.cancel(run)
             if tree is not None:
                 async with tree.steering.lock:
