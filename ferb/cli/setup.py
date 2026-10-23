@@ -23,6 +23,7 @@ import ferb
 from ferb.act.browser import autoinstall, profiles
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.cli import tokenizer
+from ferb.cli.admin import shown_bytes
 from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
@@ -292,10 +293,6 @@ def _daemon_answers(env: Env) -> bool:
         return False
 
 
-def _shown_bytes(n: int) -> str:
-    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
-
-
 def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
     """The store's one-time clean-out, run by the installer while no daemon runs. With `state` "clean", every version of
     each traced task's card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`),
@@ -352,14 +349,14 @@ def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
         compaction = db.compact()
         if not compaction["compacted"]:
             env.say("     " + (done + ". Not" if done else "FERB's database is still not") + " compacted "
-                    f"({_shown_bytes(before)}): that needs {_shown_bytes(compaction['needed'])} free and the disk has "
-                    f"{_shown_bytes(compaction['free'])}; FERB reuses the freed space inside the file, and the next "
+                    f"({shown_bytes(before)}): that needs {shown_bytes(compaction['needed'])} free and the disk has "
+                    f"{shown_bytes(compaction['free'])}; FERB reuses the freed space inside the file, and the next "
                     "`ferb setup --update` compacts it.")
             return
         after = store_size(path)
         journal.append(COMPACTED, {"bytes_before": before, "bytes_after": after})
         env.say("     " + (f"{done}; " if done else "Compacted FERB's database: ") +
-                f"{_shown_bytes(before)} → {_shown_bytes(after)}.")
+                f"{shown_bytes(before)} → {shown_bytes(after)}.")
     except Exception as e:
         env.say(f"     Database clean-out stopped ({type(e).__name__}: {e}); FERB works without it, and the next "
                 "`ferb setup --update` tries again.")
@@ -608,7 +605,7 @@ def database_check(home: Path) -> Check | None:
     path = home / "ferb.db"
     if not path.exists():
         return None
-    size = _shown_bytes(store_size(path))
+    size = shown_bytes(store_size(path))
     state = cleanout_state(path)
     if state == "clean":
         return Check("database", "warn", f"{size}; a one-time clean-out of unused card rows is pending",

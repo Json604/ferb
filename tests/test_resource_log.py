@@ -8,6 +8,7 @@ import io
 import itertools
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -71,6 +72,10 @@ class Fake:
     def run(self, pid: int, cpu: float) -> None:
         self.procs[pid] = self.procs[pid]._replace(cpu_s=cpu)
 
+    def waited(self, pid: int, cpu: float) -> None:
+        """What `pid`'s children it waited for have used, theirs included (ri_child_user/system_time)."""
+        self.procs[pid] = self.procs[pid]._replace(children_cpu_s=cpu)
+
     def end(self, pid: int) -> None:
         del self.procs[pid]
         for kids in self.kids.values():
@@ -132,6 +137,23 @@ def test_mach_time_converts_with_the_timebase() -> None:
     assert mach_seconds(1_500_000_000, 1, 1) == pytest.approx(1.5)          # Intel: one unit is one nanosecond
 
 
+def test_a_timebase_that_cant_be_read_fails_instead_of_reading_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Lib:
+        mach_timebase_info: Any = None
+
+    def failing(timebase: Any) -> int:
+        return 5                                                         # KERN_FAILURE
+    def untouched(timebase: Any) -> int:
+        return 0                                                         # success, but nothing written
+    for call in (failing, untouched):
+        Lib.mach_timebase_info = staticmethod(call)
+        with pytest.raises(OSError, match="mach_timebase_info"):
+            resources.mach_timebase(Lib())
+    monkeypatch.setattr(resources, "mach_timebase", lambda: (_ for _ in ()).throw(OSError("mach_timebase_info: 5")))
+    with pytest.raises(OSError):
+        MacReadings()                       # the log then fails to start (journaled), never reads CPU as 0
+
+
 @pytest.mark.skipif(sys.platform != "darwin", reason="libproc is macOS's")
 def test_libproc_reads_this_process_and_its_children() -> None:
     readings = MacReadings()
@@ -150,6 +172,8 @@ def test_libproc_reads_this_process_and_its_children() -> None:
         assert kid is not None and kid.start > me.start
         assert Path(readings.path(child.pid) or "").name == "sleep"
         assert readings.process(-5) is None and readings.path(-5) is None
+        numer, denom = resources.mach_timebase()
+        assert numer > 0 and denom > 0
     finally:
         child.kill()
         child.wait()
@@ -233,6 +257,21 @@ def test_the_work_counts_are_range_searches_never_a_table_scan(tmp_path: Path) -
     for sql in (*resources.CURSORS.values(), resources.RUNNING):
         plan = " | ".join(r[3] for r in db.conn.execute("EXPLAIN QUERY PLAN " + sql))
         assert "SCAN" not in plan, plan
+
+
+def test_spans_reusing_deleted_rowids_are_missed_for_one_window_at_most(tmp_path: Path) -> None:
+    """`spans` has no AUTOINCREMENT: after retention deletes the newest spans, new ones can take their rowids. Only
+    those at or below the last sample's cursor in the next window go uncounted; the cursor follows the table."""
+    fake = Fake()
+    db, clock, log = _log(tmp_path, fake)
+    for i in range(5):
+        _span(db, f"s{i}", "tool.call")
+    assert json.loads(_sample(log, clock)["work_json"])["tool_calls"] == 5
+    db.conn.execute("DELETE FROM spans WHERE rowid > 3")
+    _span(db, "s5", "tool.call")                                         # takes rowid 4
+    assert json.loads(_sample(log, clock)["work_json"])["tool_calls"] == 0
+    _span(db, "s6", "tool.call")                                         # rowid 5
+    assert json.loads(_sample(log, clock)["work_json"])["tool_calls"] == 1
 
 
 def test_the_perception_batcher_counts_its_wakes_and_batches_by_reason(tmp_path: Path) -> None:
@@ -344,11 +383,57 @@ def test_a_grandchild_its_parent_waited_for_is_not_counted_again(tmp_path: Path)
     fake.spawn(200, DAEMON, start=7, cpu=1.0)                           # a shell
     fake.spawn(300, 200, start=8, cpu=4.0)                              # the command it runs
     assert _sample(log, clock)["child_cpu_s"] == pytest.approx(5.0)
-    fake.end(300)                                                       # the shell waited for it
-    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.0)
+    fake.end(300)
+    fake.waited(200, 4.5)                                               # the shell waited for it: 0.5 s unseen
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.5)
     fake.end(200)
     fake.reaped += 1.2 + 4.5                                            # the shell's CPU and its children's
-    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.2 + 0.5)
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.2)
+
+
+def test_a_command_a_live_child_ran_counts_in_the_window_it_ended(tmp_path: Path) -> None:
+    fake = Fake()
+    db, clock, log = _log(tmp_path, fake)
+    fake.spawn(200, DAEMON, start=7, cpu=1.0)                           # a long-lived agent
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(1.0)
+    fake.waited(200, 3.0)                                               # commands it ran and waited for, unseen
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(3.0)
+    fake.run(200, 1.5)
+    fake.end(200)
+    fake.reaped += 1.5 + 3.0
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.5)    # only its own unseen tail
+
+
+def test_descendants_under_an_unreadable_process_are_walked_and_counted_once(tmp_path: Path) -> None:
+    fake = Fake()
+    db, clock, log = _log(tmp_path, fake)
+    fake.spawn(200, DAEMON, start=7, cpu=1.0)
+    fake.spawn(300, 200, start=8, cpu=2.0)
+    fake.spawn(400, 300, start=9, cpu=4.0)
+    del fake.procs[300]                                                 # can't be read; its child still is
+    row = _sample(log, clock)
+    assert row["child_count"] == 2 and row["child_cpu_s"] == pytest.approx(5.0)
+    fake.end(400)                                                       # 300 waited for it
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(0.0)
+    fake.kids[200].remove(300)
+    fake.waited(200, 2.5 + 4.5)                                         # 200 waited for 300: 300's CPU and 400's
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(2.5 + 0.5)
+
+
+def test_the_orphaned_child_of_an_unreadable_process_is_never_taken_off(tmp_path: Path) -> None:
+    fake = Fake()
+    db, clock, log = _log(tmp_path, fake)
+    fake.spawn(200, DAEMON, start=7, cpu=1.0)
+    del fake.procs[200]                                                 # can't be read
+    fake.spawn(300, 200, start=8, cpu=4.0)
+    assert _sample(log, clock)["child_cpu_s"] == pytest.approx(4.0)
+    fake.kids[DAEMON].remove(200)
+    fake.kids.pop(200)
+    fake.kids.setdefault(1, []).append(300)                             # 200 ended; 300 runs on as launchd's
+    fake.reaped += 1.0
+    fake.run(300, 4.2)
+    row = _sample(log, clock)
+    assert row["child_cpu_s"] == pytest.approx(1.0) and row["child_count"] == 0
 
 
 def test_a_descendant_left_running_by_its_parent_is_never_taken_off(tmp_path: Path) -> None:
@@ -476,6 +561,20 @@ def test_the_hourly_retention_pass_purges_old_samples(home: Path) -> None:
         d.stop()
 
 
+def test_a_failing_resource_purge_never_stops_the_retention_pass(daemon: RunningDaemon,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*args: Any) -> int:
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(resources, "purge", broken)
+    result = daemon.run(daemon.daemon._purge_pass())
+    assert result["resources"] == 0 and "snapshots" in result           # the pass went on to its last step
+
+    async def failed() -> Any:
+        return daemon.daemon.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind = 'retention.failed'").fetchone()[0]
+    assert json.loads(daemon.run(failed())) == {"resources": True, "error": "OperationalError: disk I/O error"}
+
+
 # ---------- the daemon's loop ----------
 
 def _daemon(home: Path, monkeypatch: pytest.MonkeyPatch, fake: Fake) -> RunningDaemon:
@@ -552,6 +651,67 @@ def test_a_failing_sample_is_journaled_and_the_next_one_still_runs(home: Path, m
         d.stop()
 
 
+def _unjournaled(d: RunningDaemon) -> None:
+    """Journaling `resources.failed` fails too (a broken database)."""
+    journal = d.daemon.journal
+    assert journal is not None
+    real = journal.append
+
+    def append(kind: str, data: Any = None, origin: Any = None) -> Any:
+        if kind == "resources.failed":
+            raise sqlite3.OperationalError("disk I/O error")
+        return real(kind, data, origin)
+    journal.append = append                                             # type: ignore[method-assign]
+
+
+def test_a_failing_sample_at_shutdown_never_stops_shutdown(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = Fake(os.getpid())
+    d = _daemon(home, monkeypatch, fake)
+    _unjournaled(d)
+    fake.fail = True
+    d.stop()                                                            # raises if shutdown did
+    db = Database(home / "ferb.db")
+    try:
+        assert _rows(db) == []
+        assert db.conn.execute("SELECT COUNT(*) FROM journal WHERE kind = 'daemon.stopped'").fetchone()[0] == 1
+    finally:
+        db.close()
+
+
+def test_the_loop_goes_on_when_even_its_failure_cant_be_journaled(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = Fake(os.getpid())
+    d = _daemon(home, monkeypatch, fake)
+    try:
+        _unjournaled(d)
+        fake.fail = True
+        d.call_soon(d.daemon.clock.advance, 300)
+        assert _settled(d, "SELECT COUNT(*) FROM resource_samples") == 0
+        fake.fail = False
+        d.call_soon(d.daemon.clock.advance, 300)
+        assert _wait(d, "SELECT COUNT(*) FROM resource_samples", lambda n: n == 1) == 1
+        assert _read(d, "SELECT window_s FROM resource_samples") == pytest.approx(600)
+    finally:
+        d.stop()
+
+
+def test_the_perception_batchers_counters_reach_a_row(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = _daemon(home, monkeypatch, Fake(os.getpid()))
+    try:
+        async def flushed() -> None:
+            batcher = d.daemon.perception.batches                     # the daemon's real batcher
+            assert batcher.wakes >= 1                                  # its first look, after start-up's baseline
+            batcher.batches_by_reason["age"] = batcher.batches_by_reason.get("age", 0) + 2   # as two age batches
+            batcher.notify(None)                                       # and a real wake
+        d.run(flushed())
+        d.run(asyncio.sleep(0.05))
+        d.call_soon(d.daemon.clock.advance, 300)
+        assert _wait(d, "SELECT COUNT(*) FROM resource_samples", lambda n: n == 1) == 1
+        perception = json.loads(_read(d, "SELECT work_json FROM resource_samples"))["perception"]
+        assert perception["batches"] == {"age": 2} and perception["wakes"] >= 2
+    finally:
+        d.stop()
+
+
 def test_a_log_that_cant_start_is_journaled_and_the_daemon_runs_without_it(home: Path,
                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
     fake = Fake(os.getpid())
@@ -615,6 +775,27 @@ def test_stats_shows_each_days_resources_and_the_hottest_windows(tmp_path: Path)
     assert lines[6].startswith(f"    {day} 10:00, 5.0 min: 3.0 s CPU")
     assert len(lines) == 8 and lines[7].startswith(f"    {day} 10:06, 1.0 min: 0.0 s CPU")
     assert "2000-01-01" not in text
+
+
+def test_the_days_peak_is_its_busiest_window_never_a_short_one(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    day = datetime.now().astimezone().date().isoformat()
+    _put(db, day, cpu=150.0, at=f"{day}T10:05:00+05:30")                # 50% for 5 minutes
+    _put(db, day, cpu=1.8, at=f"{day}T10:07:00+05:30", window=2)        # 90% for the 2 s before a stop
+    db.close()
+    assert "peak 50.0% at 10:05;" in _stats(tmp_path)
+
+
+def test_stats_days_1_shows_only_today(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    today = datetime.now().astimezone().date()
+    _put(db, today.isoformat())
+    _put(db, (today - timedelta(days=1)).isoformat())
+    db.close()
+    text = _stats(tmp_path, days=1)
+    days = [line.split(":")[0].strip() for line in text[text.index("Resources"):].splitlines()[1:]
+            if line.startswith("  2")]
+    assert days == [today.isoformat()]
 
 
 def test_stats_says_when_there_are_no_resource_samples(tmp_path: Path) -> None:

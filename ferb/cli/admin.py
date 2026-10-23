@@ -742,7 +742,8 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
     return 0
 
 
-def _shown_bytes(n: float) -> str:
+def shown_bytes(n: float) -> str:
+    """A size as the owner reads it (decimal units, as Finder shows them)."""
     return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
 
 
@@ -772,18 +773,18 @@ def _resources(c: Any, days: int, present: bool, out: TextIO) -> None:
         by_day.setdefault(row["day"], []).append(row)
     for day, samples in by_day.items():
         seconds = sum(r["window_s"] for r in samples)
-        peak = max(samples, key=lambda r: r["cpu_s"] / r["window_s"] if r["window_s"] > 0 else 0)
+        peak = max(samples, key=lambda r: r["cpu_s"])        # its busiest window: a short one never wins by rate
         memory = [r["footprint"] for r in samples if r["footprint"] is not None]
         peaks = [r["peak_footprint"] for r in samples if r["peak_footprint"] is not None]
         app = [r for r in samples if r["app_cpu_s"] is not None]
         print(f"  {day}: {seconds / 3600:.1f} h; daemon CPU avg {_share(sum(r['cpu_s'] for r in samples), seconds)}, "
               f"peak {_share(peak['cpu_s'], peak['window_s'])} at {peak['at'][11:16]}; "
-              + (f"memory avg {_shown_bytes(sum(memory) / len(memory))}, peak {_shown_bytes(max(peaks))}; "
+              + (f"memory avg {shown_bytes(sum(memory) / len(memory))}, peak {shown_bytes(max(peaks))}; "
                  if memory and peaks else "memory not read; ")
               + f"other processes CPU avg {_share(sum(r['child_cpu_s'] for r in samples), seconds)}; "
               + (f"FERB.app CPU avg {_share(sum(r['app_cpu_s'] for r in app), sum(r['window_s'] for r in app))}; "
                  if app else "FERB.app not running; ")
-              + f"database {_shown_bytes(samples[-1]['db_bytes'] or 0)}", file=out)
+              + f"database {shown_bytes(samples[-1]['db_bytes'] or 0)}", file=out)
     print("  Hottest windows (CPU of the daemon, its descendants and FERB.app):", file=out)
     for row in sorted(rows, key=lambda r: -(r["cpu_s"] + r["child_cpu_s"] + (r["app_cpu_s"] or 0)))[:5]:
         print(f"    {_window(row)}", file=out)

@@ -49,7 +49,7 @@ from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, NoTarget, Refused, Withheld
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
-from ferb.daemon import resources
+from ferb.daemon import resources as resource_use   # not `resources`: the constructor's flag
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
@@ -322,7 +322,7 @@ class Daemon:
             "store.wal_not_truncated", {"after": after, **details})
         if self.run_resources:                  # its first window starts here, so start-up's own work is in it
             try:
-                self.resource_log = resources.ResourceLog(self.db, self.clock, resources.MacReadings(),
+                self.resource_log = resource_use.ResourceLog(self.db, self.clock, resource_use.MacReadings(),
                                                           self._redact_text, self._perception_counts)
             except Exception as e:              # FERB runs without it; the next start tries again
                 self.journal.append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
@@ -1924,7 +1924,7 @@ class Daemon:
         decision_days = retention.days(self.config.get("retention", "decision_days", 30))
         evidence_days = retention.days(self.config.get("retention", "evidence_days", 7))
         recovery_days = retention.days(self.config.get("retention", "recovery_days", 7))
-        resource_days = retention.days(self.config.get("retention", "resource_days", resources.DEFAULT_DAYS))
+        resource_days = retention.days(self.config.get("retention", "resource_days", resource_use.DEFAULT_DAYS))
         roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
         return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days, resource_days,
                           roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
@@ -1960,9 +1960,17 @@ class Daemon:
         trashed = self._purge_downloads()
         if self.perception is not None:
             self.perception.purge_text()
-        samples = resources.purge(self.db, plan.now.astimezone().date(), plan.resource_days)
         return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed,
-                "resources": samples}
+                "resources": self._purge_resources(plan)}
+
+    def _purge_resources(self, plan: _PurgePlan) -> int:
+        """L30: resource samples older than resource_days, by local day. Isolated: a failure is journaled and the pass
+        goes on."""
+        try:
+            return resource_use.purge(self.db, plan.now.astimezone().date(), plan.resource_days)
+        except Exception as e:
+            self._journal().append("retention.failed", {"resources": True, "error": f"{type(e).__name__}: {e}"})
+            return 0
 
     def _purge_downloads(self) -> int:
         """D35: when FERB's downloads folder passes browser.download_total_mb, its oldest working copies go to the
@@ -2011,20 +2019,29 @@ class Daemon:
     async def _resources_loop(self) -> None:
         """L30: a resource sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last."""
         while True:
-            await self.clock.sleep_until(self.clock.now() + timedelta(seconds=resources.SAMPLE_SECONDS))
+            await self.clock.sleep_until(self.clock.now() + timedelta(seconds=resource_use.SAMPLE_SECONDS))
             self._sample_resources()
 
     def _sample_resources(self) -> None:
-        """One sample; a failure is journaled and the next sample covers this window too."""
+        """One sample; a failure is journaled and the next sample covers this window too. Never raises: the loop goes
+        on and shutdown finishes even when the failure can't be journaled (then it goes to stderr)."""
         try:
             self.resource_log.sample()
         except Exception as e:
-            self._journal().append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
+            error = f"{type(e).__name__}: {e}"
+            try:
+                self._journal().append("resources.failed", {"error": error})
+            except Exception as journal_error:
+                print(f"FERB: a resource sample failed ({self._redact_text(error)}) and couldn't be journaled "
+                      f"({type(journal_error).__name__})", file=sys.stderr)
 
     def _perception_counts(self) -> tuple[int, dict[str, int]]:
-        """The perception batcher's wakes and its batches by flush reason since start, for the resource log."""
-        batcher = getattr(self.perception, "batches", None)
-        return (batcher.wakes, dict(batcher.batches_by_reason)) if batcher is not None else (0, {})
+        """The perception batcher's wakes and its batches by flush reason since start, for the resource log; none
+        before perception is built (start-up's baseline)."""
+        if self.perception is None:
+            return 0, {}
+        batcher = self.perception.batches
+        return batcher.wakes, dict(batcher.batches_by_reason)
 
     def _record_learning_usage(self, role: str) -> Callable[[str, dict[str, Any]], None]:
         """A learner's usage recorder: each usage event is a `model.usage` span naming that learner's role
