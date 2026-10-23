@@ -561,6 +561,23 @@ break"; not installed or live-tested):
   site it holds a procedure only through an amount, account or path from outside content, while FERB still asks
   before every payment and once per page before a delete.
 
+FERB's resource log (L30, perf plan 2026-10-23 Task 4; owner 2026-10-23: "a some kinda report for some days of use that
+notes it down"; retention: "30 days"; not installed or live-tested):
+- Every 5 minutes the daemon writes one row of numbers to its database: its CPU and memory (footprint and lifetime
+  peak, as Activity Monitor shows them); the CPU, memory and number of the processes it started and theirs; FERB.app's
+  CPU and memory; the database's size; and that window's work: activity events by source, perception wakes and
+  batches by reason, Jev calls asked and not sampled, model runs and tool calls, tasks running, and the three busiest
+  processes it started (program name, redacted, and CPU seconds). Never content, arguments or paths. Stopping FERB
+  writes the minutes since the last row. Rows are kept `[retention] resource_days` (30), purged in the hourly pass.
+- `ferb stats` ends with a "Resources" section: a line per day (hours covered, the daemon's CPU average and busiest
+  window with its time as a share of one core, memory average and peak, the other processes' and FERB.app's CPU, the
+  database's size), then the period's five busiest windows with their work counts. It reads the database, so it works
+  with FERB stopped.
+- Its own cost: each count reads only the rows added since the last sample. On a store with a 400,000-row trail and
+  750 new events a window, one sample takes about 3 ms (most of it finding FERB.app's processes among about 740).
+- Apps FERB opens with `open` belong to macOS's launchd, not to FERB, so they aren't in its numbers. A failed sample is
+  journaled (`resources.failed`) and the next row covers its minutes too.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

@@ -42,7 +42,7 @@ chat notice (section 16); it never authorizes a task or a send.
 | The Mac app (notch UI, the product) and its setup console | [`ui/mac/FERBNotch`](ui/mac/FERBNotch/) |
 | Packaged FERB.app: build, signing, agent stub | [`scripts/build-app.sh`](scripts/build-app.sh), [`scripts/build-dmg.sh`](scripts/build-dmg.sh), [`scripts/signing.sh`](scripts/signing.sh), [`ui/mac/FERBAgent`](ui/mac/FERBAgent/) |
 | Chat events: acknowledgement, live line, front window, hearing | [`acks.py`](ferb/orchestrator/acks.py), [`progress.py`](ferb/orchestrator/progress.py), [`sense/front_window.py`](ferb/sense/front_window.py), [`act/listen.py`](ferb/act/listen.py), [`sense/transcribe.py`](ferb/sense/transcribe.py) |
-| Measurement: regression runner, security test harness | [`eval/regress.py`](ferb/eval/regress.py), [`eval/security/`](ferb/eval/security/) |
+| Measurement: regression runner, security test harness, FERB's resource log | [`eval/regress.py`](ferb/eval/regress.py), [`eval/security/`](ferb/eval/security/), [`daemon/resources.py`](ferb/daemon/resources.py) |
 
 Public store methods own their queries. Keep edits within these responsibilities. Split a module only for a real
 ownership boundary; do not add wrappers to preserve dead behavior.
@@ -513,6 +513,34 @@ the bound counts each message alone once.
 `tests/test_batcher_cost.py` drives `tests/support/batches_reference.py` (the module before, verbatim) side by side
 with the current one; `perception.status` `unsent_events` still counts with the full query.
 
+FERB's own resource use (L30, perf plan 2026-10-23 Task 4): so a later diagnosis works from days of real use rather than
+a 15-minute snapshot, `ResourceLog` ([`daemon/resources.py`](ferb/daemon/resources.py)) writes one row of numbers to
+`resource_samples` (migration 0045) every `SAMPLE_SECONDS` (300, the owner's "every 5 minutes") and the partial window
+at shutdown; `ferb stats` shows it per day (`cli/admin.py` `_resources`). The daemon creates it in `start` right after
+the database opens, so the first window counts from start-up (the cursors and every process's CPU are read then). A row:
+the window's end (`at`, local `day`) and length (`window_s`, monotonic clock); the daemon's CPU (`getrusage` RUSAGE_SELF
+deltas) and its physical footprint and lifetime peak (`proc_pid_rusage` with `RUSAGE_INFO_V4`, the first flavor with
+`ri_lifetime_max_phys_footprint`; the footprint is Activity Monitor's Memory column); its descendants, walked with
+`proc_listchildpids` from its pid, with their count, footprint and CPU in the window. Each process is tracked by (pid,
+start time), so a reused pid is a new process, and one seen first counts its CPU since it started. `ri_user_time` and
+`ri_system_time` are mach units, converted with `mach_timebase_info` (125/3 ns each on Apple silicon). Children that
+finished come from RUSAGE_CHILDREN's growth, less what was already counted for them and for the descendants they waited
+for, never below 0. That amount is carried while RUSAGE_CHILDREN hasn't yet shown a child the walk no longer sees. A
+descendant still running after its parent ended is launchd's: nothing is taken off for it. Processes FERB opens through
+Launch Services (`open`) belong to launchd and aren't descendants. FERB.app: processes whose executable lies inside a
+`FERB.app` bundle (`proc_listallpids` and `proc_pidpath`), outside the daemon's tree (the packaged daemon runs inside
+FERB.app's agent app; one that left the tree counts from what was counted for it there); `app_cpu_s` is NULL when none
+runs. `db_bytes` is `store_size`. `work_json` holds the window's counts, each a range above the last sample's seq or
+rowid (EXPLAIN shows an INTEGER PRIMARY KEY search; `NOT INDEXED` keeps the trail's one so even after ANALYZE): trail
+events per source; the batcher's wakes and its batches by flush reason (`EventBatcher.wakes`, `batches_by_reason`); Jev
+decisions asked and not sampled; model runs (`model.turn`, `worker`, `model.learning`) and tool calls from spans; tasks
+running (`tasks_status`); and the window's three busiest descendants by executable basename (through the daemon's
+redactor, rule 14) with their CPU seconds. Never content, arguments or paths. A failed sample journals
+`resources.failed` and keeps nothing, so the next row covers both windows; a log that can't start is journaled, and the
+daemon runs without it. Test daemons pass `resources=False`. Measured on a synthetic store with a 400,000-row trail and
+750 new rows a window (150 a minute): one sample takes 3.2 ms (at most 6 ms), 2.8 ms of it the FERB.app scan over about
+740 processes and 0.12 ms the counts. That is about 0.001% of one core.
+
 `device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
 app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
 establishes an occupation. One asynchronous `mdls` batch reads the metadata; plist-array entries are matched to apps
@@ -707,7 +735,9 @@ first. The loop runs hourly, starting a minute after start-up, on the daemon loo
 only when it purged something or left roots for the next pass; a pass that shutdown cancels between roots still
 journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
 before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7) and
-recovery copies and snapshots (`retention.recovery_days`, 7) to the same pass (section 11). Every `retention.*_days`
+recovery copies and snapshots (`retention.recovery_days`, 7) to the same pass (section 11). L30 added the resource
+log's rows (`retention.resource_days`, 30; section 8), purged by local day; their count is in the pass's result, not in
+`retention.purged`. Every `retention.*_days`
 value is read through `retention.days`: at least `MIN_DAYS` (1), so a 0 never purges what was just kept. Downloaded
 files have no time limit (owner, 2026-10-09; `retention.download_days` is gone): the same hourly pass moves the oldest
 to the Trash only while FERB's downloads folder is over `browser.download_total_mb` (`Downloads.purge`, journaled
@@ -2562,3 +2592,4 @@ protected FERB state (16.9).
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
 Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch`,
 `task.answer` gained `watch_met` (a watch run's), and `standing.revoked` can give the reason "schedule met".
+Perf plan 2026-10-23 (L30): `resources.failed` (a resource sample, or the log's start, failed; its error).

@@ -200,7 +200,7 @@ ferb trace TASK --steps            # one line per tool call
 ferb trace TASK --full             # complete recorded inputs, results and decisions
 ferb trace TASK --json             # machine-readable trace
 ferb logs --tools                  # one live step line per tool call while a task runs
-ferb stats
+ferb stats                         # outcomes, errors, model runs; FERB's own CPU and memory per day
 ferb doctor
 ```
 
@@ -476,14 +476,25 @@ it happens stops itself after a confirmed check finds it, and that answer says F
 notification, as a reminder does, even with the app open; a check with nothing new to tell stays out of your chat.
 `ferb schedules` lists each watch with its kind; cancel one there or by asking.
 
+FERB keeps a log of its own resource use (L30). Every 5 minutes the daemon writes one row of numbers to its database:
+its CPU and memory, those of the processes it started (and theirs) and of FERB.app, the database's size, and counts of
+what it did in those minutes (activity events by source, perception batches, Jev calls, model runs, tool calls, tasks
+running, and the three busiest processes it started, by program name). Never content, arguments or paths. When FERB
+stops, it writes the minutes since the last row. `ferb stats` (`--days N`, default 7; it reads the database, so it works
+with FERB stopped) shows a line per day: the hours covered; the daemon's CPU, its average and busiest 5 minutes with
+the time, as a share of one core (Activity Monitor's % CPU); its memory, average and peak; the CPU of FERB's other
+processes and of FERB.app; and the database's size. Then come the five busiest windows of the period, each with what
+FERB was doing. Apps FERB opens (`open`) belong to macOS, not to FERB, so their use isn't in FERB's numbers.
+
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
 and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,
 chat, daily summaries and memory are kept; the story is written when the task ends, and a purge never removes a
 task's steps before its story exists. After `trace_days`, `--steps`, `--full` and `--json` have no steps to show.
 `evidence_days` (7) is how long captured images and their facts are kept; `recovery_days` (7) how long the copies of
 files FERB changed, and FERB's own disk snapshots, are kept (a record of an item FERB moved to the Trash stays while the
-item is there, at most 90 days). Downloaded files have no time limit (see downloads above). Every `retention` days
-setting counts as at least 1 day (0 or less is read as 1), so nothing is purged the moment it is kept.
+item is there, at most 90 days). `resource_days` (30) is how long the resource log's rows are kept. Downloaded files
+have no time limit (see downloads above). Every `retention` days setting counts as at least 1 day (0 or less is read as
+1), so nothing is purged the moment it is kept.
 
 Start with `ferb doctor` and `ferb trace TASK --full` when something fails. Doctor compares the installed code,
 runtime prompts and extension resources with the checkout. Connection errors, provider errors, watcher failures,
