@@ -705,6 +705,9 @@ def _watch_prune(monkeypatch: pytest.MonkeyPatch, before: Any = None) -> list[tu
         if before.get("after_first"):                  # once the first card version is done
             told = kwargs["progress"]
             kwargs["progress"] = lambda done, total: (told(done, total), done == 1 and before["after_first"]())
+        if before.get("after_last"):                   # once the last card version is done
+            told = kwargs["progress"]
+            kwargs["progress"] = lambda done, total: (told(done, total), done == total and before["after_last"]())
         return real(self, stop, **kwargs)
     monkeypatch.setattr(Learning, "prune_card_sources", watched)
     return seen
@@ -878,3 +881,29 @@ def test_a_stop_after_the_first_card_says_the_index_is_made_again_first(world: d
     assert world["runner"].loaded
     rows = _card_rows(world["home"], versions)
     assert sorted(len(r) for r in rows.values()) == [len(kept), len(kept | shown), len(kept | shown)]
+
+
+def test_a_stop_after_the_last_card_keeps_the_clean_out_and_leaves_the_compaction(world: dict[str, Any],
+                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quitting once every card is clean, before VACUUM (which can't stop halfway): the rows stay removed and recorded,
+    setup says the next update compacts the file, and it does, without cleaning again."""
+    import os
+    import signal
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    seen = _watch_prune(monkeypatch, {"runner": world["runner"],
+                                      "after_last": lambda: os.kill(os.getpid(), signal.SIGTERM)})
+    env, out = make_env(world, [], daemon_up=False)
+    with pytest.raises(KeyboardInterrupt):
+        S.setup(env, update=True)
+    text = out.getvalue()
+    assert (f"Cleaned FERB's database: {3 * len(shown)} unused rows removed; the next `ferb setup --update` compacts "
+            "the file.") in text, text
+    assert "making a database index again" not in text and world["runner"].loaded
+    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
+    assert S.cleanout_state(world["home"] / "ferb.db") == "compact"
+    assert _journal_kinds(world["home"]) == ["store.cards_cleaned"]
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    assert "Compacted FERB's database: " in out.getvalue() and len(seen) == 1
+    assert S.cleanout_state(world["home"] / "ferb.db") is None

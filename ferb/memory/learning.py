@@ -615,7 +615,7 @@ class Learning:
     def card_trace(self, task_id: str) -> Iterator[CardSpan]:
         """The spans of a task's tree its card is read from, oldest first, each parsed only when the next is asked for:
         its tool calls, the blocks its planner was shown (`context.exposure`) and the sources its models were given
-        (`context.source`). None once retention removed the task's spans (all of a tree's go at once,
+        (`context.source`). It yields nothing once retention removed the task's spans (all of a tree's go at once,
         `store/retention.py`)."""
         from ferb.store.spans import tree_where
         where, params = tree_where(task_id)
@@ -673,8 +673,9 @@ class Learning:
         happens, also when it was missing before the run. With it, each node's delete rewrote ~50k random pages of that
         index: about 7 s a node, 47 minutes projected on a synthetic store of the owner's shape (23.3M rows), against
         91.7 s without (the drop's ~40 s included). After a stop or an error the index is made over every row left,
-        which can take a while: `rebuilding` is told first. A power loss in between leaves it to migration 0043 at the
-        next start, and to the next run.
+        which can take a while: `rebuilding` is told first, and an error it raises (a closed pipe) still lets the index
+        be made, then reaches the caller. A power loss in between leaves it to migration 0043 at the next start, and to
+        the next run.
 
         Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
         `untraced` (versions left alone) and `stopped`."""
@@ -724,9 +725,11 @@ class Learning:
             finished = True
         finally:
             try:
-                if dropped and not finished:
-                    rebuilding()
-                conn.execute('CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)')
+                try:
+                    if dropped and not finished:
+                        rebuilding()                 # told first; its failure (a closed pipe) never skips the remake
+                finally:
+                    conn.execute('CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)')
             finally:
                 conn.execute('DROP TABLE IF EXISTS temp.card_keep')
         return counts

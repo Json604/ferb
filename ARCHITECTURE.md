@@ -1622,23 +1622,24 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   the same way: `episode:<task>` plus every span's refs, or None when the task has no spans left.
 - **The card clean-out (plan 2026-10-23 Task 1; L28, C1).** The composer before C1 (`COPYING_CARD_MAKER`,
   `code:evidence-card/1`) copied into a card every exposure's refs, resolved transitively, and every earlier version's.
-  That was 22.6M rows on 438 versions of 85 tasks in the owner's store. `prune_card_sources` (run once by setup with
-  the daemon stopped, section 10) visits every episode node, any version or state, grouped by its key (the task id).
-  When `card_source_refs` is None it leaves them as they are, counted `untraced`. Otherwise it fills a temp table with
-  those refs and deletes, per node in its own `BEGIN IMMEDIATE` transaction, the node's `learning_sources` rows not in
-  it. So it only removes rows the rule would never write, never adds one, and never touches another kind. A run
-  stopped by a crash or the `stop` callable (asked before each node) leaves each node clean or as it was; the next run
-  finishes it, and a second run removes nothing. The deletes run without `learning_source_ref`. It is dropped right
-  before the first node with rows to delete (a cheap `EXISTS` until then), so a run over clean cards keeps it.
-  `CREATE INDEX IF NOT EXISTS` runs first in the `finally`, whatever happened and also when the index was missing
-  before the run; when the run stopped or failed with the index dropped, `rebuilding` is told first, because the
-  index is then made over every row left. Migration 0043 (the same statement) makes it at the next start if a power
-  loss cut the run off in between. With the index, each node's delete rewrote ~50k random index pages (~7 s a node:
-  47 minutes projected on a synthetic store of the owner's shape, 23.3M rows). Without it the clean-out took 91.7 s,
-  the drop's ~40 s included, and the compaction 16.9 s (8.96 GB to 1.95 GB). `progress(done, total)` is told after
-  each node. Node origins (`origins_json`) stay as captured: they hold every source's origins the node had, so they
-  are never more trusted than the kept sources'. Afterwards a forget of a row the planner was only shown no longer
-  reaches the card; one of an action's sources still does.
+  That was 22.6M rows on 438 versions of 85 tasks in the owner's store. `prune_card_sources` (run once by setup with the
+  daemon stopped, section 10) visits every episode node, any version or state, grouped by its key (the task id). When
+  `card_source_refs` is None it leaves them as they are, counted `untraced`. Otherwise it fills a temp table with those
+  refs and deletes, per node in its own `BEGIN IMMEDIATE` transaction, the node's `learning_sources` rows not in it. So
+  it only removes rows the rule would never write, never adds one, and never touches another kind. A run stopped by a
+  crash or the `stop` callable (asked before each node) leaves each node clean or as it was; the next run finishes it,
+  and a second run removes nothing. The deletes run without `learning_source_ref`. It is dropped right before the first
+  node with rows to delete (a cheap `EXISTS` until then), so a run over clean cards keeps it. `CREATE INDEX IF NOT
+  EXISTS` runs first in the `finally`, whatever happened and also when the index was missing before the run; when the
+  run stopped or failed with the index dropped, `rebuilding` is told first, because the index is then made over every
+  row left. An error from that callback (setup's print into a pipe FERB.app closed on quitting) never skips the remake:
+  the index is made, then the error reaches the caller and the clean-out stays due. Migration 0043 (the same statement)
+  makes it at the next start if a power loss cut the run off in between. With the index, each node's delete rewrote ~50k
+  random index pages (~7 s a node: 47 minutes projected on a synthetic store of the owner's shape, 23.3M rows). Without
+  it the clean-out took 91.7 s, the drop's ~40 s included, and the compaction 16.9 s (8.96 GB to 1.95 GB).
+  `progress(done, total)` is told after each node. Node origins (`origins_json`) stay as captured: they hold every
+  source's origins the node had, so they are never more trusted than the kept sources'. Afterwards a forget of a row the
+  planner was only shown no longer reaches the card; one of an action's sources still does.
 - **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` (`learning.outside_action`)
   unless its kind reads (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the
   gateway's vocabulary (`policy/provenance.py`, their only writer since F3): a key with `owner_words` or

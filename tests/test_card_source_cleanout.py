@@ -368,3 +368,25 @@ def test_a_card_reads_its_trace_one_span_at_a_time(store: Any, monkeypatch: pyte
         events.clear()
         read()
         assert events == ["next", "used"] * 7, events                   # 7 spans, each used before the next is read
+
+
+def test_a_rebuilding_message_that_fails_never_leaves_the_store_without_the_ref_index(store: Any) -> None:
+    """FERB.app runs setup on a pipe and closes it when it quits, so the "making the index again" line can raise
+    BrokenPipeError: the index is still made, and the error still reaches the caller (the run stopped: it isn't
+    reported as finished), so the clean-out stays due and the next run finishes it."""
+    db, spans, learning = store
+    original, pruned = _three_tasks(db, spans, learning)
+    asked: list[int] = []
+
+    def stop() -> bool:
+        asked.append(1)
+        return len(asked) > 1                                            # after the first card
+
+    def gone() -> None:
+        raise BrokenPipeError(32, "Broken pipe")
+    with pytest.raises(BrokenPipeError):
+        learning.prune_card_sources(stop, rebuilding=gone)
+    assert _ref_index(db) and not db.conn.in_transaction
+    rows = _rows(db)
+    assert sum(rows[n] == pruned[n] for n in original) == 1 and sum(rows[n] == original[n] for n in original) == 5
+    assert learning.prune_card_sources()["cleaned"] == 5 and _rows(db) == pruned

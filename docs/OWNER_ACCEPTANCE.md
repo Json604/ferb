@@ -1387,10 +1387,10 @@ Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests onl
     instead: not compacted for lack of free disk (then `ferb doctor` should say only the compaction is left, and the
     next update should print "Compacted FERB's database: … → …" once there is room), stopped, or not run because a
     daemon still answered. Then run `ls -la ~/.ferb/ferb.db*` again; `ferb doctor` should now show
-    `✓ database: x GB` and no pending clean-out. A second `ferb setup --update` should print no clean-out line. Leave the Mac idle for 10 minutes with FERB
-    running, then record FERB's CPU in Activity Monitor (CPU tab, the FERB process, and its "% CPU" averaged over a
-    minute). Ask FERB something you asked it before the update ("what did I ask you yesterday?") and record that
-    it answers as before.
+    `✓ database: x GB` and no pending clean-out. A second `ferb setup --update` should print no clean-out line.
+    Leave the Mac idle for 10 minutes with FERB running, then record FERB's CPU in Activity Monitor (CPU tab, the
+    FERB process, and its "% CPU" averaged over a minute). Ask FERB something you asked it before the update ("what
+    did I ask you yesterday?") and record that it answers as before.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
