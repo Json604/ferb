@@ -219,3 +219,15 @@ def test_compaction_runs_only_with_free_disk_for_the_database_and_its_wal(store:
     assert _store_bytes(path) < size
     assert db.conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_progress_is_told_after_each_card_version(store: Any) -> None:
+    """Setup prints how far the clean-out is (it can take minutes): every version cleaned or left alone counts."""
+    db, spans, learning = store
+    _three_tasks(db, spans, learning)
+    kept, shown = traced_task(db, spans, learning, "c0ffee04")
+    copied_cards(learning, "c0ffee04", kept | shown, versions=2)
+    purge_task_spans(db, "c0ffee04")                                     # two untraced versions
+    told: list[tuple[int, int]] = []
+    learning.prune_card_sources(progress=lambda done, total: told.append((done, total)))
+    assert told[-1] == (8, 8) and [d for d, _ in told] == sorted(d for d, _ in told) and len(told) >= 6

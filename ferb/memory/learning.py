@@ -648,7 +648,8 @@ class Learning:
                 refs.update(direct(ref) for ref in self._action_sources(span.input, span.result))
         return refs
 
-    def prune_card_sources(self, stop: Callable[[], bool] = lambda: False) -> dict[str, Any]:
+    def prune_card_sources(self, stop: Callable[[], bool] = lambda: False,
+                           progress: Callable[[int, int], None] = lambda done, total: None) -> dict[str, Any]:
         """The one-time clean-out of episode cards' source edges (L28, C1; setup runs it with the daemon stopped). The
         composer before C1 (COPYING_CARD_MAKER) copied into each card every ref its planner was shown, and each earlier
         version's. Each version of a card, in any state, now keeps only the edges the card rule gives its task's trace
@@ -657,7 +658,8 @@ class Learning:
 
         Each node is cleaned in a transaction of its own, so a run stopped halfway (a crash, power loss) leaves every
         node either clean or as it was, and the next run finishes. `stop`, asked before each node (a stop the owner
-        asked for), ends the run there. Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions
+        asked for), ends the run there. `progress(done, total)` is told the versions dealt with so far (cleaned, or
+        left alone) after each node, so setup can say how far it is. Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions
         that lost rows), `rows` removed, `untraced` (versions left alone) and `stopped`."""
         conn = self.db.conn
         cards: dict[str, list[str]] = {}
@@ -668,11 +670,14 @@ class Learning:
                                   'untraced': 0, 'stopped': False}
         # the refs to keep, on this connection only (a temp table): each node's rows are checked against it in SQLite
         conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_keep (ref TEXT PRIMARY KEY)')
+        done = 0
         try:
             for task_id, nodes in cards.items():
                 keep = self.card_source_refs(task_id)
                 if keep is None:
                     counts['untraced'] += len(nodes)
+                    done += len(nodes)
+                    progress(done, counts['nodes'])
                     continue
                 conn.execute('DELETE FROM temp.card_keep')
                 conn.executemany('INSERT INTO temp.card_keep VALUES (?)', [(ref,) for ref in sorted(keep)])
@@ -691,6 +696,8 @@ class Learning:
                         raise
                     counts['cleaned'] += removed > 0
                     counts['rows'] += removed
+                    done += 1
+                    progress(done, counts['nodes'])
         finally:
             conn.execute('DROP TABLE IF EXISTS temp.card_keep')
         return counts

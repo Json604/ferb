@@ -314,9 +314,16 @@ def _clean_store(env: Env, stop: Callable[[], bool]) -> None:
     path = inst.home / "ferb.db"
     env.say("     Cleaning FERB's database with the daemon stopped (once; it may take a few minutes)…")
     before = store_size(path)
+    said = [0]                                       # the tenths said so far
+
+    def progress(done: int, total: int) -> None:
+        if done * 10 // total > said[0]:
+            said[0] = done * 10 // total
+            env.say(f"     …{done:,} of {total:,} card versions done")
     db = Database(path)
     try:
-        counts = Learning(db, SystemClock(), lambda *args, **kwargs: None, lambda text: text).prune_card_sources(stop)
+        counts = Learning(db, SystemClock(), lambda *args, **kwargs: None,
+                          lambda text: text).prune_card_sources(stop=stop, progress=progress)
         if counts["stopped"] or stop():             # VACUUM can't be stopped halfway: it waits for the next update
             env.say(f"     Database clean-out stopped before it finished ({counts['rows']:,} unused rows removed so "
                     "far); the next `ferb setup --update` finishes it.")

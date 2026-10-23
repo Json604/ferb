@@ -697,12 +697,12 @@ def _watch_prune(monkeypatch: pytest.MonkeyPatch, before: Any = None) -> list[tu
     real = Learning.prune_card_sources
     seen: list[tuple[bool, int]] = []
 
-    def watched(self: Learning, stop: Any = lambda: False) -> dict[str, Any]:
+    def watched(self: Learning, stop: Any = lambda: False, **kwargs: Any) -> dict[str, Any]:
         runner = before["runner"]
         seen.append((runner.loaded, len(runner.cmds)))
         if before.get("then"):
             before["then"]()
-        return real(self, stop)
+        return real(self, stop, **kwargs)
     monkeypatch.setattr(Learning, "prune_card_sources", watched)
     return seen
 
@@ -724,6 +724,7 @@ def test_an_update_cleans_the_database_once_between_stopping_and_starting_the_da
     assert agent.count(["launchctl", "bootstrap"]) == 2                    # the first install's, and this one
     text = out.getvalue()
     assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed;" in text and "→" in text, text
+    assert "1 of 3 card versions done" in text and "3 of 3 card versions done" in text   # how far it is
     assert _card_rows(world["home"], versions) == {v: kept for v in versions}
     assert not S.card_cleanout_pending(world["home"] / "ferb.db")
     runner.cmds.clear()
@@ -755,7 +756,7 @@ def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world
     world["inst"].install()
     _old_cards(world["home"])
 
-    def broken(self: Learning, stop: Any = lambda: False) -> dict[str, Any]:
+    def broken(self: Learning, stop: Any = lambda: False, **kwargs: Any) -> dict[str, Any]:
         raise sqlite3.OperationalError("disk I/O error")
     monkeypatch.setattr(Learning, "prune_card_sources", broken)
     env, out = make_env(world, [], daemon_up=False)
