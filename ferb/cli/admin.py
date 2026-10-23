@@ -650,8 +650,8 @@ def _latency(c: Any) -> dict[str, dict[str, Any]]:
 
 
 def stats(home: Any, out: TextIO, days: int = 7) -> int:
-    """How FERB is really doing (audit 2026-10-02): task outcomes, the top tool-error reasons, model runs. Read
-    straight from the database, read-only, so it works whether or not the daemon runs."""
+    """How FERB is really doing (audit 2026-10-02): task outcomes, the top tool-error reasons, model runs, and FERB's
+    own resource use (L30). Read straight from the database, read-only, so it works whether or not the daemon runs."""
     import sqlite3
     import math
     from datetime import timedelta, timezone
@@ -736,9 +736,78 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                            (since,)).fetchone()
         if latest and latest[0]:
             print(f"  latest failed call: ferb trace {latest[0]}", file=out)
+        _resources(c, days, "resource_samples" in tables, out)
     finally:
         c.close()
     return 0
+
+
+def _shown_bytes(n: float) -> str:
+    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
+
+
+def _share(cpu: float, seconds: float) -> str:
+    """CPU seconds over a time, as a share of one core (Activity Monitor's % CPU)."""
+    return f"{100 * cpu / seconds:.1f}%" if seconds > 0 else "—"
+
+
+def _resources(c: Any, days: int, present: bool, out: TextIO) -> None:
+    """L30: FERB's resource log for the last `days` local days, one line per day, then the period's five windows with
+    the most CPU (the daemon's, its descendants' and FERB.app's) with what FERB was doing in each."""
+    from datetime import timedelta
+    cutoff = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
+    rows = [dict(zip(("at", "day", "window_s", "cpu_s", "footprint", "peak_footprint", "child_cpu_s", "app_cpu_s",
+                      "db_bytes", "work_json"), r))
+            for r in c.execute("SELECT at, day, window_s, cpu_s, footprint, peak_footprint, child_cpu_s, app_cpu_s, "
+                               "db_bytes, work_json FROM resource_samples WHERE day >= ? ORDER BY day, at, id",
+                               (cutoff,))] if present else []
+    if not rows:
+        any_row = present and c.execute("SELECT 1 FROM resource_samples LIMIT 1").fetchone()
+        print(f"Resources: no samples in the last {days} day(s)." if any_row else
+              "Resources: no samples yet (the daemon writes one every 5 minutes).", file=out)
+        return
+    print("Resources (FERB's own use, sampled every 5 minutes; CPU as a share of one core):", file=out)
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_day.setdefault(row["day"], []).append(row)
+    for day, samples in by_day.items():
+        seconds = sum(r["window_s"] for r in samples)
+        peak = max(samples, key=lambda r: r["cpu_s"] / r["window_s"] if r["window_s"] > 0 else 0)
+        memory = [r["footprint"] for r in samples if r["footprint"] is not None]
+        peaks = [r["peak_footprint"] for r in samples if r["peak_footprint"] is not None]
+        app = [r for r in samples if r["app_cpu_s"] is not None]
+        print(f"  {day}: {seconds / 3600:.1f} h; daemon CPU avg {_share(sum(r['cpu_s'] for r in samples), seconds)}, "
+              f"peak {_share(peak['cpu_s'], peak['window_s'])} at {peak['at'][11:16]}; "
+              + (f"memory avg {_shown_bytes(sum(memory) / len(memory))}, peak {_shown_bytes(max(peaks))}; "
+                 if memory and peaks else "memory not read; ")
+              + f"other processes CPU avg {_share(sum(r['child_cpu_s'] for r in samples), seconds)}; "
+              + (f"FERB.app CPU avg {_share(sum(r['app_cpu_s'] for r in app), sum(r['window_s'] for r in app))}; "
+                 if app else "FERB.app not running; ")
+              + f"database {_shown_bytes(samples[-1]['db_bytes'] or 0)}", file=out)
+    print("  Hottest windows (CPU of the daemon, its descendants and FERB.app):", file=out)
+    for row in sorted(rows, key=lambda r: -(r["cpu_s"] + r["child_cpu_s"] + (r["app_cpu_s"] or 0)))[:5]:
+        print(f"    {_window(row)}", file=out)
+
+
+def _window(row: dict[str, Any]) -> str:
+    """One resource sample: its time, CPU and what FERB was doing in it (counts only)."""
+    def parts(counts: dict[str, int], top: int | None = None) -> str:
+        shown = sorted(counts.items(), key=lambda kv: -kv[1])[:top]
+        return f" ({', '.join(f'{name} {n}' for name, n in shown)})" if shown else ""
+    work = json.loads(row["work_json"] or "{}")
+    events, models = work.get("events", {}), work.get("models", {})
+    perception = work.get("perception", {})
+    batches, jev = perception.get("batches", {}), work.get("jev", {})
+    total = row["cpu_s"] + row["child_cpu_s"] + (row["app_cpu_s"] or 0)
+    split = f"daemon {row['cpu_s']:.1f}, other processes {row['child_cpu_s']:.1f}" + (
+        f", FERB.app {row['app_cpu_s']:.1f}" if row["app_cpu_s"] is not None else "")
+    top = ", ".join(f"{name} {cpu:.1f} s" for name, cpu in work.get("top", []))
+    return (f"{row['day']} {row['at'][11:16]}, {row['window_s'] / 60:.1f} min: {total:.1f} s CPU ({split}); "
+            f"events {sum(events.values())}{parts(events, 3)}; perception wakes {perception.get('wakes', 0)}, "
+            f"batches {sum(batches.values())}{parts(batches)}; Jev asked {jev.get('asked', 0)}, not sampled "
+            f"{jev.get('not_sampled', 0)}; model runs {sum(models.values())}{parts(models)}; "
+            f"tool calls {work.get('tool_calls', 0)}; tasks running {work.get('tasks_running', 0)}"
+            + (f"; top processes {top}" if top else ""))
 
 
 def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: Any, out: TextIO,

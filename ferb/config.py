@@ -120,6 +120,7 @@ class Config:
                                     ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30),
                                     ("retention", "trace_days", 30), ("retention", "decision_days", 30),
                                     ("retention", "evidence_days", 7), ("retention", "recovery_days", 7),
+                                    ("retention", "resource_days", 30),
                                     ("browser", "download_max_mb", 512), ("browser", "download_task_max_files", 50),
                                     ("browser", "download_task_max_mb", 4096), ("browser", "download_total_mb", 20480),
                                     ("browser", "download_min_free_gb", 10), ("browser", "task_max_tabs", 50),

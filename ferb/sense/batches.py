@@ -247,6 +247,8 @@ class EventBatcher:
         self.wake = asyncio.Event()
         self._lock = asyncio.Lock()
         self._unsent: _Unsent | None = None   # the unsent rows as last read; None: read them all again
+        self.wakes = 0                        # since start, for FERB's resource log (L30): the loop's wakes
+        self.batches_by_reason: dict[str, int] = {}   # and the batches it sent to Jev, by flush reason
 
     def notify(self, event: Any) -> None:
         self.wake.set()
@@ -299,6 +301,7 @@ class EventBatcher:
         self.db.conn.execute("DELETE FROM perception_receipts WHERE batch_id IN (SELECT id FROM perception_batches WHERE state='pending')")
         self._unsent = None                   # released receipts make rows unsent again: read them all
         while not stop.is_set():
+            self.wakes += 1
             self.wake.clear()
             deadline = None
             if self.jev() is not None:
@@ -379,6 +382,7 @@ class EventBatcher:
                              (ident, self.clock.now().isoformat(), reason, json.dumps(refs)))
         for event_id in refs:
             self.db.conn.execute("INSERT INTO perception_receipts VALUES(?,?)", (event_id, ident))
+        self.batches_by_reason[reason] = self.batches_by_reason.get(reason, 0) + 1
         state, asks = self._request(group, ident)
         if not asks:
             self.db.conn.execute("UPDATE perception_batches SET state='done' WHERE id=?", (ident,))

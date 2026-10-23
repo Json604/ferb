@@ -49,6 +49,7 @@ from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, NoTarget, Refused, Withheld
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
+from ferb.daemon import resources
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
@@ -151,6 +152,7 @@ class _PurgePlan(NamedTuple):
     decision_days: int
     evidence_days: int
     recovery_days: int
+    resource_days: int
     roots: list[str]
     left: int
 
@@ -160,7 +162,8 @@ class Daemon:
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
                  notifications: bool = True, retention: bool = True, snapshots: bool = True,
-                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True) -> None:
+                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
+                 resources: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -258,6 +261,10 @@ class Daemon:
         self._distill_task: asyncio.Task[None] | None = None
         self.run_retention = retention
         self._retention_task: asyncio.Task[None] | None = None
+        # L30: FERB's resource log, a row of numbers every 5 minutes. Tests turn the timer off (never a real reading).
+        self.run_resources = resources
+        self.resource_log: Any = None
+        self._resources_task: asyncio.Task[None] | None = None
         self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
         # L12: the owner's front window, captured as each message arrives (request id -> FrontWindow | None). Tests
         # never take a real screenshot: they leave it off or put a fake here.
@@ -314,6 +321,12 @@ class Daemon:
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
+        if self.run_resources:                  # its first window starts here, so start-up's own work is in it
+            try:
+                self.resource_log = resources.ResourceLog(self.db, self.clock, resources.MacReadings(),
+                                                          self._redact_text, self._perception_counts)
+            except Exception as e:              # FERB runs without it; the next start tries again
+                self.journal.append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
         if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent
             self.journal.append("config.upgraded", {"upgrade": LIMITS_DECIDED,
                                                     "changes": self.config.upgrade_ferb_written()})
@@ -429,7 +442,7 @@ class Daemon:
         # Stop task producers before taking the task snapshot. Task finalizers still need the
         # gateway resources, disturbance observer and database until cancellation has completed.
         await drain({job for job in (self._macos_task, self._distill_task, self._retention_task, self._timer_task,
-                                self._held_task)
+                                self._held_task, self._resources_task)
                      if job is not None}, "producers")
         if self.supervisor:
             self.supervisor.suspend_plans()
@@ -464,6 +477,8 @@ class Daemon:
         await self.disturbance.shutdown()
         await self.wake.close()
         await self.server.close()
+        if self.resource_log is not None:                    # the minutes since the last sample (L30)
+            self._sample_resources()
         if self.journal:
             self.journal.append("daemon.stopped", {"pid": os.getpid()})
         if self.db:
@@ -1306,6 +1321,8 @@ class Daemon:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
         if self.run_retention:
             self._retention_task = asyncio.get_running_loop().create_task(self._retention_loop())
+        if self.resource_log is not None:
+            self._resources_task = asyncio.get_running_loop().create_task(self._resources_loop())
 
     def _app_versions(self) -> dict[str, str]:
         profile = self._device_profile()
@@ -1908,8 +1925,9 @@ class Daemon:
         decision_days = retention.days(self.config.get("retention", "decision_days", 30))
         evidence_days = retention.days(self.config.get("retention", "evidence_days", 7))
         recovery_days = retention.days(self.config.get("retention", "recovery_days", 7))
+        resource_days = retention.days(self.config.get("retention", "resource_days", resources.DEFAULT_DAYS))
         roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
-        return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days,
+        return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days, resource_days,
                           roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
 
     def _purge_root(self, root: str, now: datetime) -> int:
@@ -1928,7 +1946,8 @@ class Daemon:
     def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
         """Loose spans, old Jev decisions, old evidence and old recovery copies and records (a trash record stays while
         its item is in the Trash, TRASH_RECORD_MAX_DAYS at most); snapshots are the async pass's last step.
-        `retention.purged` is journaled only when the pass purged something or left roots for the next one."""
+        `retention.purged` is journaled only when the pass purged something or left roots for the next one. Old
+        resource samples (L30, numbers only) go too, counted in the result, not journaled."""
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
         evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
@@ -1942,7 +1961,9 @@ class Daemon:
         trashed = self._purge_downloads()
         if self.perception is not None:
             self.perception.purge_text()
-        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed}
+        samples = resources.purge(self.db, plan.now.astimezone().date(), plan.resource_days)
+        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed,
+                "resources": samples}
 
     def _purge_downloads(self) -> int:
         """D35: when FERB's downloads folder passes browser.download_total_mb, its oldest working copies go to the
@@ -1987,6 +2008,24 @@ class Daemon:
             except Exception as e:
                 self._journal().append("retention.failed", {"error": f"{type(e).__name__}: {e}"})
             await asyncio.sleep(3600)
+
+    async def _resources_loop(self) -> None:
+        """L30: a resource sample every SAMPLE_SECONDS (the owner's "every 5 minutes"); shutdown writes the last."""
+        while True:
+            await self.clock.sleep_until(self.clock.now() + timedelta(seconds=resources.SAMPLE_SECONDS))
+            self._sample_resources()
+
+    def _sample_resources(self) -> None:
+        """One sample; a failure is journaled and the next sample covers this window too."""
+        try:
+            self.resource_log.sample()
+        except Exception as e:
+            self._journal().append("resources.failed", {"error": f"{type(e).__name__}: {e}"})
+
+    def _perception_counts(self) -> tuple[int, dict[str, int]]:
+        """The perception batcher's wakes and its batches by flush reason since start, for the resource log."""
+        batcher = getattr(self.perception, "batches", None)
+        return (batcher.wakes, dict(batcher.batches_by_reason)) if batcher is not None else (0, {})
 
     def _record_learning_usage(self, role: str) -> Callable[[str, dict[str, Any]], None]:
         """A learner's usage recorder: each usage event is a `model.usage` span naming that learner's role
