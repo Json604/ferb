@@ -1189,8 +1189,10 @@ Notch app (U8, U9):
 
 Extension (L25):
 47. After `ferb setup --update`, reopen each browser and note which offer FERB from the Web Store request (Chrome
-    expected; Brave and Edge unconfirmed). The live listing's id is built in (2026-10-20); the store copy works with
-    this build once 0.15.6 is approved there.
+    expected; Brave and Edge unconfirmed). The live listing's id is built in (2026-10-20); it carries 0.15.6 since
+    2026-10-22. In a profile that already had the unpacked copy (Chrome "scaler" and "FERB" on 2026-10-24), turn the
+    store copy on and the unpacked one off, then run `ferb browsers pair --browser chrome "<profile>"`: the pairing
+    page that opens is the store copy's, and `ferb setup --update` then reports "installed from the Web Store".
 
 Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pending):
 48. One-time codes (C1): from your phone send yourself "482913 is your verification code for WhatsApp" and "Your Uber
@@ -1395,6 +1397,16 @@ Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests onl
     Leave the Mac idle for 10 minutes with FERB running, then record FERB's CPU in Activity Monitor (CPU tab, the
     FERB process, and its "% CPU" averaged over a minute). Ask FERB something you asked it before the update ("what
     did I ask you yesterday?") and record that it answers as before.
+    Owner's run, 2026-10-24 (partial; the rest of 79 is pending): setup printed "Cleaned FERB's database: 18,962,260
+    unused rows removed; 8.5 GB → 2.3 GB". Its journal entries: 85 tasks and 438 card versions, 360 of them cleaned,
+    none untraced; compaction 8,461,047,072 → 2,304,643,072 bytes in 33 s. Read-only afterwards:
+    - FERB's first resource row (start-up, with a late scheduled task): 53.8 CPU seconds in 301 s, footprint 288 MB.
+    - The next row (the owner at work, no task): 29.8 s in 300 s, 9.9% of one core; footprint 281 MB. Before the
+      update the footprint was 9.8 GB, with a 12.6 GB peak.
+    - A 15 s macOS `sample` at 01:01 found the daemon's main thread waiting 95% of the time; before the batcher fix it
+      was about 93% busy.
+    - Not a fault: the kernel's footprint peak, which the log records, fell from 536 MB to 511 MB between the two rows
+      (macOS's `footprint` tool agrees), so read a day's peak as the highest row.
 
 FERB's resource log (plan 2026-10-23 Task 4, L30; pending, checkout tests only so far):
 80. After `ferb setup --update`, use the Mac as usual with FERB running for at least one full day. Then run `ferb stats`
