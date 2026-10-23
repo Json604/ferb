@@ -1668,25 +1668,29 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   words nor outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed
   from a number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one
   it doesn't know) on a key without an owner label is outside. The `site` key is never read (`_SITE`): under L2 FERB
-  reaches any site without a question, and the page FERB read names its own address, so every typing or clicking step
-  on a site FERB had read counted as outside. Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`,
-  and any key a later gateway writes) is read as above. No `arg_sources` (absent or None) is FERB's own choice, not
-  outside; one in another shape (not a key -> labels map: a damaged record) is outside (fail closed). The gateway
-  records `arg_sources` for consequential kinds only (`gateway.py`), so the reversible kinds (`policy/rules.py`
-  REVERSIBLE: opening or navigating a site; opening, switching to, keeping or closing a tab; opening an app; focusing a
-  window; moving to the Trash; a timer or reminder; a recovery point; stopping a command FERB started; the tools
-  browser.open, navigate, use_tab, close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash,
-  time.remind_at and set_timer, recovery.snapshot and shell.kill; no tool uses `draft`) never make a step outside;
-  typing and clicking (fill_form, click, mac input) record it. A procedure citing an outside action is `quarantined`
-  until the owner's `ferb memory confirm` (`Learning.confirm` via `_mark_confirmed`: candidate, then refreshed, so
-  learned at once when its key's receipts qualify). History: before Task 6 the reader tested origin labels (`owner`,
-  an outside rank) that the gateway never records, so every targeted action was outside (composer 3 read such cards
-  again once); until plan 2026-10-23 Task 2 (owner, 2026-10-23: "i dont want that annoying rec again, cant we just
-  leave browser thigns as it is … make it just bare minimum so that our loop also does not break") no `arg_sources`
-  and the site were outside too, so nearly every browser procedure started quarantined; composer 4 reads every card
-  again once, and labels carry forward without a model call (`intents.carry_forward`). The owner's earlier option of
-  recording provenance for the reversible kinds is moot. A card whose trace has aged out has each kept action's flag
-  recomputed from its stored `arg_sources`. Only the card reader changed: the gateway records the same.
+  reaches any site without a question, and the page FERB read names its own address, so every typing or clicking step on
+  a site FERB had read counted as outside. Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`, and
+  any key a later gateway writes) is read as above. The gateway records `arg_sources` only for a consequential call
+  (`gateway.py`: `consequential = spec.kind not in REVERSIBLE or bool(declared)`), and `outside_action` mirrors that
+  rule with REVERSIBLE itself (imported from `policy/rules.py`, never a second list): an action without `arg_sources`
+  (absent or None) whose kind is in REVERSIBLE and that recorded no `declared` purpose is FERB's own choice, not
+  outside. That covers opening or navigating a site; opening, switching to, keeping or closing a tab; opening an app;
+  focusing a window; moving to the Trash; a timer or reminder; a recovery point; stopping a command FERB started (the
+  tools browser.open, navigate, use_tab, close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash,
+  time.remind_at and set_timer, recovery.snapshot and shell.kill; no tool uses `draft`). Any other action without them
+  (a send, typing, a click, mac input or any kind outside REVERSIBLE, or no kind at all: recorded before F3, or damaged)
+  is outside, so an old send keeps its hold; `arg_sources` in another shape (not a key -> labels map: a damaged record)
+  is outside too (fail closed). Typing and clicking (fill_form, click, mac input) record it. A procedure citing an
+  outside action is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm` via `_mark_confirmed`:
+  candidate, then refreshed, so learned at once when its key's receipts qualify). History: before Task 6 the reader
+  tested origin labels (`owner`, an outside rank) that the gateway never records, so every targeted action was outside
+  (composer 3 read such cards again once); until plan 2026-10-23 Task 2 (owner, 2026-10-23: "i dont want that annoying
+  rec again, cant we just leave browser thigns as it is … make it just bare minimum so that our loop also does not
+  break") a reversible kind's missing `arg_sources` and the site were outside too, so nearly every browser procedure
+  started quarantined; composer 4 reads every card again once, and labels carry forward without a model call
+  (`intents.carry_forward`). The owner's earlier option of recording provenance for the reversible kinds is moot. A card
+  whose trace has aged out has each kept action's flag recomputed from its stored `arg_sources`. Only the card reader
+  changed: the gateway records the same.
 - **Procedure identity across revisions (L29 final review I1, I2).** Since L29 an intent's procedure is revised after
   each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
   receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten

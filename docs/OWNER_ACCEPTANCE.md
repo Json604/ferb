@@ -1365,11 +1365,12 @@ Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
     --full` shows a label call (role `intent`) and `ferb trace <the procedure's batch_id> --full` the consolidation
     call (role `consolidate`). `ferb memory search egg --kind procedure` (or the memory dashboard) shows a procedure
     named like the task with its `state`, `confirmed` and `batch_id`. A browser task's procedure should show `learned`
-    (three verified runs with different dishes) and `confirmed` false, with no `ferb memory confirm`: opening the site,
-    and typing and clicking on it, no longer hold a procedure (plan 2026-10-23 Task 2). Record the state you saw. It
-    shows `quarantined` only if a step's recipient, account, contact, file or amount came only from a page or message
-    (say which step); then read its steps and run `ferb memory confirm <procedure id>`, and record the state after. Ask
-    a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that procedure (the
+    (three verified runs with different dishes) and `confirmed` false, with no `ferb memory confirm`: opening the site
+    (a reversible kind, which the gateway records no provenance for), and typing and clicking on it (whose only outside
+    target is the site), no longer hold a procedure (plan 2026-10-23 Task 2). Record the state you saw. It shows
+    `quarantined` only if a step's recipient, account, contact, file or amount came only from a page or message (say
+    which step); then read its steps and run `ferb memory confirm <procedure id>`, and record the state after. Ask a
+    fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that procedure (the
     task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the worker's input has the
     steps with rajma filled in and the earlier runs' tool calls. After the fourth run, `ferb memory consolidate` (or the
     next hourly pass) revises the procedure with that run: search again and record the current version's `state` and
@@ -1431,8 +1432,9 @@ Residuals to know during the week (accepted or recorded, not checks):
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
 - Learning by intent (L29): a procedure waits for your confirm only when a step's recipient, account, contact, file or
-  amount came only from a page or message (since plan 2026-10-23 Task 2, the site a step runs on and the reversible
-  kinds' steps never hold one, so it can learn steps on a site only a page named); a procedure
+  amount came only from a page or message, or a send, typing or click was recorded without provenance (before F3)
+  (since plan 2026-10-23 Task 2, the site a step runs on and the reversible kinds' steps never hold one, so it can
+  learn steps on a site only a page named); a procedure
   you forget is never learned again for that kind of task, and one you turned down blocks any procedure for it;
   forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
   slot is named like a credential never becomes learned (CHANGELOG lists them all).

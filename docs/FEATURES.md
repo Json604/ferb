@@ -633,10 +633,11 @@ This section matters most for an automated campaign. It says exactly what runs u
   save exploration but never skips gateway checks, step checks or the final check. Procedures with a step whose
   recipient, account, contact, file or amount came only from outside content are quarantined until the owner
   confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor
-  outside content, is not outside (L29). The site a step runs on, and a step that records no target provenance (the
-  reversible kinds: opening or navigating a site, a tab or an app, focusing, the Trash, timers, recovery points,
-  stopping a command), never hold a procedure, so browser procedures on a site FERB read need no confirm (owner
-  2026-10-23, plan 2026-10-23 Task 2). A model revision is the same procedure: the runs of every version count
+  outside content, is not outside (L29). The site a step runs on, and a step of a kind FERB records no target
+  provenance for (the reversible kinds: opening or navigating a site, a tab or an app, focusing, the Trash, timers,
+  recovery points, stopping a command), never hold a procedure, so browser procedures on a site FERB read need no
+  confirm (owner 2026-10-23, plan 2026-10-23 Task 2); a send, typing or click recorded without provenance (before F3)
+  still holds one. A model revision is the same procedure: the runs of every version count
   toward its state, and the confirm the owner gave by hand carries over unless the revision adds a step built on
   outside content that the hand-confirmed version didn't have (a carried confirm never counts as the owner's own). An
   app update sends a learned procedure back to candidate until it succeeds on the new version; two failures in a row

@@ -110,8 +110,10 @@ Task 2). It amends §4's "a step built on outside content quarantines the proced
 (`learning.outside_targets`); the gateway is unchanged.
 - A step's site never makes it outside. Under L2 FERB reaches any site without a question, and the page FERB read names
   its own address, so every typing or clicking step on a site FERB had read counted as outside.
-- An action with no recorded target provenance (the reversible kinds: opening a site, app or tab, focusing, the Trash,
-  timers, recovery points, stopping a command) is FERB's own choice, not outside.
+- An action with no recorded target provenance whose kind the gateway records none for (a kind in `REVERSIBLE` without
+  a declared purpose: opening a site, app or tab, focusing, the Trash, timers, recovery points, stopping a command) is
+  FERB's own choice, not outside. Any other action without provenance (a send, typing or click recorded before F3, or
+  a damaged record) stays outside.
 - Unchanged: a recipient, account, contact, path or amount found only in outside content makes the step outside and
   holds the procedure until the owner confirms; the owner's words and answers are the owner's, and "unknown" is not
   outside; the confirm carry-over across revisions is the same rule.
