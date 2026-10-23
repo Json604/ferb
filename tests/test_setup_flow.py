@@ -702,6 +702,9 @@ def _watch_prune(monkeypatch: pytest.MonkeyPatch, before: Any = None) -> list[tu
         seen.append((runner.loaded, len(runner.cmds)))
         if before.get("then"):
             before["then"]()
+        if before.get("after_first"):                  # once the first card version is done
+            told = kwargs["progress"]
+            kwargs["progress"] = lambda done, total: (told(done, total), done == 1 and before["after_first"]())
         return real(self, stop, **kwargs)
     monkeypatch.setattr(Learning, "prune_card_sources", watched)
     return seen
@@ -726,7 +729,7 @@ def test_an_update_cleans_the_database_once_between_stopping_and_starting_the_da
     assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed;" in text and "→" in text, text
     assert "1 of 3 card versions done" in text and "3 of 3 card versions done" in text   # how far it is
     assert _card_rows(world["home"], versions) == {v: kept for v in versions}
-    assert not S.card_cleanout_pending(world["home"] / "ferb.db")
+    assert S.cleanout_state(world["home"] / "ferb.db") is None
     runner.cmds.clear()
     env, out = make_env(world, [], daemon_up=False)
     assert S.setup(env, update=True) == 0
@@ -746,7 +749,7 @@ def test_the_clean_out_waits_while_another_daemon_still_answers(world: dict[str,
     assert seen == [] and world["runner"].loaded
     assert "a FERB daemon outside launchd answers" in out.getvalue()
     assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
-    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
 
 
 def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world: dict[str, Any],
@@ -763,7 +766,7 @@ def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world
     assert S.setup(env, update=True) == 0
     assert world["runner"].loaded and "Done." in out.getvalue()
     assert "Database clean-out stopped (OperationalError: disk I/O error)" in out.getvalue()
-    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
 
 
 def test_quitting_during_the_clean_out_stops_it_and_starts_the_daemon_first(world: dict[str, Any],
@@ -781,7 +784,7 @@ def test_quitting_during_the_clean_out_stops_it_and_starts_the_daemon_first(worl
     assert world["runner"].loaded and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
     assert "Database clean-out stopped before it finished" in out.getvalue()
     assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}   # stopped before the first
-    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
 
 
 def test_doctor_shows_the_database_size_and_a_pending_clean_out(world: dict[str, Any]) -> None:
@@ -799,3 +802,79 @@ def test_doctor_shows_the_database_size_and_a_pending_clean_out(world: dict[str,
     env, out = make_env(world, [])
     S.doctor(env)
     assert "✓ database: " in out.getvalue() and "pending" not in out.getvalue()
+
+
+def _journal_kinds(home: Path) -> list[str]:
+    import sqlite3
+    c = sqlite3.connect(home / "ferb.db")
+    try:
+        return [r[0] for r in c.execute("SELECT kind FROM journal WHERE kind LIKE 'store.%' ORDER BY seq")]
+    finally:
+        c.close()
+
+
+def test_a_database_that_wont_open_is_reported_and_the_update_goes_on(world: dict[str, Any],
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
+    from ferb.store import db as store_db
+    world["inst"].install()
+    _old_cards(world["home"])
+
+    class Locked:
+        def __init__(self, path: Path) -> None:
+            raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(store_db, "Database", Locked)
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    assert world["runner"].loaded and "Done." in out.getvalue()
+    assert "Database clean-out stopped (OperationalError: database is locked)" in out.getvalue()
+    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
+
+
+def test_without_room_to_compact_the_rows_are_removed_and_the_next_update_compacts(
+        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Too little free disk for VACUUM's copy: the rows go, setup says why it didn't compact, doctor says only the
+    compaction is left, and the next update compacts without cleaning again."""
+    from ferb.store.db import Database
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    seen = _watch_prune(monkeypatch, {"runner": world["runner"]})
+    real = Database.compact
+    monkeypatch.setattr(Database, "compact", lambda self, free=None: real(self, free=lambda folder: 0))
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    text = out.getvalue()
+    assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed." in text and "Not compacted (" in text
+    assert "and the disk has 0 KB" in text and "the next `ferb setup --update` compacts it" in text, text
+    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
+    assert S.cleanout_state(world["home"] / "ferb.db") == "compact"
+    assert _journal_kinds(world["home"]) == ["store.cards_cleaned"]
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "compacting the file is left" in out.getvalue() and "clean-out of unused card rows" not in out.getvalue()
+    monkeypatch.setattr(Database, "compact", real)
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    assert "Compacted FERB's database: " in out.getvalue() and len(seen) == 1     # not cleaned again
+    assert S.cleanout_state(world["home"] / "ferb.db") is None
+    assert _journal_kinds(world["home"]) == ["store.cards_cleaned", "store.compacted"]
+
+
+def test_a_stop_after_the_first_card_says_the_index_is_made_again_first(world: dict[str, Any],
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quitting after a card was cleaned: before the daemon starts again the index is made over every row left, which
+    can take a minute on a big store; setup says so instead of seeming to hang."""
+    import os
+    import signal
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    _watch_prune(monkeypatch, {"runner": world["runner"], "after_first": lambda: os.kill(os.getpid(), signal.SIGTERM)})
+    env, out = make_env(world, [], daemon_up=False)
+    with pytest.raises(KeyboardInterrupt):
+        S.setup(env, update=True)
+    text = out.getvalue()
+    assert "making a database index again over the rows left" in text, text
+    assert text.index("making a database index again") < text.index("Database clean-out stopped before it finished")
+    assert world["runner"].loaded
+    rows = _card_rows(world["home"], versions)
+    assert sorted(len(r) for r in rows.values()) == [len(kept), len(kept | shown), len(kept | shown)]

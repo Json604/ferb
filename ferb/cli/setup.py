@@ -155,10 +155,10 @@ def _install(env: Env, update: bool) -> None:
     old daemon and starting the new one (`_clean_store`)."""
     inst = env.inst
     before = inst.active_program()
-    pending = card_cleanout_pending(inst.home / "ferb.db")
+    state = cleanout_state(inst.home / "ferb.db")
     with _finish_install() as stops:
         inst.install(update_only=update,
-                     while_stopped=(lambda: _clean_store(env, lambda: bool(stops))) if pending else None)
+                     while_stopped=(lambda: _clean_store(env, lambda: bool(stops), state)) if state else None)
     now = inst.active_program()
     if before and now and before != now:
         env.say(f"     The background service now runs from {now} (it ran from {before}).")
@@ -254,28 +254,32 @@ def setup(env: Env, update: bool = False) -> int:
 
 # ---------- the store's one-time clean-out (plan 2026-10-23 Task 1; L28, C1) ----------
 
-CLEANED = "store.cards_cleaned"      # its journal entry: the clean-out and compaction ran to the end (counts only)
+CLEANED = "store.cards_cleaned"      # journal: the clean-out of card rows ran to the end (counts only)
+COMPACTED = "store.compacted"        # journal: the compaction after it ran (sizes only)
 
 
-def card_cleanout_pending(path: Path) -> bool:
-    """Whether this store holds cards the composer before memory review C1 wrote (`COPYING_CARD_MAKER`) and hasn't had
-    the clean-out yet (its journal entry). Read-only, so it can ask while a daemon runs; a store it can't read (none
-    yet, or from before F8) has nothing to clean."""
+def cleanout_state(path: Path) -> str | None:
+    """What this store's one-time clean-out still has to do: "clean" while it holds cards the composer before memory
+    review C1 wrote (`COPYING_CARD_MAKER`) and no `store.cards_cleaned` entry, "compact" when the rows were removed
+    but the file wasn't compacted yet (`store.compacted`), else None. Read-only, so it can ask while a daemon runs; a
+    store it can't read (none yet, or from before F8) has nothing to do."""
     from ferb.memory.learning import COPYING_CARD_MAKER
     if not path.exists():
-        return False
+        return None
     try:
         c = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
     except sqlite3.Error:
-        return False
+        return None
     try:
-        row = c.execute("SELECT EXISTS (SELECT 1 FROM learning_nodes WHERE kind = 'episode' AND made_by = ?) AND NOT "
-                        "EXISTS (SELECT 1 FROM journal WHERE kind = ?)", (COPYING_CARD_MAKER, CLEANED)).fetchone()
+        old, cleaned, compacted = c.execute(
+            "SELECT EXISTS (SELECT 1 FROM learning_nodes WHERE kind = 'episode' AND made_by = ?), EXISTS (SELECT 1 FROM "
+            "journal WHERE kind = ?), EXISTS (SELECT 1 FROM journal WHERE kind = ?)",
+            (COPYING_CARD_MAKER, CLEANED, COMPACTED)).fetchone()
     except sqlite3.Error:
-        return False
+        return None
     finally:
         c.close()
-    return bool(row[0])
+    return None if not old else "clean" if not cleaned else "compact" if not compacted else None
 
 
 def _daemon_answers(env: Env) -> bool:
@@ -292,13 +296,14 @@ def _shown_bytes(n: int) -> str:
     return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
 
 
-def _clean_store(env: Env, stop: Callable[[], bool]) -> None:
-    """The store's one-time clean-out, run by the installer while no daemon runs: every version of each traced task's
-    card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`), then the file is
-    compacted (`Database.compact`, when the disk has room for a full copy), and its journal entry records the counts.
-    Never while a daemon still answers (launchd's, or `ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app
-    quitting) ends it before the next card, and an error is reported; the update goes on either way, and the next
-    `ferb setup --update` finishes it."""
+def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
+    """The store's one-time clean-out, run by the installer while no daemon runs. With `state` "clean", every version of
+    each traced task's card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`),
+    and `store.cards_cleaned` records the counts. Then, and alone with "compact", the file is compacted
+    (`Database.compact`, when the disk has room for a full copy) and `store.compacted` records the sizes. Never while a
+    daemon still answers (launchd's, or `ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app quitting)
+    ends it before the next card, and an error is reported; the update goes on either way, and the next
+    `ferb setup --update` does what is left."""
     from ferb.clock.clock import SystemClock
     from ferb.core.ids import RandomIds
     from ferb.memory.journal import Journal
@@ -312,42 +317,55 @@ def _clean_store(env: Env, stop: Callable[[], bool]) -> None:
         env.say(f"     Database clean-out not run: {running}. Stop it, then run `ferb setup --update` again.")
         return
     path = inst.home / "ferb.db"
-    env.say("     Cleaning FERB's database with the daemon stopped (once; it may take a few minutes)…")
-    before = store_size(path)
+    env.say("     Cleaning FERB's database with the daemon stopped (once; it may take a few minutes)…" if state == "clean"
+            else "     Compacting FERB's database with the daemon stopped (its unused card rows were removed earlier)…")
     said = [0]                                       # the tenths said so far
 
     def progress(done: int, total: int) -> None:
         if done * 10 // total > said[0]:
             said[0] = done * 10 // total
             env.say(f"     …{done:,} of {total:,} card versions done")
-    db = Database(path)
+
+    def rebuilding() -> None:
+        env.say("     Stopping: making a database index again over the rows left first (it can take a minute)…")
+    db = None
     try:
-        counts = Learning(db, SystemClock(), lambda *args, **kwargs: None,
-                          lambda text: text).prune_card_sources(stop=stop, progress=progress)
-        if counts["stopped"] or stop():             # VACUUM can't be stopped halfway: it waits for the next update
-            env.say(f"     Database clean-out stopped before it finished ({counts['rows']:,} unused rows removed so "
-                    "far); the next `ferb setup --update` finishes it.")
+        before = store_size(path)
+        db = Database(path)
+        journal = Journal(db, SystemClock(), RandomIds(), Redactor())
+        done = ""                                    # what this run removed, as setup says it
+        if state == "clean":
+            counts = Learning(db, SystemClock(), lambda *args, **kwargs: None, lambda text: text).prune_card_sources(
+                stop=stop, progress=progress, rebuilding=rebuilding)
+            if counts["stopped"]:
+                env.say(f"     Database clean-out stopped before it finished ({counts['rows']:,} unused rows removed so "
+                        "far); the next `ferb setup --update` finishes it.")
+                return
+            journal.append(CLEANED, {k: counts[k] for k in ("tasks", "nodes", "cleaned", "rows", "untraced")})
+            done = f"Cleaned FERB's database: {counts['rows']:,} unused rows removed" + (
+                f" ({counts['untraced']} card versions whose trace aged out were left as they are)"
+                if counts["untraced"] else "")
+        if stop():                                   # VACUUM can't be stopped halfway: it waits for the next update
+            env.say("     " + (done or "Compacting FERB's database stopped") + "; the next `ferb setup --update` "
+                    "compacts the file.")
             return
         compaction = db.compact()
-        left = (f" {counts['untraced']} card versions whose trace aged out were left as they are."
-                if counts["untraced"] else "")
         if not compaction["compacted"]:
-            env.say(f"     Cleaned FERB's database: {counts['rows']:,} unused rows removed. Not compacted "
+            env.say("     " + (done + ". Not" if done else "FERB's database is still not") + " compacted "
                     f"({_shown_bytes(before)}): that needs {_shown_bytes(compaction['needed'])} free and the disk has "
                     f"{_shown_bytes(compaction['free'])}; FERB reuses the freed space inside the file, and the next "
-                    f"`ferb setup --update` compacts it.{left}")
+                    "`ferb setup --update` compacts it.")
             return
         after = store_size(path)
-        Journal(db, SystemClock(), RandomIds(), Redactor()).append(
-            CLEANED, {k: counts[k] for k in ("tasks", "nodes", "cleaned", "rows", "untraced")} |
-            {"bytes_before": before, "bytes_after": after})
-        env.say(f"     Cleaned FERB's database: {counts['rows']:,} unused rows removed; {_shown_bytes(before)} → "
-                f"{_shown_bytes(after)}.{left}")
+        journal.append(COMPACTED, {"bytes_before": before, "bytes_after": after})
+        env.say("     " + (f"{done}; " if done else "Compacted FERB's database: ") +
+                f"{_shown_bytes(before)} → {_shown_bytes(after)}.")
     except Exception as e:
         env.say(f"     Database clean-out stopped ({type(e).__name__}: {e}); FERB works without it, and the next "
                 "`ferb setup --update` tries again.")
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def _app_installed(env: Env) -> None:
@@ -585,15 +603,19 @@ def protection_check(home: Path) -> Check:
 
 
 def database_check(home: Path) -> Check | None:
-    """The store's size on disk, and whether its one-time clean-out is still to run (plan 2026-10-23 Task 1)."""
+    """The store's size on disk, and what its one-time clean-out still has to do (plan 2026-10-23 Task 1)."""
     from ferb.store.db import store_size
     path = home / "ferb.db"
     if not path.exists():
         return None
     size = _shown_bytes(store_size(path))
-    if card_cleanout_pending(path):
+    state = cleanout_state(path)
+    if state == "clean":
         return Check("database", "warn", f"{size}; a one-time clean-out of unused card rows is pending",
                      "run `ferb setup --update` (it stops FERB for a few minutes)")
+    if state == "compact":
+        return Check("database", "warn", f"{size}; its unused card rows were removed, compacting the file is left (it "
+                     "needs free disk of at least the database's size)", "free disk space, then run `ferb setup --update`")
     return Check("database", "ok", size)
 
 
