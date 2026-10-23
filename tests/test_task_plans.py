@@ -157,3 +157,21 @@ def test_chat_continue_reuses_saved_plan_tree_and_does_not_repeat_completed_step
     assert second['verified']
     assert sum(role == 'step.read' for _, role, _, _ in first_script.contexts) == 1
     assert not any(role == 'step.read' for _, role, _, _ in second_script.contexts)
+
+
+def test_inventory_leaves_out_what_macos_wont_let_ferb_look_at(tmp_path):
+    """Live 2026-10-24 (request 7429fb64, "ok start cleaning"): the planner listed /private/var/folders, where macOS
+    won't even let FERB look at some entries (EPERM). The walk's PermissionError ended the owner's turn with "something
+    went wrong on my side". An entry FERB can't look at is left out, as a protected file already is."""
+    tree = tmp_path / 'tree'
+    tree.mkdir()
+    (tree / 'a.txt').write_text('hello')
+    locked = tree / 'locked'
+    locked.mkdir()
+    (locked / 'b.txt').write_text('secret')
+    locked.chmod(0o600)                      # its names can be listed, but nothing in it can be looked at
+    try:
+        facts = asyncio.run(inventory([str(tree), str(locked / 'b.txt')]))
+    finally:
+        locked.chmod(0o700)
+    assert [f['path'] for f in facts] == [str((tree / 'a.txt').resolve())]

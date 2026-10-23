@@ -64,7 +64,8 @@ async def inventory(paths: list[str], denied: Callable[[Path], object] | None = 
 
     Bytes are a conservative token upper bound, useful without sending the input to a tokenizer/model.
     The caller applies the same file protections as fs.stat to the roots before invoking this helper; a file found
-    under them that `denied` names is left out. The walk runs in a worker thread: a home-sized tree must not hold
+    under them that `denied` names, or that macOS won't let FERB look at, is left out (a protected entry under
+    /private/var/folders once ended the owner's turn). The walk runs in a worker thread: a home-sized tree must not hold
     the daemon's loop (RPCs, proxy callbacks, Stop) while it is stat'ed (L23).
     """
     return await asyncio.to_thread(_inventory, paths, denied)
@@ -74,14 +75,20 @@ def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> lis
     found: dict[str, dict[str, Any]] = {}
     for value in paths:
         root = Path(value).expanduser()
-        files = sorted(root.rglob('*')) if root.is_dir() else [root]
+        try:
+            files = sorted(root.rglob('*')) if root.is_dir() else [root]
+        except OSError:                          # a root macOS won't let FERB look at is left out
+            continue
         for file in files:
-            if file.is_symlink() or not file.is_file():
+            try:
+                if file.is_symlink() or not file.is_file():
+                    continue
+                path = str(file.resolve())
+                if denied is not None and denied(Path(path)):
+                    continue
+                size = file.stat().st_size
+            except OSError:      # macOS won't let FERB look at it (EPERM/EACCES), or it went: left out, as protected
                 continue
-            path = str(file.resolve())
-            if denied is not None and denied(Path(path)):
-                continue
-            size = file.stat().st_size
             found[path] = {'path': path, 'bytes': size, 'tokens_upper_bound': size}
     return list(found.values())
 
