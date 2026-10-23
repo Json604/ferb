@@ -12,7 +12,8 @@ from typing import Any
 import pytest
 
 from ferb.core import origin
-from ferb.store.db import Database
+from ferb.memory.learning import Learning
+from ferb.store.db import Database, store_size
 from ferb.store.retention import purge_task_spans
 from tests.support.cards import card_store, copied_cards, sources_of, traced_task
 
@@ -202,25 +203,21 @@ def test_a_stop_request_ends_the_run_between_cards_and_the_next_run_finishes(sto
     assert learning.prune_card_sources()["cleaned"] == 4 and _rows(db) == pruned
 
 
-def _store_bytes(path: Path) -> int:
-    return sum(p.stat().st_size for p in (path, path.with_name(path.name + "-wal")) if p.exists())
-
-
 def test_compaction_runs_only_with_free_disk_for_the_database_and_its_wal(store: Any, tmp_path: Path) -> None:
     db, spans, learning = store
     _three_tasks(db, spans, learning)
     learning.prune_card_sources()
     db.truncate_wal("test")
     path = tmp_path / "ferb.db"
-    size = _store_bytes(path)
+    size = store_size(path)
     statements: list[str] = []
     db.conn.set_trace_callback(statements.append)
     skipped = db.compact(free=lambda folder: size - 1)
     assert skipped == {"compacted": False, "needed": size, "free": size - 1}
-    assert "VACUUM" not in statements and _store_bytes(path) == size
+    assert "VACUUM" not in statements and store_size(path) == size
     done = db.compact(free=lambda folder: size)
     assert done["compacted"] is True and "VACUUM" in statements
-    assert _store_bytes(path) < size
+    assert store_size(path) < size
     assert db.conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert db.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
@@ -245,9 +242,10 @@ def _ref_index(db: Database) -> bool:
 
 
 def test_the_deletes_run_without_the_ref_index_which_is_made_again_after(store: Any) -> None:
-    """Measured on a store of the owner's shape (23M rows): each node's delete rewrote ~50k random pages of
-    `learning_source_ref`, ~7 s a node, about 47 minutes with the daemon stopped; without it, 68 s. It goes right before
-    the first delete and is made again whatever happens, over the rows that are left."""
+    """Measured on a synthetic store of the owner's shape (23.3M rows): each node's delete rewrote ~50k random pages of
+    `learning_source_ref`, ~7 s a node, about 47 minutes with the daemon stopped; without it the clean-out took 91.7 s
+    (the drop's ~40 s included). It goes right before the first delete and is made again whatever happens, over the
+    rows that are left."""
     db, spans, learning = store
     _three_tasks(db, spans, learning)
     statements: list[str] = []
@@ -261,16 +259,71 @@ def test_the_deletes_run_without_the_ref_index_which_is_made_again_after(store: 
     assert drop < first_delete and last_delete < make and _ref_index(db)
 
 
-def test_a_store_with_nothing_to_clean_keeps_its_ref_index(store: Any) -> None:
-    db, spans, learning = store
-    kept, shown = traced_task(db, spans, learning, "c0ffee02")
-    copied_cards(learning, "c0ffee02", kept | shown, versions=1)
-    purge_task_spans(db, "c0ffee02")                                     # only an untraced card
+def _drops(db: Database, learning: Learning) -> bool:
+    """Whether a clean-out run dropped `learning_source_ref`; the index is there after it either way."""
     statements: list[str] = []
     db.conn.set_trace_callback(statements.append)
     learning.prune_card_sources()
     db.conn.set_trace_callback(None)
-    assert not any(sql.startswith("DROP INDEX") for sql in statements) and _ref_index(db)
+    assert _ref_index(db)
+    return any(sql.startswith("DROP INDEX") for sql in statements)
+
+
+def test_a_store_with_nothing_to_clean_keeps_its_ref_index(store: Any) -> None:
+    """Untraced cards, cards the current composer wrote, and copied cards already cleaned (the retry after a "not
+    compacted" run, or a stop after the last card): nothing to delete, so the index is never dropped or rebuilt."""
+    db, spans, learning = store
+    kept, shown = traced_task(db, spans, learning, "c0ffee02")
+    copied_cards(learning, "c0ffee02", kept | shown, versions=1)
+    purge_task_spans(db, "c0ffee02")                                     # an untraced card
+    traced_task(db, spans, learning, "c0ffee01")
+    learning.capture_episode("c0ffee01")                                 # a card the current composer wrote
+    assert not _drops(db, learning)
+    kept, shown = traced_task(db, spans, learning, "c0ffee03")
+    copied_cards(learning, "c0ffee03", kept | shown)
+    assert _drops(db, learning)                                          # copied cards: cleaned without it
+    assert not _drops(db, learning)                                      # the re-run over them
+
+
+def test_the_ref_index_is_made_whenever_it_is_missing(store: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every run makes a missing index (one an earlier run lost after 0043 was applied), even one with nothing to
+    clean, and even one an error ends before anything was dropped."""
+    db, spans, learning = store
+    kept, shown = traced_task(db, spans, learning, "c0ffee02")
+    copied_cards(learning, "c0ffee02", kept | shown, versions=1)
+    purge_task_spans(db, "c0ffee02")                                     # nothing to clean
+    db.conn.execute("DROP INDEX learning_source_ref")
+    learning.prune_card_sources()
+    assert _ref_index(db)
+
+    def broken(self: Learning, task_id: str) -> set[str] | None:
+        raise sqlite3.OperationalError("disk I/O error")
+    _three_tasks(db, spans, learning)
+    db.conn.execute("DROP INDEX learning_source_ref")
+    monkeypatch.setattr(Learning, "card_source_refs", broken)
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        learning.prune_card_sources()
+    assert _ref_index(db) and not db.conn.in_transaction
+
+
+def test_a_stop_after_the_drop_says_the_index_is_being_made_again(store: Any) -> None:
+    """After a stop the index is made over every row left, which can take a while with FERB stopped: `rebuilding` is
+    told first. A full run, or one that never dropped it, says nothing."""
+    db, spans, learning = store
+    _three_tasks(db, spans, learning)
+    told: list[str] = []
+    asked: list[int] = []
+
+    def stop() -> bool:
+        asked.append(1)
+        return len(asked) > 1                                            # after the first card
+    counts = learning.prune_card_sources(stop, rebuilding=lambda: told.append("rebuild"))
+    assert counts["stopped"] and told == ["rebuild"] and _ref_index(db)
+    told.clear()
+    learning.prune_card_sources(rebuilding=lambda: told.append("rebuild"))
+    assert told == []                                                    # it finished: few rows left to index
+    learning.prune_card_sources(lambda: True, rebuilding=lambda: told.append("rebuild"))
+    assert told == []                                                    # stopped before any drop
 
 
 def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_out(store: Any) -> None:
@@ -281,3 +334,37 @@ def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_o
     db.conn.execute("DELETE FROM schema_version WHERE version >= 43")    # the first start of the new code
     assert not _ref_index(db)
     assert 43 in db.migrate() and _ref_index(db)
+
+
+def test_a_card_reads_its_trace_one_span_at_a_time(store: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Span outputs have no size limit, so a card is read as the base read it: one parsed span at a time, never the
+    whole tree held at once. `card_trace` parses a span only when it is asked for the next one, and `prepare_episode`
+    and `card_source_refs` deal with each span (`_span_refs`) before they take the next."""
+    import json
+    db, spans, learning = store
+    traced_task(db, spans, learning, "c0ffee01")
+    parsed: list[int] = []
+    real_loads = json.loads
+    monkeypatch.setattr(json, "loads", lambda text, *a, **k: (parsed.append(1), real_loads(text, *a, **k))[1])
+    trace = learning.card_trace("c0ffee01")
+    assert parsed == []                                                  # nothing read or parsed yet
+    next(trace)
+    assert len(parsed) <= 2                                              # one span: its input, and a call's output
+    monkeypatch.setattr(json, "loads", real_loads)
+    events: list[str] = []
+    real_trace, real_refs = Learning.card_trace, Learning._span_refs
+
+    def watched_trace(self: Learning, task_id: str) -> Any:
+        for span in real_trace(self, task_id):
+            events.append("next")
+            yield span
+
+    def watched_refs(self: Learning, span: Any) -> set[str]:
+        events.append("used")
+        return real_refs(self, span)
+    monkeypatch.setattr(Learning, "card_trace", watched_trace)
+    monkeypatch.setattr(Learning, "_span_refs", watched_refs)
+    for read in (lambda: learning.prepare_episode("c0ffee01"), lambda: learning.card_source_refs("c0ffee01")):
+        events.clear()
+        read()
+        assert events == ["next", "used"] * 7, events                   # 7 spans, each used before the next is read

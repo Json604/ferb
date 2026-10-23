@@ -10,7 +10,7 @@ import hashlib
 import json
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Callable, Iterable, NamedTuple
+from typing import Any, Callable, Iterable, Iterator, NamedTuple
 
 from ferb.core import origin
 from ferb.core.errors import FerbError
@@ -546,10 +546,13 @@ class Learning:
         if ep is None or self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?',
                                               (self.card_key(task_id),)).fetchone():
             return None
-        trace = self.card_trace(task_id)
         actions = []
+        source_refs = {'episode:' + task_id}
         used_apps: set[str] = set()
-        for span in trace:
+        traced = False
+        for span in self.card_trace(task_id):          # one span at a time: an output has no size limit
+            traced = True
+            source_refs |= self._span_refs(span)
             if span.kind != 'tool.call':
                 continue
             inp, result = span.input, span.result
@@ -580,9 +583,6 @@ class Learning:
                             'kind': inp.get('kind'), 'outside_action': outside,
                             'arg_sources': arg_sources, 'error': span.error,
                             'result': outcome_facts})
-        refs = self.card_source_refs(task_id, trace)
-        traced = refs is not None
-        source_refs = refs if refs is not None else {'episode:' + task_id}
         feedback = [dict(r) for r in self.db.conn.execute(
             'SELECT verdict,note,at FROM owner_verdicts WHERE task_id=? ORDER BY seq', (task_id,))]
         valid = ep['verified'] is True and not (feedback and feedback[-1]['verdict'] == 'fail')
@@ -612,44 +612,51 @@ class Learning:
         return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs - set(damaged)),
                 'labels': sorted(labels), 'damaged': damaged, 'expired': expired, 'inputs': inputs}
 
-    def card_trace(self, task_id: str) -> list[CardSpan]:
-        """The spans of a task's tree its card is read from, oldest first: its tool calls, the blocks its planner was
-        shown (`context.exposure`) and the sources its models were given (`context.source`). Empty once retention
-        removed the task's spans (all of a tree's go at once, `store/retention.py`)."""
+    def card_trace(self, task_id: str) -> Iterator[CardSpan]:
+        """The spans of a task's tree its card is read from, oldest first, each parsed only when the next is asked for:
+        its tool calls, the blocks its planner was shown (`context.exposure`) and the sources its models were given
+        (`context.source`). None once retention removed the task's spans (all of a tree's go at once,
+        `store/retention.py`)."""
         from ferb.store.spans import tree_where
         where, params = tree_where(task_id)
         rows = self.db.conn.execute("SELECT id,kind,input_json,output_json,error FROM spans WHERE kind IN "
                                     f"('tool.call','context.exposure','context.source') AND {where} ORDER BY started_at,id",
                                     params)
-        return [CardSpan(r['id'], r['kind'], json.loads(r['input_json']),
-                         (json.loads(r['output_json']) if r['output_json'] else {}) if r['kind'] == 'tool.call' else None,
-                         r['error']) for r in rows]
+        for r in rows:
+            yield CardSpan(r['id'], r['kind'], json.loads(r['input_json']),
+                           (json.loads(r['output_json']) if r['output_json'] else {}) if r['kind'] == 'tool.call'
+                           else None, r['error'])
 
-    def card_source_refs(self, task_id: str, trace: list[CardSpan] | None = None) -> set[str] | None:
-        """The source edges the card rule gives a task's card from its trace (memory review C1): its episode, the owner's
-        message its planner was given (REQUEST_REFERENCE), the procedure its worker was given (PROCEDURE_LABEL) and the
-        sources of its own tool results and evidence, each as a direct ref (`direct`). None when the task has no trace
-        left: its card then keeps the lineage it was captured with (`prepare_episode`). `trace`: the task's
-        `card_trace`, when the caller already read it."""
-        trace = self.card_trace(task_id) if trace is None else trace
-        if not trace:
-            return None
+    def _span_refs(self, span: CardSpan) -> set[str]:
+        """The card rule for one span (memory review C1), each ref direct (`direct`): the owner's message its planner
+        was given (REQUEST_REFERENCE), the procedure its worker was given (PROCEDURE_LABEL), and a tool call's result
+        and evidence sources. Nothing else its planner was shown."""
+        if span.kind == 'context.exposure':
+            if span.input.get('reference') == REQUEST_REFERENCE:         # the owner's message the task was planned from
+                return {direct(str(ref)) for ref in span.input.get('source_refs', [])}
+            return set()
+        if span.kind == 'context.source':
+            if span.input.get('label') == PROCEDURE_LABEL:               # the procedure its worker was given
+                return {direct(str(ref)) for ref in span.input.get('source_refs', [])}
+            return set()
+        # Missing evidence stays an edge (`_card_labels`): dropping it would let a forgotten fact's descendants be
+        # reconstructed from old task traces without their deletion lineage.
+        return {direct(ref) for ref in self._action_sources(span.input, span.result)}
+
+    def card_source_refs(self, task_id: str) -> set[str] | None:
+        """The source edges the card rule gives a task's card from its trace: its episode and each span's
+        (`_span_refs`, as `prepare_episode` reads them), the trace read one span at a time. None when the task has no
+        trace left: its card then keeps the lineage it was captured with (`prepare_episode`)."""
         refs = {'episode:' + task_id}
-        for span in trace:
-            if span.kind == 'context.exposure':
-                if span.input.get('reference') == REQUEST_REFERENCE:     # the owner's message the task was planned from
-                    refs.update(direct(str(ref)) for ref in span.input.get('source_refs', []))
-            elif span.kind == 'context.source':
-                if span.input.get('label') == PROCEDURE_LABEL:           # the procedure its worker was given
-                    refs.update(direct(str(ref)) for ref in span.input.get('source_refs', []))
-            else:
-                # Missing evidence stays an edge (`_card_labels`): dropping it would let a forgotten fact's descendants
-                # be reconstructed from old task traces without their deletion lineage.
-                refs.update(direct(ref) for ref in self._action_sources(span.input, span.result))
-        return refs
+        traced = False
+        for span in self.card_trace(task_id):
+            traced = True
+            refs |= self._span_refs(span)
+        return refs if traced else None
 
     def prune_card_sources(self, stop: Callable[[], bool] = lambda: False,
-                           progress: Callable[[int, int], None] = lambda done, total: None) -> dict[str, Any]:
+                           progress: Callable[[int, int], None] = lambda done, total: None,
+                           rebuilding: Callable[[], None] = lambda: None) -> dict[str, Any]:
         """The one-time clean-out of episode cards' source edges (L28, C1; setup runs it with the daemon stopped). The
         composer before C1 (COPYING_CARD_MAKER) copied into each card every ref its planner was shown, and each earlier
         version's. Each version of a card, in any state, now keeps only the edges the card rule gives its task's trace
@@ -661,10 +668,13 @@ class Learning:
         asked for), ends the run there. `progress(done, total)` is told the versions dealt with so far (cleaned, or
         left alone) after each node, so setup can say how far it is.
 
-        The deletes run without `learning_source_ref` (migration 0030): it is dropped right before the first and made
-        again on the way out, whatever happens, over the rows that are left. With it, each node's delete rewrote ~50k
-        random pages of that index: about 7 s a node, 47 minutes on a synthetic store of the owner's shape, against
-        68 s without. A power loss in between leaves it to migration 0043 at the next start.
+        The deletes run without `learning_source_ref` (migration 0030). It is dropped right before the first node that
+        has rows to delete (a run with nothing to delete keeps it), and made again on the way out, first and whatever
+        happens, also when it was missing before the run. With it, each node's delete rewrote ~50k random pages of that
+        index: about 7 s a node, 47 minutes projected on a synthetic store of the owner's shape (23.3M rows), against
+        91.7 s without (the drop's ~40 s included). After a stop or an error the index is made over every row left,
+        which can take a while: `rebuilding` is told first. A power loss in between leaves it to migration 0043 at the
+        next start, and to the next run.
 
         Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
         `untraced` (versions left alone) and `stopped`."""
@@ -676,10 +686,11 @@ class Learning:
         counts: dict[str, Any] = {'tasks': len(cards), 'nodes': sum(map(len, cards.values())), 'cleaned': 0, 'rows': 0,
                                   'untraced': 0, 'stopped': False}
         # the refs to keep, on this connection only (a temp table): each node's rows are checked against it in SQLite
-        conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_keep (ref TEXT PRIMARY KEY)')
+        unkept = 'FROM learning_sources WHERE node_id = ? AND source_ref NOT IN (SELECT ref FROM temp.card_keep)'
         done = 0
-        dropped = False
+        dropped = finished = False
         try:
+            conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_keep (ref TEXT PRIMARY KEY)')
             for task_id, nodes in cards.items():
                 keep = self.card_source_refs(task_id)
                 if keep is None:
@@ -693,26 +704,31 @@ class Learning:
                     if stop():
                         counts['stopped'] = True
                         return counts
-                    if not dropped:
+                    if not dropped and conn.execute(f'SELECT EXISTS (SELECT 1 {unkept})', (node_id,)).fetchone()[0]:
                         conn.execute('DROP INDEX IF EXISTS learning_source_ref')
                         dropped = True
-                    conn.execute('BEGIN IMMEDIATE')
-                    try:
-                        removed = conn.execute('DELETE FROM learning_sources WHERE node_id = ? AND source_ref NOT IN '
-                                               '(SELECT ref FROM temp.card_keep)', (node_id,)).rowcount
-                        conn.execute('COMMIT')
-                    except BaseException:
-                        if conn.in_transaction:      # SQLite may have rolled back already; keep the real error
-                            conn.execute('ROLLBACK')
-                        raise
+                    removed = 0
+                    if dropped:
+                        try:
+                            conn.execute('BEGIN IMMEDIATE')
+                            removed = conn.execute(f'DELETE {unkept}', (node_id,)).rowcount
+                            conn.execute('COMMIT')
+                        except BaseException:
+                            if conn.in_transaction:  # SQLite may have rolled back already; keep the real error
+                                conn.execute('ROLLBACK')
+                            raise
                     counts['cleaned'] += removed > 0
                     counts['rows'] += removed
                     done += 1
                     progress(done, counts['nodes'])
+            finished = True
         finally:
-            conn.execute('DROP TABLE IF EXISTS temp.card_keep')
-            if dropped:
+            try:
+                if dropped and not finished:
+                    rebuilding()
                 conn.execute('CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)')
+            finally:
+                conn.execute('DROP TABLE IF EXISTS temp.card_keep')
         return counts
 
     def card_inputs(self, task_id: str | None = None) -> dict[str, str]:
