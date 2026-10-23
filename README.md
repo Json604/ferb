@@ -5,7 +5,7 @@ conversation in a terminal, for development. Its orchestrator assigns workers, a
 and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
-Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 passed combined checkout
+Checkout version **0.27.0.dev1**, on `main` ([plan](docs/0.27_PLAN.md)). F5–F10 passed combined checkout
 validation; owner live acceptance remains pending. The launch-week fixes (L1–L28, 2026-10-13/14), learning by
 intent (L29, 2026-10-21) and the 2026-10-23 performance plan (with FERB's resource log, L30) are integrated here and
 not yet installed or live-tested. The running installation is separate from this checkout. Earlier F0–F4 owner

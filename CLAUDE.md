@@ -25,10 +25,11 @@ look at a specific experiment only when needed. Historical documentation remains
 
 ## Working rules
 
-1. Work happens on the one branch `astra_resume`, pushed to `origin` as work lands; never force-push, and never start
-   a new branch per step. After the launch-week fixes `astra_resume` becomes `main` and the other branches are
-   deleted, with the exact commands confirmed with the owner at that step (L14, owner 2026-10-13; this replaces the
-   2026-10-07 rule naming `astra/0.27-upgrade`, where F0–F4 were built).
+1. Work happens on `main`, pushed to `origin` as work lands; never force-push, and never start a new branch per step.
+   On 2026-10-24 `astra_resume` became `main` by fast-forward and every other branch was deleted, with the owner's
+   confirmed commands (L14). The one unmerged commit, the parked Safari spike, is kept as the tag
+   `archive/spike-5-safari`. This replaces the rules naming `astra_resume` (2026-10-13) and `astra/0.27-upgrade`
+   (2026-10-07).
 2. Build in the plan's final order, F0–F10. The plan's "Decision status" table is authoritative; take anything it
    marks OPEN to the owner first.
 3. Every D*/MP*/P*/S*/W* decision needs a milestone in `docs/0.27_DECISIONS.toml`, or `tests/test_decision_coverage.py`

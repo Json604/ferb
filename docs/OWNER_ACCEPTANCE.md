@@ -1065,7 +1065,7 @@ change requires stopping that server. The owner's earlier keep-running instructi
 
 ## 0.27 launch week (L1–L30) — pending live checks (2026-10-14)
 
-The launch-week fixes are integrated on `astra_resume` (spec
+The launch-week fixes are integrated on `main` (then `astra_resume`; spec
 `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`,
 section 7). **Every check below is pending: none has been run, and offline tests don't accept any of them.** Record
 each task with `ferb verdict TASK pass|fail [--note …]` and add what you saw here. Live tests use the Codex runtime;

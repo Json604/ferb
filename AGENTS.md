@@ -46,8 +46,8 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
 4. **Rulings.** The controller (the agent running the plan) decides conflicts and ambiguities instead of stalling,
    and records each in the ledger as `Ruling: <what> — <why> — <what it costs if wrong>`. It stops only for an
    owner decision, an irreversible or security-sensitive action, or a plan too broken to follow.
-5. **Push** `astra_resume` after each task passes review and is integrated (CLAUDE.md rule 1: never force-push;
-   it becomes `main` only with the owner's confirmed commands).
+5. **Push** `main` after each task passes review and is integrated (CLAUDE.md rule 1: never force-push, and no
+   branch per step; `astra_resume` became `main` on 2026-10-24).
 6. **After all tasks:** one whole-branch review on the most capable model, one fix wave, then the owner installs
    (`ferb setup --update`, run by the owner) and runs the live checks listed in `docs/OWNER_ACCEPTANCE.md`. The
    owner's verdict and sign-off are recorded there.
@@ -71,7 +71,7 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
 **Done and signed off:** F0–F4 (owner sign-off in `docs/OWNER_ACCEPTANCE.md`). F5–F10 were built and installed
 (2026-10-11) with full offline validation; their owner live acceptance is still pending.
 
-**Launch-week fixes (L1–L28), integrated on `astra_resume`, not yet installed or live-tested.** Spec
+**Launch-week fixes (L1–L28), integrated on `main` (then `astra_resume`); installed 2026-10-24, live checks pending.** Spec
 `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md` (owner-approved 2026-10-13, with L25–L28 added at
 approval and on 2026-10-14); plan `docs/superpowers/plans/2026-10-13-launch-week-fixes.md`; ledger
 `.superpowers/sdd/2026-10-13-launch-week-fixes/progress.md` (read it first: every dispatch, ruling, residual and
@@ -102,12 +102,13 @@ worker starts from the filled steps, lessons and the latest runs' tool calls. Li
 1. The whole-branch final review on the most capable model, then one fix wave (the Task 7+18 and Task 21
    integration follow-ups are in, up to `6ac9fb5`).
 2. The owner installs: `ferb setup --update` (run by the owner) and a rebuilt notch app, or FERB.app from a DMG.
+   Done 2026-10-24 (the clean-out took the database from 8.5 GB to 2.3 GB); later fixes need another update.
 3. The live week: the owner runs the checks in `docs/OWNER_ACCEPTANCE.md` ("0.27 launch week") and records
    `ferb verdict TASK pass|fail`; the campaign's first posts run supervised under test mode.
-4. The Chrome Web Store listing went live on 2026-10-20 with 0.15.2 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, now the built-in
-   `STORE_EXTENSION_ID`); this build needs 0.15.6 / protocol 17 uploaded to the listing and approved.
-5. After launch (2026-10-21): git cleanup, `astra_resume` becomes `main` and the other branches go, with the exact
-   commands confirmed with the owner (L14); then the phase-2 security design (spec section 6).
+4. The Chrome Web Store listing (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, the built-in `STORE_EXTENSION_ID`) has carried
+   0.15.6 / protocol 17, which this build needs, since 2026-10-22.
+5. Git cleanup: done 2026-10-24 (`astra_resume` fast-forwarded into `main`, the other branches deleted, the Safari
+   spike kept as the tag `archive/spike-5-safari`; L14). Next: the phase-2 security design (spec section 6).
 
 **Process notes:** commits between the first Task 22 pick (`9db0a5a`) and `906cb61` are not green on their own (the
 fixture fix is `1af6731`): never install from them, and skip that range in `git bisect`. Parked for the final

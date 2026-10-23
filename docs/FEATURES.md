@@ -1,6 +1,6 @@
 # FERB — product feature reference
 
-Prepared 2026-10-14 from the `astra_resume` branch (checkout version `0.27.0.dev1`), its plan of record, the owner
+Prepared 2026-10-14 from the `astra_resume` branch (now `main`, 2026-10-24) (checkout version `0.27.0.dev1`), its plan of record, the owner
 acceptance record and the launch-week work (statuses updated once every launch-week task was integrated). Written for
 FERB itself, to plan the launch campaign around the public open-source release on **2026-10-21** (site:
 https://ferb.kartikey.xyz, privacy page: https://ferb.kartikey.xyz/privacy; the repository goes public on launch day).
@@ -11,8 +11,8 @@ Every feature below carries a status. Marketing must never promise more than the
 
 | Label | Meaning |
 |---|---|
-| **Shipped** | In the code on `astra_resume` from the 0.27 milestones (F0–F10) or earlier. "Live-verified" is added only where `docs/OWNER_ACCEPTANCE.md` records the owner's live result; otherwise live acceptance is pending. |
-| **Landing this week — integrated, not live-tested (Lnn)** | Launch-week work, reviewed and on `astra_resume` (every launch-week task is integrated; the whole-branch final review is still to come). Not yet live-tested by the owner unless stated. The owner's installed copy picks it up at the next `ferb setup --update`. |
+| **Shipped** | In the code on `main` from the 0.27 milestones (F0–F10) or earlier. "Live-verified" is added only where `docs/OWNER_ACCEPTANCE.md` records the owner's live result; otherwise live acceptance is pending. |
+| **Landing this week — integrated, not live-tested (Lnn)** | Launch-week work, reviewed and on `main` (every launch-week task is integrated; the whole-branch final review is still to come). Not yet live-tested by the owner unless stated. The owner's installed copy picks it up at the next `ferb setup --update`. |
 | **After launch** | Decided or discussed, deliberately deferred. |
 | **Known limit** | An honest residual or caveat. |
 
@@ -22,7 +22,7 @@ Where things stand overall:
   acceptance is still pending.
 - The owner has used FERB daily through the notch app since the 2026-10-11 install. That use produced the launch-week
   fix list (L1–L28 in `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`). All of it is now integrated on
-  `astra_resume`; the final review, the owner's install and the live checks (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch
+  `main`; the final review, the owner's install and the live checks (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch
   week") are pending.
 - The installed copy now runs the Codex model `gpt-5.6-sol` (set in the owner's config on 2026-10-14).
 
@@ -861,7 +861,7 @@ All **Shipped** unless noted.
 
 ## 4. What FERB can do for its own launch campaign
 
-Precise and conservative. "Today" means the code on `astra_resume`, launch-week work included (integrated, not
+Precise and conservative. "Today" means the code on `main`, launch-week work included (integrated, not
 live-tested).
 
 ### Capabilities that apply
@@ -1005,7 +1005,7 @@ Decided or discussed, deferred (spec §6 and plan):
 - **Other deferred items:** coverage checks against real reads for fan-out (P15), F9 thread matching, Jev's
   destructive classifier leaving shadow after measurement, whole-database encryption once a signed helper exists,
   embedding adoption after evaluation, after-launch code-health items.
-- After the launch-week fixes, `astra_resume` becomes `main` and other branches are deleted (L14).
+- Done 2026-10-24: `astra_resume` became `main` and the other branches were deleted (L14).
 
 ---
 

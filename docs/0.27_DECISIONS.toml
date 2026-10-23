@@ -4,7 +4,7 @@
 [D1]
 milestone = "F0"
 tests = ["tests/test_decision_coverage.py"]
-note = "Clarified 2026-10-13 (L14): the launch-week work lands on astra_resume, which becomes main after the fixes; the other branches are then deleted with commands confirmed with the owner at that step."
+note = "Clarified 2026-10-13 (L14): the launch-week work lands on astra_resume, which becomes main after the fixes; the other branches are then deleted with commands confirmed with the owner at that step. Done 2026-10-24: work is on main."
 summary = "Python stays; work on astra/0.27-upgrade"
 
 [D2]
@@ -530,6 +530,7 @@ summary = "Browser-window screenshots and recording frames go to the model, reda
 milestone = "L"
 tests = ["tests/test_decision_coverage.py"]
 summary = "Fixes land on astra_resume; afterwards it becomes main and the other branches are deleted (commands confirmed with the owner)"
+note = "Done 2026-10-24 with the owner's confirmed commands: main fast-forwarded to astra_resume (e03faef), every other branch deleted locally and on origin, the one unmerged commit (the parked Safari spike) kept as the tag archive/spike-5-safari."
 
 [L15]
 milestone = "L"

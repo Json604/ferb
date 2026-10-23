@@ -15,7 +15,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 The fixes from the owner's first days of daily use, before the public launch on 2026-10-21. Decisions L1–L28 are in
 `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md` and the plan's "Launch-week clarifications"; every
 task had a fresh reviewer. Not installed and not live-tested yet (`docs/OWNER_ACCEPTANCE.md`, "0.27 launch week").
-Commits: those after `6d613a4` on `astra_resume`.
+Commits: those after `6d613a4` on `astra_resume`, which became `main` on 2026-10-24 (L14: fast-forward; the other
+branches deleted; the parked Safari spike kept as the tag `archive/spike-5-safari`).
 
 **Live fix (owner's first live use, 2026-10-14):** hearing captured nothing on a real Mac. PyObjC returns the audio
 stream description as a plain tuple, not an object with fields, so every buffer failed ("'tuple' object has no
