@@ -112,11 +112,6 @@ when the owner requested a particular agent or person. Do not demand an evidence
 Write each evidence/how field as a direct finding or practical way to check it; keep distinct facts and exact
 supporting references, without repeating the whole condition or narrating the inspection.
 
-The concise owner display is separately generated and will be shown first. Judge it alongside the complete
-worker report under the same final report condition. It must not hide a material uncertainty, omitted result,
-wrong account/source, delegate substitution or missing requested substantive content. Details may contain
-explanations and routine evidence; the concise display must stand alone as a truthful answer.
-
 For current availability/prices, judge the exact claim against an observed primary seller/organizer source for the
 right city, event date/year and ticket category. A third-party listing or Schema.org InStock is not a current stock
 check. Primary-source access failure leaves that claim met=null; a conflicting primary status makes the report

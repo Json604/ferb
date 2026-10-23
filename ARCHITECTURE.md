@@ -92,21 +92,23 @@ optional blocks with a fetch reference. A protected overflow is explicit instead
 runtime context is recorded. Provider context/output capacity remains a provider constraint; a refusal is not a
 truncated success. Brevity instructions apply to status reports, never requested artifacts.
 
-The shared `interaction.md` prompt defines direct, natural owner communication. Structured supervisor, worker,
-recovery-dispatch and ordinary-question outputs provide `display_text` separately from the complete answer/report.
-This is a same-generation presentation layer, not truncation or an extra rewriting request. The task verifier judges
-both the full answer and proposed display under the report condition; verified success uses its checked snapshot.
-Recovery displays retain code-selected incomplete/unconfirmed status. Original answers, condition findings, evidence
-and artifacts remain available in Details and task inspection. Missing presentation fields fall back to the original
-for historical/older output. Consequential approvals and secret prompts keep their full concrete scope.
+The shared `interaction.md` prompt defines direct, natural owner communication. Each answer has one owner-facing
+text, shown in full (owner, 2026-10-24, amending P30's "short by default" and e14d691's concise display): the
+planner's `text` and the worker's `answer`, written in the same output as the worker's evidence report (P31). The
+task verifier judges that answer under the report condition; verified success uses its checked snapshot. An outcome
+that isn't simply done shows code's status line and its full report (`supervisor._report`: the open question, the
+findings, why work stopped, what was confirmed, the files); the orchestrator's `stop_reason` and `question` are the
+model's words in it. Only an ordinary question routed by `question.md` still carries a separate `display_text`, with
+its complete reason under Details. Consequential approvals and secret prompts keep their full concrete scope. Answers
+saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.
 
 Conversational text streams through `RuntimeEvent.text_delta`, `WorkerRuns._run`'s planner-only callback and
-`orchestrator/reply_stream.py`. The incremental JSON reader buffers full `text` and requires every action/control
-field before streaming the last `display_text` field of a pure reply/clarify. `Redactor.stream()` holds incomplete
+`orchestrator/reply_stream.py`. The incremental JSON reader requires every action/control field before streaming
+the last field, `text`, of a pure reply/clarify. `Redactor.stream()` holds incomplete
 secret patterns across chunks; the D33 line guard withholds ambiguous line prefixes before marking forged FERB
 labels. Invalid/cancelled drafts emit `reply_abort`; complete schema validation and the canonical reply remain
 authoritative. Action-bearing turns stay buffered through execution/verification. `docs/RPC.md` describes client
-replacement/interruption semantics. Native history retains both display and full answer without recording secrets.
+replacement/interruption semantics. Native history retains the answer without recording secrets.
 
 Codex schema-bearing supervisor turns and tool workers use the pinned app-server in a disposable
 configuration home and ephemeral thread. Supervisor replies use its final-answer delta protocol; worker
@@ -906,8 +908,8 @@ Each check (`run_tree(watch=True)`, `_Tree.watch`):
 - a `done` met run of an `until_met` watch ends it (`_end_watch`): state `done`, the next check's timer cancelled,
   `schedule.met` journaled with the run's task id, and the recorded scope withdrawn as a cancel withdraws it
   (`_withdraw_schedule_scope`; `_schedule_live` treats a `schedule.met` after the latest run like a pause, via
-  `_last_run_withdrawn`). The answer, the delivered short text and the task's recorded outcome (which `chat.status`
-  restores from, `_record_stop_line`) end with "🗓 Stopped checking: <request>". This is decided before "quiet", so an
+  `_last_run_withdrawn`). The delivered answer and the task's recorded outcome (`_record_stop_line`, which later
+  planner turns read) end with "🗓 Stopped checking: <request>". This is decided before "quiet", so an
   ending run already told is still published, with the stop line and no second alert. `done_unverified`, failed and
   not-met runs never end one, nor does any run of a watch the owner paused or cancelled meanwhile; a standing watch is
   never ended this way;
@@ -2159,7 +2161,7 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   tasks: a click, a redirect's landing page, a form, an adopted popup; I6). A tab in FERB's identity profile is
   attributed to its task too (`Attribution.decide`). Not counted: requests a page makes without loading a new page,
   native apps' network use, and page loads while sensing is paused. The supervisor appends "Sites contacted: …" to
-  the full answer, never to `display_text`.
+  the answer the owner sees.
 - Accepted residual: after reading a malicious page, the shell could send one of the owner's files somewhere.
 
 **What asks (L3).**
@@ -2289,10 +2291,10 @@ protected FERB state (16.9).
 
 ### 16.3 Answers (L11)
 
-- For failed, needs_user and done_unverified outcomes, `display_text` is code's status label ("Done, but not
-  confirmed:" and so on) plus the short text the dispatcher writes from the checker's verdict; the findings stay in
-  `answer`. A needs_user outcome adds FERB's `Question: …` line. The literal "Verified. " prefix is gone (`verified`
-  is the marker).
+- For failed, needs_user and done_unverified outcomes, the answer is code's status label ("Done, but not
+  confirmed:" and so on) followed by the full report: FERB's `Question: …` line for a needs_user outcome, the
+  findings, the dispatcher's stop reason, what was confirmed and the files. There is no separate short text (owner,
+  2026-10-24). The literal "Verified. " prefix is gone (`verified` is the marker).
 - Code states side outputs in plain words (reminders, memory, cancels, schedules); a refused one adds one line and the
   reply is kept. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
   (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat, or be several

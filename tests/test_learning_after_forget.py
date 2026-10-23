@@ -34,7 +34,7 @@ def _run_task(d: RunningDaemon, words: str, answer: str = "ok", session: str = "
 
 
 def _remembered_dentist(d: RunningDaemon) -> Any:
-    install(d, [json.dumps({"kind": "reply", "text": "Okay.", "display_text": "Okay.", "remember": [
+    install(d, [json.dumps({"kind": "reply", "text": "Okay.", "remember": [
         {"kind": "person", "subject": "owner", "key": "dentist", "content": "my dentist is Dr. Rao",
          "quote": "my dentist is Dr. Rao"}]})])
     chat(d, "remember that my dentist is Dr. Rao")
@@ -45,7 +45,7 @@ def test_card_capture_continues_after_a_forget_in_the_same_conversation(daemon: 
     """P6: the owner's message and the item are forgotten while FERB's reply that cited them stays in the chat. The
     next task's card is written, and it holds nothing of what was forgotten."""
     item = _remembered_dentist(daemon)
-    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao.", "display_text": "Dr. Rao."})])
+    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao."})])
     chat(daemon, "who is my dentist?")
     plan = _on_loop(daemon, lambda: daemon.daemon.memory.forget(item.id))
     task_id = _run_task(daemon, "check the gate number", "Gate B12.")
@@ -62,7 +62,7 @@ def test_card_capture_continues_after_forgetting_a_memory_a_reply_used(daemon: R
     src = str(_on_loop(daemon, lambda: d._journal().append("memory.added", {"content": "My dentist is Dr. Rao"}).id))
     item = _on_loop(daemon, lambda: d.memory.propose("person", "owner", "dentist", "My dentist is Dr. Rao",
                                                      "owner_stated", [("journal", src)], 1.0))
-    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao.", "display_text": "Dr. Rao."})])
+    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao."})])
     chat(daemon, "who is my dentist?")
     _on_loop(daemon, lambda: d.memory.forget(item.id))
     task_id = _run_task(daemon, "check the gate number")
@@ -76,7 +76,7 @@ def test_one_forget_keeps_the_cards_of_unrelated_tasks(daemon: RunningDaemon) ->
     src = str(_on_loop(daemon, lambda: d._journal().append("memory.added", {"content": "My dentist is Dr. Rao"}).id))
     item = _on_loop(daemon, lambda: d.memory.propose("person", "owner", "dentist", "My dentist is Dr. Rao",
                                                      "owner_stated", [("journal", src)], 1.0))
-    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao.", "display_text": "Dr. Rao."})])
+    install(daemon, [json.dumps({"kind": "reply", "text": "Dr. Rao."})])
     chat(daemon, "who is my dentist?")
     tasks = [_run_task(daemon, words) for words in
              ("check the gate number", "check the weather in Pune", "check my train seat")]
@@ -102,7 +102,7 @@ def test_card_capture_continues_after_the_30_day_trail_purge(daemon: RunningDaem
          json.dumps({"app": "Messages", "title": "Asha", "body": "dinner at eight tonight"}))))
     _on_loop(daemon, lambda: d.daily_activity.record({"id": tid, "source": "notification", "what": "notification",
                                                       "where": {"app": "Messages", "body": "dinner at eight tonight"}}))
-    install(daemon, [json.dumps({"kind": "reply", "text": "Asha said dinner at eight.", "display_text": "ok"})])
+    install(daemon, [json.dumps({"kind": "reply", "text": "Asha said dinner at eight."})])
     chat(daemon, "what did Asha say about dinner tonight?")
     _on_loop(daemon, lambda: d.db.conn.execute("DELETE FROM trail WHERE id=?", (tid,)))   # what the purge does
     task_id = _run_task(daemon, "check the gate number")

@@ -123,15 +123,14 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "notification_rules": {"type": "array", "items": _obj({"app": {"type": "string"},
         "conversation": _nullable("string"), "topic": _nullable("string"), "until_at": _nullable("string"),
         "exceptions": _strings(), "quote": {"type": "string"}})},
+    # the owner's answer, shown in full and streamed: last, so a pure reply streams after every action field
     "text": {"type": "string"},
-    "display_text": {"type": "string"},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
     "status": {"type": "string", "enum": ["done", "failed", "needs_user", "blocked"]},
     "summary": {"type": "string"}, "artifacts": _strings(), "evidence": _strings(),
     "answer": {"type": "string"},
-    "display_text": {"type": "string"},
     "conversation_action": {"type": ["string", "null"], "enum": ["wait", "handover", "finished", "blocked", None]},
     "conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA},
     "input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
@@ -146,7 +145,6 @@ DISPATCH_SCHEMA = _obj({
     "instructions": {"type": "string"},
     "question": {"type": "string"},
     "stop_reason": {"type": "string"},
-    "display_text": {"type": "string"},
     # finish only (null otherwise): the orchestrator's judgment of finished work a check couldn't confirm (V4)
     "result": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["unconfirmed", "failed"]}]},
 })
@@ -267,7 +265,6 @@ class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
     text: str
-    display_text: str = ""
     answer_question: AnswerQuestion | None = None
     task: TaskSpec | None = None
     remember: list[Remember] = []
@@ -344,7 +341,6 @@ class WorkerOutcome(BaseModel):
     artifacts: list[str]
     evidence: list[str]
     answer: str = ''
-    display_text: str = ''
     input_notes: list[dict[str, Any]] = []
     conversation_action: Literal['wait', 'handover', 'finished', 'blocked'] | None = None
     conversation_proposals: list[dict[str, Any]] = []
@@ -353,7 +349,6 @@ class WorkerOutcome(BaseModel):
 
 class DispatchOutcome(BaseModel):
     stop_reason: str = ""
-    display_text: str = ""
     action: Literal["retry", "ask", "finish"]
     # finish only. "unconfirmed": the work looks done and only confirmation is missing; code reports done but not
     # confirmed when the worker reported done and the check found nothing false. Anything else, or absent, is failed.

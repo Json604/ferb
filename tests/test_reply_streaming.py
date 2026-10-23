@@ -13,7 +13,6 @@ from ferb.sanitize.redact import Redactor
 
 def document(text='The draft is in Gmail. ', **changes):
     values = SupervisorOutcome(kind='reply', text=text, task=None).model_dump()
-    values['display_text'] = text
     values.update(changes)
     return json.dumps({key: values[key] for key in SUPERVISOR_SCHEMA['properties']})
 
@@ -55,7 +54,7 @@ def test_action_bearing_turns_never_stream_receipts(changes):
 def test_out_of_order_text_and_nested_text_are_buffered():
     raw = document()
     data = json.loads(raw)
-    raw = json.dumps({'display_text': data.pop('display_text'), **data})
+    raw = json.dumps({'text': data.pop('text'), **data})
     draft, events = collect(raw)
     draft.finish(raw)
     assert not events
@@ -142,7 +141,8 @@ def test_daemon_delivers_redacted_words_before_runtime_finishes(daemon, ending):
     assert received[-1]['type'] == 'reply'
     assert any(e['type'] == 'reply_abort' for e in received) == (ending != 'final')
     if ending == 'final':
-        assert words(received) == received[-1]['text']
+        assert words(received) == received[-1]['text']          # the full answer streamed: no short version
+        assert 'display_text' not in received[-1]
 
 
 def test_closing_a_draft_retrieves_an_already_failed_planner(daemon):

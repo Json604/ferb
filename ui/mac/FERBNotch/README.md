@@ -40,7 +40,7 @@ Open **Tasks** from chat to see individual active and completed tasks. **Inspect
 
 Background replies and progress update the transcript/status and completion glow without opening the notch or cancelling dismissal. This follows the owner's latest request and supersedes the earlier automatic answer expansion. Cmd-V uses the native Edit menu and composer shortcut; pasted text retains its provenance.
 
-Daemon `display_text` is shown when supplied, with **Details** retaining the complete reply or ordinary question. Older daemon events and saved history without the field keep their original text. Secret values remain only in the secure answer field.
+Answers show their full text: the daemon sends no separate short version of an answer (owner, 2026-10-24). A routed ordinary question's `display_text` is shown when supplied, with **Details** retaining the complete question; answers saved before 2026-10-24 that carry a `display_text` keep their Details too. Secret values remain only in the secure answer field.
 
 ### Large task records
 

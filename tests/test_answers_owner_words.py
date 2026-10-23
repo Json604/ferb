@@ -1,6 +1,7 @@
 """L11: answers in the owner's words, from the traced cases in the 2026-10-13 review (traces.md §4).
 
-- 161aa070 / 1b79b873: an unfinished task's short text led with checker internals and dropped the report path;
+- 161aa070 / 1b79b873: an unfinished task's short text led with checker internals and dropped the report path (the
+  owner sees the full answer since 2026-10-24: code's status line, the findings and the files);
 - ef9e5d75: "too linkedinish" reopened the old goal through the saved plan instead of running the rewrite;
 - 20:10: a refused timer replaced the whole reply, and the 19:52 boarding timer was refused because it was asked for
   in an earlier message of the same chat;
@@ -26,80 +27,66 @@ HOW = 'Compare the tab ids in the browser records.'
 REPORT = '/tmp/ferb-l11/report.html'
 
 
-def _worker(answer: str, display: str, artifacts: tuple[str, ...] = ()) -> str:
-    return json.dumps({'status': 'done', 'summary': answer, 'answer': answer, 'display_text': display,
+def _worker(answer: str, artifacts: tuple[str, ...] = ()) -> str:
+    return json.dumps({'status': 'done', 'summary': answer, 'answer': answer,
                        'artifacts': list(artifacts), 'evidence': []})
 
 
-def _dispatch(action: str, display: str, **fields: Any) -> str:
+def _dispatch(action: str, **fields: Any) -> str:
     return json.dumps({'action': action, 'worker_type': 'default', 'question': fields.get('question', ''),
                        'instructions': fields.get('instructions', ''), 'stop_reason': fields.get('stop_reason', ''),
-                       'display_text': display, 'result': fields.get('result')})
+                       'result': fields.get('result')})
 
 
 def _unconfirmed(met: bool | None) -> str:
     return json.dumps({'results': [{'index': 0, 'met': met, 'evidence': FINDING, 'how': HOW if met is None else None}]})
 
 
-# ---------- (a) the short text of an unfinished task ----------
+# ---------- (a) the answer of an unfinished task (owner, 2026-10-24: the full answer, no short text) ----------
 
-def test_needs_user_short_text_is_the_label_then_the_model_s_words_not_findings(daemon: RunningDaemon) -> None:
-    """1b79b873's shape: the check couldn't confirm a condition and the orchestrator asks the owner."""
-    short = f'Your report is ready at {REPORT}. I couldn\'t tell which YouTube tab played the video.'
+def test_needs_user_answer_is_the_label_the_question_then_the_findings(daemon: RunningDaemon) -> None:
+    """1b79b873's shape: the check couldn't confirm a condition and the orchestrator asks the owner. The owner reads
+    the full answer: code's status line, FERB's copy of the question, the finding and how to check it, the files."""
     question = 'Which YouTube tab played the video: yours or a new one?'
     install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
-        'worker': _worker(f'The report is at {REPORT}.', 'Report ready.', (REPORT,)),
+        'worker': _worker(f'The report is at {REPORT}.', (REPORT,)),
         'worker.verify': _unconfirmed(None),
-        'worker.dispatch': _dispatch('ask', short, question=question)})
+        'worker.dispatch': _dispatch('ask', question=question)})
     final = outcome(chat(daemon, 'write the YouTube report'))
-    assert final['status'] == 'needs_user'
-    # code's label, the model's short text, then code's own line with the open question
-    assert final['display_text'] == "I couldn't confirm the task was complete:\n" + short + '\nQuestion: ' + question
-    assert FINDING not in final['display_text'] and HOW not in final['display_text']
-    assert FINDING in final['answer'] and REPORT in final['answer']        # the findings stay under Details
+    assert final['status'] == 'needs_user' and 'display_text' not in final
+    lines = final['answer'].split('\n')
+    assert lines[0] == "I couldn't confirm the task was complete:"
+    assert 'Question: ' + question in lines
+    assert FINDING in final['answer'] and HOW in final['answer'] and REPORT in final['answer']
 
 
-def test_failed_short_text_keeps_the_deliverable_and_the_findings_stay_in_details(daemon: RunningDaemon) -> None:
-    """161aa070's shape: the report was produced, the task failed on one condition, and the short text led with
-    checker internals and left out the report's path."""
-    short = f'Your report is at {REPORT}, but it used the YouTube tab you already had open, not a new one.'
+def test_failed_answer_keeps_the_deliverable_the_reason_and_the_findings(daemon: RunningDaemon) -> None:
+    """161aa070's shape: the report was produced and the task failed on one condition; the short text then led with
+    checker internals and left out the report's path. The full answer keeps all of them, after code's status line."""
     install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
-        'worker': _worker(f'The report is at {REPORT}.', 'Report ready.', (REPORT,)),
+        'worker': _worker(f'The report is at {REPORT}.', (REPORT,)),
         'worker.verify': _unconfirmed(False),
-        'worker.dispatch': _dispatch('finish', short, instructions='Stop here.', stop_reason='A new tab was required.',
+        'worker.dispatch': _dispatch('finish', instructions='Stop here.', stop_reason='A new tab was required.',
                                      result='failed')})
     final = outcome(chat(daemon, 'write the YouTube report'))
-    assert final['status'] == 'failed'
-    assert final['display_text'] == "I couldn't confirm the task was complete:\n" + short
-    assert FINDING not in final['display_text']
-    assert FINDING in final['answer']
+    assert final['status'] == 'failed' and 'display_text' not in final
+    assert final['answer'].startswith("I couldn't confirm the task was complete:")
+    assert FINDING in final['answer'] and REPORT in final['answer']
+    assert 'Why work stopped: A new tab was required.' in final['answer']
 
 
-def test_without_the_model_s_short_text_code_shows_the_label_and_the_files_never_findings(
-        daemon: RunningDaemon) -> None:
-    """When no answer-writing model wrote a short text (here it wrote none), code still never fills the gap with the
-    checker's findings: the status label, the reason and the files it recorded."""
+def test_an_unfinished_answer_never_states_the_worker_s_unchecked_claim(daemon: RunningDaemon) -> None:
     install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
-        'worker': _worker(f'The report is at {REPORT}.', 'Done!', (REPORT,)),
+        'worker': _worker('Done! The report covers every session.', (REPORT,)),
         'worker.verify': _unconfirmed(False),
-        'worker.dispatch': _dispatch('finish', '', instructions='Stop here.', result='failed')})
+        'worker.dispatch': _dispatch('finish', instructions='Stop here.', result='failed')})
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'failed'
-    assert final['display_text'].startswith("I couldn't confirm the task was complete:")
-    assert REPORT in final['display_text']
-    assert FINDING not in final['display_text'] and 'Done!' not in final['display_text']
+    assert final['answer'].startswith("I couldn't confirm the task was complete:")
+    assert 'Done!' not in final['answer'] and REPORT in final['answer']
 
 
-def test_without_a_short_text_or_files_the_label_reads_as_a_sentence(daemon: RunningDaemon) -> None:
-    install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
-        'worker': _worker('The report is written.', 'Done!'),
-        'worker.verify': _unconfirmed(False),
-        'worker.dispatch': _dispatch('finish', '', instructions='Stop here.', result='failed')})
-    final = outcome(chat(daemon, 'write the YouTube report'))
-    assert final['display_text'] == "I couldn't confirm the task was complete."
-
-
-def test_without_a_short_text_code_shows_why_work_stopped(daemon: RunningDaemon) -> None:
+def test_an_answer_says_why_work_stopped(daemon: RunningDaemon) -> None:
     """The orchestrator couldn't choose what to do next: the reason code wrote is shown, not a bare label."""
     install(daemon, [sup('task', 'Booking.', task('book the table'))], {
         'worker': json.dumps({'status': 'blocked', 'summary': 'The booking page would not load.', 'artifacts': [],
@@ -107,8 +94,8 @@ def test_without_a_short_text_code_shows_why_work_stopped(daemon: RunningDaemon)
         'worker.dispatch': 'not a decision'})
     final = outcome(chat(daemon, 'book the table'))
     assert final['status'] == 'failed'
-    assert final['display_text'].startswith("I couldn't finish this task.\n")
-    assert 'The booking page would not load.' in final['display_text']
+    assert final['answer'].startswith("I couldn't finish this task.\n")
+    assert 'The booking page would not load.' in final['answer']
 
 
 def test_a_worker_report_failure_never_shows_an_exception_name(daemon: RunningDaemon) -> None:
@@ -116,28 +103,28 @@ def test_a_worker_report_failure_never_shows_an_exception_name(daemon: RunningDa
     final = outcome(chat(daemon, 'book the table'))
     assert final['status'] == 'failed'
     for name in ('JSONDecodeError', 'ValueError', 'ValidationError', 'runtime'):
-        assert name not in final['display_text'] and name not in final['answer']
+        assert name not in final['answer']
 
 
 def test_a_runtime_stop_is_told_in_plain_words(daemon: RunningDaemon) -> None:
     install(daemon, [sup('task', 'Booking.', task('book the table'))],
             {'worker': RuntimeEvent('violation', {'unexpected_tools': ['mcpToolCall']})})
-    final = outcome(chat(daemon, 'book the table'))
-    for text in (final['display_text'], final['answer']):
-        assert 'runtime' not in text and 'unexpected_tools' not in text and 'mcpToolCall' not in text
+    text = outcome(chat(daemon, 'book the table'))['answer']
+    assert 'runtime' not in text and 'unexpected_tools' not in text and 'mcpToolCall' not in text
 
 
 def test_a_failed_check_keeps_its_failure_for_the_orchestrator(daemon: RunningDaemon) -> None:
     """The checker's own failure is worded as a check, and its exact detail still reaches the orchestrator."""
     script = install(daemon, [sup('task', 'On it.', task('write the report'))],
-                     {'worker': _worker('The report is written.', 'Report ready.'), 'worker.verify': 'not a verdict',
-                      'worker.dispatch': _dispatch('finish', 'I wrote the report but couldn\'t check it.',
-                                                   instructions='Stop here.', result='failed')})
+                     {'worker': _worker('The report is written.'), 'worker.verify': 'not a verdict',
+                      'worker.dispatch': _dispatch('finish', instructions='Stop here.',
+                                                   stop_reason="I wrote the report but couldn't check it.",
+                                                   result='failed')})
     final = outcome(chat(daemon, 'write the report'))
     assert all(v['evidence'].startswith("The check couldn't finish: ") for v in final['verification'])
     findings = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.dispatch').split('Inspection findings')[1]
     assert 'Expecting value' in findings                               # the exact failure, for recovery
-    assert 'Expecting value' not in final['display_text']
+    assert 'Expecting value' not in final['answer']
 
 
 def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> None:
@@ -154,8 +141,8 @@ def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> No
         return [e.data for e in daemon.daemon.journal.of_kind(kind)]
     answers = daemon.run(rows('task.answer'))
     assert answers and answers[-1]['status'] == 'failed'
-    assert 'RuntimeError' not in answers[-1]['display_text'] and 'RuntimeError' not in answers[-1]['text']
-    assert answers[-1]['display_text'].startswith("I couldn't finish that: ")
+    assert 'RuntimeError' not in answers[-1]['text']
+    assert answers[-1]['text'].startswith("I couldn't finish that: ")
     noted = daemon.run(rows('task.interrupted'))
     assert noted and noted[-1]['error'] == 'RuntimeError'               # the class name stays in the records
 
@@ -165,11 +152,11 @@ def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> No
 def test_a_verified_answer_has_the_flag_and_no_verified_prefix(daemon: RunningDaemon) -> None:
     full = f'The report is at {REPORT}. It covers all three sessions.'
     install(daemon, [sup('task', 'Writing it up.', task('write the report'))],
-            {'worker': _worker(full, f'Report ready: {REPORT}.')})
+            {'worker': _worker(full)})
     final = outcome(chat(daemon, 'write the report'))
     assert final['status'] == 'done' and final['verified'] is True
-    assert final['answer'] == full
-    assert not final['answer'].startswith('Verified') and not final['display_text'].startswith('Verified')
+    assert final['answer'] == full and 'display_text' not in final
+    assert not final['answer'].startswith('Verified')
 
 
 # ---------- (c) a follow-up with a new goal re-plans, inside the same task ----------
@@ -402,15 +389,14 @@ def test_a_refused_timer_keeps_the_reply_and_adds_one_line(daemon: RunningDaemon
     """20:10: the reply answered the question and also set a timer; code refused the timer and replaced the whole
     reply with "I couldn't set that reminder…"."""
     answer = 'For Codex Cloud, ask it to reverse-engineer the setup from the repository first.'
-    install(daemon, [json.dumps({'kind': 'reply', 'text': answer, 'display_text': answer, 'remember': [],
+    install(daemon, [json.dumps({'kind': 'reply', 'text': answer, 'remember': [],
                                  'timers': [{'when': _in_minutes(10), 'message': 'boarding starts',
                                              'quote': 'words the owner never said'}]})])
     events = chat(daemon, 'how should I start with Codex Cloud?', session='boarding')
     reply = next(e for e in events if e['type'] == 'reply')
-    for field in ('text', 'display_text'):
-        assert reply[field].startswith(answer)
-        extra = reply[field][len(answer):].strip()
-        assert extra and '\n' not in extra and 'boarding starts' in extra       # one line names the refused part
+    assert reply['text'].startswith(answer) and 'display_text' not in reply
+    extra = reply['text'][len(answer):].strip()
+    assert extra and '\n' not in extra and 'boarding starts' in extra           # one line names the refused part
     assert not _pending(daemon)
 
 
@@ -439,19 +425,18 @@ def test_a_refused_timer_on_a_task_turn_is_told_in_one_line(daemon: RunningDaemo
 def test_a_reply_turn_names_what_was_set_and_saved_in_code_built_lines(daemon: RunningDaemon) -> None:
     """The planner doesn't confirm side outputs itself (it can't know yet); code adds what happened."""
     said = 'remind me in 10 minutes to call Mom, and remember that my dentist is Dr. Rao'
-    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'display_text': 'Okay.', 'remember': [
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [
         {'kind': 'person', 'subject': 'owner', 'key': 'dentist', 'content': 'my dentist is Dr. Rao',
          'quote': 'my dentist is Dr. Rao'}], 'timers': [
         {'when': _in_minutes(10), 'message': 'call Mom', 'quote': 'remind me in 10 minutes to call Mom'}]})])
     events = chat(daemon, said)
     at = _pending(daemon)[0].fire_at.astimezone()
     reply = next(e for e in events if e['type'] == 'reply')
-    for field in ('text', 'display_text'):
-        lines = reply[field].split('\n')
-        assert lines[0] == 'Okay.'
-        assert f'⏰ Reminder set for {at:%a %d %b %H:%M}: call Mom' in lines
-        # their whole sentence, as saved (I1; re-review F4: never split at a comma)
-        assert 'Remembered: remind me in 10 minutes to call Mom, and remember that my dentist is Dr. Rao' in lines
+    lines = reply['text'].split('\n')
+    assert lines[0] == 'Okay.'
+    assert f'⏰ Reminder set for {at:%a %d %b %H:%M}: call Mom' in lines
+    # their whole sentence, as saved (I1; re-review F4: never split at a comma)
+    assert 'Remembered: remind me in 10 minutes to call Mom, and remember that my dentist is Dr. Rao' in lines
     assert [e['type'] for e in events if e['type'] in ('memory', 'timer')] == ['memory', 'timer']   # still sent
 
 
@@ -460,12 +445,11 @@ def test_a_task_turn_carries_what_was_set_and_refused_into_the_outcome(daemon: R
     plan = json.loads(sup('task', 'Checking.', task('check the gate number')))
     plan['timers'] = [{'when': _in_minutes(10), 'message': 'stretch', 'quote': 'remind me in 10 minutes to stretch'},
                       {'when': _in_minutes(10), 'message': 'boarding starts', 'quote': 'words the owner never said'}]
-    install(daemon, [json.dumps(plan)], {'worker': _worker('Your gate is B12.', 'Gate B12.')})
+    install(daemon, [json.dumps(plan)], {'worker': _worker('Your gate is B12.')})
     final = outcome(chat(daemon, 'check the gate number and remind me in 10 minutes to stretch', session='gate'))
-    for field in ('answer', 'display_text'):
-        assert '⏰ Reminder set for' in final[field] and ': stretch' in final[field]
-        assert "I couldn't set the reminder “boarding starts”" in final[field]
-    assert final['display_text'].startswith('Gate B12.')
+    assert '⏰ Reminder set for' in final['answer'] and ': stretch' in final['answer']
+    assert "I couldn't set the reminder “boarding starts”" in final['answer']
+    assert final['answer'].startswith('Your gate is B12.')
 
 
 def test_a_clarify_question_is_kept_without_code_lines(daemon: RunningDaemon) -> None:
@@ -768,7 +752,6 @@ def test_a_steer_reply_names_the_new_goal(daemon: RunningDaemon, monkeypatch: An
 
 def test_the_full_answer_ends_with_the_sites_contacted(daemon: RunningDaemon) -> None:
     d = daemon.daemon
-    short = 'Latest release: 2.4.1.'
 
     def worker(token: str) -> str:
         grant = d.tokens.validate(token)
@@ -776,16 +759,17 @@ def test_the_full_answer_ends_with_the_sites_contacted(daemon: RunningDaemon) ->
         d._shell_network(info, {'destinations': [{'host': h, 'port': 443, 'bytes_out': 1, 'bytes_in': 1,
                                                   'connections': 1} for h in ('pypi.org', 'GitHub.com.')],
                                 'refused': []})
-        return _worker('The latest release is 2.4.1, published yesterday.', short)
+        return _worker('The latest release is 2.4.1, published yesterday.')
 
     install(daemon, [sup('task', 'Checking.', task('find the latest release'))], {'worker': worker})
     final = outcome(chat(daemon, 'find the latest release'))
-    assert final['answer'].endswith('\n\nSites contacted: github.com, pypi.org')
-    assert final['display_text'] == short
+    # shown with the answer, now that the full answer is what the owner sees (owner, 2026-10-24)
+    assert final['answer'] == 'The latest release is 2.4.1, published yesterday.\n\nSites contacted: github.com, pypi.org'
+    assert 'display_text' not in final
 
 
 def test_no_sites_line_when_the_task_reached_none(daemon: RunningDaemon) -> None:
-    install(daemon, [sup('task', 'Checking.', task('count the files'))], {'worker': _worker('12 files.', '12 files.')})
+    install(daemon, [sup('task', 'Checking.', task('count the files'))], {'worker': _worker('12 files.')})
     assert 'Sites contacted' not in outcome(chat(daemon, 'count the files'))['answer']
 
 
@@ -807,13 +791,13 @@ def test_the_prompts_carry_no_copyable_example_phrasing(phrase: str) -> None:
 
 
 @pytest.mark.parametrize('name, words', [
-    ('interaction.md', "The short text answers the owner's question as they asked it, read in the conversation's"),
+    ('interaction.md', "It answers the owner's question as they asked it, read in the conversation's"),
     ('interaction.md', "It keeps the fact the conversation is about"),
     ('interaction.md', "Never use FERB's internal terms in anything the owner reads"),
     ('dispatch.md', 'what was delivered, with its paths and links;'),
-    ('dispatch.md', 'The complete findings stay in the full answer under Details: never paste them here.'),
+    ('dispatch.md', "FERB lists the findings itself: don't paste them."),
     ('worker.md', "It answers the owner's question as they asked it, in the conversation's context"),
-    ('supervisor.md', "`display_text` answers the owner's message as they asked it"),
+    ('supervisor.md', "`text` answers the owner's message as they asked it"),
     ('supervisor.md', 'FERB adds that line itself'),
     ('supervisor.md', 'an earlier one whose reminder was never set'),
     ('supervisor.md', 'new_goal'),

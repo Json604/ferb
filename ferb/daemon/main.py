@@ -2334,9 +2334,9 @@ class Daemon:
         if not publish:
             return
         if alert:
-            await self._notify("FERB alert", str(ev.get("display_text") or answer), urgent=True)
+            await self._notify("FERB alert", answer, urgent=True)
         elif not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
-            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
+            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer)
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
             row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
             ev = {**ev, "request_id": row["request_id"] if row is not None else None}
@@ -2419,7 +2419,6 @@ class Daemon:
             # request_id and at: a client whose chat.send stream ended early still places the answer (L6, L7)
             results.append({key: row[key] for key in ('task_id', 'request_id', 'at', 'status', 'goal', 'answer')} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
-                            'display_text': recorded.get('display_text') or row['answer'],
                             'verification': recorded.get('verification', [])})
         return {"results": results, "running": running, "approvals": self.redact(pending),
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
@@ -2905,8 +2904,6 @@ class Daemon:
         if ended:                        # decided before `quiet`: the stop line always reaches the owner
             line = f"🗓 Stopped checking: {s.request}"
             answer = f"{answer}\n\n{line}"
-            if final.get("display_text"):
-                result["display_text"] = f"{final['display_text']}\n{line}"
             self._record_stop_line(str(final.get("task_id")), line)
         quiet = s.watch != "none" and not ended and (
             superseded or status in FINISHED and reported is not None and not alert)
@@ -2919,16 +2916,14 @@ class Daemon:
         return bool(self._journal().of_kind("schedule.met", "schedule_id", sid))
 
     def _record_stop_line(self, task_id: str, line: str) -> None:
-        """The stop line in the ending task's recorded outcome as well, so a client restoring it from `chat.status`
-        (whose short text comes from there) shows it too (review M3)."""
+        """The stop line in the ending task's recorded outcome as well, so a client restoring the answer from the
+        task's record shows it too (review M3)."""
         assert self.db is not None
         row = self.db.conn.execute("SELECT status, outcome_json FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             return
         outcome, line = json.loads(row["outcome_json"] or "{}"), self._redact_text(line)
         outcome["answer"] = f"{outcome.get('answer', '')}\n\n{line}"
-        if outcome.get("display_text"):
-            outcome["display_text"] = f"{outcome['display_text']}\n{line}"
         self.tasks.set_status(task_id, row["status"], outcome)
 
     def _end_watch(self, sid: str, task_id: str) -> bool:

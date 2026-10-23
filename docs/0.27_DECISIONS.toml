@@ -333,7 +333,7 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 
 [P27]
 milestone = "F6"
-tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py", "tests/test_concise_presentation.py"]
+tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py", "tests/test_full_answers.py"]
 note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions. Report audit requires primary evidence for live availability and truthful source coverage/scoring; native Markdown preserves readable tables and details."
 summary = "Rules for everything FERB says to the owner"
 
@@ -349,7 +349,8 @@ summary = "Always-on chat with routing, status line and keys"
 
 [P30]
 milestone = "F6"
-tests = ["tests/test_f6_context.py", "tests/test_completion_reporting.py"]
+tests = ["tests/test_f6_context.py", "tests/test_completion_reporting.py", "tests/test_full_answers.py"]
+note = "Owner 2026-10-24: 'the details response is better. remove the summarised short response as of now'. Answers show the full detailed text: no separate concise display_text for replies, task answers or recovery (amends 'short by default' and e14d691); a reply streams its full text. Questions keep their display."
 summary = "Answer shape: outcome first, only what the owner needs, unverified items, pending next step"
 
 [P31]
@@ -511,7 +512,7 @@ summary = "Jev still decides what reaches FERB (P11/Q4); FERB then understands b
 
 [L11]
 milestone = "L"
-tests = ["tests/test_answers_owner_words.py", "tests/test_concise_presentation.py", "tests/test_time.py"]
+tests = ["tests/test_answers_owner_words.py", "tests/test_full_answers.py", "tests/test_time.py"]
 summary = "Short answers in plain words from the owner's point of view, answering the question as asked; no 'Verified.' prefix (a check mark); follow-ups re-plan in the same task; a partly refused reply is kept"
 
 [L12]

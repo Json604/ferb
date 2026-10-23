@@ -260,11 +260,11 @@ A task ends in one of three results, each its own status:
 - **failed**: the work didn't finish, a check found a condition false, or FERB judged that it failed. The answer gives
   the real reason; `ferb trace` shows `failed ✗`.
 
-For an unfinished task the short answer starts with FERB's status line, then says in plain words what was delivered
-(with paths and links), what isn't confirmed and what you can do; the checker's findings stay under Details. There is
-no "Verified." text prefix (the app shows a check mark). When the task reached any website, the full answer ends with
-"Sites contacted: …", built by code from FERB's records. A correction you send after an answer ("too LinkedIn-ish")
-re-plans the same task with the new goal.
+Every answer is shown in full; there is no separate short summary. For an unfinished task the answer starts with
+FERB's status line, then FERB's question if it needs your answer, what the check couldn't confirm and why, why work
+stopped, what was confirmed and the files. There is no "Verified." text prefix (the app shows a check mark). When the
+task reached any website, the answer ends with "Sites contacted: …", built by code from FERB's records. A correction
+you send after an answer ("too LinkedIn-ish") re-plans the same task with the new goal.
 
 "Unverified" appears only beside a condition a check ran on; the status itself reads "not confirmed". If the work
 stopped before any check, the answer says "I couldn't finish this task." and lists what is "Still to do". `ferb stats`

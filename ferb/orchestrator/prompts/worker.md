@@ -190,18 +190,16 @@ Return the supplied JSON schema:
   into answer. The owner-facing answer must stand on its own with the facts relevant to their request.
 - artifacts: paths of deliverables created or changed.
 - evidence: observations supporting the result and the exact failures useful for recovery.
-- answer: the owner-facing answer, written in this same call separately from the evidence report. Follow the shared
-  communication contract: lead with the result, keep decision-relevant facts and material gaps, then stop. Include
-  requested substantive content in full; a short status reply must not replace the requested answer or deliverable.
-  Name a requested delegate's contribution and any substitution truthfully, and preserve account/source distinctions
-  that change the result. Routine tool names, checklists and evidence narration belong in summary/evidence. Explain
-  how an unresolved point can be checked when that helps you act. Do not write a verification marker: the app
-  shows a confirmed result itself, after the check. Skip additional completion preambles.
-- display_text: write a separate concise visible version of answer, preserving the actual result, requested facts,
-  useful deliverable links, attribution and material limitations. It answers the owner's question as they asked it,
-  in the conversation's context, and keeps the fact their conversation is about even when it sits deep in answer.
-  The full answer remains expandable. Remove repeated task descriptions, process narration and defensive filler; do
-  not merely copy a long answer. The verifier checks this wording too. Do not add a verification marker.
+- answer: the owner-facing answer, written in this same call separately from the evidence report. The owner sees it
+  in full, as written: there is no separate short version. Follow the shared communication contract: lead with the
+  result, keep decision-relevant facts and material gaps, then stop. It answers the owner's question as they asked
+  it, in the conversation's context, and keeps the fact their conversation is about. Include requested substantive
+  content in full; a short status reply must not replace the requested answer or deliverable. Name a requested
+  delegate's contribution and any substitution truthfully, and preserve account/source distinctions that change the
+  result. Routine tool names, checklists and evidence narration belong in summary/evidence. Remove repeated task
+  descriptions, process narration and defensive filler. Explain how an unresolved point can be checked when that
+  helps you act. The verifier checks this wording. Do not write a verification marker: the app shows a confirmed
+  result itself, after the check. Skip additional completion preambles.
 - input_notes: for a map batch, one complete note per assigned input, with input exactly its inventoried path, note
   containing the findings against the owner's criteria, and evidence listing source references. Omit no input and
   do not replace notes with a claim that you read everything. For other work use an empty array.

@@ -1,4 +1,5 @@
-"""Provisional owner text from a pure conversational planner response.
+"""Provisional owner text from a pure conversational planner response: its full `text`, the one answer the owner
+sees (owner, 2026-10-24), written last.
 
 Raw structured fragments stay in memory. Action-bearing and reordered responses
 remain final-only; malformed drafts are withdrawn. Worker reports and reasoning never enter this path.
@@ -84,9 +85,9 @@ class ReplyDraft:
             self.emit({'type': 'reply_delta', 'text': guarded})
 
     def _eligible(self) -> bool:
-        expected = set(SUPERVISOR_SCHEMA['properties']) - {'display_text'}
+        expected = set(SUPERVISOR_SCHEMA['properties']) - {'text'}
         return (set(self.metadata) == expected and self.metadata.get('kind') in ('reply', 'clarify')
-                and all(value is None or value == [] for key, value in self.metadata.items() if key not in ('kind', 'text')))
+                and all(value is None or value == [] for key, value in self.metadata.items() if key != 'kind'))
 
     def feed(self, fragment: str) -> None:
         if self.closed:
@@ -125,7 +126,7 @@ class ReplyDraft:
                     raise ValueError('expected colon')
                 self.state = 'value'
             elif self.state == 'value':
-                if self.key == 'display_text':
+                if self.key == 'text':
                     if char != '"' or not self._eligible():
                         self.abort()
                         return ''
@@ -155,7 +156,7 @@ class ReplyDraft:
                     continue
             elif self.state == 'closing':
                 if char != '}':
-                    raise ValueError('display_text must be last')
+                    raise ValueError('text must be last')
                 self.state = 'complete'
             else:
                 raise ValueError('trailing content')

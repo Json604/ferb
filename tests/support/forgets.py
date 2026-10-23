@@ -16,7 +16,7 @@ def _on_loop(d: RunningDaemon, fn: Any) -> Any:
 
 
 def _reply(text: str, **more: Any) -> str:
-    return json.dumps({"kind": "reply", "text": text, "display_text": text, **more})
+    return json.dumps({"kind": "reply", "text": text, **more})
 
 
 def _remember(d: RunningDaemon, said: str, content: str, key: str) -> Any:

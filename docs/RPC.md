@@ -153,21 +153,21 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
 
 `outcome` includes status (`done` only when every condition was verified, `done_unverified` when the work finished
 but a check couldn't confirm it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
-`stop_reason`, and resource outcomes. Render optional `display_text` as the concise reply and retain the complete `answer` in expandable Details.
-If absent/empty, fall back to `answer`. Do not invent a client summary or change completion status.
-`verified` (bool) is true only for `done`, when every condition was checked true; show it as a check mark. Neither
-`answer` nor `display_text` carries a "Verified." prefix (L11). For `failed`, `needs_user` and `done_unverified`,
-`display_text` starts with FERB's status line (such as "Done, but not confirmed:"), followed by the short text the
-orchestrator wrote from the check's verdict (without one: the reason work stopped and the files); a `needs_user`
-outcome then shows FERB's copy of the open question on its own `Question: …` line. The checker's findings stay in
-`answer`. A task that ended without the owner's stop says why in plain words, never an exception's name.
+`stop_reason`, and resource outcomes. Render `answer` in full: it is the answer the owner reads, with no separate
+short text (owner, 2026-10-24; outcomes recorded before then may still carry a `display_text`, which a client may show
+with `answer` under Details). Do not invent a client summary or change completion status.
+`verified` (bool) is true only for `done`, when every condition was checked true; show it as a check mark. `answer`
+carries no "Verified." prefix (L11). For `failed`, `needs_user` and `done_unverified`, `answer` starts with FERB's
+status line (such as "Done, but not confirmed:"), then a `needs_user` outcome's open question on its own
+`Question: …` line, the checker's findings, why work stopped, what was confirmed and the files. A task that ended
+without the owner's stop says why in plain words, never an exception's name.
 When the task reached any site, `answer` ends with a code-built line `Sites contacted: host, host` (L2's list).
 What FERB did with a turn's reminders, memory writes, reminder cancels and schedules is said in code-built lines
 ("⏰ Reminder set for …", "Remembered: …", "🗓 Scheduled: …", "⏰ Cancelled the reminder …", what already exists for
 a reminder its message already had set, or one line naming what it refused; plain words, never an internal id),
 never by the planner's text: a `reply`/`clarify` gets them appended to
-`text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
-do), and the outcome's `answer` and `display_text` carry every line. A `timer` event for a reminder just set carries
+`text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
+do), and the outcome's `answer` carries every line. A `timer` event for a reminder just set carries
 its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply names the change
 ("Switched to: …"). A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
 change anything:", its steps, estimates and standing scopes); work has already started, and a reply is a correction
@@ -180,7 +180,7 @@ owner's typed words).
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.
-They are not a completed answer or proof of an action. The authoritative `reply`/`clarify` replaces the draft with `display_text` (fallback `text`), retaining `text` as Details;
+They are not a completed answer or proof of an action. The authoritative `reply`/`clarify` replaces the draft with its `text`;
 `plan` clears it and starts normal task presentation. `reply_abort` with `{reason}` withdraws the draft. A transport
 failure or EOF before an authoritative event must mark the draft interrupted, never completed or replayed.
 Ignore late fragments after a final/plan. Do not speak, notify completion, or save partial text as a completed answer.
@@ -188,7 +188,7 @@ Old clients may ignore these additional events and continue rendering the final 
 existing request connection and its `request_id`; independent submitted turns must never share their draft buffer.
 
 Streaming is genuine provider output, not a delayed replay of an already-complete answer. The supervisor releases
-only a top-level `display_text` field written last, after full `text` and every action/control field establishes a pure conversation turn. It
+only the top-level `text` field written last, after every action/control field establishes a pure conversation turn. It
 buffers action receipts, reordered output and task/worker/checker answers through execution and verification.
 Secret redaction and FERB-label marking preserve state across fragments. Raw provider JSON, reasoning, tool
 arguments and partial replies are not added to the daemon's journal or trace; canonical replies still are.
@@ -201,7 +201,7 @@ into planning or persistence. Pasted outside text must retain the CLI's external
 explicitly identifies it as their own request.
 
 Status results include `request_id` and `at` (as on `task.result`, so a client whose `chat.send` stream ended early can
-still place the answer), `display_text`, `artifacts`, `verified` and `verification`; pending approvals include their
+still place the answer), `artifacts`, `verified` and `verification`; pending approvals include their
 `task_id` root when the request maps to one tree, otherwise null. Clients must not guess a task identity from display
 text.
 The full final answer and artifact list also persist as `trace.get.outcome.result` for known-task reconnect, even

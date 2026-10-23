@@ -125,7 +125,8 @@ def test_a_one_shot_watch_ends_itself_once_a_confirmed_run_finds_it_met(daemon: 
     assert met.data["task_id"] == answer["task_id"]
     assert answer["answer"].startswith("done.txt is in Downloads now.")
     assert answer["answer"].endswith(f"🗓 Stopped checking: {FILE_WATCH}")
-    assert notes == [("FERB alert", f"done.txt is in Downloads now.\n🗓 Stopped checking: {FILE_WATCH}")]
+    # the alert is the full answer, stop line included (owner, 2026-10-24: no separate short text)
+    assert notes == [("FERB alert", f"done.txt is in Downloads now.\n\n🗓 Stopped checking: {FILE_WATCH}")]
     c = Client(daemon.sock)
     try:
         assert c.call("schedules.list")["schedules"] == []
@@ -421,7 +422,7 @@ def test_a_watch_paused_or_cancelled_during_its_ending_run_stays_as_the_owner_se
     assert notes == [("FERB alert", "done.txt is in Downloads now.")]       # told, without a stop line
 
 
-def test_the_stop_line_is_in_the_short_text_a_client_restores(daemon: RunningDaemon) -> None:
+def test_the_stop_line_is_in_the_answer_a_client_restores(daemon: RunningDaemon) -> None:
     s = _watch(daemon, FILE_WATCH, FILE_WORDS, "until_met")
     install(daemon, [sup("task", "Checking.", task("check whether done.txt exists"))],
             {"worker": _check(True, "done.txt is in Downloads now.")})
@@ -432,7 +433,10 @@ def test_the_stop_line_is_in_the_short_text_a_client_restores(daemon: RunningDae
         [restored] = c.call("chat.status", {"peek": True})["results"]         # the app's restore path (M3)
     finally:
         c.close()
-    assert restored["display_text"].endswith(f"🗓 Stopped checking: {FILE_WATCH}")
+    assert restored["answer"].endswith(f"🗓 Stopped checking: {FILE_WATCH}") and "display_text" not in restored
+    # ... and in the task's record, which later planner turns read (review M3)
+    [row] = run(daemon, lambda: daemon.daemon.tasks.rows(restored["task_id"]))[:1]
+    assert json.loads(row["outcome_json"])["answer"].endswith(f"🗓 Stopped checking: {FILE_WATCH}")
 
 
 def test_a_failed_attempt_does_not_keep_an_earlier_attempts_report(daemon: RunningDaemon) -> None:

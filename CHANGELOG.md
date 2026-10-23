@@ -632,6 +632,19 @@ After the owner's update (2026-10-24):
   13 planner turns since 2026-10-23 showed them as "unconfirmed hint" lines. Now the index sets a stored memory's
   state from its item on its next pass (every planner turn): they leave the prompts and `memory.learned`, and the
   dashboard offers their Confirm. A memory you retired, or one a rollback undid, stays as it is.
+- Every answer shows its full detailed text, with no short summary above a "Details" disclosure (owner, 2026-10-24:
+  "the details response is better. remove the summarised short response as of now"; amends P30's "short by default"
+  and the concise `display_text` of 0.27.0.dev1). The planner, workers and the orchestrator's recovery no longer write
+  a separate short version: a direct reply streams its full text as it is written, and a task's answer is the full
+  answer, with the side lines and "Sites contacted" line FERB adds. An unfinished task shows FERB's status line, then
+  its question, the check's findings, why work stopped, what was confirmed and the files. The checker still judges
+  the worker's answer against its separate evidence report (P31). Questions are unchanged: a reworded question still
+  shows its direct version, with the complete question under Details. Notifications and `ferb chat` show the full
+  answer too. Answers saved before this change keep their short text and Details in the app.
+- A file macOS won't let FERB look at no longer ends your turn (P15, L23). Live 2026-10-24, "ok start cleaning": the
+  plan listed `/private/var/folders`, where macOS refuses even to look at some entries ("Operation not permitted");
+  the plan's file count stopped on the first one, and you got "something went wrong on my side". Such an entry is now
+  left out of the count, as a protected file already is.
 
 Licensed under Apache-2.0.
 
