@@ -105,3 +105,76 @@ def test_only_reading_tools_that_move_nothing_are_probe_safe():
 def test_a_missing_baseline_never_crashes_a_comparison():
     assert tripped(_probe(op='changed'), 5, MISSING)             # a value appeared where none was
     assert not same(MISSING, None) and same(MISSING, MISSING)
+
+
+from ferb.orchestrator.loops import (CHURN_ROUNDS, FIRST_GAP_SECONDS, MAX_GAP_SECONDS, NO_LASTING_FIX_SECONDS,  # noqa: E402
+                                     RESET_SECONDS, LoopStore, Pacer)
+
+
+def test_three_short_rounds_in_ten_minutes_start_a_back_off_that_doubles_to_an_hour():
+    p = Pacer()
+    t = 1000.0
+    starts = []
+    for n in range(10):
+        p.ended(t)
+        t += 30                                          # the probe trips 30 s after each round: no lasting fix
+        starts.append(p.tripped(t))
+        t = p.start_at(t) + 5                            # the next round runs when allowed, takes 5 s
+    assert starts[:3] == [False, False, True]            # the third short round starts the episode (one notice)
+    assert not any(starts[3:])
+    assert p.episode and p.gap == MAX_GAP_SECONDS        # 120, 240, … capped at 3600
+
+
+def test_a_fix_that_lasts_thirty_minutes_resets_the_pace():
+    p = Pacer()
+    t = 0.0
+    for _ in range(CHURN_ROUNDS):
+        p.ended(t)
+        t += 10
+        p.tripped(t)
+    assert p.gap == FIRST_GAP_SECONDS
+    p.ended(t)
+    assert p.lasted(t + RESET_SECONDS)
+    assert (p.gap, p.short, p.episode) == (0.0, [], False)
+
+
+def test_a_trip_after_two_minutes_is_not_a_short_round():
+    p = Pacer()
+    p.ended(0.0)
+    assert not p.tripped(NO_LASTING_FIX_SECONDS + 1)
+    assert p.short == []
+
+
+def test_pacer_round_trips_through_json():
+    p = Pacer(gap=240.0, short=[1.0, 2.0], episode=True, last_end=3.0)
+    assert Pacer.from_json(p.to_json()) == p
+    assert Pacer.from_json('{}') == Pacer()
+
+
+def test_loop_state_is_durable(tmp_path):
+    from ferb.store.db import Database
+    from ferb.clock.clock import FakeClock
+    db = Database(tmp_path / 's.db'); db.migrate()
+    store = LoopStore(db, FakeClock())
+    row = store.load('tree', 'keep', steers=2, cursor=7)
+    assert (row['state'], row['rounds'], row['steer_seen'], row['event_cursor']) == ('acting', 0, 2, 7)
+    store.save('tree', 'keep', state='watching', rounds=3, recent_json='["a"]')
+    again = LoopStore(db, FakeClock()).load('tree', 'keep', steers=9, cursor=9)
+    assert (again['state'], again['rounds'], again['steer_seen']) == ('watching', 3, 2)   # created once only
+    assert store.digest('tree', 'keep') == {'rounds': 3, 'recent': ['a']}
+    assert [r['step_id'] for r in store.running()] == ['keep']
+    store.save('tree', 'keep', state='stopped')
+    assert store.running() == []
+
+
+def test_plan_events_report_their_sequence(tmp_path):
+    from ferb.orchestrator.plan_store import PlanStore
+    from ferb.orchestrator.plans import EventMatch
+    from ferb.store.db import Database
+    db = Database(tmp_path / 's.db'); db.migrate()
+    plans = PlanStore(db, lambda v: v)
+    plans.event('ci.finished', {'pr': '11'})
+    plans.event('ci.finished', {'pr': '12'})
+    seq, payload = plans.event_seq_after('ci.finished', 0, [EventMatch(field='pr', value='12')])
+    assert payload == {'pr': '12'} and seq == plans.event_cursor()
+    assert plans.event_seq_after('ci.finished', seq, []) is None

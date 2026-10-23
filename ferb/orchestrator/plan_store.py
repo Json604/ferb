@@ -101,5 +101,15 @@ class PlanStore:
                 return payload
         return None
 
+    def event_seq_after(self, name: str, after: int,
+                        matches: list[Any] | None = None) -> tuple[int, dict[str, Any]] | None:
+        """The first matching event after `after`, with its sequence number (a loop stores it as its cursor)."""
+        for row in self.db.conn.execute('SELECT seq,payload FROM plan_events WHERE event=? AND seq>? ORDER BY seq',
+                                       (name, after)):
+            payload = json.loads(row[1])
+            if all(m.field in payload and str(payload[m.field]) == m.value for m in matches or []):
+                return int(row[0]), payload
+        return None
+
     def event_cursor(self) -> int:
         return int(self.db.conn.execute('SELECT COALESCE(MAX(seq),0) FROM plan_events').fetchone()[0])
