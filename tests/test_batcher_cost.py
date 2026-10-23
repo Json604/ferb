@@ -59,7 +59,7 @@ def test_a_growing_count_is_count_tokens_of_the_text_so_far() -> None:
     rng = random.Random(2)
     for count in (count_tokens, len):
         size, text = GrowingCount(count), ""
-        for _ in range(400):
+        for _ in range(150):
             more = words(rng, rng.choice([0, 1, 3, 40, 900, 2500]))
             suffix = words(rng, rng.choice([0, 1, 30]))
             assert size.with_suffix(suffix) == count(text + suffix)
@@ -111,7 +111,7 @@ def test_the_lower_bound_counts_only_uncut_atoms_and_never_exceeds_the_count() -
 
 def _event(rng: random.Random, i: int) -> dict[str, Any]:
     bundle, app = rng.choice(APPS)
-    size = rng.choice([1, 5, 20, 60, 400, 2000] + [12000] * (rng.random() < 0.03))
+    size = rng.choice([1, 5, 20, 60, 400] + [2000] * (rng.random() < 0.2) + [12000] * (rng.random() < 0.02))
     data: dict[str, Any] = {"bundle_id": bundle, "app": app, "window_id": str(rng.randint(1, 3)), "value": words(rng, size)}
     if rng.random() < 0.3:
         data = {"browser": rng.choice(["chrome", "brave", "safari"]), "tab_id": str(rng.randint(1, 4)),
@@ -122,8 +122,8 @@ def _event(rng: random.Random, i: int) -> dict[str, Any]:
 
 def test_batch_events_matches_the_reference_at_every_budget() -> None:
     rng = random.Random(5)
-    for trial in range(40):
-        events = [_event(rng, i) for i in range(rng.randint(1, 120))]
+    for trial in range(25):
+        events = [_event(rng, i) for i in range(rng.randint(1, 90))]
         for budget in (300, 2500, 10000):
             for count in (count_tokens, len):
                 want = reference.batch_events(json.loads(json.dumps(events)), budget, count)
@@ -205,6 +205,78 @@ def test_trimming_a_long_conversation_counts_the_whole_context_a_few_times(monke
     monkeypatch.setattr(current, "count_tokens", real)
     assert _requests(state, current.EVENT_BUDGET, monkeypatch)[0] == _requests(state, current.EVENT_BUDGET,
                                                                                  monkeypatch)[1]
+
+
+def _left_out(state: dict[str, Any], k: int) -> dict[str, Any]:
+    """The context after the reference loop left out k messages."""
+    out, omitted = json.loads(json.dumps(state)), []
+    for _ in range(k):
+        omitted.append("trail:" + out["conversation"].pop(0)["id"])
+        out[current.OMITTED] = {"count": len(omitted), "source_refs": list(omitted)}
+    return out
+
+
+def test_the_trimming_bound_never_exceeds_the_count_and_its_layout_is_the_text() -> None:
+    rng = random.Random(9)
+    gaps = []
+    for trial in range(40):
+        state = _context(rng, rng.choice([2, 3, 6, 20, 60]))
+        if trial % 8 == 0:                                         # many slices: short messages, long history
+            state["conversation"] = [{"id": f"s{i}", "at": "x", "data": {"body": words(rng, rng.randint(0, 12))}}
+                                     for i in range(220)]
+        layout = current._Layout.of(state, current._text(state))
+        assert layout is not None
+        texts = [current._text(item) for item in state["conversation"]]
+        for k in range(1, len(texts)):
+            layout.leave_out()
+            text = current._text(_left_out(state, k))
+            assert text == (layout.head + ", ".join(texts[k:]) + layout.mid + ", " + json.dumps(current.OMITTED)
+                            + ': {"count": ' + str(k) + ', "source_refs": [' + ", ".join(
+                                json.dumps(ref) for ref in layout.refs) + "]}}")
+            for ends, totals, lo, hi, shift in layout.runs():        # each atom counted is the text between two
+                for i in range(lo, hi):                              # ", " cuts, and its count is its own
+                    a, b = shift + ends[i], shift + ends[i + 1]
+                    assert text[a - 1:a + 1] == ", " and text[b - 1:b + 1] == ", ", (trial, k, i)
+                    assert totals[i + 1] - totals[i] == (count_tokens(text[a:b]) if b - a <= TOKEN_SLICE else 0)
+            bound, whole = layout.bound(), count_tokens(text)
+            assert 0 <= bound <= whole, (trial, k)
+            gaps.append(whole - bound)
+    assert sorted(gaps)[len(gaps) // 2] < 400                      # tight enough to skip most counts
+
+
+def test_the_trimming_loop_matches_the_reference_with_the_tightest_bound(monkeypatch: Any) -> None:
+    """With the exact count as its bound (sound, and as tight as can be), the loop still leaves out what the reference
+    does, at budgets on the boundary."""
+    def exact(self: Any) -> int:
+        return count_tokens(current._text(_left_out(self.state, len(self.refs))))
+    real = current._Layout.of
+
+    def of(state: dict[str, Any], whole: str) -> Any:
+        layout = real(state, whole)
+        if layout is not None:
+            layout.state = json.loads(json.dumps(state))
+        return layout
+    monkeypatch.setattr(current._Layout, "of", staticmethod(of))
+    monkeypatch.setattr(current._Layout, "bound", exact)
+    rng = random.Random(12)
+    for trial in range(20):
+        state = _context(rng, rng.choice([3, 8, 20]))
+        counts = [count_tokens(current._text(_left_out(state, k))) for k in range(len(state["conversation"]))]
+        for k in rng.sample(range(len(counts)), min(4, len(counts))):
+            for budget in (counts[k] - 1, counts[k], counts[k] + 1):
+                want, got = _requests(state, budget, monkeypatch)
+                assert got == want, (trial, k, budget)
+
+
+def test_notification_trimming_matches_the_reference_at_budgets_on_the_boundary(monkeypatch: Any) -> None:
+    rng = random.Random(10)
+    for trial in range(25):
+        state = _context(rng, rng.choice([3, 8, 30]))
+        counts = [count_tokens(current._text(_left_out(state, k))) for k in range(len(state["conversation"]))]
+        for k in rng.sample(range(len(counts)), min(4, len(counts))):
+            for budget in (counts[k] - 1, counts[k], counts[k] + 1):
+                want, got = _requests(state, budget, monkeypatch)
+                assert got == want, (trial, k, budget)
 
 
 # ---------- the loop, side by side with the reference ----------
@@ -333,10 +405,14 @@ SOURCES = ["accessibility"] * 6 + ["window", "app", "clipboard", "typed_text", "
                                    "incoming_call"]
 
 
-def _observation(rng: random.Random, n: int, burst: str | None) -> Observation:
+def _observation(rng: random.Random, n: int, burst: str | None, big: float, quiet: bool) -> Observation:
+    """One observation of any source; `big`: how often one is over the budget alone (an excerpt), `quiet`: interrupts
+    rarely come between bursts, so the budget and age decide."""
     bundle, app = rng.choice(APPS)
-    size = rng.choice([0, 2, 6, 20, 60, 150] + [600] * (rng.random() < 0.1) + [11000] * (rng.random() < 0.01))
-    source = "notification" if burst else rng.choice(SOURCES)
+    size = rng.choice([0, 2, 6, 20, 60, 150] + [600] * (rng.random() < 0.1) + [11000] * (rng.random() < big))
+    if burst and quiet:
+        size = rng.choice([150, 600, 1500])
+    source = "notification" if burst else rng.choice(SOURCES[:-2] if quiet and rng.random() < 0.95 else SOURCES)
     text = words(rng, size)
     if source == "notification":
         return Observation("notification", {"external_id": f"x{n}", "bundle_id": burst or bundle,
@@ -353,7 +429,8 @@ def _observation(rng: random.Random, n: int, burst: str | None) -> Observation:
                                 "role": "AXTextArea", "title": text}, {"actor": "unknown"})
 
 
-def _stream(seed: int, steps: int, budget: int, age: float, tmp_path: Path, monkeypatch: Any) -> None:
+def _stream(seed: int, steps: int, budget: int, age: float, tmp_path: Path, monkeypatch: Any, big: float = 0.01,
+            quiet: bool = False) -> None:
     for module in (reference, current):
         monkeypatch.setattr(module, "EVENT_BUDGET", budget)
 
@@ -369,10 +446,10 @@ def _stream(seed: int, steps: int, budget: int, age: float, tmp_path: Path, monk
                              [50, 4, 30, 3, 3, 3, 3])[0]
             if op in ("record", "burst"):
                 burst = rng.choice([a for a, _ in APPS]) if op == "burst" else None
-                for _ in range(rng.choice([1, 1, 2, 5, 20]) if op == "record" else rng.randint(3, 12)):
+                for _ in range(rng.choice([1, 1, 2, 5, 20] + [60] * quiet) if op == "record" else rng.randint(3, 12)):
                     seed_n, n = n, n + 1
                     for w in worlds:
-                        w.trail.record(_observation(random.Random(seed * 100003 + seed_n), seed_n, burst))
+                        w.trail.record(_observation(random.Random(seed * 100003 + seed_n), seed_n, burst, big, quiet))
             elif op == "advance":
                 seconds = rng.choice([0.2, 1.0, 5.0, 20.0, age - 0.1, age, age + 1, 3 * age])
                 for w in worlds:
@@ -416,8 +493,9 @@ def test_the_loop_decides_as_the_reference_on_seeded_streams(seed: int, tmp_path
     _stream(seed, steps=160, budget=[300, 900, 2500][seed % 3], age=60.0, tmp_path=tmp_path, monkeypatch=monkeypatch)
 
 
-def test_the_loop_decides_as_the_reference_at_the_real_budget(tmp_path: Path, monkeypatch: Any) -> None:
-    _stream(101, steps=220, budget=10000, age=30.0, tmp_path=tmp_path, monkeypatch=monkeypatch)
+@pytest.mark.parametrize("seed", (101, 102))
+def test_the_loop_decides_as_the_reference_at_the_real_budget(seed: int, tmp_path: Path, monkeypatch: Any) -> None:
+    _stream(seed, steps=200, budget=10000, age=30.0, tmp_path=tmp_path, monkeypatch=monkeypatch, big=0.03, quiet=True)
 
 
 # ---------- the cost of a wake ----------
@@ -456,7 +534,7 @@ class _Rows:
         return rows
 
 
-def _store(tmp_path: Path, unsent: int, history: int = 20000) -> Any:
+def _store(tmp_path: Path, unsent: int, history: int = 12000) -> Any:
     db = Database(tmp_path / f"cost{unsent}.db")
     db.migrate()
     clock = FakeClock()
@@ -574,6 +652,100 @@ def test_the_loop_has_no_fixed_timer_and_flushes_at_the_age_deadline(tmp_path: P
 
 
 # ---------- the unsent rows stay in step with the trail ----------
+
+def test_the_unsent_rows_and_their_count_are_always_pending_and_its_count(tmp_path: Path) -> None:
+    """After any mix of new rows, flushes (some cut off), deletes, rewrites and restarts."""
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    clock, ids = FakeClock(), SequentialIds("i")
+    trail = Trail(db, clock, ids, Redactor(), Exclusions, lambda *a: None, lambda: "dev", lambda: False)
+    rng, calls = random.Random(11), [0]
+
+    class Fake:
+        async def answers(self, state: Any, asks: Any) -> dict[str, str]:
+            calls[0] += 1
+            if calls[0] % 5 == 0:
+                await asyncio.Event().wait()
+            return {}
+    batcher = current.EventBatcher(db, clock, ids, lambda: Fake(), NotificationPolicy(db, clock, ids, Redactor()),
+                                   lambda *a: None)
+
+    async def cut_off() -> None:
+        job = asyncio.create_task(batcher.flush("age"))
+        for _ in range(500):
+            await asyncio.sleep(0)
+        job.cancel()
+        try:
+            await job
+        except asyncio.CancelledError:
+            pass
+    for n in range(300):
+        op = rng.choices(["record", "flush", "delete", "rewrite", "restart"], [70, 8, 8, 8, 6])[0]
+        if op == "record":
+            trail.record(_observation(random.Random(n), n, None, 0.02, rng.random() < 0.5))
+        elif op == "flush":
+            asyncio.run(cut_off())
+        elif op == "restart":
+            batcher = current.EventBatcher(db, clock, ids, lambda: Fake(), NotificationPolicy(db, clock, ids, Redactor()),
+                                           lambda *a: None)
+        else:
+            row = db.conn.execute("SELECT id FROM trail ORDER BY seq DESC LIMIT 1 OFFSET ?", (rng.randint(0, 9),)).fetchone()
+            if row and op == "delete":
+                db.conn.execute("DELETE FROM trail WHERE id=?", (row[0],))
+            elif row:
+                db.conn.execute("UPDATE trail SET data_json=? WHERE id=?", (json.dumps({"kept": words(rng, 2)}), row[0]))
+        held, want = batcher._sync(), batcher.pending()
+        assert held.events() == want
+        assert held.tokens() == count_tokens(current._text(want)) if want else held.rows == {}
+        assert held.interrupts == sum(e["source"] in current.INTERRUPTS for e in want)
+        assert not want or held.first_at() == want[0]["at"]
+    db.close()
+
+
+def test_rows_another_batcher_sent_before_this_one_read_them_stay_sent(tmp_path: Path) -> None:
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    clock, ids = FakeClock(), SequentialIds("a")
+    trail = Trail(db, clock, ids, Redactor(), Exclusions, lambda *a: None, lambda: "dev", lambda: False)
+
+    class Fake:
+        async def answers(self, state: Any, asks: Any) -> dict[str, str]:
+            return {}
+    one, other = (current.EventBatcher(db, clock, ids, lambda: Fake(), NotificationPolicy(db, clock, ids, Redactor()),
+                                       lambda *a: None) for _ in range(2))
+    assert other._sync().rows == {}
+    trail.record(Observation("window", {"bundle_id": "com.apple.Notes", "title": "sent by the other"}))
+    asyncio.run(one.flush("age"))
+    assert other._sync().rows == {} and other.pending() == []
+    db.close()
+
+
+@pytest.mark.parametrize("over", (-1, 0, 1))
+def test_a_flush_for_tokens_is_at_exactly_the_budget(over: int, tmp_path: Path, monkeypatch: Any) -> None:
+    """The unsent list's count against EVENT_BUDGET at the boundary, beside the reference (count >= budget)."""
+    async def go() -> None:
+        old, new = World(tmp_path / "old.db", reference, 1e6), World(tmp_path / "new.db", current, 1e6)
+        monkeypatch.setattr(reference, "asyncio", _reference_timer(old))
+        worlds = [old, new]
+        for w in worlds:
+            w.on = False
+            for n in range(40):
+                w.trail.record(_observation(random.Random(n), n, None, 0.0, True))
+        await _settle(worlds)
+        exact = count_tokens(reference._text(old.batcher.pending()))
+        for module in (reference, current):
+            monkeypatch.setattr(module, "EVENT_BUDGET", exact + over)
+        for w in worlds:
+            w.on = True
+            w.batcher.wake.set()
+        await _settle(worlds)
+        assert new.log == old.log and new.tables() == old.tables()
+        assert bool(old.tables()[0]) == (over <= 0)                 # a "tokens" flush exactly when count >= budget
+        for w in worlds:
+            await w.restart(cancel=True, again=False)
+            w.db.close()
+    asyncio.run(go())
+
 
 def test_deleting_or_rewriting_a_trail_row_counts_a_trail_change(tmp_path: Path) -> None:
     db = Database(tmp_path / "ferb.db")

@@ -98,62 +98,84 @@ def _totals(text: str, bounds: list[int]) -> list[int]:
     return list(accumulate((_own(text[a:b]) for a, b in zip(bounds, bounds[1:])), initial=0))
 
 
-def _trim(state: dict[str, Any]) -> None:
-    """The notification context's oldest messages are left out one at a time until it fits EVENT_BUDGET or none is
-    left, and named in omitted_oldest_messages: the result of counting the whole context after each one. The whole
-    context is counted only where a lower bound (ferb.core.context.uncut_count) can't tell it is still over: that bound
-    sums the messages, the left-out refs and the other keys' parts that lie between ", " cuts and inside one slice."""
-    conversation = state["conversation"]
-    if not conversation or count_tokens(whole := _text(state)) <= EVENT_BUDGET:
-        return
-    keys = list(state)
-    plain = type(conversation) is list and OMITTED not in state and all(isinstance(key, str) for key in keys)
-    if plain:
-        items, texts = list(conversation), [_text(item) for item in conversation]
+class _Layout:
+    """A notification context's text with its k oldest messages left out, as _text gives it: head, the messages kept
+    joined by ", ", mid (the keys after "conversation"), then ', "omitted_oldest_messages": {"count": k, "source_refs":
+    [' and the k refs joined by ", " and "]}}". Message i's atom " " + its JSON + "," spans ends[i]..ends[i + 1], a ref's
+    likewise in ref_ends. bound() sums the atoms of ferb.core.context's point 3: each kept message between two others,
+    each ref between two others and each part of head and mid between ", " cuts, when inside one slice."""
+
+    def __init__(self, items: list[Any], texts: list[str], head: str, mid: str) -> None:
+        self.items, self.head, self.mid = items, head, mid
+        self.ends = list(accumulate((len(t) + 2 for t in texts), initial=0))
+        self.totals = list(accumulate((_own(" " + t + ",") for t in texts), initial=0))
+        self.mid_bounds = comma_bounds(mid)
+        self.mid_totals = _totals(mid, self.mid_bounds)
+        bounds = comma_bounds(head)
+        self.fixed = uncut_count(bounds, _totals(head, bounds), 0, len(bounds) - 1, 0)
+        self.refs: list[str] = []
+        self.ref_ends, self.ref_totals = [0], [0]
+
+    @staticmethod
+    def of(state: dict[str, Any], whole: str) -> "_Layout | None":
+        """None for a context whose text isn't laid out so (not policy.context's shape)."""
+        conversation, keys = state["conversation"], list(state)
+        if type(conversation) is not list or OMITTED in state or not all(isinstance(key, str) for key in keys):
+            return None
+        texts = [_text(item) for item in conversation]
         at = keys.index("conversation")
         members = [_text(key) + ": " + _text(state[key]) for key in keys if key != "conversation"]
         head = "{" + "".join(member + ", " for member in members[:at]) + _text("conversation") + ": ["
         mid = "]" + "".join(", " + member for member in members[at:])
-        plain = head + ", ".join(texts) + mid + "}" == whole
-    if not plain:                                     # a context of another shape: count it whole every time
+        return _Layout(list(conversation), texts, head, mid) if head + ", ".join(texts) + mid + "}" == whole else None
+
+    def leave_out(self) -> None:
+        """The oldest message kept is left out; its ref joins the refs."""
+        self.refs.append("trail:" + self.items[len(self.refs)]["id"])
+        ref = _text(self.refs[-1])
+        self.ref_ends.append(self.ref_ends[-1] + len(ref) + 2)
+        self.ref_totals.append(self.ref_totals[-1] + _own(" " + ref + ","))
+
+    def runs(self) -> list[tuple[list[int], list[int], int, int, int]]:
+        """uncut_count's (ends, totals, lo, hi, shift) for the kept messages between two others, the parts of mid and
+        the refs between two others, with len(refs) messages left out and at least one kept."""
+        k, m, head = len(self.refs), len(self.items), len(self.head)
+        kept = self.ends[m] - self.ends[k] - 2                   # len(", ".join(the kept messages' JSON))
+        refs_at = head + kept + len(self.mid) + len(", " + _text(OMITTED) + ': {"count": ' + _text(k) +
+                                                    ', "source_refs": [')
+        return [(self.ends, self.totals, k + 1, m - 1, head - self.ends[k] - 1),
+                (self.mid_bounds, self.mid_totals, 0, len(self.mid_bounds) - 1, head + kept),
+                (self.ref_ends, self.ref_totals, 1, k - 1, refs_at - 1)]
+
+    def bound(self) -> int:
+        """At most count_tokens of the context with len(refs) messages left out and at least one kept."""
+        return self.fixed + sum(uncut_count(*run) for run in self.runs())
+
+
+def _trim(state: dict[str, Any]) -> None:
+    """The notification context's oldest messages are left out one at a time until it fits EVENT_BUDGET or none is
+    left, and named in omitted_oldest_messages: the result of counting the whole context after each one. The whole
+    context is counted only where _Layout's lower bound can't tell it is still over."""
+    conversation = state["conversation"]
+    if not conversation or count_tokens(whole := _text(state)) <= EVENT_BUDGET:
+        return
+    layout = _Layout.of(state, whole)
+    if layout is None:                                # another shape: count it whole after each one
         omitted: list[str] = []
         while state["conversation"] and count_tokens(_text(state)) > EVENT_BUDGET:
             omitted.append("trail:" + state["conversation"].pop(0)["id"])
             state[OMITTED] = {"count": len(omitted), "source_refs": list(omitted)}
         return
-    # text after k left out: head + ", ".join(texts[k:]) + mid + ', "omitted_oldest_messages": {"count": k,
-    # "source_refs": [' + ", ".join(refs) + "]}}". Message i's atom " " + texts[i] + "," spans ends[i]..ends[i + 1].
-    m = len(texts)
-    ends = list(accumulate((len(t) + 2 for t in texts), initial=0))
-    totals = list(accumulate((_own(" " + t + ",") for t in texts), initial=0))
-    head_bounds, mid_bounds = comma_bounds(head), comma_bounds(mid)
-    mid_totals = _totals(mid, mid_bounds)
-    fixed = uncut_count(head_bounds, _totals(head, head_bounds), 0, len(head_bounds) - 1, 0)
-    refs: list[str] = []
-    ref_ends, ref_totals = [0], [0]
-    k = 0
-    while k < m:
-        refs.append("trail:" + items[k]["id"])
-        ref = _text(refs[-1])
-        ref_ends.append(ref_ends[-1] + len(ref) + 2)
-        ref_totals.append(ref_totals[-1] + _own(" " + ref + ","))
-        k += 1
-        if k == m:
-            break
-        kept = ends[m] - ends[k] - 2                  # len(", ".join(texts[k:]))
-        refs_at = len(head) + kept + len(mid) + len(", " + _text(OMITTED) + ': {"count": ' + _text(k) +
-                                                    ', "source_refs": [')
-        bound = (fixed + uncut_count(ends, totals, k + 1, m - 1, len(head) - ends[k] - 1)
-                 + uncut_count(mid_bounds, mid_totals, 0, len(mid_bounds) - 1, len(head) + kept)
-                 + uncut_count(ref_ends, ref_totals, 1, k - 1, refs_at - 1))
-        if bound > EVENT_BUDGET:
+    m = len(layout.items)
+    while True:
+        layout.leave_out()
+        k = len(layout.refs)
+        if k < m and layout.bound() > EVENT_BUDGET:
             continue                                  # surely still over: leave the next one out too
         del conversation[:len(conversation) - (m - k)]
-        state[OMITTED] = {"count": k, "source_refs": list(refs)}
-        if count_tokens(_text(state)) <= EVENT_BUDGET:
+        state[OMITTED] = {"count": k, "source_refs": list(layout.refs)}
+        if k == m or count_tokens(_text(state)) <= EVENT_BUDGET:
             return
-    del conversation[:len(conversation) - (m - k)]
-    state[OMITTED] = {"count": k, "source_refs": list(refs)}
 
 
 class _Unsent:
