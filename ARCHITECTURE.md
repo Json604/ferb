@@ -492,6 +492,23 @@ of code redaction. `notification.attention` cannot be enabled; its owner-labelle
 authorization or target-routing rule depends on Jev. Since the launch week a Jev yes leads to one consideration per
 app and a chat notice (section 16, L9/L10); typed text is captured again (L17).
 
+The batcher's cost (P1/D10, perf plan 2026-10-23): its decisions are those above, exactly, but a wake works only on
+what is new. `_Unsent` holds the rows `pending()` gives, in seq order, each with its JSON as it stands in the list
+counted against `EVENT_BUDGET`, the number of interrupts, and that list's running count (`GrowingCount` in
+`core/context.py`: `count_tokens` sums 8192-character slices, so a complete slice is never counted again). `_sync`
+reads only rows after the last seq seen (a rowid range, LEFT JOIN on receipts). A changed `perception_floor` reads
+everything again. Migration 0044's `trail_changes` counter, bumped by triggers on trail DELETE and UPDATE OF data_json
+from any connection, makes it read the held rows again by seq. Inside an open transaction it reads everything and
+keeps nothing, because a rolled-back seq is handed out again. Receipts are written only by `flush`, which drops what it
+sent, or reads everything again after a cancelled or failed flush; `run` releases in-flight receipts and reads
+everything. The loop waits on `wake` (every trail event; `_wire_jev`), `stop` and `clock.sleep_until(age deadline)`,
+with no fixed timer. `batch_events` grows each batch's count the same way. The notification trimming (`_trim`,
+`_Layout`) counts the whole context only when `uncut_count`'s lower bound doesn't already exceed the budget. That bound
+is safe because o200k always ends a piece right after a comma that a space follows (proof in `core/context.py`; a test
+pins `_PATTERN`), so an atom between two such cuts inside one slice adds exactly its own count.
+`tests/test_batcher_cost.py` drives `tests/support/batches_reference.py` (the module before, verbatim) side by side
+with the current one; `perception.status` `unsent_events` still counts with the full query.
+
 `device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
 app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
 establishes an occupation. One asynchronous `mdls` batch reads the metadata; plist-array entries are matched to apps

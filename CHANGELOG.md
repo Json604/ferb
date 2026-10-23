@@ -497,6 +497,32 @@ issues with ferb again"; not installed or live-tested):
 - After it, forgetting an activity row a task's planner was only shown no longer touches that task's card (the
   current rule since C1). Forgetting one its actions used still forgets the card and everything built on it.
 
+Perception's cost (P1/D10, perf plan 2026-10-23; owner: "i dont want my mac hot al the time"; not installed or
+live-tested):
+- The perception batcher no longer re-reads every unsent trail row, re-encodes them and counts their tokens on each
+  wake (once a second and on every new event). On your installed daemon that kept the main thread about 93% busy. It
+  now keeps the unsent events in memory with each one's JSON and a running token count, and reads only rows newer than
+  the last it saw. It sleeps until an event arrives, Jev changes, the oldest unsent event reaches `sense.batch_age_s`,
+  or FERB stops: no 1 s timer. Migration 0044 counts trail rows deleted (retention, forget) or rewritten (the
+  seven-day text expiry), so the events it holds are read again then.
+- Every decision is unchanged: when it flushes and why (interrupt, tokens, age), which events go in which batch, the
+  excerpts, how the notification context is trimmed, receipts, the install floor, and what happens while Jev is
+  unavailable or comes back. EVENT_BUDGET (10000) and the age keep their values and meaning, and token counts stay
+  exact: `count_tokens` adds up 8192-character slices, so only the last slice is counted again. The notification
+  trimming counts the whole context only where a proven lower bound can't tell it is still over. Tests drive the old
+  module (kept verbatim in `tests/support/batches_reference.py`) and the new one side by side on seeded streams.
+- Measured on a synthetic trail of 400,000 rows with 1,200 unsent events (0.32 MB of JSON):
+  - A wake took 100 ms. It now takes 0.005 ms with nothing new, and about 0.2 ms with one new event (0.34 ms
+    including recording it).
+  - Over 60 s with no events, the loop used 6.25 s of CPU (54 wakes, 10.4%). It now uses none (0 wakes).
+  - Over 60 s at 150 events a minute (the rate measured on your Mac), it used 19.9 s (32.9%). It now uses 0.39 s
+    (0.6%, including recording the events).
+  - Batching the 1,200 events for Jev took 621 ms; it now takes 196 ms.
+  - The first wake after a start reads every unsent row once (107 ms).
+- An age flush now happens at the deadline, not at the first 1 s tick after it. A changed `sense.batch_age_s`, or an
+  unsent row deleted or rewritten, takes effect at the next wake (the next event, a Jev change or the deadline)
+  instead of within a second.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
