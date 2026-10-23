@@ -693,6 +693,27 @@ to the Trash only while FERB's downloads folder is over `browser.download_total_
 `retention.downloads`). It never records a file gone or clears its path without looking: a row whose file is outside
 the downloads folder is left as it is, recorded once as skipped and not counted toward `browser.download_total_mb`.
 
+**Store clean-out and compaction (plan 2026-10-23 Task 1; L28, C1).** A one-time step of `ferb setup [--update]`,
+for stores holding run cards the composer before C1 wrote (section 14, "The card clean-out"). `_install`
+([`cli/setup.py`](ferb/cli/setup.py)) asks `card_cleanout_pending` read-only while the old daemon still runs: a
+`code:evidence-card/1` episode node exists and the journal has no `store.cards_cleaned`. Only then does it pass
+`_clean_store` to `Installer.install(while_stopped=…)` ([`device/install.py`](ferb/device/install.py)). The installer
+runs that after everything is installed, in `_start`: `unload` (bootout), the work, then `load` (bootstrap) in a
+`finally`, so the agent is loaded again whatever the work does (M5). Otherwise `_start` loads or kickstarts as
+before. `_clean_store` refuses while launchd still has the agent or anything answers `ping` (a terminal `ferb daemon
+run`). It opens its own `Database` (no migrations), runs `Learning.prune_card_sources` with a stop that reads the
+signals `_finish_install` caught (SIGTERM from FERB.app quitting, Ctrl-C: they end the run before the next card),
+and prints "…N of M card versions done" at each tenth of its `progress`; then `Database.compact`
+([`store/db.py`](ferb/store/db.py)). `compact` checkpoints the WAL (TRUNCATE), runs VACUUM
+only when the volume's free bytes are at least the database plus its WAL (`store_size`; otherwise it writes nothing
+and returns what it needed), then checkpoints again. A stop skips the compaction, since VACUUM can't stop halfway.
+Only a run that cleaned and compacted appends `store.cards_cleaned`: the counts (`tasks`, `nodes`, `cleaned`, `rows`,
+`untraced`) and `bytes_before`/`bytes_after`, numbers only. An error is printed and the update goes on; the
+clean-out stays pending. In the SQLite tested (3.50.4) VACUUM kept the rowids of tables keyed by text, and it keeps
+their order in any case (rows are copied in rowid order), so `ORDER BY …, rowid` tie-breaks are unchanged; the in-memory rowid floors (chat sessions, the gateway's span floor)
+die with the stopped daemon. `ferb doctor`'s `database` line (`database_check`) shows `store_size` and warns while
+the clean-out is pending.
+
 **Content search (D9).** Migration 0019 adds `trail_fts` and `summary_fts` (same tokenizer as memory, so Devanagari words
 stay whole) kept in step by triggers and created with FTS5 `secure-delete`, so a purged or forgotten row's terms are zeroed
 (needs SQLite 3.42+). `trail_fts` holds the decoded text values of a trail row's JSON, not raw JSON or keys.
@@ -1584,7 +1605,25 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   planner exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence
   (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
   source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
-  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/3`.
+  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/3`. The rule
+  is `Learning.card_source_refs(task_id)`: None when the task has no spans left. `prepare_episode` reads the trace once
+  (`card_trace`: `CardSpan`s of its tool calls, exposures and context sources) and passes it in.
+- **The card clean-out (plan 2026-10-23 Task 1; L28, C1).** The composer before C1 (`COPYING_CARD_MAKER`,
+  `code:evidence-card/1`) copied into a card every exposure's refs, resolved transitively, and every earlier version's.
+  That was 22.6M rows on 438 versions of 85 tasks in the owner's store. `prune_card_sources` (run once by setup with
+  the daemon stopped, section 10) visits every episode node, any version or state, grouped by its key (the task id).
+  When `card_source_refs` is None it leaves them as they are, counted `untraced`. Otherwise it fills a temp table with
+  those refs and deletes, per node in its own `BEGIN IMMEDIATE` transaction, the node's `learning_sources` rows not in
+  it. So it only removes rows the rule would never write, never adds one, and never touches another kind. A run
+  stopped by a crash or the `stop` callable (asked before each node) leaves each node clean or as it was; the next run
+  finishes it, and a second run removes nothing. The deletes run without `learning_source_ref`: it is dropped right
+  before the first delete and made again in a `finally`, over the rows left. Migration 0043 (`CREATE INDEX IF NOT
+  EXISTS`) makes it at the next start if a power loss cut the run off in between. With the index, each node's delete
+  rewrote ~50k random index pages (~7 s a node: 47 minutes projected on a synthetic store of the owner's shape, 23.3M
+  rows). Without it the clean-out took 92 s, the drop's 40 s included, and the compaction 17 s (8.96 GB to 1.95 GB).
+  `progress(done, total)` is told after each node. Node origins (`origins_json`) stay as captured: they hold every
+  source's origins the node had, so they are never more trusted than the kept sources'. Afterwards a forget of a row the planner was only shown no longer reaches the card;
+  one of an action's sources still does.
 - **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` (`learning.outside_action`)
   unless its kind reads (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the
   gateway's vocabulary (`policy/provenance.py`, their only writer since F3): a key with `owner_words` or

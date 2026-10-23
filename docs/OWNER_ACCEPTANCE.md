@@ -1380,6 +1380,17 @@ Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
     in `ferb trace TASK --json` (`started_at` to `ended_at`); record the fourth against the first three, then run
     `ferb baseline` again for the totals before and after.
 
+Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests only so far):
+79. Before updating, run `ferb doctor` and `ls -la ~/.ferb/ferb.db*`: record the `database` line (it should warn
+    that a clean-out of unused card rows is pending) and the file sizes. Then run `ferb setup --update` and time it.
+    Record the line "Cleaned FERB's database: N unused rows removed; 8.1 GB → x GB", or whichever line setup printed
+    instead: not compacted for lack of free disk, stopped, or not run because a daemon still answered. Then run
+    `ls -la ~/.ferb/ferb.db*` again; `ferb doctor` should now show `✓ database: x GB` and no pending clean-out. A
+    second `ferb setup --update` should print no clean-out line. Leave the Mac idle for 10 minutes with FERB
+    running, then record FERB's CPU in Activity Monitor (CPU tab, the FERB process, and its "% CPU" averaged over a
+    minute). Ask FERB something you asked it before the update ("what did I ask you yesterday?") and record that
+    it answers as before.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
   ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).

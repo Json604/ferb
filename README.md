@@ -65,6 +65,12 @@ uv run ferb setup
 Setup installs a dedicated interpreter, environment, runtime and LaunchAgent under `~/.ferb`. It collects macOS
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
+When FERB's database still holds run cards from a build before the 2026-10-15 card fix (`e0e344b`), the next update
+also cleans it once, with the daemon stopped. It removes the source rows that card builder copied (gigabytes after a
+week of use), then compacts the file. That takes a few minutes (about two on a store of 9 GB). Setup says "Cleaning
+FERB's database…", how far it is at each tenth, then how much it removed and the size before and after. Ctrl-C or
+quitting FERB.app stops it safely, and the next update finishes it. `ferb doctor` shows the database's size and
+whether that clean-out is still pending.
 Updates check existing grants in the running daemon and acknowledge them even when an older setup version was
 recorded. Only missing or unknown grants are reported as deferred; updating does not open permission dialogs.
 

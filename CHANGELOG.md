@@ -468,6 +468,32 @@ Accepted residuals (L29):
 - The procedure block a worker gets is marked as data in its header, not wrapped in FERB's untrusted-data wrapper; its
   model-written fields are JSON-encoded and the code-chosen mode comes first.
 
+Database clean-out (L28, C1; plan 2026-10-23 Task 1; owner 2026-10-23: "clean out yes, so we dont face performance
+issues with ferb again"; not installed or live-tested):
+- The owner's installed FERB had an 8.1 GB database, 6.5 GB of it in `learning_sources` and its two indexes: 22.6M
+  source rows on 438 versions of the run cards of 85 tasks, about 52k rows a version (the largest 58.8k, 57,335 of
+  them `trail:` refs). The card composer before memory review C1 (`code:evidence-card/1`, the installed one; fixed in
+  e0e344b) copied into every card the refs of every block its planner was shown (the day's activity, the
+  conversation), and every earlier version's. The current composer never writes them, but the old versions kept them.
+- The next `ferb setup --update` cleans the database once. After installing, it stops FERB, keeps on every version of
+  each card only the source rows the current card rule gives it (the task's episode, the owner's request, the
+  procedure it used and its own actions' sources), and compacts the file when the disk has room for a copy (free
+  space at least the database plus its WAL). It then starts FERB again and prints "Cleaned FERB's database: N unused
+  rows removed; 8.1 GB → x GB". A card whose trace has aged out is left as it is, since its lineage can't be read
+  again. No edge is added and no other record is touched. On a synthetic store of the measured shape on the owner's
+  Mac (23.3M rows, 9.0 GB), cleaning took 92 s and compacting 17 s, leaving 1.95 GB (1.6 GB of it stand-in for the
+  rest of the store). The deletes run without the source-ref index, which is made again afterwards: with it, each
+  card version's delete rewrote about 50k random index pages, and the clean-out projected to 47 minutes. Setup prints
+  how far it is at each tenth.
+- It never runs while a daemon answers (`ferb daemon run` in a terminal: stop it first). Each card version is cleaned
+  in its own transaction. A crash, power loss, Ctrl-C or FERB.app quitting leaves every version either clean or as it
+  was; FERB is started again, and the next update finishes the job. If a power loss cuts it off before the index is
+  made again, FERB's next start makes it (migration 0043). Once it is done, the journal records
+  `store.cards_cleaned` with the counts. `ferb doctor` shows the database's size and whether the clean-out is still
+  pending; with too little free disk it cleans but doesn't compact, says so, and tries again on the next update.
+- After it, forgetting an activity row a task's planner was only shown no longer touches that task's card (the
+  current rule since C1). Forgetting one its actions used still forgets the card and everything built on it.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
