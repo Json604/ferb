@@ -580,8 +580,9 @@ notes it down"; retention: "30 days"; not installed or live-tested):
   750 new events a window, one sample takes about 3 ms (most of it finding FERB.app's processes among about 740).
 - Apps FERB opens with `open` belong to macOS's launchd, not to FERB, so they aren't in its numbers. A failed sample is
   journaled (`resources.failed`) and the next row covers its minutes too; a failure never stops FERB, its retention pass
-  or its shutdown. A command a long-running agent (Codex) runs counts in the window it ends. A day's peak in
-  `ferb stats` is its window with the most CPU seconds.
+  or its shutdown. The hourly retention loop now goes on the same way when even its own `retention.failed` entry can't
+  be written (before, it stopped until FERB restarted). A command a long-running agent (Codex) runs counts in the
+  window it ends. A day's peak in `ferb stats` is its window with the most CPU seconds.
 - Residuals: forgetting something doesn't remove a program name from these rows (a script named after it, say); they
   age out after `resource_days`. After retention deletes the newest traces, a few new trace rows can go uncounted for
   one window.

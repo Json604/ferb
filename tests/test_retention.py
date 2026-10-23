@@ -377,3 +377,40 @@ def test_every_retention_days_setting_is_at_least_one_day(daemon: RunningDaemon)
     plan, restore_days = daemon.run(read())
     assert (plan.trace_days, plan.decision_days, plan.evidence_days, plan.recovery_days) == (1, 1, 1, 1)
     assert restore_days == 1
+
+
+def test_the_retention_loop_goes_on_when_even_its_failure_cant_be_journaled(tmp_path: Path, capsys: Any) -> None:
+    """D14: a failed pass is journaled `retention.failed`; when that write fails too (a broken database), the error
+    goes to stderr through the daemon's redactor and the hourly loop goes on, as the resource loop's does (L30)."""
+    import contextlib
+    import sqlite3
+    from types import SimpleNamespace
+    from ferb.daemon.main import Daemon
+    from tests.support.virtual_time import run_virtual
+    d = Daemon(tmp_path / ".ferb", watchers=False, distill=False, retention=False, resources=False,
+               notifications=False, snapshots=False, watch_owner_input=False)
+    passes: list[int] = []
+
+    async def failing() -> dict[str, int]:
+        passes.append(1)
+        raise RuntimeError("purge failed for token hunter2")
+
+    def append(kind: str, data: Any = None, origin: Any = None) -> Any:
+        raise sqlite3.OperationalError("disk I/O error")
+    d._purge_pass = failing                                              # type: ignore[method-assign]
+    d._journal = lambda: SimpleNamespace(append=append)                  # type: ignore[method-assign]
+    d.redact = SimpleNamespace(text=lambda text: text.replace("hunter2", "[REDACTED]"))  # type: ignore[assignment]
+
+    async def three_passes() -> None:
+        loop = asyncio.create_task(d._retention_loop())
+        await asyncio.sleep(60 + 2 * 3600 + 1)                           # a minute after start, then hourly
+        assert not loop.done()
+        loop.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await loop
+    run_virtual(three_passes())
+    err = capsys.readouterr().err
+    assert len(passes) == 3
+    assert err.count("FERB: a retention pass failed (RuntimeError: purge failed for token [REDACTED]) and couldn't "
+                     "be journaled (OperationalError)") == 3, err
+    assert "hunter2" not in err

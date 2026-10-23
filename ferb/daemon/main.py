@@ -2009,13 +2009,19 @@ class Daemon:
         return recovery.Recovery(self.home / "recovery", self.db, self.clock, self.ids)
 
     async def _retention_loop(self) -> None:
-        """Hourly, starting a minute after start-up so start-up stays quick."""
+        """Hourly, starting a minute after start-up so start-up stays quick. A failed pass is journaled, and the loop
+        goes on even when that can't be (then it goes to stderr, redacted), as the resource loop does."""
         await asyncio.sleep(60)
         while True:
             try:
                 await self._purge_pass()
             except Exception as e:
-                self._journal().append("retention.failed", {"error": f"{type(e).__name__}: {e}"})
+                error = f"{type(e).__name__}: {e}"
+                try:
+                    self._journal().append("retention.failed", {"error": error})
+                except Exception as journal_error:
+                    print(f"FERB: a retention pass failed ({self._redact_text(error)}) and couldn't be journaled "
+                          f"({type(journal_error).__name__})", file=sys.stderr)
             await asyncio.sleep(3600)
 
     async def _resources_loop(self) -> None:

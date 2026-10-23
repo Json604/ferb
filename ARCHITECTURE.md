@@ -747,9 +747,10 @@ list, episodes, the journal (chat, day summaries, verdicts) and memory. Raw acti
 transaction, so a parent never goes before its child and a failure leaves nothing half-deleted. Each root is isolated
 (`retention.failed` journals its error and the pass continues); at most 200 roots per pass (`ROOTS_PER_PURGE`), oldest
 first. The loop runs hourly, starting a minute after start-up, on the daemon loop (`_purge_pass` yields between roots;
-`_purge_records` runs the same steps synchronously), and journals `retention.purged` with the counts and `roots_left`
-only when it purged something or left roots for the next pass; a pass that shutdown cancels between roots still
-journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
+`_purge_records` runs the same steps synchronously); a pass that fails as a whole is journaled `retention.failed`, and
+when even that write fails the error goes to stderr through the daemon's redactor and the loop goes on, as the resource
+loop's does. It journals `retention.purged` with the counts and `roots_left` only when it purged something or left
+roots for the next pass; a pass that shutdown cancels between roots still journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
 before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7) and
 recovery copies and snapshots (`retention.recovery_days`, 7) to the same pass (section 11). L30 added the resource
 log's rows (`retention.resource_days`, 30; section 8), purged by local day; their count is in the pass's result, not in
