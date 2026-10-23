@@ -860,3 +860,21 @@ def test_restart_releases_in_flight_receipts_and_reads_them_again(tmp_path: Path
     asyncio.run(batcher.run(stop))
     assert [e["id"] for e in batcher._sync().events()] == [event.id]
     db.close()
+
+
+def test_a_loop_closed_under_the_sleeping_batcher_lets_it_be_collected(tmp_path: Path) -> None:
+    """A test's event loop closed with the loop still asleep: the garbage collector's close() raises nothing (it ended
+    up in Sense._guard's failure path, journaling to a closed database)."""
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    clock, ids = FakeClock(), SequentialIds("g")
+    trail = Trail(db, clock, ids, Redactor(), Exclusions, lambda *a: None, lambda: "dev", lambda: False)
+    trail.record(Observation("window", {"bundle_id": "com.microsoft.VSCode", "title": "FERB"}))
+    batcher = current.EventBatcher(db, clock, ids, lambda: object(), NotificationPolicy(db, clock, ids, Redactor()),
+                                   lambda *a: None)
+    loop = asyncio.new_event_loop()
+    task = loop.create_task(batcher.run(asyncio.Event()))
+    loop.run_until_complete(asyncio.sleep(0.05))                   # asleep until the age deadline
+    loop.close()
+    task.get_coro().close()                                        # what the garbage collector does
+    db.close()

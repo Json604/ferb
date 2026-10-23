@@ -25,6 +25,7 @@ INTERRUPTS = {"notification", "incoming_call"}
 SINCE_INSTALL = "t.seq > COALESCE((SELECT seq FROM perception_floor WHERE source='trail'), 0)"
 PENDING = ("SELECT t.* FROM trail t LEFT JOIN perception_receipts p ON p.event_id=t.id "
            f"WHERE p.event_id IS NULL AND {SINCE_INSTALL} ORDER BY t.seq")
+FLOOR = "SELECT COALESCE((SELECT seq FROM perception_floor WHERE source='trail'), 0)"
 OMITTED = "omitted_oldest_messages"
 
 
@@ -189,7 +190,8 @@ class _Unsent:
         self.size = GrowingCount(lambda text: count_tokens(text))     # count_tokens(_text(events)) less the "]"
         self._tokens: int | None = None
 
-    def add(self, seq: int, ident: str, at: str, source: str, actor: str, data_json: str, text: str | None = None) -> None:
+    def add(self, seq: int, ident: str, at: str, source: str, actor: str, data_json: str,
+            text: str | None = None) -> None:
         if text is None:
             text = _text({"id": ident, "at": at, "source": source, "actor": actor, "data": json.loads(data_json)})
         self.size.append((", " if self.rows else "[") + text)
@@ -255,8 +257,7 @@ class EventBatcher:
     def _load(self) -> _Unsent:
         """Every unsent row, read whole (pending())."""
         c = self.db.conn
-        held = _Unsent(c.execute("SELECT COALESCE((SELECT seq FROM perception_floor WHERE source='trail'), 0)").fetchone()[0],
-                       c.execute("SELECT n FROM trail_changes").fetchone()[0],
+        held = _Unsent(c.execute(FLOOR).fetchone()[0], c.execute("SELECT n FROM trail_changes").fetchone()[0],
                        c.execute("SELECT COALESCE(MAX(seq), 0) FROM trail").fetchone()[0])
         for r in c.execute(PENDING):
             held.add(r["seq"], r["id"], r["at"], r["source"], r["actor"], r["data_json"])
@@ -270,8 +271,7 @@ class EventBatcher:
             self._unsent = None
             return self._load()
         held = self._unsent
-        floor = c.execute("SELECT COALESCE((SELECT seq FROM perception_floor WHERE source='trail'), 0)").fetchone()[0]
-        if held is None or held.floor != floor:
+        if held is None or held.floor != c.execute(FLOOR).fetchone()[0]:
             held = self._load()
         elif (changes := c.execute("SELECT n FROM trail_changes").fetchone()[0]) != held.changes:
             seqs, data = list(held.rows), dict[int, str]()   # a trail row was deleted or rewritten: read the held again
@@ -323,8 +323,9 @@ class EventBatcher:
         try:
             await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            for wait in waits:
-                wait.cancel()
+            if not waits[0].get_loop().is_closed():      # closed under it (then garbage collected): nothing to cancel
+                for wait in waits:
+                    wait.cancel()
 
     async def flush(self, reason: str) -> None:
         async with self._lock:
