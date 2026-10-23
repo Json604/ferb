@@ -156,7 +156,11 @@ class _Layout:
 def _trim(state: dict[str, Any]) -> None:
     """The notification context's oldest messages are left out one at a time until it fits EVENT_BUDGET or none is
     left, and named in omitted_oldest_messages: the result of counting the whole context after each one. The whole
-    context is counted only where _Layout's lower bound can't tell it is still over."""
+    context is counted only where _Layout's lower bound can't tell it is still over. That avoids quadratic work in
+    normal contexts, not in the worst case: the bound leaves out an atom over TOKEN_SLICE characters, one a slice edge
+    falls inside, and text with no ", " cut (one huge message, a long rule), so with enough of such a gap the bound
+    stays under the budget and each step is counted whole again, as the old loop counted every step. Whole counts never
+    outnumber the old loop's; setting up the bound counts each message alone once."""
     conversation = state["conversation"]
     if not conversation or count_tokens(whole := _text(state)) <= EVENT_BUDGET:
         return
@@ -173,6 +177,7 @@ def _trim(state: dict[str, Any]) -> None:
         k = len(layout.refs)
         if k < m and layout.bound() > EVENT_BUDGET:
             continue                                  # surely still over: leave the next one out too
+        # Counted whole: near the budget, or where uncountable atoms (over a slice, cut, no ", ") leave the bound short.
         del conversation[:len(conversation) - (m - k)]
         state[OMITTED] = {"count": k, "source_refs": list(layout.refs)}
         if k == m or count_tokens(_text(state)) <= EVENT_BUDGET:

@@ -32,6 +32,7 @@ from ferb.sense.exclusions import Exclusions
 from ferb.sense.notifications import NotificationPolicy
 from ferb.sense.trail import Observation, Trail
 from ferb.store.db import Database
+from tests.support.virtual_time import run_virtual
 
 tokenizer = pytest.mark.skipif(context._encoding() is None, reason="the o200k tokenizer isn't cached here")
 
@@ -611,8 +612,9 @@ def test_the_reference_reads_every_unsent_row_on_every_wake(tmp_path: Path) -> N
     db.close()
 
 
-def test_the_loop_has_no_fixed_timer_and_flushes_at_the_age_deadline(tmp_path: Path) -> None:
-    db = Database(tmp_path / "ferb.db")
+def _timer_world(tmp_path: Path, module: Any) -> Any:
+    """A batcher of `module` with one unsent event, counting how often its loop looks at the unsent rows."""
+    db = Database(tmp_path / f"{module.__name__}.db")
     db.migrate()
     clock, ids = FakeClock(), SequentialIds("d")
     trail = Trail(db, clock, ids, Redactor(), Exclusions, lambda *a: None, lambda: "dev", lambda: False)
@@ -621,34 +623,57 @@ def test_the_loop_has_no_fixed_timer_and_flushes_at_the_age_deadline(tmp_path: P
     class Fake:
         async def answers(self, state: Any, asks: Any) -> dict[str, str]:
             return {asks[0].key: "no"}
-    batcher = current.EventBatcher(db, clock, ids, lambda: Fake(), NotificationPolicy(db, clock, ids, Redactor()),
-                                   lambda topic, data: published.append(data.get("reason", "")),
-                                   oldest_seconds=lambda: 60.0)
+    batcher = module.EventBatcher(db, clock, ids, lambda: Fake(), NotificationPolicy(db, clock, ids, Redactor()),
+                                  lambda topic, data: published.append(data.get("reason", "")),
+                                  oldest_seconds=lambda: 60.0)
     trail.tag = batcher.notify
     looks = [0]
-    real = batcher._sync
+    name = "_sync" if module is current else "pending"
+    real = getattr(batcher, name)
 
-    def sync() -> Any:
+    def counted() -> Any:
         looks[0] += 1
         return real()
-    batcher._sync = sync                                           # type: ignore[method-assign]
+    setattr(batcher, name, counted)
+    trail.record(Observation("window", {"bundle_id": "com.microsoft.VSCode", "title": "FERB"}))
+    return SimpleNamespace(db=db, clock=clock, batcher=batcher, looks=looks, published=published)
+
+
+def test_the_loop_has_no_fixed_timer_and_flushes_at_the_age_deadline(tmp_path: Path) -> None:
+    """On a loop whose time jumps to the next timer whenever nothing is ready (tests/support/virtual_time.py), any timer
+    in the batcher would fire in 600 s of loop time; the age deadline runs on the fake clock alone."""
+    w = _timer_world(tmp_path, current)
 
     async def go() -> None:
         stop = asyncio.Event()
-        task = asyncio.create_task(batcher.run(stop))
-        trail.record(Observation("window", {"bundle_id": "com.microsoft.VSCode", "title": "FERB"}))
-        await asyncio.sleep(1.3)                                   # real time: a 1 s timer would have looked again
-        assert looks[0] <= 2 and published == []
-        clock.advance(59.9)
-        await asyncio.sleep(0.05)
-        assert published == []
-        clock.advance(0.1)                                         # the oldest event is 60 s old
-        await asyncio.sleep(0.05)
-        assert published == ["age"]
+        task = asyncio.create_task(w.batcher.run(stop))
+        await asyncio.sleep(600)                                   # nothing changes: it looked once, at the start
+        assert w.looks[0] == 1 and w.published == []
+        w.clock.advance(59.9)
+        await asyncio.sleep(1)
+        assert w.looks[0] == 1 and w.published == []               # not yet 60 s old: it didn't even look
+        w.clock.advance(0.1)                                       # the oldest event is 60 s old
+        await asyncio.sleep(1)
+        assert w.published == ["age"]
         stop.set()
-        await asyncio.wait_for(task, 0.5)                          # stop is seen at once, not after a timer
-    asyncio.run(go())
-    db.close()
+        await asyncio.wait_for(task, 0.001)                        # stop is seen at once, not after a timer
+    run_virtual(go())
+    w.db.close()
+
+
+def test_the_reference_loop_looks_every_second_with_nothing_new(tmp_path: Path) -> None:
+    """The same harness tells the two apart: the reference's 1 s timer looks again and again."""
+    w = _timer_world(tmp_path, reference)
+
+    async def go() -> None:
+        stop = asyncio.Event()
+        task = asyncio.create_task(w.batcher.run(stop))
+        await asyncio.sleep(600)
+        assert w.looks[0] >= 500 and w.published == []
+        stop.set()
+        await task
+    run_virtual(go())
+    w.db.close()
 
 
 # ---------- the unsent rows stay in step with the trail ----------

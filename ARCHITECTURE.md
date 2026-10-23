@@ -505,7 +505,11 @@ everything. The loop waits on `wake` (every trail event; `_wire_jev`), `stop` an
 with no fixed timer. `batch_events` grows each batch's count the same way. The notification trimming (`_trim`,
 `_Layout`) counts the whole context only when `uncut_count`'s lower bound doesn't already exceed the budget. That bound
 is safe because o200k always ends a piece right after a comma that a space follows (proof in `core/context.py`; a test
-pins `_PATTERN`), so an atom between two such cuts inside one slice adds exactly its own count.
+pins `_PATTERN`), so an atom between two such cuts inside one slice adds exactly its own count. This avoids quadratic
+work in normal contexts, not in the worst case: an atom over 8192 characters, one a slice edge falls inside, or text
+with no `", "` cut (one huge message, a long rule) adds nothing to the bound, so across enough of such a gap each step
+is counted whole again, as the old loop counted every step. Whole counts never outnumber the old loop's; setting up
+the bound counts each message alone once.
 `tests/test_batcher_cost.py` drives `tests/support/batches_reference.py` (the module before, verbatim) side by side
 with the current one; `perception.status` `unsent_events` still counts with the full query.
 

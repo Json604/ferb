@@ -509,8 +509,10 @@ live-tested):
   excerpts, how the notification context is trimmed, receipts, the install floor, and what happens while Jev is
   unavailable or comes back. EVENT_BUDGET (10000) and the age keep their values and meaning, and token counts stay
   exact: `count_tokens` adds up 8192-character slices, so only the last slice is counted again. The notification
-  trimming counts the whole context only where a proven lower bound can't tell it is still over. Tests drive the old
-  module (kept verbatim in `tests/support/batches_reference.py`) and the new one side by side on seeded streams.
+  trimming counts the whole context only where a proven lower bound can't tell it is still over. With a huge message
+  or rule (no ", " to cut at, or over 8192 characters) it can still count every step whole, as before, never more.
+  Tests drive the old module (kept verbatim in `tests/support/batches_reference.py`) and the new one side by side on
+  seeded streams.
 - Measured on a synthetic trail of 400,000 rows with 1,200 unsent events (0.32 MB of JSON):
   - A wake took 100 ms. It now takes 0.005 ms with nothing new, and about 0.2 ms with one new event (0.34 ms
     including recording it).
