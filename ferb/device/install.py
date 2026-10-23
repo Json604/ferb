@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -135,6 +135,7 @@ class Installer:
     bundle: Path | None = None                    # the FERB.app to install from; None: from a checkout
     cli_dir: Path | None = None                   # where `ferb` is linked from FERB.app (the CLI passes ~/.local/bin)
     read_only: Callable[[Path], bool] = read_only_volume
+    _stopped: int | None = field(default=None, init=False, repr=False, compare=False)   # the last unload's process
 
     # ---------- paths ----------
 
@@ -298,10 +299,20 @@ class Installer:
         self._ok(["launchctl", "bootstrap", self.domain, str(self.plist_path)], "loading the LaunchAgent")
 
     def unload(self) -> None:
+        """Stop the agent and wait, up to 10 s, until launchd has dropped it and its process has exited: launchd can
+        drop it while the daemon is still shutting down and writing the store (L28, C1). `exiting` then says whether
+        that process outlived the wait."""
+        self._stopped = self.agent_pid()
         self.run(["launchctl", "bootout", f"{self.domain}/{self.label}"])
         end = time.monotonic() + 10
-        while self.loaded() and time.monotonic() < end:
+        while (self.loaded() or self.exiting() is not None) and time.monotonic() < end:
             time.sleep(0.1)
+
+    def exiting(self) -> int | None:
+        """The pid of the daemon the last `unload` stopped while that process still runs (signal 0 reaches it), else
+        None. Asked through `run` like launchctl, so tests fake the process with it."""
+        pid = self._stopped
+        return pid if pid is not None and self.run(["/bin/kill", "-0", str(pid)]).returncode == 0 else None
 
     def restart(self) -> None:
         self._ok(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"], "restarting the daemon")

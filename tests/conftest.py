@@ -272,10 +272,12 @@ def make_app(root: Path, name: str, bundle_id: str | None, version: str = "1.0",
 
 
 class FakeRunner:
-    """Records commands; simulates uv installing Python/venv and launchctl load state."""
+    """Records commands; simulates uv installing Python/venv, launchctl load state and the agent's process (pid 4242):
+    it runs while loaded and for `tail` more `kill -0` probes after a bootout (a slow exit; math.inf: never exits)."""
 
     def __init__(self, home: Path) -> None:
         self.home, self.cmds, self.loaded = home, [], False
+        self.tail: float = 0
 
     def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         self.cmds.append(cmd)
@@ -299,10 +301,28 @@ class FakeRunner:
             self.loaded = False
         elif cmd[:2] == ["launchctl", "print"]:
             return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, "pid = 4242\n" if self.loaded else "")
+        elif cmd[:2] == ["/bin/kill", "-0"]:                      # no other pid runs
+            running = cmd[2:] == ["4242"] and (self.loaded or self.tail > 0)
+            self.tail -= 0 if self.loaded else 1
+            return subprocess.CompletedProcess(cmd, 0 if running else 1, "", "" if running else "No such process")
         return subprocess.CompletedProcess(cmd, 0, out, "")
 
     def ran(self, *prefix: str) -> int:
         return sum(1 for c in self.cmds if c[:len(prefix)] == list(prefix))
+
+
+class SteppedTime:
+    """Stands in for the `time` module where code waits with time.monotonic() and time.sleep(): a sleep advances the
+    clock at once, so a bounded wait runs to its bound without the real seconds."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
 
 
 # Scripted model/task support shared by orchestration tests.

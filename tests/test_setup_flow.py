@@ -11,7 +11,7 @@ from ferb.cli import setup as S
 from ferb.config import Config
 from ferb.core.errors import NotRunning
 from ferb.device.install import Installer
-from tests.conftest import FakeRunner, make_app
+from tests.conftest import FakeRunner, SteppedTime, make_app
 
 
 class FakeDaemon:
@@ -753,6 +753,35 @@ def test_the_clean_out_waits_while_another_daemon_still_answers(world: dict[str,
     assert "a FERB daemon outside launchd answers" in out.getvalue()
     assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
     assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
+
+
+def test_the_clean_out_waits_until_the_stopped_daemons_process_has_exited(world: dict[str, Any],
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """L28, C1: launchd dropping the agent doesn't mean its process is gone; a daemon in its shutdown tail still
+    writes the store. One that exits within unload's wait gets the clean-out after it has; one still running when the
+    wait ends gets none: setup says so, starts the agent again, and the clean-out stays pending."""
+    import math
+    import ferb.device.install as install_mod
+    monkeypatch.setattr(install_mod, "time", SteppedTime())
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    runner = world["runner"]
+    seen = _watch_prune(monkeypatch, {"runner": runner})
+    runner.tail = math.inf                                                 # it never exits
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert seen == [] and runner.loaded
+    assert ("Database clean-out not run: FERB's daemon (process 4242) hasn't exited since launchd stopped it"
+            in out.getvalue()), out.getvalue()
+    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
+    assert S.cleanout_state(world["home"] / "ferb.db") == "clean"
+    runner.tail = 3                                                        # a slow exit, within the wait
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    [(loaded, at)] = seen
+    assert not loaded and runner.cmds[at - 1] == ["/bin/kill", "-0", "4242"] and runner.tail < 0   # exited first
+    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
+    assert S.cleanout_state(world["home"] / "ferb.db") is None
 
 
 def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world: dict[str, Any],

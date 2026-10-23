@@ -478,9 +478,11 @@ issues with ferb again"; not installed or live-tested):
   rest of the store). The deletes run without the source-ref index, which is made again afterwards: with it, each
   card version's delete rewrote about 50k random index pages, and the clean-out projected to 47 minutes. Setup prints
   how far it is at each tenth.
-- It never runs while a daemon answers (`ferb daemon run` in a terminal: stop it first). Each card version is cleaned
-  in its own transaction. A crash, power loss, Ctrl-C or FERB.app quitting leaves every version either clean or as it
-  was; FERB is started again, and the next update finishes the job. If a power loss cuts it off before the index is
+- It never runs while a daemon answers (`ferb daemon run` in a terminal: stop it first), nor while the daemon launchd
+  stopped is still exiting: setup waits up to 10 s for that process to end, else says so and leaves the clean-out to
+  the next update. Each card version is cleaned in its own transaction. A crash, power loss, Ctrl-C or FERB.app
+  quitting leaves every version either clean or as it was; FERB is started again, and the next update finishes the
+  job. If a power loss cuts it off before the index is
   made again, FERB's next start makes it (migration 0043). After a stop, setup says it is making that index again
   before it does (a minute on a big store). The journal records `store.cards_cleaned` with the counts once the rows
   are removed, and `store.compacted` with the sizes once the file is compacted. With too little free disk the update

@@ -2,13 +2,15 @@
 uninstall and the purge safety rules. Nothing real is installed here (see test_launchd_real.py)."""
 
 import json
+import math
 import shlex
 from pathlib import Path
 
 import pytest
 
+import ferb.device.install as install_mod
 from ferb.device.install import MARKER, InstallError, Installer, code_hash
-from tests.conftest import FakeRunner
+from tests.conftest import FakeRunner, SteppedTime
 
 
 @pytest.fixture
@@ -86,7 +88,8 @@ def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_th
     [(loaded, at)] = seen
     new = r.cmds[before:]
     assert not loaded and ["uv", "pip", "install"] in [c[:3] for c in r.cmds[before:at]]
-    assert r.cmds[at - 1][:2] == ["launchctl", "print"] and ["launchctl", "bootout"] in [c[:2] for c in r.cmds[before:at]]
+    assert ["launchctl", "bootout"] in [c[:2] for c in r.cmds[before:at]]
+    assert r.cmds[at - 1] == ["/bin/kill", "-0", "4242"]                   # its process was seen gone right before
     assert ["launchctl", "bootstrap"] in [c[:2] for c in r.cmds[at:]] and r.loaded
     assert not any(c[:2] == ["launchctl", "kickstart"] for c in new)
 
@@ -95,6 +98,33 @@ def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_th
     with pytest.raises(RuntimeError):
         inst.install(update_only=True, while_stopped=broken)
     assert r.loaded
+
+
+def test_unload_waits_until_the_stopped_daemons_process_has_exited(inst: Installer,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """L28, C1: launchd can drop the agent while its process is still in its shutdown tail, writing the store; unload
+    waits for the process too, within the same 10 s it gives launchd."""
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    clock = SteppedTime()
+    monkeypatch.setattr(install_mod, "time", clock)
+    inst.install()
+    r.tail = 3                                                   # it answers three more probes after the bootout
+    inst.unload()
+    assert r.ran("/bin/kill", "-0", "4242") == 4 and 0 < clock.now < 10
+    assert inst.exiting() is None
+
+
+def test_unload_stops_waiting_at_its_bound_and_names_the_process_still_running(
+        inst: Installer, monkeypatch: pytest.MonkeyPatch) -> None:
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    clock = SteppedTime()
+    monkeypatch.setattr(install_mod, "time", clock)
+    inst.install()
+    r.tail = math.inf                                            # it never exits
+    inst.unload()
+    assert 10 <= clock.now < 10.2 and inst.exiting() == 4242
+    inst.unload()                                                # nothing loaded now: no process of its own to wait for
+    assert inst.exiting() is None
 
 
 def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> None:

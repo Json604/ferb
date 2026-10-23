@@ -69,7 +69,9 @@ When FERB's database still holds run cards from a build before the 2026-10-15 ca
 also cleans it once, with the daemon stopped. It removes the source rows that card builder copied (gigabytes after a
 week of use), then compacts the file. That takes a few minutes (about two on a store of 9 GB). Setup says "Cleaning
 FERB's database…", how far it is at each tenth, then how much it removed and the size before and after. Ctrl-C or
-quitting FERB.app stops it safely, and the next update finishes it. Compacting needs free disk at least the
+quitting FERB.app stops it safely, and the next update finishes it. It waits for the stopped daemon's process to
+exit (up to 10 s) and never runs while a FERB daemon still answers; setup then says why, and the next update does
+it. Compacting needs free disk at least the
 database's size; without it, the rows are still removed and a later update compacts. `ferb doctor` shows the
 database's size and what is left: the clean-out, or only the compaction.
 Updates check existing grants in the running daemon and acknowledge them even when an older setup version was

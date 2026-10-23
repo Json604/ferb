@@ -297,9 +297,10 @@ def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
     """The store's one-time clean-out, run by the installer while no daemon runs. With `state` "clean", every version of
     each traced task's card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`),
     and `store.cards_cleaned` records the counts. Then, and alone with "compact", the file is compacted
-    (`Database.compact`, when the disk has room for a full copy) and `store.compacted` records the sizes. Never while a
-    daemon still answers (launchd's, or `ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app quitting)
-    ends it before the next card, and an error is reported; the update goes on either way, and the next
+    (`Database.compact`, when the disk has room for a full copy) and `store.compacted` records the sizes. Never while
+    launchd still has the agent, while the process it stopped hasn't exited (`Installer.exiting`: the installer's wait
+    ended first), or while a daemon answers (`ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app
+    quitting) ends it before the next card, and an error is reported; the update goes on either way, and the next
     `ferb setup --update` does what is left."""
     from ferb.clock.clock import SystemClock
     from ferb.core.ids import RandomIds
@@ -308,7 +309,10 @@ def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
     from ferb.sanitize.redact import Redactor
     from ferb.store.db import Database, store_size
     inst = env.inst
-    running = ("launchd hasn't stopped FERB's daemon yet" if inst.loaded() else
+    loaded = inst.loaded()
+    exiting = None if loaded else inst.exiting()
+    running = ("launchd hasn't stopped FERB's daemon yet" if loaded else
+               f"FERB's daemon (process {exiting}) hasn't exited since launchd stopped it" if exiting is not None else
                "a FERB daemon outside launchd answers (`ferb daemon run` in a terminal?)" if _daemon_answers(env) else "")
     if running:
         env.say(f"     Database clean-out not run: {running}. Stop it, then run `ferb setup --update` again.")

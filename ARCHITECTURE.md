@@ -762,9 +762,15 @@ for stores holding run cards the composer before C1 wrote (section 14, "The card
 it has that entry but no `store.compacted`, else nothing. Only with an answer does it pass `_clean_store` to
 `Installer.install(while_stopped=…)` ([`device/install.py`](ferb/device/install.py)). The installer runs that after
 everything is installed, in `_start`: `unload` (bootout), the work, then `load` (bootstrap) in a `finally`, so the
-agent is loaded again whatever the work does (M5). Otherwise `_start` loads or kickstarts as before.
+agent is loaded again whatever the work does (M5). Otherwise `_start` loads or kickstarts as before. `unload` reads
+the agent's pid before the bootout and waits, within its one 10 s bound, until launchd has dropped the agent and that
+process has exited too (signal 0 no longer reaches it: `/bin/kill -0`, asked through the installer's runner like
+launchctl), since launchd can drop it while the daemon is still shutting down and writing the store.
+`Installer.exiting` names that pid when it outlived the wait.
 
-`_clean_store` refuses while launchd still has the agent or anything answers `ping` (a terminal `ferb daemon run`).
+`_clean_store` refuses while launchd still has the agent, while the process `unload` stopped hasn't exited ("FERB's
+daemon (process N) hasn't exited since launchd stopped it"), or while anything answers `ping` (a terminal `ferb daemon
+run`); each says which, and the clean-out stays due for the next update.
 Inside one `try` it reads the store's size and opens its own `Database` (no migrations), so a store that won't open is
 reported like any other error and the update goes on. With `clean` it runs `Learning.prune_card_sources` with a stop
 that reads the signals `_finish_install` caught (SIGTERM from FERB.app quitting, Ctrl-C: they end the run before the
