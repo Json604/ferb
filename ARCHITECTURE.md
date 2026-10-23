@@ -2612,4 +2612,8 @@ protected FERB state (16.9).
 `standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
 Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch`,
 `task.answer` gained `watch_met` (a watch run's), and `standing.revoked` can give the reason "schedule met".
-Perf plan 2026-10-23 (L30): `resources.failed` (a resource sample, or the log's start, failed; its error).
+Perf plan 2026-10-23: `store.cards_cleaned` (L28, C1: setup's card clean-out ran to the end; `tasks`, `nodes`,
+`cleaned`, `rows`, `untraced`), `store.compacted` (the compaction after it; `bytes_before`, `bytes_after`), both
+written by setup with the daemon stopped (section 10, "Store clean-out and compaction"), and `resources.failed` (L30: a
+resource sample, or the log's start, failed; its error); `retention.failed` gained `resources` (the resource purge
+failed).
