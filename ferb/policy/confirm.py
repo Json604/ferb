@@ -73,6 +73,14 @@ def _who(target: Target) -> list[tuple[str, str]]:
         [("contact", target.contact)] if target.contact else [])
 
 
+def site_is_destination(kinds: Iterable[str], keys: Iterable[str]) -> bool:
+    """Whether a call's site is where it sends, not only where it happens: a send-class call (its kind, or a kind a
+    declared purpose adds) whose target has no recipient or contact (`keys`: its arg_sources keys, as `_who` names
+    them). A post, a submit, a page input declared to send: `decide` asks about that place (the floor for a recipient
+    FERB can't see, the sink rule (a)), and the learning card reader judges where the site came from (L29, SQ7)."""
+    return bool(SEND_CLASS & set(kinds)) and not any(k == "contact" or k.startswith("recipient:") for k in keys)
+
+
 def _owner(sources: list[str]) -> bool:
     return bool(OWNER_SOURCES & set(sources))
 
@@ -398,6 +406,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     folder counted: the gateway adds it (`bulk_delete`)."""
     kinds = {kind} | ({declared} if isinstance(declared, str) else set(declared or ()))
     who = _who(target)
+    to_site = site_is_destination(kinds, (k for k, _ in who))      # inside `if sends` below: exactly `not who`
     where = place or target.site or ""
     needs: list[Need] = []
     for k in (Kind.PAY, Kind.ACCOUNT_SECURITY):
@@ -425,7 +434,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
             needs.append(Need("floor:new_recipient", key("floor:new_recipient", sorted(new)),
                               {"recipients": ", ".join(new), "verb": "calls" if calls else "sends to"},
                               destinations=tuple(destination_of(v) for v in new)))
-        elif not who and (kind not in SEND_CLASS or not target.site):
+        elif to_site and (kind not in SEND_CLASS or not target.site):
             # a send FERB can't see the recipient of: a click declared to send or call names no contact (its site is
             # an app or a page's host, never a destination to record), or a send-class call names neither recipient
             # nor place. One Yes per tree covers that place, and the account the click declared it sends as. A site
@@ -444,7 +453,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
                 needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                                   {"destination": target.site, "read": shown_origins(outside_read)},
                                   destinations=(("host", target.site),)))
-        elif (not who and read_private and read_external
+        elif (to_site and read_private and read_external
               and not _owner(arg_sources.get("site", [])) and not known("host", target.site or "")):
             needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                               {"destination": target.site or "", "read": shown_origins(outside_read)},

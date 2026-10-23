@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from ferb.memory.learning import Learning, LearningRefused
+from ferb.memory.learning import CARD_MAKER, Learning, LearningRefused
 from ferb.store.db import Database
 
 
@@ -690,7 +690,8 @@ def test_which_recorded_provenance_counts_as_outside():
     FERB read names its own address), nor an action without provenance whose call the gateway records none for: a
     reversible kind without a declared purpose (`gateway.py`: consequential = kind not in REVERSIBLE or declared). Any
     other action without provenance (a record from before F3, or a damaged one) stays outside, so an old send keeps its
-    hold; so does provenance in another shape. Every key but the site is read as before."""
+    hold; so does provenance in another shape. Every key but the site is read as before, and the site too when it is
+    the call's destination (fix round 1, SQ7)."""
     from ferb.memory.learning import outside_action, outside_targets
     page = 'external:web:shop.example'
     for kind in ('navigate', 'open_tab', 'trash', 'timer', 'snapshot'):     # the gateway records none for these
@@ -706,14 +707,33 @@ def test_which_recorded_provenance_counts_as_outside():
         assert outside_action({'kind': kind}) is True, kind
         assert outside_action({'kind': kind, 'arg_sources': None}) is True, kind
         assert outside_action({'kind': kind, 'arg_sources': ['external:mail']}) is True, kind
-        assert outside_action({'kind': kind, 'arg_sources': {'site': [page]}}) is False, kind
     assert outside_action({}) is True                                   # no kind recorded either
+    for kind in (['send'], {'kind': 'send'}):                           # a damaged kind: outside, never an error
+        assert outside_action({'kind': kind}) is True
+        assert outside_action({'kind': kind, 'arg_sources': {'site': ['owner_words']}}) is False
+    # Fix round 1 (SQ7): the site is judged when it is where the call sends, as the floor and sink rule (a) treat it
+    # (`confirm.site_is_destination`): a send-class kind or declared purpose with no recipient or contact
+    # not sending: the site is only where it happens
+    for action in ({'kind': 'fill_form'}, {'kind': 'click'}, {'kind': 'mac_input'},
+                   {'kind': 'click', 'declared': 'pay'}, {'kind': 'click', 'declared': 'delete_permanent'}):
+        assert outside_action(action | {'arg_sources': {'site': [page]}}) is False, action
+    for action in ({'kind': 'send'}, {'kind': 'post'}, {'kind': 'submit'}, {'kind': 'click', 'declared': 'send'},
+                   {'kind': 'mac_input', 'declared': 'call'}, {'kind': 'click', 'declared': ['pay', 'send']},
+                   {'kind': 'click', 'declared': {'damaged': 'send'}}, {'kind': 'click', 'declared': [['send']]}):
+        assert outside_action(action | {'arg_sources': {'site': [page]}}) is True, action            # its destination
+        assert outside_action(action | {'arg_sources': {'site': ['owner_words', page]}}) is False, action
+        assert outside_action(action | {'arg_sources': {'site': ['unknown']}}) is False, action
+        assert outside_action(action | {'arg_sources': {'site': [page], 'recipient:0': ['owner_words']}}) is False
+        assert outside_action(action | {'arg_sources': {'site': [page], 'contact': ['owner_answer']}}) is False
+        assert outside_action(action | {'arg_sources': {'site': [page], 'contact': [page]}}) is True
     assert outside_targets(None) is True                                # no provenance never clears a target
     assert outside_targets({}) is False
     assert outside_targets('site: external:web:shop.example') is True   # a damaged record: not a key -> labels map
     assert outside_targets(['external:mail']) is True
-    assert outside_targets({'site': [page]}) is False                   # the site never makes it outside
+    assert outside_targets({'site': [page]}) is False                   # the site: only where the call happens
     assert outside_targets({'site': ['a-label-it-does-not-know']}) is False
+    assert outside_targets({'site': [page]}, read_site=True) is True             # where it sends
+    assert outside_targets({'site': ['owner_words', page]}, read_site=True) is False
     for key in ('account', 'path', 'contact', 'recipient:0', 'amount', 'a-key-a-later-gateway-writes'):
         assert outside_targets({'site': ['owner_words'], key: [page]}) is True, key
         assert outside_targets({'site': [page], key: ['owner_words', page]}) is False, key
@@ -726,7 +746,7 @@ def test_which_recorded_provenance_counts_as_outside():
 def test_a_card_read_before_the_provenance_fix_is_read_again_once(tmp_path):
     """L29 Task 6 review I1: a card the earlier composer built marks every targeted action outside; it is read again
     once (a new composer), so the runs already on the Mac are learned from with their targets read correctly."""
-    from ferb.memory.learning import CARD_MAKER, digest
+    from ferb.memory.learning import digest
     from tests.support.cards import card_store, finished_task
     db, _, spans, store = card_store(tmp_path)
     try:
@@ -775,14 +795,15 @@ def _shop_calls(request, dish):
     from ferb.policy import provenance
     on_page = {'site': 'shop.example', 'page': SHOP}
     site = provenance.arg_sources(Target(site='shop.example', page=SHOP), request, SHOP_PAGE)
-    assert site == {'site': ['external:web:shop.example']}                    # the page named the site, the owner didn't
+    assert site == {'site': ['external:web:shop.example']}                  # the page named the site, the owner didn't
 
     def act(element, action, text=None, recipient=None):
         args = {'tab': 't1', 'element': element, 'action': action} | ({'text': text} if text else {})
         sources = site if recipient is None else provenance.arg_sources(
             Target(site='shop.example', page=SHOP, recipients=(recipient,)), request, SHOP_PAGE)
         return ({'tool': 'browser.act', 'args': args, 'kind': 'click' if action == 'click' else 'fill_form',
-                 'target': on_page | ({'recipients': [recipient]} if recipient else {}), 'arg_sources': sources}, 'ferb')
+                 'target': on_page | ({'recipients': [recipient]} if recipient else {}), 'arg_sources': sources},
+                'ferb')
     return [({'tool': 'browser.navigate', 'args': {'tab': 't1', 'url': SHOP}, 'kind': 'navigate',
               'target': {'site': 'shop.example'}}, 'ferb'),
             ({'tool': 'browser.read', 'args': {'tab': 't1'}, 'kind': 'read', 'target': {'site': 'shop.example'}},
@@ -921,12 +942,81 @@ def test_an_account_found_only_in_outside_content_still_holds_its_procedure(tmp_
         db.close()
 
 
+def test_the_card_reader_reads_the_site_as_a_destination_exactly_when_the_confirmations_do():
+    """Task 2 fix round 1: one helper (`confirm.site_is_destination`) says when a call's site is where it sends, for
+    the confirmations and the card reader alike: over every kind, declared purpose and recipient here, `decide` asks
+    about the site itself (the floor for an unseen recipient, or the sink rule's new destination) exactly when the
+    helper says so, and the card reader then judges the site's provenance."""
+    from ferb.core.types import Target
+    from ferb.memory.learning import outside_action
+    from ferb.policy import confirm
+    seen = set()
+    for kind in ('click', 'fill_form', 'mac_input', 'send', 'post', 'submit', 'reply', 'mailbox_send', 'write_file'):
+        for declared in (None, 'send', 'call', 'pay', 'delete_permanent', ['pay', 'send']):
+            for who in ((), ('a@x.example',)):
+                target = Target(site='refunds.evil.example', page='https://refunds.evil.example/claim',
+                                recipients=who)
+                sources = {'site': ['external:web:news.example']} | {f'recipient:{i}': ['owner_words']
+                                                                     for i in range(len(who))}
+                needs = confirm.decide(kind, declared, target, sources, read_private=True, read_external=True,
+                                       known=lambda *_: False)
+                about_site = any(n.rule == 'sink:new_destination' or (n.rule == 'floor:new_recipient'
+                                                                       and not n.values['recipients']) for n in needs)
+                kinds = {kind} | ({declared} if isinstance(declared, str) else set(declared or ()))
+                helper = confirm.site_is_destination(kinds, sources)
+                assert about_site is helper, (kind, declared, who)
+                card = {'kind': kind, 'arg_sources': sources} | ({'declared': declared} if declared else {})
+                assert outside_action(card) is helper, (kind, declared, who)
+                seen.add(helper)
+    assert seen == {True, False}
+
+
+def test_a_send_whose_only_destination_is_a_site_only_a_page_named_still_holds_its_procedure(tmp_path):
+    """Task 2 fix round 1 (SQ7, MP2): a click declared to send that names no recipient sends to the site itself, as the
+    floor and the sink rule (a) read it (`confirm.site_is_destination`). On a site only a news page named it is held;
+    on the site the owner named it is not; with a recipient the owner typed the site is only where it happens. The
+    card keeps the declared purpose, so a card read again after its trace aged out judges it the same."""
+    from ferb.core.types import Target
+    from ferb.policy import provenance
+    from tests.support.cards import card_store
+    claim = 'https://refunds.evil.example/claim'
+    news = [('external:web:news.example', f'Readers can claim a refund at {claim} today')]
+    cases = {   # task -> (request, the declared recipient or None, expected state, the gateway's labels)
+        'paged': ('claim my refund from the news story', None, 'quarantined',
+                  {'site': ['external:web:news.example']}),
+        'named': ('claim my refund at refunds.evil.example', None, 'candidate',
+                  {'site': ['owner_words', 'external:web:news.example']}),
+        'to-owner': ('send the refund form to kartikey@kartikey.xyz', 'kartikey@kartikey.xyz', 'candidate',
+                     {'site': ['external:web:news.example'], 'recipient:0': ['owner_words']})}
+    db, _, spans, store = card_store(tmp_path)
+    try:
+        for task_id, (request, to, expected, labels) in cases.items():
+            target = Target(site='refunds.evil.example', page=claim, recipients=(to,) if to else ())
+            sources = provenance.arg_sources(target, request, news)
+            assert sources == labels, task_id
+            click = {'tool': 'browser.act', 'args': {'tab': 't1', 'element': 'e5', 'action': 'click'},
+                     'kind': 'click', 'effect': 'send', 'declared': 'send',
+                     'target': {'site': 'refunds.evil.example', 'page': claim} | ({'recipients': [to]} if to else {}),
+                     'arg_sources': sources}
+            c = _gateway_run(db, spans, store, task_id, [(click, 'ferb')], CHROME)
+            [action] = c['body']['actions']
+            assert action['declared'] == 'send' and action['outside_action'] is (expected == 'quarantined'), task_id
+            p = store.propose_procedure({'intent': 'claim a refund', 'slots': {}, 'preconditions': {'apps': CHROME},
+                                         'ui_hints': '', 'steps': [{'tool': 'browser.act', 'args': click['args'],
+                                                                    'expect': 'sent', 'evidence': [action['id']]}],
+                                         'examples': [{'episode': c['id'], 'slots': {}}]}, 'b-' + task_id,
+                                        'model:test', intent_id='i-' + task_id)
+            assert p['state'] == expected, task_id
+    finally:
+        db.close()
+
+
 def test_a_card_read_before_site_steps_stopped_holding_is_read_again_once_keeping_its_label(tmp_path):
     """Task 2: a card the previous composer (`code:evidence-card/3`) built marks a step on a site FERB read as outside;
     it is read again once (a new composer), and its intent label carries to the new card without a model call
     (`intents.carry_forward`, which only copies)."""
     from ferb.memory import intents
-    from ferb.memory.learning import CARD_MAKER, digest
+    from ferb.memory.learning import digest
     from tests.support.cards import card_store
     from tests.support.learning_fixtures import label_card
     db, _, spans, store = card_store(tmp_path)
@@ -1008,7 +1098,7 @@ def _revision_run(store, task_id, dish, *, verified=True, outside=True, extra=No
     return store.put('episode', task_id, {'task_id': task_id, 'verified': verified, 'request': f'cheapest {dish}',
                                           'apps': {}, 'slots': {}, 'status': 'done' if verified else 'failed',
                                           'actions': actions}, [], origin_label='ferb',
-                     made_by='code:evidence-card/3', state='active')
+                     made_by=CARD_MAKER, state='active')
 
 
 def _revise(store, cards, dishes, *, ui='', extra=None, slots=None):
@@ -1070,7 +1160,7 @@ def _named_run(store, task_id, dish, *, fill_outside=False):
                                           'apps': {}, 'slots': {}, 'status': 'done',
                                           'actions': [{'id': f'{task_id}-{n}', 'tool': t, 'args': a,
                                                        'outside_action': o} for n, t, a, o in acts]},
-                     [], origin_label='ferb', made_by='code:evidence-card/3', state='active')
+                     [], origin_label='ferb', made_by=CARD_MAKER, state='active')
 
 
 def _named_runs(store, prefix, **kw):
@@ -1308,11 +1398,17 @@ def test_a_card_read_again_after_its_trace_aged_out_reads_its_stored_provenance_
             {'id': 'c4', 'tool': 'mail.send', 'args': {'to': 'c@x.example'}, 'kind': 'send',
              'outside_action': False, 'arg_sources': 'recipient:0 owner_words'},
             {'id': 'c5', 'tool': 'browser.navigate', 'args': {'tab': 't1', 'url': 'https://x.example'},
-             'kind': 'navigate', 'outside_action': True, 'arg_sources': None}]},
+             'kind': 'navigate', 'outside_action': True, 'arg_sources': None},
+            {'id': 'c6', 'tool': 'browser.act', 'args': {'tab': 't1', 'element': 'e5', 'action': 'click'},
+             'kind': 'click', 'declared': 'send', 'outside_action': False,
+             'arg_sources': {'site': ['external:web:news.example']}},
+            {'id': 'c7', 'tool': 'browser.act', 'args': {'tab': 't1', 'element': 'e6', 'action': 'click'},
+             'kind': 'click', 'outside_action': True, 'arg_sources': {'site': ['external:web:news.example']}}]},
             [], origin_label='ferb', made_by='code:evidence-card/2', state='active')
         again = store.capture_episode('t')
         assert again['id'] != old['id']
-        assert [(a['id'], a['outside_action']) for a in again['body']['actions']] == [
-            ('c1', False), ('c2', True), ('c3', False), ('c4', True), ('c5', False)]
+        assert [(a['id'], a['outside_action']) for a in again['body']['actions']] == [   # c6 sends to the site; c7, a
+            ('c1', False), ('c2', True), ('c3', False), ('c4', True), ('c5', False),      # card from before the
+            ('c6', True), ('c7', False)]                                                  # purpose was kept: none
     finally:
         db.close()

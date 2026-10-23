@@ -19,7 +19,7 @@ from ferb.core.types import ModelLimits
 from ferb.memory import intents
 from ferb.memory.consolidate import FIRST_LEARNING_RUNS, PROPOSAL_SCHEMA, Consolidator
 from ferb.memory.intents import INTENT_SCHEMA
-from ferb.memory.learning import Learning, digest, encoded
+from ferb.memory.learning import CARD_MAKER, Learning, digest, encoded
 from tests.conftest import FakeDistillRuntime
 from tests.support.learning_fixtures import EMPTY, NoMemory, TickingClock, label_card, new_intent, new_store
 from tests.support.learning_runtime import SchemaAnswers
@@ -739,7 +739,7 @@ def test_a_revision_quarantined_again_is_named_in_the_pass_result(learning) -> N
                                                               "args": {"text": DISHES[n]}, "outside_action": False},
                                                              {"id": f"d{n}-b", "tool": "browser.click",
                                                               "args": {"button": "order"}, "outside_action": True}]},
-                            [], origin_label="ferb", made_by="code:evidence-card/3", state="active")
+                            [], origin_label="ferb", made_by=CARD_MAKER, state="active")
         label_card(learning, node, "food")
         cards.append(node)
     asyncio.run(consolidator(learning, fake(proposing(food_procedure(cards))).make).catch_up())

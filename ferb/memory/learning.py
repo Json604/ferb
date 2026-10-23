@@ -17,7 +17,8 @@ from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
 from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
-from ferb.policy.rules import REVERSIBLE
+from ferb.policy.confirm import site_is_destination
+from ferb.policy.rules import REVERSIBLE, Kind
 from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED
 
 
@@ -309,34 +310,50 @@ _OWNER_SOURCES = frozenset({'owner_words', 'owner_answer'})
 # match (spelled differently, read from a picture); not outside, as confirmations read it (Task 6 re-review 2, N3)
 _NEITHER = 'unknown'
 _READS = ('read', 'search', 'mailbox_read')
-# The target key never read as outside: the site an action ran on. Under L2 FERB reaches any site without a question,
-# and the page FERB read names its own address (plan 2026-10-23 Task 2, owner).
+# The target key read as outside only when it is where the call sends (`confirm.site_is_destination`): the site an
+# action ran on. Under L2 FERB reaches any site without a question, and the page FERB read names its own address (plan
+# 2026-10-23 Task 2, owner); a post or submit to a site only outside content named still holds (fix round 1, SQ7).
 _SITE = 'site'
 
 
-def outside_targets(arg_sources: Any) -> bool:
+def outside_targets(arg_sources: Any, *, read_site: bool = False) -> bool:
     """Whether an action's targets came from outside content (MP2, F8 quarantine), from the gateway's `arg_sources`
     (key -> labels): a key the owner typed or answered is the owner's; "unknown" is not outside (as confirmations read
     it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner
-    label is outside, except on the site key. No provenance (None) or provenance in another shape (a damaged record)
-    never clears a target: outside (`outside_action` reads a call the gateway records none for). Provenance only, never
-    intent (R2; L29 Task 6 review I1: this read origin labels, so every target looked outside; plan 2026-10-23 Task 2:
-    the site held nearly every browser procedure)."""
+    label is outside. The site key counts only with `read_site`: when the site is where the call sends. No
+    provenance (None) or provenance in another shape (a damaged record) never clears a target: outside
+    (`outside_action` reads a call the gateway records none for). Provenance only, never intent (R2; L29 Task 6 review
+    I1: this read origin labels, so every target looked outside; plan 2026-10-23 Task 2: the site held nearly every
+    browser procedure)."""
     if not isinstance(arg_sources, dict):
         return True
     return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)
-               for labels in (v if isinstance(v, list) else [v] for k, v in arg_sources.items() if k != _SITE))
+               for labels in (v if isinstance(v, list) else [v] for k, v in arg_sources.items()
+                              if k != _SITE or read_site))
 
 
 def outside_action(action: dict[str, Any]) -> bool:
     """Whether a card's action was built on outside content (F8): any kind but a read, whose targets
-    `outside_targets` reads as outside. A call without `arg_sources` that the gateway records none for (`gateway.py`:
-    a kind in REVERSIBLE without a declared purpose) is FERB's own choice, not outside (plan 2026-10-23 Task 2); any
-    other call without them (recorded before F3, or damaged) is outside, so an old send keeps its hold."""
-    kind, sources = action.get('kind'), action.get('arg_sources')
-    if kind in _READS or (sources is None and kind in REVERSIBLE and not action.get('declared')):
+    `outside_targets` reads as outside, its site too when the site is where it sends (its kind or declared purpose is
+    send-class and it names no recipient or contact: `confirm.site_is_destination`). A call without `arg_sources` that
+    the gateway records none for (`gateway.py`: a kind in REVERSIBLE without a declared purpose) is FERB's own choice,
+    not outside (plan 2026-10-23 Task 2); any other call without them (recorded before F3, or damaged) is outside, so
+    an old send keeps its hold. A kind or declared purpose in another shape (a damaged record) never clears: a damaged
+    kind is no reversible kind, and a damaged purpose is read as sending."""
+    kind, sources, declared = action.get('kind'), action.get('arg_sources'), action.get('declared')
+    kind = kind if isinstance(kind, str) else None
+    if kind in _READS or (sources is None and kind in REVERSIBLE and not declared):
         return False
-    return outside_targets(sources)
+    if declared is None:
+        purposes: list[str] = []
+    elif isinstance(declared, str):                  # the gateway writes one declared kind as a string, several a list
+        purposes = [declared]
+    elif isinstance(declared, list) and all(isinstance(p, str) for p in declared):
+        purposes = declared
+    else:
+        purposes = [Kind.SEND]
+    kinds = {k for k in (kind, *purposes) if k is not None}
+    return outside_targets(sources, read_site=isinstance(sources, dict) and site_is_destination(kinds, sources))
 
 
 def memory_origin(label: str) -> str:
@@ -593,7 +610,10 @@ class Learning:
             actions.append({'id': span.id, 'tool': inp.get('tool'), 'args': args,
                             'kind': inp.get('kind'), 'outside_action': outside,
                             'arg_sources': arg_sources, 'error': span.error,
-                            'result': outcome_facts})
+                            'result': outcome_facts}
+                           # its declared purpose as the gateway recorded it, so a read from the card judges its site
+                           # the same (`outside_action`); absent on cards before composer 4: read as undeclared
+                           | ({'declared': inp['declared']} if inp.get('declared') else {}))
         feedback = [dict(r) for r in self.db.conn.execute(
             'SELECT verdict,note,at FROM owner_verdicts WHERE task_id=? ORDER BY seq', (task_id,))]
         valid = ep['verified'] is True and not (feedback and feedback[-1]['verdict'] == 'fail')
