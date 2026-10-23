@@ -14,6 +14,20 @@ final class NotchPanel: NSPanel {
         if event.keyCode == 53 { onEscape?(); return }
         super.keyDown(with: event)
     }
+    /// The Edit menu's shortcuts don't reach this panel while FERB isn't the active app (it never activates), so
+    /// Command-C, X and A go to the focused view directly: text selected in the chat can be copied (owner,
+    /// 2026-10-24: "i cant copy by dragging"). The composer handles Command-V itself (ChatTextView).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad])
+        let action: Selector? = switch (flags == .command ? event.charactersIgnoringModifiers?.lowercased() : nil) {
+        case "c": #selector(NSText.copy(_:))
+        case "x": #selector(NSText.cut(_:))
+        case "a": #selector(NSResponder.selectAll(_:))
+        default: nil
+        }
+        if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 final class NotchLightPanel: NSPanel {
@@ -82,9 +96,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         yieldController = NotchYieldController(model: model)
-        windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel) { [overlaySpace] window in
+        windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel, rejoinOverlay: { [overlaySpace] window in
             if let window = window as? NSWindow { overlaySpace.rejoin(window) }
-        }
+        }, leaveOverlay: { [overlaySpace] window in
+            if let window = window as? NSWindow { overlaySpace.leave(window) }
+        })
         super.init()
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
@@ -183,12 +199,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
                 self.updatePointer()
                 self.focusVisibleInput()
             }
+            self.restackYield()
             guard self.model.expanded, !self.panel.frame.contains(location) else { return }
             self.model.dismissAutomatically()
         }) { eventMonitors.append(monitor) }
         // Global monitors do not receive clicks in our Settings/Quick Look windows.
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] event in
             guard let self else { return event }
+            // A click on FERB while it sits one layer back brings it to the front; the click then goes on to what
+            // was clicked (the text input, a button).
+            if event.window === self.panel && self.model.isYielded { self.beginInteraction() }
             if event.window !== self.panel && !self.pointerIsOverSurface {
                 self.model.dismissAutomatically()
             }
@@ -295,6 +315,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         // Another app came forward: coming back must not take the focus the owner moved there.
         if app.processIdentifier != getpid() { windowYield.ownerMovedElsewhere() }
         if cameBack { updatePointer() }
+        restackYield()
     }
 
     @objc private func activeSpaceChanged() {
@@ -368,15 +389,21 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     /// The notch windows sit in an unmanaged overlay space above every ordinary window and other apps' menus, so
-    /// no window level lets another surface win. While FERB yields the panel is ordered out (see NotchWindowYield;
-    /// mouse-event transparency is never touched); content, draft, attachments and pin are untouched. Coming back
-    /// re-keys the panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or
-    /// switched to another app meanwhile.
+    /// no window level lets another surface win there. While FERB yields, the panel steps one layer back and stays
+    /// on screen: just behind the app window it yields to, or under the menu (see NotchWindowYield; mouse-event
+    /// transparency is never touched); content, draft, attachments and pin are untouched. Coming back re-keys the
+    /// panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or switched to
+    /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
         if yielded {
             hoverTask?.cancel()
             yieldController.yieldBegan(pointer: windowServerPoint(NSEvent.mouseLocation))
-            windowYield.yield()
+            windowYield.yield(behind: yieldController.coveringWindow())
+            // Left the overlay space for the ordinary Spaces (NotchOverlaySpace.leave); say so if AppKit didn't put
+            // it on the current one, which would leave it off screen while it still counts as visible.
+            if overlaySpace.isAttached && !panel.isOnActiveSpace {
+                NSLog("FERB Notch: the stepped-back panel isn't on the current Space.")
+            }
         } else {
             windowYield.comeBack(refocus: model.bodyVisible && !model.voiceIsHeld)
         }
@@ -434,10 +461,17 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     private func evaluateYield() {
         // Coming back after another app's menu or window went away re-evaluates hover, like closing a menu.
         if yieldController.evaluate() { updatePointer() }
+        restackYield()
     }
 
-    /// A shortcut while FERB yields to another app (not to its own file picker): FERB isn't visible, so instead of
-    /// closing it the shortcut brings it back over those windows and opens the chat with focused typing. Returns
+    /// While FERB yields, keep the panel just behind what it yields to now (it moves only when that changed). Never
+    /// while its own file picker is open: ordering the panel then could put it over the picker.
+    private func restackYield() {
+        if model.isYielded && !model.filePickerOpen { windowYield.restack(behind: yieldController.coveringWindow()) }
+    }
+
+    /// A shortcut while FERB yields to another app (not to its own file picker): FERB sits one layer back, so instead
+    /// of closing it the shortcut brings it back over those windows and opens the chat with focused typing. Returns
     /// whether it handled the shortcut; when FERB is collapsed, the normal open path runs.
     private func summonFromYield() -> Bool {
         guard model.yielding.reasons.contains(where: { $0 != .filePicker }) else { return false }

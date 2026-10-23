@@ -16,8 +16,8 @@ enum YieldHover: Equatable {
 /// window-server coordinates (origin at the top left of the primary display).
 @MainActor
 final class NotchYieldController {
-    /// Where FERB is drawn, taken from the model rather than the live windows, so a yielded (invisible) FERB keeps
-    /// the same frames and doesn't flicker back on.
+    /// Where FERB is drawn, taken from the model rather than the live windows, so a yielded FERB (one layer back)
+    /// keeps the same frames and doesn't flicker back on top.
     struct Layout {
         /// The frames another app's menu could sit on: the panel while expanded, the tab on a display without a
         /// camera housing, and the camera-edge light while it glows. Empty when nothing of FERB is visible.
@@ -208,9 +208,22 @@ final class NotchYieldController {
     private func yieldIfUnderChat(_ pid: Int32, rows: [ScreenWindow]? = nil) -> Bool {
         guard !ownPIDs.contains(pid), let chat = layout()?.pinnedChat,
               NotchOverlap.appWindowUnderChat(in: rows ?? windows(), appPID: pid, chat: chat) else { return false }
-        model.beginYield(.activeAppUnderPinnedChat)
-        guard yieldsToCoveredApp else { return false }
+        // Known before the yield applies, so the panel steps back just behind this app's window.
+        let previous = coveredApp
         coveredApp = pid
+        model.beginYield(.activeAppUnderPinnedChat)
+        guard yieldsToCoveredApp else {
+            coveredApp = previous
+            return false
+        }
         return true
+    }
+
+    /// The window FERB's panel sits just behind while it yields: the covered app's frontmost window under the pinned
+    /// chat. Nil while FERB yields only to menus, popovers, floating windows or its file picker (all of which are
+    /// above ordinary windows), or doesn't yield.
+    func coveringWindow() -> Int? {
+        guard yieldsToCoveredApp, let app = coveredApp, let chat = layout()?.pinnedChat else { return nil }
+        return NotchOverlap.frontWindowUnderChat(in: windows(), appPID: app, chat: chat).map { Int($0.windowID) }
     }
 }

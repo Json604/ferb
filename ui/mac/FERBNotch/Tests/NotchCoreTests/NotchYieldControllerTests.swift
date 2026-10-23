@@ -45,13 +45,35 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.appActivated(F.browser)
         XCTAssertEqual(model.yielding.reasons, [.activeAppUnderPinnedChat])
         XCTAssertEqual(controller.coveredApp, F.browser)
-        // Moving over the (invisible) chat or the browser keeps FERB out of the way.
+        // Moving over the stepped-back chat or the browser keeps FERB out of the way.
         XCTAssertEqual(controller.pointerMoved(to: CGPoint(x: 735, y: 200)), .hidden)
         XCTAssertEqual(controller.pointerMoved(to: browserPoint), .hidden)
         XCTAssertEqual(controller.pointerMoved(to: notchPoint), .broughtBack)
         XCTAssertFalse(model.isYielded)
         XCTAssertNil(controller.coveredApp)
         XCTAssertTrue(model.isPinned)
+    }
+
+    /// The panel steps back just behind the covered app's frontmost window under the chat (owner, 2026-10-24),
+    /// so that window is known when the yield applies; a menu over FERB has no window to sit behind.
+    func testTheWindowToStepBehindIsKnownWhenTheYieldApplies() {
+        pinOpenChat()
+        let front = F.window(F.browser, layer: 0, 100, 40, 1000, 800, id: 11)
+        let back = F.window(F.browser, layer: 0, 0, 33, 1470, 923, id: 12)
+        windows = [front, back]
+        var seen: [Int?] = []
+        model.onYieldChange = { [unowned self] yielded in if yielded { seen.append(self.controller.coveringWindow()) } }
+        controller.appActivated(F.browser)
+        XCTAssertEqual(seen, [11])
+        windows = [back]                                  // its front window closed: the next one is behind it
+        XCTAssertEqual(controller.coveringWindow(), 12)
+        controller.summon()
+        XCTAssertNil(controller.coveringWindow())
+
+        windows = [F.clipboardMenu]
+        controller.evaluate()
+        XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
+        XCTAssertNil(controller.coveringWindow())
     }
 
     func testTheFoldedPinnedHeaderSitsInTheMenuBarAndDoesNotYield() {

@@ -98,12 +98,23 @@ final class NotchOverlaySpace {
         NSLog("FERB Notch: dialog and trace attached to fixed overlay space %llu.", space)
     }
 
-    /// Ordering one of our windows out and back in (the trace after each glow, the panel after FERB yields to
-    /// another app) may drop it from the space. Move it back in every time, with the same call `attach` uses.
+    /// Ordering one of our windows out and back in (the trace after each glow) may drop it from the space, and the
+    /// panel leaves it while FERB yields (`leave`). Move it back in every time, with the same call `attach` uses.
     func rejoin(_ window: NSWindow) {
         guard space != 0, let moveWindows, windows.contains(where: { $0 === window }) else { return }
         let status = moveWindows(connection, space, [NSNumber(value: window.windowNumber)] as CFArray, 7)
         if status != 0 { NSLog("FERB Notch: %@ could not rejoin the fixed overlay space (%d).", window.title, status) }
+    }
+
+    /// FERB yields: the panel leaves the space for the ordinary window stack, so another app's window or menu can
+    /// be in front of it while it stays on screen. Resetting its collection behavior has AppKit place it on the
+    /// ordinary Spaces again, as `attach` does when attaching fails. `rejoin` brings it back.
+    func leave(_ window: NSWindow) {
+        guard space != 0, let removeWindows, windows.contains(where: { $0 === window }) else { return }
+        removeWindows(connection, [NSNumber(value: window.windowNumber)] as CFArray, [NSNumber(value: space)] as CFArray)
+        let behavior = window.collectionBehavior
+        window.collectionBehavior = []
+        window.collectionBehavior = behavior
     }
 
     func stop() {

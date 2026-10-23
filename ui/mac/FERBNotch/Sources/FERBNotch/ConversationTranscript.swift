@@ -73,7 +73,9 @@ struct ConversationTranscript: View {
     }
 }
 
-/// The owner's request, then FERB's lines in arrival order: acknowledgement, plan line, live step, question, answer.
+/// The owner's request, then FERB's lines in arrival order: the acknowledgement as a small bubble on the plan line it
+/// introduces, the plan line, a connection line while the AI service is unreachable, question, answer. Ordinary steps
+/// never reach the live line (owner, 2026-10-24: only the "N active tasks" row stays; DaemonConnection's `progress`).
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
@@ -82,8 +84,11 @@ private struct TurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             RequestView(turn: turn)
-            ForEach(Array(turn.ferbLines.enumerated()), id: \.offset) { _, line in
-                FerbBubble { Text(line).textSelection(.enabled) }
+            if turn.ack != nil || turn.plan != nil {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let ack = turn.ack { QuickReplyBubble(text: ack, sentAt: turn.createdAt) }
+                    if let plan = turn.plan { FerbBubble { Text(plan).textSelection(.enabled) } }
+                }
             }
             if let live = turn.liveLine { LiveLineView(progress: live) }
             // A question FERB asked stays here unless it was itself shown below.
@@ -204,7 +209,8 @@ private struct NoticeView: View {
     }
 }
 
-/// The current step and its elapsed time, replaced in place and removed when the answer arrives (L8).
+/// A connection line (offline, reconnected) and its elapsed time, replaced in place and removed when the answer
+/// arrives (L8, fix wave 7).
 private struct LiveLineView: View {
     let progress: LiveProgress
 
@@ -215,7 +221,34 @@ private struct LiveLineView: View {
                 .lineLimit(1).truncationMode(.tail)
                 .font(.system(size: 11)).foregroundStyle(Palette.secondary)
         }
-        .accessibilityLabel("Current step: " + progress.text)
+        .accessibilityLabel("Connection: " + progress.text)
+    }
+}
+
+/// FERB's instant acknowledgement (L7) as a small bubble on the response it introduces. It shows `delay` after the
+/// message was sent (owner, 2026-10-24: "the quick replies are too quick, add a 0.5-1s delay"); a turn from longer
+/// ago shows it at once.
+private struct QuickReplyBubble: View {
+    static let delay: TimeInterval = 0.75
+    let text: String
+    let sentAt: Date
+    @State private var shown = false
+
+    var body: some View {
+        Group {
+            if shown {
+                Text(text).textSelection(.enabled)
+                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    .padding(.horizontal, 9).padding(.vertical, 4)
+                    .background(.white.opacity(0.07), in: Capsule())
+                    .transition(.opacity)
+            }
+        }
+        .task(id: text) {
+            let wait = sentAt.addingTimeInterval(Self.delay).timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            withAnimation(.easeOut(duration: 0.15)) { shown = true }
+        }
     }
 }
 

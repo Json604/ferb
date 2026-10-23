@@ -36,8 +36,14 @@ final class ChatFlowTests: XCTestCase {
         let id = begin("Summarise the GitHub issue", in: model)
         model.receiveChatEvent(Contract.ack("req-a", "Got it."), localID: id)
         model.receiveChatEvent(Contract.plan("req-a", task: "task-a", text: "Reading the issue and summarising it."), localID: id)
+        // An ordinary step never reaches the chat (owner, 2026-10-24: only the "N active tasks" row stays).
+        model.receiveChatEvent(Contract.progress("req-a", task: "task-a", text: "opening www.instagram.com",
+                                                 startedAt: "2026-10-13T23:14:20+05:30"), localID: id)
+        XCTAssertNil(model.conversation.turns.first?.liveLine)
+        // The AI service connection's lines do.
         model.receiveChatEvent(Contract.progress("req-a", task: "task-a", text: "reading github.com",
-                                                 startedAt: "2026-10-13T23:14:29.123456+05:30"), localID: id)
+                                                 startedAt: "2026-10-13T23:14:29.123456+05:30", connection: "lost"),
+                               localID: id)
 
         let first = try XCTUnwrap(model.conversation.turns.first?.liveLine)
         XCTAssertEqual(first.text, "reading github.com")
@@ -45,7 +51,7 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(first.elapsedText(at: first.startedAt.addingTimeInterval(12)), "12s")
 
         model.receiveChatEvent(Contract.progress("req-a", task: "task-a", text: "writing summary.md",
-                                                 startedAt: "2026-10-13T23:15:02+05:30"), localID: id)
+                                                 startedAt: "2026-10-13T23:15:02+05:30", connection: "back"), localID: id)
         let updated = model.conversation.turns[0]
         XCTAssertEqual(updated.liveLine?.text, "writing summary.md")
         XCTAssertEqual(updated.liveLine?.startedAt, utc(2026, 10, 13, 17, 45, 2))
@@ -57,7 +63,8 @@ final class ChatFlowTests: XCTestCase {
         XCTAssertEqual(encoded.turns.first?.ferbLines, ["Got it.", "Reading the issue and summarising it."])
 
         // Without `started_at` the step's time falls back to the event's `at`.
-        var noStart = Contract.progress("req-a", task: "task-a", text: "looking at Brave", startedAt: "")
+        var noStart = Contract.progress("req-a", task: "task-a", text: "looking at Brave", startedAt: "",
+                                        connection: "lost")
         noStart.removeValue(forKey: "started_at")
         model.receiveChatEvent(noStart, localID: id)
         XCTAssertEqual(model.conversation.turns[0].liveLine?.startedAt, utc(2026, 10, 13, 17, 44, 29.5))
@@ -152,12 +159,12 @@ final class ChatFlowTests: XCTestCase {
         model.receiveChatEvent(Contract.plan("req-a", task: "task-a", text: "Checking OpenTable."), localID: a)
         model.receiveChatEvent(Contract.plan("req-b", task: "task-b", text: "Writing a draft."), localID: b)
         model.receiveChatEvent(Contract.progress("req-b", task: "task-b", text: "writing post.md",
-                                                 startedAt: "2026-10-13T23:14:29+05:30"), localID: b)
+                                                 startedAt: "2026-10-13T23:14:29+05:30", connection: "lost"), localID: b)
         model.receiveChatEvent(Contract.progress("req-a", task: "task-a", text: "reading opentable.com",
-                                                 startedAt: "2026-10-13T23:14:30+05:30"), localID: a)
+                                                 startedAt: "2026-10-13T23:14:30+05:30", connection: "lost"), localID: a)
         // An event naming B's request never lands on A's turn, even on A's stream.
         model.receiveChatEvent(Contract.progress("req-b", task: "task-b", text: "looking at Brave",
-                                                 startedAt: "2026-10-13T23:14:31+05:30"), localID: a)
+                                                 startedAt: "2026-10-13T23:14:31+05:30", connection: "lost"), localID: a)
 
         let turnA = turn(a, in: model), turnB = turn(b, in: model)
         XCTAssertEqual(turnA.requestID, "req-a")
@@ -285,8 +292,13 @@ private enum Contract {
         ["type": "plan", "request_id": request, "at": at, "task_id": task, "text": text, "goal": text]
     }
 
-    static func progress(_ request: String, task: String, text: String, startedAt: String) -> [String: Any] {
-        ["type": "progress", "request_id": request, "at": at, "task_id": task, "text": text, "started_at": startedAt]
+    /// `connection`: a line about the AI service connection ("lost" / "back"); without it, an ordinary step.
+    static func progress(_ request: String, task: String, text: String, startedAt: String,
+                         connection: String? = nil) -> [String: Any] {
+        var event: [String: Any] = ["type": "progress", "request_id": request, "at": at, "task_id": task, "text": text,
+                                    "started_at": startedAt]
+        if let connection { event["connection"] = connection }
+        return event
     }
 
     static func reply(_ request: String, text: String) -> [String: Any] {

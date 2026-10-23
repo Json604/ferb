@@ -265,9 +265,13 @@ extension NotchModel {
             runningTasks[id] = event["goal"] as? String ?? session.draft
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
         case "progress":
-            // Live state only, so it is not saved.
-            conversation.showProgress(id: localID, text: event["text"] as? String ?? "",
-                startedAt: LiveProgress.time(event["started_at"]) ?? LiveProgress.time(event["at"]) ?? Date())
+            // Live state only, so it is not saved. The chat shows only the AI service connection's lines (marked
+            // `connection`: offline, reconnected); ordinary steps ("opening …") stay out of it (owner, 2026-10-24:
+            // only the "N active tasks" row) and remain in the task's Inspect view.
+            if event["connection"] != nil {
+                conversation.showProgress(id: localID, text: event["text"] as? String ?? "",
+                    startedAt: LiveProgress.time(event["started_at"]) ?? LiveProgress.time(event["at"]) ?? Date())
+            }
         case "reply_delta":
             guard session.backendTaskID == nil else { return false }
             conversation.append(id: localID, delta: event["text"] as? String ?? "")

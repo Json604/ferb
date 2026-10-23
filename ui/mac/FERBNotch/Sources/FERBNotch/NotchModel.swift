@@ -425,6 +425,7 @@ final class NotchModel: ObservableObject {
     }
 
     func chooseFiles() {
+        guard !filePickerOpen else { return }        // the panel stays clickable behind its picker: one picker
         setFilePickerOpen(true)
         cancelPinnedFold()
         let picker = NSOpenPanel()

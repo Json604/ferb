@@ -2,8 +2,10 @@ import CoreGraphics
 import Foundation
 
 /// Why FERB's notch windows step aside for another app. They live in an overlay space above every ordinary
-/// window and above other apps' menus, so no window level lets another app's surface win: FERB has to get out
-/// of the way. While any reason holds, the windows are invisible and click-through.
+/// window and above other apps' menus, so no window level lets another app's surface win there. While any reason
+/// holds, the panel steps one layer back instead: it leaves the overlay space and stays visible as an ordinary
+/// window just behind the app or menu it yields to (owner, 2026-10-24: "take it one layer behind rather than
+/// closing it"), so a screenshot or a clipboard app still shows it. A click on FERB brings it back on top.
 public enum NotchYieldReason: Hashable, Sendable, CaseIterable {
     /// FERB's own file picker is open.
     case filePicker
@@ -140,7 +142,12 @@ public enum NotchOverlap {
 
     /// Whether the app has a visible window on the normal layer under the pinned chat's visible surface.
     public static func appWindowUnderChat(in windows: [ScreenWindow], appPID: Int32, chat: CGRect) -> Bool {
-        windows.contains { window in
+        frontWindowUnderChat(in: windows, appPID: appPID, chat: chat) != nil
+    }
+
+    /// The app's frontmost such window: the one FERB steps just behind while it yields to that app.
+    public static func frontWindowUnderChat(in windows: [ScreenWindow], appPID: Int32, chat: CGRect) -> ScreenWindow? {
+        windows.first { window in
             window.ownerPID == appPID && window.layer == 0 && window.alpha >= minimumVisibleAlpha
                 && overlaps(window.bounds, chat)
         }

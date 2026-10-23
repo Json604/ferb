@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import FERBNotch
 
@@ -6,49 +7,84 @@ final class NotchWindowYieldTests: XCTestCase {
     private var panel: FakeNotchWindow!
     private var tracer: FakeNotchWindow!
     private var rejoined: [String] = []
+    private var left: [String] = []
     private var yield: NotchWindowYield!
+    private let ownLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
 
     override func setUp() async throws {
         panel = FakeNotchWindow("panel")
+        panel.level = ownLevel
         tracer = FakeNotchWindow("tracer", visible: false)
         rejoined = []
-        yield = NotchWindowYield(panel: panel, tracer: tracer) { [unowned self] window in
+        left = []
+        yield = NotchWindowYield(panel: panel, tracer: tracer, rejoinOverlay: { [unowned self] window in
             self.rejoined.append((window as! FakeNotchWindow).name)
-        }
+        }, leaveOverlay: { [unowned self] window in
+            self.left.append((window as! FakeNotchWindow).name)
+        })
     }
 
-    func testYieldOrdersThePanelOutAndBackIntoTheOverlaySpace() {
+    /// Owner, 2026-10-24: "take it one layer behind rather than closing it back". The panel stays on screen, just
+    /// behind the app window it yields to, and comes back at its own level in the overlay space.
+    func testYieldStepsThePanelOneLayerBackAndBringsItBackIntoTheOverlaySpace() {
         panel.isKeyWindow = true
-        yield.yield()
-        XCTAssertFalse(panel.isVisible)
-        XCTAssertFalse(panel.isKeyWindow)
+        yield.yield(behind: 42)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.level, .normal)
+        XCTAssertEqual(left, ["panel"])
+        XCTAssertEqual(yield.behind, 42)
         yield.comeBack(refocus: true)
         XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.level, ownLevel)
         XCTAssertTrue(panel.isKeyWindow)
-        XCTAssertEqual(panel.log, ["out", "front", "key"])
+        XCTAssertEqual(panel.log, ["below 42", "front", "key"])
         XCTAssertEqual(rejoined, ["panel"])
+        XCTAssertNil(yield.behind)
         XCTAssertEqual(panel.mouseTransparencyWrites, 0)
     }
 
+    /// Yielding to a menu, popover or floating window (all above the normal level) or to FERB's file picker, the
+    /// panel stays in front of ordinary windows, under that surface.
+    func testWithNoAppWindowToSitBehindThePanelStaysInFrontOfOrdinaryWindows() {
+        yield.yield(behind: nil)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.level, .normal)
+        XCTAssertEqual(panel.log, ["front"])
+    }
+
+    func testRestackingMovesThePanelOnlyWhenWhatItYieldsToChanged() {
+        yield.restack(behind: 7)                       // not yielding: nothing moves
+        XCTAssertEqual(panel.log, [])
+        yield.yield(behind: nil)
+        yield.restack(behind: nil)
+        yield.restack(behind: 42)                      // an app window came over the chat
+        yield.restack(behind: 42)
+        yield.restack(behind: 43)                      // another of its windows came forward
+        XCTAssertEqual(panel.log, ["front", "below 42", "below 43"])
+        XCTAssertEqual(yield.behind, 43)
+    }
+
     func testComingBackTakesFocusOnlyIfItHadItAndTheOwnerStayed() {
-        yield.yield()
+        yield.yield(behind: nil)
         yield.comeBack(refocus: true)
         XCTAssertFalse(panel.isKeyWindow)
 
         panel.isKeyWindow = true
-        yield.yield()
+        yield.yield(behind: 42)
+        panel.isKeyWindow = false                      // the owner's click into the other app took the focus
         yield.ownerMovedElsewhere()
         yield.comeBack(refocus: true)
         XCTAssertFalse(panel.isKeyWindow)
 
         panel.isKeyWindow = true
-        yield.yield()
+        yield.yield(behind: 42)
+        panel.isKeyWindow = false
         yield.comeBack(refocus: false)
         XCTAssertFalse(panel.isKeyWindow)
     }
 
     func testTheOwnerBringingFERBBackFocusesTheVisibleInputButNeverWhileYielded() {
-        yield.yield()
+        yield.yield(behind: 42)
         XCTAssertFalse(yield.focusInput(bodyVisible: true))
         XCTAssertFalse(panel.isKeyWindow)
         yield.comeBack(refocus: false)
@@ -58,10 +94,16 @@ final class NotchWindowYieldTests: XCTestCase {
         XCTAssertTrue(panel.isKeyWindow)
     }
 
-    func testPresentationsDoNotBringAYieldedPanelBack() {
-        yield.yield()
+    /// A presentation while FERB yields (a background reply resizing the chat) leaves the panel where it stepped
+    /// back to; one that finds it off screen (after the displays slept) puts it back there, not on top.
+    func testPresentationsKeepAYieldedPanelWhereItSteppedBack() {
+        yield.yield(behind: 42)
         yield.showPanel()
-        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.log, ["below 42"])
+        panel.isVisible = false
+        yield.showPanel()
+        XCTAssertEqual(panel.log, ["below 42", "below 42"])
+        XCTAssertEqual(panel.level, .normal)
         yield.comeBack(refocus: false)
         yield.showPanel()
         XCTAssertTrue(panel.isVisible)
@@ -69,7 +111,7 @@ final class NotchWindowYieldTests: XCTestCase {
     }
 
     func testOnlyTheAttentionLightStaysOnScreenWhileYielded() {
-        yield.yield()
+        yield.yield(behind: nil)
         yield.updateTracer(glowing: true, lightShows: false)
         XCTAssertFalse(tracer.isVisible)
         yield.updateTracer(glowing: true, lightShows: true)
@@ -105,6 +147,7 @@ private final class FakeNotchWindow: NotchYieldWindow {
     let name: String
     var isVisible: Bool
     var isKeyWindow = false
+    var level: NSWindow.Level = .normal
     var log: [String] = []
     /// Not reachable through NotchYieldWindow; counted to show yielding never makes a window mouse-transparent.
     var ignoresMouseEvents = false { didSet { mouseTransparencyWrites += 1 } }
@@ -124,6 +167,11 @@ private final class FakeNotchWindow: NotchYieldWindow {
     func orderFrontRegardless() {
         isVisible = true
         log.append("front")
+    }
+
+    func order(_ place: NSWindow.OrderingMode, relativeTo otherWindowNumber: Int) {
+        isVisible = true
+        log.append("\(place == .below ? "below" : "above") \(otherWindowNumber)")
     }
 
     func makeKey() {
