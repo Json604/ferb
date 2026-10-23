@@ -759,7 +759,7 @@ def _resources(c: Any, days: int, present: bool, out: TextIO) -> None:
     rows = [dict(zip(("at", "day", "window_s", "cpu_s", "footprint", "peak_footprint", "child_cpu_s", "app_cpu_s",
                       "db_bytes", "work_json"), r))
             for r in c.execute("SELECT at, day, window_s, cpu_s, footprint, peak_footprint, child_cpu_s, app_cpu_s, "
-                               "db_bytes, work_json FROM resource_samples WHERE day >= ? ORDER BY day, at, id",
+                               "db_bytes, work_json FROM resource_samples WHERE day >= ? ORDER BY day, id",
                                (cutoff,))] if present else []
     if not rows:
         any_row = present and c.execute("SELECT 1 FROM resource_samples LIMIT 1").fetchone()

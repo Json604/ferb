@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS resource_samples (
     id              INTEGER PRIMARY KEY,
     at              TEXT NOT NULL,      -- the window's end, ISO 8601 with offset
     day             TEXT NOT NULL,      -- local date (YYYY-MM-DD): the unit of `ferb stats` and of retention
-    window_s        REAL NOT NULL,      -- seconds the window covers (monotonic clock)
+    window_s        REAL NOT NULL,      -- seconds the window covers (monotonic clock: stops while the Mac sleeps)
     cpu_s           REAL NOT NULL,      -- the daemon's user + system CPU seconds in the window
     footprint       INTEGER,            -- the daemon's physical footprint, bytes; NULL: couldn't be read
     peak_footprint  INTEGER,            -- its lifetime maximum

@@ -481,10 +481,11 @@ its CPU and memory, those of the processes it started (and theirs) and of FERB.a
 what it did in those minutes (activity events by source, perception batches, Jev calls, model runs, tool calls, tasks
 running, and the three busiest processes it started, by program name). Never content, arguments or paths. When FERB
 stops, it writes the minutes since the last row. `ferb stats` (`--days N`, default 7; it reads the database, so it works
-with FERB stopped) shows a line per day: the hours covered; the daemon's CPU, its average and busiest 5 minutes with
-the time, as a share of one core (Activity Monitor's % CPU); its memory, average and peak; the CPU of FERB's other
-processes and of FERB.app; and the database's size. Then come the five busiest windows of the period, each with what
-FERB was doing. Apps FERB opens (`open`) belong to macOS, not to FERB, so their use isn't in FERB's numbers.
+with FERB stopped) shows a line per day: the hours covered (with the Mac awake); the daemon's CPU, its average and
+busiest 5 minutes with the time, as a share of one core (Activity Monitor's % CPU); its memory, average and peak; the
+CPU of FERB's other processes and of FERB.app; and the database's size. Then come the five busiest windows of the
+period, each with what FERB was doing. Apps FERB opens (`open`) belong to macOS, not to FERB, so their use isn't in
+FERB's numbers.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
 and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,

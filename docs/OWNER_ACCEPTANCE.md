@@ -1397,14 +1397,14 @@ Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests onl
 
 FERB's resource log (plan 2026-10-23 Task 4, L30; pending, checkout tests only so far):
 80. After `ferb setup --update`, use the Mac as usual with FERB running for at least one full day. Then run `ferb stats`
-    and record its "Resources" section: each day's line (the hours covered should be close to the time FERB ran; the
-    daemon's CPU average and peak with its time; memory average and peak; the other processes' and FERB.app's CPU; the
-    database's size) and the five hottest windows. Pick one window and compare its counts with what you remember doing
-    then: one in which you gave FERB a task shows model runs and tool calls; one in a quiet hour shows few events and
-    batches. At a quiet moment, record Activity Monitor's "% CPU" for the FERB process (CPU tab, averaged over a
-    minute) next to the daemon's CPU average on today's line. Note when FERB restarts (`ferb setup --update` restarts
-    it): the day's hours covered should still match the time FERB ran, the minutes before the restart included.
-    `ferb stats --days 1` shows only today.
+    and record its "Resources" section: each day's line (the hours covered should be close to the time FERB ran with the
+    Mac awake; the daemon's CPU average and peak with its time; memory average and peak; the other processes' and
+    FERB.app's CPU; the database's size) and the five hottest windows. Pick one window and compare its counts with what
+    you remember doing then: one in which you gave FERB a task shows model runs and tool calls; one in a quiet hour
+    shows few events and batches. At a quiet moment, record Activity Monitor's "% CPU" for the FERB process (CPU tab,
+    averaged over a minute) next to the daemon's CPU average on today's line. Note when FERB restarts (`ferb setup
+    --update` restarts it): the day's hours covered should still match that time, the minutes before the restart
+    included. `ferb stats --days 1` shows only today.
 
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it

@@ -518,28 +518,29 @@ a 15-minute snapshot, `ResourceLog` ([`daemon/resources.py`](ferb/daemon/resourc
 `resource_samples` (migration 0045) every `SAMPLE_SECONDS` (300, the owner's "every 5 minutes") and the partial window
 at shutdown; `ferb stats` shows it per day (`cli/admin.py` `_resources`). The daemon creates it in `start` right after
 the database opens, so the first window counts from start-up (the cursors and every process's CPU are read then). A row:
-the window's end (`at`, local `day`) and length (`window_s`, monotonic clock); the daemon's CPU (`getrusage` RUSAGE_SELF
-deltas) and its physical footprint and lifetime peak (`proc_pid_rusage` with `RUSAGE_INFO_V4`, the first flavor with
-`ri_lifetime_max_phys_footprint`; the footprint is Activity Monitor's Memory column); its descendants, walked with
-`proc_listchildpids` from its pid, with their count, footprint and CPU in the window. Each process is tracked by (pid,
-start time), so a reused pid is a new process, and one seen first counts its CPU since it started. `ri_user_time` and
-`ri_system_time` are mach units, converted with `mach_timebase_info` (125/3 ns each on Apple silicon). Children that
-finished come from RUSAGE_CHILDREN's growth, less what was already counted for them and for the descendants they waited
-for, never below 0. That amount is carried while RUSAGE_CHILDREN hasn't yet shown a child the walk no longer sees. A
-descendant still running after its parent ended is launchd's: nothing is taken off for it. Processes FERB opens through
-Launch Services (`open`) belong to launchd and aren't descendants. FERB.app: processes whose executable lies inside a
-`FERB.app` bundle (`proc_listallpids` and `proc_pidpath`), outside the daemon's tree (the packaged daemon runs inside
-FERB.app's agent app; one that left the tree counts from what was counted for it there); `app_cpu_s` is NULL when none
-runs. `db_bytes` is `store_size`. `work_json` holds the window's counts, each a range above the last sample's seq or
-rowid (EXPLAIN shows an INTEGER PRIMARY KEY search; `NOT INDEXED` keeps the trail's one so even after ANALYZE): trail
-events per source; the batcher's wakes and its batches by flush reason (`EventBatcher.wakes`, `batches_by_reason`); Jev
-decisions asked and not sampled; model runs (`model.turn`, `worker`, `model.learning`) and tool calls from spans; tasks
-running (`tasks_status`); and the window's three busiest descendants by executable basename (through the daemon's
-redactor, rule 14) with their CPU seconds. Never content, arguments or paths. A failed sample journals
-`resources.failed` and keeps nothing, so the next row covers both windows; a log that can't start is journaled, and the
-daemon runs without it. Test daemons pass `resources=False`. Measured on a synthetic store with a 400,000-row trail and
-750 new rows a window (150 a minute): one sample takes 3.2 ms (at most 6 ms), 2.8 ms of it the FERB.app scan over about
-740 processes and 0.12 ms the counts. That is about 0.001% of one core.
+the window's end (`at`, local `day`) and length (`window_s`, monotonic clock, which stops while the Mac sleeps, so CPU
+shares are of awake time); the daemon's CPU (`getrusage` RUSAGE_SELF deltas) and its physical footprint and lifetime
+peak (`proc_pid_rusage` with `RUSAGE_INFO_V4`, the first flavor with `ri_lifetime_max_phys_footprint`; the footprint is
+Activity Monitor's Memory column); its descendants, walked with `proc_listchildpids` from its pid, with their count,
+footprint and CPU in the window. Each process is tracked by (pid, start time), so a reused pid is a new process, and one
+seen first counts its CPU since it started. `ri_user_time` and `ri_system_time` are mach units, converted with
+`mach_timebase_info` (125/3 ns each on Apple silicon). Children that finished come from RUSAGE_CHILDREN's growth, less
+what was already counted for them and for the descendants they waited for, never below 0. That amount is carried while
+RUSAGE_CHILDREN hasn't yet shown a child the walk no longer sees. A descendant still running after its parent ended is
+launchd's: nothing is taken off for it. Processes FERB opens through Launch Services (`open`) belong to launchd and
+aren't descendants. FERB.app: processes whose executable lies inside a `FERB.app` bundle (`proc_listallpids` and
+`proc_pidpath`), outside the daemon's tree (the packaged daemon runs inside FERB.app's agent app; one that left the tree
+counts from what was counted for it there); `app_cpu_s` is NULL when none runs. `db_bytes` is `store_size`. `work_json`
+holds the window's counts, each a range above the last sample's seq or rowid (EXPLAIN shows an INTEGER PRIMARY KEY
+search; `NOT INDEXED` keeps the trail's one so even after ANALYZE): trail events per source; the batcher's wakes and its
+batches by flush reason (`EventBatcher.wakes`, `batches_by_reason`); Jev decisions asked and not sampled; model runs
+(`model.turn`, `worker`, `model.learning`) and tool calls from spans; tasks running (`tasks_status`); and the window's
+three busiest descendants by executable basename (through the daemon's redactor, rule 14) with their CPU seconds. Never
+content, arguments or paths. A failed sample journals `resources.failed` and keeps nothing, so the next row covers both
+windows; a log that can't start is journaled, and the daemon runs without it. Test daemons pass `resources=False`.
+Measured on a synthetic store with a 400,000-row trail and 750 new rows a window (150 a minute): one sample takes 3.2 ms
+(at most 6 ms), 2.8 ms of it the FERB.app scan over about 740 processes and 0.12 ms the counts. That is about 0.001% of
+one core.
 
 `device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
 app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
