@@ -12,10 +12,11 @@ import hashlib
 import json
 import os
 import tempfile
+from bisect import bisect_right
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Sequence
 
 from ferb.core.errors import InputTooLarge, ModelLimitsUnknown
 from ferb.core.types import ModelLimits
@@ -77,14 +78,88 @@ def token_method() -> str:
     return "o200k_base_chunked8192_estimate_provider_may_differ" if _encoding() is not None else "utf8_byte_ceiling_tokenizer_unavailable"
 
 
+TOKEN_SLICE = 8192        # count_tokens counts each slice of this many characters on its own
+
+
 def count_tokens(text: str) -> int:
     encoding = _encoding()
     if encoding is None:
         return len(text.encode("utf-8"))
     # Bound tokenizer work on huge unbroken source strings without dropping a character.
     # Chunk boundaries make this an explicit estimate even for a provider using o200k_base.
-    return sum(len(encoding.encode_ordinary(text[start:start + 8192]))
-               for start in range(0, len(text), 8192))
+    return sum(len(encoding.encode_ordinary(text[start:start + TOKEN_SLICE]))
+               for start in range(0, len(text), TOKEN_SLICE))
+
+
+# Counting without reading a whole text again (P1/D10, perf plan 2026-10-23). count_tokens(text) is the sum, over the
+# text's TOKEN_SLICE-character slices, of each slice counted alone (a UTF-8 byte count adds up the same way).
+#
+# 1. A text that only grows keeps the count of every complete slice; only its last, partial slice is counted again
+#    (GrowingCount). Exact by construction.
+#
+# 2. o200k never puts a comma and a space right after it in one piece. The tokenizer cuts a text into pieces with
+#    _PATTERN, left to right, each piece being the first alternative that matches there (greedy quantifiers), and counts
+#    each piece on its own. Every character starts some alternative's match, so the pieces are contiguous. A comma can
+#    be in no letter piece (alternatives 1-2 take one non-letter only when a letter follows it, and a space follows),
+#    no digit piece and no whitespace piece, so it is in alternative 4's run of [^\s\p{L}\p{N}]: greedy, the run goes
+#    on to the comma and stops at the space (\s), and [\r\n/]* then matches nothing. The piece ends right after the
+#    comma. The pattern looks only ahead, and one character at most ((?!\S) after a whitespace run), so the pieces after
+#    a piece's end depend on the text after it alone; and no attempt starting before the comma's piece reaches past the
+#    comma (a letter, digit or whitespace run can't contain it; a punctuation run that reaches it is the comma's piece).
+#    So within a slice, the text cut right after any such commas counts as the sum of its parts, each counted alone.
+#
+# 3. Hence a lower bound (uncut_count): an atom (the text between two such cuts) that no slice edge falls inside adds
+#    exactly its own count; every other part adds at least 0. FERB uses it only to skip counting a text that is surely
+#    over a budget, and counts the text whole whenever the bound can't decide. tests/test_batcher_cost.py pins
+#    _PATTERN to the one proven here.
+
+
+class GrowingCount:
+    """count_tokens of a text that only grows at its end, kept exact without counting it again (point 1 above).
+    `count` is count_tokens or another count that adds up over TOKEN_SLICE-character slices (len does)."""
+
+    def __init__(self, count: Callable[[str], int] = count_tokens) -> None:
+        self.count = count
+        self.closed = 0           # the counts of the complete slices
+        self.tail = ""            # the text after them, shorter than TOKEN_SLICE
+
+    def with_suffix(self, suffix: str = "") -> int:
+        """count_tokens(text + suffix); the text itself is unchanged."""
+        rest = self.tail + suffix
+        return self.closed + sum(self.count(rest[i:i + TOKEN_SLICE]) for i in range(0, len(rest), TOKEN_SLICE))
+
+    def append(self, more: str) -> None:
+        rest = self.tail + more
+        whole = len(rest) - len(rest) % TOKEN_SLICE
+        self.closed += sum(self.count(rest[i:i + TOKEN_SLICE]) for i in range(0, whole, TOKEN_SLICE))
+        self.tail = rest[whole:]
+
+
+def comma_bounds(text: str) -> list[int]:
+    """Each position right after a comma that a space follows: a piece always ends there (point 2 above)."""
+    bounds, at = [], text.find(", ")
+    while at >= 0:
+        bounds.append(at + 1)
+        at = text.find(", ", at + 1)
+    return bounds
+
+
+def uncut_count(ends: Sequence[int], totals: Sequence[int], lo: int, hi: int, shift: int) -> int:
+    """At most what atoms lo..hi-1 add to count_tokens of the text they're in (point 3 above). Atom i is the text from
+    shift + ends[i] to shift + ends[i + 1], both cuts of point 2 (or the text's start or end); totals[i] is the sum of
+    the counts of the atoms before i, each counted alone (0 for an atom longer than TOKEN_SLICE). An atom that a slice
+    edge falls inside is left out."""
+    if hi <= lo:
+        return 0
+    bound = totals[hi] - totals[lo]
+    edge, end, cut = (shift + ends[lo]) // TOKEN_SLICE * TOKEN_SLICE + TOKEN_SLICE, shift + ends[hi], -1
+    while edge < end:
+        i = bisect_right(ends, edge - shift, lo, hi) - 1               # ends[i] <= edge - shift < ends[i + 1]
+        if shift + ends[i] < edge and i != cut:
+            bound -= totals[i + 1] - totals[i]
+            cut = i
+        edge += TOKEN_SLICE
+    return bound
 
 
 def runtime_limits(runtime: Any) -> ModelLimits:
