@@ -533,8 +533,11 @@ long-lived child (Codex) runs and waits for counts in the window it ends, even u
 off what was already counted for the processes behind it: an ended process owes its nearest readable ancestor (or the
 daemon) the CPU counted of it and of its children counter, plus what was owed to it, never below 0; what a counter
 hasn't shown yet comes off a later window. A descendant still running after its parent ended (it can be the child of an
-unreadable process) is launchd's: it owes nothing, since no counter of FERB's will show it. An unreadable process is
-skipped and its children walked. A busiest descendant's CPU seconds are its own and its waited-for children's. Processes
+unreadable process) is launchd's: it owes nothing, since no counter of FERB's will show it. So the CPU such an orphan
+uses after the last sample that found it in the tree, and that of the children it waits for, is undercounted, never
+counted twice. An unreadable process is skipped and its children walked. One that becomes readable again (rare: a
+setuid process dropping its privileges) is counted as first seen, with its waited-for children's whole counter, so
+children it waited for while unreadable, already counted while they ran, can be counted twice. A busiest descendant's CPU seconds are its own and its waited-for children's. Processes
 FERB opens through Launch Services (`open`) belong to launchd and aren't descendants. FERB.app: processes whose
 executable lies inside a `FERB.app` bundle (`proc_listallpids` and `proc_pidpath`), outside the daemon's tree (the
 packaged daemon runs inside FERB.app's agent app; one that left the tree counts from what was counted for it there);
