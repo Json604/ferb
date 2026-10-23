@@ -184,6 +184,7 @@ class ShellRead(_Base):
                          "since=0 and continue from the returned offset while more is true.")
     risk, reversible = RiskLevel.LOW, True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
+    probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
     origin = OUTPUT_ORIGIN
 
     class Input(BaseModel):
@@ -234,6 +235,7 @@ class ShellList(_Base):
     name, description = "shell.list", "This task's commands: id, command, running, exit code."
     risk, reversible = RiskLevel.LOW, True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
+    probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
     origin = "ferb"                                    # FERB's own process records
 
     class Input(BaseModel):

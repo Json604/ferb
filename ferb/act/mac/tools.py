@@ -202,6 +202,7 @@ class MacSnapshot(_Base):
                    "Prefer browser tools for web content.")
     scopes = {"mac:read"}
     observation = True                                 # only reads: the final checker may use it (V3, W4)
+    probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
 
     class Input(_App):
         offset: int = Field(0, ge=0, description="Node page offset returned as next_offset by the previous snapshot")
