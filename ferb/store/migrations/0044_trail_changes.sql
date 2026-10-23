@@ -2,17 +2,17 @@
 -- rows after the last seq it saw. A row deleted (retention purge, forget) or whose data_json is rewritten (the D14/P8
 -- seven-day text expiry) changes what it holds: these triggers count such changes on any connection, and on a new
 -- count it reads the rows it holds again (never the whole trail). A new row needs no count (it comes after the last
--- seq); relevance and sensitive never reach Jev.
-CREATE TABLE trail_changes (
+-- seq); relevance and sensitive never reach Jev. Safe to apply again (like 0043).
+CREATE TABLE IF NOT EXISTS trail_changes (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     n  INTEGER NOT NULL
 );
-INSERT INTO trail_changes VALUES (1, 0);
-CREATE TRIGGER trail_changes_delete AFTER DELETE ON trail
+INSERT OR IGNORE INTO trail_changes VALUES (1, 0);
+CREATE TRIGGER IF NOT EXISTS trail_changes_delete AFTER DELETE ON trail
 BEGIN
     UPDATE trail_changes SET n = n + 1 WHERE id = 1;
 END;
-CREATE TRIGGER trail_changes_data AFTER UPDATE OF data_json ON trail
+CREATE TRIGGER IF NOT EXISTS trail_changes_data AFTER UPDATE OF data_json ON trail
 BEGIN
     UPDATE trail_changes SET n = n + 1 WHERE id = 1;
 END;
