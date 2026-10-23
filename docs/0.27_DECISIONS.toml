@@ -586,7 +586,8 @@ summary = "Local services (T3b, owner's Q1): direct connections to executable-pi
 
 [L25]
 milestone = "L"
-tests = ["tests/test_extension_autoinstall.py", "tests/test_setup_flow.py"]
+tests = ["tests/test_extension_autoinstall.py", "tests/test_setup_flow.py", "tests/test_browser_autopair.py"]
+note = "Owner 2026-10-24, after OpenClaw's extension \"pairs on its first native call\": \"yes build\" automatic pairing. FERB pairs a Chrome or Brave profile once FERB is turned on there and the owner is in its window (browser frontmost, profile last used, read twice past Chromium's write delay); never FERB's identity or mailbox-account profile, a profile the owner unpaired (until paired by hand), or while paused; one try per profile per daemon run. Ruling: an explicit `ferb browsers unpair` sticks, since the owner's last word on the profile wins."
 summary = "ferb setup asks each Chromium browser to install FERB's Chrome Web Store extension, registers the native host and reports per profile; never edits browser preferences or restarts a browser"
 
 [L26]

@@ -1,5 +1,6 @@
 """Owns authenticated extension-to-profile bindings, single-use pairing tokens and anti-replay sequence state.
-Must not choose a browser profile or account: setup supplies the explicit browser, folder and identity.
+Must not choose a browser profile or account: the caller (setup, `ferb browsers pair`, or the daemon's automatic
+pairing of the profile the owner is in) supplies the browser, folder and identity.
 Bindings and monotonic counters persist; secret pairing keys never enter model-visible results."""
 
 import base64
@@ -63,8 +64,24 @@ class Pairings:
         return bytes(r["key"]) if r else None
 
     def unpair(self, browser: str, folder: str) -> bool:
+        """The owner unpaired the profile: FERB never pairs it by itself again, until it is paired by hand."""
+        self.db.conn.execute("INSERT OR REPLACE INTO ext_autopair_off VALUES (?, ?, ?)",
+                             (browser, folder, self.clock.now().isoformat()))
         return self.db.conn.execute("DELETE FROM ext_installs WHERE browser = ? AND folder = ?",
                                     (browser, folder)).rowcount > 0
+
+    def autopair_off(self, browser: str, folder: str) -> bool:
+        return self.db.conn.execute("SELECT 1 FROM ext_autopair_off WHERE browser = ? AND folder = ?",
+                                    (browser, folder)).fetchone() is not None
+
+    def pending(self, browser: str, folder: str) -> bool:
+        """A pairing of the profile is in progress: an unexpired token for it is still unused."""
+        now = self.clock.monotonic()
+        return any((b, f) == (browser, folder) and expires >= now for b, f, _, expires in self._tokens.values())
+
+    def revoke(self, token: str) -> None:
+        """A pairing wait ended: its token can no longer pair (used or not)."""
+        self._tokens.pop(token, None)
 
     def handle(self, m: ExtMessage) -> Verdict:
         if m.type == "pair":
@@ -102,6 +119,7 @@ class Pairings:
         c.execute("INSERT INTO ext_installs (install_id, browser, folder, identity, key, last_seq, paired_at) "
                   "VALUES (?, ?, ?, ?, ?, 0, ?)",
                   (m.install_id, browser, folder, identity.value, key, self.clock.now().isoformat()))
+        c.execute("DELETE FROM ext_autopair_off WHERE browser = ? AND folder = ?", (browser, folder))
         c.execute("COMMIT")
         self.paired.add(str(token))
         return Verdict(True, "paired", reply={"type": "paired", "key": base64.b64encode(key).decode()},

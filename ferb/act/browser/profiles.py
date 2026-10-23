@@ -75,6 +75,21 @@ def discover(browser: str, data_dir: Path | None = None) -> list[BrowserProfile]
                    for folder, info in cache.items()), key=lambda p: p.folder)
 
 
+def last_used(browser: str, data_dir: Path | None = None) -> str | None:
+    """The profile folder whose window was active last, as the browser records it in Local State (up to about ten
+    seconds after a switch); read only. Chromium leaves the key out while only "Default" has been used and reads a
+    missing key as "Default", so this does too when that profile exists."""
+    try:
+        profile = json.loads(((data_dir or SUPPORT / BROWSERS[browser].data) / "Local State").read_text()) \
+            .get("profile", {})
+        folder = profile.get("last_used")
+        if folder is None and "Default" in (profile.get("info_cache") or {}):
+            folder = "Default"
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+    return folder if isinstance(folder, str) and folder else None
+
+
 def discover_all(data_dirs: dict[str, Path] | None = None) -> list[BrowserProfile]:
     dirs = data_dirs or {b: SUPPORT / v.data for b, v in BROWSERS.items()}
     return [p for b, d in dirs.items() for p in discover(b, d)]

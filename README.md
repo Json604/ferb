@@ -96,7 +96,19 @@ In browsers without the store request, setup prints the Load-unpacked steps: pre
 extension path` prints it), enable Developer mode in the browser's extensions page and Load unpacked from
 `~/.ferb/extensions/chromium`, once per profile. `[browser] store_extension_id = ""` in `~/.ferb/config.toml` turns
 the store request off. `ferb browsers extension package --out DIR` builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads
-it when idle. Pair with:
+it when idle.
+
+Pairing is automatic in Chrome and Brave. Once FERB is turned on in a profile, FERB pairs it when that copy first
+connects, or when you switch to the browser from another app, provided you're in that profile's window. A blank FERB
+page opens there and closes itself. Chrome records which profile you're in about ten seconds late, so FERB waits
+until two readings agree with the browser still in front. It needs FERB's Accessibility permission to see the front
+app. Each profile gets one try per FERB run. FERB never pairs automatically:
+- its own profile, which `ferb setup --identity` pairs, recognised by setting or by FERB's mailbox account;
+- a profile you unpaired with `ferb browsers unpair`, until you pair it by hand;
+- anything while FERB is paused.
+
+In a profile that holds both copies, switching from the paired copy to the other also needs a pairing by hand. To pair
+one by hand, or after a failed try:
 
 ```sh
 ferb browsers pair --browser chrome "scaler"
@@ -175,10 +187,12 @@ two-app Accessibility acceptance are still pending. See the
 The app is the product: the notch app's source is in `ui/` (`ui/mac/FERBNotch`; a development build with `./build.sh`
 there, the packaged app with `scripts/build-app.sh`). It uses the same local daemon socket as the CLI. See the
 [RPC contract](docs/RPC.md) for its events and reconnect behavior. In its chat:
-- a short acknowledgement ("Got it.", "On it.") appears as soon as you send, then the plan line when FERB has a plan,
-  then one live line with the current step ("reading github.com", "writing notes.md") and the time elapsed, until the
-  answer arrives; if FERB loses its AI service mid-task, that line says so at once ("Your Mac seems to be offline:
-  I'll carry on when it's back.") and again when it reconnects, while the task carries on (`ferb chat` prints both);
+- a short acknowledgement ("Got it.", "On it.") appears about 0.75 s after you send, as a small bubble on the plan
+  line that follows when FERB has a plan. While the task works, only the "N active tasks" row shows it's running; the
+  steps are in View tasks › Inspect. If FERB loses its AI service mid-task, a line under the plan says so at once
+  ("Your Mac seems to be offline: I'll carry on when it's back.") and again when it reconnects, while the task carries
+  on (`ferb chat` prints both and the steps);
+- text in the chat can be selected by dragging and copied with Command-C, even while FERB isn't the active app;
 - an answer to an earlier message that arrives after a newer one appears at the bottom, quoting your question, and
   the earlier message says "Answered below";
 - FERB's questions appear inline and you can keep typing; reply in your own words ("yes", "the payment one"), or use
@@ -186,8 +200,10 @@ there, the packaged app with `scripts/build-app.sh`). It uses the same local dae
 - notices (something FERB noticed on your Mac) appear as FERB messages with a small "noticed" tag; outside text they
   repeat is shown as a quote with where it came from;
 - a verified answer shows a small check mark;
-- FERB steps aside while its file picker, another app's menu over the notch, or (pinned) an app you bring forward under
-  the chat needs the space; hover the notch or use the shortcut to bring it back.
+- FERB steps one layer back, but stays on screen, while its file picker, another app's menu over the notch, or (pinned)
+  an app you bring forward under the chat needs the space: it sits just behind that window or under that menu, so a
+  screenshot or a clipboard app still shows it. Click it, hover the notch or use the shortcut to bring it to the front;
+  clicking the other app sends it back again.
 
 The app's history keeps the message as FERB stored it (secret values replaced), never the raw text, and never your
 unsent draft. Native dictation uses the microphone button or right Command + Option and places the transcript in the

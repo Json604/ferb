@@ -2275,8 +2275,12 @@ protected FERB state (16.9).
   Recovered tasks show on FERB's side, never as the owner's words. Paste provenance is kept without a dialog.
 - **History (L20).** The unsent draft lives only in memory. A sent message is saved only as the daemon's redacted
   `ack.message`; a turn never acknowledged is saved as "Message not saved — sent before FERB confirmed it".
-- **Yield.** FERB orders its windows out while its file picker, another app's menu or floating window over it, or (for
-  the pinned chat) an app the owner brings forward under it is in the way; it never toggles click-through.
+- **Yield.** While FERB's file picker, another app's menu or floating window over it, or (for the pinned chat) an app
+  the owner brings forward under it is in the way, the panel steps one layer back instead of leaving the screen (owner,
+  2026-10-24). It leaves the overlay space (`NotchOverlaySpace.leave`) for the normal level, just behind that app's
+  frontmost window under the chat (`NotchYieldController.coveringWindow`), or in front of ordinary windows when it
+  yields to a menu, popover or floating window. A click on it brings it back at its own level in the overlay space,
+  and it is re-placed when what it yields to changes (`NotchWindowYield.restack`). It never toggles click-through.
 
 ### 16.3 Answers (L11)
 
@@ -2580,6 +2584,23 @@ protected FERB state (16.9).
 - Discovery, pairing and doctor cover every catalogued browser. A profile that had the unpacked copy also takes the
   store request, so it can hold both: status and pairing use the copy that is turned on, the unpacked one when both
   are (`profiles.extension_entry`); an unpaired copy is refused everything but `hello` and `pair`.
+- **Automatic pairing (owner 2026-10-24).** An unpaired copy's `hello` (`Hub.on_unpaired`), or the owner switching to
+  Chrome or Brave while one is connected (`AppFocusWatcher.on_change`), starts one pass (`Daemon._autopair_pass`;
+  `run_autopair`, off in tests). It pairs the profile the owner is in:
+  - the frontmost app (Accessibility) is Chrome or Brave (`AUTOPAIR_BROWSERS`, where handing a page to one profile is
+    verified), and the profile is its `profile.last_used` in `Local State` ("Default" when the key is missing, as
+    Chromium reads it);
+  - two readings `PREFS_SETTLE_S` (12 s) apart agree, because Chromium writes Local State and Preferences up to 10 s
+    late; the front app is read once more just before the page is handed over;
+  - FERB is turned on there, and the profile isn't paired, unpaired by the owner (`ext_autopair_off`, migration 0046,
+    cleared by any pairing), being paired already (an unexpired token, `Pairings.pending`), FERB's identity profile, or
+    a profile holding FERB's mailbox account;
+  - FERB isn't paused.
+  The pass opens the self-closing pairing page in that profile with an owner token. Its wait ends when anyone pairs the
+  profile, and the token is then revoked (`Pairings.revoke`; manual pairings revoke theirs on timeout too). Each
+  profile gets one try per daemon run, journaled as `browsers.autopaired` or `browsers.autopair_failed`.
+  Residuals: a window switch inside the browser during the last ten seconds before the page goes can still bring the
+  previously used profile's window forward; and a daemon restart starts a new try per qualifying profile.
 
 **Packaged FERB.app (L27, [`scripts/build-app.sh`](scripts/build-app.sh)).**
 - **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; uv's standalone CPython 3.12.13 with `ferb` and

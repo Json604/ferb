@@ -434,6 +434,10 @@ All **Shipped** (`ferb --help`):
 - A profile that already had the unpacked copy takes the store request too and can hold both copies. Setup's report
   and pairing use the copy that is turned on (the unpacked one when both are); an unpaired copy is refused everything
   but its hello and pairing.
+- Automatic pairing (owner 2026-10-24, after OpenClaw's "pairs on its first native call"): in Chrome and Brave, once
+  FERB is turned on in a profile, FERB pairs it when the owner is in that profile's window with the browser in front.
+  The self-closing pairing page opens only there, after Chrome's delayed record of the profile has settled. It never
+  pairs FERB's own profile, a profile the owner unpaired, or anything while FERB is paused. Not live-tested.
 
 ### 3.7 Mac app control
 

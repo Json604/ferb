@@ -592,6 +592,33 @@ After the owner's update (2026-10-24):
   report and `ferb browsers pair` now use the copy that is turned on (the unpacked one when both are). Before, with the
   unpacked copy turned off and the store copy on, setup said the profile's extension was waiting to be turned on, and
   pairing opened the turned-off copy's page and timed out.
+- FERB's panel no longer vanishes when another app's window or menu needs the space (owner: "take it one layer behind
+  rather than closing it back"). It steps one layer back and stays on screen: just behind the app's window under the
+  pinned chat, or under the menu, popover or clipboard window over it. A screenshot shows it, and a clipboard app's
+  paste into its input is visible. Click it (or hover the notch, or use the shortcut) to bring it to the front;
+  clicking the other app sends it back. While it sits back it is an ordinary window, so a desktop swipe moves it like
+  one. The paperclip opens one file picker at a time, and the panel is never put over its own picker. The owner
+  checked it live: "ok it works".
+- Chat (owner, 2026-10-24):
+  - The quick reply ("On it now.") shows about 0.75 s after you send, as a small bubble on the plan line it introduces.
+  - Steps such as "opening www.instagram.com · 9s" no longer show under the plan; the "N active tasks" row stays, and
+    the steps are in View tasks › Inspect. The AI service's offline and reconnected lines still show there.
+  - Command-C (and X, A) now work on text selected in the chat. The Edit menu's shortcuts never reached FERB's panel,
+    because FERB never becomes the active app.
+- Pairing is automatic in Chrome and Brave (owner: "yes build", after OpenClaw's extension "pairs on its first native
+  call").
+  - **When:** an unpaired FERB copy says hello, or you switch to the browser while one is connected.
+  - **Which profile:** the one you're in. The browser must be the frontmost app and the profile its last used, read
+    twice 12 s apart because Chromium writes it about 10 s late, and the front app is checked again just before the
+    page goes. FERB must be turned on there and the profile not yet paired.
+  - **What you see:** a blank pairing page opens there and closes itself.
+  - **Never paired this way:** FERB's own profile (by setting or by its mailbox account), a profile you unpaired with
+    `ferb browsers unpair` (until you pair it by hand: migration 0046), one already being paired by hand, and anything
+    while FERB is paused.
+  - **Tries:** one per profile while FERB runs, journaled `browsers.autopaired` / `browsers.autopair_failed`. The key
+    is revoked when the wait ends; a manual pairing that times out revokes its key too.
+  - **Residual:** a window switch inside the browser in the last ten seconds before the page goes can still bring the
+    previous profile's window forward.
 
 Licensed under Apache-2.0.
 

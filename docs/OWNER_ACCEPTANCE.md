@@ -1419,6 +1419,41 @@ FERB's resource log (plan 2026-10-23 Task 4, L30; pending, checkout tests only s
     --update` restarts it): the day's hours covered should still match that time, the minutes before the restart
     included. `ferb stats --days 1` shows only today.
 
+Automatic pairing (L25, owner 2026-10-24; pending, checkout tests only so far):
+81. After `ferb setup --update`, quit and reopen Chrome.
+    - Reopening Chrome may already pair the last-used unpaired profile: note which, if any.
+    - In a profile FERB isn't paired in yet ("Kartikey", "old" or "New_Personal"), turn FERB on when Chrome offers it
+      and stay in that window. About 12 s later a blank FERB tab should open and close by itself. Record:
+      - whether anything else moved (another window, another app, your Space);
+      - which tab was active after the page closed;
+      - what `ferb browsers` then shows for that profile ("connected").
+    - Use Chrome's "online bits" window (FERB on, not paired), switch to another app for about 15 s, then switch back.
+      It should pair the same way, once.
+    - Run `ferb browsers unpair --browser chrome "online bits"`, then `ferb setup --update`, then repeat the switch. It
+      must stay unpaired until `ferb browsers pair`.
+    - Record the `browsers.autopaired` journal entries (`ferb timeline` or the trace tools). FERB's own profile must not
+      be paired this way.
+
+The panel steps back instead of hiding (owner 2026-10-24: "take it one layer behind rather than closing it back";
+pending; Swift tests only so far). This supersedes check 46's "steps aside":
+82. Rebuild with `./build.sh` in `ui/mac/FERBNotch` and relaunch FERB Notch. Pin the chat open, then:
+    - Click into a browser window that lies under the chat. FERB should stay visible just behind the browser window,
+      not fold into the notch. Click FERB's visible part: it comes to the front. Click the browser: it goes back.
+    - Take a screenshot (Cmd+Shift+4, or your usual tool) that includes the pinned chat. Record whether FERB is in it.
+    - Open your clipboard app over the notch and paste into FERB's input. Record whether you can see FERB under the
+      clipboard window while you pick, and whether the text lands in FERB's input.
+    - Swipe to another desktop while FERB sits back, and once while it's in front. Record what moved.
+    Owner, 2026-10-24: "ok it works, good work" (which bullets weren't named). Still to try: the paperclip while FERB
+    sits back opens one picker only, and FERB never covers the picker.
+
+Chat changes (owner 2026-10-24; pending, Swift tests only so far):
+83. In FERB Notch, send a request:
+    - The quick reply ("On it.") appears about 0.75 s after you send, as a small bubble on the plan line.
+    - No step line ("opening …") shows under the plan; the "N active tasks" row does.
+    - Drag across a FERB answer, press Command-C and paste it somewhere. Record whether the text was highlighted and
+      copied.
+    - If you can, turn Wi-Fi off during a task: the offline line should still show under the plan.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - A crash or forced quit while a task that was running at a forget is still going loses the clean-up due when it
   ends: what it recorded since the forget can still hold the item (FERB keeps that clean-up in memory only).

@@ -237,6 +237,7 @@ class Hub:
         self.bridges: dict[tuple[str, str], Bridge] = {}
         self.refused: dict[str, str] = {}                    # install_id -> why (e.g. protocol mismatch)
         self.unpaired: dict[str, str] = {}                   # install_id -> browser: installed, connected, not paired
+        self.on_unpaired: Callable[[], None] = lambda: None  # an unpaired copy said hello: FERB can pair it (L25)
         # The activity trail: every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         # A tab closed: FERB's own resources tied to it (upload copies) can go; nothing about the tab is recorded, so
@@ -369,6 +370,7 @@ class Hub:
                 if b in ("chrome", "brave"):
                     self.unpaired[m.install_id] = b
                     conn.unpaired_install = m.install_id
+                    self.on_unpaired()
                 conn.writer.write(json.dumps({"type": "pairing_required"}).encode() + b"\n")
                 await conn.writer.drain()
             return

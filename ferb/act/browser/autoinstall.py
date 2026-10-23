@@ -265,7 +265,8 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
         lines.append("  Load unpacked, once per profile: open the browser's extensions page, turn on Developer mode, "
                      f"click “Load unpacked” and choose {extension_dir}")
     if any(p.paired is not True for s in states for p in s.profiles):
-        lines.append('  Then pair each profile: `ferb browsers pair --browser <browser> "<profile>"`.')
+        lines.append("  FERB pairs a profile by itself once FERB is turned on there and you're in its window; to pair one "
+                     'by hand: `ferb browsers pair --browser <browser> "<profile>"`.')
     return lines + removed
 
 
