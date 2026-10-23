@@ -488,9 +488,12 @@ issues with ferb again"; not installed or live-tested):
 - It never runs while a daemon answers (`ferb daemon run` in a terminal: stop it first). Each card version is cleaned
   in its own transaction. A crash, power loss, Ctrl-C or FERB.app quitting leaves every version either clean or as it
   was; FERB is started again, and the next update finishes the job. If a power loss cuts it off before the index is
-  made again, FERB's next start makes it (migration 0043). Once it is done, the journal records
-  `store.cards_cleaned` with the counts. `ferb doctor` shows the database's size and whether the clean-out is still
-  pending; with too little free disk it cleans but doesn't compact, says so, and tries again on the next update.
+  made again, FERB's next start makes it (migration 0043). After a stop, setup says it is making that index again
+  before it does (a minute on a big store). The journal records `store.cards_cleaned` with the counts once the rows
+  are removed, and `store.compacted` with the sizes once the file is compacted. With too little free disk the update
+  removes the rows but doesn't compact, says why, and the next update compacts without cleaning again. `ferb doctor`
+  shows the database's size and what is left: the clean-out, or only the compaction. A store that won't open is
+  reported, and the update goes on.
 - After it, forgetting an activity row a task's planner was only shown no longer touches that task's card (the
   current rule since C1). Forgetting one its actions used still forgets the card and everything built on it.
 
