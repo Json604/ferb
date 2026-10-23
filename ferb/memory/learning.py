@@ -659,8 +659,15 @@ class Learning:
         Each node is cleaned in a transaction of its own, so a run stopped halfway (a crash, power loss) leaves every
         node either clean or as it was, and the next run finishes. `stop`, asked before each node (a stop the owner
         asked for), ends the run there. `progress(done, total)` is told the versions dealt with so far (cleaned, or
-        left alone) after each node, so setup can say how far it is. Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions
-        that lost rows), `rows` removed, `untraced` (versions left alone) and `stopped`."""
+        left alone) after each node, so setup can say how far it is.
+
+        The deletes run without `learning_source_ref` (migration 0030): it is dropped right before the first and made
+        again on the way out, whatever happens, over the rows that are left. With it, each node's delete rewrote ~50k
+        random pages of that index: about 7 s a node, 47 minutes on a synthetic store of the owner's shape, against
+        68 s without. A power loss in between leaves it to migration 0043 at the next start.
+
+        Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
+        `untraced` (versions left alone) and `stopped`."""
         conn = self.db.conn
         cards: dict[str, list[str]] = {}
         for row in conn.execute("SELECT id, key FROM learning_nodes WHERE kind='episode' ORDER BY key, recorded_at, id"
@@ -671,6 +678,7 @@ class Learning:
         # the refs to keep, on this connection only (a temp table): each node's rows are checked against it in SQLite
         conn.execute('CREATE TEMP TABLE IF NOT EXISTS card_keep (ref TEXT PRIMARY KEY)')
         done = 0
+        dropped = False
         try:
             for task_id, nodes in cards.items():
                 keep = self.card_source_refs(task_id)
@@ -685,6 +693,9 @@ class Learning:
                     if stop():
                         counts['stopped'] = True
                         return counts
+                    if not dropped:
+                        conn.execute('DROP INDEX IF EXISTS learning_source_ref')
+                        dropped = True
                     conn.execute('BEGIN IMMEDIATE')
                     try:
                         removed = conn.execute('DELETE FROM learning_sources WHERE node_id = ? AND source_ref NOT IN '
@@ -700,6 +711,8 @@ class Learning:
                     progress(done, counts['nodes'])
         finally:
             conn.execute('DROP TABLE IF EXISTS temp.card_keep')
+            if dropped:
+                conn.execute('CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)')
         return counts
 
     def card_inputs(self, task_id: str | None = None) -> dict[str, str]:

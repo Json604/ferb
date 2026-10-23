@@ -165,7 +165,10 @@ def test_an_interrupted_run_leaves_each_node_whole_and_the_next_run_finishes(sto
         if not countdown:
             return 0
         countdown[0] -= 1
-        return int(countdown[0] <= 0)               # partway into that DELETE: SQLite stops it
+        if countdown[0] > 0:
+            return 0
+        countdown.clear()                           # once, partway into that DELETE: SQLite stops it
+        return 1
 
     db.conn.set_trace_callback(trace)
     db.conn.set_progress_handler(progress, 10)
@@ -178,6 +181,7 @@ def test_an_interrupted_run_leaves_each_node_whole_and_the_next_run_finishes(sto
     states = {node: "pruned" if rows[node] == pruned[node] else "untouched" if rows[node] == original[node] else "torn"
               for node in original}
     assert sorted(states.values()) == ["pruned"] * 3 + ["untouched"] * 3, states
+    assert _ref_index(db)                                               # made again on the way out
     counts = learning.prune_card_sources()
     assert counts["cleaned"] == 3 and _rows(db) == pruned
 
@@ -192,7 +196,7 @@ def test_a_stop_request_ends_the_run_between_cards_and_the_next_run_finishes(sto
         asked.append(1)
         return len(asked) > 2                       # asked before each node: two are cleaned, then it stops
     counts = learning.prune_card_sources(stop)
-    assert counts["stopped"] is True and counts["cleaned"] == 2
+    assert counts["stopped"] is True and counts["cleaned"] == 2 and _ref_index(db)
     rows = _rows(db)
     assert sum(rows[n] == pruned[n] for n in original) == 2 and sum(rows[n] == original[n] for n in original) == 4
     assert learning.prune_card_sources()["cleaned"] == 4 and _rows(db) == pruned
@@ -231,3 +235,49 @@ def test_progress_is_told_after_each_card_version(store: Any) -> None:
     told: list[tuple[int, int]] = []
     learning.prune_card_sources(progress=lambda done, total: told.append((done, total)))
     assert told[-1] == (8, 8) and [d for d, _ in told] == sorted(d for d, _ in told) and len(told) >= 6
+
+
+def _ref_index(db: Database) -> bool:
+    """`learning_source_ref` (migration 0030) is there, and a lookup by source ref uses it (forget, missing sources)."""
+    plan = " ".join(str(r[3]) for r in db.conn.execute(
+        "EXPLAIN QUERY PLAN SELECT node_id FROM learning_sources WHERE source_ref = ?", ("trail:x",)))
+    return "learning_source_ref" in plan
+
+
+def test_the_deletes_run_without_the_ref_index_which_is_made_again_after(store: Any) -> None:
+    """Measured on a store of the owner's shape (23M rows): each node's delete rewrote ~50k random pages of
+    `learning_source_ref`, ~7 s a node, about 47 minutes with the daemon stopped; without it, 68 s. It goes right before
+    the first delete and is made again whatever happens, over the rows that are left."""
+    db, spans, learning = store
+    _three_tasks(db, spans, learning)
+    statements: list[str] = []
+    db.conn.set_trace_callback(statements.append)
+    learning.prune_card_sources()
+    db.conn.set_trace_callback(None)
+    first_delete = next(i for i, sql in enumerate(statements) if sql.startswith("DELETE FROM learning_sources"))
+    drop = next(i for i, sql in enumerate(statements) if sql.startswith("DROP INDEX IF EXISTS learning_source_ref"))
+    make = max(i for i, sql in enumerate(statements) if sql.startswith("CREATE INDEX IF NOT EXISTS learning_source_ref"))
+    last_delete = max(i for i, sql in enumerate(statements) if sql.startswith("DELETE FROM learning_sources"))
+    assert drop < first_delete and last_delete < make and _ref_index(db)
+
+
+def test_a_store_with_nothing_to_clean_keeps_its_ref_index(store: Any) -> None:
+    db, spans, learning = store
+    kept, shown = traced_task(db, spans, learning, "c0ffee02")
+    copied_cards(learning, "c0ffee02", kept | shown, versions=1)
+    purge_task_spans(db, "c0ffee02")                                     # only an untraced card
+    statements: list[str] = []
+    db.conn.set_trace_callback(statements.append)
+    learning.prune_card_sources()
+    db.conn.set_trace_callback(None)
+    assert not any(sql.startswith("DROP INDEX") for sql in statements) and _ref_index(db)
+
+
+def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_out(store: Any) -> None:
+    """A power loss between the drop and the remake leaves no index; the daemon's next start (its migrations) makes it
+    again, so forgets and missing-source lookups never scan the whole table."""
+    db, spans, learning = store
+    db.conn.execute("DROP INDEX learning_source_ref")
+    db.conn.execute("DELETE FROM schema_version WHERE version >= 43")    # the first start of the new code
+    assert not _ref_index(db)
+    assert 43 in db.migrate() and _ref_index(db)
