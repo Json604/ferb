@@ -2124,7 +2124,7 @@ measurements remain null, denominators are retained and aggregate deltas are not
 Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
 local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.
 
-## 16. Launch week (L1–L28), as built (checkout; owner install and live checks pending)
+## 16. Launch week (L1–L30), as built (checkout; owner install and live checks pending)
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week

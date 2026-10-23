@@ -451,7 +451,8 @@ summary = "FERB may write the clipboard and approve another agent's prompts; log
 # F10 release validation: tests/test_release_measurement.py covers packaged target/security definitions
 # and saved-baseline comparisons. Live acceptance is recorded separately in OWNER_ACCEPTANCE.md.
 
-# Launch-week decisions L1–L28 (owner, 2026-10-13 and 2026-10-14): docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md.
+# Launch-week decisions L1–L30: L1–L28 (owner, 2026-10-13 and 2026-10-14) in docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md;
+# L29 (2026-10-21) and L30 (2026-10-23), each with its own spec or plan named in its note.
 # Milestone "L". Integrated on astra_resume; the owner's install and live checks (docs/OWNER_ACCEPTANCE.md) are pending.
 
 [L1]

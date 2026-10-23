@@ -1047,5 +1047,5 @@ Decided or discussed, deferred (spec §6 and plan):
 - **Big job (D24)** — a large fan-out plan stated with time and cost estimates.
 - **Test mode** — an allowlist that refuses send-class actions except to listed recipients (or `"SITE @ACCOUNT"` for
   a post) during supervised tests.
-- **L-numbers** — launch-week decisions L1–L28 (2026-10-13/14); **D/P/S/MP/W** — 0.27 plan decisions; **F0–F10** —
-  the 0.27 milestones.
+- **L-numbers** — launch-week decisions L1–L30 (L1–L28 2026-10-13/14, L29 2026-10-21, L30 2026-10-23);
+  **D/P/S/MP/W** — 0.27 plan decisions; **F0–F10** — the 0.27 milestones.

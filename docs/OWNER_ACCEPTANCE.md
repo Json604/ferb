@@ -1063,7 +1063,7 @@ Activation is deferred to preserve the still-running local report server (`p-08a
 or approval remained. Daemon shutdown kills managed shell processes (`ferb/daemon/main.py`), so activating this
 change requires stopping that server. The owner's earlier keep-running instruction is retained.
 
-## 0.27 launch week (L1–L28) — pending live checks (2026-10-14)
+## 0.27 launch week (L1–L30) — pending live checks (2026-10-14)
 
 The launch-week fixes are integrated on `astra_resume` (spec
 `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`,
