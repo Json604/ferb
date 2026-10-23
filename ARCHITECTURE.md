@@ -516,7 +516,9 @@ with the current one; `perception.status` `unsent_events` still counts with the 
 FERB's own resource use (L30, perf plan 2026-10-23 Task 4): so a later diagnosis works from days of real use rather than
 a 15-minute snapshot, `ResourceLog` ([`daemon/resources.py`](ferb/daemon/resources.py)) writes one row of numbers to
 `resource_samples` (migration 0045) every `SAMPLE_SECONDS` (300, the owner's "every 5 minutes") and the partial window
-at shutdown; `ferb stats` shows it per day (`cli/admin.py` `_resources`). The daemon creates it in `start` right after
+at shutdown; `ferb stats` shows it per day (`cli/admin.py` `_resources`) for the last `--days` whole local days, today
+included, as its header says (its other sections count back `days` × 24 h from now), and against a store without the
+table (an older daemon's) says the log starts after the next update. The daemon creates it in `start` right after
 the database opens, so the first window counts from start-up (the cursors and every process's CPU are read then). A row:
 the window's end (`at`, local `day`) and length (`window_s`, monotonic clock, which stops while the Mac sleeps, so CPU
 shares are of awake time); the daemon's CPU (`getrusage` RUSAGE_SELF deltas) and its physical footprint and lifetime

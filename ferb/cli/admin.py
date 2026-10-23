@@ -753,10 +753,14 @@ def _share(cpu: float, seconds: float) -> str:
 
 
 def _resources(c: Any, days: int, present: bool, out: TextIO) -> None:
-    """L30: FERB's resource log for the last `days` local days, one line per day, then the period's five windows with
-    the most CPU (the daemon's, its descendants' and FERB.app's) with what FERB was doing in each."""
+    """L30: FERB's resource log for the last `days` local days, today included, one line per day, then the period's five
+    windows with the most CPU (the daemon's, its descendants' and FERB.app's) with what FERB was doing in each. Whole
+    local days, since each line is one (the sections above count back `days` × 24 h from now), as its header says.
+    `present`: the store has the log's table (a store from before L30 has none until the next update)."""
     from datetime import timedelta
-    cutoff = (datetime.now().astimezone().date() - timedelta(days=max(1, days) - 1)).isoformat()
+    days = max(1, days)
+    period = f"the last {days} local day(s), today included"
+    cutoff = (datetime.now().astimezone().date() - timedelta(days=days - 1)).isoformat()
     rows = [dict(zip(("at", "day", "window_s", "cpu_s", "footprint", "peak_footprint", "child_cpu_s", "app_cpu_s",
                       "db_bytes", "work_json"), r))
             for r in c.execute("SELECT at, day, window_s, cpu_s, footprint, peak_footprint, child_cpu_s, app_cpu_s, "
@@ -764,10 +768,11 @@ def _resources(c: Any, days: int, present: bool, out: TextIO) -> None:
                                (cutoff,))] if present else []
     if not rows:
         any_row = present and c.execute("SELECT 1 FROM resource_samples LIMIT 1").fetchone()
-        print(f"Resources: no samples in the last {days} day(s)." if any_row else
-              "Resources: no samples yet (the daemon writes one every 5 minutes).", file=out)
+        print(f"Resources: no samples in {period}." if any_row else
+              "Resources: no samples yet (the daemon writes one every 5 minutes)." if present else
+              "Resources: no samples yet; the resource log starts after the next `ferb setup --update`.", file=out)
         return
-    print("Resources (FERB's own use, sampled every 5 minutes; CPU as a share of one core):", file=out)
+    print(f"Resources (FERB's own use over {period}; sampled every 5 minutes; CPU as a share of one core):", file=out)
     by_day: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_day.setdefault(row["day"], []).append(row)

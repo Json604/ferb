@@ -761,7 +761,8 @@ def test_stats_shows_each_days_resources_and_the_hottest_windows(tmp_path: Path)
     db.close()
     text = _stats(tmp_path)
     lines = text[text.index("Resources"):].splitlines()
-    assert lines[0] == "Resources (FERB's own use, sampled every 5 minutes; CPU as a share of one core):"
+    assert lines[0] == ("Resources (FERB's own use over the last 7 local day(s), today included; sampled every 5 "
+                        "minutes; CPU as a share of one core):")
     assert lines[1] == (f"  {before}: 0.1 h; daemon CPU avg 10.0%, peak 10.0% at 23:55; memory avg 300.0 MB, "
                         "peak 900.0 MB; other processes CPU avg 1.0%; FERB.app not running; database 800.0 MB")
     assert lines[2] == (f"  {day}: 0.2 h; daemon CPU avg 23.2%, peak 50.0% at 10:05; memory avg 400.0 MB, "
@@ -805,4 +806,14 @@ def test_stats_says_when_there_are_no_resource_samples(tmp_path: Path) -> None:
     db = Database(tmp_path / "ferb.db")
     _put(db, "2000-01-01")
     db.close()
-    assert "Resources: no samples in the last 7 day(s).\n" in _stats(tmp_path)
+    assert "Resources: no samples in the last 7 local day(s), today included.\n" in _stats(tmp_path)
+
+
+def test_stats_on_a_store_from_before_the_resource_log_says_when_it_starts(tmp_path: Path) -> None:
+    """The checkout's `ferb stats` against the store of a daemon installed before L30: no table, so no daemon writes
+    samples until the next update installs one that does."""
+    db = _db(tmp_path)
+    db.conn.execute("DROP TABLE resource_samples")
+    db.close()
+    text = _stats(tmp_path)
+    assert "Resources: no samples yet; the resource log starts after the next `ferb setup --update`.\n" in text, text

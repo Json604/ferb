@@ -571,10 +571,11 @@ notes it down"; retention: "30 days"; not installed or live-tested):
   batches by reason, Jev calls asked and not sampled, model runs and tool calls, tasks running, and the three busiest
   processes it started (program name, redacted, and CPU seconds). Never content, arguments or paths. Stopping FERB
   writes the minutes since the last row. Rows are kept `[retention] resource_days` (30), purged in the hourly pass.
-- `ferb stats` ends with a "Resources" section: a line per day (hours covered, the daemon's CPU average and busiest
-  window with its time as a share of one core, memory average and peak, the other processes' and FERB.app's CPU, the
-  database's size), then the period's five busiest windows with their work counts. It reads the database, so it works
-  with FERB stopped.
+- `ferb stats` ends with a "Resources" section: a line for each of the last `--days` local days, today included
+  (hours covered, the daemon's CPU average and busiest window with its time as a share of one core, memory average and
+  peak, the other processes' and FERB.app's CPU, the database's size), then the period's five busiest windows with
+  their work counts. It reads the database, so it works with FERB stopped; against a store from before this update it
+  says the log starts after the next `ferb setup --update`.
 - Its own cost: each count reads only the rows added since the last sample. On a store with a 400,000-row trail and
   750 new events a window, one sample takes about 3 ms (most of it finding FERB.app's processes among about 740).
 - Apps FERB opens with `open` belong to macOS's launchd, not to FERB, so they aren't in its numbers. A failed sample is
