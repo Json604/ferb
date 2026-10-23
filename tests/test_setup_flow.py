@@ -666,3 +666,135 @@ def test_setup_puts_ferbs_tokenizer_in_place_before_the_daemon_restarts(world: d
     env.tokenizer = lambda home: (said.append(home), "Tokenizer: FERB's pinned copy is in place.")[1]
     assert S.setup(env, update=True) == 0
     assert said == [world["home"]] and "Tokenizer: FERB's pinned copy is in place." in out.getvalue()
+
+
+# ---------- plan 2026-10-23 Task 1 (L28, C1): the store's one-time clean-out, with the daemon stopped ----------
+
+def _old_cards(home: Path) -> tuple[set[str], set[str], list[str]]:
+    """A store whose cards the composer before memory review C1 wrote: three versions of one traced task's card, each
+    also citing every ref its planner was only shown."""
+    from tests.support.cards import card_store, copied_cards, traced_task
+    db, _, spans, learning = card_store(home)
+    kept, shown = traced_task(db, spans, learning, "c0ffee01")
+    versions = copied_cards(learning, "c0ffee01", kept | shown)
+    db.close()
+    return kept, shown, versions
+
+
+def _card_rows(home: Path, versions: list[str]) -> dict[str, set[str]]:
+    from tests.support.cards import sources_of
+    from ferb.store.db import Database
+    db = Database(home / "ferb.db")
+    try:
+        return {v: sources_of(db, v) for v in versions}
+    finally:
+        db.close()
+
+
+def _watch_prune(monkeypatch: pytest.MonkeyPatch, before: Any = None) -> list[tuple[bool, int]]:
+    """Each clean-out run: whether launchd had the agent loaded, and how many commands had run, when it started."""
+    from ferb.memory.learning import Learning
+    real = Learning.prune_card_sources
+    seen: list[tuple[bool, int]] = []
+
+    def watched(self: Learning, stop: Any = lambda: False) -> dict[str, Any]:
+        runner = before["runner"]
+        seen.append((runner.loaded, len(runner.cmds)))
+        if before.get("then"):
+            before["then"]()
+        return real(self, stop)
+    monkeypatch.setattr(Learning, "prune_card_sources", watched)
+    return seen
+
+
+def test_an_update_cleans_the_database_once_between_stopping_and_starting_the_daemon(
+        world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    runner = world["runner"]
+    seen = _watch_prune(monkeypatch, {"runner": runner})
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    [(loaded, at)] = seen
+    assert not loaded                                                      # never while the daemon runs
+    agent = [c[:2] for c in runner.cmds if c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"])]
+    before = [c for c in runner.cmds[:at] if c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"])]
+    assert before[-1][:2] == ["launchctl", "bootout"]                      # stopped right before it
+    assert ["launchctl", "bootstrap"] in [c[:2] for c in runner.cmds[at:]] and runner.loaded   # started after it
+    assert agent.count(["launchctl", "bootstrap"]) == 2                    # the first install's, and this one
+    text = out.getvalue()
+    assert f"Cleaned FERB's database: {3 * len(shown)} unused rows removed;" in text and "→" in text, text
+    assert _card_rows(world["home"], versions) == {v: kept for v in versions}
+    assert not S.card_cleanout_pending(world["home"] / "ferb.db")
+    runner.cmds.clear()
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    assert len(seen) == 1 and runner.ran("launchctl", "bootout") == 0      # done once: a plain restart now
+    assert "Cleaned FERB's database" not in out.getvalue()
+
+
+def test_the_clean_out_waits_while_another_daemon_still_answers(world: dict[str, Any],
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    """E.g. `ferb daemon run` in a terminal, which launchd doesn't stop: nothing is cleaned, the agent is started
+    again, and the next update runs the clean-out."""
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    seen = _watch_prune(monkeypatch, {"runner": world["runner"]})
+    env, out = make_env(world, [])                                         # the daemon answers even unloaded
+    assert S.setup(env, update=True) == 0
+    assert seen == [] and world["runner"].loaded
+    assert "a FERB daemon outside launchd answers" in out.getvalue()
+    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}
+    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+
+
+def test_a_failed_clean_out_still_starts_the_daemon_and_the_update_goes_on(world: dict[str, Any],
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    import sqlite3
+    from ferb.memory.learning import Learning
+    world["inst"].install()
+    _old_cards(world["home"])
+
+    def broken(self: Learning, stop: Any = lambda: False) -> dict[str, Any]:
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(Learning, "prune_card_sources", broken)
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    assert world["runner"].loaded and "Done." in out.getvalue()
+    assert "Database clean-out stopped (OperationalError: disk I/O error)" in out.getvalue()
+    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+
+
+def test_quitting_during_the_clean_out_stops_it_and_starts_the_daemon_first(world: dict[str, Any],
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """FERB.app quitting (SIGTERM) or Ctrl-C while the clean-out runs: it stops before the next card, the daemon is
+    loaded again, then setup stops (M5); what was cleaned stays clean and the next update finishes it."""
+    import os
+    import signal
+    world["inst"].install()
+    kept, shown, versions = _old_cards(world["home"])
+    _watch_prune(monkeypatch, {"runner": world["runner"], "then": lambda: os.kill(os.getpid(), signal.SIGTERM)})
+    env, out = make_env(world, [], daemon_up=False)
+    with pytest.raises(KeyboardInterrupt):
+        S.setup(env, update=True)
+    assert world["runner"].loaded and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+    assert "Database clean-out stopped before it finished" in out.getvalue()
+    assert _card_rows(world["home"], versions) == {v: kept | shown for v in versions}   # stopped before the first
+    assert S.card_cleanout_pending(world["home"] / "ferb.db")
+
+
+def test_doctor_shows_the_database_size_and_a_pending_clean_out(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "database:" not in out.getvalue()                               # no store yet
+    _old_cards(world["home"])
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "! database: " in out.getvalue() and "clean-out of unused card rows is pending" in out.getvalue()
+    assert "run `ferb setup --update`" in out.getvalue()
+    env, out = make_env(world, [], daemon_up=False)
+    assert S.setup(env, update=True) == 0
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "✓ database: " in out.getvalue() and "pending" not in out.getvalue()

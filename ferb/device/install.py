@@ -306,11 +306,13 @@ class Installer:
     def restart(self) -> None:
         self._ok(["launchctl", "kickstart", "-k", f"{self.domain}/{self.label}"], "restarting the daemon")
 
-    def install(self, update_only: bool = False) -> None:
+    def install(self, update_only: bool = False, while_stopped: Callable[[], None] | None = None) -> None:
+        """`while_stopped`: work that must run while no daemon does (setup's one-time store clean-out), run once
+        everything is installed, between stopping the agent and starting it again (`_start`)."""
         if self.bundle:
             self.check_bundle()                       # before anything is written
             self.write_marker()
-            self._install_from_bundle(update_only)
+            self._install_from_bundle(update_only, while_stopped)
             return
         self.write_marker()
         if update_only:
@@ -321,8 +323,7 @@ class Installer:
             self.ensure_codex()
             self.write_native_host()
             # FERB.app may have pointed launchd at itself since: the agent runs this installation again
-            changed = self.write_plist()
-            self.load() if changed or not self.loaded() else self.restart()
+            self._start(self.write_plist(), while_stopped)
             return
         interpreter = self.ensure_interpreter()
         self.ensure_venv(interpreter)
@@ -330,13 +331,9 @@ class Installer:
         self.install_secret_helper()
         self.ensure_codex()
         self.write_native_host()
-        changed = self.write_plist()
-        if changed or not self.loaded():
-            self.load()
-        else:
-            self.restart()
+        self._start(self.write_plist(), while_stopped)
 
-    def _install_from_bundle(self, update_only: bool) -> None:
+    def _install_from_bundle(self, update_only: bool, while_stopped: Callable[[], None] | None = None) -> None:
         """Nothing is built or downloaded: everything comes from the checked, signed FERB.app."""
         if update_only and not self.plist_path.exists():
             raise InstallError("FERB isn't installed yet: run `ferb setup` first")
@@ -346,8 +343,19 @@ class Installer:
         self.ensure_codex()
         self.write_native_host()
         self.link_cli()
-        changed = self.write_plist()
-        if changed or not self.loaded():
+        self._start(self.write_plist(), while_stopped)
+
+    def _start(self, changed: bool, while_stopped: Callable[[], None] | None) -> None:
+        """The daemon on what was just installed: the agent loaded when its plist `changed` or it isn't loaded, else
+        restarted. With `while_stopped`, the agent is unloaded first, that runs, and the agent is loaded again whatever
+        it does (an error or a stop included)."""
+        if while_stopped is not None:
+            self.unload()
+            try:
+                while_stopped()
+            finally:
+                self.load()
+        elif changed or not self.loaded():
             self.load()
         else:
             self.restart()

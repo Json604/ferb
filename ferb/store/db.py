@@ -1,10 +1,16 @@
 """Own SQLite connection and schema migrations. Must not infer task outcomes or rewrite source content."""
 
+import shutil
 import sqlite3
 from pathlib import Path
 from typing import Any, Callable
 
 MIGRATIONS = Path(__file__).parent / "migrations"
+
+
+def store_size(path: Path) -> int:
+    """The bytes a store takes on disk: its database file and its WAL."""
+    return sum(p.stat().st_size for p in (path, path.with_name(path.name + "-wal")) if p.exists())
 
 
 class Database:
@@ -29,6 +35,19 @@ class Database:
         if busy:
             self.on_wal_kept(after, {"wal_frames": frames, "checkpointed": moved})
         return not busy
+
+    def compact(self, free: Callable[[Path], int] = lambda folder: shutil.disk_usage(folder).free) -> dict[str, Any]:
+        """Shrink the file to what it holds: the WAL checkpointed, VACUUM, the WAL checkpointed again. Only on a
+        connection nothing else shares (setup, with the daemon stopped). VACUUM writes a full copy of the database, so
+        it runs only when the disk has at least the database and its WAL free (`free`: the free bytes of the folder's
+        volume); otherwise nothing is written. Returns whether it compacted, the bytes it needed and those free."""
+        self.truncate_wal("store.compact")
+        needed, room = store_size(self.path), free(self.path.parent)
+        if room < needed:
+            return {"compacted": False, "needed": needed, "free": room}
+        self.conn.execute("VACUUM")
+        self.truncate_wal("store.compact")
+        return {"compacted": True, "needed": needed, "free": room}
 
     def schema_version(self) -> int:
         self.conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")

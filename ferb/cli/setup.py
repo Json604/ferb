@@ -8,6 +8,7 @@ Setup never opens, quits or kills a browser and never writes a browser's Prefere
 FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
 import signal
+import sqlite3
 import subprocess
 import threading
 import time
@@ -129,17 +130,18 @@ def device_id(config: Config) -> str:
 # ---------- setup ----------
 
 @contextmanager
-def _finish_install() -> Iterator[None]:
+def _finish_install() -> Iterator[list[int]]:
     """A stop (SIGTERM from FERB.app quitting, or Ctrl-C) while the background service is being (re)installed waits
-    until it is loaded again, then stops setup: the daemon is never left unloaded halfway (M5)."""
+    until it is loaded again, then stops setup: the daemon is never left unloaded halfway (M5). Yields the stops caught
+    so far, so work done meanwhile (the store clean-out) can end early."""
     if threading.current_thread() is not threading.main_thread():
-        yield
+        yield []
         return
     caught: list[int] = []
     previous = {sig: signal.signal(sig, lambda signum, frame: caught.append(signum))
                 for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
-        yield
+        yield caught
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
@@ -148,11 +150,15 @@ def _finish_install() -> Iterator[None]:
 
 
 def _install(env: Env, update: bool) -> None:
-    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent)."""
+    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent). A store
+    that still needs its one-time clean-out (asked read-only, while the old daemon runs) gets it between stopping the
+    old daemon and starting the new one (`_clean_store`)."""
     inst = env.inst
     before = inst.active_program()
-    with _finish_install():
-        inst.install(update_only=update)
+    pending = card_cleanout_pending(inst.home / "ferb.db")
+    with _finish_install() as stops:
+        inst.install(update_only=update,
+                     while_stopped=(lambda: _clean_store(env, lambda: bool(stops))) if pending else None)
     now = inst.active_program()
     if before and now and before != now:
         env.say(f"     The background service now runs from {now} (it ran from {before}).")
@@ -244,6 +250,97 @@ def setup(env: Env, update: bool = False) -> int:
     env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
+
+
+# ---------- the store's one-time clean-out (plan 2026-10-23 Task 1; L28, C1) ----------
+
+CLEANED = "store.cards_cleaned"      # its journal entry: the clean-out and compaction ran to the end (counts only)
+
+
+def card_cleanout_pending(path: Path) -> bool:
+    """Whether this store holds cards the composer before memory review C1 wrote (`COPYING_CARD_MAKER`) and hasn't had
+    the clean-out yet (its journal entry). Read-only, so it can ask while a daemon runs; a store it can't read (none
+    yet, or from before F8) has nothing to clean."""
+    from ferb.memory.learning import COPYING_CARD_MAKER
+    if not path.exists():
+        return False
+    try:
+        c = sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True)
+    except sqlite3.Error:
+        return False
+    try:
+        row = c.execute("SELECT EXISTS (SELECT 1 FROM learning_nodes WHERE kind = 'episode' AND made_by = ?) AND NOT "
+                        "EXISTS (SELECT 1 FROM journal WHERE kind = ?)", (COPYING_CARD_MAKER, CLEANED)).fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        c.close()
+    return bool(row[0])
+
+
+def _daemon_answers(env: Env) -> bool:
+    try:
+        c = env.connect()
+        c.call("ping")
+        c.close()
+        return True
+    except (NotRunning, FerbError, OSError):
+        return False
+
+
+def _shown_bytes(n: int) -> str:
+    return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} KB"
+
+
+def _clean_store(env: Env, stop: Callable[[], bool]) -> None:
+    """The store's one-time clean-out, run by the installer while no daemon runs: every version of each traced task's
+    card keeps only the source rows the current card rule gives it (`Learning.prune_card_sources`), then the file is
+    compacted (`Database.compact`, when the disk has room for a full copy), and its journal entry records the counts.
+    Never while a daemon still answers (launchd's, or `ferb daemon run` in a terminal). A stop (`stop`: Ctrl-C, FERB.app
+    quitting) ends it before the next card, and an error is reported; the update goes on either way, and the next
+    `ferb setup --update` finishes it."""
+    from ferb.clock.clock import SystemClock
+    from ferb.core.ids import RandomIds
+    from ferb.memory.journal import Journal
+    from ferb.memory.learning import Learning
+    from ferb.sanitize.redact import Redactor
+    from ferb.store.db import Database, store_size
+    inst = env.inst
+    running = ("launchd hasn't stopped FERB's daemon yet" if inst.loaded() else
+               "a FERB daemon outside launchd answers (`ferb daemon run` in a terminal?)" if _daemon_answers(env) else "")
+    if running:
+        env.say(f"     Database clean-out not run: {running}. Stop it, then run `ferb setup --update` again.")
+        return
+    path = inst.home / "ferb.db"
+    env.say("     Cleaning FERB's database with the daemon stopped (once; it may take a few minutes)…")
+    before = store_size(path)
+    db = Database(path)
+    try:
+        counts = Learning(db, SystemClock(), lambda *args, **kwargs: None, lambda text: text).prune_card_sources(stop)
+        if counts["stopped"] or stop():             # VACUUM can't be stopped halfway: it waits for the next update
+            env.say(f"     Database clean-out stopped before it finished ({counts['rows']:,} unused rows removed so "
+                    "far); the next `ferb setup --update` finishes it.")
+            return
+        compaction = db.compact()
+        left = (f" {counts['untraced']} card versions whose trace aged out were left as they are."
+                if counts["untraced"] else "")
+        if not compaction["compacted"]:
+            env.say(f"     Cleaned FERB's database: {counts['rows']:,} unused rows removed. Not compacted "
+                    f"({_shown_bytes(before)}): that needs {_shown_bytes(compaction['needed'])} free and the disk has "
+                    f"{_shown_bytes(compaction['free'])}; FERB reuses the freed space inside the file, and the next "
+                    f"`ferb setup --update` compacts it.{left}")
+            return
+        after = store_size(path)
+        Journal(db, SystemClock(), RandomIds(), Redactor()).append(
+            CLEANED, {k: counts[k] for k in ("tasks", "nodes", "cleaned", "rows", "untraced")} |
+            {"bytes_before": before, "bytes_after": after})
+        env.say(f"     Cleaned FERB's database: {counts['rows']:,} unused rows removed; {_shown_bytes(before)} → "
+                f"{_shown_bytes(after)}.{left}")
+    except Exception as e:
+        env.say(f"     Database clean-out stopped ({type(e).__name__}: {e}); FERB works without it, and the next "
+                "`ferb setup --update` tries again.")
+    finally:
+        db.close()
 
 
 def _app_installed(env: Env) -> None:
@@ -480,6 +577,19 @@ def protection_check(home: Path) -> Check:
                  f"tools that name files {files}")
 
 
+def database_check(home: Path) -> Check | None:
+    """The store's size on disk, and whether its one-time clean-out is still to run (plan 2026-10-23 Task 1)."""
+    from ferb.store.db import store_size
+    path = home / "ferb.db"
+    if not path.exists():
+        return None
+    size = _shown_bytes(store_size(path))
+    if card_cleanout_pending(path):
+        return Check("database", "warn", f"{size}; a one-time clean-out of unused card rows is pending",
+                     "run `ferb setup --update` (it stops FERB for a few minutes)")
+    return Check("database", "ok", size)
+
+
 def containment_check(c: dict[str, Any] | None) -> Check:
     """FERB's shell sandbox as the running daemon sees it (S2, Q7): without it the shell and AppleScript tools are
     left out, never run uncontained."""
@@ -580,6 +690,8 @@ def doctor(env: Env) -> int:
     except InsecureConfig as e:
         add(Check("config permissions", "fail", str(e), "chmod 600 ~/.ferb/config.toml; chmod 700 ~/.ferb"))
     add(protection_check(inst.home))
+    if (database := database_check(inst.home)) is not None:
+        add(database)
     if inst.bundle:
         add(Check("app", "ok", str(inst.bundle)))
         add(Check("interpreter", "ok" if inst.daemon_python.is_file() else "fail", str(inst.daemon_python),

@@ -75,6 +75,28 @@ def test_update_only_reinstalls_ferb_and_restarts(inst: Installer) -> None:
     assert any(c[:3] == ["launchctl", "kickstart", "-k"] for c in new)
 
 
+def test_work_that_needs_the_daemon_stopped_runs_after_the_install_and_before_the_new_start(inst: Installer) -> None:
+    """Plan 2026-10-23 Task 1: setup's store clean-out runs once everything is installed, with the agent unloaded, and
+    the agent is loaded again even when that work fails (M5: never left unloaded)."""
+    r: FakeRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    before = len(r.cmds)
+    seen: list[tuple[bool, int]] = []
+    inst.install(update_only=True, while_stopped=lambda: seen.append((r.loaded, len(r.cmds))))
+    [(loaded, at)] = seen
+    new = r.cmds[before:]
+    assert not loaded and ["uv", "pip", "install"] in [c[:3] for c in r.cmds[before:at]]
+    assert r.cmds[at - 1][:2] == ["launchctl", "print"] and ["launchctl", "bootout"] in [c[:2] for c in r.cmds[before:at]]
+    assert ["launchctl", "bootstrap"] in [c[:2] for c in r.cmds[at:]] and r.loaded
+    assert not any(c[:2] == ["launchctl", "kickstart"] for c in new)
+
+    def broken() -> None:
+        raise RuntimeError("disk I/O error")
+    with pytest.raises(RuntimeError):
+        inst.install(update_only=True, while_stopped=broken)
+    assert r.loaded
+
+
 def test_uninstall_removes_agent_and_plist_but_keeps_home(inst: Installer) -> None:
     inst.install()
     removed = inst.uninstall()

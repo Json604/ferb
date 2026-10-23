@@ -1,12 +1,15 @@
 """Episode-card fixtures (L28): a FERB home whose database holds finished tasks, and card readers that stand in for
-`python -I -m ferb.memory.card_reader` in a test daemon (one that answers late, one that never answers)."""
+`python -I -m ferb.memory.card_reader` in a test daemon (one that answers late, one that never answers). Also the
+cards the composer before memory review C1 wrote, for the one-time clean-out (plan 2026-10-23 Task 1)."""
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
+from ferb.core import origin
 from ferb.core.ids import RandomIds
-from ferb.memory.learning import Learning
+from ferb.memory.learning import COPYING_CARD_MAKER, Learning
+from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE
 from ferb.orchestrator import episodes
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
@@ -47,6 +50,54 @@ def finished_task(db: Database, spans: SpanStore, learning: Learning, task_id: s
         call = spans.start("tool.call", task_id=task_id, input={"tool": "fs.read", "args": {"path": f"/tmp/{n}"},
                                                                 "kind": "read"})
         spans.finish(call, output={"ok": True}, origin="private")
+
+
+def traced_task(db: Database, spans: SpanStore, learning: Learning, task_id: str,
+                shown: int = 40) -> tuple[set[str], set[str]]:
+    """A finished task recorded as the supervisor and the gateway record it: the blocks its planner was shown
+    (`context.exposure`: the owner's message, today's activity, the conversation), its planner snapshot and its worker's
+    procedure (`context.source`), and its own tool calls (`tool.call`: a trail read, an evidence read citing a
+    conversation entry and a task by their handles). Returns the refs the current card rule keeps, and those its planner
+    was only shown (`shown` activity rows among them), which the composer before memory review C1 also copied."""
+    trace = TraceBuilder(task_id=task_id, request="check the tea order", goal="answer about the tea order").finish()
+    episodes.write(db, compose.compose(trace) | {"made_by": episodes.MADE_BY, "built_at": learning.now()})
+
+    def record(kind: str, inp: dict[str, Any], out: dict[str, Any], where: str) -> None:
+        span = spans.start(kind, task_id=task_id, input=inp)
+        spans.finish(span, output=out, origin=where)
+    activity = [f"trail:shown-{task_id}-{n}" for n in range(shown)]
+    record("context.exposure", {"source_refs": [f"journal:req-{task_id}"], "reference": REQUEST_REFERENCE},
+           {"text": "Layer 5 — owner's complete new message:\ncheck the tea order"}, origin.OWNER)
+    record("context.exposure", {"source_refs": activity, "reference": "task.evidence query=context.source; memory.read; "
+                                "trail.query"}, {"text": "Layer 3 — today's activity (data): …"}, origin.PRIVATE)
+    record("context.exposure", {"source_refs": [f"entry:chat-{task_id}", "memory:m-shown"], "reference": "chat.history"},
+           {"text": None, "payload": "earlier messages"}, origin.OWNER)
+    record("context.source", {"label": "planner-context", "source_refs": [f"trail:snap-{task_id}"]},
+           {"text": "[snapshot]"}, origin.PRIVATE)
+    record("context.source", {"label": PROCEDURE_LABEL, "source_refs": [f"m-proc-{task_id}", "task:earlier"]},
+           {"text": "Procedure …"}, origin.INFERRED)
+    record("tool.call", {"tool": "trail.query", "args": {"event_id": f"ev-{task_id}-a"}, "effect": "read",
+                         "kind": "read", "target": {"site": None}},
+           {"events": [{"id": f"ev-{task_id}-b", "what": "focus"}]}, origin.PRIVATE)
+    record("tool.call", {"tool": "task.evidence", "args": {}, "effect": "read", "kind": "read", "target": {}},
+           {"source_refs": ["entry:ev-entry", "task:other"], "records": []}, origin.INFERRED)
+    kept = {f"episode:{task_id}", f"journal:req-{task_id}", f"m-proc-{task_id}", "episode:earlier",
+            f"trail:ev-{task_id}-a", f"trail:ev-{task_id}-b", "journal:ev-entry", "episode:other"}
+    # the composer before C1 resolved a handle into the entry and what it cites, and copied every block's refs
+    only_shown = set(activity) | {f"journal:chat-{task_id}", "memory:m-shown", f"trail:snap-{task_id}"}
+    return kept, only_shown
+
+
+def copied_cards(learning: Learning, task_id: str, sources: Iterable[str], versions: int = 3) -> list[str]:
+    """Versions of a task's card as the composer before C1 wrote them (COPYING_CARD_MAKER), each citing `sources`;
+    oldest first, the last one current."""
+    return [learning.put("episode", task_id, {"task_id": task_id, "version": n}, sources, made_by=COPYING_CARD_MAKER,
+                         origin_label=origin.FERB, state="active", labels={origin.PRIVATE, origin.OWNER})["id"]
+            for n in range(versions)]
+
+
+def sources_of(db: Database, node_id: str) -> set[str]:
+    return {r[0] for r in db.conn.execute("SELECT source_ref FROM learning_sources WHERE node_id = ?", (node_id,))}
 
 
 def slow_reader(seconds: float) -> list[str]:
