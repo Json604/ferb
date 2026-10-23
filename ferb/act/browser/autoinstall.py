@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from ferb.act.browser import profiles
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
@@ -173,19 +173,13 @@ class BrowserState:
     error: str = ""          # why the request couldn't be written
 
 
-def _enabled(entry: dict[str, Any]) -> bool:
-    """Chromium records why an extension is off in `disable_reasons` (a bit mask, a list in newer versions); older
-    versions also kept `state` (0 = disabled)."""
-    return entry.get("state", 1) != 0 and not entry.get("disable_reasons")
-
-
 def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: Path,
                    paired: set[tuple[str, str]] | None, store_id: str) -> ProfileStatus:
     found = profiles.extension_entry(p, ids, data_dir)
     removed = any(store_id in (s.get("external_uninstalls") or []) for s in profiles.extension_prefs(data_dir / p.folder)) \
         if valid_id(store_id) else False
     return ProfileStatus(p.browser, p.folder, p.display_name, found[0] if found else "",
-                         bool(found and _enabled(found[1])), removed,
+                         bool(found and profiles.extension_enabled(found[1])), removed,
                          None if paired is None else (p.browser, p.folder) in paired)
 
 

@@ -2577,8 +2577,9 @@ protected FERB state (16.9).
 - `STORE_EXTENSION_ID` is the live listing's id (`plbfkifcmgkgnlfgikdeaaglgncdhkma`, 2026-10-20); `[browser] store_extension_id`
   overrides it, and an empty value opts out: with no id, setup prints the Load-unpacked steps. Setup never restarts a browser or approves its prompt.
 - `ferb browsers extension package` builds the store zip.
-- Discovery, pairing and doctor cover every catalogued browser. Two copies of the extension in one profile aren't
-  handled yet.
+- Discovery, pairing and doctor cover every catalogued browser. A profile that had the unpacked copy also takes the
+  store request, so it can hold both: status and pairing use the copy that is turned on, the unpacked one when both
+  are (`profiles.extension_entry`); an unpaired copy is refused everything but `hello` and `pair`.
 
 **Packaged FERB.app (L27, [`scripts/build-app.sh`](scripts/build-app.sh)).**
 - **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; uv's standalone CPython 3.12.13 with `ferb` and

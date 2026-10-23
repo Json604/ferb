@@ -97,7 +97,7 @@ Packaging and setup (L15, L25, L27):
 - `ferb setup` asks every Chromium browser it finds to install FERB's Chrome Web Store extension where that is
   documented, registers the native host and reports per profile. The listing went live on 2026-10-20 and its id
   (`plbfkifcmgkgnlfgikdeaaglgncdhkma`) is built in (`07b2dd8`); `[browser] store_extension_id = ""` turns the request
-  off and keeps the Load-unpacked steps. The store copy works with this build once 0.15.6 is approved there.
+  off and keeps the Load-unpacked steps. The listing carries 0.15.6, which this build needs, since 2026-10-22.
 - The Trash: FERB moves items in and out only between folders it holds open, never moves something out after a
   mismatch, and FERB's shell can't write any Trash.
 - Campaign path: a browser post declared as a send (naming the account it goes out from, no recipients for a public
@@ -586,6 +586,12 @@ notes it down"; retention: "30 days"; not installed or live-tested):
 - Residuals: forgetting something doesn't remove a program name from these rows (a script named after it, say); they
   age out after `resource_days`. After retention deletes the newest traces, a few new trace rows can go uncounted for
   one window.
+
+After the owner's update (2026-10-24):
+- A profile that already had the unpacked copy takes the Web Store request too, so it can hold both copies. Setup's
+  report and `ferb browsers pair` now use the copy that is turned on (the unpacked one when both are). Before, with the
+  unpacked copy turned off and the store copy on, setup said the profile's extension was waiting to be turned on, and
+  pairing opened the turned-off copy's page and timed out.
 
 Licensed under Apache-2.0.
 

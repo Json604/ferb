@@ -89,9 +89,10 @@ Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
   reopen. Setup never restarts a browser, approves its prompt or edits its preferences;
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
-The listing went live on 2026-10-20 with 0.15.2 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in); 0.15.6 has to be uploaded and
-approved before the store copy works with this build. Until then, and in browsers without the store request, setup
-prints the Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers
+The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
+this build needs, since 2026-10-22. A profile that already has the unpacked copy is offered the store copy too; setup's
+report and `ferb browsers pair` use the copy that is turned on (the unpacked one when both are), so keep one turned on.
+In browsers without the store request, setup prints the Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers
 extension path` prints it), enable Developer mode in the browser's extensions page and Load unpacked from
 `~/.ferb/extensions/chromium`, once per profile. `[browser] store_extension_id = ""` in `~/.ferb/config.toml` turns
 the store request off. `ferb browsers extension package --out DIR` builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads

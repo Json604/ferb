@@ -426,3 +426,52 @@ def test_the_built_in_store_id_is_ferbs_live_listing() -> None:
     """FERB's Chrome Web Store listing went live on 2026-10-20: a fresh install uses it without any config."""
     assert autoinstall.STORE_EXTENSION_ID == "plbfkifcmgkgnlfgikdeaaglgncdhkma"
     assert autoinstall.valid_id(autoinstall.STORE_EXTENSION_ID)
+
+
+# ---------- both copies in one profile (owner's update 2026-10-24) ----------
+
+def both_copies(folder: Path, pinned_on: bool, store_on: bool) -> None:
+    """A profile that had the unpacked copy and then took the store request: Chromium keeps both entries."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "Secure Preferences").write_text(json.dumps({"extensions": {"settings": {
+        PINNED: {"location": 4, "disable_reasons": [] if pinned_on else [1]},
+        STORE: {"location": 1, "disable_reasons": [] if store_on else [1]}}}}))
+
+
+def test_a_profile_with_both_copies_reports_the_one_turned_on(tmp_path: Path) -> None:
+    p = profiles.BrowserProfile("chrome", "Profile 2", "scaler", "")
+    found = {}
+    for pinned_on, store_on in ((False, True), (True, False), (True, True), (False, False)):
+        both_copies(tmp_path / "Profile 2", pinned_on, store_on)
+        s = autoinstall.profile_status(p, (PINNED, STORE), tmp_path, set(), STORE)
+        found[(pinned_on, store_on)] = (s.extension_id, s.enabled)
+    assert found[(False, True)] == (STORE, True)          # the unpacked copy turned off: the store copy counts
+    assert found[(True, False)] == (PINNED, True)
+    assert found[(True, True)] == (PINNED, True)          # the copy listed first, as before
+    assert found[(False, False)] == (PINNED, False)       # both off: waiting for the owner
+
+
+def test_pairing_opens_the_copy_turned_on_when_a_profile_has_both(bd: Any) -> None:  # noqa: F811
+    """With the unpacked copy turned off, its pairing page can't open: pairing must go to the store copy."""
+    import threading
+
+    from ferb.cli.client import Client
+    d, launched = bd
+    d.daemon.config.set("browser", "store_extension_id", STORE)
+    both_copies(d.daemon.browser_data_dirs["chrome"] / "Profile 1", pinned_on=False, store_on=True)
+    ext = FakeExtension(d.daemon.home, origin=f"chrome-extension://{STORE}/")
+    ext.connect()
+    c = Client(d.sock, timeout=30)
+    out: dict[str, Any] = {}
+    try:
+        n = len(launched)
+        t = threading.Thread(target=lambda: out.update(c.call("browsers.pair", {"profile": "Work", "timeout_s": 10})))
+        t.start()
+        ext.wait_for(lambda: len(launched) > n and "pair.html#token=" in launched[-1][-1], 10)
+        url = launched[-1][-1]
+        ext.pair(url.split("#token=")[1])
+        t.join(15)
+    finally:
+        c.close()
+    assert url.startswith(f"chrome-extension://{STORE}/pair.html")
+    assert out.get("paired") is True, out

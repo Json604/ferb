@@ -429,10 +429,11 @@ All **Shipped** (`ferb --help`):
   Vivaldi, Arc, Opera manual), and reports per profile whether the extension is installed, enabled and paired. It
   never edits browser preferences or restarts a browser; the owner enables the extension when the browser offers it.
   With the store request turned off (`[browser] store_extension_id = ""`), setup keeps the Load-unpacked steps.
-- Status: **Landing this week — integrated, not live-tested (L25).** The listing went live on 2026-10-20 with 0.15.2
-  (its id is built in).
-- Known limit: the repository now requires extension 0.15.6 / protocol 17, and the daemon refuses an older protocol.
-  The store copy must be updated to 0.15.6 before the store install path works with the launch build.
+- Status: **Landing this week — integrated, not live-tested (L25).** The listing went live on 2026-10-20 (its id is
+  built in) and has carried 0.15.6 / protocol 17, which this build needs, since 2026-10-22.
+- A profile that already had the unpacked copy takes the store request too and can hold both copies. Setup's report
+  and pairing use the copy that is turned on (the unpacked one when both are); an unpaired copy is refused everything
+  but its hello and pairing.
 
 ### 3.7 Mac app control
 
@@ -955,9 +956,7 @@ Release and distribution
 - The DMG is ad-hoc signed: first open needs "Open Anyway"; permissions may need re-granting after updates; the
   quarantined-launchd question is untested. Developer ID signing and notarization come after launch.
 - No auto-updates; no in-app onboarding or settings beyond the setup console and sound settings.
-- The Chrome Web Store listing is live with 0.15.2; the launch build needs 0.15.6 / protocol 17, so the store copy
-  must be updated. Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load
-  unpacked.
+- Edge and Brave install requests are unconfirmed; Vivaldi, Arc and Opera need Load unpacked.
 - Apple silicon and Python 3.12 only. The app is about 666 MB (bundled Codex and Claude CLIs).
 - The privacy page draft of 2026-10-15 (pending the owner's approval, not deployed) names the optional Jev service at
   api.typesafe.ai, the extension's tab reports and secret-field lookup, local clipboard retention and on-device speech.

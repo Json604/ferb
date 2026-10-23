@@ -170,16 +170,25 @@ def extension_prefs(folder: Path) -> list[dict[str, Any]]:
     return out
 
 
+def extension_enabled(entry: dict[str, Any]) -> bool:
+    """Chromium records why an extension is off in `disable_reasons` (a bit mask, a list in newer versions); older
+    versions also kept `state` (0 = disabled)."""
+    return entry.get("state", 1) != 0 and not entry.get("disable_reasons")
+
+
 def extension_entry(p: BrowserProfile, extension_ids: tuple[str, ...] | frozenset[str],
                     data_dir: Path | None = None) -> tuple[str, dict[str, Any]] | None:
-    """The first of `extension_ids` installed in this profile, with its settings from both files merged."""
+    """The FERB copy in this profile, with its settings from both files merged: the first of `extension_ids` that is
+    turned on, else the first installed. A profile that had the unpacked copy also takes the Web Store request, so
+    it can hold both with one turned off; the one turned on is the one that answers."""
     folder = (data_dir or SUPPORT / BROWSERS[p.browser].data) / p.folder
     sections = [s.get("settings") for s in extension_prefs(folder)]
+    installed = []
     for i in extension_ids:
         found = [s[i] for s in sections if isinstance(s, dict) and isinstance(s.get(i), dict)]
         if found:
-            return i, {k: v for entry in found for k, v in entry.items()}
-    return None
+            installed.append((i, {k: v for entry in found for k, v in entry.items()}))
+    return next((e for e in installed if extension_enabled(e[1])), installed[0] if installed else None)
 
 
 def has_extension(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> bool:
