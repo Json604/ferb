@@ -626,6 +626,12 @@ After the owner's update (2026-10-24):
     is revoked when the wait ends; a manual pairing that times out revokes its key too.
   - **Residual:** a window switch inside the browser in the last ten seconds before the page goes can still bring the
     previous profile's window forward.
+- FERB's own wording of a memory that still waits for your Yes stays out of every prompt, as the memory rule says
+  (I1, MP2). 25 such memories, indexed before 2026-10-19 (when waiting ones were first kept as 'proposed'), were still
+  marked active. The index found each one already stored and left it as it was, so search returned them and 11 of the
+  13 planner turns since 2026-10-23 showed them as "unconfirmed hint" lines. Now the index sets a stored memory's
+  state from its item on its next pass (every planner turn): they leave the prompts and `memory.learned`, and the
+  dashboard offers their Confirm. A memory you retired, or one a rollback undid, stays as it is.
 
 Licensed under Apache-2.0.
 

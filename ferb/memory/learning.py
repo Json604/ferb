@@ -1388,10 +1388,16 @@ class Learning:
                 continue
             body = asdict(item)
             body['unconfirmed_hint'] = item.status == 'proposed'
+            state = 'proposed' if pending(item) else 'active'
             try:
-                self.put('fact', f'{item.subject}/{item.key}', body, ['memory:' + item.id],
-                         origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
-                         state='proposed' if pending(item) else 'active', owner=item.origin == 'owner_stated')
+                node = self.put('fact', f'{item.subject}/{item.key}', body, ['memory:' + item.id],
+                                origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
+                                state=state, owner=item.origin == 'owner_stated')
+                # `put` returns a node already there unchanged: one stored 'active' before pending items were indexed
+                # 'proposed' kept reaching every prompt. Its state follows its item (the body fixes which), but an
+                # owner's Retire, a rollback or a closed version is never undone here.
+                if node['state'] in ('active', 'proposed') and node['state'] != state and node['valid_to'] is None:
+                    self.db.conn.execute('UPDATE learning_nodes SET state=? WHERE id=?', (state, node['id']))
                 if item.origin == 'owner_stated' and item.kind == 'preference' and item.subject == 'owner':
                     self.put('identity', item.key, {'text': item.content}, ['memory:' + item.id],
                              origin_label=origin.OWNER, made_by='owner:durable-preference/1', state='active', owner=True)

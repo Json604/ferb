@@ -440,6 +440,61 @@ def test_no_prompt_path_shows_an_unconfirmed_inferred_item(daemon: RunningDaemon
     assert _asyncio
 
 
+def _indexed_before_proposed_state(daemon: RunningDaemon, item: Any) -> dict[str, Any]:
+    """The fact node of a pending inferred item as the index stored it before pending items were indexed 'proposed'
+    (1655472): the same body and maker, state 'active'."""
+    from dataclasses import asdict
+    from ferb.memory.learning import memory_origin
+    d = daemon.daemon
+    return dict(run(daemon, lambda: d.learning.put(
+        "fact", f"{item.subject}/{item.key}", asdict(item) | {"unconfirmed_hint": True}, ["memory:" + item.id],
+        origin_label=memory_origin("inferred"), made_by="code:fact-index/1", state="active")))
+
+
+def test_a_pending_inferred_item_indexed_active_earlier_leaves_every_prompt(daemon: RunningDaemon) -> None:
+    """Live 2026-10-24: 25 fact nodes of inferred items still waiting for the owner's Yes were stored 'active' before
+    the index gave pending items state 'proposed'. The index's write found each node already there and returned it
+    unchanged, so search kept them and 11 of 13 planner turns showed them as unconfirmed hints (I1, MP2)."""
+    import json as _json
+    from ferb.memory.tools import LearningRead
+    d = daemon.daemon
+    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
+    item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
+                                                   [("journal", src)], 0.7))
+    old = _indexed_before_proposed_state(daemon, item)
+    assert old["state"] == "active"
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    [node] = run(daemon, lambda: d.learning.items("fact"))          # the index found the same node, still current
+    assert node["id"] == old["id"]
+    assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
+    assert "Quentarr" not in str(run(daemon, lambda: d._learning_context("who is my boss Quentarr")))
+    planner = daemon.run(d._learning_candidates("who is my boss Quentarr"))
+    assert "Quentarr" not in _json.dumps(planner)
+    read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=old["id"]), None))
+    assert read.is_error and "Quentarr" not in _json.dumps(read.content)
+    script = install(daemon, [_json.dumps({"kind": "reply", "text": "Hi."})])
+    chat(daemon, "who is my boss?")
+    assert "Quentarr" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
+    assert run(daemon, lambda: d.learning.get(old["id"]))["state"] == "proposed"   # the dashboard offers its Confirm
+
+
+def test_the_fact_index_never_brings_back_a_node_the_owner_retired(daemon: RunningDaemon) -> None:
+    """The index sets a fact node's state from its item, but never over the owner's Retire (I1)."""
+    from ferb.cli.client import Client
+    d = daemon.daemon
+    src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
+    item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
+                                                   [("journal", src)], 0.7))
+    old = _indexed_before_proposed_state(daemon, item)
+    c = Client(daemon.sock)
+    try:
+        c.call("memory.learning", {"op": "retire", "id": old["id"]})
+    finally:
+        c.close()
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    assert run(daemon, lambda: d.learning.get(old["id"]))["state"] == "retired"
+
+
 def test_owner_words_are_saved_as_their_whole_sentence_whatever_its_commas(daemon: RunningDaemon) -> None:
     """Re-review F4 ruling: a comma inside a sentence split a negation or a condition off what was saved. What is saved
     as the owner's words is their whole typed sentence(s), split only at a sentence end or a line break."""
