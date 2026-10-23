@@ -482,10 +482,10 @@ what it did in those minutes (activity events by source, perception batches, Jev
 running, and the three busiest processes it started, by program name). Never content, arguments or paths. When FERB
 stops, it writes the minutes since the last row. `ferb stats` (`--days N`, default 7; it reads the database, so it works
 with FERB stopped) shows a line per day: the hours covered (with the Mac awake); the daemon's CPU, its average and
-busiest 5 minutes with the time, as a share of one core (Activity Monitor's % CPU); its memory, average and peak; the
-CPU of FERB's other processes and of FERB.app; and the database's size. Then come the five busiest windows of the
-period, each with what FERB was doing. Apps FERB opens (`open`) belong to macOS, not to FERB, so their use isn't in
-FERB's numbers.
+busiest window (the one with the most CPU seconds; windows are 5 minutes, shorter at a start or stop) with the time, as
+a share of one core (Activity Monitor's % CPU); its memory, average and peak; the CPU of FERB's other processes and of
+FERB.app; and the database's size. Then come the five busiest windows of the period, each with what FERB was doing. Apps
+FERB opens (`open`) belong to macOS, not to FERB, so their use isn't in FERB's numbers.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
 and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,
@@ -504,7 +504,7 @@ no automated test proves that the owner experienced no disturbance.
 
 ## Current limitations
 
-- Nothing from the launch week (L1–L29) is live-tested yet; the pending checks are in
+- Nothing from the launch week (L1–L30) is live-tested yet; the pending checks are in
   [owner acceptance](docs/OWNER_ACCEPTANCE.md).
 - FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
   update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is

@@ -524,23 +524,33 @@ peak (`proc_pid_rusage` with `RUSAGE_INFO_V4`, the first flavor with `ri_lifetim
 Activity Monitor's Memory column); its descendants, walked with `proc_listchildpids` from its pid, with their count,
 footprint and CPU in the window. Each process is tracked by (pid, start time), so a reused pid is a new process, and one
 seen first counts its CPU since it started. `ri_user_time` and `ri_system_time` are mach units, converted with
-`mach_timebase_info` (125/3 ns each on Apple silicon). Children that finished come from RUSAGE_CHILDREN's growth, less
-what was already counted for them and for the descendants they waited for, never below 0. That amount is carried while
-RUSAGE_CHILDREN hasn't yet shown a child the walk no longer sees. A descendant still running after its parent ended is
-launchd's: nothing is taken off for it. Processes FERB opens through Launch Services (`open`) belong to launchd and
-aren't descendants. FERB.app: processes whose executable lies inside a `FERB.app` bundle (`proc_listallpids` and
-`proc_pidpath`), outside the daemon's tree (the packaged daemon runs inside FERB.app's agent app; one that left the tree
-counts from what was counted for it there); `app_cpu_s` is NULL when none runs. `db_bytes` is `store_size`. `work_json`
-holds the window's counts, each a range above the last sample's seq or rowid (EXPLAIN shows an INTEGER PRIMARY KEY
-search; `NOT INDEXED` keeps the trail's one so even after ANALYZE): trail events per source; the batcher's wakes and its
-batches by flush reason (`EventBatcher.wakes`, `batches_by_reason`); Jev decisions asked and not sampled; model runs
-(`model.turn`, `worker`, `model.learning`) and tool calls from spans; tasks running (`tasks_status`); and the window's
-three busiest descendants by executable basename (through the daemon's redactor, rule 14) with their CPU seconds. Never
-content, arguments or paths. A failed sample journals `resources.failed` and keeps nothing, so the next row covers both
-windows; a log that can't start is journaled, and the daemon runs without it. Test daemons pass `resources=False`.
-Measured on a synthetic store with a 400,000-row trail and 750 new rows a window (150 a minute): one sample takes 3.2 ms
-(at most 6 ms), 2.8 ms of it the FERB.app scan over about 740 processes and 0.12 ms the counts. That is about 0.001% of
-one core.
+`mach_timebase_info` (125/3 ns each on Apple silicon; a timebase that can't be read fails the log's start rather than
+reading CPU as 0). Processes that ended count through the children counters: each live descendant's `ri_child_user_time`
++ `ri_child_system_time` (its waited-for children, theirs included) and the daemon's RUSAGE_CHILDREN. So a command a
+long-lived child (Codex) runs and waits for counts in the window it ends, even unseen. From each counter's growth comes
+off what was already counted for the processes behind it: an ended process owes its nearest readable ancestor (or the
+daemon) the CPU counted of it and of its children counter, plus what was owed to it, never below 0; what a counter
+hasn't shown yet comes off a later window. A descendant still running after its parent ended (it can be the child of an
+unreadable process) is launchd's: it owes nothing, since no counter of FERB's will show it. An unreadable process is
+skipped and its children walked. A busiest descendant's CPU seconds are its own and its waited-for children's. Processes
+FERB opens through Launch Services (`open`) belong to launchd and aren't descendants. FERB.app: processes whose
+executable lies inside a `FERB.app` bundle (`proc_listallpids` and `proc_pidpath`), outside the daemon's tree (the
+packaged daemon runs inside FERB.app's agent app; one that left the tree counts from what was counted for it there);
+`app_cpu_s` is their own CPU, NULL when none runs. `db_bytes` is `store_size`. `work_json` holds the window's counts,
+each the range from the last sample's maximum seq or rowid to the current one (EXPLAIN shows an INTEGER PRIMARY KEY
+search; `NOT INDEXED` keeps the trail's one so even after ANALYZE; `spans` has no AUTOINCREMENT, so after retention
+deletes the newest spans, new ones that take their rowids go uncounted in that one window: negligible): trail events per
+source; the batcher's wakes and its batches by flush reason (`EventBatcher.wakes`, `batches_by_reason`); Jev decisions
+asked and not sampled; model runs (`model.turn`, `worker`, `model.learning`) and tool calls from spans; tasks running
+(`tasks_status`); and the window's three busiest descendants by executable basename (through the daemon's redactor, rule
+14) with their CPU seconds. Never content, arguments or paths; a forget doesn't scrub those basenames (a residual: they
+age out with `resource_days`). A failed sample journals `resources.failed` and keeps nothing, so the next row covers
+both windows; one whose failure can't be journaled goes to stderr, and neither stops the loop or shutdown. A log that
+can't start is journaled, and the daemon runs without it; a failed purge is journaled `retention.failed` and the pass
+goes on. `ferb stats` takes a day's peak as its window with the most CPU seconds, so a short window at a start, stop or
+wake never wins by rate. Test daemons pass `resources=False`. Measured on a synthetic store with a 400,000-row trail and
+750 new rows a window (150 a minute): one sample takes 3.2 ms (at most 6 ms), 2.8 ms of it the FERB.app scan over about
+740 processes and 0.12 ms the counts. That is about 0.001% of one core.
 
 `device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
 app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
@@ -2108,8 +2118,9 @@ local dashboard assets. Installing and the owner's verdict remain separate from 
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
-clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L29 to their tests (L29, learning by intent of 2026-10-21, is
-described with the learning store above). What follows is the design as built. Nothing here is live-accepted yet
+clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L30 to their tests (L29, learning by intent of 2026-10-21, is
+described with the learning store above; L30, FERB's resource log of 2026-10-23, next to the perception batcher's cost
+in section 8). What follows is the design as built. Nothing here is live-accepted yet
 ([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
 
 ### 16.1 Questions and security (L1–L5, L24)
