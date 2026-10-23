@@ -196,6 +196,96 @@ separate spec file):
 - [ ] **Step 4: Docs.** ARCHITECTURE perception section, and the CHANGELOG with the measured numbers.
 - [ ] **Step 5: Focused tests (batches, perception, notifications, sense), mypy, diff-check, commit.**
 
+### Task 4: FERB's resource log (lane P4, on top of Tasks 1 and 3 integrated; added 2026-10-23)
+
+**Owner, 2026-10-23:** "or better, a some kinda report for some days of use that notes it down adn then you can work
+better." The owner approved the design (every 5 minutes one row of numbers in the local database, never content;
+`ferb stats` shows it per day; in this update) and chose the retention: "30 days". New decision **L30** (milestone
+"L"). Commits cite L30.
+
+**Files:**
+- Create: `ferb/daemon/resources.py`: the process readings (libproc through ctypes, like `ferb/sense/front_window.py`
+  and `ferb/act/shell/local.py:127`) and `ResourceLog` (take a sample, write it, purge).
+- Create: `ferb/store/migrations/0045_resource_samples.sql` (idempotent, like 0043/0044: `IF NOT EXISTS`).
+- Modify: `ferb/daemon/main.py`: a `_resources_loop` started like `_retention_loop` (`main.py:1981-1989`, behind a
+  constructor flag `resources: bool = True` next to `retention` at `:162`, its task added to the producers drain at
+  `:431`); the purge in the hourly retention pass (`_purge_rest`, `:1928`); a last partial sample at shutdown.
+- Modify: `ferb/sense/batches.py`: in-memory counters (wakes; batches by reason) that the log reads. No decision
+  changes: Task 3's equivalence tests in `tests/test_batcher_cost.py` must pass unchanged.
+- Modify: `ferb/config.py` `ensure_privacy_defaults` (`:110-135`): `("retention", "resource_days", 30)`.
+- Modify: `ferb/cli/admin.py` `stats` (`:652`): a "Resources" section.
+- Test: `tests/test_resource_log.py`; `tests/conftest.py` `_make` defaults `resources=False` (test daemons never sample
+  on a timer, as with `retention=False`).
+- Docs: README (`ferb stats`; the retention paragraph at `README.md:479-486`), ARCHITECTURE (§10 "Retention"; a short
+  "FERB's own resource use" paragraph next to the perception batcher's cost; §16.10 journal kinds if a new kind is
+  added), CHANGELOG (the unreleased block, after the clean-out and the batcher's cost), `docs/0.27_DECISIONS.toml`
+  [L30] with the owner's words, `docs/0.27_PLAN.md` launch-week paragraph (`L1–L29` → `L1–L30`, naming this plan),
+  `docs/OWNER_ACCEPTANCE.md` live check 80.
+
+**One row per window (numbers only; never content, arguments or paths):**
+- `at` (window end, ISO 8601 with offset), `day` (local date), `window_s` (seconds covered, from the monotonic clock).
+- The daemon: `cpu_s` (user + system CPU seconds in the window, from `resource.getrusage(RUSAGE_SELF)` deltas);
+  `footprint` and `peak_footprint` in bytes (the physical footprint, which Activity Monitor's Memory column shows, and
+  its lifetime maximum: `proc_pid_rusage(getpid(), RUSAGE_INFO_V2)`'s `ri_phys_footprint` and
+  `ri_lifetime_max_phys_footprint`).
+- FERB's other processes, the daemon's descendants (walk `proc_listchildpids` from the daemon's pid): `child_count`,
+  `child_footprint` (sum), and `child_cpu_s`: CPU used in the window by descendants, tracked per (pid, start time) so
+  a reused pid is a new process; a process seen for the first time counts its CPU since it started. Add the CPU of
+  finished children from `getrusage(RUSAGE_CHILDREN)` deltas, minus what was already counted for direct children that
+  ended in the window (never below 0), so nothing is counted twice. `ri_user_time` / `ri_system_time` are in mach
+  absolute time units: convert with `mach_timebase_info` (on Apple Silicon one unit is not one nanosecond).
+  Processes FERB starts through `open` (they belong to launchd) are not descendants; say so in the docs.
+- FERB.app: processes whose executable lies inside a `FERB.app` bundle (`proc_listallpids` + `proc_pidpath`):
+  `app_cpu_s` (tracked the same way) and `app_footprint`; NULL when it isn't running.
+- `db_bytes`: `store_size` of the database (`ferb/store/db.py:11`).
+- `work_json`, counts in the window:
+  - trail events per source (`trail.seq` above the last seen);
+  - perception wakes and batches by reason (the batcher's counters);
+  - Jev decisions asked and not sampled (`decisions.seq` above the last seen; `error = 'not sampled'`);
+  - model runs per kind (`model.turn`, `worker`, `model.learning`) and tool calls (`tool.call`), from `spans` by rowid
+    above the last seen (check `spans` has a rowid);
+  - tasks running at the sample (`tasks.status = 'running'`, indexed);
+  - the top three of FERB's other processes by CPU in the window: executable basename (through the daemon's redactor,
+    rule 14) and CPU seconds.
+- Every window count is a primary-key or rowid range from the last value seen, never a scan of a whole table. The first
+  sample after a start counts from start-up.
+
+**Cadence, failures, retention:**
+- `SAMPLE_SECONDS = 300` (the owner-approved "every 5 minutes"). Like `_retention_loop`: a failed sample journals
+  `resources.failed` with the error and the loop goes on; a process that can't be read is skipped.
+- Shutdown writes the partial window, so the minutes before a quit or restart aren't lost.
+- `[retention] resource_days`, default 30 (the owner's choice), at least 1 like every retention setting
+  (`ferb/store/retention.py:14`); purged by `day` in the hourly retention pass.
+- Measure one sample's cost on a store of realistic size (a trail of 400k rows, as Task 3's probe) and give the number
+  in the report and the ARCHITECTURE paragraph.
+
+**`ferb stats` "Resources" section** (reads the database read-only like the rest, works with the daemon stopped, uses
+`--days`):
+- One line per day: hours covered; the daemon's CPU, average and peak window, as a percentage of one core (Activity
+  Monitor's convention), with the peak's time; memory, average and peak; FERB's other processes' and FERB.app's CPU
+  average; the database's size at the day's last sample.
+- "Hottest windows": the five windows of the period with the most CPU across the daemon, its descendants and FERB.app,
+  each with its time and its work counts (events by top sources, batches, Jev calls, model runs, tasks running, top
+  processes).
+- With no samples yet, one line saying so.
+
+- [ ] **Step 1: Failing tests** in `tests/test_resource_log.py`:
+  - A sample's CPU and footprint come from the readings (inject the readings in tests), plus one real test on macOS
+    that reads the test process's own footprint (> 0) and CPU (≥ 0) through libproc.
+  - The mach timebase conversion.
+  - Window counts: events added between two samples are counted per source; deleting older rows changes nothing; the
+    count queries are ranges (`EXPLAIN QUERY PLAN` shows a primary-key/rowid search, no full `SCAN` of the table).
+  - Descendants: a new child's CPU counted once; a reused pid with a new start time counted fresh; a finished direct
+    child not counted again through `RUSAGE_CHILDREN`.
+  - Retention: rows older than `resource_days` are purged; a value below 1 counts as 1.
+  - Shutdown writes the partial window; a failing sample journals `resources.failed` and the next one still runs.
+  - `ferb stats` renders the per-day lines and the hottest windows from seeded rows, and the no-samples line.
+- [ ] **Step 2: Implement.**
+- [ ] **Step 3: Docs** (the list above).
+- [ ] **Step 4: Focused tests** (`test_resource_log.py`, `test_batcher_cost.py`, `test_perception_batches.py`,
+  `test_retention.py`, `test_config.py`, `test_cli.py`, `test_decision_coverage.py`, and any test of `ferb stats`),
+  `mypy ferb/core`, `git diff --check`, commit.
+
 ## Not in this plan (owner decisions, raised separately)
 
 - Fewer accessibility events: merging repeated value-changed events for one field, or not recording some apps'
