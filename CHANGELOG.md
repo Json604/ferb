@@ -552,9 +552,9 @@ break"; not installed or live-tested):
   navigation is a candidate, or learned once its runs qualify. A card whose trace has aged out keeps the source rows
   it had, and its rebuild copies them once onto the new version. On the owner's store every card still had its trace
   on 2026-10-23 and setup cleans the database before FERB starts, so none of the old bloated rows are copied, provided
-  the update runs before the oldest card's trace ages out (2026-11-07, at 30 days' trace retention). FERB is stopped
-  now, but its launch agent starts it again at the next login, and from then on its retention deletes traces older than
-  30 days.
+  the update runs before the oldest card's trace ages out (2026-11-07, at 30 days' trace retention). The launch agent
+  setup installs has `RunAtLoad` (`ferb/device/install.py`): launchd starts FERB at each login while its plist is in
+  `~/Library/LaunchAgents`, and whenever FERB runs, its retention deletes traces older than 30 days.
 - Your earlier choice of recording provenance for the reversible kinds (more friction against memory poisoning) is
   moot: those steps no longer hold a procedure.
 - Accepted with it: a procedure can learn navigating, typing and clicking steps on a site only a page named (a page
