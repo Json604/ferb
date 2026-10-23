@@ -49,10 +49,10 @@ CONVERSATION_SCHEMA = _obj({
     "handover_when": {"type": "string"}, "window_id": _nullable("string"),
 })
 STEP_SCHEMA = _obj({
-    "id": {"type": "string"}, "kind": {"type": "string", "enum": ["do", "map", "reduce", "wait", "ask", "converse"]},
+    "id": {"type": "string"}, "kind": {"type": "string", "enum": ["do", "map", "reduce", "wait", "ask", "converse", "loop"]},
     "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(),
     "batches": {"type": "array", "items": _strings()}, "worker_type": {"type": "string"},
-    "conditions": _strings(), "until": _nullable("string"), "event": _nullable("string"),
+    "conditions": _strings(), "until": _nullable("string"), "end_when": {"type": "string"}, "event": _nullable("string"),
     "event_match": {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})},
     "question": {"type": "string"}, "options": _strings(),
     "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},

@@ -19,7 +19,7 @@ class EventMatch(BaseModel):
 
 class Step(BaseModel):
     id: str
-    kind: Literal['do', 'map', 'reduce', 'wait', 'ask', 'converse']
+    kind: Literal['do', 'map', 'reduce', 'wait', 'ask', 'converse', 'loop']
     goal: str = ''
     depends_on: list[str] = Field(default_factory=list)
     inputs: list[str] = Field(default_factory=list)
@@ -27,6 +27,7 @@ class Step(BaseModel):
     worker_type: str = 'default'
     conditions: list[str] = Field(default_factory=list)
     until: str | None = None
+    end_when: str = ''          # a loop's end in the owner's words; '' = until the owner says stop (L31)
     event: str | None = None
     event_match: list[EventMatch] = Field(default_factory=list)
     conversation: ConversationScope | None = None
@@ -118,6 +119,15 @@ def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) ->
             errors.append(f'{step.id}: converse needs an exact account, app/site, thread, recipients, topic and hand-over condition')
         if step.kind == 'ask' and not step.question.strip():
             errors.append(f'{step.id}: ask needs an owner-facing question')
+        if step.kind == 'loop' and not step.goal.strip():
+            errors.append(f'{step.id}: a loop needs a goal')
+        if step.kind == 'loop' and step.until:
+            errors.append(f"{step.id}: a loop's end goes in end_when; until is a wait's time")
+        for dependency in step.depends_on:
+            source = by_id.get(dependency)
+            if source is not None and source.kind == 'loop' and not source.end_when.strip():
+                errors.append(f'{step.id}: depends on loop {dependency}, which runs until the owner says stop, '
+                              'so it could never start')
     outstanding = {key: set(step.depends_on) & set(ids) for key, step in by_id.items()}
     ready = deque(key for key, dependencies in outstanding.items() if not dependencies)
     visited: set[str] = set()
