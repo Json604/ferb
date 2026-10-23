@@ -945,7 +945,7 @@ class Daemon:
         screenshot kept as evidence under the request; an app on the exclusion list is reported unnamed and unlooked
         at, a site on it under the excluded label. None: no Mac driver or evidence store, sensing paused (`ferb
         pause`), or nothing but FERB in front. A failure is journaled by type and never blocks the message."""
-        from ferb.act.mac import screenshot
+        from ferb.act.mac import accessibility, screenshot
         from ferb.daemon.gateway import error_name
         from ferb.sanitize.images import ImageRedactor
         from ferb.sense import front_window as fw
@@ -970,6 +970,7 @@ class Daemon:
                 own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid, fw.parent_pid),
                 excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
                 tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
+                main_frame=accessibility.main_window_frame,
                 redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
             return await fw.capture(sources)
         except Exception as e:

@@ -75,6 +75,7 @@ class Screen:
         self.ambiguous = False                          # ... because several windows could be it (not none)
         self.masking = ""                               # the capture's note on how its secret fields were found
         self.ext_tab: tuple[str, str] | None = None     # the captured window's tab as the extension named it (B5)
+        self.main_frames: dict[int, tuple[float, float, float, float]] = {}   # an app's main window (Accessibility)
 
     async def _shoot(self, w: Window) -> tuple[bytes, str, tuple[str, str] | None]:
         self.shot.append(w)
@@ -108,7 +109,7 @@ class Screen:
             own=lambda pid, bundle: fw.ferb_process(pid, bundle, DAEMON, self.parents.get),
             excluded=lambda bundle, name, url: bool({bundle, name, url} & self.excluded),
             tab=self._tab, shoot=self._shoot, redact_image=self._redact_image, redact=Redactor(), keep=self._keep,
-            sender=self.sender)
+            sender=self.sender, main_frame=self.main_frames.get)
 
 
 def owners() -> dict[int, tuple[str, str]]:
@@ -131,6 +132,24 @@ def test_with_the_notch_frontmost_above_brave_the_capture_is_brave() -> None:
     assert front.origin == "external:web:www.youtube.com"             # the page's own label (MP2)
     image, facts, origin = screen.kept[0]
     assert image == JPEG and origin == front.origin and facts["url"] == URL
+
+
+def test_a_popup_on_top_of_the_front_app_is_never_taken_for_its_window() -> None:
+    """Live case 2026-10-24: a thin, title-less Brave strip (a tab preview or media bubble; the shot was 1568x42 px)
+    was on top when the owner sent "play this tab": FERB shot the strip, matched no tab and played another one. The
+    front window is the front app's main window (Accessibility) when it is on screen."""
+    strip = Window(7, 20, (343.0, 80.0, 784.0, 21.0), "")
+    screen = Screen([NOTCH, strip, BRAVE], owners())
+    screen.main_frames = {20: BRAVE.bounds}
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and screen.shot == [BRAVE]
+    assert (front.title, front.url, front.tab_title) == (BRAVE.title, URL, BRAVE.title)
+    # Accessibility can't say, or its main window isn't on screen here (another Space): the topmost, as before.
+    for frames in ({}, {20: (0.0, 2000.0, 800.0, 600.0)}):
+        again = Screen([strip, BRAVE], owners())
+        again.main_frames = frames
+        asyncio.run(fw.capture(again.sources()))
+        assert again.shot == [strip]
 
 
 def test_ferb_processes_are_its_apps_the_daemon_and_what_the_daemon_started() -> None:

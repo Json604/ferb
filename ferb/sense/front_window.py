@@ -3,7 +3,9 @@ forward, choose a window by what it shows, or keep an unredacted pixel.
 
 The front window is the topmost on-screen normal window whose owner process isn't FERB's own: the notch UI and
 FERB.app take key focus while the owner types, and the daemon and what it started without an app bundle of its own
-(its helpers, the commands it runs) are FERB too. An app with a bundle of its own is the owner's, whoever launched it,
+(its helpers, the commands it runs) are FERB too. Of that window's app, it is the app's main window (Accessibility)
+when that window is on screen: a tooltip, tab preview or pop-up of the app on top is never taken for the page (live
+case 2026-10-24: a title-less 784x21-point Brave strip was shot instead of the owner's Instagram window). An app with a bundle of its own is the owner's, whoever launched it,
 and FERB's own browser profile windows are windows the owner sees: they count. When the message came from a CLI, the
 window of the app hosting it (a terminal running `ferb chat`) is skipped while it is in front: the next one is the
 owner's. What is kept: app, bundle id, window title, the URL and title of the active tab of that very browser window,
@@ -93,6 +95,8 @@ class Sources:
     redact: Callable[[Any], Any]                          # text redaction
     keep: Callable[[bytes, dict[str, Any], str], Awaitable[str]]   # (image, facts, origin) -> evidence id
     sender: int | None = None                             # the app hosting the CLI the message came from (`sending_app`)
+    # a process's main window frame (x, y, w, h, top-left origin) from Accessibility; None: it can't say
+    main_frame: Callable[[int], tuple[float, float, float, float] | None] = lambda pid: None
 
 
 def parent_pid(pid: int) -> int | None:
@@ -152,15 +156,20 @@ def app_of(pid: int) -> tuple[str, str] | None:
 
 def _topmost(src: Sources) -> tuple[Window, str, str] | None:
     """The topmost window not owned by FERB, with its owner's app name and bundle id; when that is the sending CLI's
-    app window, the one after it."""
+    app window, the one after it. Of that app, its main window when Accessibility names one on screen here."""
     sender_skipped = False
-    for w in src.windows():
+    windows = src.windows()
+    for w in windows:
         name, bundle = src.app_of(w.pid) or ("", "")
         if src.own(w.pid, bundle):
             continue
         if w.pid == src.sender and not sender_skipped:     # the window the owner typed this message in
             sender_skipped = True
             continue
+        main = src.main_frame(w.pid)
+        if main is not None:
+            w = next((x for x in windows if x.pid == w.pid and all(abs(a - b) <= 2 for a, b in zip(x.bounds, main))),
+                     w)
         return w, name, bundle
     return None
 

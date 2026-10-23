@@ -186,6 +186,21 @@ def ax_windows(pid: int) -> list[Any]:
     return out
 
 
+def main_window_frame(pid: int) -> tuple[float, float, float, float] | None:
+    """The frame of the app's main window, else its focused window (Accessibility), top-left origin; None when it
+    can't say. A tooltip, tab preview or pop-up is never an app's main window."""
+    try:
+        import ApplicationServices as AX
+        app = AX.AXUIElementCreateApplication(pid)
+        for name in ("AXMainWindow", "AXFocusedWindow"):
+            w = _attr(app, name)
+            if w is not None and role_of(w) == "AXWindow" and (f := frame(w)) is not None:
+                return f
+    except Exception:
+        return None
+    return None
+
+
 def window_minimized(pid: int, bounds: tuple[float, float, float, float]) -> bool | None:
     """Whether the app's one Accessibility window at these bounds is minimized (AXMinimized); None when Accessibility
     can't tell (no unique window there, or no answer)."""
