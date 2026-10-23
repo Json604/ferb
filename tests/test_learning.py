@@ -708,9 +708,21 @@ def test_which_recorded_provenance_counts_as_outside():
         assert outside_action({'kind': kind, 'arg_sources': None}) is True, kind
         assert outside_action({'kind': kind, 'arg_sources': ['external:mail']}) is True, kind
     assert outside_action({}) is True                                   # no kind recorded either
-    for kind in (['send'], {'kind': 'send'}):                           # a damaged kind: outside, never an error
+    # a damaged kind (or none: before F0) is read as sending, never as a read or a reversible kind, and never raises
+    for kind in (['send'], {'kind': 'send'}, 7, None):
         assert outside_action({'kind': kind}) is True
+        assert outside_action({'kind': kind, 'arg_sources': None}) is True
+        assert outside_action({'kind': kind, 'arg_sources': {'site': [page]}}) is True             # its destination
         assert outside_action({'kind': kind, 'arg_sources': {'site': ['owner_words']}}) is False
+        assert outside_action({'kind': kind, 'arg_sources': {'site': [page], 'recipient:0': ['owner_words']}}) is False
+    # the declared purpose is read as the gateway's own reader reads it (`rules.declared_of`); a shape the gateway never
+    # writes (not a kind or a list of kinds) is read as sending
+    for declared in ({'damaged': 'send'}, [['send']], ['send', 3], 3, ('send',), {'send'}):
+        assert outside_action({'kind': 'click', 'declared': declared, 'arg_sources': {'site': [page]}}) is True
+        assert outside_action({'kind': 'navigate', 'declared': declared}) is True, declared   # recorded when declared
+    for declared in ('', []):                                           # an empty one declares nothing
+        assert outside_action({'kind': 'click', 'declared': declared, 'arg_sources': {'site': [page]}}) is False
+        assert outside_action({'kind': 'navigate', 'declared': declared}) is False
     # Fix round 1 (SQ7): the site is judged when it is where the call sends, as the floor and sink rule (a) treat it
     # (`confirm.site_is_destination`): a send-class kind or declared purpose with no recipient or contact
     # not sending: the site is only where it happens

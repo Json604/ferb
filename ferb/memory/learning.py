@@ -18,7 +18,7 @@ from ferb.memory.items import query_terms
 from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
 from ferb.policy.confirm import site_is_destination
-from ferb.policy.rules import REVERSIBLE, Kind
+from ferb.policy.rules import REVERSIBLE, Kind, declared_of
 from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED
 
 
@@ -338,21 +338,21 @@ def outside_action(action: dict[str, Any]) -> bool:
     send-class and it names no recipient or contact: `confirm.site_is_destination`). A call without `arg_sources` that
     the gateway records none for (`gateway.py`: a kind in REVERSIBLE without a declared purpose) is FERB's own choice,
     not outside (plan 2026-10-23 Task 2); any other call without them (recorded before F3, or damaged) is outside, so
-    an old send keeps its hold. A kind or declared purpose in another shape (a damaged record) never clears: a damaged
-    kind is no reversible kind, and a damaged purpose is read as sending."""
+    an old send keeps its hold. The declared purpose is read with `rules.declared_of`, the gateway's own reader. A
+    damaged record never clears (fail closed): a kind that is not a string (or none, before F0) is read as sending,
+    never as a read or a reversible kind, and so is a `declared` in a shape the gateway never writes (it writes one
+    kind as a string, several as a list of strings)."""
     kind, sources, declared = action.get('kind'), action.get('arg_sources'), action.get('declared')
-    kind = kind if isinstance(kind, str) else None
-    if kind in _READS or (sources is None and kind in REVERSIBLE and not declared):
+    purposes = declared_of(declared)
+    if declared is not None and not isinstance(declared, str) and not (
+            isinstance(declared, list) and all(isinstance(p, str) for p in declared)):
+        purposes.add(Kind.SEND)
+    if not isinstance(kind, str):
+        kinds = purposes | {Kind.SEND}
+    elif kind in _READS or (sources is None and kind in REVERSIBLE and not purposes):
         return False
-    if declared is None:
-        purposes: list[str] = []
-    elif isinstance(declared, str):                  # the gateway writes one declared kind as a string, several a list
-        purposes = [declared]
-    elif isinstance(declared, list) and all(isinstance(p, str) for p in declared):
-        purposes = declared
     else:
-        purposes = [Kind.SEND]
-    kinds = {k for k in (kind, *purposes) if k is not None}
+        kinds = purposes | {kind}
     return outside_targets(sources, read_site=isinstance(sources, dict) and site_is_destination(kinds, sources))
 
 
