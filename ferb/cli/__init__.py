@@ -166,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--browser", action="store_true")
     wp.add_argument("--only", help="comma-separated step ids, e.g. M4,M9")
     wp.add_argument("--dry-run", action="store_true", help="list the steps and exit")
-    stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs (from the database)")
+    stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs, and its own CPU and "
+                                       "memory per day (from the database)")
     stp.add_argument("--days", type=int, default=7)
     bp = sub.add_parser("baseline", help="capture metrics or compare two saved baseline JSON files")
     bp.add_argument('--compare', nargs=2, metavar=('BEFORE', 'AFTER'), help='read-only saved-snapshot comparison')
