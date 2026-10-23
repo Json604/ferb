@@ -102,3 +102,18 @@ identical runs give a candidate until a run with a different value succeeds.
 
 ## Open for the owner
 - None blocking. The "distill day over the cap" question stays open separately.
+
+## Amendment 2026-10-23: browser procedures without a hold
+Owner, 2026-10-23: "i dont want that annoying rec again, cant we just leave browser thigns as it is … make it just
+bare minimum so that our loop also does not break" (plan `docs/superpowers/plans/2026-10-23-perf-and-browser-holds.md`,
+Task 2). It amends §4's "a step built on outside content quarantines the procedure" in the card reader only
+(`learning.outside_targets`); the gateway is unchanged.
+- A step's site never makes it outside. Under L2 FERB reaches any site without a question, and the page FERB read names
+  its own address, so every typing or clicking step on a site FERB had read counted as outside.
+- An action with no recorded target provenance (the reversible kinds: opening a site, app or tab, focusing, the Trash,
+  timers, recovery points, stopping a command) is FERB's own choice, not outside.
+- Unchanged: a recipient, account, contact, path or amount found only in outside content makes the step outside and
+  holds the procedure until the owner confirms; the owner's words and answers are the owner's, and "unknown" is not
+  outside; the confirm carry-over across revisions is the same rule.
+- The card composer becomes `code:evidence-card/4`, so every card is read again once; labels carry forward without a
+  model call. The earlier option of recording provenance for the reversible kinds is moot.

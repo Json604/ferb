@@ -630,12 +630,13 @@ This section matters most for an automated campaign. It says exactly what runs u
   episodes; a step some runs skipped is optional and must reproduce the runs that cite it, every other step every
   run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
-  save exploration but never skips gateway checks, step checks or the final check. Procedures with steps whose
-  targets came from outside content, or that record no target provenance (the reversible kinds: opening or navigating
-  a site; opening, switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a
-  timer or reminder; a recovery point; stopping a command FERB started), are quarantined until the owner
+  save exploration but never skips gateway checks, step checks or the final check. Procedures with a step whose
+  recipient, account, contact, file or amount came only from outside content are quarantined until the owner
   confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor
-  outside content, is not outside (L29). A model revision is the same procedure: the runs of every version count
+  outside content, is not outside (L29). The site a step runs on, and a step that records no target provenance (the
+  reversible kinds: opening or navigating a site, a tab or an app, focusing, the Trash, timers, recovery points,
+  stopping a command), never hold a procedure, so browser procedures on a site FERB read need no confirm (owner
+  2026-10-23, plan 2026-10-23 Task 2). A model revision is the same procedure: the runs of every version count
   toward its state, and the confirm the owner gave by hand carries over unless the revision adds a step built on
   outside content that the hand-confirmed version didn't have (a carried confirm never counts as the owner's own). An
   app update sends a learned procedure back to candidate until it succeeds on the new version; two failures in a row

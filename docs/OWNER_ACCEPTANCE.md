@@ -1364,21 +1364,22 @@ Learning by intent (L29, 2026-10-21; pending, checkout tests only so far):
     task, one consolidation call for the three; distillation calls count there too). `ferb trace label-<card id>
     --full` shows a label call (role `intent`) and `ferb trace <the procedure's batch_id> --full` the consolidation
     call (role `consolidate`). `ferb memory search egg --kind procedure` (or the memory dashboard) shows a procedure
-    named like the task with its `state`, `confirmed` and `batch_id`. A browser task's procedure shows `quarantined`:
-    opening the site records no target provenance (a reversible kind), so that step counts as outside content. Read
-    its steps, then run `ferb memory confirm <procedure id>`; the search should then show `learned` and `confirmed`
-    true (`Learning.confirm` makes it a candidate and refreshes it: three verified runs with different dishes make it
-    learned). Record which state you saw before and after. Ask a fourth time ("cheapest rajma with breads"): `ferb
-    trace TASK --full` shows the planner chose that procedure (the task span's `task_spec`: `procedure_id`, and
-    `procedure_slots` with dish = "rajma"), and the worker's input has the steps with rajma filled in and the earlier
-    runs' tool calls. After the fourth run, `ferb memory consolidate` (or the next hourly pass) revises the procedure
-    with that run: search again and record the current version's `state` and `confirmed` (a revision that only
-    reuses the steps you confirmed should stay `learned` and `confirmed` true; one with a new step built on outside
-    content shows `quarantined` and the consolidate output names it under `requarantined`; if the hourly pass revised
-    it, `ferb timeline` shows `memory.procedure_requarantined`). For each of the four tasks,
-    count its tool calls with `ferb trace TASK --steps` (one line per tool call) and take its time from the task span
-    in `ferb trace TASK --json` (`started_at` to `ended_at`); record the fourth against the first three, then run
-    `ferb baseline` again for the totals before and after.
+    named like the task with its `state`, `confirmed` and `batch_id`. A browser task's procedure should show `learned`
+    (three verified runs with different dishes) and `confirmed` false, with no `ferb memory confirm`: opening the site,
+    and typing and clicking on it, no longer hold a procedure (plan 2026-10-23 Task 2). Record the state you saw. It
+    shows `quarantined` only if a step's recipient, account, contact, file or amount came only from a page or message
+    (say which step); then read its steps and run `ferb memory confirm <procedure id>`, and record the state after. Ask
+    a fourth time ("cheapest rajma with breads"): `ferb trace TASK --full` shows the planner chose that procedure (the
+    task span's `task_spec`: `procedure_id`, and `procedure_slots` with dish = "rajma"), and the worker's input has the
+    steps with rajma filled in and the earlier runs' tool calls. After the fourth run, `ferb memory consolidate` (or the
+    next hourly pass) revises the procedure with that run: search again and record the current version's `state` and
+    `confirmed` (it should stay `learned`; if you confirmed it, a revision that only reuses the steps you confirmed
+    stays `confirmed` true, and one with a new step built on outside content shows `quarantined` and the consolidate
+    output names it under `requarantined`; if the hourly pass revised it, `ferb timeline` shows
+    `memory.procedure_requarantined`). For each of the four tasks, count its tool calls with `ferb trace TASK --steps`
+    (one line per tool call) and take its time from the task span in `ferb trace TASK --json` (`started_at` to
+    `ended_at`); record the fourth against the first three, then run `ferb baseline` again for the totals before and
+    after.
 
 Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests only so far):
 79. Before updating, run `ferb doctor` and `ls -la ~/.ferb/ferb.db*`: record the `database` line (it should warn
@@ -1429,9 +1430,9 @@ Residuals to know during the week (accepted or recorded, not checks):
 - Context budgets count tokens with o200k estimates (L28): another provider's tokenizer can count the same text
   higher, so an input FERB fitted to a non-OpenAI model's budget can still be over its real window.
 - Ad-hoc builds lose macOS permissions on every update until Developer ID signing.
-- Learning by intent (L29): a procedure with a step of a reversible kind (opening or navigating a site; opening,
-  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer or reminder;
-  a recovery point; stopping a command FERB started) starts quarantined until you confirm it; a procedure
+- Learning by intent (L29): a procedure waits for your confirm only when a step's recipient, account, contact, file or
+  amount came only from a page or message (since plan 2026-10-23 Task 2, the site a step runs on and the reversible
+  kinds' steps never hold one, so it can learn steps on a site only a page named); a procedure
   you forget is never learned again for that kind of task, and one you turned down blocks any procedure for it;
   forgetting the run that first named a kind of task leaves that name in its other runs' labels; a procedure whose
   slot is named like a credential never becomes learned (CHANGELOG lists them all).

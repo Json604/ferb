@@ -1636,7 +1636,7 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   planner exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence
   (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
   source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
-  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/3`. The rule
+  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/4`. The rule
   for one span is `_span_refs`; `card_trace` yields the task's `CardSpan`s (tool calls, exposures, context sources)
   one at a time, each parsed only when asked for, since span outputs have no size limit. `prepare_episode` takes the
   actions and `_span_refs` from each span in one pass. `Learning.card_source_refs(task_id)` reads the trace on its own
@@ -1661,24 +1661,32 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   `progress(done, total)` is told after each node. Node origins (`origins_json`) stay as captured: they hold every
   source's origins the node had, so they are never more trusted than the kept sources'. Afterwards a forget of a row the
   planner was only shown no longer reaches the card; one of an action's sources still does.
-- **Outside actions (F8; L29 Task 6 review I1).** A card action is `outside_action` (`learning.outside_action`)
-  unless its kind reads (`read`, `search`, `mailbox_read`) or `outside_targets` clears its `arg_sources`, read in the
-  gateway's vocabulary (`policy/provenance.py`, their only writer since F3): a key with `owner_words` or
-  `owner_answer` (the set `policy/confirm.py` reads) is the owner's; `unknown` (in neither the owner's words nor
-  outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed from a
-  number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one it
-  doesn't know) on a key without an owner label is outside; no `arg_sources` at all is outside (fail-safe). Before,
-  it tested origin labels (`owner`, an outside rank) that the gateway never records, so every targeted action was
-  outside; composer 3 reads such cards again once, and a card whose trace has aged out has each kept action's flag
-  recomputed from its stored `arg_sources`. The gateway records `arg_sources` for consequential kinds only
-  (`gateway.py`), so the reversible kinds (`policy/rules.py` REVERSIBLE: opening or navigating a site; opening,
-  switching to, keeping or closing a tab; opening an app; focusing a window; moving to the Trash; a timer or reminder;
-  a recovery point; stopping a command FERB started; the tools browser.open, navigate, use_tab, close and
-  keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash, time.remind_at and set_timer, recovery.snapshot and
-  shell.kill; no tool uses `draft`) stay outside, while typing and clicking (fill_form, click, mac input) record it.
-  A procedure using one is `quarantined` until the owner's `ferb memory confirm` (`Learning.confirm` via
-  `_mark_confirmed`: candidate, then refreshed, so learned at once when its key's receipts qualify). Recording
-  provenance for every step is the owner's decision (friction against memory poisoning).
+- **Outside actions (F8; L29 Task 6 review I1; plan 2026-10-23 Task 2).** A card action is `outside_action`
+  (`learning.outside_action`) unless its kind reads (`read`, `search`, `mailbox_read`) or `outside_targets` clears its
+  `arg_sources`, read in the gateway's vocabulary (`policy/provenance.py`, their only writer since F3): a key with
+  `owner_words` or `owner_answer` (the set `policy/confirm.py` reads) is the owner's; `unknown` (in neither the owner's
+  words nor outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed
+  from a number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one
+  it doesn't know) on a key without an owner label is outside. The `site` key is never read (`_SITE`): under L2 FERB
+  reaches any site without a question, and the page FERB read names its own address, so every typing or clicking step
+  on a site FERB had read counted as outside. Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`,
+  and any key a later gateway writes) is read as above. No `arg_sources` (absent or None) is FERB's own choice, not
+  outside; one in another shape (not a key -> labels map: a damaged record) is outside (fail closed). The gateway
+  records `arg_sources` for consequential kinds only (`gateway.py`), so the reversible kinds (`policy/rules.py`
+  REVERSIBLE: opening or navigating a site; opening, switching to, keeping or closing a tab; opening an app; focusing a
+  window; moving to the Trash; a timer or reminder; a recovery point; stopping a command FERB started; the tools
+  browser.open, navigate, use_tab, close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash,
+  time.remind_at and set_timer, recovery.snapshot and shell.kill; no tool uses `draft`) never make a step outside;
+  typing and clicking (fill_form, click, mac input) record it. A procedure citing an outside action is `quarantined`
+  until the owner's `ferb memory confirm` (`Learning.confirm` via `_mark_confirmed`: candidate, then refreshed, so
+  learned at once when its key's receipts qualify). History: before Task 6 the reader tested origin labels (`owner`,
+  an outside rank) that the gateway never records, so every targeted action was outside (composer 3 read such cards
+  again once); until plan 2026-10-23 Task 2 (owner, 2026-10-23: "i dont want that annoying rec again, cant we just
+  leave browser thigns as it is … make it just bare minimum so that our loop also does not break") no `arg_sources`
+  and the site were outside too, so nearly every browser procedure started quarantined; composer 4 reads every card
+  again once, and labels carry forward without a model call (`intents.carry_forward`). The owner's earlier option of
+  recording provenance for the reversible kinds is moot. A card whose trace has aged out has each kept action's flag
+  recomputed from its stored `arg_sources`. Only the card reader changed: the gateway records the same.
 - **Procedure identity across revisions (L29 final review I1, I2).** Since L29 an intent's procedure is revised after
   each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
   receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten
@@ -1687,19 +1695,23 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   counts only the slots the current version declares. A receipt recorded on a superseded version refreshes the key's
   current version too. Receipts are read across versions rather than copied forward on `put`: one record per run, and
   rollback and forget apply at read time. `propose_procedure` carries a confirm to a revision of a confirmed version
-  whose steps built on outside content (by tool and template arguments, as stored) were all steps of the version the
-  owner confirmed by hand (`_hand_confirmed`: walking `supersedes` back through carried confirms to the nearest one
-  the owner gave; none when it was rolled back or is gone). A carried confirm is stored as `confirmed` 2 (`get`
-  reports a bool, so search, the dashboard and `confirmable` see True), so it never counts as the owner's own; the
-  owner's `confirm` stores 1, also over a carried one (`_mark_confirmed`, one path for both). A revision of a
-  confirmed version that adds such a step, or that has a step built on outside content when its hand-confirmed
-  version is gone, is stored `quarantined` with `confirmed` 0, noted as `memory.procedure_requarantined` (the journal
-  keeps the ids of the new version, the one it revises and the hand-confirmed one, and the reason; `ferb timeline`
-  lists it with the first two ids, its details cut at 160 characters) and named in the pass result (`requarantined`,
-  printed by `ferb memory consolidate`). All of this applies only when `put` wrote the node now over the current version
-  (`supersedes` is it): a proposal whose content matches an existing node (the current version or an older one)
-  changes nothing and is listed under `unchanged`, not accepted. A revision after two failures starts `suspect`
-  (sticky, as before), and stays suspect until a verified run and then a revision with a new body.
+  whose steps built on outside content (a step citing an outside action, "Outside actions" above; by tool and template
+  arguments, as stored) were all steps of the version the owner confirmed by hand (`_hand_confirmed`: walking
+  `supersedes` back through carried confirms to the nearest one the owner gave; none when it was rolled back or is
+  gone). A carried confirm is stored as `confirmed` 2 (`get` reports a bool, so search, the dashboard and `confirmable`
+  see True), so it never counts as the owner's own; the owner's `confirm` stores 1, also over a carried one
+  (`_mark_confirmed`, one path for both). A revision of a confirmed version that adds such a step, or that has a step
+  built on outside content when its hand-confirmed version is gone, is stored `quarantined` with `confirmed` 0, noted as
+  `memory.procedure_requarantined` (the journal keeps the ids of the new version, the one it revises and the
+  hand-confirmed one, and the reason; `ferb timeline` lists it with the first two ids, its details cut at 160
+  characters) and named in the pass result (`requarantined`, printed by `ferb memory consolidate`). All of this applies
+  only when `put` wrote the node now over the current version (`supersedes` is it): a proposal whose content matches an
+  existing node (the current version or an older one) changes nothing and is listed under `unchanged`, not accepted. A
+  revision after two failures starts `suspect` (sticky, as before), and stays suspect until a verified run and then a
+  revision with a new body. Since plan 2026-10-23 Task 2 a revision that adds steps whose only outside target is the
+  site (navigating, clicking, typing a dish) adds no outside step, so the confirm carries; one that adds a step whose
+  recipient, account, contact, path or amount only outside content gave still drops a carried confirm (the rule itself
+  is unchanged).
 - **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
   (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
   keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later
