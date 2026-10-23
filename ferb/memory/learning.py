@@ -28,9 +28,10 @@ class LearningRefused(FerbError):
 # (the card's node id).
 ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 # The episode card's composer. 2: a card cites its task's direct sources only (memory review C1). 3: an action's
-# target provenance is read in the gateway's vocabulary (`outside_targets`, L29 Task 6 review I1). A card an older
-# composer built is rebuilt once by the consolidator.
-CARD_MAKER = 'code:evidence-card/3'
+# target provenance is read in the gateway's vocabulary (`outside_targets`, L29 Task 6 review I1). 4: neither an action
+# without provenance nor the site it ran on is outside (plan 2026-10-23 Task 2). A card an older composer built is
+# rebuilt once by the consolidator.
+CARD_MAKER = 'code:evidence-card/4'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
 # every earlier version's. A store holding its cards gets the one-time clean-out (`prune_card_sources`, run by setup).
 COPYING_CARD_MAKER = 'code:evidence-card/1'
@@ -307,24 +308,30 @@ _OWNER_SOURCES = frozenset({'owner_words', 'owner_answer'})
 # match (spelled differently, read from a picture); not outside, as confirmations read it (Task 6 re-review 2, N3)
 _NEITHER = 'unknown'
 _READS = ('read', 'search', 'mailbox_read')
+# The target key never read as outside: the site an action ran on. Under L2 FERB reaches any site without a question,
+# and the page FERB read names its own address (plan 2026-10-23 Task 2, owner).
+_SITE = 'site'
 
 
 def outside_targets(arg_sources: Any) -> bool:
     """Whether an action's targets came from outside content (MP2, F8 quarantine), from the gateway's `arg_sources`
     (key -> labels): a key the owner typed or answered is the owner's; "unknown" is not outside (as confirmations read
     it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner
-    label is outside. No provenance at all (a reversible kind records none, or a historical action) is never evidence
-    of a safe target: outside. Provenance only, never intent (R2; L29 Task 6 review I1: this read origin labels, so
-    every target looked outside)."""
+    label is outside, except on the site key. No provenance at all (None: a reversible kind records none) is FERB's
+    own choice, not outside; provenance in another shape (a damaged record) is outside. Provenance only, never intent
+    (R2; L29 Task 6 review I1: this read origin labels, so every target looked outside; plan 2026-10-23 Task 2: the
+    site, and no provenance, held nearly every browser procedure)."""
+    if arg_sources is None:
+        return False
     if not isinstance(arg_sources, dict):
         return True
     return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)
-               for labels in (v if isinstance(v, list) else [v] for v in arg_sources.values()))
+               for labels in (v if isinstance(v, list) else [v] for k, v in arg_sources.items() if k != _SITE))
 
 
 def outside_action(action: dict[str, Any]) -> bool:
     """Whether a card's action was built on outside content (F8): any kind but a read, whose targets
-    `outside_targets` reads as outside."""
+    `outside_targets` reads as outside (an action without `arg_sources` has none)."""
     return action.get('kind') not in _READS and outside_targets(action.get('arg_sources'))
 
 
