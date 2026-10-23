@@ -181,7 +181,7 @@ def page_bounds(text: str, offset: int, size: int, secrets: Iterable[str]) -> tu
 
 def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Callable[[str], bool],
                    redact: Callable[[Any], Any], secrets: Callable[[], Iterable[str]],
-                   above: int = 0) -> list[ContextBlock]:
+                   above: int = 0, earlier_runs: int = 0) -> list[ContextBlock]:
     """The final checker's starting evidence (fix wave 6b): the worker task's recorded tool calls with their results,
     in recorded order, every run of the worker included (a repair round runs as the same task). Each is the record
     task.evidence returns for its span_id (the same filter and stored, already redacted rows: no new capture), shown up
@@ -196,7 +196,10 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
     the gateway's, applied to each shown page as to every task.evidence page the gateway returns (rule 14, round 1
     M1): a value sealed after the call was recorded is masked here too; it runs after the page is cut, so offsets stay
     on the stored text, as they do for task.evidence. `secrets`: the values FERB knows as secrets now; a page ends
-    before one it would split, as task.evidence's pages do (`page_bounds`, round 2 N2)."""
+    before one it would split, as task.evidence's pages do (`page_bounds`, round 2 N2). `earlier_runs`: how many of the
+    worker's runs answered the task's earlier messages (`SpanStore.request_began`); a call in one of them is labelled
+    as an earlier message's, and its action gets no priority over this run's (owner live case 2026-10-24: a follow-up
+    failed for the earlier run's actions)."""
     runs, found = 0, []
     after: int | None = 0
     while after is not None:
@@ -219,19 +222,22 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
     for n, (run, row) in enumerate(found, 1):
         name, kind, text = str(row["input"].get("tool")), row["input"].get("kind"), record_text(row)
         role = "observation" if observes(name) else "action"
+        earlier = run <= earlier_runs
         # the origin's kinds only (external:web, private): a label's detail (a host) is outside text, kept in the record
         labels = sorted({":".join(o.split(":")[:2]) for o in origin.recorded(row["origin"], row["output"] is not None)})
         facts = [f"{name} ({f'{kind}, ' if kind else ''}{role}) at {row['started_at']}",
                  "origin " + ", ".join(labels) if labels else "", "failed" if row["error"] is not None else "",
                  "no result recorded" if row["output"] is None and row["error"] is None else ""]
         _, end = page_bounds(text, 0, PAGE_CHARS, known)
-        head = (f"Recorded call {n} of {total}" + (f", worker run {run}" if runs > 1 else "") + ": " +
+        head = (f"Recorded call {n} of {total}" + (", from an earlier message's run (answered and checked then)"
+                                                   if earlier else f", worker run {run}" if runs > 1 else "") + ": " +
                 ", ".join(f for f in facts if f) + f"; task.evidence span_id={row['id']}" +
                 (f", cut at {end} of {len(text)} characters, the rest from offset={end}" if end < len(text) else "") +
                 ":\n")
         blocks.append(ContextBlock(head + wrap_untrusted(redact({"text": text[:end]})["text"]),
                                    f"task.evidence span_id={row['id']} (recorded call {n} of {total}: {name}, {role}, "
-                                   f"{row['started_at']})", priority=above + n + (total if role == "action" else 0),
+                                   f"{row['started_at']})",
+                                   priority=above + n + (total if role == "action" and not earlier else 0),
                                    fold=f"task.evidence kind=tool.call, the {role}s among these recorded calls"))
     return blocks
 

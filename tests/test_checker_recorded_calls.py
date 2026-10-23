@@ -516,3 +516,39 @@ def test_the_trace_shows_a_rerun_as_the_same_check_round() -> None:
     assert c["steps"][3]["mark"] == "✓" and c["steps"][3]["text"].startswith("rerun of the same check: verified")
     assert not any("failed" in p for p in c["problems"])
     assert "↻ 1 check ran again without the recorded calls (its model window overflowed)" in c["problems"]
+
+
+def test_a_follow_up_is_judged_on_its_own_run_and_earlier_messages_calls_are_labelled(daemon) -> None:
+    """Owner live case 2026-10-24 ("keep it running, noly stop when i say"): the follow-up carried the task on in place,
+    and its checker failed it for two plays the first message's run had made on another tab (that run was judged
+    then). The checker is told where this message's run begins, and calls before it are labelled an earlier
+    message's: context, never this run's actions."""
+    _probes(daemon)
+    seen: dict[str, Any] = {}
+
+    def first_worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.act", text="played the other tab")["is_error"]
+        return done("Low Power Mode is on.")
+    install(daemon, [sup("task", "On it.", LOW_POWER)], {"worker": first_worker, "worker.verify": verdict(True)})
+    first = outcome(chat(daemon, "turn on low power mode", session="follow-up"))
+
+    follow = json.loads(sup("task", "Keeping it on.", task("keep low power mode on", "owner",
+                                                            conds=(cond("Low Power Mode stays on"),))))
+    follow["control"] = {"task_id": first["task_id"], "action": "continue", "standing_sends": "unchanged",
+                         "supersedes": []}
+
+    def second_worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "probe.read", text="Low Power Mode: 1")["is_error"]
+        return done("Low Power Mode is still on.")
+
+    def checker(token: str) -> str:
+        seen["context"] = checker_context(script)
+        return verdict(True)
+    script = install(daemon, [json.dumps(follow)], {"worker": second_worker, "worker.verify": checker})
+    assert outcome(chat(daemon, "keep it on", session="follow-up"))["task_id"] == first["task_id"]
+    context = seen["context"]
+    assert "This check judges the run for the owner's latest message" in context
+    old, new = context.index("played the other tab"), context.index("Low Power Mode: 1")
+    head_of = lambda at: context[context.rindex("Recorded call ", 0, at):at]   # noqa: E731
+    assert "from an earlier message's run" in head_of(old)
+    assert "from an earlier message's run" not in head_of(new)

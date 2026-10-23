@@ -2904,6 +2904,13 @@ class Supervisor(WorkerRuns):
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
+        began = self.spans.request_began(tree.id, task.request_id, task.id)
+        if began is not None:      # a follow-up carried the task on in place (owner live case 2026-10-24)
+            report += (f"\nThis check judges the run for the owner's latest message, which began at {began[0]}. Recorded "
+                       "calls before then answered this task's earlier messages and were checked then: they are "
+                       "context, never this run's actions. Judge a condition about what FERB did or changed on this "
+                       "run's calls, and the state now on fresh reads; when an earlier run's mistake still matters "
+                       "to the owner, name it in the evidence without failing this run for it.")
         context = await self._context(tree)
         ctx = context + [ContextBlock(report + "\nThe worker's recorded tool calls and their results follow. More: "
                                       "task_evidence; memory.read; chat.history",
@@ -2912,7 +2919,8 @@ class Supervisor(WorkerRuns):
         # optional blocks; the checker reads with task_evidence only what didn't fit, and the root's other records
         ctx += recorded_calls(self.spans, task.id, tree.id, lambda tool: observes(self.gateway.caps.get(tool)),
                               self.gateway.redact, lambda: getattr(self.gateway.redact, "secret_values", set)(),
-                              above=1 + max(block.priority for block in ctx))
+                              above=1 + max(block.priority for block in ctx),
+                              earlier_runs=began[1] if began is not None else 0)
         # ... and the check as it was before them, for a run whose model window overflowed with them (round 1)
         plain = context + [ContextBlock(report + "\nThis check's context holds no recorded tool calls: with them, it "
                                         "overflowed the model's window; list and read them with task_evidence. Full "

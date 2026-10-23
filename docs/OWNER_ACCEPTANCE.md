@@ -1446,6 +1446,12 @@ pending; Swift tests only so far). This supersedes check 46's "steps aside":
     Owner, 2026-10-24: "ok it works, good work" (which bullets weren't named). Still to try: the paperclip while FERB
     sits back opens one picker only, and FERB never covers the picker.
 
+Send-time window and follow-up checks (owner 2026-10-24; pending, checkout tests only so far):
+84. After `ferb setup --update`, open an Instagram reel in Brave, hover a tab so its preview shows, and send "play this
+    tab in background". In `ferb trace TASK --full`, the front-window block should name the Instagram URL and tab
+    title, not "no URL or tab title". Then send "keep it running, only stop when i say". Its check should judge that
+    run alone; an earlier mistake may be mentioned, but it must not fail the follow-up.
+
 Chat changes (owner 2026-10-24; pending, Swift tests only so far):
 83. In FERB Notch, send a request:
     - The quick reply ("On it.") appears about 0.75 s after you send, as a small bubble on the plan line.

@@ -605,6 +605,12 @@ After the owner's update (2026-10-24):
     the steps are in View tasks › Inspect. The AI service's offline and reconnected lines still show there.
   - Command-C (and X, A) now work on text selected in the chat. The Edit menu's shortcuts never reached FERB's panel,
     because FERB never becomes the active app.
+- The window FERB records when you send a message is now the front app's main window, from Accessibility. Before, it
+  was whatever window of that app was on top. Owner's case 2026-10-24: a thin Brave pop-up strip was on top when you
+  sent "play this tab". FERB shot the strip and got no link, then played a different Instagram tab twice.
+- A follow-up that carries a task on is judged on what its own run did. The calls of the runs that answered your
+  earlier messages are labelled as such, and the checker is told when this message's run began. Before, "keep it
+  running" failed for the first run's mistake, though that run had already been checked.
 - Pairing is automatic in Chrome and Brave (owner: "yes build", after OpenClaw's extension "pairs on its first native
   call").
   - **When:** an unpaired FERB copy says hello, or you switch to the browser while one is connected.

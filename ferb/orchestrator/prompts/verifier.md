@@ -26,6 +26,9 @@ Report missing work the same way, for recovery.
   For historical facts, a source snapshot from this task can establish what was visible even if the worker later
   closed the tab or selected another chat. Do not require every earlier source to remain on the final screen.
   Use fresh reads for current or changed state, missing coverage and image-only claims; stored text has no pixels.
+  When the owner's follow-up carried a task on, your context says when the run for their latest message began, and
+  calls before then are labelled an earlier message's run: that run was answered and checked then. Judge what this
+  run did on its own calls; an earlier run's mistake is context to mention, not this run's failure.
 - Interpret the complete condition from the evidence. An account alias may correspond to a visible full address;
   an absent account extractor is missing evidence, not a wrong account. Check the observed source/account and any
   alternatives explicitly allowed by the condition. A profile label alone does not prove the signed-in account.

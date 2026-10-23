@@ -122,6 +122,20 @@ class SpanStore:
             found |= {str(o) for o in recorded if o} if isinstance(recorded, list) else origin.split(row['origin'])
         return found
 
+    def request_began(self, root_id: str, request_id: str, worker_id: str) -> tuple[str, int] | None:
+        """When this tree's run for `request_id` began (its first root task span) and how many runs of its worker
+        (`worker_id`) came before it, but only when an earlier message's run of the same tree did (a continue or retry
+        carried the task on in place): None for a tree with one message, however many times its run resumed (a
+        restart keeps the request). Counted in record order, not by time."""
+        rows = self._db.conn.execute("SELECT rowid, started_at, input_json FROM spans WHERE kind = 'task' "
+                                     "AND task_id = ? AND parent_id IS NULL ORDER BY rowid", (root_id,)).fetchall()
+        mine = [r for r in rows if json.loads(r["input_json"]).get("request_id") == request_id]
+        if not mine or len(mine) == len(rows):
+            return None
+        earlier = self._db.conn.execute("SELECT COUNT(*) FROM spans WHERE kind = 'worker' AND task_id = ? AND rowid < ?",
+                                        (worker_id, mine[0]["rowid"])).fetchone()[0]
+        return str(mine[0]["started_at"]), int(earlier)
+
     def asked_origins(self, root_id: str) -> set[str]:
         """The outside origins of FERB's earlier questions this tree's requests answered (S4 b), as the supervisor
         recorded them on each attempt's root task span (`input.asked_origins`). A root recorded without them adds

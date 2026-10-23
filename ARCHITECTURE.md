@@ -963,7 +963,12 @@ what the worker did (owner live case 2026-10-15: three rounds, about 50 reads, a
 are the ones `task.evidence` serves (`SpanStore.tool_calls`/`tool_call`: the same filter, the stored redacted rows; no
 new capture path, and the worker's own `task.evidence`, `chat.history` and `memory.read` calls are not among them, as
 before), in recorded order, every run of the worker included: a repair round runs as the same worker task, so a
-re-check gets the earlier run's calls and the repair's, each labelled with its run when there was more than one. A
+re-check gets the earlier run's calls and the repair's, each labelled with its run when there was more than one.
+When the owner's follow-up carried the task on in place, the calls of the runs that answered earlier messages
+(`SpanStore.request_began`: counted in record order) are labelled "from an earlier message's run (answered and
+checked then)" and get no action priority, and the report says when this message's run began: the checker judges
+what this run did on its own calls (owner live case 2026-10-24: a follow-up failed for the first run's plays on
+another tab). A
 protected line gives the count ("This task recorded no tool calls." when none). Each call is one optional
 `ContextBlock`: a code-made header (tool, its recorded `kind`, observation or action as the capability declares it
 (`observes`), start time, its origin's kinds, failed or no result, the `span_id`), then the record text in
@@ -2305,7 +2310,10 @@ protected FERB state (16.9).
 - `_chat_send` starts the capture right after the ack, alongside routing. The front window is the topmost normal
   on-screen window whose owner isn't FERB: FERB's apps (`FERB_APPS`: `com.ferb.ferb`, `dev.ferb.notch`,
   `com.ferb.app`, and `com.ferb.daemon`, the agent app the packaged daemon runs as), the daemon, or a bundle-less
-  descendant of it. The app hosting the sending `ferb chat` is skipped.
+  descendant of it. The app hosting the sending `ferb chat` is skipped. Of that window's app, the capture takes the
+  app's main window, else its focused window (`accessibility.main_window_frame`), when that window is on screen: a
+  tooltip, tab preview or pop-up on top is never taken for the page (owner live case 2026-10-24: a title-less
+  784×21-point Brave strip was shot, no tab matched, and the task played another tab).
 - Facts: app, bundle id, title, and for a browser the URL and title of the active tab **of the captured window**
   (Safari, and every Chromium browser whose AppleScript has tabs: Chrome and its channels, Chromium, Brave, Edge and
   its channels, Vivaldi, Arc; not Opera) (AppleScript, only with Automation already granted; a kept grant bridges a
