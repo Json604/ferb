@@ -360,7 +360,7 @@ def test_an_output_file_planted_as_a_link_is_never_written_through(tmp_path, col
 
 def test_the_daemon_stages_recording_frames_in_ferbs_own_folder(home):
     from ferb.daemon.main import Daemon
-    d = Daemon(home)
+    d = Daemon(home, resources=False)
     assert d.recordings.staging == home / 'run' / 'recordings'
 
 

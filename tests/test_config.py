@@ -153,8 +153,8 @@ def test_the_upgrade_is_all_or_nothing_and_journaled_only_once_it_is_saved(monke
         assert (home / "config.toml").read_text() == before
 
         async def start() -> None:
-            dm = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False,
-                        snapshots=False)
+            dm = Daemon(home=home, watchers=False, distill=False, retention=False, resources=False,
+                        notifications=False, snapshots=False)
             try:
                 await dm.start()
             finally:

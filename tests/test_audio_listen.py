@@ -242,7 +242,7 @@ def test_the_daemon_tells_ferb_apps_voice_helper_its_own_home(tmp_path: Path, mo
     from tests.support.app_bundle import make_ferb_app
     app = make_ferb_app(tmp_path / "Applications")
     monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
-    d = Daemon(tmp_path / ".ferb")
+    d = Daemon(tmp_path / ".ferb", resources=False)
     t = d.hearing.transcriber
     assert t.app == app / "Contents" / "Helpers" / "FERB Voice.app" and t.home == tmp_path / ".ferb"
 
@@ -860,7 +860,7 @@ def test_the_daemon_tells_ferb_voice_the_accounts_ferb_home(tmp_path: Path, monk
     from ferb.sense.transcribe import launch_args
     monkeypatch.delenv("FERB_HOME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    d = Daemon()
+    d = Daemon(resources=False)
     t = d.hearing.transcriber
     assert t.home == tmp_path / ".ferb"
     assert launch_args(t.app, "status", "out", home=t.home)[5] == f"FERB_HOME={tmp_path / '.ferb'}"

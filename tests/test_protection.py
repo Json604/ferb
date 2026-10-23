@@ -158,8 +158,8 @@ def test_the_daemon_refuses_to_start_with_a_linked_workspace(home: Path) -> None
     (home / "workspace").symlink_to(home / "run")
 
     async def start() -> None:
-        d = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False, snapshots=False,
-                   watch_owner_input=False)
+        d = Daemon(home=home, watchers=False, distill=False, retention=False, resources=False, notifications=False,
+                   snapshots=False, watch_owner_input=False)
         await d.start()
     with pytest.raises(BadProtection, match="workspace"):
         asyncio.run(start())
@@ -170,8 +170,8 @@ def test_the_daemon_refuses_to_start_with_a_malformed_protection_list(home: Path
     Config(home).set("protection", "never_read", "~/.ssh")
 
     async def start() -> None:
-        d = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False, snapshots=False,
-                   watch_owner_input=False)
+        d = Daemon(home=home, watchers=False, distill=False, retention=False, resources=False, notifications=False,
+                   snapshots=False, watch_owner_input=False)
         await d.start()
     with pytest.raises(BadProtection, match="never_read"):
         asyncio.run(start())
