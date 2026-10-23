@@ -1389,7 +1389,8 @@ Database clean-out (plan 2026-10-23 Task 1, L28, C1; pending, checkout tests onl
     Record the line "Cleaned FERB's database: N unused rows removed; 8.1 GB → x GB", or whichever line setup printed
     instead: not compacted for lack of free disk (then `ferb doctor` should say only the compaction is left, and the
     next update should print "Compacted FERB's database: … → …" once there is room), stopped, or not run because a
-    daemon still answered. Then run `ls -la ~/.ferb/ferb.db*` again; `ferb doctor` should now show
+    daemon still answered or the stopped daemon's process hadn't exited ("FERB's daemon (process N) hasn't exited since
+    launchd stopped it"). Then run `ls -la ~/.ferb/ferb.db*` again; `ferb doctor` should now show
     `✓ database: x GB` and no pending clean-out. A second `ferb setup --update` should print no clean-out line.
     Leave the Mac idle for 10 minutes with FERB running, then record FERB's CPU in Activity Monitor (CPU tab, the
     FERB process, and its "% CPU" averaged over a minute). Ask FERB something you asked it before the update ("what
