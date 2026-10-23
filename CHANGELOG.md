@@ -482,9 +482,9 @@ issues with ferb again"; not installed or live-tested):
   stopped is still exiting: setup waits up to 10 s for that process to end, else says so and leaves the clean-out to
   the next update. Each card version is cleaned in its own transaction. A crash, power loss, Ctrl-C or FERB.app
   quitting leaves every version either clean or as it was; FERB is started again, and the next update finishes the
-  job. If a power loss cuts it off before the index is
-  made again, FERB's next start makes it (migration 0043). After a stop, setup says it is making that index again
-  before it does (a minute on a big store). The journal records `store.cards_cleaned` with the counts once the rows
+  job. If a power loss cuts it off before the index is made again, FERB's next start makes it (each start makes it
+  when it is missing). After a stop, setup says it is making that index again before it does (a minute on a big
+  store). The journal records `store.cards_cleaned` with the counts once the rows
   are removed, and `store.compacted` with the sizes once the file is compacted. With too little free disk the update
   removes the rows but doesn't compact, says why, and the next update compacts without cleaning again. `ferb doctor`
   shows the database's size and what is left: the clean-out, or only the compaction. A store that won't open is

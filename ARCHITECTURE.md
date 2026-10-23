@@ -1704,10 +1704,12 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   EXISTS` runs first in the `finally`, whatever happened and also when the index was missing before the run; when the
   run stopped or failed with the index dropped, `rebuilding` is told first, because the index is then made over every
   row left. An error from that callback (setup's print into a pipe FERB.app closed on quitting) never skips the remake:
-  the index is made, then the error reaches the caller and the clean-out stays due. Migration 0043 (the same statement)
-  makes it at the next start if a power loss cut the run off in between. With the index, each node's delete rewrote ~50k
-  random index pages (~7 s a node: 47 minutes projected on a synthetic store of the owner's shape, 23.3M rows). Without
-  it the clean-out took 91.7 s, the drop's ~40 s included, and the compaction 16.9 s (8.96 GB to 1.95 GB).
+  the index is made, then the error reaches the caller and the clean-out stays due. If a power loss cut the run off in
+  between, the next daemon start makes it: migration 0043 once, and `Daemon.start` runs the same statement
+  (`SOURCE_REF_INDEX`) after the migrations at every start, so a later interrupted run is covered too (a no-op when the
+  index is there). With the index, each node's delete rewrote ~50k random index pages (~7 s a node: 47 minutes
+  projected on a synthetic store of the owner's shape, 23.3M rows). Without it the clean-out took 91.7 s, the drop's
+  ~40 s included, and the compaction 16.9 s (8.96 GB to 1.95 GB).
   `progress(done, total)` is told after each node. Node origins (`origins_json`) stay as captured: they hold every
   source's origins the node had, so they are never more trusted than the kept sources'. Afterwards a forget of a row the
   planner was only shown no longer reaches the card; one of an action's sources still does.

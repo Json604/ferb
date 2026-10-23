@@ -37,6 +37,9 @@ CARD_MAKER = 'code:evidence-card/4'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
 # every earlier version's. A store holding its cards gets the one-time clean-out (`prune_card_sources`, run by setup).
 COPYING_CARD_MAKER = 'code:evidence-card/1'
+# The source-ref index (migration 0030): that clean-out drops it while it deletes and makes it again after; a power
+# loss in between leaves it missing whatever the schema version, so every daemon start makes it too (L28, C1)
+SOURCE_REF_INDEX = 'CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)'
 # Model-written suggestions the owner can turn down ("Not right": retire); one turned down never comes back (M3).
 SUGGESTIONS = frozenset({'procedure', 'identity_proposal', 'lesson'})
 # The JSON types a slot may declare: a closed set, so a slot type the redactor masked by its key ("token": "string")
@@ -705,8 +708,8 @@ class Learning:
         index: about 7 s a node, 47 minutes projected on a synthetic store of the owner's shape (23.3M rows), against
         91.7 s without (the drop's ~40 s included). After a stop or an error the index is made over every row left,
         which can take a while: `rebuilding` is told first, and an error it raises (a closed pipe) still lets the index
-        be made, then reaches the caller. A power loss in between leaves it to migration 0043 at the next start, and to
-        the next run.
+        be made, then reaches the caller. A power loss in between leaves it to the daemon's next start (migration 0043
+        once, then `SOURCE_REF_INDEX` at every start), and to the next run.
 
         Returns counts: `tasks` and `nodes` (card versions) seen, `cleaned` (versions that lost rows), `rows` removed,
         `untraced` (versions left alone) and `stopped`."""
@@ -760,7 +763,7 @@ class Learning:
                     if dropped and not finished:
                         rebuilding()                 # told first; its failure (a closed pipe) never skips the remake
                 finally:
-                    conn.execute('CREATE INDEX IF NOT EXISTS learning_source_ref ON learning_sources(source_ref)')
+                    conn.execute(SOURCE_REF_INDEX)
             finally:
                 conn.execute('DROP TABLE IF EXISTS temp.card_keep')
         return counts

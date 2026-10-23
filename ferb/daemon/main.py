@@ -53,6 +53,7 @@ from ferb.daemon import resources as resource_use   # not `resources`: the const
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
+from ferb.memory.learning import SOURCE_REF_INDEX
 from ferb.orchestrator import acks, episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
@@ -317,6 +318,7 @@ class Daemon:
         self._load_config()
         self.db = Database(self.home / "ferb.db")
         self.db.migrate()
+        self.db.conn.execute(SOURCE_REF_INDEX)  # one an interrupted store clean-out lost (a no-op when it is there)
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})

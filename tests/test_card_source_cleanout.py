@@ -336,6 +336,26 @@ def test_the_next_start_makes_the_ref_index_again_after_a_power_loss_mid_clean_o
     assert 43 in db.migrate() and _ref_index(db)
 
 
+def test_every_daemon_start_makes_a_missing_ref_index_again(home: Path) -> None:
+    """Migration 0043 runs once; an interrupted clean-out after it (the store still pending, a power loss after the
+    drop) would leave the index missing until the next update. Each start makes it after the migrations (a no-op when
+    it is there)."""
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    from tests.conftest import RunningDaemon
+    RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False).stop()
+    db = Database(home / "ferb.db")
+    db.conn.execute("DROP INDEX learning_source_ref")                    # a clean-out cut off past schema 43
+    assert db.schema_version() >= 43 and not _ref_index(db) and db.migrate() == []
+    db.close()
+    RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("again"), watch_owner_input=False).stop()
+    db = Database(home / "ferb.db")
+    try:
+        assert _ref_index(db)
+    finally:
+        db.close()
+
+
 def test_a_card_reads_its_trace_one_span_at_a_time(store: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Span outputs have no size limit, so a card is read as the base read it: one parsed span at a time, never the
     whole tree held at once. `card_trace` parses a span only when it is asked for the next one, and `prepare_episode`
