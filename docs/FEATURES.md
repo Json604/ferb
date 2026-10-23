@@ -631,9 +631,10 @@ This section matters most for an automated campaign. It says exactly what runs u
   run (L29). A procedure becomes "learned" after three verified successes across two different slot values on the
   current app versions (a run's receipt without slot values doesn't count as a second value). A learned procedure can
   save exploration but never skips gateway checks, step checks or the final check. Procedures with a step whose
-  recipient, account, contact, file or amount came only from outside content are quarantined until the owner
-  confirms (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor
-  outside content, is not outside (L29). The site a step runs on, and a step of a kind FERB records no target
+  recipient or contact, account, amount, or path for a write or move came only from outside content, or a send whose
+  only destination (no recipient) is a site only outside content named, are quarantined until the owner confirms
+  (`ferb memory confirm`); a target the owner typed or answered, or found in neither the owner's words nor outside
+  content, is not outside (L29). The site a step only runs on, and a step of a kind FERB records no target
   provenance for (the reversible kinds: opening or navigating a site, a tab or an app, focusing, the Trash, timers,
   recovery points, stopping a command), never hold a procedure, so browser procedures on a site FERB read need no
   confirm (owner 2026-10-23, plan 2026-10-23 Task 2); a send, typing or click recorded without provenance (before F3)

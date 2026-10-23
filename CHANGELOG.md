@@ -424,14 +424,15 @@ things so that model gets faster with steps"; not installed or live-tested):
   so it reuses what worked instead of finding the tools again. A learned procedure is the fast path (follow the steps,
   check every expected result, full reasoning on any mismatch); a candidate is evidence only; neither grants
   permission. Only the worker gets the earlier runs: the checker judges this task's own calls.
-- A procedure waits for your confirm (quarantined) when a step's recipient, account, contact, file or amount came
-  only from outside content (a page or message). Since learning was built (F8), the card reader read the gateway's
+- A procedure waits for your confirm (quarantined) when a step's destination or target came only from outside content
+  (a page or message): a recipient or contact, the site a send goes to when it names no recipient, an account, an
+  amount, or a path for a write or move. Since learning was built (F8), the card reader read the gateway's
   record of where each target came from in the wrong vocabulary, so every step with a target (a recipient, a file, a
   site) counted as outside, even one you typed, and nearly every procedure would have waited. Now a target you typed
   or answered is yours, one found only in a page or message is outside, and one found in neither (FERB's or the
   model's choice) is not; cards built before are read again once, from their stored provenance when their trace has
-  aged out. The site a step ran on, and a step of a kind that records no target provenance, never hold a procedure
-  (plan 2026-10-23 Task 2, "Browser procedures without a hold" below).
+  aged out. The site a step only ran on, and a step of a kind that records no target provenance, never hold a
+  procedure (plan 2026-10-23 Task 2, "Browser procedures without a hold" below).
 - Learning records stay valid when secrets are masked in them, so a run whose text holds a card-like number or a
   labelled secret is still saved; one that can't be saved without a secret showing is refused, never stored.
 - `ferb memory consolidate` lists each label and each kind of task's call; `ferb trace label-<card id>` and `ferb trace
@@ -526,22 +527,36 @@ break"; not installed or live-tested):
   as outside content. And typing or clicking on a page records the page's site, which the page FERB read names
   itself, so it counted as found only in outside content. Now a step of a kind the gateway records no provenance for
   (a reversible kind with no declared purpose: the gateway's own rule, `policy/rules.py` REVERSIBLE) is FERB's own
-  choice, and the site a step ran on never counts: under L2 FERB reaches any site without asking. Only the card
-  reader changed (`learning.outside_action` and `outside_targets`); the gateway records what it recorded before.
-- Still held until you confirm: a step whose recipient, account, contact, file or amount came only from a page or
-  message, such as a WhatsApp message to a number only an email gave, or a send from an account only an email named.
-  A send, typing, click or other step of a kind the gateway records provenance for, recorded without it (before F3,
+  choice, and the site a step ran on counts only when it is where the step sends (below): under L2 FERB reaches any
+  site without asking. Only the card reader changed (`learning.outside_action` and `outside_targets`, with
+  `confirm.site_is_destination`, the confirmations' own rule for when a site is a destination, now shared: they ask
+  what they asked before); the gateway records what it recorded before.
+- Still held until you confirm (SQ7: a step whose destination or target came from outside content):
+  - a send to a recipient or contact found only in a page or message, such as a WhatsApp message to a number only an
+    email gave;
+  - a send whose only destination is a site only outside content named: a post, or a click or form input declared to
+    send that names no recipient, on a site only a page named. FERB's confirmations treat that site as the
+    destination too, and the card now keeps the step's declared purpose so it can tell;
+  - an account, an amount, or a path for a write or move found only in outside content, such as a send from an
+    account only an email named.
+  Moving something to the Trash records no provenance and never holds a procedure (it can be undone, S1). A send,
+  typing, click or other step of a kind the gateway records provenance for, recorded without it (before F3,
   2026-10-08, or a damaged record), still holds its procedure, so an old send never loses its hold. A target you typed
   or answered is yours, and one found in neither is not outside, as before. Your confirm carries over to a revision
   only when every such step was in the version you confirmed by hand, as before.
 - The next learning pass reads every card again once (composer `code:evidence-card/4`); each keeps its kind-of-task
   label without a model call. Each kind of task with a procedure (or three verified runs) then gets one learning call
   to revise its procedure from the cards read again; the revision of a procedure held only by its site or its
-  navigation is a candidate, or learned once its runs qualify.
+  navigation is a candidate, or learned once its runs qualify. A card whose trace has aged out keeps the source rows
+  it had, and its rebuild copies them once onto the new version; on the owner's store every card still has its trace
+  and setup cleans the database before FERB starts, so none of the old bloated rows are copied.
 - Your earlier choice of recording provenance for the reversible kinds (more friction against memory poisoning) is
   moot: those steps no longer hold a procedure.
-- Accepted with it: a procedure can learn steps on a site that only a page named (a page that sent FERB elsewhere); a
-  send, account, contact, file or amount on that site still holds it.
+- Accepted with it: a procedure can learn navigating, typing and clicking steps on a site only a page named (a page
+  that sent FERB elsewhere); a send there that names no recipient still holds it, as does any recipient, contact,
+  account, amount or path only outside content gave. A click declared to pay or to delete is not a send: on such a
+  site it holds a procedure only through an amount, account or path from outside content, while FERB still asks
+  before every payment and once per page before a delete.
 
 Licensed under Apache-2.0.
 

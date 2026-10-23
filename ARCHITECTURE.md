@@ -1632,15 +1632,16 @@ a delivered event does not prove completion; silence in an old trace does not pr
 facts. `learning_sources` is the source graph, walked transitively at forget time (`descendants`); automatic retention
 keeps evidence cards, while explicit owner forgetting erases dependent records, FTS entries (FTS5 secure-delete,
 migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain permanent.
-- **Card lineage (fix wave 3, C1).** An episode card cites its task's direct sources only: `episode:<task>`, the
-  planner exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence
-  (`call_sources`, handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context
-  source (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh
-  keeps the old card's lineage only once its trace has aged out. `CARD_MAKER` is `code:evidence-card/4`. The rule
-  for one span is `_span_refs`; `card_trace` yields the task's `CardSpan`s (tool calls, exposures, context sources)
-  one at a time, each parsed only when asked for, since span outputs have no size limit. `prepare_episode` takes the
-  actions and `_span_refs` from each span in one pass. `Learning.card_source_refs(task_id)` reads the trace on its own
-  the same way: `episode:<task>` plus every span's refs, or None when the task has no spans left.
+- **Card lineage (fix wave 3, C1).** An episode card cites its task's direct sources only: `episode:<task>`, the planner
+  exposure of the owner's message (`lineage.REQUEST_REFERENCE`), its own tool results and evidence (`call_sources`,
+  handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context source
+  (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh keeps the
+  old card's lineage only once its trace has aged out, so a composer change (the 4 of plan 2026-10-23 Task 2) copies an
+  untraced card's source rows once onto its new version. `CARD_MAKER` is `code:evidence-card/4`. The rule for one span
+  is `_span_refs`; `card_trace` yields the task's `CardSpan`s (tool calls, exposures, context sources) one at a time,
+  each parsed only when asked for, since span outputs have no size limit. `prepare_episode` takes the actions and
+  `_span_refs` from each span in one pass. `Learning.card_source_refs(task_id)` reads the trace on its own the same way:
+  `episode:<task>` plus every span's refs, or None when the task has no spans left.
 - **The card clean-out (plan 2026-10-23 Task 1; L28, C1).** The composer before C1 (`COPYING_CARD_MAKER`,
   `code:evidence-card/1`) copied into a card every exposure's refs, resolved transitively, and every earlier version's.
   That was 22.6M rows on 438 versions of 85 tasks in the owner's store. `prune_card_sources` (run once by setup with the
@@ -1667,16 +1668,22 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   `owner_words` or `owner_answer` (the set `policy/confirm.py` reads) is the owner's; `unknown` (in neither the owner's
   words nor outside content: FERB's or the model's choice, or an outside value code can't match, such as digits typed
   from a number written in words) is not outside, as confirmations read it; any other label (an outside origin, or one
-  it doesn't know) on a key without an owner label is outside. The `site` key is never read (`_SITE`): under L2 FERB
-  reaches any site without a question, and the page FERB read names its own address, so every typing or clicking step on
-  a site FERB had read counted as outside. Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`, and
-  any key a later gateway writes) is read as above. The gateway records `arg_sources` only for a consequential call
-  (`gateway.py`: `consequential = spec.kind not in REVERSIBLE or bool(declared)`), and `outside_action` mirrors that
-  rule with REVERSIBLE itself (imported from `policy/rules.py`, never a second list): an action without `arg_sources`
-  (absent or None) whose kind is in REVERSIBLE and that recorded no `declared` purpose is FERB's own choice, not
-  outside. That covers opening or navigating a site; opening, switching to, keeping or closing a tab; opening an app;
-  focusing a window; moving to the Trash; a timer or reminder; a recovery point; stopping a command FERB started (the
-  tools browser.open, navigate, use_tab, close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash,
+  it doesn't know) on a key without an owner label is outside. The `site` key (`_SITE`) is read only when the site is
+  where the call sends: `confirm.site_is_destination`, the helper `confirm.decide` uses for the floor's unseen recipient
+  and the sink rule (a), true for a send-class call (its kind, or a kind its `declared` purpose adds, in `SEND_CLASS`)
+  with no `recipient:N` or `contact` key (fix round 1, SQ7: a post, or a click or form input declared to send, to a site
+  only outside content named still holds its procedure). Otherwise the site is only where the call happens: under L2
+  FERB reaches any site without a question, and the page FERB read names its own address, so every typing or clicking
+  step on a site FERB had read counted as outside. A card action keeps the span's `declared` (composer 4; absent on
+  older cards, read as undeclared); a `declared` in another shape is read as a send, and a `kind` that is not a string
+  is no kind (fail closed). Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`, and any key a later
+  gateway writes) is read as above. The gateway records `arg_sources` only for a consequential call (`gateway.py`:
+  `consequential = spec.kind not in REVERSIBLE or bool(declared)`), and `outside_action` mirrors that rule with
+  REVERSIBLE itself (imported from `policy/rules.py`, never a second list): an action without `arg_sources` (absent or
+  None) whose kind is in REVERSIBLE and that recorded no `declared` purpose is FERB's own choice, not outside. That
+  covers opening or navigating a site; opening, switching to, keeping or closing a tab; opening an app; focusing a
+  window; moving to the Trash; a timer or reminder; a recovery point; stopping a command FERB started (the tools
+  browser.open, navigate, use_tab, close and keep_open (and ferb_browser's), mac.open, mac.act focus, fs.trash,
   time.remind_at and set_timer, recovery.snapshot and shell.kill; no tool uses `draft`). Any other action without them
   (a send, typing, a click, mac input or any kind outside REVERSIBLE, or no kind at all: recorded before F3, or damaged)
   is outside, so an old send keeps its hold; `arg_sources` in another shape (not a key -> labels map: a damaged record)
@@ -1690,7 +1697,8 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   started quarantined; composer 4 reads every card again once, and labels carry forward without a model call
   (`intents.carry_forward`). The owner's earlier option of recording provenance for the reversible kinds is moot. A card
   whose trace has aged out has each kept action's flag recomputed from its stored `arg_sources`. Only the card reader
-  changed: the gateway records the same.
+  changed: `confirm.decide` only gained the shared helper (it asks what it asked before), and the gateway records the
+  same.
 - **Procedure identity across revisions (L29 final review I1, I2).** Since L29 an intent's procedure is revised after
   each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
   receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten
@@ -1713,9 +1721,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   existing node (the current version or an older one) changes nothing and is listed under `unchanged`, not accepted. A
   revision after two failures starts `suspect` (sticky, as before), and stays suspect until a verified run and then a
   revision with a new body. Since plan 2026-10-23 Task 2 a revision that adds steps whose only outside target is the
-  site (navigating, clicking, typing a dish) adds no outside step, so the confirm carries; one that adds a step whose
-  recipient, account, contact, path or amount only outside content gave still drops a carried confirm (the rule itself
-  is unchanged).
+  site and that don't send to it (navigating, clicking, typing a dish) adds no outside step, so the confirm carries;
+  one that adds a step whose recipient, contact, account, amount or path only outside content gave, or a send to a
+  site only outside content named, still drops a carried confirm (the rule itself is unchanged).
 - **Missing sources (C1).** `_card_labels` tells them apart: a ref an explicit forget deleted has a tombstone
   (`forgotten_refs`, migration 0036: ids only, filled by `Learning.forget`; `learning_forgotten` for node ids and
   keys): the card is built on forgotten content, is never written, and its key is tombstoned (`card_key`), so no later
