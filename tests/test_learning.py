@@ -650,7 +650,7 @@ def test_an_actions_target_provenance_is_read_in_the_gateways_vocabulary(tmp_pat
                     'quarantined'),
         'chosen': (provenance.arg_sources(Target(recipients=('sales@shop.example',)), 'email the shop', []),
                    'candidate'),
-        'unrecorded': (None, 'candidate'),      # no provenance at all: FERB's own choice (owner, 2026-10-23)
+        'unrecorded': (None, 'quarantined'),    # a send without provenance: before F3, or damaged (plan 2026-10-23)
     }
     assert [cases[k][0] for k in ('typed', 'answered', 'outside', 'chosen')] == [   # the gateway's labels
         {'recipient:0': ['owner_words', 'external:web:shop.example']},
@@ -686,15 +686,29 @@ def test_an_actions_target_provenance_is_read_in_the_gateways_vocabulary(tmp_pat
 
 def test_which_recorded_provenance_counts_as_outside():
     """Plan 2026-10-23 Task 2 (owner: "cant we just leave browser thigns as it is"; L29, MP2, L2): the card reader no
-    longer reads an action without provenance, or the site it ran on, as outside. A reversible kind records no
-    `arg_sources` (the gateway writes them for consequential calls only), and under L2 any site is reached without a
-    question, while the page FERB read names its own address. Every other key is read as before, and provenance a
-    damaged record holds in another shape still counts as outside (fail closed)."""
+    longer reads the site an action ran on as outside (under L2 any site is reached without a question, while the page
+    FERB read names its own address), nor an action without provenance whose call the gateway records none for: a
+    reversible kind without a declared purpose (`gateway.py`: consequential = kind not in REVERSIBLE or declared). Any
+    other action without provenance (a record from before F3, or a damaged one) stays outside, so an old send keeps its
+    hold; so does provenance in another shape. Every key but the site is read as before."""
     from ferb.memory.learning import outside_action, outside_targets
     page = 'external:web:shop.example'
-    assert outside_targets(None) is False                               # none recorded: a reversible kind
-    assert outside_action({'tool': 'browser.navigate', 'kind': 'navigate'}) is False      # no field at all
-    assert outside_action({'tool': 'browser.navigate', 'kind': 'navigate', 'arg_sources': None}) is False
+    for kind in ('navigate', 'open_tab', 'trash', 'timer', 'snapshot'):     # the gateway records none for these
+        assert outside_action({'kind': kind}) is False, kind                            # no field at all
+        assert outside_action({'kind': kind, 'arg_sources': None}) is False, kind
+        assert outside_action({'kind': kind, 'arg_sources': 'damaged'}) is True, kind  # present, another shape
+        assert outside_action({'kind': kind, 'declared': 'send'}) is True, kind        # recorded when declared
+        assert outside_action({'kind': kind, 'declared': 'send',
+                               'arg_sources': {'recipient:0': ['owner_words']}}) is False, kind
+        assert outside_action({'kind': kind, 'declared': 'send',
+                               'arg_sources': {'recipient:0': ['external:mail']}}) is True, kind
+    for kind in ('send', 'fill_form', 'click', 'mac_input', 'pay', None):  # recorded since F3: none isn't FERB's choice
+        assert outside_action({'kind': kind}) is True, kind
+        assert outside_action({'kind': kind, 'arg_sources': None}) is True, kind
+        assert outside_action({'kind': kind, 'arg_sources': ['external:mail']}) is True, kind
+        assert outside_action({'kind': kind, 'arg_sources': {'site': [page]}}) is False, kind
+    assert outside_action({}) is True                                   # no kind recorded either
+    assert outside_targets(None) is True                                # no provenance never clears a target
     assert outside_targets({}) is False
     assert outside_targets('site: external:web:shop.example') is True   # a damaged record: not a key -> labels map
     assert outside_targets(['external:mail']) is True
@@ -706,6 +720,7 @@ def test_which_recorded_provenance_counts_as_outside():
         assert outside_targets({'site': [page], key: ['owner_answer']}) is False, key
         assert outside_targets({'site': [page], key: ['unknown']}) is False, key
     assert outside_action({'kind': 'read', 'arg_sources': {'recipient:0': [page]}}) is False   # a read: never
+    assert outside_action({'kind': 'mailbox_read'}) is False
 
 
 def test_a_card_read_before_the_provenance_fix_is_read_again_once(tmp_path):
@@ -1275,8 +1290,9 @@ def test_a_rolled_back_versions_receipts_no_longer_count(tmp_path):
 def test_a_card_read_again_after_its_trace_aged_out_reads_its_stored_provenance_again(tmp_path):
     """Task 6 re-review 2, N2: a card the earlier composer built whose trace retention has since deleted kept its
     actions as stored, with the old reading's outside flag, though it stores the provenance to read it right. Each
-    kept action's flag is read again from its stored `arg_sources`. One without counts as FERB's own choice (plan
-    2026-10-23 Task 2; it stayed outside before), and one stored in another shape (damaged) stays outside."""
+    kept action's flag is read again from its stored `arg_sources`. One without stays outside unless its kind is one
+    the gateway records none for (plan 2026-10-23 Task 2: a reversible kind is FERB's own choice), and one stored in
+    another shape (damaged) stays outside."""
     from tests.support.cards import card_store, finished_task
     db, _, spans, store = card_store(tmp_path)
     try:
@@ -1290,11 +1306,13 @@ def test_a_card_read_again_after_its_trace_aged_out_reads_its_stored_provenance_
             {'id': 'c3', 'tool': 'fs.read', 'args': {'path': '/tmp/a'}, 'kind': 'read', 'outside_action': False,
              'arg_sources': None},
             {'id': 'c4', 'tool': 'mail.send', 'args': {'to': 'c@x.example'}, 'kind': 'send',
-             'outside_action': False, 'arg_sources': 'recipient:0 owner_words'}]},
+             'outside_action': False, 'arg_sources': 'recipient:0 owner_words'},
+            {'id': 'c5', 'tool': 'browser.navigate', 'args': {'tab': 't1', 'url': 'https://x.example'},
+             'kind': 'navigate', 'outside_action': True, 'arg_sources': None}]},
             [], origin_label='ferb', made_by='code:evidence-card/2', state='active')
         again = store.capture_episode('t')
         assert again['id'] != old['id']
         assert [(a['id'], a['outside_action']) for a in again['body']['actions']] == [
-            ('c1', False), ('c2', False), ('c3', False), ('c4', True)]
+            ('c1', False), ('c2', True), ('c3', False), ('c4', True), ('c5', False)]
     finally:
         db.close()

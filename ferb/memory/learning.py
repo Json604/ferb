@@ -17,6 +17,7 @@ from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
 from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources, direct
 from ferb.orchestrator import episodes
+from ferb.policy.rules import REVERSIBLE
 from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED
 
 
@@ -28,9 +29,9 @@ class LearningRefused(FerbError):
 # (the card's node id).
 ID_KEYED = frozenset({'episode', 'episode_annotation', 'episode_intent'})
 # The episode card's composer. 2: a card cites its task's direct sources only (memory review C1). 3: an action's
-# target provenance is read in the gateway's vocabulary (`outside_targets`, L29 Task 6 review I1). 4: neither an action
-# without provenance nor the site it ran on is outside (plan 2026-10-23 Task 2). A card an older composer built is
-# rebuilt once by the consolidator.
+# target provenance is read in the gateway's vocabulary (`outside_targets`, L29 Task 6 review I1). 4: neither the site
+# an action ran on nor a call the gateway records no provenance for is outside (plan 2026-10-23 Task 2). A card an
+# older composer built is rebuilt once by the consolidator.
 CARD_MAKER = 'code:evidence-card/4'
 # The composer before C1 (fixed in e0e344b): it copied into a card the refs of every block its planner was shown, and
 # every earlier version's. A store holding its cards gets the one-time clean-out (`prune_card_sources`, run by setup).
@@ -317,12 +318,10 @@ def outside_targets(arg_sources: Any) -> bool:
     """Whether an action's targets came from outside content (MP2, F8 quarantine), from the gateway's `arg_sources`
     (key -> labels): a key the owner typed or answered is the owner's; "unknown" is not outside (as confirmations read
     it, `policy/confirm.py`); any other label (an outside origin, or one it doesn't know) on a key without an owner
-    label is outside, except on the site key. No provenance at all (None: a reversible kind records none) is FERB's
-    own choice, not outside; provenance in another shape (a damaged record) is outside. Provenance only, never intent
-    (R2; L29 Task 6 review I1: this read origin labels, so every target looked outside; plan 2026-10-23 Task 2: the
-    site, and no provenance, held nearly every browser procedure)."""
-    if arg_sources is None:
-        return False
+    label is outside, except on the site key. No provenance (None) or provenance in another shape (a damaged record)
+    never clears a target: outside (`outside_action` reads a call the gateway records none for). Provenance only, never
+    intent (R2; L29 Task 6 review I1: this read origin labels, so every target looked outside; plan 2026-10-23 Task 2:
+    the site held nearly every browser procedure)."""
     if not isinstance(arg_sources, dict):
         return True
     return any(not (_OWNER_SOURCES & set(labels)) and any(label != _NEITHER for label in labels)
@@ -331,8 +330,13 @@ def outside_targets(arg_sources: Any) -> bool:
 
 def outside_action(action: dict[str, Any]) -> bool:
     """Whether a card's action was built on outside content (F8): any kind but a read, whose targets
-    `outside_targets` reads as outside (an action without `arg_sources` has none)."""
-    return action.get('kind') not in _READS and outside_targets(action.get('arg_sources'))
+    `outside_targets` reads as outside. A call without `arg_sources` that the gateway records none for (`gateway.py`:
+    a kind in REVERSIBLE without a declared purpose) is FERB's own choice, not outside (plan 2026-10-23 Task 2); any
+    other call without them (recorded before F3, or damaged) is outside, so an old send keeps its hold."""
+    kind, sources = action.get('kind'), action.get('arg_sources')
+    if kind in _READS or (sources is None and kind in REVERSIBLE and not action.get('declared')):
+        return False
+    return outside_targets(sources)
 
 
 def memory_origin(label: str) -> str:
