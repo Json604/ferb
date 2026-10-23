@@ -643,19 +643,19 @@ as data: its steps with this request's values filled in (a blank without a value
 your request), the lessons learned from that kind of task, and the tool calls of its latest verified runs, newest first,
 as many as fit the model's window (L29). Procedures still require step checks and final verification.
 Outside-derived action/destination steps are quarantined until confirmed (`ferb memory confirm <id>`): a recipient or
-contact, an account, an amount, or a path for a write or move found only in outside content (a page or message), and the
-site a send goes to when it names no recipient (a post, a form declared to send) if only outside content named it; a
-target you typed or answered, or one found in neither (FERB's or the model's choice, or an outside value code can't
-match), is not outside. The site a step only runs on never counts, and neither does a step of a kind FERB records no
-target provenance for (the reversible kinds: opening or navigating a site, a tab or an app, focusing, the Trash, timers,
-recovery points, stopping a command), so a procedure of navigating, typing and clicking on a site FERB read needs no
-confirm (plan 2026-10-23 Task 2); a send, typing or click recorded without provenance (before F3) still holds it.
-Reading an outside page alone does not quarantine a procedure. A revision of a procedure is the same procedure: its runs
-keep counting (receipts belong to its key), and the confirm you gave by hand carries over unless the revision adds a
-step built on outside content that the version you confirmed didn't have (then `ferb memory consolidate` names it; if
-the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). An app update sends a learned
-procedure back to candidate until it succeeds on the new version; two consecutive failures mark it suspect. A suggestion
-you turned down ("Not right") is not proposed again.
+contact, an account, an amount, or a path (a file written or moved, a command's working folder) found only in outside
+content (a page or message), and the site a send goes to when it names no recipient (a post, a form declared to send) if
+only outside content named it; a target you typed or answered, or one found in neither (FERB's or the model's choice, or
+an outside value code can't match), is not outside. The site a step only runs on never counts, and neither does a step
+of a kind FERB records no target provenance for (the reversible kinds: opening or navigating a site, a tab or an app,
+focusing, the Trash, timers, recovery points, stopping a command), so a procedure of navigating, typing and clicking on
+a site FERB read needs no confirm (plan 2026-10-23 Task 2); a send, typing or click recorded without provenance (before
+F3) still holds it. Reading an outside page alone does not quarantine a procedure. A revision of a procedure is the same
+procedure: its runs keep counting (receipts belong to its key), and the confirm you gave by hand carries over unless the
+revision adds a step built on outside content that the version you confirmed didn't have (then `ferb memory consolidate`
+names it; if the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). An app update sends a
+learned procedure back to candidate until it succeeds on the new version; two consecutive failures mark it suspect. A
+suggestion you turned down ("Not right") is not proposed again.
 Old episodes without captured app versions cannot establish the current-version requirement.
 
 Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra

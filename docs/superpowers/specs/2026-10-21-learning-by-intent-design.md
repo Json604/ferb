@@ -117,8 +117,8 @@ Task 2). It amends §4's "a step built on outside content quarantines the proced
   a declared purpose: opening a site, app or tab, focusing, the Trash, timers, recovery points, stopping a command) is
   FERB's own choice, not outside. Any other action without provenance (a send, typing or click recorded before F3, or
   a damaged record) stays outside.
-- Unchanged: a recipient, contact, account, amount or path (a write or move) found only in outside content makes the
-  step outside and holds the procedure until the owner confirms; the owner's words and answers are the owner's, and
-  "unknown" is not outside; the confirm carry-over across revisions is the same rule.
+- Unchanged: a recipient, contact, account, amount or path (a file written or moved, a command's working folder) found
+  only in outside content makes the step outside and holds the procedure until the owner confirms; the owner's words and
+  answers are the owner's, and "unknown" is not outside; the confirm carry-over across revisions is the same rule.
 - The card composer becomes `code:evidence-card/4`, so every card is read again once; labels carry forward without a
   model call. The earlier option of recording provenance for the reversible kinds is moot.

@@ -1637,11 +1637,13 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   handles taken as the entry or task itself: `lineage.direct`) and the selected procedure's context source
   (`lineage.PROCEDURE_LABEL`); never the chat entries, tasks or activity its planner was only shown. A refresh keeps the
   old card's lineage only once its trace has aged out, so a composer change (the 4 of plan 2026-10-23 Task 2) copies an
-  untraced card's source rows once onto its new version. `CARD_MAKER` is `code:evidence-card/4`. The rule for one span
-  is `_span_refs`; `card_trace` yields the task's `CardSpan`s (tool calls, exposures, context sources) one at a time,
-  each parsed only when asked for, since span outputs have no size limit. `prepare_episode` takes the actions and
-  `_span_refs` from each span in one pass. `Learning.card_source_refs(task_id)` reads the trace on its own the same way:
-  `episode:<task>` plus every span's refs, or None when the task has no spans left.
+  untraced card's source rows once onto its new version (on the owner's store none, as long as the update and its
+  clean-out run before the oldest card's trace ages out, 2026-11-07 at 30 days' retention). `CARD_MAKER` is
+  `code:evidence-card/4`. The rule for one span is `_span_refs`; `card_trace` yields the task's `CardSpan`s (tool calls,
+  exposures, context sources) one at a time, each parsed only when asked for, since span outputs have no size limit.
+  `prepare_episode` takes the actions and `_span_refs` from each span in one pass. `Learning.card_source_refs(task_id)`
+  reads the trace on its own the same way: `episode:<task>` plus every span's refs, or None when the task has no spans
+  left.
 - **The card clean-out (plan 2026-10-23 Task 1; L28, C1).** The composer before C1 (`COPYING_CARD_MAKER`,
   `code:evidence-card/1`) copied into a card every exposure's refs, resolved transitively, and every earlier version's.
   That was 22.6M rows on 438 versions of 85 tasks in the owner's store. `prune_card_sources` (run once by setup with the
@@ -1675,9 +1677,11 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   only outside content named still holds its procedure). Otherwise the site is only where the call happens: under L2
   FERB reaches any site without a question, and the page FERB read names its own address, so every typing or clicking
   step on a site FERB had read counted as outside. A card action keeps the span's `declared` (composer 4; absent on
-  older cards, read as undeclared); a `declared` in another shape is read as a send, and a `kind` that is not a string
-  is no kind (fail closed). Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`, and any key a later
-  gateway writes) is read as above. The gateway records `arg_sources` only for a consequential call (`gateway.py`:
+  older cards, read as undeclared), read with `rules.declared_of`, the gateway's own reader. A damaged record never
+  clears (fail closed): a `kind` that is not a string (or none, before F0) is read as a send, never as a read or a
+  reversible kind, and so is a `declared` in a shape the gateway never writes (one kind as a string, several as a list
+  of strings). Every other key (`account`, `path`, `contact`, `recipient:N`, `amount`, and any key a later gateway
+  writes) is read as above. The gateway records `arg_sources` only for a consequential call (`gateway.py`:
   `consequential = spec.kind not in REVERSIBLE or bool(declared)`), and `outside_action` mirrors that rule with
   REVERSIBLE itself (imported from `policy/rules.py`, never a second list): an action without `arg_sources` (absent or
   None) whose kind is in REVERSIBLE and that recorded no `declared` purpose is FERB's own choice, not outside. That

@@ -426,12 +426,12 @@ things so that model gets faster with steps"; not installed or live-tested):
   permission. Only the worker gets the earlier runs: the checker judges this task's own calls.
 - A procedure waits for your confirm (quarantined) when a step's destination or target came only from outside content
   (a page or message): a recipient or contact, the site a send goes to when it names no recipient, an account, an
-  amount, or a path for a write or move. Since learning was built (F8), the card reader read the gateway's
-  record of where each target came from in the wrong vocabulary, so every step with a target (a recipient, a file, a
-  site) counted as outside, even one you typed, and nearly every procedure would have waited. Now a target you typed
-  or answered is yours, one found only in a page or message is outside, and one found in neither (FERB's or the
-  model's choice) is not; cards built before are read again once, from their stored provenance when their trace has
-  aged out. The site a step only ran on, and a step of a kind that records no target provenance, never hold a
+  amount, or a path (a file written or moved, a command's working folder). Since learning was built (F8), the card
+  reader read the gateway's record of where each target came from in the wrong vocabulary, so every step with a target
+  (a recipient, a file, a site) counted as outside, even one you typed, and nearly every procedure would have waited.
+  Now a target you typed or answered is yours, one found only in a page or message is outside, and one found in neither
+  (FERB's or the model's choice) is not; cards built before are read again once, from their stored provenance when their
+  trace has aged out. The site a step only ran on, and a step of a kind that records no target provenance, never hold a
   procedure (plan 2026-10-23 Task 2, "Browser procedures without a hold" below).
 - Learning records stay valid when secrets are masked in them, so a run whose text holds a card-like number or a
   labelled secret is still saved; one that can't be saved without a secret showing is refused, never stored.
@@ -537,8 +537,8 @@ break"; not installed or live-tested):
   - a send whose only destination is a site only outside content named: a post, or a click or form input declared to
     send that names no recipient, on a site only a page named. FERB's confirmations treat that site as the
     destination too, and the card now keeps the step's declared purpose so it can tell;
-  - an account, an amount, or a path for a write or move found only in outside content, such as a send from an
-    account only an email named.
+  - an account, an amount, or a path (a file written or moved, a command's working folder) found only in outside
+    content, such as a send from an account only an email named.
   Moving something to the Trash records no provenance and never holds a procedure (it can be undone, S1). A send,
   typing, click or other step of a kind the gateway records provenance for, recorded without it (before F3,
   2026-10-08, or a damaged record), still holds its procedure, so an old send never loses its hold. A target you typed
@@ -548,8 +548,11 @@ break"; not installed or live-tested):
   label without a model call. Each kind of task with a procedure (or three verified runs) then gets one learning call
   to revise its procedure from the cards read again; the revision of a procedure held only by its site or its
   navigation is a candidate, or learned once its runs qualify. A card whose trace has aged out keeps the source rows
-  it had, and its rebuild copies them once onto the new version; on the owner's store every card still has its trace
-  and setup cleans the database before FERB starts, so none of the old bloated rows are copied.
+  it had, and its rebuild copies them once onto the new version. On the owner's store every card still had its trace
+  on 2026-10-23 and setup cleans the database before FERB starts, so none of the old bloated rows are copied, provided
+  the update runs before the oldest card's trace ages out (2026-11-07, at 30 days' trace retention). FERB is stopped
+  now, but its launch agent starts it again at the next login, and from then on its retention deletes traces older than
+  30 days.
 - Your earlier choice of recording provenance for the reversible kinds (more friction against memory poisoning) is
   moot: those steps no longer hold a procedure.
 - Accepted with it: a procedure can learn navigating, typing and clicking steps on a site only a page named (a page
