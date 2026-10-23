@@ -67,7 +67,10 @@ def field_value(content: Any, path: str) -> Any:
 
 
 def same(a: Any, b: Any) -> bool:
-    """Exact JSON equality: `true` is not `1`, `"false"` is not `false`."""
+    """Exact JSON equality: `true` is not `1`, `"false"` is not `false`, `1` is not `1.0`.
+    The MISSING sentinel compares by identity only."""
+    if a is MISSING or b is MISSING:
+        return a is b
     return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 

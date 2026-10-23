@@ -100,3 +100,8 @@ def test_only_reading_tools_that_move_nothing_are_probe_safe():
     for cls in [browser.BrowserScroll, browser.BrowserScreenshot, browser.BrowserPoint, browser.BrowserWait,
                 browser.BrowserOpen, shell.ShellWait, mac.MacScreenshot]:
         assert not getattr(cls, 'probe_safe', False), cls.__name__
+
+
+def test_a_missing_baseline_never_crashes_a_comparison():
+    assert tripped(_probe(op='changed'), 5, MISSING)             # a value appeared where none was
+    assert not same(MISSING, None) and same(MISSING, MISSING)
