@@ -161,9 +161,8 @@ class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
-                 notifications: bool = True, retention: bool = True, snapshots: bool = True,
-                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True,
-                 resources: bool = True) -> None:
+                 notifications: bool = True, retention: bool = True, resources: bool = True, snapshots: bool = True,
+                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
