@@ -396,8 +396,10 @@ def test_a_username_given_for_the_site_shows_on_the_record_that_serves_it(tmp_pa
     store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:1')
     store.remember('password', ATLAS, 'v', sites=['usvisascheduling.com'])
     assert store.username(ATLAS) == 'Asha Rao' and store.listing(ATLAS) == {
-        'place': ATLAS, 'username': 'Asha Rao', 'entries': ['password'], 'unusable': [],
-        'linked': [{'place': 'https://usvisascheduling.com', 'username': 'Asha Rao', 'entries': []}]}
+        'place': ATLAS, 'username': 'Asha Rao', 'username_site': 'usvisascheduling.com', 'entries': ['password'],
+        'unusable': [], 'linked': [{'place': 'https://usvisascheduling.com', 'username': 'Asha Rao', 'entries': []}]}
+    assert store.account(ATLAS) == ('Asha Rao', 'https://usvisascheduling.com')        # review I-2: whose account
+    assert store.account('https://usvisascheduling.com') == ('Asha Rao', None)
     assert store.username('https://usvisascheduling.com') == 'Asha Rao'
     assert store.records()[ATLAS]['username'] is None                       # read through the link, never copied
     store.set_username('https://ais.usvisascheduling.com', 'A. Rao', 'memory:2')

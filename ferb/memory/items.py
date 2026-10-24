@@ -182,6 +182,11 @@ def owner_span(text: str, part: str) -> str | None:
     return text[found[0]:found[1]] if found else None
 
 
+def owner_span_at(text: str, part: str) -> tuple[int, int] | None:
+    """Where `owner_span` finds `part` in `text`: (start, end), or None."""
+    return _found(text, part)
+
+
 def prompt_ready(item: MemoryItem) -> bool:
     """Whether an item may shape FERB's prompts: a current active item, or an observed pattern still gathering days
     (shown as an unconfirmed hint). An inferred item (model wording: a paraphrase of the owner, a distilled guess) waits

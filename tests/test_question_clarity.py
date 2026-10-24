@@ -453,8 +453,8 @@ def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_nam
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == ("For atlasauth.b2clogin.com only (account: Asha Rao): “food” · saved in your Mac's "
-                              "Keychain")
+        assert ap.summary == ("For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): “food” · "
+                              "saved in your Mac's Keychain")             # review I-2: a linked account names its site
     finally:
         _cancel(daemon, ap, waiting)
 

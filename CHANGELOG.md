@@ -887,12 +887,15 @@ After the owner's update (2026-10-24):
   only when something is next saved); the visa password saved for Chrome as a whole is listed as "ask again". An
   unreadable saved-names file is never overwritten: a one-time hidden input still works, and saving says why it can't.
 - A username you give is kept for its site (L36, P27). Live 2026-10-24: "the username is …" during the visa task was
-  saved nowhere, and a later task typed your email. Now the username, in your own spelling, is saved for the site you
-  named or the task's site (exactly, with or without "www.", never another address under it; never from FERB's
-  rewording; an app's username stays ordinary memory), shown in the hidden-input question, listed on the login page
-  and given to the steps that log in; FERB's line says "Saved as your login name for <site>." A sign-in page at
-  another address (atlasauth.b2clogin.com for the visa site) names it from the first sign-in of a task you typed the
-  site for. Forgetting or retracting the memory removes it from the login record.
+  saved nowhere, and a later task typed your email. Now the username, in your own spelling, is saved for a site you
+  typed, in that message or for the task (exactly, with or without "www.", never another address under it; never a
+  site only a page, a pasted email or FERB named; never from FERB's rewording; an app's username stays ordinary
+  memory), shown in the hidden-input question, listed on the login page and given to the steps that log in; FERB's
+  line says "Saved as your login name for <site>." A sign-in page at another address (atlasauth.b2clogin.com for the
+  visa site) names it from the first sign-in of a task you typed that one site for, saying whose account it is ("For
+  atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): …"); so does any other page that shows it
+  through a link. Forgetting or retracting the memory removes it from the login record; if that fails, FERB records
+  why.
 - A loop keeps holding your tab between rounds (L31; live 2026-10-25, "keep this tab running", task cc5debe4: watching
   began 96 s after your message, and each round paused your reel itself). Every round ended with `browser.keep_open`,
   which let go of your borrowed Brave tab; letting go turns the browser's focus emulation off, and Instagram paused

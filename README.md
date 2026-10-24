@@ -696,9 +696,11 @@ Passwords and security answers you save stay in your Mac's Keychain, one login p
 what's already saved for that site (names only, never values) and asks only for what's missing. A sign-in page at
 another address (the visa site's atlasauth.b2clogin.com) counts for the sites you typed for the task (exactly that
 site, with or without "www.", never other addresses under it), so it shows the username you gave for the site from the
-first sign-in; a login saved there keeps counting for those sites in later tasks, and its secrets fill only on the
-page they were saved on. The hidden-input question names the account: "For atlasauth.b2clogin.com only (account: Asha
-Rao): …". Tell FERB a site's username while it works ("the username is …") and it is remembered for that site and
+first sign-in when you typed just that one site for the task; a login saved there keeps counting for those sites in
+later tasks, and its secrets fill only on the page they were saved on. The hidden-input question names the account,
+and whose it is when it comes from another site: "For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha
+Rao): …". Tell FERB a site's username while it works ("the username is …") and it is remembered for that site, when
+you typed the site (in that message or for the task; never a site only a page, a pasted email or FERB named), and
 offered on its login page; forgetting that memory removes it from the login record too. A password saved for a whole
 browser before 2026-10-24 can't be used and is listed as "ask again". "Remember that …" saves as yours the whole
 sentence you typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste]

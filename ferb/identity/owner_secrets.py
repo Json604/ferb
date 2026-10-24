@@ -12,9 +12,9 @@ A record serves its own place and the sites it lists (I14): the visa site's sign
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
 task's sites the owner typed (the gateway picks them, `Gateway._login_sites`), a listing for the site finds it, and a
 username the owner gave for the site names the form's account too. Before any entry is saved there, a question or a
-listing during a task reads the task's owner-typed sites as links the same way, writing nothing. A site matches a host
-exactly, a leading "www."
-aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own. The
+listing during a task reads the task's one owner-typed site as a link the same way, writing nothing. A username read
+through a link is shown with the place it came from (`account`). A site matches a host exactly, a leading "www." aside
+(`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own. The
 records of one site with and without "www." serve each other too. Entries still fill only at their record's own place
 (`reveal`).
 
@@ -160,14 +160,16 @@ def _accounts(data: dict[str, Any]) -> set[str]:
             | {u['name'] for u in data['unusable']})
 
 
-def _username(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> str | None:
-    """A place's username: its own record's, else the one its linked records agree on (never one of two that
-    differ, so a question never names the wrong account)."""
+def _account(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> tuple[str | None, str | None]:
+    """A place's username and where it came from: its own record's (None), else the one its linked records agree on,
+    with the place of the first record holding it (review I-2: the owner sees whose account a question names); never
+    one of two that differ, so a question never names the wrong account."""
     own = records.get(place, {}).get('username')
     if own:
-        return str(own)
-    linked = {str(records[p]['username']) for p in _linked(records, place, sites) if records[p].get('username')}
-    return linked.pop() if len(linked) == 1 else None
+        return str(own), None
+    holders = {p: str(records[p]['username']) for p in _linked(records, place, sites) if records[p].get('username')}
+    names = set(holders.values())
+    return (names.pop(), min(holders)) if len(names) == 1 else (None, None)
 
 
 class OwnerSecrets:
@@ -210,17 +212,24 @@ class OwnerSecrets:
         return list(self._load()['unusable'])
 
     def username(self, target: str, sites: Iterable[str] = ()) -> str | None:
-        """`sites`: the current task's owner-typed sites, read as links (`_linked`)."""
-        return _username(self._load()['records'], target, sites)
+        """`sites`: the current task's owner-typed site, read as a link (`_linked`)."""
+        return _account(self._load()['records'], target, sites)[0]
+
+    def account(self, target: str, sites: Iterable[str] = ()) -> tuple[str | None, str | None]:
+        """The username for `target` and, when it comes through a link, the place whose record holds it."""
+        return _account(self._load()['records'], target, sites)
 
     def listing(self, target: str, sites: Iterable[str] = ()) -> dict[str, Any]:
         """What `secrets.list` shows for one place: its username and its entries' names, never a value or a Keychain
         account (L36 §5); every entry saved for a whole browser, unusable; and, under `linked`, each other record that
-        serves this place, by the place where its entries fill (I14). `sites`: the current task's owner-typed sites,
-        read as links (`_linked`)."""
+        serves this place, by the place where its entries fill (I14). `sites`: the current task's owner-typed site,
+        read as a link (`_linked`). A username read through a link comes with `username_site`, the host of the record
+        holding it (review I-2)."""
         data = self._load()
         records = data['records']
-        out: dict[str, Any] = {'place': target, 'username': _username(records, target, sites),
+        username, source = _account(records, target, sites)
+        out: dict[str, Any] = {'place': target, 'username': username,
+                               **({'username_site': site_host(source)} if source else {}),
                                'entries': sorted(records.get(target, _empty())['entries']),
                                'unusable': [{'name': u['name'], 'why': u['why']} for u in data['unusable']]}
         linked = [{'place': p, 'username': records[p]['username'], 'entries': sorted(records[p]['entries'])}

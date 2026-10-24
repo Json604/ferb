@@ -2769,8 +2769,9 @@ baseline, trip or error, with the count of reads since it was armed).
 Memory search (L36 §3): `memory.search_reindexed` (the start's content re-index changed nodes; `version`, `finished`)
 and `memory.search_reindex_failed` (its error; search stays as it stands until the next start).
 Login names (L36 §5): `memory.login_refused` (a `login_origin` entry's username not saved; `item`, `place`, `why`),
-`memory.login_cleared` (the places whose username went with a forgotten or retracted item) and
-`memory.login_unreadable` (the handle file couldn't be read to clear them; `error`).
+`memory.login_cleared` (the places whose username went with a forgotten or retracted item),
+`memory.login_unreadable` (the handle file couldn't be read to clear them; `error`) and `memory.login_clear_failed`
+(any other failure clearing them; `items`, `error` with its type).
 
 ### 16.11 Loops (L31)
 
@@ -2937,24 +2938,25 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   refused. `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
   (`shown_text`) beside their ids.
 - **Workers and plan steps (§4).** `Supervisor._worker_memory` asks the daemon's `memory_push` (the one search,
-  `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal and
-  the task's `target_words`, the targets also as the search's `focus` (`memory_push(query, targets)`; the planner's
-  `memory_candidates(query, targets)` likewise), and adds each item as a protected "Layer 4 — retrieved memory"
-  block, recorded in `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no longer
-  blank memory, and their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The daemon's
-  `recall` stub is gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the next-attempt
-  and question choices and the resource reconcile judge fresh observations and get none. A query with no words gets
-  nothing, never the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted model embeds
-  the query in a worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy of the owner's
-  database (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research step's 223-word
-  query and 22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare supervisor), a
-  worker gets the plain `recall` block, as before. Every worker attempt and every loop round records the memory blocks
-  it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20 items on that copy;
-  the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that much a round, and its
-  spans stay until it ends and its episode exists (retention): about 3.8 MB a day for a loop running only on its
-  30-minute backup check, more with probe trips. They are not deduplicated because nothing can say which exposures are
-  still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans that showed its item
-  (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be harmed by a dedup).
+  `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal
+  and the task's `target_words`, the targets also as the search's `focus` (`memory_push(query, targets)`; the
+  planner's `memory_candidates(query, targets)` likewise), and adds each item as a protected "Layer 4 — retrieved
+  memory" block, recorded in `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no
+  longer blank memory, and their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The
+  daemon's `recall` stub is gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the
+  next-attempt and question choices and the resource reconcile judge fresh observations and get none. A query with no
+  words gets nothing, never the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted
+  model embeds the query in a worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy
+  of the owner's database (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research
+  step's 223-word query and 22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare
+  supervisor), a worker gets the plain `recall` block, as before. Every worker attempt and every loop round records
+  the memory blocks it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20
+  items on that copy; the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that
+  much a round, and its spans stay until it ends and its episode exists (retention): about 3.8 MB a day for a loop
+  running only on its 30-minute backup check, more with probe trips. They are not deduplicated because nothing can say
+  which exposures are still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans
+  that showed its item (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be
+  harmed by a dedup).
 - **Login records (§5).** `OwnerSecrets` (`identity/owner_secrets.py`) keeps one record per place (`login_place`: an
   HTTPS origin, or `app:<bundle id>`): `username`, `username_source`, `sites` and `entries` (name -> Keychain account
   `"<place> · <name>"`, never one another entry or an unusable handle already uses); saving a name again replaces its
@@ -2974,10 +2976,14 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   b2clogin.com never serves evil.b2clogin.com (fix round 1). A record is linked to a place when the two are one site
   ("www." aside: the planner writes a username's site either way, §5 below), one of its sites is the place's host's
   site, or the place's own record lists the record's host's site. During a task, `ask_secret`'s question and
-  `secrets.list` also read that task's `_login_sites` for the place as if its record listed them (read only; a link
-  is stored only when an entry is saved), so the first sign-in on a form already names the account (coordinator
-  ruling). A place's username is its record's own, else the one its linked records agree on (two that differ name
-  none); it is read through the link, never copied. Entries
+  `secrets.list` also read that task's owner-typed site for the place as if its record listed it
+  (`Gateway._question_sites`: `_login_sites`, only when that is exactly one site, "www." aside; review I-2: with
+  several, a sign-in on any other page could be any of their accounts), read only (a link is stored only when an
+  entry is saved), so the first sign-in on a form already names the account (coordinator ruling). A place's username
+  is its record's own, else the one its linked records agree on (two that differ name none); it is read through the
+  link, never copied, and then names the place it came from (`OwnerSecrets.account`): the question says
+  "(usvisascheduling.com account: Asha Rao)" and `secrets.list` adds `username_site`, so on any other page, an
+  attacker's included, the owner sees whose account it is (review I-2). Entries
   fill only at their own record's place (`reveal`, D12). The owner-only observation `secrets.list`
   (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the unusable list and, under
   `linked`, each linked record by the place its entries fill; never a value or an account. worker.md tells a worker to
@@ -2990,18 +2996,25 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
 - **The username (§5).** A planner `remember` entry may carry `login_origin`; its content is then the username alone.
   `Daemon._save_login_name` writes the owner's own spelling of it (`owner_span`) to that https:// origin's record
   (`set_username`, `username_source` `memory:<id>`) only from an owner-stated item, when the host, exactly or with or
-  without "www." (`same_site`, never a subdomain), is one the owner typed in that message (`typed_site`) or one of the
-  turn's task's sites (`Supervisor._turn_sites`: a new task's, or the task a control acts on, live or saved, plus the
-  sites a steered task named before the steer restated it). An app's username stays ordinary memory. The owner's line
-  gains "Saved as your login name for <host>."; a refusal is journaled (`memory.login_refused`, with why), and a
-  username the redactor hid is never saved. The username is set on the site's record only; a sign-in form on another
-  address shows it through the task's owner-typed sites and, once an entry is saved there, through its listed sites
-  (above). A forget of that item (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`) or a retract
-  (`memory.retract`) clears it (`Daemon._clear_login_names`; journal `memory.login_cleared`, or
-  `memory.login_unreadable` when the handle file can't be read). Setting and clearing run in a worker thread
-  (`asyncio.to_thread`), as Keychain saves do: a hidden input's save holds the handle file's lock across its Keychain
-  call, and the event loop must not wait on it (coordinator ruling), so `Daemon._remember` and the supervisor's
-  `_side_entries` are coroutines.
+  without "www." (`same_site`, never a subdomain), is one the owner typed: in that message (`typed_site`), or among
+  the turn's task's sites the owner typed for it (`Supervisor._turn_sites`: a new task's sites against the message,
+  or those of the task a control acts on, live or saved, only when `continuity.load` finds it in this chat, plus the
+  sites a steered task named before the steer restated it, against that task's recorded words, steers' appended).
+  This tightens the spec's "or the task's targets" (review I-1, as Task 6 ruling (b) and rule 8's provenance): a site
+  only the planner or outside content named, a pasted email's, never gets the username. An app's username stays
+  ordinary memory. The owner's line gains "Saved as your login name for <host>."; a refusal, whatever its cause (a
+  failed write included, review m-2), is journaled (`memory.login_refused`, with why) and the turn goes on; a span of
+  the owner's words that touches a "[redacted]" marker is never saved (`items.owner_span_at`, review m-1). The
+  username is set on the site's record only; a sign-in form on another address shows it through the task's one
+  owner-typed site and, once an entry is saved there, through its listed sites (above). A forget of that item, or of
+  any version of its key (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`), or a retract
+  (`memory.retract`) clears it (`Daemon._clear_login_names`; journal `memory.login_cleared`; `memory.login_unreadable`
+  when the handle file can't be read; `memory.login_clear_failed` with the error's type for any other failure, review
+  I-3). Setting and clearing run in a worker thread (`asyncio.to_thread`), as Keychain saves do: a hidden input's save
+  holds the handle file's lock across its Keychain call, and the event loop must not wait on it (coordinator ruling),
+  so `Daemon._remember` and the supervisor's `_side_entries` are coroutines; they run one at a time behind
+  `Daemon._login_names` (an `asyncio.Lock`, review m-3), so a retract or forget issued while a write waits clears it
+  after the write.
 
 ### 16.13 FERB's cursor (L33)
 

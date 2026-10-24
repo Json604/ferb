@@ -62,7 +62,7 @@ from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceError, WorkerRuns,
                                       couldnt, model_limits, reason, reserve_tokens)
 from ferb.orchestrator.tree import ExecutionState
-from ferb.policy import confirm
+from ferb.policy import confirm, provenance
 from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
 from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
@@ -1495,15 +1495,24 @@ class Supervisor(WorkerRuns):
         said = confirm.from_task_lines(self.gateway.redact("\n".join(lines)))
         return reply | {key: reply[key].rstrip() + "\n" + said for key in ("text", "display_text") if key in reply}
 
-    def _turn_sites(self, out: SupervisorOutcome, session: ChatSession) -> frozenset[str]:
-        """The sites this turn's task names: its new task's, or the task a stop, steer, continue or retry acts on (live
-        or saved). Where a login name the owner gives may be saved for (L36 §5)."""
-        specs: list[Any] = [out.task] if out.task is not None else []
+    def _turn_sites(self, out: SupervisorOutcome, session: ChatSession, typed: str,
+                    named: frozenset[str] = frozenset()) -> frozenset[str]:
+        """Where a login name the owner gives may be saved for (L36 §5): the hosts of the sites this turn's task names
+        that the owner typed (review I-1: a site only the planner or outside content named, such as a pasted email's,
+        never gets their username). The candidates are the new task's sites, or those of the task a stop, steer,
+        continue or retry acts on, only when it is this chat's (`continuity.load` by session, review m-5): the live
+        tree's, else the saved spec's, plus `named`, the sites it had before a steer restated it. The owner's words are
+        this turn's `typed` and that task's own (its request's, steers' appended)."""
+        from ferb.identity.owner_secrets import site_host, typed_site
+        candidates, words = list(out.task.targets.sites) if out.task is not None else [], [typed]
         if out.control is not None:
-            live = self._tree_of.get(out.control.task_id)
-            saved = None if live is not None else self.continuity.load(out.control.task_id, session.id)
-            specs.append(live.spec if live is not None else saved[0] if saved else None)
-        return frozenset(site for spec in specs if spec is not None for site in spec.targets.sites)
+            saved = self.continuity.load(out.control.task_id, session.id)
+            if saved is not None:
+                live = self._tree_of.get(out.control.task_id)
+                candidates += [*(live.spec if live is not None else saved[0]).targets.sites, *named]
+                words.append(saved[1].words)
+        owner = provenance.prepare("\n".join(words))
+        return frozenset(h for site in candidates if (h := site_host(site)) and typed_site(h, owner))
 
     async def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
                             typed_lines: str, entry_id: str, turn_origins: set[str],
@@ -1511,7 +1520,8 @@ class Supervisor(WorkerRuns):
         """A turn's side entries, applied once on every path a turn takes (a reply, a new task, and a stop, steer,
         continue or retry: live 2026-10-24, two steers' remember entries were dropped), in this order, with the
         owner's typed words as their quotes' check. `named`: the sites a steered task named before the steer
-        restated it (a restated task may leave its sites out); with `_turn_sites`, where a login name may be saved."""
+        restated it (a restated task may leave its sites out); `_turn_sites` keeps those the owner typed, with the
+        turn's, as where a login name may be saved."""
         session_id = session.id
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
@@ -1532,7 +1542,7 @@ class Supervisor(WorkerRuns):
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[tuple[str, str]] = []
-        sites = self._turn_sites(out, session) | named if out.remember else frozenset()
+        sites = self._turn_sites(out, session, typed, named) if out.remember else frozenset()
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
             answers = await _value(self.remember([item], typed_lines, entry_id, sites))
             saved_now = [r for r in answers if "receipt" in r]

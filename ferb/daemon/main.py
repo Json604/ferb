@@ -343,6 +343,7 @@ class Daemon:
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
         self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
+        self._login_names = asyncio.Lock()      # L36 §5 review m-3: one username write at a time, in request order
         self._rescrubs: set[_Rescrub] = set()           # forgets waiting for jobs running at them to end (fix wave 6a)
         self._turn_requests: dict[asyncio.Task[Any], str] = {}  # a running chat turn -> its request
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
@@ -794,7 +795,8 @@ class Daemon:
                             search=self._memory_item_search)
         from ferb.identity.secret_tools import SecretsList
         self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
-                                      lambda ctx, place: self.gateway._login_sites(ctx, place) if self.gateway else []))
+                                      lambda ctx, place: self.gateway._question_sites(ctx, place) if self.gateway
+                                      else []))
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         from ferb.orchestrator.conversation_tools import ConversationRead
@@ -1674,14 +1676,21 @@ class Daemon:
 
     async def _clear_login_names(self, item_ids: list[str]) -> None:
         """Clear every login record's username that came from one of these memory items (forgotten or retracted), in a
-        worker thread: the handle file's lock may be held by a hidden input's Keychain save (coordinator ruling)."""
+        worker thread: the handle file's lock may be held by a hidden input's Keychain save (coordinator ruling). After
+        any username write already waiting (`_login_names`, review m-3). Whatever stops it is journaled, never
+        swallowed (review I-3)."""
         from ferb.identity.owner_secrets import OwnerSecrets
-        try:
-            cleared = await asyncio.to_thread(OwnerSecrets(self.home).clear_usernames,
-                                              {"memory:" + i for i in item_ids})
-        except Refused as e:                             # an unreadable handle file: left as it is, said in the journal
-            self._journal().append("memory.login_unreadable", {"error": str(e)})
-            return
+        async with self._login_names:
+            try:
+                cleared = await asyncio.to_thread(OwnerSecrets(self.home).clear_usernames,
+                                                  {"memory:" + i for i in item_ids})
+            except Refused as e:                         # an unreadable handle file: left as it is, said in the journal
+                self._journal().append("memory.login_unreadable", {"error": str(e)})
+                return
+            except Exception as e:                       # a failed write (a full disk): the username stays, said
+                self._journal().append("memory.login_clear_failed", {"items": sorted(item_ids),
+                                                                     "error": f"{type(e).__name__}: {e}"})
+                return
         if cleared:
             self._journal().append("memory.login_cleared", {"places": cleared})
 
@@ -2400,29 +2409,38 @@ class Daemon:
                                origin: str = "owner_stated") -> str:
         """L36 §5: an owner-stated entry's username for its site's login record. Only when the username is the owner's
         own words (kept in their spelling, `owner_span`; never FERB's wording, which is an inferred item) and the site
-        is an https:// origin whose host the owner typed in this message or one the turn's task names
-        (`Supervisor._turn_sites`), exactly, a leading "www." aside (`same_site`, the rule a record's sites follow:
-        never a subdomain, which on shared hosting is another tenant's). The write runs in a worker thread: the handle
-        file's lock may be held by a hidden input's Keychain save (coordinator ruling). A line for the owner, or ""
-        (the refusal is journaled, `memory.login_refused`)."""
+        is an https:// origin whose host the owner typed: in this message, or among the turn's task's sites
+        (`Supervisor._turn_sites` keeps only those the owner typed for it, review I-1), exactly, a leading "www." aside
+        (`same_site`, the rule a record's sites follow: never a subdomain, which on shared hosting is another tenant's).
+        A span of the owner's words that touches a "[redacted]" marker is refused (review m-1). The write runs in a
+        worker thread (the handle file's lock may be held by a hidden input's Keychain save; coordinator ruling), one
+        at a time (`_login_names`, review m-3). A line for the owner, or "" (the refusal, whatever its cause, is
+        journaled, `memory.login_refused`, and the turn goes on: review m-2)."""
+        import re
         from ferb.identity.owner_secrets import OwnerSecrets, login_place, same_site, site_host, typed_site
-        from ferb.memory.items import owner_span
+        from ferb.memory.items import owner_span_at
         from ferb.policy import provenance
         from ferb.sanitize.redact import REDACTED
         place = login_place(str(entry.login_origin))
         host = site_host(place) if place.startswith("https://") else ""
         named = bool(host) and (typed_site(host, provenance.prepare(own_words))
                                 or any(same_site(site_host(site), host) for site in sites))
-        username = owner_span(own_words, str(entry.content)) if origin == "owner_stated" else None
+        span = owner_span_at(own_words, str(entry.content)) if origin == "owner_stated" else None
+        hidden = span is not None and any(m.start() <= span[1] and span[0] <= m.end()
+                                          for m in re.finditer(re.escape(REDACTED), own_words))
         why = ("the site isn't an https:// address" if not host else "the site isn't one you named" if not named
-               else "the username isn't in your words" if not username
-               else "the username was hidden as a secret" if REDACTED in str(entry.content) else "")
-        if not why and username:
-            try:
-                await asyncio.to_thread(OwnerSecrets(self.home).set_username, place, username, "memory:" + item_id)
-                return f"Saved as your login name for {host}."
-            except Refused as e:
-                why = str(e)
+               else "the username isn't in your words" if span is None
+               else "the username was hidden as a secret" if hidden else "")
+        if not why and span is not None:
+            async with self._login_names:
+                try:
+                    await asyncio.to_thread(OwnerSecrets(self.home).set_username, place, own_words[span[0]:span[1]],
+                                            "memory:" + item_id)
+                    return f"Saved as your login name for {host}."
+                except Refused as e:
+                    why = str(e)
+                except Exception as e:                   # a failed write (a full disk): said, and the turn goes on
+                    why = f"{type(e).__name__}: {e}"
         self._journal().append("memory.login_refused", {"item": item_id, "place": place, "why": why})
         return ""
 

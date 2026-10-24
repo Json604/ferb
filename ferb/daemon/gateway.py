@@ -1754,19 +1754,19 @@ class Gateway:
         if ctx.request_id in self.state.approvals.unattended:
             return None
         try:                                           # L36 §5: which account, shown to the owner, never a secret;
-            # the task's owner-typed sites count as links before any entry is saved here (read only)
-            username = await asyncio.to_thread(store.username, target, self._login_sites(ctx, target))
+            # the task's one owner-typed site counts as a link before any entry is saved here (read only)
+            username, source = await asyncio.to_thread(store.account, target, self._question_sites(ctx, target))
         except Refused:
             if remember:                               # the save would fail after the owner typed: say why now
                 raise
-            username = None                            # m17: a one-time input needs no saved names
-        question = secret_question(target, remember, username)
+            username = source = None                   # m17: a one-time input needs no saved names
+        question = secret_question(target, remember, username, source)
         ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self._one_line(secret_summary(target, remember, shown, username))
+        ap.summary = self._one_line(secret_summary(target, remember, shown, username, source))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary})
@@ -1801,6 +1801,13 @@ class Gateway:
         if not own or any(same_site(h, own) for h in typed):
             return []
         return typed
+
+    def _question_sites(self, ctx: ToolContext, target: str) -> list[str]:
+        """The task's owner-typed site a question or `secrets.list` at `target` reads as a link before any entry is
+        saved there (coordinator ruling): `_login_sites`, only when they are exactly one site ("www." aside; review
+        I-2: with several, a sign-in on any other page could be any of their accounts)."""
+        typed = self._login_sites(ctx, target)
+        return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
 
     def release_secret(self, value: str) -> None:
         from ferb.sanitize.redact import Redactor
@@ -2029,14 +2036,17 @@ class Gateway:
             self.observer.waiting(grant.worker_id, False)
 
 
-def secret_question(target: str, remember: str | None, username: str | None = None) -> str:
+def secret_question(target: str, remember: str | None, username: str | None = None,
+                    username_place: str | None = None) -> str:
     """The hidden-input question for an owner secret, its exact destination first: no secret word comes before it, so
     the redactor's label rule ("the secret for <X>: …") never hides the destination the owner is asked about (live
     2026-10-24: "Enter the secret for app:[redacted]"). Then the account, the username saved for that place from the
-    owner's own words (L36 §5). The saved name is the worker's: only ever the saved name."""
+    owner's own words (L36 §5), with the site it was saved for when it came through a link (`username_place`, review
+    I-2). The saved name is the worker's: only ever the saved name."""
     account = _account(username or "")
+    saved_for = f" (saved for {_site(username_place)})" if username_place else ""
     text = (f"Destination: {target}."
-            + (f" Account: {account}." if account else "")
+            + (f" Account: {account}{saved_for}." if account else "")
             + " Type the password or secret for it here (hidden; Enter cancels); FERB fills it only at this exact "
             "destination.")
     if remember:
@@ -2081,18 +2091,22 @@ def _account(username: str) -> str:
     return text if len(text) <= ACCOUNT_SHOWN else text[:ACCOUNT_SHOWN - 1].rstrip() + "…"
 
 
-def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None) -> str:
+def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None,
+                   username_place: str | None = None) -> str:
     """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
     with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
     bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
-    place (L36 §5, ruling C1: after the place); then what the value is for: the worker's proposed name, cleaned by
-    `shown_name`, in quotes, only ever as the name it is saved under; and whether it is kept."""
+    place (L36 §5, ruling C1: after the place), naming the site it was saved for when it came through a link
+    (`username_place`, review I-2: "usvisascheduling.com account: …"); then what the value is for: the worker's
+    proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is
+    kept."""
     if target.startswith("app:"):
         place = f"the {app} app" if app else f"the app {target[4:]}"
     else:
         place = _site(target)
     account = _account(username or "")
-    account = f" (account: {account})" if account else ""
+    whose = f"{_site(username_place)} " if username_place else ""
+    account = f" ({whose}account: {account})" if account else ""
     if remember:
         name = shown_name(remember)
         what = f"“{name}”" if name else "a saved secret"
