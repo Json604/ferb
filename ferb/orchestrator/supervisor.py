@@ -411,12 +411,31 @@ class _LoopQuestion:
         self.wake: Callable[[], None] = lambda: None
         self.approval: Any = None
         self._watch: asyncio.Future[None] | None = None
+        self.known_closed: set[str] = set()     # the owner's held tabs already closed by the last round or question
+
+    def _closed(self) -> dict[str, dict[str, Any]]:
+        """The owner's own tabs the loop holds that the browser reports closed (a tab FERB opened, such as a helper
+        or an OAuth popup, is never "the tab you asked me to keep going")."""
+        return {str(t['tab']): t for t in self.sup.task_tabs(self.child.id) if t.get('closed') and t.get('taken_over_from')}
+
+    def round_ended(self, pausing: bool) -> None:
+        """A round that doesn't pause carried on past whatever closed before it: those tabs are known."""
+        if not pausing:
+            self.known_closed = set(self._closed())
+
+    def gone(self) -> list[dict[str, Any]]:
+        """The owner's held tabs closed since the last round or question (review I1: a tab closed earlier, already
+        asked about or carried past, never comes back in a later, unrelated pause)."""
+        closed = self._closed()
+        fresh = [tab for key, tab in closed.items() if key not in self.known_closed]
+        self.known_closed |= set(closed)
+        return fresh
 
     async def ask(self, result: dict[str, Any] | None) -> None:
         sup, child = self.sup, self.child
         if self.approval is not None or child.request_id in sup.state.approvals.unattended:
             return
-        question, options, origin = sup._pause_question(self.tree.id, self.step, child.id, result)
+        question, options, origin = sup._pause_question(self.tree.id, self.step, result, self.gone())
         action = ActionRequest(LOOP_ASK, 'owner_question', child.identity, frozenset(), child.id, child.id,
                                child.request_id, frozenset(child.scopes), content=question)
         self.approval = ap = sup.state.approvals.question(action, question, options)
@@ -947,15 +966,15 @@ class Supervisor(WorkerRuns):
         data = json.loads(last[0]) if last is not None else {}
         return str(data.get("question") or data.get("summary") or "").strip().split("\n", 1)[0][:300]
 
-    def _pause_question(self, tree_id: str, step: Step, task_id: str,
-                        result: dict[str, Any] | None) -> tuple[str, list[str], str]:
-        """A paused loop's question to the owner, its options and its origin (`_LoopQuestion`). A tab the loop held
-        that the browser reports closed: FERB's own words naming its site, Stop / Keep watching. Otherwise the round's
-        own question (model-written, labelled as the task's, D33; after a restart, the last round's as journaled),
-        with Stop."""
-        closed = [t for t in self.task_tabs(task_id) if t.get('closed')]
-        if closed:
-            page = str((closed[0].get('taken_over_from') or {}).get('url') or '')
+    def _pause_question(self, tree_id: str, step: Step, result: dict[str, Any] | None,
+                        gone: list[dict[str, Any]]) -> tuple[str, list[str], str]:
+        """A paused loop's question to the owner, its options and its origin (`_LoopQuestion`). One of the owner's own
+        tabs the loop held, closed since the last round or question (`gone`), and no action whose outcome is unknown
+        (a P19 question is always its own): FERB's own words naming its site, Stop / Keep watching. Otherwise the
+        round's own question (model-written, labelled as the task's, D33; after a restart, the last round's as
+        journaled), with Stop."""
+        if gone and not (result or {}).get('unknown'):
+            page = str((gone[0].get('taken_over_from') or {}).get('url') or '')
             host = urlsplit(page).hostname or '' if page else ''
             what = f'The {host} tab' if host else 'The tab'
             return f'{what} you asked me to keep going was closed. Stop this task?', [LOOP_STOP, LOOP_KEEP], \
@@ -2816,7 +2835,8 @@ class Supervisor(WorkerRuns):
                 status, question = 'blocked', LOOP_UNKNOWN       # the loop waits for the owner
             result = {'status': status, 'summary': member.owner_answer or out.summary, 'evidence': out.evidence,
                       'loop_action': member.loop_action, 'finished_verified': finished, 'question': question,
-                      'unchecked': bool(member.unchecked)}
+                      'unknown': unknown, 'unchecked': bool(member.unchecked)}
+            asker.round_ended(member.loop_action == 'blocked' or status in ('needs_user', 'blocked'))
             self.spans.finish(round_span, output=result | {'probe': probe.model_dump() if probe else None})
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},

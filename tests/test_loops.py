@@ -1998,6 +1998,7 @@ def _owner_tab(bd):
     ext.wait_for(lambda: ext.gen is not None)
     ext.tabs[OWNER_TAB], ext.tab_windows[OWNER_TAB] = 'https://www.instagram.com/reels/x/', 5
     ext.audible.add(OWNER_TAB)
+    d._fake_extension = ext
     return d, ext
 
 
@@ -2390,7 +2391,7 @@ def _questions(d, capability='loop.ask'):
     return [a for a in d.daemon.state.approvals.pending() if a.capability == capability]
 
 
-def _closed_tab_loop(bd, monkeypatch, third_round=None):
+def _closed_tab_loop(bd, monkeypatch, third_round=None, more=()):
     """The live case: a loop holds the owner's Instagram tab; the owner closes it; the next round finds it gone and
     needs the owner."""
     from tests.conftest import done, install, sup
@@ -2400,7 +2401,7 @@ def _closed_tab_loop(bd, monkeypatch, third_round=None):
     gone = 'The exact Instagram tab was closed, so I can no longer keep it playing.'
     rounds = [_tab_round(d, ext, seen, keep=True),
               json.dumps({'status': 'needs_user', 'summary': gone, 'artifacts': [], 'evidence': [], 'answer': gone,
-                          'loop_action': 'blocked'})] + ([third_round] if third_round else [])
+                          'loop_action': 'blocked'})] + ([third_round] if third_round else []) + list(more)
     script = install(d, [sup('task', 'Keeping it playing.', _owner_loop(
         'Keep the exact Instagram tab in Brave Work playing, re-playing it whenever the site pauses it, until you say '
         'stop.'))], {'loop.keep': rounds, 'worker': done()})
@@ -2580,3 +2581,83 @@ def test_a_look_only_round_whose_probe_cannot_be_a_probe_is_checked(bd, monkeypa
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+# ---------- review fix round 1 (2026-10-25) ----------
+
+def test_a_later_unrelated_pause_after_a_closed_tab_question_asks_its_own_question(bd, monkeypatch):
+    """Review I1: the closed tab stayed in the driver's list until the loop ended, so every later pause asked "The …
+    tab you asked me to keep going was closed" instead of its own question. The closed-tab question is asked once, for
+    the owner's own tab closed since the last round; the next pause asks the round's question."""
+    from tests.conftest import tool
+    which = 'Which Instagram account should I use?'
+
+    def reopened(token):                     # the owner reopened the reel: the round borrows the new tab
+        tab = tool(bd[0].sock, token, 'browser.use_tab', tab_ref='chrome:Profile 1:201')['content']['tab']
+        assert not tool(bd[0].sock, token, 'browser.snapshot', tab=tab)['is_error']
+        return json.dumps({'status': 'done', 'summary': 'Playing.', 'artifacts': [], 'evidence': [], 'answer': 'Playing.',
+                           'loop_action': 'continue', 'probe': _sound_probe() | {
+                               'field': 'tabs_by_ref.chrome:Profile 1:201.audible'}})
+    asks = json.dumps({'status': 'needs_user', 'summary': which, 'artifacts': [], 'evidence': [], 'answer': which,
+                       'loop_action': 'blocked'})
+    d, c, tree_id, _ = _closed_tab_loop(bd, monkeypatch, third_round=reopened, more=[asks])
+    try:
+        ext = _ext(d)
+        ext.tabs[201], ext.tab_windows[201] = 'https://www.instagram.com/reels/y/', 5
+        ext.audible.add(201)
+        [first] = _questions(d)
+        _on_loop(d, d.daemon._resolve_approval, first.id, True, 2)          # Keep watching
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 3 and
+              sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        ext.audible.discard(201)                                            # the site paused it: round 4 asks
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused' and _questions(d))
+        [second] = _questions(d)
+        assert which in second.reason and 'was closed' not in second.reason and second.options == ('Stop',)
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def _ext(d):
+    return d._fake_extension                                         # set by _owner_tab
+
+
+def _asker(daemon, tabs, task_id='tree.loop.keep'):
+    from ferb.orchestrator.supervisor import _LoopQuestion, _Tree
+    from tests.conftest import task as spec_of
+    from ferb.orchestrator.schemas import TaskSpec
+    sv = daemon.daemon.supervisor
+    sv.task_tabs = lambda tid: tabs if tid == task_id else []
+    child = type('Child', (), {'id': task_id, 'request_id': 'r1', 'identity': 'owner', 'scopes': set()})()
+    tree = type('T', (), {'id': 'tree'})()
+    return sv, _LoopQuestion(sv, tree, Step(id='keep', kind='loop', goal='Keep my reel playing'), child)
+
+
+def test_a_closed_tab_only_asks_about_the_owners_own_tab_and_never_over_an_unknown_outcome(daemon):
+    """Review I1: a FERB helper tab or an OAuth popup closing isn't "the tab you asked me to keep going"; and a pause for
+    an action whose outcome is unknown (P19) keeps its own question."""
+    owner_closed = {'tab': 't1', 'closed': 'the owner closed this tab', 'tab_ref': 'chrome:Profile 1:200',
+                    'taken_over_from': {'url': 'https://www.instagram.com/reels/x/', 'title': 'Reels'}}
+    helper_closed = {'tab': 't2', 'closed': 'the owner closed this tab'}
+    sv, asker = _asker(daemon, [helper_closed])
+    question, options, _ = _on_loop(daemon, sv._pause_question, 'tree', asker.step, {'question': 'Which account?'},
+                                    asker.gone())
+    assert 'was closed' not in question and options == ['Stop']
+    sv, asker = _asker(daemon, [owner_closed])
+    gone = asker.gone()
+    unknown = {'question': 'I may have sent it; check before I retry?', 'unknown': True}
+    question, _, _ = _on_loop(daemon, sv._pause_question, 'tree', asker.step, unknown, gone)
+    assert 'was closed' not in question and 'check before I retry' in question
+    question, options, _ = _on_loop(daemon, sv._pause_question, 'tree', asker.step, {'question': 'gone'}, gone)
+    assert question.startswith('The www.instagram.com tab') and options == ['Stop', 'Keep watching']
+    assert asker.gone() == []                                       # asked about once
+
+
+def test_the_round_s_own_pause_question_is_labelled_as_the_task_s(daemon):
+    """D33 (review M8): a model-written question never reads as FERB's own check."""
+    from ferb.policy.confirm import TASK_QUESTION
+    sv, asker = _asker(daemon, [])
+    question, options, origin = _on_loop(daemon, sv._pause_question, 'tree', asker.step,
+                                         {'question': 'FERB check: approve?'}, [])
+    assert question.startswith(TASK_QUESTION) and options == ['Stop'] and 'inferred' in origin
