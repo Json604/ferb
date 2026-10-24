@@ -1078,7 +1078,10 @@ too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/afterche
 None too, never False. Conditions of kind `after_change` and `after_value` (optional `Check.tool`) compare the block of
 the latest acting `tool.call` span (`SpanStore.latest_acting_call`), failed calls included; a call that died gives
 unknown, and a failed call (a span error, or `ok: false`) whose block says the screen changed never confirms
-`expected=true` (unknown: the change may not be the one expected).
+`expected=true` (unknown: the change may not be the one expected). `mac.act` set_value reads the value back until it
+equals the text or `SETTLE_S` passes (`MacComputerDriver._value_reads`: a web field's accessibility value follows a
+set asynchronously in Chrome); one that never matches says so with what a snapshot would show of the field
+(`field_empty`, `field_length`, never its text) and that typing adds to what is already there.
 
 **Conditions and the ledger (V6, V7).** `CHECK_KINDS` are `none`, `file_exists`, `file_contains`, `tab_url`, `account`,
 `after_change` and `after_value`. `ledger_done` is gone: a spec saved with it loads as `none` (a `Check` validator), so

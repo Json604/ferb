@@ -268,6 +268,52 @@ def test_edit_replaces_or_inserts_exactly_the_range_through_selected_text(monkey
 
 
 @dataclass
+class LaggingAx(Ax):
+    """A web text field (Chrome): AXValue is set at once, but the accessibility value reads the old text for a few
+    reads before it catches up, as Chrome updates its tree asynchronously."""
+    lag: int = 3
+    old: str = ""
+    reads: int = 0
+
+    def set_value(self, el: Any, text: str) -> bool:
+        self.box, self.reads = text, 0
+        return True
+
+    def value(self, el: Any) -> str | None:
+        if el != "box":
+            return None
+        self.reads += 1
+        return self.box if self.reads > self.lag else self.old
+
+
+def test_set_value_waits_for_a_web_fields_value_to_catch_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-10-24 (usvisascheduling.com Username in Chrome): set_value said "not confirmed" though the field took
+    the value; the worker typed it again and the field held it twice. The read-back waits for the value to settle."""
+    ax = LaggingAx()
+    d, apps, posted = setup(monkeypatch, ax)
+    monkeypatch.setattr(drv, "SETTLE_S", 2.0)
+    e = ids(d)
+    r = asyncio.run(d.act("WhatsApp", ComputerAction("set_value", e["Message"], "Kartikey Attri", mechanism="ax_value")))
+    assert r.ok and r.detail == "value set and read back" and ax.reads == ax.lag + 1
+    assert r.facts == {"method": "ax_value", "accepted": True, "value_matches": True}
+    assert posted == [] and apps.activated == []
+
+
+def test_set_value_that_never_reads_back_says_the_field_may_already_hold_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    ax = LaggingAx(lag=10_000, old="ktky")
+    d, apps, posted = setup(monkeypatch, ax)
+    monkeypatch.setattr(drv, "SETTLE_S", 0.1)
+    e = ids(d)
+    r = asyncio.run(d.act("WhatsApp", ComputerAction("set_value", e["Message"], "Kartikey Attri", mechanism="ax_value")))
+    assert not r.ok and ax.reads > 1                                    # it waited, reading again
+    assert r.facts == {"method": "ax_value", "accepted": True, "value_matches": False, "field_empty": False,
+                       "field_length": 4}                               # a snapshot's facts, never the text itself
+    assert "no typing attempted" in r.detail and "fresh snapshot before typing again" in r.detail
+    assert "typing adds to what is there" in r.detail and "ktky" not in r.detail
+    assert posted == []
+
+
+@dataclass
 class PopupAx(Ax):
     items: tuple[str, ...] = ("Plain Text", "Rich Text")
     chosen: str = "Rich Text"

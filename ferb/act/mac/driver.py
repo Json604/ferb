@@ -808,14 +808,32 @@ class MacComputerDriver:
                 return False, after
             await asyncio.sleep(0.05)
 
+    async def _value_reads(self, n: axm.AxNode, text: str) -> str | None:
+        """Poll the element's value until it reads `text` or SETTLE_S passes (cheap: one attribute read per poll). A
+        web field's accessibility value follows a set asynchronously (Chrome, live 2026-10-24)."""
+        deadline = time.monotonic() + SETTLE_S
+        while True:
+            observed = await asyncio.to_thread(self.ax.value, n.ref)
+            if observed == text or time.monotonic() >= deadline:
+                return observed
+            await asyncio.sleep(0.05)
+
     async def _set_value(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
                          fg: bool) -> ActionResult:
         accepted = await asyncio.to_thread(self.ax.set_value, n.ref, text)
-        observed = await asyncio.to_thread(self.ax.value, n.ref)
+        observed = (await self._value_reads(n, text) if accepted
+                    else await asyncio.to_thread(self.ax.value, n.ref))
         ok = accepted and observed == text
         self.profiles.record(a.bundle_id, "ax_value", ok)
-        return ActionResult(ok, "value set and read back" if ok else "AXValue result not confirmed; no typing attempted",
-                            {"method": "ax_value", "accepted": accepted, "value_matches": observed == text})
+        facts: dict[str, Any] = {"method": "ax_value", "accepted": accepted, "value_matches": observed == text}
+        if ok:
+            return ActionResult(True, "value set and read back", facts)
+        # Live 2026-10-24: the field had taken the value, the worker typed it again and it held it twice. What a
+        # snapshot would show about the field, never its text: whether it is empty, and its length.
+        facts |= {"field_empty": not observed, "field_length": len(observed)} if observed is not None else {}
+        return ActionResult(False, "AXValue result not confirmed; no typing attempted. The field may already hold "
+                            "text: read it in a fresh snapshot before typing again (typing adds to what is there)",
+                            facts)
 
     async def _type(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
                     mechanism: str) -> ActionResult:
