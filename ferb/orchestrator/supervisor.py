@@ -254,6 +254,15 @@ def _carries_more(out: SupervisorOutcome) -> bool:
                 out.conversation_changes or out.notification_rules)
 
 
+@dataclass
+class _Side:
+    """What a turn's side entries did (memory, forgets, reminders, schedules, conversation and notification changes):
+    the events to send, in order, and code's lines about them (L11), refusals among them by kind."""
+    events: list[dict[str, Any]]
+    lines: list[str]
+    refused: list[tuple[str, str]]
+
+
 def _labeled(value: Any) -> tuple[str, str]:
     """A context hook's (text, origin). A hook that returns bare text didn't say where it came from: unlabeled."""
     if isinstance(value, tuple):
@@ -1170,8 +1179,14 @@ class Supervisor(WorkerRuns):
             control = out.control
             prior = self.continuity.load(control.task_id, session.id)
             if prior is None:
-                yield {"type": "reply", "text": "I couldn't find that attempt in this chat. Tell me which task to stop or retry."}
-                self._env.pop(request_id, None)
+                side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                try:
+                    for event in side.events:
+                        yield event
+                    yield self._with_lines({"type": "reply", "text": "I couldn't find that attempt in this chat. Tell "
+                                                                     "me which task to stop or retry."}, side.lines)
+                finally:
+                    self._env.pop(request_id, None)
                 return
             active = self._tree_of.get(control.task_id)
             if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
@@ -1181,11 +1196,16 @@ class Supervisor(WorkerRuns):
                                               supersedes=control.supersedes)
                 if steered is not None:
                     reply, restated = steered
+                    # the turn's other entries too, once, and code's lines about them end the steer's reply
+                    side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                    reply = self._with_lines(reply, side.lines)
                     if restated is not None:     # D30: the stated scope is in the conversation record (next turns)
                         self.journal.append('chat.reply', {'session_id': session.id, 'request_id': request_id,
                                                            'text': reply['text']},   # the planner's scopes (MP2)
                                             origin=origins_.join({origins_.INFERRED} | turn_origins))
                     try:
+                        for event in side.events:
+                            yield event
                         yield reply
                     finally:
                         self._env.pop(request_id, None)
@@ -1201,13 +1221,17 @@ class Supervisor(WorkerRuns):
             deadline = asyncio.get_running_loop().time() + 10
             while (control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids)) and asyncio.get_running_loop().time() < deadline:
                 await asyncio.sleep(0.05)
-            if control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids):
-                yield {"type": "reply", "text": "I've requested a stop; the earlier attempt is still settling. I haven't started another."}
-                self._env.pop(request_id, None)
-                return
-            if control.action == "stop":
-                yield {"type": "reply", "text": "Stopped, as you asked." if was_running else "That attempt has already ended."}
-                self._env.pop(request_id, None)
+            settling = control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids)
+            if settling or control.action == "stop":
+                said = ("I've requested a stop; the earlier attempt is still settling. I haven't started another."
+                        if settling else "Stopped, as you asked." if was_running else "That attempt has already ended.")
+                side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                try:
+                    for event in side.events:
+                        yield event
+                    yield self._with_lines({"type": "reply", "text": said}, side.lines)
+                finally:
+                    self._env.pop(request_id, None)
                 return
             # A forget's scrub queued as that task finished runs first, so its saved state (its last result goes into
             # the resumed goal) is read after the clean-up, and the resume in place starts from it (fix wave 6a).
@@ -1266,65 +1290,10 @@ class Supervisor(WorkerRuns):
             self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
             self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
                                           "payload": resumed_payload})
-        for change in out.conversation_changes:
-            if not change.quote.strip() or change.quote not in typed:
-                yield {'type': 'reply', 'text': 'A conversation change needs your own instruction.'}
-                continue
-            permitted_trees = self.continuity.task_ids(session.id)
-            try:
-                if self.conversations.get(change.id)['tree_id'] not in permitted_trees:
-                    raise ValueError('That conversation belongs to another chat; use its chat or ferb conversations.')
-                self.change_conversation(change.id, change.action, change.quote)
-                yield {'type': 'reply', 'text': 'Conversation ' + change.action + ': ' + change.id}
-            except ValueError as exc:
-                yield {'type': 'reply', 'text': str(exc)}
-        for rule in out.notification_rules:
-            yield {'type': 'reply', 'text': self.notification_rule(rule, typed)}
-        # Quotes are checked against what the owner typed (never against pasted text)
-        receipts: list[str] = []
-        saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
-        unsaved: list[tuple[str, str]] = []
-        for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
-            answers = self.remember([item], typed_lines, entry.id)
-            saved_now = [r for r in answers if "receipt" in r]
-            receipts += [r["receipt"] for r in saved_now]
-            saved += [r["line"] for r in saved_now]
-            if not saved_now:
-                unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
-                                                   "FERB's memory store gave no reason")))
-        self._env[request_id]["intake_receipts"] = receipts
-        for receipt in receipts:             # the owner's words, quote-checked
-            yield {"type": "memory", "text": receipt}
-        for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
-            saved.append(self.forget_request(wanted.item_id, request_id) if whole_clauses(typed, wanted.quote)
-                         else FORGET_NEEDS_WORDS)
-            yield {"type": "memory", "text": saved[-1]}
-        changed: list[str] = []          # code's own lines about cancelled reminders and schedules
-        for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
-            changed.append(self.on_reminder_cancel(rc, typed))
-            yield {"type": "timer", "text": changed[-1]}
-        # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
-        # (L11: the 19:52 boarding timer recovered at 20:10).
-        said = [(request_id, m.own_words), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
-        set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
-        for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
-            yield {"type": "timer", "text": _reminder_line(t), "timer_id": t.id}
-        # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
-        # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
-        # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
-        # every line (clients may show those events only in passing).
-        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins,
-                                            self._sink_origins_for_new_schedule(request_id)))
-            yield {"type": "timer", "text": changed[-1]}
-        for ch in out.schedule_changes:
-            changed.append(self.on_schedule_change(ch, typed))
-            yield {"type": "timer", "text": changed[-1]}
-        refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
-            [("memory", line) for line in [_not_saved(unsaved)] if line]
-        side_lines = (saved + changed
-                      + [_reminder_line(t) for t in set_timers]
-                      + [line for _, line in refused])
+        side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+        for event in side.events:
+            yield event
+        side_lines, refused = side.lines, side.refused
         question = out.text                                    # the planner's own question, before code's lines
         runs_task = resumed is not None or not (out.kind in ("reply", "clarify") or out.task is None)
         if side_lines and not runs_task:
@@ -1372,6 +1341,82 @@ class Supervisor(WorkerRuns):
         finally:
             self._env.pop(request_id, None)
             self._env.pop(authority_id, None)
+
+    def _with_lines(self, reply: dict[str, Any], lines: list[str]) -> dict[str, Any]:
+        """A control turn's reply with code's lines about its side entries at its end, in the text and in the short
+        line the app shows first, redacted (as a reply turn's are)."""
+        if not lines:
+            return reply
+        said = confirm.from_task_lines(self.gateway.redact("\n".join(lines)))
+        return reply | {key: reply[key].rstrip() + "\n" + said for key in ("text", "display_text") if key in reply}
+
+    def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
+                      typed_lines: str, entry_id: str, turn_origins: set[str]) -> _Side:
+        """A turn's side entries, applied once on every path a turn takes (a reply, a new task, and a stop, steer,
+        continue or retry: live 2026-10-24, two steers' remember entries were dropped), in this order, with the
+        owner's typed words as their quotes' check."""
+        session_id = session.id
+        events: list[dict[str, Any]] = []
+        for change in out.conversation_changes:
+            if not change.quote.strip() or change.quote not in typed:
+                events.append({'type': 'reply', 'text': 'A conversation change needs your own instruction.'})
+                continue
+            permitted_trees = self.continuity.task_ids(session.id)
+            try:
+                if self.conversations.get(change.id)['tree_id'] not in permitted_trees:
+                    raise ValueError('That conversation belongs to another chat; use its chat or ferb conversations.')
+                self.change_conversation(change.id, change.action, change.quote)
+                events.append({'type': 'reply', 'text': 'Conversation ' + change.action + ': ' + change.id})
+            except ValueError as exc:
+                events.append({'type': 'reply', 'text': str(exc)})
+        for rule in out.notification_rules:
+            events.append({'type': 'reply', 'text': self.notification_rule(rule, typed)})
+        # Quotes are checked against what the owner typed (never against pasted text)
+        receipts: list[str] = []
+        saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
+        unsaved: list[tuple[str, str]] = []
+        for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
+            answers = self.remember([item], typed_lines, entry_id)
+            saved_now = [r for r in answers if "receipt" in r]
+            receipts += [r["receipt"] for r in saved_now]
+            saved += [r["line"] for r in saved_now]
+            if not saved_now:
+                unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
+                                                   "FERB's memory store gave no reason")))
+        self._env[request_id]["intake_receipts"] = receipts
+        for receipt in receipts:             # the owner's words, quote-checked
+            events.append({"type": "memory", "text": receipt})
+        for wanted in out.forget:            # nothing goes before the owner's Yes to a question naming it (I2)
+            saved.append(self.forget_request(wanted.item_id, request_id) if whole_clauses(typed, wanted.quote)
+                         else FORGET_NEEDS_WORDS)
+            events.append({"type": "memory", "text": saved[-1]})
+        changed: list[str] = []          # code's own lines about cancelled reminders and schedules
+        for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
+            changed.append(self.on_reminder_cancel(rc, typed))
+            events.append({"type": "timer", "text": changed[-1]})
+        # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
+        # (L11: the 19:52 boarding timer recovered at 20:10).
+        said = [(request_id, m.own_words), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
+        set_timers, unset, existing = self._set_timers(out.timers, said, request_id, chain=typed)
+        for t in set_timers:              # plain words (the notch shows them); the id is a field of its own
+            events.append({"type": "timer", "text": _reminder_line(t), "timer_id": t.id})
+        # L11: what happened to each side output is said by code, never by the planner (which wrote its reply before
+        # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
+        # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
+        # every line (clients may show those events only in passing).
+        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
+            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins,
+                                            self._sink_origins_for_new_schedule(request_id)))
+            events.append({"type": "timer", "text": changed[-1]})
+        for ch in out.schedule_changes:
+            changed.append(self.on_schedule_change(ch, typed))
+            events.append({"type": "timer", "text": changed[-1]})
+        refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
+            [("memory", line) for line in [_not_saved(unsaved)] if line]
+        side_lines = (saved + changed
+                      + [_reminder_line(t) for t in set_timers]
+                      + [line for _, line in refused])
+        return _Side(events, side_lines, refused)
 
     async def _supervise(self, session: ChatSession, message: str, request_id: str,
                          remembered: Any = "", repair: list[str] | None = None, *,

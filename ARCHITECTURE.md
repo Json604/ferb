@@ -2348,7 +2348,10 @@ protected FERB state (16.9).
   findings, the dispatcher's stop reason, what was confirmed and the files. There is no separate short text (owner,
   2026-10-24). The literal "Verified. " prefix is gone (`verified` is the marker).
 - Code states side outputs in plain words (reminders, memory, cancels, schedules); a refused one adds one line and the
-  reply is kept. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
+  reply is kept. Every path a turn takes applies them once (`Supervisor._side_entries`): a reply, a new task, and a
+  stop, live steer, continue or retry, whose own reply then ends with code's lines (`_with_lines`, in `text` and
+  `display_text`). Live 2026-10-24: the live-steer and stop paths returned first, so two steers' remember entries were
+  dropped. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
   (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat, or be several
   of them joined by blank lines when every part is exactly one owner message within this request's chain of owner
   words (a reminder asked over a clarification; the first part's message is the source).
