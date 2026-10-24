@@ -63,6 +63,14 @@ def query_terms(text: str) -> list[str]:
     return list(dict.fromkeys(terms))
 
 
+def weighted(terms: list[str], total: int, matches: Callable[[str], int]) -> list[str]:
+    """The query terms that carry weight, for `Memory.recall` and the one ranked search (L36 §3): a term found in more
+    than half of the `total` documents says nothing about any one of them (data-driven, no word list). The floor of 2
+    keeps a shared topic word useful when few documents exist: two memories about "editor" must both recall.
+    `matches(term)`: how many documents hold it."""
+    return [t for t in terms if total < 2 or matches(t) <= max(2, total / 2)]
+
+
 def _spaced(text: str) -> str:
     return " ".join(text.casefold().split())
 
@@ -300,9 +308,7 @@ class Memory:
                 f"SELECT COUNT(*) FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid "
                 f"WHERE memory_fts MATCH ? AND {valid}", (f'"{term}"', when, when)).fetchone()[0])
 
-        # A term that matches most memories says nothing about any one of them (data-driven, no word list). The floor
-        # of 2 keeps a shared topic word useful when few memories exist: two memories about "editor" must both recall.
-        terms = [t for t in terms if total < 2 or matches(t) <= max(2, total / 2)]
+        terms = weighted(terms, total, matches)
         if not terms:
             return []
         match = " OR ".join(f'"{t}"' for t in terms)

@@ -9,6 +9,22 @@ PROCEDURES_ROUTE = 'memory.learned kind=procedure'
 PROCEDURE_RUNS_ROUTE = "memory.learned kind=episode, the verified earlier runs of this procedure's kind of task"
 
 
+def target_words(targets: Any) -> str:
+    """A task's targets as memory query words (L36 §3, §4): each site's host labels ("usvisascheduling com"), the apps
+    and recipients as named, each path's last part. The task's own words; the common-word filter weighs them, so "com"
+    carries nothing (no word list, rule 6)."""
+    from pathlib import PurePath
+    from ferb.policy import urls
+    words: list[str] = []
+    for site in targets.sites:
+        parsed = urls.parse(site) if "://" in site else None
+        host = parsed.host if parsed is not None and parsed.host else site.strip().split("/")[0]
+        words.append(" ".join(label for label in host.split(".") if label))
+    words += [str(a) for a in targets.apps] + [str(r) for r in targets.recipients]
+    words += [PurePath(str(p)).name for p in targets.paths]
+    return " ".join(w for w in words if w.strip())
+
+
 def ranked_memory_blocks(candidates: list[dict[str, Any]]) -> list[tuple[Any, set[str]]]:
     """Keep complete ranked items. Higher ranks allocate first; every omitted item retains a fetch route. An item's
     `fold` (a retrieval route) groups it with the others of that route: its lowest markers fold into one counted note

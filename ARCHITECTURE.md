@@ -490,7 +490,7 @@ Managed extension reload is version/protocol transport maintenance, deferred whi
 
 Owner-stated memory and observed proposals retain source provenance. Retrieval is an explicit search, not authority
 to pick a file or recipient. Complete items are available through `memory.read`; proposal and narrative text are not
-silently clipped. `query_terms` (`ferb/memory/items.py`) tokenizes a query and `Memory.recall` drops terms that match most memories; the FTS
+silently clipped. `query_terms` (`ferb/memory/items.py`) tokenizes a query, and the one ranked search (`Learning.search`, L36) drops terms that match most indexed nodes; the FTS
 index uses `unicode61 categories 'L* N* Co M*'` (migration 0014) so Devanagari words stay whole. Observed items
 credit identical content to its matching item first, and otherwise accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily
 summaries retain source handles; raw activity retention requires a persisted summary before purge. Privacy exclusions
@@ -2752,6 +2752,8 @@ Loops (L31): journal `loop.round` (a round's number, status, summary, `loop_acti
 back-off or pause notice's text) and `loop.failed` (a round, read, record, notice or status line that failed and was
 swallowed); spans `loop.round` (one per round, its worker and checker under it) and `loop.probe_read` (a probe's
 baseline, trip or error, with the count of reads since it was armed).
+Memory search (L36 §3): `memory.search_reindexed` (the start's content re-index changed nodes; `version`, `finished`)
+and `memory.search_reindex_failed` (its error; search stays as it stands until the next start).
 
 ### 16.11 Loops (L31)
 
@@ -2844,6 +2846,31 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   question once (journal `memory.backlog_offered`, marked on read); the notch shows them as one list in today's chat
   (a learning-digest notice whose items have `kind: "guess"`, one `learningProposals` parser for both), and each answer
   goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
+- **One ranked search (§3).** `Learning.search` is the one ranked search. The planner turn and attention use it through
+  the daemon's `_search` (facts synced, the query's embedding off the loop); the worker and plan-step pushes (§4),
+  `memory.read` and `memory.learned` move onto it in the later L36 tasks. `learning_fts` holds each node's content only
+  (`search_text`; a fact with the words of its subject and key slugs, `slug_words`; day digests, rollups and intent
+  labels index nothing, found through what they cite). Every start asks `reindex_search` for `SEARCH_TEXT_VERSION`
+  (migration 0048); once per version it re-indexes every node in a worker thread on a connection of its own, in batches
+  of about 256 KB of stored bodies (`REINDEX_BATCH_BYTES`), each one transaction that records how far it got
+  (`learning_search_version.through`), so a stop or a crash resumes at the next start and a forget waits one batch at
+  most. Searches wait for it (`Daemon._search_ready`). Journal `memory.search_reindexed` (only when nodes were
+  re-indexed; `finished`) or `memory.search_reindex_failed`. On a copy of the owner's 1,150 nodes (30 MB of JSON-indexed
+  text, 2026-10-24) it took 4.5 s in 78 batches, each holding the write lock 128 ms at most; the index text went to 1
+  MB. A planner turn recalls for the owner's message plus the goals and targets (`target_words`: sites' host labels,
+  apps, recipients, paths' last parts) of the tasks its task layers show (`Supervisor._chat_task_words`: this chat's
+  running tasks and the resumable attempts it is shown), so a message that shares no word with a fact still recalls it
+  through the work it continues. A word found in more than half of the nodes carries no weight (`weighted_terms`, with
+  `Memory.recall`'s rule `items.weighted`); a query whose every word is such finds nothing, by embedding similarity too,
+  and a query with no words lists the newest. bm25 ranks with ties sharing a rank, the trigram title match and an
+  adopted embedding are fused by reciprocal rank, plus at most 0.05 for recency (half-life 30 days); at equal score an
+  owner-stated node comes first. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60 (the planner and attention) and
+  `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity layer and the planner's
+  procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and procedures before the
+  budget applies. The memory blocks stay protected inside the budgets (the planner's conversation fills its window
+  before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>): <goal> — <status>[,
+  verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the same `search_text`; a
+  node without one has no vector.
 
 ### 16.13 FERB's cursor (L33)
 

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.request import urlopen
 
-from ferb.memory.learning import LearningRefused, digest, encoded
+from ferb.memory.learning import LearningRefused, digest, encoded, search_text
 
 
 def manifest(path: Path) -> dict[str, Any]:
@@ -119,10 +119,19 @@ def quantize(values: list[float]) -> list[int]:
     return [round(127 * x / norm / peak) for x in values]
 
 
+def _unembedded(learning: Any, node: dict[str, Any], model: Any) -> None:
+    """A node with nothing to match (a rollup, an intent label: `search_text` is empty) is never embedded; a vector an
+    earlier index made of its JSON goes, so similarity can't rank it either."""
+    learning.db.conn.execute('DELETE FROM learning_vectors WHERE node_id=? AND model=?', (node['id'], model.name))
+
+
 def index(learning: Any, model: Any) -> int:
     count = 0
     for node in learning.items():
-        text = node['key'] + ' ' + encoded(node['body'])
+        text = search_text(node['kind'], node['key'], node['body'])     # what keyword search matches too (L36 §3)
+        if not text:
+            _unembedded(learning, node, model)
+            continue
         sha = digest(text)
         old = learning.db.conn.execute('SELECT text_hash FROM learning_vectors WHERE node_id=? AND model=?',
                                        (node['id'], model.name)).fetchone()
@@ -216,7 +225,10 @@ async def index_async(learning: Any, model: Any) -> int:
     """Keep inference off the daemon thread; only the owner loop touches SQLite."""
     count = 0
     for node in learning.items():
-        text = node['key'] + ' ' + encoded(node['body'])
+        text = search_text(node['kind'], node['key'], node['body'])     # what keyword search matches too (L36 §3)
+        if not text:
+            _unembedded(learning, node, model)
+            continue
         sha = digest(text)
         old = learning.db.conn.execute('SELECT text_hash FROM learning_vectors WHERE node_id=? AND model=?',
                                        (node['id'], model.name)).fetchone()

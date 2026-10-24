@@ -340,11 +340,12 @@ def test_a_card_read_again_keeps_its_tasks_label_without_a_model_call(learning) 
 def test_labels_are_never_recalled_as_memory(learning) -> None:
     """N3: a label is the learner's bookkeeping: search (memory.learned, the planner's candidates) never returns one."""
     c = card(learning, "t1", "find me the cheapest egg curry with breads")
-    label_card(learning, c, "zorblat food order")
-    assert learning.db.conn.execute("SELECT count(*) FROM learning_fts WHERE learning_fts MATCH '\"zorblat\"'"
-                                    ).fetchone()[0] == 1                  # indexed, so a search would find it
+    label = label_card(learning, c, "zorblat food order")
+    # L36 §3: a label indexes nothing (found through the cards it cites), so no word of it finds it
+    assert learning.db.conn.execute("SELECT text FROM learning_fts WHERE id = ?", (label["id"],)).fetchone()[0] == ""
     assert [p for p in learning.search("zorblat food order") if p["kind"] == intents.INTENT_KIND] == []
     assert learning.search("zorblat", kind=intents.INTENT_KIND) == []
+    assert learning.search("", kind=intents.INTENT_KIND) == []        # the listing holds it: search still leaves it out
     assert "zorblat" not in learning.candidates("zorblat food order")
 
 

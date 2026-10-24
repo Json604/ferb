@@ -36,6 +36,7 @@ from ferb.memory.items import whole_clauses
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.learning import ProcedurePart
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
+from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, EDIT_MEMORY_ASK, FERB_CHECKS, JUST_ENDED, Steering,
@@ -1509,7 +1510,9 @@ class Supervisor(WorkerRuns):
                                        protected=True, source_refs=tuple(activity_refs), payload=activity_payload),
                           origins_.split(activity_origin)))
         # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
-        situation.extend(await self._memory_blocks(message, remembered, mem_text, procedures))
+        # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a)
+        recall_for = "\n".join(part for part in (message, self._chat_task_words(session)) if part.strip())
+        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, procedures))
         state: list[tuple[ContextBlock, set[str]]] = []
         # A scheduled run starts fresh: its earlier runs are its conversation and its previous-run block, never
         # attempts to continue.
@@ -1697,6 +1700,19 @@ class Supervisor(WorkerRuns):
     def _attempts_text(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> str:
         """Resumable attempts, newest first (as candidates() returns them), keeping those that fit max_tokens."""
         return self._attempts(candidates, max_tokens)[0]
+
+    def _chat_task_words(self, session: ChatSession) -> str:
+        """The goals and targets of the tasks this chat's planner sees in its task layers (L36 §3): its running tasks
+        and the resumable attempts `_attempts` shows it (recently ended ones among them). An owner message that shares
+        no word with a remembered fact still recalls it when the work it continues names the site."""
+        mine = self.continuity.task_ids(session.id)
+        specs = [tree.spec for key, tree in self._tree_of.items() if key == tree.id and key in mine]
+        if not session.id.startswith(SCHEDULE_SESSION):         # a scheduled run's planner is shown no attempts
+            for task_id in self._attempts(self.continuity.candidates(session.id))[1]:
+                saved = None if task_id in self._tree_of else self.continuity.load(task_id, session.id)
+                if saved is not None:
+                    specs.append(saved[0])
+        return "\n".join(part for spec in specs for part in (spec.goal, target_words(spec.targets)) if part.strip())
 
     def _attempts(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> tuple[str, list[str]]:
         """_attempts_text, plus the task ids it shows."""

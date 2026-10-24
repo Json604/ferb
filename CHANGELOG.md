@@ -848,6 +848,14 @@ After the owner's update (2026-10-24):
   stray "yes" is never saved.
 - The guesses FERB had made about you without asking appear once in the notch as one list, "Review N older guesses",
   each with Keep, Drop or your own words (L36).
+- Memory is ranked and bounded (L36). Live 2026-10-24: every planner turn got about 207 memory lines (43 KB), 102 of
+  them bare task ids, all kept whatever their relevance, because words like "is", "the" and "for" matched the JSON of
+  every item. Search now reads only what items say, ignores words most items share, ranks by relevance with a small
+  boost for recent items and your own statements first, and gives each planner turn the 60 most relevant (owner:
+  "Planner 60, worker 20"). A message is also matched through the task it continues: at 12:17 your "hmm idk if thats s
+  agood strategy…" shared no word with the saved username, but the running visa task named usvisascheduling.com, and
+  now that brings the username in. Past tasks show their goal, outcome and date. The index is rebuilt once at the next
+  start, in the background in short steps (about 5 seconds on a copy of your memory; the first reply waits for it).
 
 Licensed under Apache-2.0.
 

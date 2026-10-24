@@ -8,6 +8,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, NamedTuple
@@ -54,7 +55,8 @@ from ferb.daemon import resources as resource_use   # not `resources`: the const
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
-from ferb.memory.learning import SOURCE_REF_INDEX
+from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, PROMPT_LEAVES_OUT, SEARCH_TEXT_VERSION, SOURCE_REF_INDEX,
+                                  reindex_search, search_indexed)
 from ferb.orchestrator import acks, episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
@@ -303,6 +305,9 @@ class Daemon:
         self.consolidator: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
+        # L36 §3: the start's re-index of the search text, in a worker thread; asked to stop at shutdown
+        self._reindex_task: asyncio.Task[None] | None = None
+        self._reindex_stop = threading.Event()
         self.run_retention = retention
         self._retention_task: asyncio.Task[None] | None = None
         # L30: FERB's resource log, a row of numbers every 5 minutes. Tests turn the timer off (never a real reading).
@@ -364,6 +369,7 @@ class Daemon:
         self.db.migrate()
         self.db.conn.execute(SOURCE_REF_INDEX)  # one an interrupted store clean-out lost (a no-op when it is there)
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
+        self._reindex_task = asyncio.get_running_loop().create_task(self._reindex_search())   # searches wait for it
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
         if self.run_resources:                  # its first window starts here, so start-up's own work is in it
@@ -470,6 +476,9 @@ class Daemon:
     async def shutdown(self) -> None:
         self._shutting_down = True
         await self._settle_forgets()                         # a forget's scrub runs in a thread: it finishes first
+        self._reindex_stop.set()                             # the search re-index ends after its batch (next start resumes)
+        if self._reindex_task is not None:
+            await asyncio.wait({self._reindex_task})
         if self.persona is not None:
             await self.persona.close()
         current = asyncio.current_task()
@@ -1541,29 +1550,78 @@ class Daemon:
         self.learning.sync_facts(self.memory)
         return self.learning.identity()
 
-    async def _learning_candidates(self, words: str) -> list[dict[str, Any]]:
-        """Relevant learned memory. The query's embedding (when one is adopted) is computed off the event loop; SQLite
-        stays on it. Each item cites itself: its node carries its own sources, so forgetting any of them reaches what
-        cites the node (the memory.learned tool cites items the same way)."""
+    async def _reindex_search(self) -> None:
+        """L36 §3: the search index by content (`search_text`), once per SEARCH_TEXT_VERSION, asked at every start (a
+        no-op once done). It runs in a worker thread on a connection of its own, in short batches each its own
+        transaction (`reindex_search`): the event loop never waits for it, a forget waits one batch at most, and a stop
+        or a crash keeps what was done (the next start finishes). Searches wait for it (`_search_ready`), never ranking
+        a half re-indexed store. Journaled only when nodes were re-indexed (m3); a failure is journaled and leaves
+        search as it stands until the next start."""
+        assert self.db is not None
+        path, stop = self.db.path, self._reindex_stop
+
+        def work() -> tuple[bool, bool]:
+            db = Database(path)
+            try:
+                db.conn.execute("PRAGMA busy_timeout = 60000")   # a long write elsewhere delays it, never fails it
+                return reindex_search(db, stop=stop.is_set), search_indexed(db)
+            finally:
+                db.close()
+        try:
+            reindexed, finished = await asyncio.to_thread(work)
+        except Exception as e:
+            self._journal().append("memory.search_reindex_failed",
+                                   {"error": self._redact_text(f"{type(e).__name__}: {e}")})
+            return
+        if reindexed:
+            self._journal().append("memory.search_reindexed", {"version": SEARCH_TEXT_VERSION, "finished": finished})
+
+    async def _search_ready(self) -> None:
+        """Wait for the start's search re-index, if it still runs (`_reindex_search`)."""
+        if self._reindex_task is not None and not self._reindex_task.done():
+            await asyncio.wait({self._reindex_task})
+
+    async def _query_vector(self, words: str) -> tuple[list[int] | None, bool]:
+        """The query's embedding when the owner adopted a model, computed off the event loop (L28); (None, False)
+        after a failed encode, reported once (keyword ranking only)."""
+        embedder = self.learning.embedder if self.learning else None
+        if embedder is None or not words:
+            return None, True
+        try:
+            return await asyncio.to_thread(embedder.encode, words, query=True), True
+        except Exception as e:                       # reported once; keyword ranking only, no second encode
+            self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
+            return None, False
+
+    async def _search(self, query: str, *, limit: int | None = None, leave_out: frozenset[str] = frozenset(),
+                      **filters: Any) -> list[dict[str, Any]]:
+        """The one ranked search (L36 §3) for the planner, attention, workers, memory.read and memory.learned: memory
+        items synced to fact nodes first, the query's embedding off the loop, SQLite on it."""
         if not self.learning:
             return []
+        await self._search_ready()
         self.learning.sync_facts(self.memory)
-        embedder = self.learning.embedder
-        vector, embed = None, True
-        if embedder is not None and words:
-            try:
-                vector = await asyncio.to_thread(embedder.encode, words, query=True)
-            except Exception as e:                       # reported once; keyword ranking only, no second encode
-                embed = False
-                self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
-        from ferb.memory.learning import line_safe, shown_state
+        vector, embed = await self._query_vector(query)
+        return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
+                                         **filters))
+
+    async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS,
+                                   procedures: bool = True) -> list[dict[str, Any]]:
+        """Relevant learned memory, ranked, at most `budget` items (the owner's: planner 60, worker 20; L36 §3), each
+        line saying what it is (`shown_text`); with `procedures`, every procedure the planner may choose first, outside
+        the budget (L29). Each item cites itself: its node carries its own sources, so forgetting any of them reaches
+        what cites the node (the memory.learned tool cites items the same way)."""
+        if not self.learning:
+            return []
+        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT)
+        from ferb.memory.learning import line_safe, shown_state, shown_text
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
         # (the planner matches by meaning), the most recently used intent first; its origins with those of every
         # current label of its intent (the newest names it, its text copied from the run that wrote it), which it cites
         # too. Their fold route makes them optional blocks fitted to the window.
         learned = []
-        for item in self.learning.learned_procedures():
+        for item in self.learning.learned_procedures() if procedures else []:
             node = item['node']
             made = set(node['origins']) | set(item['label_origins'])
             learned.append({'text': f"{node['id']} [procedure, {shown_state(node)}, {origin_.least_trusted(made)}; "
@@ -1573,13 +1631,11 @@ class Daemon:
                             'source_refs': [node['id'], *item['labels']], 'fold': PROCEDURES_ROUTE})
         return learned + [
             {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
-                     + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
+                     + shown_text(p),
              'reference': 'memory.learned item_id=' + p['id'],
              'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
              'source_refs': [p['id']]}
-            for p in self.learning.search(words, query_vector=vector, embed=embed)
-            # a label groups cards for the learner (L29); a procedure is listed above, or can't be chosen (I5)
-            if p['kind'] not in ('identity', 'episode_intent', 'procedure')]
+            for p in found]
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:

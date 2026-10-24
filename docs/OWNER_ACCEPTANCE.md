@@ -1567,3 +1567,19 @@ with the owner watching; pause between supervised actions and record what the ow
 - The pointer on the built-in notched display and on a second display (it must not sit under the notch inset).
 - No pointer where none is promised: a minimized FERB window, a pinned header, an inner scrolling list.
 - Reload the unpacked 0.15.9 extension (`ferb doctor` shows the version), and upload 0.15.9 to the Chrome Web Store.
+
+## Memory that works (L36) — pending live checks (2026-10-24)
+
+Checkout validation is in the changelog entries; nothing here is installed or observed yet. Run after `ferb setup --update`,
+with the owner watching. Later L36 tasks add their checks here.
+
+- The first start after the update re-indexes your memory's search text once (L36 §3), in the background, in short
+  steps: about 5 seconds on a copy of your 1,150 learned nodes (the 2.3 GB database is mostly other records; the
+  index text goes from 30 MB to 1 MB). Check that the journal holds one `memory.search_reindexed` with
+  `"finished": true` and no `memory.search_reindex_failed` (`sqlite3 ~/.ferb/ferb.db "select at, kind, data_json from
+  journal where kind like 'memory.search_reindex%'"`), and that a chat message sent right after the start gets its reply
+  (its memory waits for the re-index). A restart during it resumes where it stopped; a later restart journals nothing.
+- With a saved fact about a site (the visa username) and a visa task in the chat, start the next task there with words
+  that don't name the fact ("hmm idk if thats a good strategy, search more and propose a better one"): the new task's
+  planner snapshot (`ferb trace TASK --full`, planner-context) lists the fact among at most 60 memory lines, and past
+  tasks read "past task <id> (<date>): <goal> — <status>".
