@@ -2763,3 +2763,27 @@ def test_stop_on_a_pause_card_lets_go_of_the_owners_tab_that_is_still_open(bd, m
         assert OWNER_TAB in ext.tabs and OWNER_TAB not in ext.attached      # let go of, still open
     finally:
         c.close()
+
+
+def test_a_reconnect_while_the_held_tab_rests_leaves_it_armed(bd, monkeypatch):
+    """Re-review N5: after an extension reconnect the daemon disarms every armed tab no live task drives. A loop's
+    held tab resting between rounds is no live task's for downloads, but the loop still holds it (`Hub.holds`): it
+    isn't disarmed, while a tab no task holds is."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, [])], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert sv.loop_resting(f'{tree_id}.loop.keep')
+        ext.armed |= {OWNER_TAB, 555}                    # 555: a tab an earlier daemon drove
+        ext.hello()                                      # the extension says hello again, listing what it holds
+        ext.wait_for(lambda: 555 in ext.disarmed)
+        assert OWNER_TAB not in ext.disarmed and OWNER_TAB in ext.attached
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
