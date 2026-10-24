@@ -13,13 +13,21 @@ from ferb.orchestrator.plans import SendScope
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
-from ferb.trace.lines import clip
+from ferb.trace.lines import choices, clip    # choices: in a module light enough for the CLI (live_chat)
 
 SHOWN_CHARS = 120             # display only: characters of the correction a steer's short reply quotes; decides nothing
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
-CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1: the owner's Yes/No to keeping FERB's wording of what they said
-# FERB's own consequential Yes/No questions: answered only by a plain Yes or No, never by a correction's words (L3)
+CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1, L36: the owner's Keep / Edit / Drop to one of FERB's guesses
+EDIT_MEMORY_ASK = 'memory.edit'               # L36 §2: the owner's own words for one of FERB's guesses (free text)
+# FERB's questions about memory, by `memory_questions.kind` (before any ':'): their capability and options
+MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
+    'confirm': (CONFIRM_MEMORY_ASK, ('Keep', 'Edit', 'Drop')), 'edit': (EDIT_MEMORY_ASK, ()),
+    'forget': (FORGET_ASK, ('Yes', 'No'))}
+# Checks whose typed answer must be one of their options (Ruling: a stray "yes keep it" is never saved as a memory)
+OPTION_ONLY = frozenset({CONFIRM_MEMORY_ASK})
+# FERB's own consequential checks: answered only by one of their options in plain words (Yes or No; Keep, Edit or
+# Drop), never by a correction's words (L3)
 FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK})
 
 

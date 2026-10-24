@@ -17,6 +17,14 @@ def plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def choices(options: Any) -> str:
+    """Options as the owner reads them: "Keep, Edit or Drop" (L36; steering and the CLI's question line share it)."""
+    opts = [str(o) for o in options]
+    if len(opts) < 2:
+        return "".join(opts)
+    return ", ".join(opts[:-1]) + " or " + opts[-1]
+
+
 def duration(seconds: float | None) -> str:
     if seconds is None:
         return "?s"

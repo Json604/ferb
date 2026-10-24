@@ -1859,13 +1859,13 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   Share my links" never loses its negation, the saved text may be longer, and "Book my flight.\nI prefer aisle seats"
   or "Translate [paste] and never share my links publicly" saves just the typed fragment. Accepted residual: a paste
   inside a sentence splits it too, so "I don't [paste] like tea" saves "like tea". FERB's rewording is an inferred proposal offered by a
-  `memory.confirm` FERB check (`_ask_owner`; Yes confirms, No retracts); a quote sharing no word with the content is
-  refused. An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
+  `memory.confirm` FERB check (`_ask_keep`; Keep / Edit / Drop, §16.12); a quote sharing no word with the content is
+  refused (`items.capture`, which distillation's quotes share). An owner_stated preference about the owner joins identity whatever the turn showed (owner decision
   2026-10-20: "No hold for my typed words"); pasted text never becomes owner_stated, and identity proposals remain only
   for inferred and derived items. `items.prompt_ready`: only active items, and observed patterns still gathering days
   (shown as "unconfirmed hint", `learning.shown_state`), reach prompts; pending inferred items are indexed as fact
   nodes in state `proposed`, which `Learning.search`, the entity rollup, `memory.learned` and `memory.read` all leave
-  out, so only the dashboard (inventory `confirmable`) sees and confirms them. FERB's Yes/No memory questions are kept
+  out, so only the dashboard (inventory `confirmable`) sees and confirms them. FERB's memory questions are kept
   in `memory_questions` (migration 0041) until answered and asked again after a restart (`_restore_memory_questions`).
   A memory confirmed or retracted another way closes only its "Keep this?" question; a memory or learned item deleted
   by any path closes every question about it, the owner's "Forget for good?" too, which nothing else closes
@@ -2194,7 +2194,7 @@ measurements remain null, denominators are retained and aggregate deltas are not
 Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
 local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.
 
-## 16. Launch week (L1–L31), as built (checkout; owner install and live checks pending)
+## 16. Launch week (L1–L31, L36), as built (checkout; owner install and live checks pending)
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
@@ -2809,3 +2809,25 @@ planner's own words say what the loop does.
   counts; the journal has `loop.round`, `loop.notice` and `loop.failed` (a round, read, record, notice or status line
   that failed and was swallowed so the loop runs on). Tests: `tests/test_loops.py`, `tests/test_watches.py`,
   `tests/test_prompt_contract.py`.
+
+### 16.12 Memory that works (L36)
+
+Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
+`docs/superpowers/plans/2026-10-24-memory-that-works.md`. Capture on every turn path landed first (`1c22dcb`,
+`f747d37`).
+- **Safety net (§2).** Distillation may give an inferred item a `quote` {handle, text} citing one of its own C handles;
+  `distill.owner_said` runs chat capture's check (`items.capture`: the quote is whole words of the message's typed lines,
+  read back by `untrusted.typed_lines_of`, and the content is found there) and, when it passes, saves the owner's whole
+  sentence(s) as `owner_stated` with the message's journal entry as its source. Only a message journaled with
+  `untrusted_parts` counts (`DayEvidence.owner_words`). Every new inferred item, from chat capture or distillation, is
+  asked at once (`Daemon._ask_keep`; kind `confirm`, capability `memory.confirm`, options Keep / Edit / Drop, kept in
+  `memory_questions` until answered). Keep confirms. Edit asks a free-text `memory.edit` question and saves the answer
+  as a new owner-stated version, retracting the guess. Drop, and a declined question, delete that guess alone and keep
+  its fingerprint (`Memory.drop`), so it is never proposed again; `forget` is not used, since it purges every version of
+  the key and the owner's messages. Text typed into the Keep / Edit / Drop question that is no option is refused
+  (`steering.OPTION_ONLY`).
+  While the owner's own "Forget for good?" about the guess waits, Drop retracts it instead (`_settle_guess`): a deletion
+  would close that question unanswered, and its Yes still purges every copy (re-review R1). The planner prompt routes a
+  check's own options ("Keep", "Edit" or "Drop"), and FERB's "which is it?" names them (`supervisor._plain_choice`).
+  Debugging: `memory_questions` rows of kind `confirm` / `edit`; journal `memory.edited` (an Edit's words, the new
+  version's source) and `memory.capture_refused`; `distill_runs.detail` lists what a day proposed and refused.

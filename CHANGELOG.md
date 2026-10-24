@@ -821,6 +821,12 @@ After the owner's update (2026-10-24):
 - Jev is optional and says where a key comes from (L37; owner: "in the setup just direct users directly to typesafe
   api creation site if they dont have it"): `ferb setup --jev` first points to https://console.typesafe.ai/keys, and
   `ferb doctor` shows "jev: not set (optional): activity notices are off; a key comes from …" instead of nothing.
+- What you say is saved even when the planner skips it, and every guess is asked about (L36, MP2). Live 2026-10-24
+  (memory audit): 14 of your durable statements in two weeks were never saved, and the nightly distill had made 27
+  guesses about you that nobody asked you about. Distillation can now quote your own words for an item; FERB checks the
+  quote against what you typed (never pasted text) and saves your sentence as yours. Any guess, from chat or the nightly
+  look, becomes a question at once: Keep, Edit (your own words are saved instead) or Drop (deleted; never suggested
+  again). Text typed into that question that isn't one of the three is refused, so a stray "yes" is never saved.
 
 Licensed under Apache-2.0.
 

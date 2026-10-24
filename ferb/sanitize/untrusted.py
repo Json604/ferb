@@ -34,6 +34,18 @@ def _lines(parts: list[str]) -> str:
     return "\n".join(" ".join(line.split()) for part in parts for line in part.split("\n") if line.strip())
 
 
+def typed_lines_of(for_model: str) -> str:
+    """The owner's typed words with their line breaks (`Marked.typed_lines`) read back from a message as stored
+    (`Marked.for_model`): each wrapped pasted or quoted part is left out and ends a line, so a saved sentence ends
+    there (L36 §2: distillation checks its quotes against these, never pasted text)."""
+    parts, pos = [], 0
+    for m in WRAPPED.finditer(for_model):
+        parts.append(for_model[pos:m.start()])
+        pos = m.end()
+    parts.append(for_model[pos:])
+    return _lines(parts)
+
+
 def mark(message: str, pasted_is_data: bool = True) -> Marked:
     """Split the owner's message into their own words and untrusted parts. `pasted_is_data=False` (the owner's switch,
     `[policy] pasted_text_is_data = false`, 2026-10-01): everything they send counts as their own words."""

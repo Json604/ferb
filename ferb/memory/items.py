@@ -20,7 +20,8 @@ stated: both stay active and recall flags the conflict (the owner's wins).
 entries, trail rows) unless the owner keeps them, the search index, the WAL; days whose trail rows went are
 re-summarized (or their summary deleted once the raw rows are gone), and a day's narrative written from a forgotten
 chat message is deleted. What FERB's own records say of it goes too (`echoes`, I2). A one-way fingerprint stops
-distillation from proposing it again."""
+distillation from proposing it again. `drop` (the owner's Drop on one of FERB's guesses, L36) deletes that proposal
+alone and keeps the same fingerprint."""
 
 import hashlib
 import json
@@ -138,6 +139,39 @@ def whole_clauses(text: str, part: str) -> bool:
         return False
     left, right = _clause_span(text, *found)
     return not any(_wordlike(c) for c in text[left:found[0]] + text[found[1]:right])
+
+
+@dataclass(frozen=True)
+class Capture:
+    """What chat capture saves from the owner's typed words (`capture`)."""
+    origin: str          # "owner_stated", "inferred", or "" when nothing is saved
+    content: str
+    refused: str = ""    # why nothing is saved, in code's words (CAPTURE_TOLD has the owner's)
+
+
+# Each refusal as the owner reads it in FERB's line (owner 2026-10-24: the reason, never "a problem on my side")
+CAPTURE_TOLD = {"quote not in the owner's words": "the words I quoted from you aren't in what you typed",
+                "the quote holds nothing of what would be saved": "the words I quoted from you don't say it"}
+
+
+def capture(own_words: str, content: str, quote: str) -> Capture:
+    """Chat capture's check (memory review I1, MP2), shared by the planner's remember entries and distillation's quotes
+    (L36 §2). `own_words`: what the owner typed (pasted parts left out), with its line breaks. The quote must be whole
+    words of it. Then the whole sentence(s) holding `content` are saved as the owner's own words (`owner_sentences`);
+    when the content isn't there, `content` is FERB's wording (inferred), provided the quote shares a word with it."""
+    content = content.strip()
+    if not contains_words(own_words, quote):
+        return Capture("", content, "quote not in the owner's words")
+    clause = owner_sentences(own_words, content)
+    if clause is None and not set(query_terms(quote)) & set(query_terms(content)):
+        return Capture("", content, "the quote holds nothing of what would be saved")
+    return Capture("owner_stated", clause) if clause else Capture("inferred", content)
+
+
+def owner_span(text: str, part: str) -> str | None:
+    """`part` as the owner spelled it in `text` (whole words, case and spacing aside), or None."""
+    found = _found(text, part)
+    return text[found[0]:found[1]] if found else None
 
 
 def prompt_ready(item: MemoryItem) -> bool:
@@ -412,6 +446,20 @@ class Memory:
             raise MemoryRefused(f"no item {item_id}")
         self.db.conn.execute("UPDATE memory_items SET status = 'retracted' WHERE id = ?", (item_id,))
         self.on_settled([item_id], False)
+        self.on_change()
+
+    def drop(self, item_id: str) -> None:
+        """The owner's Drop on one of FERB's guesses (L36 §2): this proposal alone is deleted and its fingerprint kept,
+        so distillation never proposes it again. The owner's messages it came from and every other version of the fact
+        stay: a guess never reached a prompt, and `forget` would purge every version of its key with their sources."""
+        it = self.get(item_id)
+        if it is None or it.status != "proposed":
+            raise MemoryRefused(f"no proposed item {item_id}")
+        self.db.conn.execute("DELETE FROM memory_sources WHERE item_id = ?", (item_id,))
+        self.db.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,))
+        self.db.conn.execute("INSERT OR IGNORE INTO memory_forgotten (fingerprint, at) VALUES (?, ?)",
+                             (fingerprint(it.kind, it.subject, it.key, it.content), self.clock.now().isoformat()))
+        self.on_settled([item_id], True)
         self.on_change()
 
     def edit(self, item_id: str, content: str, source: Source) -> MemoryItem:

@@ -111,7 +111,7 @@ def test_a_paraphrase_waits_for_the_owners_confirm_before_it_shapes_prompts(daem
     item = Remember(kind="preference", subject="owner", key="work_browser",
                     content="Always use Brave for work and never Safari", quote="I prefer Brave for work")
     saved = run(daemon, lambda: daemon.daemon._remember([item], said, src))
-    assert len(saved) == 1 and "Reply Yes" in saved[0]["line"] and "Remembered" not in saved[0]["line"]
+    assert len(saved) == 1 and "answer Keep" in saved[0]["line"] and "Remembered" not in saved[0]["line"]
     assert "ferb memory" not in saved[0]["line"] and "id-" not in saved[0]["line"]   # no command, no id (fix round)
     it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
     assert (it.origin, it.status) == ("inferred", "proposed")
@@ -152,7 +152,7 @@ def test_a_preference_in_the_owners_typed_words_joins_identity_whatever_was_on_s
     assert run(daemon, lambda: daemon.daemon.learning.items("identity_proposal")) == []
 
 
-def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_yes(daemon: RunningDaemon) -> None:
+def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_keep(daemon: RunningDaemon) -> None:
     import json as _json
     install(daemon, [_json.dumps({"kind": "reply", "text": "Okay.", "remember": [
         {"kind": "preference", "subject": "owner", "key": "work_browser",
@@ -160,10 +160,10 @@ def test_a_paraphrase_can_be_confirmed_from_chat_with_a_plain_yes(daemon: Runnin
     chat(daemon, "I prefer Brave for work")
     question = run(daemon, lambda: next(q for q in daemon.daemon.state.approvals.pending()
                                         if q.capability == "memory.confirm"))
-    assert "Always use Brave for work" in question.reason and question.options == ("Yes", "No")
+    assert "Always use Brave for work" in question.reason and question.options == ("Keep", "Edit", "Drop")
     install(daemon, [_json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": question.id,
-                                                                                     "answer": "Yes"}})])
-    chat(daemon, "Yes")
+                                                                                     "answer": "Keep"}})])
+    chat(daemon, "Keep")
     it = run(daemon, lambda: mem(daemon).items(None, valid_now=False))[0]
     assert (it.origin, it.status) == ("inferred", "active")
 
@@ -368,7 +368,7 @@ def test_distillation_proposals_are_checked_in_code(daemon: RunningDaemon) -> No
 
     def item(origin: str, handles: list[str], kind: str = "preference", subject: str = "owner", key: str = "k") -> dict[str, Any]:
         return {"kind": kind, "subject": subject, "key": key, "content": f"{origin} {key}", "origin": origin,
-                "confidence": 0.6, "handles": handles}
+                "confidence": 0.6, "handles": handles, "quote": None}
     answer = {"narrative": "A day of code.", "items": [
         item("observed", [e], key="github"),                                  # ok (proposed: 1 day)
         item("observed", [f], key="ferb_habit"),                              # FERB's activity: refused

@@ -55,11 +55,15 @@ class DayEvidence:
     digest: dict[str, Any]
     lines: list[str] = field(default_factory=list)                 # what distillation reads, one handle per line
     handles: dict[str, list[Source]] = field(default_factory=dict)
+    # C handle -> (its chat message's journal id, the owner's typed lines): what a distilled quote is checked against
+    # (L36 §2); only messages journaled with their pasted parts counted
+    owner_words: dict[str, tuple[str, str]] = field(default_factory=dict)
 
-    def add(self, prefix: str, text: str, sources: list[Source]) -> None:
+    def add(self, prefix: str, text: str, sources: list[Source]) -> str:
         h = f"{prefix}{sum(1 for k in self.handles if k.startswith(prefix)) + 1}"
         self.handles[h] = sources
         self.lines.append(f"{h}: {text}")
+        return h
 
 
 def _rows(db: Database, day: str) -> list[Any]:
@@ -146,7 +150,10 @@ def build(db: Database, day: str) -> DayEvidence:
             text = str(d.get("text", ""))
             own = UNTRUSTED.sub("[pasted]", text).strip()
             if own:
-                ev.add("C", f"the owner said: {own}", [("journal", j["id"])])
+                handle = ev.add("C", f"the owner said: {own}", [("journal", j["id"])])
+                if d.get("untrusted_parts") is not None:      # Ruling: only rows that counted their pasted parts
+                    from ferb.sanitize.untrusted import typed_lines_of
+                    ev.owner_words[handle] = (j["id"], typed_lines_of(text))
             for m in UNTRUSTED.finditer(text):
                 ev.add("P", f"text the owner pasted (third-party): {m.group(2)}", [("journal", j["id"])])
         else:

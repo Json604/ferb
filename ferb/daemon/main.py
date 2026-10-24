@@ -135,6 +135,12 @@ def _named_node(node: dict[str, Any]) -> str:
     return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
 
 
+# L36 §2: FERB's questions about one of its guesses (a chat paraphrase; distillation asks with distill.KEEP_GUESS)
+KEEP_WORDING = "Keep this, in FERB's words (you didn't say it this way)? “{text}”"
+EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB saves exactly what you type. "
+                 "(Its guess: “{text}”)")
+
+
 # Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
 # pairing) and Brave (its profiles paired live). Elsewhere `ferb browsers pair` pairs by hand.
 AUTOPAIR_BROWSERS = ("chrome", "brave")
@@ -1332,12 +1338,13 @@ class Daemon:
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
-                                                                                  ("confirm",))
+                                                                                  ("confirm", "edit"))
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
+        self.distiller.ask_keep = self._ask_keep
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.running_apps = self._running_apps
@@ -1742,20 +1749,59 @@ class Daemon:
         return reason + "\nAnswer Yes or No."
 
     def _ask_owner(self, kind: str, ident: str, reason: str, request_id: str, approval_id: str | None = None) -> None:
-        """One of FERB's own Yes/No questions about memory (a FERB check: a plain Yes or No answers it, in chat or with
-        the notch's buttons): `_question_answered` does what its Yes asks. It is kept in `memory_questions` until it is
-        answered, so a restart asks it again (`_restore_memory_questions`; rule 9)."""
+        """One of FERB's own questions about memory, its capability and options by kind (`MEMORY_QUESTIONS`): a forget's
+        Yes / No and a guess's Keep / Edit / Drop are FERB checks (one of their options answers it, in chat or with the
+        notch's buttons); a guess's Edit takes the owner's own words (L36). `_question_answered` does what the answer
+        asks. It is kept in `memory_questions` until it is answered, so a restart asks it again
+        (`_restore_memory_questions`; rule 9)."""
         from ferb.core.types import Identity
-        from ferb.orchestrator.steering import CONFIRM_MEMORY_ASK, FORGET_ASK
+        from ferb.orchestrator.steering import MEMORY_QUESTIONS
         from ferb.policy.rules import ActionRequest
-        action = ActionRequest(CONFIRM_MEMORY_ASK if kind == "confirm" else FORGET_ASK, "owner_question",
-                               Identity.OWNER, frozenset(), "", "", request_id, frozenset())
-        ap = self.state.approvals.question(action, reason, ["Yes", "No"], approval_id)
+        capability, options = MEMORY_QUESTIONS[kind.split(":", 1)[0]]
+        action = ActionRequest(capability, "owner_question", Identity.OWNER, frozenset(), "", "", request_id,
+                               frozenset())
+        ap = self.state.approvals.question(action, reason, list(options), approval_id)
         self.db.conn.execute("INSERT OR IGNORE INTO memory_questions VALUES (?,?,?,?,?,?)",
                              (ap.id, kind, ident, reason, request_id, self.clock.now().isoformat()))
         self._owner_followups[ap.id] = (kind, ident)
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
+
+    def _ask_keep(self, item: Any, reason: str) -> None:
+        """L36 §2 ("Ask right away"): one of FERB's guesses about the owner, asked at once with Keep / Edit / Drop;
+        never twice for one item (an open Keep or Edit question about it is enough)."""
+        if self.db.conn.execute("SELECT 1 FROM memory_questions WHERE target = ? AND kind IN ('confirm', 'edit')",
+                                (item.id,)).fetchone():
+            return
+        self._ask_owner("confirm", item.id, reason, "memory-confirm-" + item.id)
+
+    def _settle_guess(self, item_id: str, action: str, text: str = "") -> str:
+        """The owner's answer to one of FERB's guesses (L36 §2). Keep makes it active, owner-confirmed. Edit saves the
+        owner's text as their own words (a new owner-stated version of the same fact) and retracts the guess. Drop
+        deletes the guess alone (`Memory.drop`; Ruling: never `forget`, which purges every version and the owner's
+        messages); while the owner's own "Forget for good?" about it waits, Drop retracts it instead (scan ruling I1,
+        re-review R1: a deletion would close that question unanswered, and its Yes still purges every copy). A line
+        for the owner; FerbError for an unknown action or an empty edit."""
+        item = self.memory.get(item_id)
+        if item is None or item.status != "proposed" or item.origin != "inferred":
+            return "That guess isn't waiting any more."
+        if action == "keep":
+            self.memory.confirm(item_id)
+            return "Kept."
+        if action == "drop":
+            if self.db.conn.execute("SELECT 1 FROM memory_questions WHERE target = ? AND kind = 'forget:memory'",
+                                    (item_id,)).fetchone():
+                self.memory.retract(item_id, "the owner said Drop")
+                return "Not kept. Your question about forgetting it still waits."
+            self.memory.drop(item_id)
+            self._forget_nodes(["memory:" + item_id], named=False)      # its index node goes with it
+            return "Dropped. FERB won't suggest it again."
+        if action == "edit" and text.strip():
+            entry = self._journal().append("memory.edited", {"id": item_id, "content": text.strip()})
+            mine = self.memory.edit(item_id, text.strip(), ("journal", entry.id))
+            self.memory.retract(item_id, "the owner wrote it in their own words")
+            return "Saved in your words: " + " ".join(mine.content.split())
+        raise FerbError("Pick Keep, Edit or Drop; Edit needs the words to save.")
 
     def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
         """FERB's Yes/No questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind)
@@ -1784,15 +1830,15 @@ class Daemon:
                 gone = self.learning is None or self.learning.get(row["target"]) is None
             else:
                 item = self.memory.get(row["target"]) if self.memory is not None else None
-                gone = item is None or (row["kind"] == "confirm" and item.status != "proposed")
+                gone = item is None or (row["kind"] in ("confirm", "edit") and item.status != "proposed")
             if gone:
                 self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (row["approval_id"],))
             elif self.state.approvals.get(row["approval_id"]) is None:
                 self._ask_owner(row["kind"], row["target"], row["reason"], row["request_id"], row["approval_id"])
 
     def _question_answered(self, ap: Any) -> str:
-        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2), keeping FERB's wording of a
-        memory on its Yes (I1). A line for the owner, or ''."""
+        """FERB's own follow-up to an answered question: a chat forget on its Yes (I2); a guess's Keep, Edit (which asks
+        for the owner's words) or Drop (`_settle_guess`, L36). A line for the owner, or ''."""
         followup = self._owner_followups.pop(ap.id, None)
         if followup is None:
             return ""
@@ -1801,14 +1847,20 @@ class Daemon:
         from ferb.memory.items import MemoryRefused
         yes = ap.state == "granted" and ap.choice == "Yes"
         if what == "confirm":
-            try:
-                if yes:
-                    self.memory.confirm(ident)
-                else:
-                    self.memory.retract(ident, "the owner said No")
-            except MemoryRefused:
-                return "That memory isn't waiting any more."
-            return "Kept, in my words." if yes else "Not kept."
+            # Ruling: a declined question is Drop (skipping FERB's own check is a No, L3)
+            choice = ap.choice if ap.state == "granted" else "Drop"
+            if choice == "Edit":
+                item = self.memory.get(ident)
+                if item is None or item.status != "proposed":
+                    return "That guess isn't waiting any more."
+                self._ask_owner("edit", ident, EDIT_QUESTION.format(text=" ".join(item.content.split())),
+                                "memory-edit-" + ident)
+                return ""
+            return self._settle_guess(ident, "keep" if choice == "Keep" else "drop")
+        if what == "edit":
+            if ap.state == "granted" and ap.answer:
+                return self._settle_guess(ident, "edit", ap.answer)
+            return self._settle_guess(ident, "drop")
         if not yes:
             return "Kept: nothing was forgotten."
         kind = what.removeprefix("forget:")
@@ -2153,33 +2205,26 @@ class Daemon:
             export(self.memory, self.home / "memory")
 
     def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[dict[str, str]]:
-        """Chat capture (memory review I1, MP2). `own_words`: what the owner typed (pasted parts left out). The quote must
-        be whole words of it. Saved as owner_stated is only the owner's own text: the whole sentence(s) of their words
-        that hold the planner's content (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is FERB's
-        wording of what they said: an inferred proposal, out of every prompt until they say Yes to the question that
-        offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. A preference
-        in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20: "No hold for
-        my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused item: why, in
-        plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side")."""
-        from ferb.memory.items import contains_words, owner_sentences, query_terms
+        """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
+        `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
+        owner_stated is only the owner's own text: the whole sentence(s) of their words that hold the planner's content
+        (`owner_sentences`), so a slice never drops a negation or a condition. Any other content is FERB's wording of
+        what they said: an inferred proposal, out of every prompt until they answer Keep to the question that offers
+        it (`_ask_keep`); one whose quote shares no word with it rests on nothing the owner said and is refused. A
+        preference in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20:
+        "No hold for my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused
+        item: why, in plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side")."""
+        from ferb.memory.items import CAPTURE_TOLD, capture
         saved: list[dict[str, str]] = []
         for it in items:
-            content = str(it.content).strip()
-            clause = owner_sentences(own_words, content)
-            if not contains_words(own_words, str(it.quote)):
-                why, told = "quote not in the owner's words", "the words I quoted from you aren't in what you typed"
-            elif clause is None and not set(query_terms(str(it.quote))) & set(query_terms(content)):
-                why, told = "the quote holds nothing of what would be saved", "the words I quoted from you don't say it"
-            else:
-                why = told = ""
-            if why:
-                self._journal().append("memory.capture_refused", {"key": it.key, "why": why})
-                saved.append({"refused": told})
+            got = capture(own_words, str(it.content), str(it.quote))
+            if got.refused:
+                self._journal().append("memory.capture_refused", {"key": it.key, "why": got.refused})
+                saved.append({"refused": CAPTURE_TOLD[got.refused]})
                 continue
             try:
-                m = self.memory.propose(it.kind, it.subject, it.key, clause or content,
-                                        "owner_stated" if clause else "inferred", [("journal", source_id)],
-                                        1.0 if clause else 0.7)
+                m = self.memory.propose(it.kind, it.subject, it.key, got.content, got.origin,
+                                        [("journal", source_id)], 1.0 if got.origin == "owner_stated" else 0.7)
             except FerbError as e:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
                 saved.append({"refused": reason(e, self.redact)})
@@ -2188,11 +2233,10 @@ class Daemon:
             if m.origin == "owner_stated":
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}"})
             else:
-                self._ask_owner("confirm", m.id, f"Keep this, in FERB's words (you didn't say it this way)? “{text}”",
-                                "memory-confirm-" + m.id)
-                saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Confirm)",
-                              "line": f"Saved in my words, not yours, so I won't use it until you confirm: “{text}”. "
-                                      "Reply Yes to keep it."})
+                self._ask_keep(m, KEEP_WORDING.format(text=text))
+                saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Keep)",
+                              "line": "Saved in my words, not yours, so I won't use it until you answer Keep: "
+                                      f"“{text}”."})
         return saved
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
@@ -3920,6 +3964,9 @@ class Daemon:
             else:
                 text = text.strip()
                 granted = bool(text)
+                from ferb.orchestrator.steering import OPTION_ONLY, choices
+                if ap is not None and ap.capability in OPTION_ONLY and text and ap.option_for(text) is None:
+                    raise FerbError(f"Pick {choices(ap.options)}.")
                 # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
                 # (L18, D28). A picked option is never one; other typed words to a question are hidden for this
                 # answer alone when the question asks for a one-time code or a sign-in password or PIN
@@ -3932,7 +3979,7 @@ class Daemon:
         try:
             ap = self.state.approvals.resolve(approval_id, granted, choice, text)
             followed = self._question_answered(ap)          # a chat forget answered with the notch's buttons (I2)
-            if followed:
+            if followed and ap.capability == "memory.forget":
                 self._publish("memory.forgot", {"approval_id": ap.id, "text": followed})
             if ap.capability == 'setup.persona' and self.persona is not None:
                 try:

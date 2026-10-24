@@ -235,7 +235,7 @@ def test_memory_proposals_jev_rejects_are_dropped_when_enabled(jd: Any) -> None:
     ev_handle = "E1"
     rt = FakeDistillRuntime({"narrative": "n", "items": [
         {"kind": "preference", "subject": "owner", "key": "github", "content": "uses GitHub", "origin": "observed",
-         "confidence": 0.6, "handles": [ev_handle]}]})
+         "confidence": 0.6, "handles": [ev_handle], "quote": None}]})
     d.daemon.distiller.make_runtime = lambda *a, **k: rt
     r = d.run(d.daemon.distiller.run_day(day), timeout=20)
     assert r["proposed"] == 0 and "not worth keeping" in r["refused"][0]

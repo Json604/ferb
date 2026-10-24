@@ -8,8 +8,11 @@ Daily distillation: for each past day, in order —
 
 Code checks every proposal before `Memory.propose` (which checks the sources again): handles must exist; an observed
 item cites only the owner's own trail (E); nothing about the owner or their preferences may rest on FERB's activity
-(F) or on pasted third-party text (P); a third-party item must cite pasted text. A model failure leaves the summary in
-place and is retried on later hourly runs or an explicit retry."""
+(F) or on pasted third-party text (P); a third-party item must cite pasted text. An inferred item may quote the
+owner's words from one of its C handles: when chat capture's check passes on that message's typed lines, the owner's
+sentence is saved as theirs (`owner_said`); every other new inferred item is asked about at once, Keep / Edit / Drop
+(`ask_keep`, L36). A model failure leaves the summary in place and is retried on later hourly runs or an explicit
+retry."""
 
 import hashlib
 import json
@@ -21,22 +24,28 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory import summary
 from ferb.memory.calls import learning_call
-from ferb.memory.items import KINDS, Memory, MemoryRefused
+from ferb.memory.items import KINDS, Memory, MemoryRefused, capture
 from ferb.store.db import Database
 
+# L36 §2: the owner's own words an inferred item rests on. Ruling: the model cites one of the item's C handles (it sees
+# handles, not journal ids); code maps the handle to its message.
+QUOTE_SCHEMA: dict[str, Any] = {"anyOf": [{"type": "null"}, {
+    "type": "object", "additionalProperties": False, "required": ["handle", "text"],
+    "properties": {"handle": {"type": "string"}, "text": {"type": "string"}}}]}
+KEEP_GUESS = "Keep this? “{text}” FERB guessed it from your day on {day}."
 DISTILL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["narrative", "items"],
     "properties": {
         "narrative": {"type": "string"},
         "items": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["kind", "subject", "key", "content", "origin", "confidence", "handles"],
+            "required": ["kind", "subject", "key", "content", "origin", "confidence", "handles", "quote"],
             "properties": {
                 "kind": {"type": "string", "enum": list(KINDS)},
                 "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
                 "origin": {"type": "string", "enum": ["observed", "inferred", "third_party"]},
                 "confidence": {"type": "number"},
-                "handles": {"type": "array", "items": {"type": "string"}}}}}}}
+                "handles": {"type": "array", "items": {"type": "string"}}, "quote": QUOTE_SCHEMA}}}}}
 
 
 def check(item: dict[str, Any], ev: summary.DayEvidence) -> list[tuple[str, str]]:
@@ -57,6 +66,21 @@ def check(item: dict[str, Any], ev: summary.DayEvidence) -> list[tuple[str, str]
     return [s for h in hs for s in ev.handles[h]]
 
 
+def owner_said(item: dict[str, Any], ev: summary.DayEvidence) -> tuple[str, str] | None:
+    """The owner's own words an inferred item rests on (L36 §2): its quote cites one of the item's own C handles, and
+    chat capture's check (`capture`) finds the quote and the content in that message's typed lines. Ruling: a quote
+    counts only on an inferred item. Their whole sentence(s) and the message's journal id, else None."""
+    quote = item.get("quote")
+    if item.get("origin") != "inferred" or not isinstance(quote, dict):
+        return None
+    handle = str(quote.get("handle", ""))
+    if handle not in [str(h) for h in item.get("handles", [])] or handle not in ev.owner_words:
+        return None
+    journal_id, typed = ev.owner_words[handle]
+    got = capture(typed, str(item.get("content", "")), str(quote.get("text", "")))
+    return (got.content, journal_id) if got.origin == "owner_stated" else None
+
+
 class Distiller:
     def __init__(self, db: Database, journal: Any, memory: Memory, make_runtime: Callable[..., Any], clock: Clock,
                  purge: Callable[[], Any] = lambda: None, device_id: str = "dev",
@@ -66,6 +90,8 @@ class Distiller:
         self.clock, self.purge, self.device_id = clock, purge, device_id
         self.record_usage, self.spans = record_usage, spans   # spans: where each model call is recorded
         self.jev: Any = None                          # memory.worth_keeping: may only drop
+        # L36 §2 ("Ask right away"): each new inferred proposal becomes the owner's Keep / Edit / Drop question
+        self.ask_keep: Callable[[Any, str], None] = lambda item, reason: None
 
     def pending_days(self, today: date | None = None) -> list[str]:
         """Past days with anything to remember that aren't done yet (oldest first). A day whose distillation failed
@@ -133,9 +159,16 @@ class Distiller:
                 continue
             try:
                 srcs = check(item, ev)
-                self.memory.propose(item["kind"], item["subject"], item["key"], item["content"], item["origin"],
-                                    srcs, float(item.get("confidence", 0.6)))  # type: ignore[arg-type]
+                origin_, content = item["origin"], item["content"]
+                confidence = float(item.get("confidence", 0.6))
+                stated = owner_said(item, ev)
+                if stated is not None:                  # exactly as if the planner had captured it in that turn
+                    origin_, content, confidence, srcs = "owner_stated", stated[0], 1.0, [("journal", stated[1])]
+                m = self.memory.propose(item["kind"], item["subject"], item["key"], content, origin_, srcs,
+                                        confidence)  # type: ignore[arg-type]
                 proposed += 1
+                if m.origin == "inferred" and m.status == "proposed":
+                    self.ask_keep(m, KEEP_GUESS.format(text=" ".join(m.content.split()), day=day))
             except (MemoryRefused, KeyError, ValueError) as e:
                 refused.append(str(e))
         self._run(day, "distilled", json.dumps({"proposed": proposed, "refused": refused}))

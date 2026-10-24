@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable
 
 from ferb.cli.chat import FERB_CHECKS, Chat, ReplyDraft, question, render
+from ferb.trace.lines import choices
 
 SECRETS = {'owner_login_code', 'owner_admin_password', 'owner_secret'}
 
@@ -33,9 +34,10 @@ class LiveChat(Chat):
             self.say(question(data).rstrip())
             self.say('   Press Enter on an empty line to enter this privately.')
             return
-        # Typed text answers it: FERB matches a reply to its question (L3); its own checks take a plain Yes or No
+        # Typed text answers it: FERB matches a reply to its question (L3); its own checks take one of their options
         self.say(question(data, prompt=False).rstrip())
-        self.say('   Reply Yes or No.' if data.get('capability') in FERB_CHECKS else '   Reply here to answer.')
+        self.say('   Reply ' + choices(data.get('options') or ['Yes', 'No']) + '.'
+                 if data.get('capability') in FERB_CHECKS else '   Reply here to answer.')
 
     def opening(self) -> None:
         super().opening()                         # dynamic answer_approval queues questions, never steals input

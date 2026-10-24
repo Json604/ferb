@@ -38,8 +38,8 @@ from ferb.memory.learning import ProcedurePart
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDED, Steering, apply as apply_steering,
-                                       grant_stated, not_covered, not_typed)
+from ferb.orchestrator.steering import (CONVERSATION_ASK, EDIT_MEMORY_ASK, FERB_CHECKS, JUST_ENDED, Steering,
+                                       apply as apply_steering, choices, grant_stated, not_covered, not_typed)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
@@ -137,7 +137,7 @@ CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
-ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
+ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask", EDIT_MEMORY_ASK}) | FERB_CHECKS
 ANSWERED = "Got your answer."
 FORGET_NEEDS_WORDS = ("A forget needs your own words asking for it (a whole sentence or clause), so I didn't ask about "
                       "deleting anything.")
@@ -149,12 +149,20 @@ WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it f
 NO_QUESTION = "No question is waiting for your answer right now."
 PASTED_ANSWER = "I take an answer only in your own words, not pasted text. What's your answer?"
 PLAIN_YES_NO = "Is that a Yes or a No to this? {question}"
+PLAIN_CHOICE = "Is that {choices} for this? {question}"
 WHICH_ONE = "More than one question is waiting, and “{words}” could answer either. Which one is it for?"
 PLAN_STATED = "Here's the plan; I'm starting now. Reply to change anything:"
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done",
               "done_unverified": "done but not confirmed", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
+
+
+def _plain_choice(ap: Any) -> str:
+    """FERB's "which is it?" about its own check (L3): Yes or No, or that check's own options ("Keep, Edit or Drop")."""
+    if tuple(ap.options) in ((), ("Yes", "No")):
+        return PLAIN_YES_NO.format(question=ap.reason)
+    return PLAIN_CHOICE.format(choices=choices(ap.options), question=ap.reason)
 
 
 def _overlap(a: str, b: str) -> bool:
@@ -996,9 +1004,10 @@ class Supervisor(WorkerRuns):
     def _answer(self, session: ChatSession, request_id: str, m: Any, routed: AnswerQuestion, focus: _Focus | None,
                 clarified: str, owner_words: str, payload: str) -> dict[str, Any]:
         """L3: the owner's message, routed by the planner to one open question by its id (any chat's owner.ask,
-        plan.ask or FERB check). The answer recorded is the owner's own words, never the planner's reading (MP2). FERB's
-        own checks (floor D33, P19 retry, F9 conversation scope) take only a plain Yes or No in the owner's words that
-        the planner's reading agrees with. Those words compete with every other open question they could answer (one
+        plan.ask, FERB check or FERB's free-text Edit question about a guess, L36). The answer recorded is the owner's
+        own words, never the planner's reading (MP2). FERB's own checks (floor D33, P19 retry, F9 conversation scope,
+        a guess's Keep / Edit / Drop) take only one of their options, plainly, in the owner's words that the planner's
+        reading agrees with. Those words compete with every other open question they could answer (one
         with that option, or a free-text one) and with the planner's own question the message continues
         (`clarified`): then FERB asks which one, in plain words (I3). When the routing can't be used, FERB says so
         plainly: never an id, a command or a method (I12)."""
@@ -1026,8 +1035,7 @@ class Supervisor(WorkerRuns):
             choice = ap.option_for(_bare(text))
             if choice is None or ap.option_for(_bare(routed.answer)) != choice:
                 self._answer_focus[session.id] = _Focus(None, frozenset({ap.id}), seen)
-                return self._code_turn(session, request_id, 'clarify', PLAIN_YES_NO.format(question=ap.reason),
-                                       owner_words, payload)
+                return self._code_turn(session, request_id, 'clarify', _plain_choice(ap), owner_words, payload)
             if not carried:
                 # FERB just asked "Yes or No?" about exactly this check: questions open then don't compete
                 asked_this = focus is not None and focus.named == {ap.id}

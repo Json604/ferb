@@ -665,11 +665,15 @@ procedure's steps shown to a worker, records deleted only because they
 were built on it, a lesson's scope labels (app, site, intent) and an entity summary's multi-line text (unless
 recorded exactly) can survive.
 In chat or the notch, "forget my …" asks a Yes/No question naming each item that goes. The link carries a temporary bearer token in its fragment; it is not a public site.
+When FERB guesses something about you that you didn't say in those words (from chat, or from its nightly look at your
+day), it asks at once: "Keep this? …" with Keep, Edit and Drop. Edit asks for your own words and saves them as yours;
+Drop deletes the guess (your messages stay) and FERB never suggests it again. The nightly look saves what you said in so
+many words as your own, after checking the words against what you typed (never pasted text).
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, with full paged bodies. "Remember that …" saves as yours the whole sentence you
 typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"
-saves "like tea"); FERB's rewording, like any inferred fact, waits for your Yes (FERB asks in chat and the notch; or
+saves "like tea"); FERB's rewording, like any inferred fact, waits for your Keep (FERB asks in chat and the notch; or
 `ferb memory confirm ID`) before it reaches a prompt. Observed
 patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
 proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
