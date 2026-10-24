@@ -14,7 +14,7 @@ def split_script(after: str) -> dict:
     group = source[source.index('  function codeGroup('):source.index('\n\n  function formKind')]
     describe = source[source.index('  function describe('):source.index('  // Visible text nearest')]
     act = source[source.index('  function act('):source.index('  function rect(')]
-    capture = source[source.index('  // Frame links for capture masks'):source.index('  function snapshot(')]
+    capture = source[source.index('  // Frame links for capture masks'):source.index('  async function snapshot(')]
     fill = source[source.index('  function fill('):source.index('\n\n  window.__ferb =')]
     script = r'''
 const secret = /otp|one.?time|verification.?code/i;
