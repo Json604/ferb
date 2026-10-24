@@ -684,7 +684,7 @@ The guesses FERB made before it started asking appear once in the notch as one l
 with Keep, Drop or a field for your own words.
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
-workers the same read-only records, with full paged bodies. Search ranks by what items say (never JSON field names),
+workers the same read-only records, each candidate with what it says, with full paged bodies. A worker's `memory.read` query is ranked the same way. Search ranks by what items say (never JSON field names),
 skips words most memories share, and gives recent memories a small boost; what you said yourself counts as always
 recent, so at equal relevance it comes before FERB's guesses. Each planner turn gets the 60 most relevant memories. "Remember that …" saves as yours the whole sentence you
 typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"

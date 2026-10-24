@@ -2847,8 +2847,8 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   (a learning-digest notice whose items have `kind: "guess"`, one `learningProposals` parser for both), and each answer
   goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
 - **One ranked search (§3).** `Learning.search` is the one ranked search. The planner turn and attention use it through
-  the daemon's `_search` (facts synced, the query's embedding off the loop); the worker and plan-step pushes (§4),
-  `memory.read` and `memory.learned` move onto it in the later L36 tasks. `learning_fts` holds each node's content only
+  the daemon's `_search` (facts synced, the query's embedding off the loop); `memory.read` and `memory.learned` use it
+  too (below); the worker and plan-step pushes (§4) move onto it in a later L36 task. `learning_fts` holds each node's content only
   (`search_text`; a fact with the words of its subject and key slugs, `slug_words`; day digests, rollups and intent
   labels index nothing, found through what they cite). Every start asks `reindex_search` for `SEARCH_TEXT_VERSION`
   (migration 0048); once per version it re-indexes every node in a worker thread on a connection of its own, in node-id
@@ -2863,7 +2863,7 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   running tasks and the resumable attempts it is shown), so a message that shares no word with a fact still recalls it
   through the work it continues. A word found in more than half of the nodes carries no weight (`weighted_terms`, with
   `Memory.recall`'s rule `items.weighted`); a query whose every word is such finds nothing, by embedding similarity too,
-  and a query with no words lists the newest. bm25 ranks with ties sharing a rank, the trigram title match and an
+  and a query with no words lists the newest first, with no recency or owner boost. bm25 ranks with ties sharing a rank, the trigram title match and an
   adopted embedding are fused by reciprocal rank, plus at most 0.05 for recency (half-life 30 days). An owner-stated
   node always takes the full 0.05 (the owner's words don't age), so at equal relevance no guess outscores it, and at
   equal score it comes first. Nodes are ranked and filtered by their columns first and their bodies read best first
@@ -2876,6 +2876,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>): <goal> — <status>[,
   verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the same `search_text`; a
   node without one has no vector.
+- **The tools (§3).** `memory.read` keeps its arguments; a query is ranked by the one search (`Daemon._memory_item_search`:
+  the memory items behind the matching facts, best first), never a substring match, and without the search a query is
+  refused. `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
+  (`shown_text`) beside their ids.
 
 ### 16.13 FERB's cursor (L33)
 

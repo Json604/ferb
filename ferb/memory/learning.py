@@ -1352,7 +1352,7 @@ class Learning:
         weight (`weighted_terms`), the trigram title match and, when the owner adopted one, embedding similarity,
         fused by reciprocal rank (equal scores share a rank: `_tied`), plus a small recency boost; at equal score the
         owner's own statement first. A query whose every word most nodes share finds nothing, by similarity too (m5); a
-        query with no words lists the newest. `leave_out`: kinds dropped before `limit` (the budget) applies. An
+        query with no words lists the newest first, with no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
         (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
         nodes without their source refs (`get`), for a prompt's lines."""
@@ -1372,7 +1372,7 @@ class Learning:
         else:                                     # no words: the current nodes, newest first (ids only, as `items`)
             listed = self.db.conn.execute("SELECT id FROM learning_nodes WHERE valid_to IS NULL AND state NOT IN "
                                           "('retired','rolled_back') AND (? IS NULL OR kind = ?) "
-                                          "ORDER BY recorded_at DESC, id DESC", (kind, kind)).fetchall()
+                                          "ORDER BY recorded_at DESC, id DESC", (kind or None, kind or None)).fetchall()
             rankings.append({r[0]: n for n, r in enumerate(listed)})
         if self.embedder is not None and query and embed:
             from ferb.memory.embeddings import ranked
@@ -1401,8 +1401,9 @@ class Learning:
             at = datetime.fromisoformat(row['recorded_at'])
             at = at if (at.tzinfo is None) == (now.tzinfo is None) else at.replace(tzinfo=now.tzinfo)
             age = 0.0 if row['origin'] == origin.OWNER else max(0.0, (now - at).total_seconds() / 86400)
-            score = scores[row['id']] + RECENCY_WEIGHT * math.pow(0.5, age / RECENCY_HALF_LIFE_DAYS)
-            order.append((round(score, 9), row['origin'] == origin.OWNER, row['recorded_at'], row['id'], score))
+            boost = RECENCY_WEIGHT * math.pow(0.5, age / RECENCY_HALF_LIFE_DAYS) if words else 0.0   # a listing: newest first
+            score = scores[row['id']] + boost
+            order.append((round(score, 9), bool(words) and row['origin'] == origin.OWNER, row['recorded_at'], row['id'], score))
         order.sort(reverse=True)
         out: list[dict[str, Any]] = []
         for *_, ident, score in order:

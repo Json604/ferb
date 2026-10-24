@@ -307,7 +307,9 @@ def test_chat_history_and_memory_read_pass_stored_origins_through() -> None:
                           made, "active")                                            # type: ignore[arg-type]
     items = {"m1": item("m1", "owner_stated"), "m2": item("m2", "third_party")}
     memory = SimpleNamespace(items=lambda status, valid_now: list(items.values()), get=items.get)
-    reader = MemoryRead(lambda: memory)
+    async def no_hits(query: str) -> list[str]:
+        return []
+    reader = MemoryRead(lambda: memory, search=no_hits)
     assert _run(reader) == {"owner", "external:memory"}
     assert _run(reader, item_id="m2") == {"external:memory"}
     assert _run(reader, query="no such text") == {"ferb"}

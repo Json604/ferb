@@ -208,9 +208,9 @@ def test_a_guess_recorded_after_the_owners_identical_fact_still_ranks_after_it(t
     db.close()
 
 
-def test_recency_orders_equal_matches_newest_first_and_never_passes_a_better_match(tmp_path: Path) -> None:
-    """At equal bm25 the newer node ranks first; the boost is at most RECENCY_WEIGHT, so it never lifts a weaker match
-    over a better one (a rank's reciprocal is at least 1/2 - 1/3 apart from the next)."""
+def test_recency_orders_equal_matches_newest_first_and_never_passes_a_match_over_0_05_better(tmp_path: Path) -> None:
+    """At equal bm25 the newer node ranks first. Recency adds at most RECENCY_WEIGHT (0.05), so it never passes a
+    match more than that much better; a match one rank worse is worth much more (1 against 1/2)."""
     clock = TickingClock()
     db, learning = new_store(tmp_path / "m.db", clock=clock)
     better = fact(learning, "chain", "the bicycle chain was oiled", owner=False)
@@ -320,3 +320,53 @@ def test_the_planner_gets_at_most_its_60_items(daemon: Any) -> None:
         owner_fact(daemon, f"bicycle_{i}", f"bicycle note {i}: oil the chain")
     found = daemon.run(daemon.daemon._learning_candidates("how should I grow tomato plants"))
     assert len(found) == PLANNER_MEMORY_ITEMS and all("tomato" in c["text"] for c in found)
+
+
+def test_an_empty_query_lists_newest_first_with_no_recency_or_owner_boost(tmp_path: Path) -> None:
+    clock = TickingClock()
+    db, learning = new_store(tmp_path / "m.db", clock=clock)
+    old_owner = fact(learning, "a", "old owner note")
+    clock.at += timedelta(days=90)
+    guess = fact(learning, "b", "newer guess", owner=False)
+    clock.at += timedelta(days=1)
+    newest = fact(learning, "c", "newest guess", owner=False)
+    assert [n["id"] for n in learning.search("")] == [newest["id"], guess["id"], old_owner["id"]]
+    assert [n["id"] for n in learning.search("", kind="")] == [newest["id"], guess["id"], old_owner["id"]]
+    assert all(n["score"] <= 1 for n in learning.search(""))
+    db.close()
+
+
+def test_memory_read_ranks_a_several_word_query(daemon: Any) -> None:
+    """Live 2026-10-24: 14 of 20 memory.read queries came back empty; 9 were phrases like "RSNA knee Kaggle rank
+    score", which a literal substring match can never find."""
+    from ferb.orchestrator.evidence import MemoryRead
+    for i in range(4):
+        owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
+    rsna = owner_fact(daemon, "rsna", "I track my RSNA knee competition rank on Kaggle")
+    reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
+    out = daemon.run(reader.run(MemoryRead.Input(query="RSNA knee Kaggle rank score"), None))
+    assert [i["id"] for i in out.content["items"]][:1] == [rsna.id]
+
+
+def test_memory_read_without_its_search_refuses_a_query_rather_than_match_substrings(daemon: Any) -> None:
+    from ferb.orchestrator.evidence import MemoryRead
+    out = daemon.run(MemoryRead(lambda: daemon.daemon.memory).run(MemoryRead.Input(query="anything"), None))
+    assert out.is_error and "search" in out.content["error"]
+
+
+def test_memory_learned_returns_content_with_ids(daemon: Any) -> None:
+    import json
+    from ferb.memory.tools import LearningRead
+    for i in range(4):
+        owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
+    owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
+    reader = LearningRead(lambda: daemon.daemon.learning, daemon.daemon._search)
+    out = daemon.run(reader.run(LearningRead.Input(query="dentist"), None))
+    [c] = [c for c in json.loads(out.content["text"])["candidates"] if c["kind"] == "fact"]
+    assert c["text"] == "owner/dentist — my dentist is Dr. Rao" and c["id"].startswith("m-")
+
+
+def test_the_memory_tools_are_registered_on_the_waiting_search(daemon: Any) -> None:
+    """memory.learned must never search a half-re-indexed store: the daemon registers it on `_search`."""
+    tool = daemon.daemon.registry.capabilities["memory.learned"]
+    assert tool.search == daemon.daemon._search

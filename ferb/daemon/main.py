@@ -789,7 +789,8 @@ class Daemon:
         self.supervisor.relevant_context = self._relevant_context      # its fourth element: the search's source refs
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
-                            lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE})
+                            lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE},
+                            search=self._memory_item_search)
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         from ferb.orchestrator.conversation_tools import ConversationRead
@@ -1367,7 +1368,7 @@ class Daemon:
             capture=lambda task_id: self._capture_card(task_id, None),
             cards_refreshed=self._replay_deferred_receipts, spans=self.spans,
             forget=lambda ids: self._forget_nodes(ids, named=False))
-        self.registry.add(LearningRead(lambda: self.learning))
+        self.registry.add(LearningRead(lambda: self.learning, self._search))
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
@@ -1605,6 +1606,10 @@ class Daemon:
         vector, embed = await self._query_vector(query)
         return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
                                          sources=sources, **filters))
+
+    async def _memory_item_search(self, query: str) -> list[str]:
+        """memory.read's query, ranked by the one search (L36 §3): the memory items behind the matching facts."""
+        return [str(n["body"]["id"]) for n in await self._search(query, kind="fact") if n["body"].get("id")]
 
     async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS,
                                    procedures: bool = True) -> list[dict[str, Any]]:

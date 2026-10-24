@@ -44,7 +44,8 @@ async def _paged_evidence():
 def test_learned_candidate_pages_keep_source_ids_when_json_is_partial():
     from ferb.memory.tools import LearningRead
     node = {'id': 'm-private', 'kind': 'lesson', 'key': 'long phrase ' * 200, 'state': 'candidate',
-            'origin': 'private', 'origins': ['private'], 'recorded_at': '2026-10-11', 'sources': []}
+            'origin': 'private', 'origins': ['private'], 'recorded_at': '2026-10-11', 'sources': [],
+            'body': {'trigger': 'a long phrase', 'text': 'check the label'}}
     tool = LearningRead(lambda: SimpleNamespace(search=lambda *a, **k: [node]))
     page = asyncio.run(tool.run(tool.Input(max_chars=1000, offset=1000), SimpleNamespace(task_id='task')))
     assert page.content['next_offset'] is not None

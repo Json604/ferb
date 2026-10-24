@@ -615,7 +615,7 @@ def test_memory_read_neither_lists_nor_reads_a_pending_inferred_item(daemon: Run
     src = journal(daemon, "chat.message", {"text": "my manager is Quentarr"})
     item = run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
                                                    [("journal", src)], 0.7))
-    reader = MemoryRead(lambda: daemon.daemon.memory)
+    reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
     by_id = daemon.run(reader.run(MemoryRead.Input(item_id=item.id), None))
     searched = daemon.run(reader.run(MemoryRead.Input(query="Quentarr"), None))
     listed = daemon.run(reader.run(MemoryRead.Input(), None))
