@@ -117,7 +117,10 @@ turn.
 - **The username.**
   - It is set when the owner gives it. A planner `remember` entry gains an optional `login_origin`, meaning "this
     content is the username for this site". Code writes it to that origin's record only when the site appears in the
-    owner's words or in the task's targets, and only from an owner_stated item.
+    owner's own typed words (this message, or the task's recorded owner words), and only from an owner_stated item.
+    Built tighter than first written (2026-10-25 security reviews): a site only the planner or outside content named
+    never gets the owner's username; sites link exactly ("www." aside), never by subdomain; a username shown through a
+    link names its source site, and only when the task names one site.
   - It is shown in the hidden-input question ("Password for Kartikey Attri at usvisascheduling.com").
   - It reaches models through memory (owner decision: plain).
 - **A new tool, `secrets.list(origin)`** (observation), returns the username and the entry names for one origin. It
