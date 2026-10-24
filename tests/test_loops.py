@@ -300,6 +300,50 @@ def test_a_probe_whose_field_is_absent_at_arming_is_refused(db):
     assert h.round_times[1] - (h.round_times[0] + 5) == BACKUP_SECONDS
 
 
+# Live 2026-10-24 (task 4a8b1d73, maintain_playback): a round verified the owner's reel playing, then armed
+# media.44.playing equals false, whose baseline read was already false: dozens of feed videos shift the list, so the
+# probe watched another video and the owner's reel paused unnoticed.
+ALREADY = "your probe already showed the job needs doing right after your round (field playing was false)"
+
+
+def test_a_probe_already_tripped_at_arming_starts_the_next_round_at_once_with_a_note(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()), round_result(p=None)], [(False, None)])
+    h.run()
+    assert h.records == [('trip', False, None)]                      # recorded, never a baseline
+    assert h.reasons[1]['why'] == 'probe' and h.reasons[1]['observed'] is False
+    note = h.reasons[1]['probe_refused']
+    assert note.startswith(ALREADY) and 'watching a different element' in note and 'state you just fixed' in note
+    assert h.round_times[1] == h.round_times[0] + 5                  # promptly: no probe wait, no backup interval
+    assert h.notices == []
+    row = h.store.load('tree', 'keep')
+    assert row['probe_json'] is None and row['baseline_json'] is None   # never armed
+
+
+def test_probes_already_tripped_at_arming_three_times_reach_the_back_off_with_one_notice(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()) for _ in range(5)], [(False, None)] * 5)
+    h.run()
+    assert len(h.notices) == 1 and 'longer between fixes' in h.notices[0]
+    gaps = [h.round_times[i] - (h.round_times[i - 1] + 5) for i in range(1, len(h.round_times))]
+    assert gaps[:2] == [0, 0]                                         # the first two short rounds: at once
+    assert gaps[3] >= FIRST_GAP_SECONDS and gaps[4] >= 2 * FIRST_GAP_SECONDS   # then the back-off, doubling
+
+
+@pytest.mark.parametrize('op, value', [('not_equals', 'true'), ('equals', 'false')])
+def test_a_baseline_that_shows_the_job_done_arms_the_probe(db, op, value):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe(op=op, value_json=value)), round_result(p=None)],
+                [(True, None), (True, None), (False, None)])
+    h.run()
+    assert h.records[0] == ('baseline', True, None) and h.reasons[1]['why'] == 'probe'
+    assert 'probe_refused' not in h.reasons[1]
+
+
+def test_a_changed_probe_is_always_armed_on_its_baseline(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe(op='changed')), round_result(p=None)],
+                [(False, None), (True, None)])
+    h.run()
+    assert h.records == [('baseline', False, None), ('trip', True, None)]
+
+
 def test_a_field_that_disappears_trips_a_round_that_is_told_so(db):
     h = Harness(db, _clock(), KEEP, [round_result(p=probe()), round_result(p=None)], [(True, None), (MISSING, None)])
     h.run()

@@ -2755,7 +2755,10 @@ planner's own words say what the loop does.
   `loop.probe_read` spans for the baseline, each trip and each error and a running count, never one per unchanged read
   (the resource log, L30, is the measure); an unchanged read writes nothing at all: `loop_state.reads` is kept in
   memory and saved with the next trip, error or state change. A probe's result never reaches a model; the tripping value goes to the next
-  round as untrusted outside data.
+  round as untrusted outside data. A baseline read that already trips the probe (`equals`/`not_equals`) arms nothing
+  (`LoopRunner._arm`): it is recorded as a trip and counted by the pacer like one, and the next round starts at once
+  (paced: three such rounds start the back-off) with a note that the probe likely watches another element and should
+  watch the state the round just fixed (live 2026-10-24: `media.44.playing` of a feed whose list positions shift).
 - Pacing (`loops.py`): `PROBE_SECONDS` 10, `BACKUP_SECONDS` 1800, `NO_LASTING_FIX_SECONDS` 120, `CHURN_ROUNDS` 3 in
   `CHURN_WINDOW_SECONDS` 600, `FIRST_GAP_SECONDS` 120 doubling to `MAX_GAP_SECONDS` 3600, `RESET_SECONDS` 1800. A round
   starts on a probe trip, the step's `event`, the owner's steer (a steer wakes the loop at once; a correction a
