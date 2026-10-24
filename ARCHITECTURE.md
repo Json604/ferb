@@ -2910,10 +2910,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   worker gets the plain `recall` block, as before. Every worker attempt and every loop round records the memory blocks
   it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20 items on that copy;
   the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that much a round, and its
-  spans stay until it ends and its episode exists (retention). They are not deduplicated: `task_memory_refs` outlives a
-  forget, so it can't say which exposures are still recorded since the last one, and the sink rule's incremental reads
-  (`Spans.payload_outputs` and `tool_outputs` after a rowid cursor) and `task_origins` count each exposure where it
-  happened (fix round 2).
+  spans stay until it ends and its episode exists (retention): about 3.8 MB a day for a loop running only on its
+  30-minute backup check, more with probe trips. They are not deduplicated because nothing can say which exposures are
+  still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans that showed its item
+  (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be harmed by a dedup).
 
 ### 16.13 FERB's cursor (L33)
 
