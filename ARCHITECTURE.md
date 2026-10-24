@@ -650,10 +650,27 @@ tree queue is read by `run_scheduled`, which keeps only its outcome, so a schedu
 | Runtime | Adapter | Billing | Cache |
 |---|---|---|---|
 | `codex` | [`codex_exec.py`](ferb/runtimes/codex_exec.py) | subscription | automatic prefix; no FERB cache key |
-| `claude` | [`claude_sdk.py`](ferb/runtimes/claude_sdk.py) | subscription | automatic prefix |
+| `claude` | [`claude_sdk.py`](ferb/runtimes/claude_sdk.py) | subscription | FERB places one 1-hour cache marker; Claude Code adds its own |
 | `anthropic` | [`anthropic_api.py`](ferb/runtimes/anthropic_api.py) | per token | FERB places cache markers |
 | `openai` | [`openai_api.py`](ferb/runtimes/openai_api.py) | per token | explicit breakpoints on gpt-6 and gpt-5.6, else implicit; a per-role `prompt_cache_key` |
 | `google` | [`google_api.py`](ferb/runtimes/google_api.py) | per token | implicit |
+
+**Claude runtime caching (P20).** `claude_sdk._content` sends FERB's system text and each context part as their own
+text blocks in the one user message, images after them, with one cache breakpoint `{"type": "ephemeral", "ttl": "1h"}`
+on the last cacheable part (on the system block when none is cacheable): the Anthropic API runtime's placement, with
+no role change. Claude Code 2.1.283 puts its own breakpoints around FERB's text (its system prompt before, its
+environment message after), so FERB's is the third of the API's four, and the API refuses a longer TTL after a shorter
+one. FERB therefore pins Claude Code's own TTL to the same hour (`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`; unset, Claude Code
+picks 5 minutes on a subscription past its usage limits, which would refuse FERB's marker). Measured through FERB's
+adapter on a ~101k-token planner-shaped prompt: 4.8% read before (only Claude Code's own prefix), 98.6% after, 97.5%
+after one more conversation entry, 98.6% after a 6.5-minute gap. `tests/test_claude_prompt_cache.py` checks the blocks
+offline and, through the bundled CLI against a loopback server (a fake key, an empty config folder), the breakpoint
+count and TTL order on what Claude Code actually sends; it fails by name when the bundled CLI isn't 2.1.283.
+
+Claude Code adds text FERB didn't write to every request: a system reminder carrying the owner's Claude account
+email before FERB's text (in 2.1.283 only `ANTHROPIC_UNIX_SOCKET` turns it off), and a system-role `# Environment`
+message (working folder, OS, model, date). Neither is a secret class. FERB's traces record FERB's own request, so
+neither appears in `ferb trace`.
 
 `CATALOG` ([`runtimes/catalog.py`](ferb/runtimes/catalog.py)) holds each runtime's default model (Codex: `gpt-5.6-sol`,
 owner 2026-10-14), its `Capabilities`

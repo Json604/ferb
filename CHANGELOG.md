@@ -958,6 +958,14 @@ After the owner's update (2026-10-24):
   paused, FERB keeps only what keeps the page running (its debugger hold, with focus emulation): your download goes to
   your Downloads and your link opens as your own tab. During a round, what the round does is FERB's, as before. No
   extension change: it works with every extension version.
+- The Claude runtime caches the planner's stable prefix (P20, D32; owner, 2026-10-25). The adapter joined FERB's
+  instructions and context into one text and ignored which parts repeat, so only Claude Code's own prefix was read from
+  the cache (4.8% of a ~101k-token planner turn; every turn wrote ~97k tokens again). FERB's text now goes as separate
+  blocks of the same user message with a 1-hour cache marker on the last part that repeats (images after), the
+  Anthropic API runtime's placement; measured 98.6% read on the next turn. Claude Code's own markers are pinned to the
+  same hour (unset, past a subscription's usage limits it picks 5 minutes, and the API would refuse FERB's marker after
+  them). Claude Code also adds text FERB didn't write (a reminder with your account email, an environment message);
+  `ferb trace` doesn't show it.
 
 Licensed under Apache-2.0.
 

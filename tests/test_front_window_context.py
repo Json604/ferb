@@ -974,10 +974,13 @@ async def test_claude_sdk_planner_call_carries_the_image(monkeypatch: pytest.Mon
     await CLAUDE_START(rt, TASK, request(()), "")
     [message] = sent[0]
     assert message["type"] == "user" and message["message"]["role"] == "user"
+    hour = {"type": "ephemeral", "ttl": "1h"}                         # P20: tests/test_claude_prompt_cache.py
+    text = [{"type": "text", "text": "FERB instructions"}, {"type": "text", "text": "stable", "cache_control": hour},
+            {"type": "text", "text": "per turn"}]
     assert message["message"]["content"] == [
-        {"type": "text", "text": "FERB instructions\n\nstable\n\nper turn"},
-        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": B64}}]
-    assert sent[1] == "FERB instructions\n\nstable\n\nper turn"      # no image: the same one string as before
+        *text, {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": B64}}]
+    [plain] = sent[1]
+    assert plain["message"]["content"] == text                       # no image: the same text blocks
 
 
 @pytest.mark.anyio

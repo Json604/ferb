@@ -573,6 +573,9 @@ no automated test proves that the owner experienced no disturbance.
   undeclared one.
 - The hosted model sees your front window, redacted, with every message. Redaction covers secret classes, not all
   private text.
+- With the Claude runtime, Claude Code adds text FERB didn't write to every request: a reminder carrying your Claude
+  account's email and an environment message (working folder, OS, model, date). Neither is a secret, and `ferb trace`
+  shows FERB's own request, not these additions.
 - Hearing is per app, so a browser is heard whole; the sound must play for FERB to hear it.
 - On macOS 15 and later, macOS asks again about once a month whether FERB may keep capturing the screen (a prompt
   saying FERB "is requesting to bypass the system private window picker"). FERB captures your front window with every

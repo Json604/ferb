@@ -27,13 +27,35 @@ STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when o
 STRUCTURED_RETRIES = "error_max_structured_output_retries"
 
 
-async def _with_images(text: str, images: tuple[ModelImage, ...]) -> AsyncIterator[dict[str, Any]]:
-    """One user message holding FERB's text, then each image as a base64 block: the SDK's streaming input, the form
-    that carries images (L12)."""
-    yield {"type": "user", "parent_tool_use_id": None,
-           "message": {"role": "user", "content": [{"type": "text", "text": text}, *(
-               {"type": "image", "source": {"type": "base64", "media_type": i.mime, "data": i.base64()}}
-               for i in images)]}}
+# P20: FERB's breakpoint on its stable prefix. One hour, because Claude Code 2.1.283 puts its own breakpoints around
+# FERB's text (its system prompt before, its environment message after) and the API refuses a longer TTL after a
+# shorter one; CACHE_TTL_ENV pins Claude Code's own to the same hour (unset, it picks 5 minutes on a subscription past
+# its usage limits). With FERB's, 3 of the API's 4 breakpoints (measured through the pinned CLI, 2026-10-25).
+CACHE = {"type": "ephemeral", "ttl": "1h"}
+CACHE_TTL_ENV = {"CLAUDE_CODE_PROMPT_CACHE_TTL": "1h"}
+
+
+def _content(request: ModelRequest) -> list[dict[str, Any]]:
+    """FERB's text as the one user message's blocks: the system text, then each context part, each its own text block,
+    with the cache breakpoint on the last stable part (`request.cacheable`), or on the system text when no part is
+    stable; then each image as a base64 block, after the text so the cached prefix stays (L12). The same placement as
+    the Anthropic API runtime. Empty text is left out (the API refuses an empty block); a breakpoint that would fall on
+    one moves to the text before it."""
+    texts = [request.system, *request.parts]
+    marked = request.cacheable if 0 < request.cacheable <= len(request.parts) else 0
+    blocks: list[dict[str, Any]] = []
+    for index, text in enumerate(texts):
+        if text:
+            blocks.append({"type": "text", "text": text})
+        if index == marked and blocks:
+            blocks[-1]["cache_control"] = CACHE
+    return blocks + [{"type": "image", "source": {"type": "base64", "media_type": i.mime, "data": i.base64()}}
+                     for i in request.images]
+
+
+async def _frames(request: ModelRequest) -> AsyncIterator[dict[str, Any]]:
+    """The SDK's streaming input: the form that carries content blocks."""
+    yield {"type": "user", "parent_tool_use_id": None, "message": {"role": "user", "content": _content(request)}}
 
 
 # L28: with ANTHROPIC_BASE_URL set (FERB's proxy), Claude Code gives recognized models the Anthropic API's window, and its
@@ -56,7 +78,7 @@ def limits_for(model: str | None) -> ModelLimits:
 
 class ClaudeRuntime:
     name = "claude"
-    capabilities = Capabilities("direct", "prefix", False, "native", False, True, True, True, "subscription")
+    capabilities = Capabilities("direct", "markers", False, "native", False, True, True, True, "subscription")
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
@@ -77,7 +99,8 @@ class ClaudeRuntime:
         # an owner question waits as long as the owner takes (§8.1). "0 disables" is Claude Code's own wording.
         env = {"ANTHROPIC_BASE_URL": self.proxy.base_url(run_id), "DISABLE_TELEMETRY": "1",
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_ERROR_REPORTING": "1",
-               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0"}
+               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
+               **CACHE_TTL_ENV}
         mcp: dict[str, Any] = {}
         if self.mode == "worker":
             if not self.shim_cmd:
@@ -99,8 +122,7 @@ class ClaudeRuntime:
         client = ClaudeSDKClient(options=self._options(run_id, run_token))
         try:
             await client.connect()
-            text = f"{request.system}\n\n{request.context}"
-            await client.query(_with_images(text, request.images) if request.images else text)
+            await client.query(_frames(request))
         except BaseException:
             with suppress(Exception):
                 await client.disconnect()
