@@ -77,17 +77,19 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
                 omitted += 1
         els = shown
     text = snap.text if full else snap.text[:MAX_TEXT]
-    out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title, "elements": els,
-                           "text": text}
-    if snap.scroll:
-        out["scroll"] = snap.scroll
-    if snap.scrollers:
-        out["scrollers"] = snap.scrollers
-    if snap.media:                                 # L26: confirm playback before listening or recording
+    out: dict[str, Any] = {"tab": snap.tab.tab_id, "url": snap.url, "title": snap.title}
+    # L26: confirm playback before listening or recording. First, ahead of up to 24,000 characters of elements and the
+    # text, so whoever reads the recorded result sees whether it plays without paging to its end (L31, live 2026-10-25)
+    if snap.media:
         out["media"] = snap.media
         by_id = {m["id"]: m for m in snap.media if "id" in m} if probe else {}
         if by_id:                                  # L31: one element by its own id, wherever the list moves it
             out["media_by_id"] = by_id
+    out |= {"elements": els, "text": text}
+    if snap.scroll:
+        out["scroll"] = snap.scroll
+    if snap.scrollers:
+        out["scrollers"] = snap.scrollers
     if snap.truncated or omitted or len(text) < len(snap.text):
         out["truncated"] = True
         out["omitted_elements"] = omitted

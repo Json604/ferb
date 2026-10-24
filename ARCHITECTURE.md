@@ -2552,7 +2552,9 @@ protected FERB state (16.9).
   0.15.10 (L31) a snapshot waits up to 300 ms (`firstLook`) for unpaused media it hasn't seen before: its
   `timeupdate` ends the wait once its time moved, and the time is compared again at the end, so the first snapshot
   already says whether it plays (live 2026-10-25: every loop round took a second snapshot to learn the reel played);
-  `snapshot` is async for it (executeScript waits for the promise). Since
+  `snapshot` is async for it (executeScript waits for the promise). In the result a worker or checker reads
+  (`snapshot.for_model`) the media list follows the tab, URL and title, ahead of the elements and text (L31: checkers
+  paged task.evidence to offset 24000 for it). Since
   0.15.8 (L31) each element also has its own `id` for the page's life (content.js `mediaId`: a WeakMap, `m<n>` on
   first sight, never given to another element, then the page's own random token, `m12-3fa91c`, so an id from an
   earlier page of the tab matches nothing in a later one (review I2); a child frame's is `f<frame>:m<n>-<token>`), and

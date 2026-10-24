@@ -341,6 +341,31 @@ def test_the_model_sees_one_media_list_with_ids_and_only_a_probe_read_gets_the_m
     assert field_value(probed, "media_by_id.f5:m7-d4e5f6.playing") is True
 
 
+def test_the_media_state_comes_first_in_a_snapshot_result_and_nothing_else_changes() -> None:
+    """Live 2026-10-25 (cc5debe4): the media list came after up to 24,000 characters of elements and 8,000 of text, so
+    checkers paged task.evidence to offset 24000 to learn whether the reel played. It now follows the tab, URL and title,
+    before elements and text; every key and value is as before (a probe read's map follows the list)."""
+    from ferb.act.browser.snapshot import for_model
+    from ferb.core.types import PageElement, PageSnapshot
+    frames = [dict(FRAMES[0], elements=[{"id": 0, "role": "button", "label": "Like", "rect": [0, 0, 10, 10]}],
+                   text="Reels"), FRAMES[1]]
+    d, _, ref = _driver(frames)
+    snap = asyncio.run(d.snapshot(ref))
+    media = [dict(FRAMES[0]["media"][0]), dict(FRAMES[1]["media"][0], index=1, frame=5, id="f5:m7-d4e5f6")]
+    shown = for_model(snap)
+    assert list(shown)[:5] == ["tab", "url", "title", "media", "elements"] and list(shown).index("text") > 4
+    assert set(shown) == {"tab", "url", "title", "media", "elements", "text"}                # the same keys
+    assert (shown["tab"], shown["url"], shown["title"]) == ("t1", "https://www.instagram.com/reel/x", "Reel")
+    assert shown["media"] == media and shown["text"].startswith("Reels")
+    assert [(e["role"], e["label"]) for e in shown["elements"]] == [("button", "Like")]
+    probed = for_model(snap, probe=True)
+    assert list(probed)[:6] == ["tab", "url", "title", "media", "media_by_id", "elements"]
+    assert {k: v for k, v in probed.items() if k != "media_by_id"} == shown
+    bare = for_model(PageSnapshot(ref, 1, "https://example.com/", "Example",
+                                  [PageElement("e1", "f0", "link", "Home", None, (0, 0, 1, 1), True)], "Hello"))
+    assert list(bare) == ["tab", "url", "title", "elements", "text"]             # no media: nothing added
+
+
 def test_an_older_extensions_snapshot_has_no_media_ids() -> None:
     """Extension 0.15.7 and older send no id: the list is as before and media_by_id is absent, so a probe on it sees
     its field missing (refused at arming; a vanished field trips a round)."""

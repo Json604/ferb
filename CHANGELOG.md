@@ -920,6 +920,10 @@ After the owner's update (2026-10-24):
   before: its time moving ends the wait, so the first snapshot already answers; paused media isn't waited for. The
   worker is told `playing` already means the time moved. Reload the unpacked extension (or upload 0.15.10 to the
   listing) to get it; an older extension behaves as before.
+- A snapshot's video and audio state comes first (L31). In a snapshot result the media list (each element's id,
+  playing, paused, time, muted, in view) came after up to 24,000 characters of page elements and 8,000 of text, so
+  checkers paged the recorded call to offset 24000 to learn whether your reel played (cc5debe4, three such reads). It
+  now follows the tab, address and title; nothing else in the result changed.
 
 Licensed under Apache-2.0.
 
