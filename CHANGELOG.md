@@ -645,6 +645,31 @@ After the owner's update (2026-10-24):
   plan listed `/private/var/folders`, where macOS refuses even to look at some entries ("Operation not permitted");
   the plan's file count stopped on the first one, and you got "something went wrong on my side". Such an entry is now
   left out of the count, as a protected file already is.
+- When FERB can't do something, it says why, in plain words (P27, L11). Owner, 2026-10-24: "make sure that if ferb
+  cannot do anything because of internal or internal permission restriction then that is stated, not just this vague
+  message". A planning turn that hits such a refusal now reads "I couldn't start that: macOS didn't let FERB open
+  /private/var/folders/… (Operation not permitted).", not "Sorry — something went wrong on my side. Could you try that
+  again?". Each reason is chosen by the failure's type, never by its words:
+  - **macOS refused:** the path and macOS's own words.
+  - **FERB's protection rules refused:** says so, with the rule's message.
+  - **The AI runtime broke FERB's rules:** what it did, e.g. it used a tool FERB didn't offer it.
+  - **The plan was still invalid after its one repair:** the problems code found, e.g. "Inventory paths are protected:
+    […]".
+  - **The AI's answer didn't fit FERB's form:** what was wrong with it.
+  - **Anything else:** "something broke inside FERB (<error>). That's a bug in FERB, not something you asked wrong."
+  - **The AI service's own errors:** read as before.
+
+  A message starts with what didn't happen: "I couldn't start that" before any task started, "I couldn't finish that"
+  once one may have been running. This covers chat and voice turns, a task that ended without your stop, a worker
+  attempt, a recovery plan that failed, a check that couldn't run ("Why the check couldn't run: …"), a refused
+  reminder or memory, and a scheduled run that failed. The reason is redacted and capped at 300 characters; the full
+  error stays in the records. A planning failure of any kind is now answered in the conversation record too, so
+  "retry" has something to refer to (L21).
+- A worker that needs a protected folder asks you once, not once per command (D31, P27). Live 2026-10-24, visa task:
+  checking your visa-slot extension inside Chrome's profile folder took nine different commands, so the escape hatch
+  asked nine times in two minutes. Workers now look where no approval is needed first (a public page such as the
+  extension's Web Store listing, or a tool that already reads it) and, when a protected folder really must be read,
+  get everything from it in one command. One approval still covers one exact command (your choice).
 
 Licensed under Apache-2.0.
 

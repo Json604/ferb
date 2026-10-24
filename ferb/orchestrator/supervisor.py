@@ -24,7 +24,7 @@ from ferb.act.fs.files import normalize_path
 from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
-from ferb.core.errors import Deferred, InputTooLarge
+from ferb.core.errors import Deferred, PlanRejected
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
@@ -53,8 +53,8 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import (ConnectionNotice, InvalidAnswer, Overflowed, RuntimeViolation, ServiceError,
-                                      WorkerRuns, model_limits, reserve_tokens, told)
+from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceError, WorkerRuns,
+                                      couldnt, model_limits, reason, reserve_tokens)
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
@@ -70,9 +70,8 @@ MakeRuntime = Callable[..., AgentRuntime]
 Publish = Callable[[str, dict[str, Any]], None]
 
 STOPPED_BY_YOU = "stopped by you"
-# Why a task ended without the owner's stop, in plain words (L11); an exception's class name stays in the records
+# Why a task ended without the owner's stop, in plain words (L11); `interrupted` words any other cause
 SHUT_DOWN = "FERB shut down before it finished"
-INTERRUPTED = "the task was interrupted (a problem on my side)"
 # P19: an attempt whose outcome is still unknown after the owner approved trying it once more (it may have happened)
 RETRY_APPROVED_STATUS = "outcome unknown; the owner approved one retry, not tried yet"
 RETRY_USED_STATUS = "outcome unknown; the owner approved one retry, which has been tried"
@@ -85,6 +84,15 @@ REPORT_CONDITION = Condition(
     text="My report to you says truthfully what was done, who did each part (FERB itself, or the agent, app or person "
          "you named) and with what, and leaves out nothing that changes the result",
     check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
+
+
+def interrupted(exc: BaseException, redact: Callable[[str], str]) -> str:
+    """Why a task's run ended with neither the owner's stop nor a shutdown (L11; owner 2026-10-24: the reason, never "a
+    problem on my side"): a cancellation from inside FERB, or the exception that ended it (`reason`). No end period:
+    it is said as "I couldn't finish that: <why>", like SHUT_DOWN."""
+    if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+        return "its run was cancelled inside FERB"
+    return reason(exc, redact).rstrip(".")
 
 
 def watch_condition(met: bool | None) -> Condition:
@@ -116,8 +124,8 @@ def _env_text(env: dict[str, Any]) -> str:
     return (env["stable"] + "\n\n") if env.get("stable") else ""
 
 
-SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
-SCHEDULED_SORRY = "Something went wrong on my side before this scheduled run could start."   # nobody to ask again
+# A scheduled run whose task stream ended with no outcome: code knows only that
+NO_OUTCOME = "I couldn't finish this scheduled run: it ended without reporting an outcome. " + BUG
 ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
 CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")   # notices: L10
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
@@ -153,13 +161,22 @@ def _quoted(names: list[str]) -> str:
     return ", ".join("“" + " ".join(name.split()) + "”" for name in names)
 
 
-def _not_set(messages: list[str]) -> str:
-    """The one line saying which reminders code refused (L11); "" when none."""
-    if not messages:
+def _with_reasons(refused: list[tuple[str, str]]) -> str:
+    """Model-written names, each in quotes, with why code refused it: "“x”: why" for one, "“x” (why), …" for more."""
+    def why(text: str) -> str:
+        return " ".join(text.split()).rstrip(".")
+    if len(refused) == 1:
+        return f"{_quoted([refused[0][0]])}: {why(refused[0][1])}"
+    return ", ".join(f"{_quoted([name])} ({why(reason_)})" for name, reason_ in refused)
+
+
+def _not_set(refused: list[tuple[str, str]]) -> str:
+    """The one line saying which reminders code refused, each with code's reason (L11; owner 2026-10-24: the reason,
+    never "a problem on my side"); "" when none."""
+    if not refused:
         return ""
-    what, it = ("the reminder", "it") if len(messages) == 1 else ("the reminders", "them")
-    return (f"I couldn't set {what} {_quoted(messages)} — a problem on my side, not with how you asked, so nothing "
-            f"is scheduled for {it}. Could you ask again?")
+    what, it = ("the reminder", "it") if len(refused) == 1 else ("the reminders", "them")
+    return f"I couldn't set {what} {_with_reasons(refused)}. Nothing is scheduled for {it}. Could you ask again?"
 
 
 def _reminder_line(timer: Any) -> str:
@@ -177,12 +194,13 @@ def _already_set(timer: Any) -> str:
     return f"⏰ The reminder {what} is already set for {at}."
 
 
-def _not_saved(contents: list[str]) -> str:
-    """The one line saying which memory writes code refused (L11); "" when none."""
-    if not contents:
+def _not_saved(refused: list[tuple[str, str]]) -> str:
+    """The one line saying which memory writes code refused, each with code's reason (L11; owner 2026-10-24); ""
+    when none."""
+    if not refused:
         return ""
-    return (f"I couldn't remember {_quoted(contents)} — a problem on my side, so "
-            f"{'it is' if len(contents) == 1 else 'they are'} not saved. Could you tell me again?")
+    return (f"I couldn't remember {_with_reasons(refused)}. {'It is' if len(refused) == 1 else 'They are'} not "
+            "saved. Could you tell me again?")
 
 
 @dataclass(frozen=True)
@@ -316,6 +334,7 @@ class _Tree:
     stop_reason: str = ""
     finish_chosen: bool = False          # the orchestrator ended the work (its instructions are not owner text)
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
+    check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
     checked_report: str | None = None    # the report the last attempt's check judged: a done answer is these words
     owner_answer: str = ''
     input_notes: list[dict[str, Any]] = field(default_factory=list)
@@ -457,8 +476,10 @@ class Supervisor(WorkerRuns):
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
-        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}; supplied by the daemon
-        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = lambda items, own_words, source: []
+        # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
+        # reason in plain words}; supplied by the daemon
+        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = \
+            lambda items, own_words, source: [{"refused": "FERB has no memory store running"} for _ in items]
         # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
@@ -489,7 +510,7 @@ class Supervisor(WorkerRuns):
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
     def _set_timers(self, items: list[Any], said: list[tuple[str, str]],
-                    request_id: str, chain: str = "") -> tuple[list[Any], list[str], list[Any]]:
+                    request_id: str, chain: str = "") -> tuple[list[Any], list[tuple[str, str]], list[Any]]:
         """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
         and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
         message first, then this chat's earlier messages, newest first. A message authorizes its reminder once (L11):
@@ -498,16 +519,16 @@ class Supervisor(WorkerRuns):
         at 5 to stretch", quoted whole twice, is two). A reminder this turn already set is never set again from an
         earlier message holding the same words. One whose time no longer resolves into the future ("today at 9" emitted
         again after 9) is still matched against those already set, and refused only when it would be new. Each
-        reminder records the request that asked for it. Returns the reminders set, the messages of those refused for a
-        problem, and the reminders that already existed for the others (each once). A quote of several messages
+        reminder records the request that asked for it. Returns the reminders set, the message and code's reason for
+        each one refused, and the reminders that already existed for the others (each once). A quote of several messages
         joined by blank lines (a request asked over a clarification: "remind me … on oct30", "anytime", "7pm") counts
         when every part is exactly one of the owner's own messages and lies in this request's chain of owner words
         (`chain`), never pasted text or words they didn't type (MP2); the first part's message is the one that asked."""
         if self.timers is None:
-            return [], [str(it.message) for it in items], []
+            return [], [(str(it.message), "FERB has no reminder store running") for it in items], []
         now = self.clock.now()            # one moment for the whole turn: the same `when` resolves to the same time
         out: list[Any] = []
-        refused: list[str] = []
+        refused: list[tuple[str, str]] = []
         existing: list[Any] = []
         made: list[tuple[Any, str]] = []                  # (reminder, its words) set in this turn
 
@@ -526,7 +547,7 @@ class Supervisor(WorkerRuns):
                     if all(part in owners and part in plain(chain) for part in parts):
                         asked = [owners[parts[0]]]
                 if not asked:
-                    raise ValueError("the reminder isn't in the owner's own words")
+                    raise ValueError("the words I quoted from you aren't in any message you typed in this chat")
                 at: datetime | None = None
                 late: ValueError | None = None
                 try:
@@ -551,7 +572,7 @@ class Supervisor(WorkerRuns):
                                                   "set_in": request_id, "resolved_from": now.isoformat()})
             except ValueError as e:                                             # WhenError is a ValueError
                 self.journal.append("timer.refused", {"why": str(e)})
-                refused.append(str(it.message))
+                refused.append((str(it.message), str(e)))
                 continue
             out.append(t)
             made.append((t, quote))
@@ -653,9 +674,10 @@ class Supervisor(WorkerRuns):
             return out
         self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
         out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
-        if await problems_for(out):
-            self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair"})
-            raise ValueError("The planner returned an unknown task reference after format repair")
+        if remaining := await problems_for(out):
+            self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair",
+                                                "problems": remaining})
+            raise PlanRejected(remaining)               # the owner reads which check failed (owner 2026-10-24)
         return out
 
     async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
@@ -682,10 +704,10 @@ class Supervisor(WorkerRuns):
         try:                    # the run's per-request context goes when it ends, however it ends (final review M4)
             try:
                 out = await self._decide(session, sched.request + note, request_id)
-            except (RuntimeViolation, ValidationError, ValueError, InputTooLarge) as e:   # the cause is kept and told
-                self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # (L21)
+            except Exception as e:      # before its task started: the cause is kept, and told by its reason (L21)
+                self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,
                                                     "detail": str(e)})
-                answer = told(e, SCHEDULED_SORRY)
+                answer = self.gateway.redact(couldnt("start this scheduled run", e, self.gateway.redact))
                 return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
                         "goal": sched.request}
             if out.kind != "task" or out.task is None:
@@ -700,7 +722,7 @@ class Supervisor(WorkerRuns):
             recorded = Targets.from_json(sched.targets)
             self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
             self.state.approvals.unattended.add(request_id)
-            final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY,
+            final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": NO_OUTCOME,
                                      "goal": sched.request}
             async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
                                           conversation_id=session.id,      # the next run sees this one's answer
@@ -1060,16 +1082,11 @@ class Supervisor(WorkerRuns):
                 # Retrieve an already-failed decision too: a consumer may close at a yielded draft event.
                 # Unretrieved task exceptions can otherwise bypass the redacted trace through asyncio's logger.
                 await asyncio.gather(decision, return_exceptions=True)
-        except RuntimeViolation as e:
-            self.journal.append("chat.failed", {"request_id": request_id, "why": str(e)})
+        except Exception as e:      # no task started yet: the cause is kept, and the owner reads its reason (owner
+            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # 2026-10-24:
+                                                "detail": str(e)})          # never "something went wrong on my side")
             self._env.pop(request_id, None)
-            yield self._failure_reply(session_id, request_id, SORRY)
-            return
-        except (ValidationError, ValueError, InputTooLarge) as e:   # the reason is kept, and told plainly when it's
-            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # the service's
-                                                "detail": str(e)})                                  # or FERB's refusal
-            self._env.pop(request_id, None)
-            yield self._failure_reply(session_id, request_id, told(e, SORRY))
+            yield self._failure_reply(session_id, request_id, couldnt("start that", e, self.gateway.redact))
             return
         authority_id = request_id
         turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw
@@ -1218,13 +1235,15 @@ class Supervisor(WorkerRuns):
         # Quotes are checked against what the owner typed (never against pasted text)
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
-        unsaved: list[str] = []
-        for item in out.remember:           # one at a time, so a refused one is known by name
-            saved_now = self.remember([item], typed_lines, entry.id)
+        unsaved: list[tuple[str, str]] = []
+        for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
+            answers = self.remember([item], typed_lines, entry.id)
+            saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
             if not saved_now:
-                unsaved.append(item.content)
+                unsaved.append((item.content, next((r["refused"] for r in answers if r.get("refused")),
+                                                   "FERB's memory store gave no reason")))
         self._env[request_id]["intake_receipts"] = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             yield {"type": "memory", "text": receipt}
@@ -1897,8 +1916,8 @@ class Supervisor(WorkerRuns):
             if changed and not tree.stop:
                 await self._reconcile_resources(tree, root_span.id)
         except BaseException as exc:
-            tree.stop = tree.stop or (SHUT_DOWN if self._suspending else INTERRUPTED)
-            with suppress(Exception):          # the class name, for the records only; never in the owner's text
+            tree.stop = tree.stop or (SHUT_DOWN if self._suspending else interrupted(exc, self.gateway.redact))
+            with suppress(Exception):          # the class name for the records; the owner reads its reason above
                 self.journal.append("task.interrupted", {"task_id": tree_id, "error": type(exc).__name__})
             self.cancel_tree(tree)
             if runner is not None and not runner.done():
@@ -2434,7 +2453,7 @@ class Supervisor(WorkerRuns):
                     self.journal.append("task.execution_failed", {"task_id": worker.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
                     previous = tree.reports[-1] if tree.reports else {}
-                    out = Outcome(worker.id, "failed", "I couldn't continue this task (a problem on my side).",
+                    out = Outcome(worker.id, "failed", couldnt("continue this task", exc, self.gateway.redact),
                                   previous.get("artifacts", []), previous.get("evidence", []))
             if tree.stop and out.status != "cancelled":
                 out = Outcome(worker.id, "cancelled" if tree.stop == STOPPED_BY_YOU else "failed",
@@ -2478,6 +2497,7 @@ class Supervisor(WorkerRuns):
             tree.resources = []
             tree.cleanup_errors = []
             tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
+            tree.check_problem = ""
             tree.checked_report = None
             tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
             self.tasks.set_status(task.id, "running")
@@ -2517,6 +2537,7 @@ class Supervisor(WorkerRuns):
                 except Exception as exc:
                     self.journal.append("task.inspection_failed", {"task_id": task.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
+                    tree.check_problem = reason(exc, self.gateway.redact)
                     tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
                                          for i, c in enumerate(checked_conditions(tree.spec, tree.watch,
@@ -2556,10 +2577,9 @@ class Supervisor(WorkerRuns):
                                      "error": f"{type(exc).__name__}: {exc}"})
                 if attempt_revision != len(tree.steering.messages) and not tree.stop:
                     continue
-                # The owner reads the problem in plain words; the details stay in the records (P27).
-                # FERB's own sentence ends it: the service's (or the offline) sentence's period isn't doubled
-                problem = (": " + told(exc, "").rstrip(".") if isinstance(exc, (ServiceError, InputTooLarge))
-                           else " (a problem on my side)")
+                # The owner reads the problem in plain words; the exact failure stays in the records (P27).
+                # FERB's own sentence ends it: the reason's own end period isn't doubled
+                problem = ": " + reason(exc, self.gateway.redact).rstrip(".")
                 if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
                     tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."
                     tree.stands_unconfirmed = True
@@ -2926,6 +2946,7 @@ class Supervisor(WorkerRuns):
                 self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                       {"summary": raw.summary})
                 detail = "; ".join(raw.evidence) or raw.summary         # the exact failure, for recovery
+                tree.check_problem = raw.summary                         # and the owner's words for it
                 return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {detail}")
                         for i, c in judged]
             verdict = VerifierOutcome.model_validate(raw)
@@ -3043,8 +3064,8 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
     """The owner's lines for an outcome that isn't simply done: any pending question first, then each condition a
     check gave a verdict on and that isn't confirmed ("failed" when found false, "unverified" when it couldn't tell);
     why work stopped; what was confirmed; the conditions no check gave a verdict on (still to check when the
-    checker failed, still to do when the work stopped first, never "unverified" and never the failure's internals);
-    and the files."""
+    checker failed, with why it couldn't run in plain words; still to do when the work stopped first; never
+    "unverified"); and the files."""
     lines = [header]
     if out.status == "needs_user" and tree.owner_question:
         lines += ["", "Question: " + tree.owner_question, ""]
@@ -3075,9 +3096,10 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
         lines += ["", "Confirmed:"] + [f"- {owner_text(r)}" for r in met]
     unchecked = [r for r in results if r.path == UNCHECKED]
     if unchecked:
-        heading = ("Still to check (the check couldn't run, a problem on my side):" if tree.verification
-                   else "Still to do:")
+        heading = "Still to check (the check couldn't run):" if tree.verification else "Still to do:"
         lines += ["", heading] + [f"- {said[r.index][2] if r.index in said else owner_text(r)}" for r in unchecked]
+        if tree.verification and tree.check_problem:      # its reason, never "a problem on my side" (2026-10-24)
+            lines.append("Why the check couldn't run: " + tree.check_problem)
     if out.artifacts:
         lines += ["", "Artifact paths (these do not establish completeness):"] + [f"- {path}" for path in out.artifacts]
     return "\n".join(lines)

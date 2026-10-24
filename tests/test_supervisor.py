@@ -30,7 +30,9 @@ def test_chat_history_is_re_sent_each_turn(daemon: RunningDaemon) -> None:
 def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon: RunningDaemon) -> None:
     install(daemon, [RuntimeEvent("violation", {"unexpected_tools": ["shell"]})])
     evs = chat(daemon, "hello")
-    assert evs[0]["type"] == "reply" and "something went wrong" in evs[0]["text"]     # no internals shown (14a)
+    # the reason, in plain words (owner 2026-10-24: never "something went wrong on my side"); no raw adapter data
+    assert evs[0] == {"type": "reply", "text": "I couldn't start that: the AI runtime (fake) broke one of FERB's "
+                                               "rules: it used tools FERB didn't offer it: shell."}
     assert "fake" not in daemon.daemon.registry.unregistered
 
 

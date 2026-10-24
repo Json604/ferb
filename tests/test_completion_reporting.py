@@ -52,7 +52,8 @@ def test_pending_question_leads_without_losing_any_condition_or_evidence():
                   'the draft is saved', 'the message is not sent']
     tree = SimpleNamespace(
         spec=SimpleNamespace(success_conditions=[SimpleNamespace(owner_text=text) for text in conditions]),
-        owner_question=question, stop_reason='Gmail has signed out.', verification=[1], watch=False)
+        owner_question=question, stop_reason='Gmail has signed out.', verification=[1], watch=False,
+        check_problem='The AI service I use (Codex) reported an error: overloaded')
     results = [
         ConditionResult(0, conditions[0], False, 'verifier', 'Gmail shows a different account.'),
         ConditionResult(1, conditions[1], None, 'verifier', 'The attachment preview did not load.',
@@ -69,7 +70,8 @@ def test_pending_question_leads_without_losing_any_condition_or_evidence():
     assert 'To check: Open the draft and check the attachment.' in report
     assert 'Why work stopped: Gmail has signed out.' in report
     assert 'Confirmed:\n- the message is not sent' in report
-    assert 'Still to check (the check couldn\'t run, a problem on my side):\n- the draft is saved' in report
+    assert ('Still to check (the check couldn\'t run):\n- the draft is saved\n'
+            'Why the check couldn\'t run: The AI service I use (Codex) reported an error: overloaded') in report
     assert 'Artifact paths (these do not establish completeness):\n- draft.txt' in report
 
 

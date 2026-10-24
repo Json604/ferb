@@ -18,6 +18,7 @@ from ferb.config import LIMITS_DECIDED, Config
 from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.verify import Checks
+from ferb.orchestrator.worker import couldnt, reason
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
 from ferb.core.types import Identity
@@ -537,6 +538,7 @@ class Daemon:
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
                            publish=self._publish, hide=lambda text: self._hide_code_reply(text, "voice"),
+                           redact=lambda text: self.redact(text),
                            enabled=lambda: self._ptt, sounds=lambda: bool(self.config.get("voice", "sounds", True)))
         loop = asyncio.get_running_loop()
 
@@ -2142,20 +2144,22 @@ class Daemon:
         wording of what they said: an inferred proposal, out of every prompt until they say Yes to the question that
         offers it; one whose quote shares no word with it rests on nothing the owner said and is refused. A preference
         in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20: "No hold for
-        my typed words"). Per saved item: its receipt and the line code adds to the reply."""
+        my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused item: why, in
+        plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side")."""
         from ferb.memory.items import contains_words, owner_sentences, query_terms
         saved: list[dict[str, str]] = []
         for it in items:
             content = str(it.content).strip()
             clause = owner_sentences(own_words, content)
             if not contains_words(own_words, str(it.quote)):
-                why = "quote not in the owner's words"
+                why, told = "quote not in the owner's words", "the words I quoted from you aren't in what you typed"
             elif clause is None and not set(query_terms(str(it.quote))) & set(query_terms(content)):
-                why = "the quote holds nothing of what would be saved"
+                why, told = "the quote holds nothing of what would be saved", "the words I quoted from you don't say it"
             else:
-                why = ""
+                why = told = ""
             if why:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": why})
+                saved.append({"refused": told})
                 continue
             try:
                 m = self.memory.propose(it.kind, it.subject, it.key, clause or content,
@@ -2163,6 +2167,7 @@ class Daemon:
                                         1.0 if clause else 0.7)
             except FerbError as e:
                 self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
+                saved.append({"refused": reason(e, self.redact)})
                 continue
             text = " ".join(m.content.split())
             if m.origin == "owner_stated":
@@ -2874,10 +2879,11 @@ class Daemon:
             return
         try:
             final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s)
-        except Exception as e:                              # a run's failure is reported, never lost
+        except Exception as e:                              # a run's failure is reported with its reason, never lost
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
-                     "answer": f"“{s.request}” didn't work this time; I'll try again at the next run."}
+                     "answer": f"“{s.request}” didn't work this time; I'll try again at the next run. Why: "
+                               f"{reason(e, self.redact)}"}
         finally:
             self._last_runs.discard(sid)
         # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
@@ -3958,11 +3964,13 @@ class Daemon:
                     await queue.put(ev)
             except FerbError as e:
                 await queue.put(stamped({"type": "error", "text": str(e)}))
-            except Exception as e:                       # logged; the owner gets a plain sentence, not internals
+            except Exception as e:      # logged whole; the owner reads its reason (owner 2026-10-24), never "Sorry"
                 self._journal().append("chat.failed", {"request_id": request_id,
                                                        "why": f"{type(e).__name__}: {self.redact(str(e))}"})
-                await queue.put(stamped({"type": "reply", "text": "Sorry — something went wrong on my side. Could you "
-                                                                  "try that again?"}))
+                # no task of this turn had started (none named in its events: a task's plan line comes before its
+                # work), or one may have been under way
+                said = couldnt("finish that" if my_tasks else "start that", e, self.redact)
+                await queue.put(stamped({"type": "reply", "text": self.redact(said)}))
             finally:
                 if screen is not None and not screen.done():   # the turn ended before routing used it
                     screen.cancel()

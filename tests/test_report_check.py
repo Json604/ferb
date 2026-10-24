@@ -100,8 +100,10 @@ def test_a_check_that_crashes_lists_the_report_still_to_check(daemon: RunningDae
     assert out["status"] == "failed" and out["verified"] is False
     assert [(v["condition"], v["path"]) for v in out["verification"]] == [("the file exists", "unchecked"),
                                                                           (REPORT_CONDITION.text, "unchecked")]
-    assert ("Still to check (the check couldn't run, a problem on my side):\n- the file exists\n"
-            "- Whether what I reported matches the records") in out["answer"]
+    assert ("Still to check (the check couldn't run):\n- the file exists\n"
+            "- Whether what I reported matches the records\n"
+            "Why the check couldn't run: something broke inside FERB (RuntimeError: checker lost). That's a bug in "
+            "FERB, not something you asked wrong.") in out["answer"]
     assert REPORT_CONDITION.text not in out["answer"]
 
 

@@ -33,6 +33,15 @@ class InputTooLarge(Unsupported):
                          "accepts in one input; nothing was sent")
 
 
+class PlanRejected(ValueError):
+    """The planner's answer still failed FERB's code checks after its one repair; `problems` are code's own lines
+    (e.g. "Inventory paths are protected: [...]"), told to the owner as they are."""
+
+    def __init__(self, problems: list[str]) -> None:
+        self.problems = list(problems)
+        super().__init__("The planner's answer still had problems after one repair: " + "; ".join(self.problems))
+
+
 class AuthError(FerbError):
     """A connection or run token failed authentication or asked for a method its role doesn't allow."""
 

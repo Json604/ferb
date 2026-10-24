@@ -107,10 +107,14 @@ def test_a_worker_report_failure_never_shows_an_exception_name(daemon: RunningDa
 
 
 def test_a_runtime_stop_is_told_in_plain_words(daemon: RunningDaemon) -> None:
+    """The reason is told (owner 2026-10-24: "if ferb cannot do anything because of internal … restriction then that
+    is stated"), in plain words: what the runtime did, never the adapter's raw data."""
     install(daemon, [sup('task', 'Booking.', task('book the table'))],
             {'worker': RuntimeEvent('violation', {'unexpected_tools': ['mcpToolCall']})})
     text = outcome(chat(daemon, 'book the table'))['answer']
-    assert 'runtime' not in text and 'unexpected_tools' not in text and 'mcpToolCall' not in text
+    assert ("This attempt was stopped: the AI runtime (fake) broke one of FERB's rules: it used tools FERB didn't "
+            "offer it: mcpToolCall.") in text
+    assert 'unexpected_tools' not in text and '{' not in text
 
 
 def test_a_failed_check_keeps_its_failure_for_the_orchestrator(daemon: RunningDaemon) -> None:
@@ -124,11 +128,15 @@ def test_a_failed_check_keeps_its_failure_for_the_orchestrator(daemon: RunningDa
     assert all(v['evidence'].startswith("The check couldn't finish: ") for v in final['verification'])
     findings = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.dispatch').split('Inspection findings')[1]
     assert 'Expecting value' in findings                               # the exact failure, for recovery
-    assert 'Expecting value' not in final['answer']
+    # the owner reads why the check couldn't run, as a check, in plain words (owner 2026-10-24); no exception name
+    assert "Why the check couldn't run: " in final['answer']
+    assert "the AI's answer didn't fit the form FERB requires" in final['answer']
+    assert 'InvalidAnswer' not in final['answer'] and 'Error' not in final['answer']
 
 
 def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> None:
-    """A daemon restart or a dropped client used to show "I couldn't finish that: Task interrupted: CancelledError"."""
+    """A daemon restart or a dropped client used to show "I couldn't finish that: Task interrupted: CancelledError".
+    An exception inside FERB is now told as what it is, a bug in FERB, with its class and words (owner 2026-10-24)."""
     async def broken(tree_id: str) -> None:
         raise RuntimeError('the baseline sample failed')
     daemon.daemon.supervisor.on_task_start = broken
@@ -141,8 +149,8 @@ def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> No
         return [e.data for e in daemon.daemon.journal.of_kind(kind)]
     answers = daemon.run(rows('task.answer'))
     assert answers and answers[-1]['status'] == 'failed'
-    assert 'RuntimeError' not in answers[-1]['text']
-    assert answers[-1]['text'].startswith("I couldn't finish that: ")
+    assert answers[-1]['text'] == ("I couldn't finish that: something broke inside FERB (RuntimeError: the baseline "
+                                   "sample failed). That's a bug in FERB, not something you asked wrong")
     noted = daemon.run(rows('task.interrupted'))
     assert noted and noted[-1]['error'] == 'RuntimeError'               # the class name stays in the records
 

@@ -835,8 +835,9 @@ beside its `verified` flag:
 The dispatch schema's `result` (`unconfirmed`, `failed` or null) is the orchestrator's judgment; code only maps it
 (rule 6). "Unverified" is printed only for a condition a check gave a verdict on (V5): when the work stopped before any
 check, the answer is "I couldn't finish this task." with "Still to do:", and when the checker itself failed the
-conditions are listed under "Still to check (the check couldn't run, a problem on my side):". A worker's prose is never
-stated as success. The cleanup review ([`resources.md`](ferb/orchestrator/prompts/resources.md)) can't turn an
+conditions are listed under "Still to check (the check couldn't run):", followed by "Why the check couldn't run: …"
+(`_Tree.check_problem`: the check attempt's own summary, or `worker.reason` of what it raised). A worker's prose is
+never stated as success. The cleanup review ([`resources.md`](ferb/orchestrator/prompts/resources.md)) can't turn an
 unconfirmed outcome into `failed` for that alone, nor a judged failure into `done_unverified`. The readers label
 `done_unverified` "not confirmed" (the stored status and the baseline keys keep their names):
 `ferb trace` heads the story `done ✓ verified`, `done (not confirmed)` or `failed ✗`
@@ -2302,8 +2303,21 @@ protected FERB state (16.9).
   words (a reminder asked over a clarification; the first part's message is the source).
 - A `continue` with `control.new_goal` re-plans inside the same tree (`PlanStore.replace` for a different plan); a
   retry stays in its tree.
-- A non-owner stop says why in plain words (the class is journaled as `task.interrupted`). Failure replies are
-  journaled as `chat.reply`; a scheduled run's failure is named (`SCHEDULED_SORRY` otherwise), with `chat.failed`.
+- A failure is told by its reason, never "something went wrong on my side" (owner, 2026-10-24). `worker.reason(e,
+  redact)` classifies by exception type and errno only (R2): the AI service's own sentence and a call FERB didn't send
+  as before (`problem_of`, `too_large_problem`); `PermissionError` (EPERM/EACCES) as "macOS didn't let FERB open <path>
+  (<macOS's words>)"; `Refused`/`AuthError` as FERB's protection rules; `RuntimeViolation` from the adapter's fact
+  (tools FERB didn't offer, how it signed in); `PlanRejected` (still invalid after the planner's one repair) with
+  code's problems; a `ValidationError`/`InvalidAnswer` as an answer outside FERB's form; a FERB error's own message;
+  other OS errors; anything else as "something broke inside FERB (<class>: <words>). That's a bug in FERB, not
+  something you asked wrong." The words are redacted, then capped at 300 characters; the exact failure stays in the
+  records. `worker.couldnt(what, e)` opens with what didn't happen: "I couldn't start that: …" when the planning turn
+  failed (`Supervisor._send`, any exception, journaled `chat.failed`, answered as `chat.reply`) or the daemon's turn
+  failed before any task named in its events; "I couldn't finish that: …" once a task may have been under way. A task
+  that ended without the owner's stop or a shutdown says why (`supervisor.interrupted`; the class is journaled as
+  `task.interrupted`), as do a worker attempt's summary (stopped, stopped responding after N s, report not usable,
+  couldn't run), a dispatch failure, a refused reminder or memory (each with code's reason), a scheduled run's
+  failure (with `chat.failed`) and a voice turn.
 - A steer replies "Switched to: …" or "Added your correction: …".
 
 ### 16.4 Seeing (L12, L13)
@@ -2520,7 +2534,7 @@ protected FERB state (16.9).
   name, never sent to be rejected). `WorkerRuns._run` (planner, dispatch, worker, checker, summaries) records a
   `context.too_large` span with each block's reference and character count, then raises it: never a `ServiceError`
   (so never the planner's image-refused retry; images count 0 characters), and the owner reads that FERB didn't send
-  it (`worker.too_large_problem`, via `told`). The running summary folds what fell out in calls that fit
+  it (`worker.too_large_problem`, via `worker.reason`). The running summary folds what fell out in calls that fit
   (`Supervisor._foldable`: the latest summary plus the oldest entries that fit, repeated). `CodexRuntime.start` guards
   the text it sends too (`check_input`). The cap is in the daemon status and `ferb doctor`
   (`setup.context_window_check`).

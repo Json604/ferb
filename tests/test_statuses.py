@@ -40,7 +40,11 @@ def _failed(summary: str) -> str:
     return json.dumps({"status": "failed", "summary": summary, "artifacts": [], "evidence": []})
 
 
-INTERNAL = ("worker", "checker", "verifier", "task.evidence", "inspection", "Error", "Exception")
+# FERB's internal roles and records never reach the owner's text; an exception's class name does only when the
+# failure is a bug in FERB, told as one (owner 2026-10-24)
+ROLES = ("worker", "checker", "verifier", "task.evidence", "inspection")
+INTERNAL = ROLES + ("Error", "Exception")
+BUG = "That's a bug in FERB, not something you asked wrong."
 
 
 # ---------- the three statuses ----------
@@ -119,8 +123,9 @@ def test_a_crash_before_any_check_says_what_happened(daemon: RunningDaemon) -> N
     daemon.daemon.supervisor._worker = crash
     evs = _run(daemon, done("never runs"), (cond("the file exists"),))
     assert evs["status"] == "failed" and "unverified" not in evs["answer"]
-    assert "Why work stopped: I couldn't continue this task (a problem on my side)." in evs["answer"]
-    assert not any(word in evs["answer"] for word in INTERNAL)
+    assert ("Why work stopped: I couldn't continue this task: something broke inside FERB (RuntimeError: boom). "
+            + BUG) in evs["answer"]
+    assert not any(word in evs["answer"] for word in ROLES)
 
 
 def test_a_crash_after_an_earlier_unconfirmed_check_is_not_reported_as_checked(daemon: RunningDaemon) -> None:
@@ -153,7 +158,10 @@ def test_a_crashed_check_lists_conditions_still_to_check(daemon: RunningDaemon, 
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "done_unverified" and not evs["verified"]
     assert evs["answer"].startswith("Done, but not confirmed:")
-    assert "Still to check (the check couldn't run, a problem on my side):\n- the email was sent" in evs["answer"]
+    assert "Still to check (the check couldn't run):\n- the email was sent" in evs["answer"]
+    # why, in plain words (owner 2026-10-24): the checker's answer didn't fit FERB's form
+    assert "\nWhy the check couldn't run: " in evs["answer"]
+    assert "the AI's answer didn't fit the form FERB requires" in evs["answer"]
     assert "unverified" not in evs["answer"] and not any(word in evs["answer"] for word in INTERNAL)
 
 
@@ -223,7 +231,8 @@ def test_a_planning_failure_after_an_unconfirmed_finish_stays_done_unverified(da
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "done_unverified"
     assert "- the email was sent — unverified: the Sent folder did not load" in evs["answer"]
-    assert "Why work stopped: I couldn't plan another attempt to confirm it (a problem on my side)." in evs["answer"]
+    assert ("Why work stopped: I couldn't plan another attempt to confirm it: the AI's answer didn't fit the form "
+            "FERB requires (Invalid JSON: expected ident at line 1 column 2).") in evs["answer"]
     assert not any(word in evs["answer"] for word in INTERNAL)
 
 
@@ -233,7 +242,8 @@ def test_a_planning_failure_after_a_failed_attempt_hides_the_exception(daemon: R
             {"worker": _failed(report), "worker.dispatch": "not json"})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed"
-    why = "Why work stopped: couldn't find it. I couldn't plan the next attempt (a problem on my side)."
+    why = ("Why work stopped: couldn't find it. I couldn't plan the next attempt: the AI's answer didn't fit the "
+           "form FERB requires (Invalid JSON: expected ident at line 1 column 2).")
     assert why in evs["answer"]
     assert not any(word in evs["answer"] for word in INTERNAL)
     failures = _sql(daemon, "SELECT data_json FROM journal WHERE kind = 'task.dispatch_failed'")

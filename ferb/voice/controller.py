@@ -12,6 +12,7 @@ import asyncio
 import time
 from typing import Any, AsyncIterator, Callable
 
+from ferb.orchestrator.worker import couldnt
 from ferb.voice.mic import InputDevice, choose
 from ferb.voice.push_to_talk import MIN_HOLD_S, TalkKey
 from ferb.voice.speak import spoken
@@ -26,11 +27,13 @@ class Voice:
                  question: Callable[[dict[str, Any]], str] = lambda d: "",
                  publish: Callable[[str, dict[str, Any]], None] = lambda topic, data: None,
                  hide: Callable[[str], str] = lambda text: text,
-                 enabled: Callable[[], bool] = lambda: True, sounds: Callable[[], bool] = lambda: True) -> None:
+                 enabled: Callable[[], bool] = lambda: True, sounds: Callable[[], bool] = lambda: True,
+                 redact: Callable[[str], str] = lambda text: text) -> None:
         self.run_turn, self.pending = run_turn, pending
         self.speaker, self.journal = speaker, journal
         self.launch_app, self.mode, self.render, self.question = launch_app, mode, render, question
         self.publish, self.hide = publish, hide            # hide: a code said to a code question (rule 14)
+        self.redact = redact                                # what a failure's reason says goes through it first
         self.enabled, self.sounds = enabled, sounds          # push-to-talk on? `[voice] sounds`?
         self._chime: asyncio.TimerHandle | None = None
         self.key = TalkKey()
@@ -136,6 +139,6 @@ class Voice:
                     words = spoken(shown)
                     await asyncio.to_thread(self.speaker.wait)       # don't cut off what it's still saying
                     self._say(words, shown)
-        except Exception as e:                                    # the owner hears it, the journal keeps it
+        except Exception as e:                # the owner hears why (owner 2026-10-24), the journal keeps it whole
             self.journal.append("voice.failed", {"why": f"{type(e).__name__}: {e}"})
-            self._say("Sorry — something went wrong on my side.")
+            self._say(str(self.redact(couldnt("do that", e, self.redact))))

@@ -30,8 +30,8 @@ from ferb.sense.transcribe import Transcriber, redacted
 FOLDER = "audio"                     # under FERB's workspace
 NO_SOUND = ("no sound was captured: the media may be paused or muted, or the app played nothing; check the snapshot's "
             "media state, play or unmute with browser_media / ferb_browser_media, then listen again")
-CAPTURE_FAILED = ("FERB couldn't capture this app's sound (a problem on FERB's side, not with the media): don't replay or "
-                  "unmute the media for it; say in the answer that the sound couldn't be heard")
+CAPTURE_FAILED = ("FERB couldn't capture this app's sound (capture_error says why; the media isn't at fault): don't "
+                  "replay or unmute the media for it; say in the answer that the sound couldn't be heard, and why")
 
 
 @dataclass

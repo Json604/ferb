@@ -7,7 +7,9 @@ No action-count, attempt-count or task-duration cutoff. The orchestrator chooses
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
+import os
 from functools import partial
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -15,7 +17,8 @@ from pydantic import ValidationError
 
 from ferb.clock import context
 from ferb.core.context import ContextBlock, assemble, count_tokens, runtime_limits
-from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, RuntimeUnavailable
+from ferb.core.errors import (AuthError, FerbError, InputTooLarge, ModelLimitsUnknown, NoTarget, PlanRejected,
+                              Refused, RuntimeUnavailable)
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import InvalidAnswer, check_final
 from ferb.core.interfaces import AgentRuntime
@@ -122,17 +125,93 @@ def too_large_problem(e: InputTooLarge) -> str:
             f"{e.max_chars:,} characters for one input.")
 
 
-def told(e: BaseException, fallback: str) -> str:
-    """What the owner reads for a failed model call: the service's own error, a call FERB didn't send, else
-    `fallback`."""
+class RuntimeViolation(Exception):
+    """The AI runtime broke one of FERB's rules, as its adapter reported it (a `violation` event): `data` is the
+    adapter's own fact (`unexpected_tools`: tools it called that FERB never offered; `auth`: how it signed in). The
+    message, kept whole in the records, is "<runtime>: <data>"."""
+
+    def __init__(self, message: str, runtime: str = "", data: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.runtime, self.data = runtime, dict(data or {})
+
+    def plain(self) -> str:
+        """What it did, in the owner's words, from the adapter's fact; the message itself when it names none."""
+        if tools := self.data.get("unexpected_tools"):
+            names = ", ".join(str(t) for t in tools) if isinstance(tools, (list, tuple, set)) else str(tools)
+            return f"it used tools FERB didn't offer it: {names}"
+        if auth := self.data.get("auth"):
+            return f"it signed in a way FERB doesn't allow: {auth}"
+        return str(self)
+
+
+REASON_CHARS = 300      # an exception's own words in the owner's line, at most; the records keep them whole
+BUG = "That's a bug in FERB, not something you asked wrong."
+
+
+def _words(text: str, redact: Callable[[str], str]) -> str:
+    """An exception's words for the owner's line: redacted first (a secret cut in half no longer matches), on one line,
+    and at most REASON_CHARS characters."""
+    text = " ".join(str(redact(text)).split())
+    return text if len(text) <= REASON_CHARS else text[:REASON_CHARS - 1].rstrip() + "…"
+
+
+def _ended(text: str) -> str:
+    """A sentence with its own end punctuation, else a period."""
+    return text if text.endswith((".", "!", "?", "…")) else text + "."
+
+
+def _file(name: object, redact: Callable[[str], str]) -> str:
+    return _words(os.fsdecode(name) if isinstance(name, (str, bytes)) else str(name), redact)
+
+
+def reason(e: BaseException, redact: Callable[[str], str] | None = None) -> str:
+    """Why something FERB was doing failed, in plain words for the owner (owner 2026-10-24: an internal or permission
+    restriction is stated, never a vague "something went wrong on my side"). Classified by exception type and errno
+    only (R2): the AI service's own error, or a call FERB didn't send, as always; macOS refusing (EPERM/EACCES), with
+    the path and macOS's own words; FERB's protection rules; the AI runtime breaking FERB's rules; a plan or an answer
+    that failed FERB's checks; a FERB error's own message; macOS's other errors; anything else is a bug in FERB, named
+    by its class. `redact` (the redactor) runs before the cap. The exact failure stays in the records."""
+    clean: Callable[[str], str] = redact or (lambda text: text)
     if isinstance(e, ServiceError):
         return problem_of(e)
-    return too_large_problem(e) if isinstance(e, InputTooLarge) else fallback
+    if isinstance(e, InputTooLarge):
+        return too_large_problem(e)
+    if isinstance(e, OSError) and (isinstance(e, PermissionError) or e.errno in (errno.EPERM, errno.EACCES)):
+        said = _words(e.strerror or str(e) or type(e).__name__, clean)
+        if e.filename is not None:
+            return f"macOS didn't let FERB open {_file(e.filename, clean)} ({said})."
+        return f"macOS refused an operation FERB needed ({said})."
+    if (isinstance(e, Refused) and not isinstance(e, NoTarget)) or isinstance(e, AuthError):
+        return _ended(f"FERB's protection rules stopped it: {_words(str(e) or type(e).__name__, clean)}")
+    if isinstance(e, RuntimeViolation):
+        who = f"the AI runtime ({e.runtime})" if e.runtime else "the AI runtime"
+        return _ended(f"{who} broke one of FERB's rules: {_words(e.plain(), clean)}")
+    if isinstance(e, PlanRejected):
+        return _ended("the plan still had problems after one repair: " + _words("; ".join(e.problems), clean))
+    if isinstance(e, ValidationError):
+        first = e.errors()[0] if e.error_count() else None
+        where = ".".join(str(part) for part in first["loc"]) if first else ""
+        what = (str(first["msg"]) + (f" at {where}" if where else "")) if first else str(e)
+        return f"the AI's answer didn't fit the form FERB requires ({_words(what, clean)})."
+    if isinstance(e, InvalidAnswer):
+        return f"the AI's answer didn't fit the form FERB requires ({_words(str(e), clean)})."
+    if isinstance(e, (FerbError, RuntimeUnavailable)) and str(e).strip():
+        return _ended(_words(str(e), clean))           # FERB's own message for a failure it names
+    if isinstance(e, OSError) and e.errno is not None:
+        said = _words(e.strerror or str(e), clean)
+        if e.filename is not None:
+            return f"macOS reported an error for {_file(e.filename, clean)} ({said})."
+        return f"macOS reported an error ({said})."
+    detail = _words(str(e), clean)
+    return f"something broke inside FERB ({type(e).__name__}{': ' + detail if detail else ''}). {BUG}"
 
 
-
-class RuntimeViolation(Exception):
-    pass
+def couldnt(what: str, e: BaseException, redact: Callable[[str], str] | None = None) -> str:
+    """The owner's line for work that failed: "I couldn't <what>: <reason>". The AI service's own sentence, or the
+    call FERB didn't send, is told as it always was."""
+    if isinstance(e, (ServiceError, InputTooLarge)):
+        return reason(e)
+    return f"I couldn't {what}: {reason(e, redact)}"
 
 
 def reserve_tokens(system: str, tool_schemas: list[Any], output_schema: Any) -> int:
@@ -280,13 +359,18 @@ class WorkerRuns:
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema)
             final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id,
                                     images=images)
-            result: dict[str, Any] | Outcome = json.loads(final)
+            try:
+                result: dict[str, Any] | Outcome = json.loads(final)
+            except json.JSONDecodeError as exc:     # outside FERB's form, as check_final words it
+                raise InvalidAnswer(f"the answer is not JSON ({exc.msg})") from None
             if not isinstance(result, dict):
-                raise ValueError("not an object")
+                raise InvalidAnswer("the answer is not a JSON object")
         except RuntimeViolation as e:
             failure = f"{type(e).__name__}: {e}"
-            # Plain words, which the owner may read (L11); the exact failure is evidence for recovery
-            result = Outcome(task.id, "failed", "This attempt was stopped (a problem on my side).", [], [failure])
+            # Plain words with the reason, which the owner may read (L11, owner 2026-10-24); the exact failure is
+            # evidence for recovery
+            result = Outcome(task.id, "failed", "This attempt was stopped: " + reason(e, self.gateway.redact), [],
+                             [failure])
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
             result = (Overflowed if isinstance(e, ContextOverflow) else Outcome)(task.id, "blocked", problem_of(e),
@@ -299,16 +383,22 @@ class WorkerRuns:
             if worker_id in self._stalled:
                 retried = self._retrying.get(worker_id)          # it only retried since its last progress
                 result = Outcome(task.id, "failed", retry_stall_problem(*retried, self.stall_s) if retried else
-                                 "This attempt stopped responding (a problem on my side).", [],
+                                 f"This attempt stopped responding: the AI runtime showed no sign of life for "
+                                 f"{self.stall_s:g} s, so FERB stopped it.", [],
                                  [f"no sign of life for {self.stall_s:g} s, not counting waits on the owner" +
                                   (" (only retries)" if retried else "")])
             else:
+                # an answer outside FERB's form says what was wrong; another ValueError here is the run's own words
+                # for why it gave no usable report ("runtime finished without an answer")
+                why = (reason(e, self.gateway.redact) if isinstance(e, (ValidationError, InvalidAnswer))
+                       else _ended(_words(str(e) or type(e).__name__, self.gateway.redact)))
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
-                                 tree.stop or "The report from this attempt wasn't usable (a problem on my side).", [],
+                                 tree.stop or "The report from this attempt wasn't usable: " + why, [],
                                  [] if tree.stop else [failure])
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
-            result = Outcome(task.id, "blocked", "This attempt couldn't run (a problem on my side).", [], [failure])
+            result = Outcome(task.id, "blocked", "This attempt couldn't run: " + reason(e, self.gateway.redact), [],
+                             [failure])
         finally:
             self._stalled.discard(worker_id)
             self._retrying.pop(worker_id, None)
@@ -436,7 +526,7 @@ class WorkerRuns:
                         notice.retrying(message)
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
-                    raise RuntimeViolation(f"{rt.name}: {ev.data}")
+                    raise RuntimeViolation(f"{rt.name}: {ev.data}", rt.name, dict(ev.data))
                 elif ev.kind == "error" and ev.data.get("overflow"):     # the window-exceeded error, as marked
                     raise ContextOverflow(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
