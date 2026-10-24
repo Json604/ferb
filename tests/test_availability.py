@@ -11,7 +11,10 @@ from tests.conftest import STALL, chat, install, sup, task
 
 REGISTERED = {"fs:read", "fs:write", "browser:read", "browser:act", "mac:read", "mac:act", "applescript", "screen",
               "shell", "time", "trail:read"}
-WORK = SimpleNamespace(browser="brave", folder="Default", identity=Identity.OWNER)
+WORK = SimpleNamespace(install_id="install-work", browser="brave", folder="Default", identity=Identity.OWNER)
+# Live 2026-10-24 (task 0a5fbe31): "paired, extension transport disconnected" read as broken, and the worker drove the
+# profile through Chrome's menus with Accessibility instead of the browser tools, which start it without a window.
+IDLE = "Brave “Work” paired; not connected now — FERB connects once that profile is open in its browser"
 
 
 def test_installed_groups_remain_listed_with_connection_observations() -> None:
@@ -54,13 +57,43 @@ def test_a_paired_profile_with_a_wake_service_can_be_opened(daemon: RunningDaemo
     dm.router = original
 
 
+async def _facts(dm: Any) -> str:
+    return str(dm._facts())
+
+
+def test_the_planner_facts_say_a_paired_profile_not_running_starts_in_the_background(daemon: RunningDaemon) -> None:
+    dm = rig(daemon, [WORK], set())
+    original = dm.router
+    dm.router = SimpleNamespace(wake=object(), shutdown=_noop)
+    try:
+        facts = daemon.run(_facts(dm))
+        assert ("- The owner's brave profile “Work”: paired; not connected now (usually the profile just isn't "
+                "running) — FERB's browser tools start it in the background, with no window; its first page needs "
+                "FERB's minimized window, whose creation may switch Space") in facts
+        assert "transport disconnected" not in facts
+        dm.hub.refused["install-work"] = "extension 0.15.5 (protocol 16), FERB needs 0.15.6 (protocol 17): reload it"
+        facts = daemon.run(_facts(dm))
+        assert ("- The owner's brave profile “Work”: paired; its extension was refused: extension 0.15.5 "
+                "(protocol 16), FERB needs 0.15.6 (protocol 17): reload it") in facts
+        dm.hub.refused.clear()
+        dm.router = SimpleNamespace(wake=None, shutdown=_noop)
+        facts = daemon.run(_facts(dm))
+        assert "- The owner's brave profile “Work”: paired; not connected now — FERB connects once that profile is " \
+               "open in its browser" in facts
+        rig(daemon, [WORK], {("brave", "Default")})
+        assert "- The owner's brave profile “Work”: paired, connected" in daemon.run(_facts(dm))
+    finally:
+        dm.hub.refused.clear()
+        dm.router = original
+
+
 def test_owner_browser_connection_facts_do_not_withdraw_installed_tools(daemon: RunningDaemon) -> None:
     dm = rig(daemon, [], set())
     a = daemon.run(_avail(dm))
     assert "browser:act" in a.scopes and "none of the owner's browser profiles is paired" in a.unavailable_line()
     rig(daemon, [WORK], set())
     a = daemon.run(_avail(dm))
-    assert "Brave “Work” paired; extension transport disconnected" in a.unavailable_line() and "browser:act" in a.scopes
+    assert IDLE in a.unavailable_line() and "browser:act" in a.scopes
     rig(daemon, [WORK], {("brave", "Default")})
     a = daemon.run(_avail(dm))
     assert {"browser:read", "browser:act"} <= a.scopes and "connection observations: Brave “Work”" in a.text
@@ -94,7 +127,7 @@ def test_the_planner_sees_the_built_list(daemon: RunningDaemon) -> None:
     chat(daemon, "hello")
     system = daemon.run(_system(dm))
     assert "Installed worker capabilities:" in system and "{capabilities}" not in system
-    assert "Connection/permission observations: the owner's browsers (Brave “Work” paired; extension transport disconnected" in system
+    assert f"Connection/permission observations: the owner's browsers ({IDLE}" in system
     assert "The owner's browsers (\"owner\" identity), connected now" not in system
     assert script.contexts                                                   # the turn ran
 

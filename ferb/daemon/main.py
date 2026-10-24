@@ -138,6 +138,9 @@ def _named_node(node: dict[str, Any]) -> str:
 # Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
 # pairing) and Brave (its profiles paired live). Elsewhere `ferb browsers pair` pairs by hand.
 AUTOPAIR_BROWSERS = ("chrome", "brave")
+# A paired owner profile that isn't connected, where FERB can't start it without a window (no wake service): plain
+# words, not a fault (live 2026-10-24: "extension transport disconnected" read as broken)
+IDLE_PROFILE = "not connected now — FERB connects once that profile is open in its browser"
 # Chromium writes Local State and Preferences up to 10 s after a change (ImportantFileWriter's commit interval), so
 # a window switch or FERB being turned on shows on disk that late. A technical wait, not a behaviour limit.
 PREFS_SETTLE_S = 12.0
@@ -3271,7 +3274,7 @@ class Daemon:
             elif not live and not (self.router and self.router.wake):
                 shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                   for b in owner)
-                problems["owner_browsers"] = f"{shown} paired; extension transport disconnected"
+                problems["owner_browsers"] = f"{shown} paired; {IDLE_PROFILE}"
             profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                  for b in live)
             sleeping = [b for b in owner if b not in live]
@@ -3708,13 +3711,28 @@ class Daemon:
                 br = self.hub.bridges.get((b.browser, b.folder))
                 name = next((p.display_name for p in self._profiles() if (p.browser, p.folder) == (b.browser, b.folder)),
                             b.folder)
-                lines.append(f"- The owner's {b.browser} profile “{name}”: paired"
-                             f"{', connected' if br is not None and br.conn else ', extension transport disconnected'}")
+                lines.append(f"- The owner's {b.browser} profile “{name}”: paired{self._paired_state(b, br)}")
             for browser in sorted(set(self.hub.unpaired.values())):
                 note = self._unpaired_note(browser)
                 if note:
                     lines.append(f"- {note}")
         return "\n".join(lines)
+
+    def _paired_state(self, binding: Any, bridge: Any) -> str:
+        """How the planner may use one paired owner profile now, in plain words: a profile that isn't connected is
+        usually just not running, and the browser tools start it without a window when the wake service is there
+        (`_TabDriver._connected`, spike 19); its first page needs FERB's minimized window, whose creation may switch
+        Space (background.js `getFerbWindow`). Live 2026-10-24: "extension transport disconnected" read as broken."""
+        if bridge is not None and bridge.conn:
+            return ", connected"
+        refused = self.hub.refused.get(binding.install_id) if self.hub is not None else None
+        if refused:
+            return f"; its extension was refused: {refused}"
+        if self.router is not None and self.router.wake is not None:
+            return ("; not connected now (usually the profile just isn't running) — FERB's browser tools start it in "
+                    "the background, with no window; its first page needs FERB's minimized window, whose creation "
+                    "may switch Space")
+        return f"; {IDLE_PROFILE}"
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
         if topic == "approval.requested" and data.get("task_id") and "request_id" not in data:

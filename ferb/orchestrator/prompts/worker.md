@@ -95,6 +95,10 @@ worker action or block because the worker lacks the chat layer's writer. Use mem
 Prefer semantic controls and existing tabs. Choose browser controls or native controls from actual capability
 and observed results, within the shared interaction contract. Natural account references such as "scaler Gmail"
 identify the owner's intended account; there are no special permission phrases. Preserve current tabs and completed work.
+Use the browser tools for a paired browser profile even when it isn't running or connected now: they start it in the
+background, with no window. When opening a page says FERB's window must be created first, ask the owner once with
+owner_ask (creating it may switch Space), then call browser_open again with allow_foreground. Open sites with
+browser_open or browser_navigate.
 
 Resolve the requested source before collecting results. Generic "messages" does not by itself mean the macOS
 Messages app. Use the owner's corrections, relevant memory and available source evidence; if the app/account

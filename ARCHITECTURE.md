@@ -310,7 +310,11 @@ answer for pages it can't read or attach to, see section 16.4; 0.15.8 adds media
 reply fields, no protocol change). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
-permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
+permission: macOS can switch Spaces before minimized/unfocused creation finishes. A paired owner profile that isn't
+connected is usually just not running: the browser tools load it with no window (`_TabDriver._connected`,
+`--no-startup-window`, spike 19), and the planner's facts say so in plain words (`Daemon._paired_state`: "not connected
+now (usually the profile just isn't running) — FERB's browser tools start it in the background …"; a refused extension
+gives its reason). Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. The browser can refuse
 the debugger: Chrome refuses `chrome.debugger.attach` for a whole tab when any frame in it is another extension's
 `chrome-extension://` page, and detaches a session from such a tab when its page navigates (chrome:// pages, the Web
