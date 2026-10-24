@@ -2777,7 +2777,11 @@ planner's own words say what the loop does.
 - A round is an ordinary worker run for the step, then the checker, under the same gateway, confirmations, sink rule,
   P19 rule and standing scope as any step; a loop grants nothing. All rounds share the task id `<tree>.loop.<step>`
   and each is a `loop.round` span; what a round's worker starts (a shell session, a FERB tab) stays the loop's until
-  it ends, while the round's checker resources are released right after its check; a round's checker judges only the calls made in that round, and earlier rounds reach
+  it ends, while the round's checker resources are released right after its check. `keep_open` on the owner's borrowed
+  tab only marks it kept (`_TabDriver.keep_open`): the tab stays held, its debugger attached and focus emulation on,
+  until its task ends (a loop's: until the loop stops), when `close` lets go of it, open; letting go at `keep_open`
+  turned focus emulation off and Instagram paused 0.3 s after each round (live cc5debe4, 2026-10-25). A tab FERB
+  opened is still handed over at once. A round's checker judges only the calls made in that round, and earlier rounds reach
   the next one as a digest of one-line results (`RECENT_ROUNDS` 5). The round's worker reports `loop_action`
   (`continue`/`finished`/`blocked`) and a `probe`; `finished` counts only with an `end_when`, observed evidence and the
   checker's verification, otherwise it is `continue`. A loop with no `end_when` ends only by the owner's stop, and a

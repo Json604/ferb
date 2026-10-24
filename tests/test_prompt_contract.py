@@ -56,6 +56,13 @@ SENTENCES = [
     ("worker.md",
      'Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the '
      'loop, loop_action and probe are null.'),
+    # live loop cc5debe4 (2026-10-25): every round ended with keep_open, which let go of the owner's tab and paused it
+    ("worker.md",
+     'The loop holds for you the tabs and sessions its rounds open or borrow, across rounds until it stops: leave them '
+     'held and use them again in the next round.'),
+    ("worker.md",
+     'In a loop round the loop holds the tabs its rounds open or borrow until it stops, so leave them held for the '
+     'next round.'),
     # final loops review (L31): shell_list's order isn't an identity; a command's own id is
     ("worker.md",
      'To watch a command you started, probe shell_read with its id (field running), not a shell_list index.'),

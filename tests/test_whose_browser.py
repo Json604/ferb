@@ -93,14 +93,30 @@ def test_the_tabs_tool_says_which_tab_plays_sound_and_keys_each_tab_by_its_ref()
 
 
 def test_handoff_preserves_task_tab_and_cleanup_releases_it_without_closing() -> None:
+    """L31, live cc5debe4 (2026-10-25): keep_open used to let go of the owner's borrowed tab at once; the extension's
+    detach turned focus emulation off and Instagram paused 0.3 s later, while the task (a loop) still ran. A borrowed
+    tab is marked kept and stays held until its task ends; the release then keeps it open."""
     r, br = router()
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
     kept = asyncio.run(r.keep_open(ref))
-    assert kept['kept_open'] and kept['released']
+    assert kept['kept_open'] and not kept['released'] and kept['borrowed']
+    assert "release_tab" not in br.calls                           # still held: focus emulation stays on
     assert r.owned_by(ref.tab_id, 'task-1') == ref  # checker can still inspect before cleanup
     result = asyncio.run(r.release('task-1'))
-    assert result[0]['kept_open'] and not result[0]['closed']
-    assert 'close' not in br.calls and ref.tab_id not in r._tabs
+    assert result[0]['kept_open'] and result[0]['released'] and not result[0]['closed']
+    assert br.calls.count("release_tab") == 1 and 'close' not in br.calls and ref.tab_id not in r._tabs
+
+
+def test_keep_open_on_a_tab_ferb_opened_still_hands_it_over_at_once() -> None:
+    """Only the owner's borrowed tab is held on: a tab FERB opened is kept open and let go of at once, as before (the
+    extension remembers it kept before it detaches, so a lost answer never closes it)."""
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    r._tabs[ref.tab_id].attached = False                           # as a tab FERB opened itself
+    br.unhold = lambda: None  # type: ignore[attr-defined]
+    kept = asyncio.run(r.keep_open(ref))
+    assert kept['kept_open'] and kept['released'] and not kept['borrowed']
+    assert br.calls.count("release_tab") == 1
 
 
 def test_failed_handoff_does_not_claim_success_or_allow_cleanup_to_close_tab() -> None:

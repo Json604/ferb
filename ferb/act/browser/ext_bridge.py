@@ -915,8 +915,18 @@ class _TabDriver:
                 "kept_open": bool(result.get("kept_open")), "released": bool(result.get("released") or result.get("closed"))}
 
     async def keep_open(self, tab: TabRef) -> dict[str, Any]:
+        """Keep the tab open after the task. The owner's borrowed tab is only marked kept and stays held until its task
+        (a loop's: until the loop) ends, when `close` lets go of it, kept open: letting go detaches the debugger, which
+        turns focus emulation off, and a site that pauses on blur paused the very playback the owner asked to keep
+        (L31, live cc5debe4, 2026-10-25: Instagram 0.3 s after each round's keep_open). Such a tab is never closed, so
+        nothing is lost holding it. A tab FERB opened is handed over at once: the extension records it kept before it
+        detaches, so a lost answer can't let a later cleanup close it."""
         t = self._tab(tab)
         t.keep_open = True
+        if t.attached:
+            return self._lifecycle(t, {"kept_open": True}) | {
+                "held_until_task_end": "FERB keeps holding the tab while the task runs and lets go of it, open, "
+                                       "when the task ends"}
         v = await t.bridge.call("release_tab", {"tab_id": t.chrome_id, "keep_open": True}, timeout=10)
         if not v.get("released") or not v.get("kept_open"):
             raise DriverError("browser did not confirm keeping the tab open and releasing control")

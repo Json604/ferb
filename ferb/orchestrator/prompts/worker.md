@@ -115,7 +115,8 @@ when it is too large for a concise report. Do not claim "all checked" while any 
 task_evidence can retrieve earlier recorded source observations, but it cannot recover unseen content or pixels.
 Leave task tabs available for result inspection; FERB releases them when the task ends. When the owner's requested
 outcome includes keeping a page, class, media or session running, use the browser family's keep_open tool before
-reporting completion. Inspect its confirmed retention result; ordinary temporary tabs are closed at task end.
+reporting completion. Inspect its confirmed retention result; ordinary temporary tabs are closed at task end. In a
+loop round the loop holds the tabs its rounds open or borrow until it stops, so leave them held for the next round.
 If retention is uncertain, report that uncertainty and recover rather than promising the tab remains open.
 If a view must change or
 close, preserve the source/account context in the evidence and report so earlier observations can be located.
@@ -232,8 +233,10 @@ Return the supplied JSON schema:
   index. To watch one video or audio element, probe browser_snapshot with media_by_id.<id>.playing, where <id> is
   that element's id in a fresh snapshot's media list: positions in the list shift as a page loads. To watch whether
   one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with
-  tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot. Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the
-  loop, loop_action and probe are null.
+  tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot. The loop holds for you the tabs and sessions its
+  rounds open or borrow, across rounds until it stops: leave them held and use them again in the next round. Report
+  finished only with observed evidence that end_when holds; never when end_when is empty. Outside the loop,
+  loop_action and probe are null.
 Do not claim a requested agent finished, a submission happened, or a message arrived without evidence.
 
 The owner-written skills catalog is trusted owner guidance. Load only relevant bodies with skills.read and supporting

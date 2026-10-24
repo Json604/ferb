@@ -1968,3 +1968,151 @@ def test_a_probe_name_two_tools_share_is_refused_and_the_next_round_is_told_why(
         daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()
+
+
+# ---------- loop speed (L31 follow-up; live loop cc5debe4, 2026-10-25) ----------
+# The owner's own Chrome tab in a paired profile (the fake extension through the real native host, tests/browserkit.py),
+# kept playing by a loop whose rounds borrow it with browser.use_tab. `ext.attached` is the debugger session: the real
+# extension turns focus emulation on when it attaches (background.js inputSetup) and off only when it detaches.
+
+from tests.browserkit import bd  # noqa: E402,F401  (the fixture)
+
+OWNER_TAB = 200
+OWNER_REF = f'chrome:Profile 1:{OWNER_TAB}'
+SOUND = f'tabs_by_ref.{OWNER_REF}.audible'
+
+
+def _owner_loop(goal='Keep my Instagram tab playing', end_when=''):
+    from tests.conftest import task
+    spec = task(goal, 'owner')
+    spec['plan'] = Plan(steps=[Step(id='keep', kind='loop', goal=goal, end_when=end_when)]).model_dump()
+    return spec
+
+
+def _owner_tab(bd):
+    """A paired Chrome profile with the owner's Instagram tab open, making sound."""
+    from tests.browserkit import pair
+    d, launched = bd
+    ext = pair(d, launched, 'Work')
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.tabs[OWNER_TAB], ext.tab_windows[OWNER_TAB] = 'https://www.instagram.com/reels/x/', 5
+    ext.audible.add(OWNER_TAB)
+    return d, ext
+
+
+def _sound_probe():
+    return {'tool': 'browser_tabs', 'args_json': '{}', 'field': SOUND, 'op': 'equals', 'value_json': 'false'}
+
+
+def _tab_round(d, ext, seen, *, keep=False, reload=False, summary='Your reel is playing.'):
+    """One round as the live ones went: list the tabs, borrow the owner's, read it (and keep it open, or reload it)."""
+    from tests.conftest import tool
+
+    def act(token):
+        assert not tool(d.sock, token, 'browser.tabs')['is_error']
+        tab = tool(d.sock, token, 'browser.use_tab', tab_ref=OWNER_REF)['content']['tab']
+        if reload:
+            got = tool(d.sock, token, 'browser.navigate', tab=tab, url='https://www.instagram.com/reels/x/')
+            assert not got['is_error'], got
+        assert not tool(d.sock, token, 'browser.snapshot', tab=tab)['is_error']
+        if keep:
+            kept = tool(d.sock, token, 'browser.keep_open', tab=tab)
+            assert not kept['is_error'], kept
+        seen.append({'tab': tab, 'attached': OWNER_TAB in ext.attached, 'attaches': ext.attaches})
+        return json.dumps({'status': 'done', 'summary': summary, 'artifacts': [], 'evidence': ['the tab plays sound'],
+                           'answer': summary, 'loop_action': 'continue', 'probe': _sound_probe()})
+    return act
+
+
+def test_a_loop_keeps_holding_the_owners_tab_between_rounds_and_lets_go_when_it_stops(bd, monkeypatch):
+    """Live cc5debe4: each round ended with browser.keep_open, which let go of the borrowed tab; the extension turned
+    focus emulation off as it detached, and Instagram paused 0.3 s later with Brave hidden. Now keep_open on the
+    owner's tab only marks it kept: the loop holds it through each round's end and between rounds, the same tab, never
+    borrowed or attached again, and lets go of it (kept open) once, when the loop stops."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, seen, keep=True), _tab_round(d, ext, seen, keep=True)],
+             'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert seen[0]['attached'] and OWNER_TAB in ext.attached          # after the round ended, still held
+        ext.audible.discard(OWNER_TAB)                                     # the site paused it: the probe trips
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        ext.audible.add(OWNER_TAB)
+        assert [s['attached'] for s in seen] == [True, True] and seen[0]['tab'] == seen[1]['tab']
+        assert ext.attaches == 1 and OWNER_TAB in ext.attached and OWNER_TAB not in ext.kept   # never let go of
+        daemon_stop = _stop(d, tree_id)
+        d.run(daemon_stop, timeout=20)
+        assert OWNER_TAB not in ext.attached and OWNER_TAB in ext.kept and OWNER_TAB in ext.tabs   # let go, kept open
+    finally:
+        c.close()
+
+
+def test_a_tab_ferb_opened_in_a_loop_round_is_handed_over_by_keep_open_as_before(bd, monkeypatch):
+    """The keep_open change is for the owner's borrowed tab alone: a tab FERB opened in a round and kept open is let go
+    of at once and stays open in the browser, and the loop's end closes nothing."""
+    from tests.conftest import done, install, sup, tool
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    _state_cap(d, [True])                                                  # the probe never trips
+    opened: list = []
+
+    def act(token):
+        tab = tool(d.sock, token, 'browser.open', url='https://www.youtube.com/watch?v=x', profile='Work')
+        assert not tab['is_error'], tab
+        cid = int(d.daemon.router._tabs[tab['content']['tab']].chrome_id)
+        assert not tool(d.sock, token, 'browser.snapshot', tab=tab['content']['tab'])['is_error']
+        kept = tool(d.sock, token, 'browser.keep_open', tab=tab['content']['tab'])['content']
+        opened.append((cid, kept, cid in ext.attached))
+        return _round()
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop('Keep the video playing'))],
+            {'loop.keep': [act], 'worker': done()})
+    c, plan = _start_loop(d, 'open this video in my Chrome and keep it playing')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        [(cid, kept, attached)] = opened
+        assert kept['kept_open'] and kept['released'] and not kept['borrowed'] and not attached
+        d.run(_stop(d, tree_id), timeout=20)
+        assert cid in ext.tabs and cid in ext.kept and cid not in ext.attached
+    finally:
+        c.close()
+
+
+def test_when_the_owner_closes_the_held_tab_the_probe_trips_and_the_loop_pauses_with_its_question(bd, monkeypatch):
+    """As before the keep_open change: the owner closing the tab the loop holds makes its probe's field vanish (an
+    error read), the next round finds the tab gone and asks, and the loop pauses on that question."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    question = 'Your Instagram tab was closed. Which tab should I keep playing?'
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, seen, keep=True),
+                           json.dumps({'status': 'needs_user', 'summary': question, 'artifacts': [], 'evidence': [],
+                                       'answer': question, 'loop_action': 'blocked'})],
+             'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        ext.tabs.pop(OWNER_TAB)
+        ext.attached.discard(OWNER_TAB)
+        ext.tab_event('removed', OWNER_TAB)                                # the owner closed it
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused')
+        reads = _on_loop(d, lambda: [json.loads(r[0]) for r in d.daemon.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind='loop.probe_read' AND error IS NOT NULL")])
+        assert [r['read'] for r in reads] == ['error']
+        notices = [n['text'] for n in _journal(d, 'loop.notice')]
+        assert any(question in n for n in notices), notices
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()

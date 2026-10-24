@@ -893,6 +893,12 @@ After the owner's update (2026-10-24):
   and given to the steps that log in; FERB's line says "Saved as your login name for <site>." A sign-in page at
   another address (atlasauth.b2clogin.com for the visa site) names it from the first sign-in of a task you typed the
   site for. Forgetting or retracting the memory removes it from the login record.
+- A loop keeps holding your tab between rounds (L31; live 2026-10-25, "keep this tab running", task cc5debe4: watching
+  began 96 s after your message, and each round paused your reel itself). Every round ended with `browser.keep_open`,
+  which let go of your borrowed Brave tab; letting go turns the browser's focus emulation off, and Instagram paused
+  0.3 s later while Brave was hidden and you weren't touching it. `keep_open` on one of your own tabs now only marks it
+  kept: FERB holds it until the task ends (a loop's: until you stop it), then lets go of it, still open. A tab FERB
+  opened is still handed over at once. Workers are told the loop holds its tabs across rounds.
 
 Licensed under Apache-2.0.
 
