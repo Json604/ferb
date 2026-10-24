@@ -452,6 +452,30 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation.notices.filter { $0.id.hasPrefix("guesses:") }.count, 1)
     }
 
+    func testARefusedGuessAnswerShowsFerbsReasonAndOnlyFaultsStayGeneric() async throws {
+        let rpc = StatusRPC()
+        rpc.responses["memory.learning"] = ["backlog": ["id": "b-2", "text": "Review 1 older guess", "proposals": [
+            ["id": "g-9", "text": "You use Brave for work"]]]]
+        let model = makeModel(rpc)
+        model.expand()
+        await model.refreshDaemonStatus()
+        let notice = try XCTUnwrap(model.conversation.notices.first { $0.id == "guesses:b-2" })
+        var outcomes: [Bool] = []
+        rpc.failures["memory.learning"] = DaemonRPCError.remote("Those words looked like a secret, so FERB did not save them.")
+        let refused = expectation(description: "refused")
+        model.decideGuess(noticeID: notice.id, proposalID: "g-9", action: "edit", text: "hunter2") { outcomes.append($0); refused.fulfill() }
+        await fulfillment(of: [refused], timeout: 2)
+        XCTAssertEqual(model.promptError, "Those words looked like a secret, so FERB did not save them.")
+        XCTAssertEqual(outcomes, [false])
+        XCTAssertNil(model.conversation.notices.first { $0.id == notice.id }?.proposals?.first?.decision)
+
+        rpc.failures["memory.learning"] = DaemonRPCError.internalFault
+        let faulted = expectation(description: "faulted")
+        model.decideGuess(noticeID: notice.id, proposalID: "g-9", action: "keep", text: nil) { _ in faulted.fulfill() }
+        await fulfillment(of: [faulted], timeout: 2)
+        XCTAssertEqual(model.promptError, "That answer about FERB's guess wasn't recorded. Try again.")
+    }
+
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
         let rpc = StatusRPC()
         rpc.traces["remembered"] = ["outcome": ["result": ["status": "done", "answer": "Renamed 12 files."]]]
@@ -656,10 +680,12 @@ private final class StatusRPC: DaemonRPCTransport {
     private let recorded = RecordedCalls()
     var calls: [(String, [String: Any])] { recorded.all }
     var onCall: ((String, [String: Any]) -> Void)?
+    var failures: [String: Error] = [:]
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
         onCall?(method, params)
+        if let failure = failures[method], params["op"] as? String != "backlog" { throw failure }
         switch method {
         case "chat.attach": return ["session_id": "test", "capabilities": ["input_paths"]]
         case "chat.status": return status

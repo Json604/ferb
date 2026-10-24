@@ -489,6 +489,17 @@ def test_a_no_to_keep_this_leaves_the_owners_forget_question_waiting(daemon: Run
     _forget_still_answers(daemon, item, forget)
 
 
+def test_a_guess_dropped_through_the_notch_op_leaves_the_owners_forget_question_waiting(daemon: RunningDaemon) -> None:
+    """L36 (scan I1) through the notch's entry point: `memory.learning {op: guess, action: drop}` while the owner's
+    "Forget for good?" waits retracts the guess instead of deleting it, and the forget's Yes still purges it."""
+    item = _paraphrased(daemon)
+    forget = _asked_to_forget(daemon, item)
+    reply = daemon.run(daemon.daemon._memory_learning(None, {"op": "guess", "id": item.id, "action": "drop"}))
+    assert "still waits" in reply["line"]
+    assert _on_loop(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "retracted"
+    _forget_still_answers(daemon, item, forget)
+
+
 def test_a_dashboard_retract_leaves_the_owners_forget_question_waiting(daemon: RunningDaemon) -> None:
     """Probe h1b: the same through the dashboard's Retract."""
     from ferb.cli.client import Client

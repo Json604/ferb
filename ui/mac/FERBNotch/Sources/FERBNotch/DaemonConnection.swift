@@ -508,22 +508,29 @@ extension NotchModel {
     }
 
     /// The owner's answer to one older guess: Keep, Drop, or their own words saved instead (`edit`).
-    func decideGuess(noticeID: String, proposalID: String, action: String, text: String?) {
+    /// `done(true)` once recorded, `done(false)` when it wasn't (a refused edit keeps the owner's typed words).
+    func decideGuess(noticeID: String, proposalID: String, action: String, text: String?,
+                     done: ((Bool) -> Void)? = nil) {
         var params: [String: Any] = ["op": "guess", "action": action]
         if let text { params["text"] = text }
         settleLearning(noticeID: noticeID, proposalID: proposalID, params: params,
                        decision: ["keep": "kept", "drop": "dropped", "edit": "edited"][action] ?? action,
-                       failure: "That answer about FERB's guess wasn't recorded. Try again.")
+                       failure: "That answer about FERB's guess wasn't recorded. Try again.", done: done)
     }
 
     private func settleLearning(noticeID: String, proposalID: String, params: [String: Any], decision: String,
-                                failure: String) {
+                                failure: String, done: ((Bool) -> Void)? = nil) {
         Task {
             do {
                 _ = try await rpc.call("memory.learning", params: params.merging(["id": proposalID]) { $1 })
                 conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: decision)
                 saveConversation()
-            } catch { promptError = failure }
+                done?(true)
+            } catch {
+                // FERB's own reason for refusing an answer (L36) is shown; a fault or a lost connection stays generic.
+                if case DaemonRPCError.remote(let reason) = error { promptError = reason } else { promptError = failure }
+                done?(false)
+            }
         }
     }
 

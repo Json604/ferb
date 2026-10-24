@@ -241,8 +241,9 @@ private struct GuessRow: View {
                     .onSubmit {
                         let typed = words.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !typed.isEmpty else { return }
-                        words = ""
-                        model.decideGuess(noticeID: notice.id, proposalID: proposal.id, action: "edit", text: typed)
+                        model.decideGuess(noticeID: notice.id, proposalID: proposal.id, action: "edit", text: typed) { ok in
+                            if ok { words = "" }       // a refused edit keeps the typed words to fix
+                        }
                     }
             }
         }
