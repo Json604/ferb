@@ -221,10 +221,12 @@ def _not_saved(refused: list[tuple[str, str]]) -> str:
 class _Focus:
     """What FERB itself just asked a chat about an answer (L3), for that chat's next message only: the owner's earlier
     words it asked "which one is it for?" about (None for "Yes or No?"), the questions it named, and the questions
-    open when it asked (one opened since then still competes)."""
+    open when it asked (one opened since then still competes). `planner_listed`: it also listed the planner's own
+    question that message continued, which may ask for a secret (L36, rule 14)."""
     words: str | None
     named: frozenset[str]
     seen: frozenset[str]
+    planner_listed: bool = False
 
 
 @dataclass
@@ -1044,7 +1046,8 @@ class Supervisor(WorkerRuns):
                           and not (asked_this and focus is not None and q.id in focus.seen)]
                 planner_asked = clarified if focus is None else ''   # the planner's question this message continues
                 if others or planner_asked.strip():
-                    self._answer_focus[session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}), seen)
+                    self._answer_focus[session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}), seen,
+                                                            planner_listed=bool(planner_asked.strip()))
                     lines = [self._listed([ap, *others])]
                     if planner_asked.strip():
                         lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
@@ -1059,10 +1062,11 @@ class Supervisor(WorkerRuns):
 
     def asked_only_about(self, session_id: str, capabilities: Any) -> bool:
         """Whether this chat's pending question is FERB's own "which is it?" about an answer (`_answer`, L3) naming only
-        questions of these capabilities: then its words are FERB's quote of those questions, not a request for the
-        owner's secret (L36: a guess about "passwords" quoted there never hides the owner's reply)."""
+        questions of these capabilities, and not the planner's own question too: then its words are FERB's quote of
+        those questions, not a request for the owner's secret (L36: a guess about "passwords" quoted there never hides
+        the owner's reply)."""
         focus = self._answer_focus.get(session_id)
-        if focus is None or not focus.named:
+        if focus is None or not focus.named or focus.planner_listed:
             return False
         named = [self.state.approvals.get(i) for i in focus.named]
         return all(ap is not None and ap.capability in capabilities for ap in named)

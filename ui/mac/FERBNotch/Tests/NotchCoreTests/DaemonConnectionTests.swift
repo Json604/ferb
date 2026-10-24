@@ -110,11 +110,14 @@ final class DaemonConnectionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
         XCTAssertEqual(model.promptError, reason)
         XCTAssertEqual(model.pendingApprovals.map(\.id), ["edit-1"])
-        rpc.failures["chat.answer"] = DaemonRPCError.disconnected
-        model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "My dentist is Dr. Rao")
-        await Task.yield()
-        try await Task.sleep(for: .milliseconds(20))
-        XCTAssertEqual(model.promptError, "The answer could not be confirmed. Rechecking the pending request.")
+        for failure in [DaemonRPCError.disconnected, DaemonRPCError.internalFault] {   // never FERB's refusal
+            model.promptError = nil
+            rpc.failures["chat.answer"] = failure
+            model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "My dentist is Dr. Rao")
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(20))
+            XCTAssertEqual(model.promptError, "The answer could not be confirmed. Rechecking the pending request.")
+        }
     }
 
     func testEditingOneOfTwoIdenticalSubstringsNeverPromotesPastedCopy() {

@@ -49,6 +49,32 @@ final class DaemonRPCTests: XCTestCase {
             XCTAssertFalse(error.localizedDescription.contains("private-test-value"))
         }
     }
+
+    func testAnInternalFaultIsToldApartFromFERBsOwnRefusal() async throws {
+        // L36: -32004 carries FERB's own words for a refusal (shown to the owner); -32603 only an exception's type name
+        func failing(_ code: Int, _ message: String) throws -> RPCFixture {
+            try RPCFixture { request in
+                request["method"] as? String == "auth.hello" ? ["id": request["id"]!, "result": ["ok": true]]
+                    : ["id": request["id"]!, "error": ["code": code, "message": message]]
+            }
+        }
+        let fault = try failing(-32603, "ValueError")
+        defer { fault.close() }
+        do {
+            _ = try await DaemonRPC(socketPath: fault.path).call("chat.answer", params: ["approval_id": "a", "text": "x"])
+            XCTFail("Expected failure")
+        } catch DaemonRPCError.internalFault {
+        } catch { XCTFail("Expected an internal fault, got \(error)") }
+        XCTAssertEqual(DaemonRPCError.internalFault.localizedDescription, "FERB hit an internal error.")
+        let refusal = try failing(-32004, "Pick Keep, Edit or Drop.")
+        defer { refusal.close() }
+        do {
+            _ = try await DaemonRPC(socketPath: refusal.path).call("chat.answer", params: ["approval_id": "a", "text": "x"])
+            XCTFail("Expected failure")
+        } catch DaemonRPCError.remote(let message) {
+            XCTAssertEqual(message, "Pick Keep, Edit or Drop.")
+        } catch { XCTFail("Expected FERB's refusal, got \(error)") }
+    }
 }
 
 private final class RPCFixture {

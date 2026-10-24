@@ -284,6 +284,19 @@ def test_after_ferbs_which_is_it_about_a_password_guess_the_owners_keep_still_an
     assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "active"
 
 
+def test_a_which_one_listing_the_planners_password_question_still_hides_a_password(daemon: Any) -> None:
+    """Fix round 3 (rule 14): when "Keep" could answer both the guess and the planner's own pending question, FERB's
+    "which one is it for?" lists both; that is no question about memory only, so a password typed next is hidden."""
+    q, it = guess(daemon, **PASSWORD_GUESS)
+    install(daemon, [json.dumps({"kind": "clarify", "text": "What's the Wi-Fi password for the router?"})])
+    chat(daemon, "connect the TV to the wifi")
+    install(daemon, [json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": q.id,
+                                                                                    "answer": "Keep"}})])
+    asked = " ".join(str(e.get("text")) for e in chat(daemon, "Keep"))
+    assert "could answer either" in asked and "Wi-Fi password" in asked
+    assert run(daemon, lambda: daemon.daemon._hide_code_reply("hunter2!", "s1")) == "[redacted]"
+
+
 def test_an_option_of_a_waiting_question_is_never_hidden_as_a_password(daemon: Any) -> None:
     """Fix round 2: a reply that is exactly an option of a waiting question is a choice, even after the planner's own
     question asked about a password; any other one-word reply to that question is still hidden (rule 14)."""
