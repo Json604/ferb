@@ -601,6 +601,14 @@ After the owner's update (2026-10-24):
   (`loop_state`, migration 0047) survives restarts quietly. The notch shows "Keeping: … · fixed N times · last X min
   ago" with Stop; `chat.status` lists `loops`. `ferb trace` shows `loop.round` and `loop.probe_read` spans. Not
   installed; live checks pending (`docs/OWNER_ACCEPTANCE.md`).
+- Loops fix wave (L31, after the final review): a probe named as the runtime shows it (`mcp__ferb__shell_read`) now
+  resolves, and a name two tools share is refused instead of guessed; `browser.read` is no longer a probe (it can't
+  change between rounds); a probe snapshot leaves a tab's new downloads and tabs for the next round; each round's
+  checker tabs and processes go after its check; a restart while a probe is armed no longer repeats a finished round;
+  an unchanged probe read writes nothing; a forget removes the item from a loop's stored round results, note and
+  baseline; the planner's task status shows each loop's state and a paused loop's question, so a reply resumes it; the
+  notch no longer says "Working" while a loop waits between rounds; and a plan that FERB's shutdown suspends no longer
+  records "I couldn't finish that" (its resumed run records the real end).
 - A profile that already had the unpacked copy takes the Web Store request too, so it can hold both copies. Setup's
   report and `ferb browsers pair` now use the copy that is turned on (the unpacked one when both are). Before, with the
   unpacked copy turned off and the store copy on, setup said the profile's extension was waiting to be turned on, and
