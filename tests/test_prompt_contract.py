@@ -70,9 +70,10 @@ SENTENCES = [
      'The loop holds for you the tabs and sessions its rounds open or borrow, across rounds until it stops: leave them '
      "held and use them again in the next round (step_context's held_tabs lists its tabs by id, ready for "
      'browser_snapshot).'),
+    # review M2: "use keep_open when media should keep running" sat next to "leave them held"
     ("worker.md",
-     'In a loop round the loop holds the tabs its rounds open or borrow until it stops, so leave them held for the '
-     'next round.'),
+     'In a loop round, the loop keeps this tab held for you between rounds; leave it held, without keep_open, which is '
+     'for work that ends.'),
     # final loops review (L31): shell_list's order isn't an identity; a command's own id is
     ("worker.md",
      'To watch a command you started, probe shell_read with its id (field running), not a shell_list index.'),

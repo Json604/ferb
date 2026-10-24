@@ -2481,3 +2481,13 @@ def test_a_probe_grounds_a_tab_ref_only_in_what_the_round_named_or_the_loop_hold
     # page text and labels are outside content: they never ground what a probe names
     page = dict(SNAP_CALL, output={'tab': 't2', 'text': 'brave:Default:9', 'media': SNAP_CALL['output']['media']})
     assert look_only_round([page], nine, LOOKS) is None
+
+
+def test_a_keep_open_that_let_go_of_the_tab_is_acting():
+    """Review M2: keep_open on a tab FERB opened hands it over at once, and letting go turns focus emulation off (the
+    self-pause this batch fixes): that round acted. Keeping the owner's tab held (released false) only holds it."""
+    from ferb.orchestrator.loops import look_only_round
+    held = dict(KEEP_CALL, output={'kept_open': True, 'released': False, 'borrowed': True})
+    let_go = dict(KEEP_CALL, output={'kept_open': True, 'released': True, 'borrowed': False})
+    assert look_only_round([USE_CALL, SNAP_CALL, held], _media_probe(), LOOKS)
+    assert look_only_round([USE_CALL, SNAP_CALL, let_go], _media_probe(), LOOKS) is None

@@ -117,7 +117,8 @@ task_evidence can retrieve earlier recorded source observations, but it cannot r
 Leave task tabs available for result inspection; FERB releases them when the task ends. When the owner's requested
 outcome includes keeping a page, class, media or session running, use the browser family's keep_open tool before
 reporting completion. Inspect its confirmed retention result; ordinary temporary tabs are closed at task end. In a
-loop round the loop holds the tabs its rounds open or borrow until it stops, so leave them held for the next round.
+loop round, the loop keeps this tab held for you between rounds; leave it held, without keep_open, which is for work
+that ends.
 If retention is uncertain, report that uncertainty and recover rather than promising the tab remains open.
 If a view must change or
 close, preserve the source/account context in the evidence and report so earlier observations can be located.

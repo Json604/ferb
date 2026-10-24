@@ -175,8 +175,9 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
     and the checker runs. `calls`: the round's recorded tool calls (span input with its `output`). It may when the
     round made at least one call and every call only looked: a W2 `read` of an observation tool (W4) that doesn't move
     the view (`on_screen`: scroll changes which reel plays, or marks messages read), or a call that only takes or keeps
-    hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab), with no declared effect. Any other call acts (media,
-    act, navigate, scroll, a send, a question to the owner, an unknown tool), and the checker runs. The
+    hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab) without letting go of it, with no declared effect.
+    Any other call acts (media, act, navigate, scroll, a keep_open that released the tab, a send, a question to the
+    owner, an unknown tool), and the checker runs. The
     probe must name what it reads (a string in its tool's own arguments, or a field segment that is no key, such as a
     tab_ref or a media id) and all it names must be what the round itself named (a string in its calls' arguments,
     such as use_tab's tab_ref), an id a call returned (a result's `tab` or `id`: a tab alias, a media id), or a tab
@@ -190,8 +191,10 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
         cap = caps.get(str(call.get('tool')))
         kind = call.get('kind')
         # an observation that moves the view (scroll: `on_screen`) changes what plays or what is read: it acts here
+        # a hold that let go of the tab (keep_open on a tab FERB opened) turned its focus emulation off: it acted
+        let_go = isinstance(call.get('output'), dict) and call['output'].get('released') is True
         looked = ((getattr(cap, 'observation', False) and not getattr(cap, 'on_screen', False) and kind == Kind.READ)
-                  or (getattr(cap, 'holds_tab', False) and kind == Kind.OPEN_TAB))
+                  or (getattr(cap, 'holds_tab', False) and kind == Kind.OPEN_TAB and not let_go))
         if cap is None or not looked or call.get('declared'):
             return None
     keys: set[str] = set()                  # a result's keys: a field segment that is one names no target
