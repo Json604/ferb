@@ -313,8 +313,9 @@ def test_a_held_tab_navigated_elsewhere_is_still_the_same_tab() -> None:
     held = asyncio.run(r.open_tabs(task="task-1"))[0]
     assert held["taken_over_as"] == ref.tab_id and held["title"] == "Problem 42"
     assert held["taken_over_from"] == {"url": "https://www.youtube.com/watch?v=fixture", "title": "Lesson"}
-    assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "taken_over_from": {"url": "https://www.youtube.com/watch?v="
-                                                                                 "fixture", "title": "Lesson"}}]
+    assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "tab_ref": "brave:Default:11",
+                                      "taken_over_from": {"url": "https://www.youtube.com/watch?v=fixture",
+                                                          "title": "Lesson"}}]
 
 
 TITLE = "123456 is your Instagram code - kartikey@gmail.com - Gmail"
@@ -352,6 +353,7 @@ def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
     Hub.tab_removed(hub, br, 11)                                                    # type: ignore[arg-type]
     assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "closed": "the owner closed this tab",
+                                      "tab_ref": "brave:Default:11",
                                       "taken_over_from": {"url": "https://www.youtube.com/watch?v=fixture",
                                                           "title": "Lesson"}}]
     with pytest.raises(StaleRef):

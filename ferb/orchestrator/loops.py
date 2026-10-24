@@ -5,7 +5,7 @@ status line happen."""
 import asyncio
 import json
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -165,7 +165,11 @@ def short_label(text: str, limit: int = 60) -> str:
     return cut + '…'
 
 
-def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapping[str, Any]) -> str | None:
+_RETURNED_IDS = frozenset({'tab', 'id'})   # a result's ids that ground a probe: a tab alias, a media id
+
+
+def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapping[str, Any],
+                    held: Iterable[str] = ()) -> str | None:
     """Owner, 2026-10-25 ("Skip it for look-only rounds"): a round that only looked needs no model checker; its probe's
     first read, when the runner arms it, is the check. Returns the trace's note when the round may skip it, else None
     and the checker runs. `calls`: the round's recorded tool calls (span input with its `output`). It may when the
@@ -174,9 +178,11 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
     hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab), with no declared effect. Any other call acts (media,
     act, navigate, scroll, a send, a question to the owner, an unknown tool), and the checker runs. The
     probe must name what it reads (a string in its tool's own arguments, or a field segment that is no key, such as a
-    tab_ref or a media id) and all it names must be among the values the round's own calls sent or got back: a probe
-    on a tab or element the round never looked at could read as fine and pass unchecked. Exact matches of recorded
-    values only; code never judges what a page says (R2). Whether the round reported `continue` (a finish with an
+    tab_ref or a media id) and all it names must be what the round itself named (a string in its calls' arguments,
+    such as use_tab's tab_ref), an id a call returned (a result's `tab` or `id`: a tab alias, a media id), or a tab
+    the loop holds (`held`: its aliases and tab_refs). A listing's other values and a page's text never count (review
+    M1): a probe on a tab or element the round never looked at could read as fine and pass unchecked. Exact matches of
+    recorded values only; code never judges what a page says (R2). Whether the round reported `continue` (a finish with an
     end_when is always checked) is the supervisor's to check."""
     if probe is None or not calls:
         return None
@@ -188,22 +194,22 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
                   or (getattr(cap, 'holds_tab', False) and kind == Kind.OPEN_TAB))
         if cap is None or not looked or call.get('declared'):
             return None
-    keys: set[str] = set()
-    values: set[str] = set()
+    keys: set[str] = set()                  # a result's keys: a field segment that is one names no target
+    values: set[str] = set(held)            # what may ground a target
 
-    def walk(node: Any) -> None:
+    def walk(node: Any, every: bool, key: str = '') -> None:
         if isinstance(node, dict):
-            for key, value in node.items():
-                keys.add(str(key))
-                walk(value)
+            for k, value in node.items():
+                keys.add(str(k))
+                walk(value, every, str(k))
         elif isinstance(node, list):
             for value in node:
-                walk(value)
-        elif isinstance(node, str):
+                walk(value, every, key)
+        elif isinstance(node, str) and (every or key in _RETURNED_IDS):
             values.add(node)
     for call in calls:
-        walk(call.get('args'))
-        walk(call.get('output'))
+        walk(call.get('args'), True)
+        walk(call.get('output'), False)
     cap = caps.get(probe.tool)
     if cap is None:
         return None

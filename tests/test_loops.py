@@ -2460,3 +2460,24 @@ def test_a_scroll_by_the_real_browser_tool_is_acting_for_the_look_only_rule():
     caps = dict(LOOKS, **{'browser.scroll': BrowserScroll})
     scroll = {'tool': 'browser.scroll', 'kind': 'read', 'args': {'tab': 't2', 'direction': 'down'}, 'output': {}}
     assert look_only_round([USE_CALL, SNAP_CALL, scroll], _media_probe(), caps) is None
+
+
+def test_a_probe_grounds_a_tab_ref_only_in_what_the_round_named_or_the_loop_holds():
+    """Review M1: every string a listing returned grounded a probe, so a round that borrowed tab 5 could watch tab 9's
+    sound, unchecked, because browser.tabs listed it. A tab_ref grounds only from a call's arguments (use_tab's) or the
+    loop's held tabs; from results, only id-like values (a tab alias, a media id)."""
+    from ferb.orchestrator.loops import look_only_round
+    from ferb.orchestrator.probes import Probe
+    listing = dict(TABS_CALL, output={'tabs': [{'tab_ref': 'brave:Default:5', 'audible': True},
+                                               {'tab_ref': 'brave:Default:9', 'audible': True}]})
+    nine = Probe(tool='browser.tabs', args_json='{}', field='tabs_by_ref.brave:Default:9.audible', op='equals',
+                 value_json='false')
+    assert look_only_round([listing, USE_CALL, SNAP_CALL], nine, LOOKS) is None
+    five = nine.model_copy(update={'field': 'tabs_by_ref.brave:Default:5.audible'})
+    assert look_only_round([listing, USE_CALL, SNAP_CALL], five, LOOKS)               # use_tab named it
+    # a later round reads its held tab straight away: the loop's held tabs ground it
+    assert look_only_round([listing, SNAP_CALL], five, LOOKS) is None
+    assert look_only_round([listing, SNAP_CALL], five, LOOKS, held=('t2', 'brave:Default:5'))
+    # page text and labels are outside content: they never ground what a probe names
+    page = dict(SNAP_CALL, output={'tab': 't2', 'text': 'brave:Default:9', 'media': SNAP_CALL['output']['media']})
+    assert look_only_round([page], nine, LOOKS) is None

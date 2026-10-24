@@ -1611,9 +1611,11 @@ class _TabDriver:
 
     def task_tabs(self, owner: str) -> list[dict[str, Any]]:
         """The task's tabs by tab id (owner live use 2026-10-18: a navigated tab counted as missing), each with the
-        page it held when the task took it over, when it was the owner's."""
+        page it held when the task took it over, when it was the owner's, and then its tab_ref (what browser.tabs and
+        a loop's probe name it by, L31)."""
         return [{"tab": t.ref.tab_id, **({"closed": "the owner closed this tab"} if t.closed else {}),
-                 **({"taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
+                 **({"tab_ref": f"{t.ref.browser}:{t.ref.profile}:{t.chrome_id}",
+                     "taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
                 for t in self._tabs.values() if t.owner == owner]
 
     def tabs_of(self, owner: str) -> list[str]:
