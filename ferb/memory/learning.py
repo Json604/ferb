@@ -61,16 +61,18 @@ WORKER_MEMORY_ITEMS = 20
 # procedures the planner may choose are listed apart (L29)
 PROMPT_LEAVES_OUT = frozenset({'identity', 'episode_intent', 'procedure'})
 # Ruling: recency's share of a node's score, at most RECENCY_WEIGHT (the gap between ranks 4 and 5), halving every
-# RECENCY_HALF_LIFE_DAYS, so it reorders near-equal matches only
+# RECENCY_HALF_LIFE_DAYS, so it reorders near-equal matches only. An owner-stated node always takes the full share: the
+# owner's words don't age, so at equal relevance no guess outscores them (review fix 1)
 RECENCY_WEIGHT = 0.05
 RECENCY_HALF_LIFE_DAYS = 30
 # The version of `search_text` the index holds (migration 0048, `reindex_search`)
 SEARCH_TEXT_VERSION = 'content/1'
 # The stored bodies re-indexed per write transaction (`reindex_search`), in bytes; one node larger than this is a batch
-# of its own. A batch's cost is mostly erasing the old JSON text's terms (FTS5 secure-delete, migration 0037). On a copy
-# of the owner's 1,150 nodes (30 MB of JSON-indexed text, 2026-10-24) the whole re-index took 4.5 s in 78 batches, each
-# holding SQLite's write lock 128 ms at most: the daemon's own writes and a forget wait no longer than that.
-REINDEX_BATCH_BYTES = 256_000
+# of its own. A batch's cost is mostly erasing the old JSON text's terms (FTS5 secure-delete, migration 0037). On a
+# scratch copy of the owner's database (2026-10-24: 1,150 nodes, 30 MB of JSON-indexed text) the whole re-index took
+# 6.6 s in 189 batches, each holding SQLite's write lock 76 ms at most: the daemon's own writes and a forget wait no
+# longer than that.
+REINDEX_BATCH_BYTES = 64_000
 
 
 class CardSpan(NamedTuple):
@@ -240,13 +242,14 @@ def _tied(rows: Iterable[Any]) -> dict[str, int]:
     return out
 
 
-def _reindexed_through(db: Any) -> int | None:
+def _reindexed_through(db: Any) -> str | None:
     """Where the content re-index stands: None once `learning_fts` holds SEARCH_TEXT_VERSION for every node; else the
-    last node (learning_nodes rowid) re-indexed by it, 0 for none yet (an empty table, or an earlier version's row)."""
+    id of the last node it re-indexed ('' for none yet: an empty table, or an earlier version's row). Node ids, never
+    the implicit rowid, which a compaction (VACUUM) may renumber (review fix 2)."""
     row = db.conn.execute('SELECT version, through FROM learning_search_version').fetchone()
     if row is None or row[0] != SEARCH_TEXT_VERSION:
-        return 0
-    return None if row[1] is None else int(row[1])
+        return ''
+    return None if row[1] is None else str(row[1])
 
 
 def search_indexed(db: Any) -> bool:
@@ -257,7 +260,7 @@ def search_indexed(db: Any) -> bool:
 def reindex_search(db: Any, *, batch_bytes: int = REINDEX_BATCH_BYTES,
                    stop: Callable[[], bool] = lambda: False) -> bool:
     """Index every node by its content (`search_text`) once per SEARCH_TEXT_VERSION (L36 §3): a store indexed by an
-    earlier version (JSON bodies, field names and all) is re-indexed in order of its nodes, in batches of about
+    earlier version (JSON bodies, field names and all) is re-indexed in order of its node ids, in batches of about
     `batch_bytes` of stored bodies, each one write transaction that records how far it got
     (`learning_search_version.through`). The write lock is never held for long, and a re-index stopped between
     batches (`stop`, asked before each; a crash, a power loss) keeps what it did: the next call finishes the rest. Each
@@ -273,8 +276,8 @@ def reindex_search(db: Any, *, batch_bytes: int = REINDEX_BATCH_BYTES,
             if after is None:
                 db.conn.execute('COMMIT')
                 break
-            rows = db.conn.execute('SELECT rowid, id, kind, key, body_json FROM learning_nodes WHERE rowid > ? '
-                                   'ORDER BY rowid', (after,))
+            rows = db.conn.execute('SELECT id, kind, key, body_json FROM learning_nodes WHERE id > ? ORDER BY id',
+                                   (after,))
             nodes: list[Any] = []
             size, finished = 0, True
             for r in rows:
@@ -282,13 +285,13 @@ def reindex_search(db: Any, *, batch_bytes: int = REINDEX_BATCH_BYTES,
                     finished = False                # this row and any after it: the next batch
                     break
                 nodes.append(r)
-                size += len(r[4])
+                size += len(r[3])
             rows.close()
-            ids = [r[1] for r in nodes]
+            ids = [r[0] for r in nodes]
             if ids:
                 db.conn.execute(f"DELETE FROM learning_fts WHERE id IN ({','.join('?' * len(ids))})", ids)
                 db.conn.executemany('INSERT INTO learning_fts VALUES (?,?)',
-                                    [(r[1], search_text(r[2], r[3], json.loads(r[4]))) for r in nodes])
+                                    [(r[0], search_text(r[1], r[2], json.loads(r[3]))) for r in nodes])
             if finished:
                 db.conn.execute('DELETE FROM learning_fts WHERE id NOT IN (SELECT id FROM learning_nodes)')
             db.conn.execute('DELETE FROM learning_search_version')
@@ -543,7 +546,9 @@ class Learning:
     def now(self) -> str:
         return self.clock.now().isoformat()
 
-    def get(self, node_id: str) -> dict[str, Any] | None:
+    def get(self, node_id: str, sources: bool = True) -> dict[str, Any] | None:
+        """A node with its body and origins; with `sources`, its source refs too (a day's summary or an entity can cite
+        tens of thousands: a prompt line never needs them)."""
         r = self.db.conn.execute('SELECT * FROM learning_nodes WHERE id=?', (node_id,)).fetchone()
         if r is None:
             return None
@@ -551,8 +556,9 @@ class Learning:
         out['body'] = json.loads(out.pop('body_json'))
         out['origins'] = json.loads(out.pop('origins_json'))
         out['confirmed'] = bool(out['confirmed'])
-        out['sources'] = [s[0] for s in self.db.conn.execute(
-            'SELECT source_ref FROM learning_sources WHERE node_id=? ORDER BY source_ref', (node_id,))]
+        if sources:
+            out['sources'] = [s[0] for s in self.db.conn.execute(
+                'SELECT source_ref FROM learning_sources WHERE node_id=? ORDER BY source_ref', (node_id,))]
         return out
 
     def items(self, kind: str | None = None, history: bool = False) -> list[dict[str, Any]]:
@@ -1341,14 +1347,15 @@ class Learning:
     def search(self, query: str, *, kind: str | None = None, app: str | None = None,
                person: str | None = None, since: str | None = None, until: str | None = None,
                query_vector: list[int] | None = None, embed: bool = True, limit: int | None = None,
-               leave_out: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
+               leave_out: frozenset[str] = frozenset(), sources: bool = True) -> list[dict[str, Any]]:
         """The one ranked search (L36 §3): bm25 over each node's content (`search_text`) for the words that carry
         weight (`weighted_terms`), the trigram title match and, when the owner adopted one, embedding similarity,
         fused by reciprocal rank (equal scores share a rank: `_tied`), plus a small recency boost; at equal score the
         owner's own statement first. A query whose every word most nodes share finds nothing, by similarity too (m5); a
         query with no words lists the newest. `leave_out`: kinds dropped before `limit` (the budget) applies. An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
-        (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported)."""
+        (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
+        nodes without their source refs (`get`), for a prompt's lines."""
         words = query_terms(query)
         terms = self.weighted_terms(words) if words else []
         if words and not terms:
@@ -1362,8 +1369,11 @@ class Learning:
                 rankings.append(_tied(self.db.conn.execute(
                     'SELECT id, bm25(learning_titles) FROM learning_titles WHERE learning_titles MATCH ? ORDER BY 2',
                     ('"' + query.replace('"', '""') + '"',))))
-        else:
-            rankings.append({p['id']: n for n, p in enumerate(reversed(self.items(kind)))})
+        else:                                     # no words: the current nodes, newest first (ids only, as `items`)
+            listed = self.db.conn.execute("SELECT id FROM learning_nodes WHERE valid_to IS NULL AND state NOT IN "
+                                          "('retired','rolled_back') AND (? IS NULL OR kind = ?) "
+                                          "ORDER BY recorded_at DESC, id DESC", (kind, kind)).fetchall()
+            rankings.append({r[0]: n for n, r in enumerate(listed)})
         if self.embedder is not None and query and embed:
             from ferb.memory.embeddings import ranked
             try:
@@ -1376,14 +1386,30 @@ class Learning:
         for ranking in rankings:
             for ident, n in ranking.items():
                 scores[ident] = scores.get(ident, 0.0) + 1 / (n + 1)
+        # Ranked by each node's columns first; bodies are read best first only until the budget is full (review fix 5:
+        # a planner query matched 698 of the owner's nodes, and reading every body and its sources took 1.4 s a turn)
         now = self.clock.now()
-        out = []
-        for ident, score in scores.items():
-            p = self.get(ident)
-            if not p or p['valid_to'] or p['state'] in ('retired', 'rolled_back', 'proposed') or \
-                    (kind and p['kind'] != kind) or p['kind'] in leave_out:
+        order: list[tuple[float, bool, str, str, float]] = []
+        for row in self._columns(scores):
+            if row['valid_to'] or row['state'] in ('retired', 'rolled_back', 'proposed') or \
+                    (kind and row['kind'] != kind) or row['kind'] in leave_out:
                 continue                          # 'proposed': a memory item waiting for the owner's Keep
-            if p['kind'] == 'episode_intent':     # a card's intent label (L29): bookkeeping, never recalled
+            if row['kind'] == 'episode_intent':   # a card's intent label (L29): bookkeeping, never recalled
+                continue
+            if since and row['valid_from'] < since or until and row['valid_from'] > until:
+                continue
+            at = datetime.fromisoformat(row['recorded_at'])
+            at = at if (at.tzinfo is None) == (now.tzinfo is None) else at.replace(tzinfo=now.tzinfo)
+            age = 0.0 if row['origin'] == origin.OWNER else max(0.0, (now - at).total_seconds() / 86400)
+            score = scores[row['id']] + RECENCY_WEIGHT * math.pow(0.5, age / RECENCY_HALF_LIFE_DAYS)
+            order.append((round(score, 9), row['origin'] == origin.OWNER, row['recorded_at'], row['id'], score))
+        order.sort(reverse=True)
+        out: list[dict[str, Any]] = []
+        for *_, ident, score in order:
+            if limit is not None and len(out) >= limit:
+                break
+            p = self.get(ident, sources)
+            if p is None:
                 continue
             body = p['body']
             if p['kind'] == 'episode' and not str(body.get('intent') or '').strip():
@@ -1393,16 +1419,20 @@ class Learning:
                 continue
             if person and person.casefold() not in encoded(body).casefold():
                 continue
-            if since and p['valid_from'] < since or until and p['valid_from'] > until:
-                continue
-            at = datetime.fromisoformat(p['recorded_at'])
-            at = at if (at.tzinfo is None) == (now.tzinfo is None) else at.replace(tzinfo=now.tzinfo)
-            age = max(0.0, (now - at).total_seconds() / 86400)
-            p['score'] = score + RECENCY_WEIGHT * math.pow(0.5, age / RECENCY_HALF_LIFE_DAYS)
+            p['score'] = score
             out.append(p)
-        out.sort(key=lambda p: (round(p['score'], 9), p['origin'] == origin.OWNER, p['recorded_at'], p['id']),
-                 reverse=True)
-        return out if limit is None else out[:limit]
+        return out
+
+    def _columns(self, ids: Iterable[str]) -> list[Any]:
+        """The columns search ranks and filters by, for these nodes (no body), in chunks SQLite's variable limit
+        allows."""
+        ids = list(ids)
+        rows: list[Any] = []
+        for at in range(0, len(ids), 500):
+            chunk = ids[at:at + 500]
+            rows += self.db.conn.execute('SELECT id, kind, origin, state, valid_to, valid_from, recorded_at FROM '
+                                         f"learning_nodes WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall()
+        return rows
 
     def candidates(self, query: str) -> str:
         return '\n'.join(f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] {p['key']}"

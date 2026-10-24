@@ -1594,16 +1594,17 @@ class Daemon:
             return None, False
 
     async def _search(self, query: str, *, limit: int | None = None, leave_out: frozenset[str] = frozenset(),
-                      **filters: Any) -> list[dict[str, Any]]:
+                      sources: bool = True, **filters: Any) -> list[dict[str, Any]]:
         """The one ranked search (L36 §3) for the planner, attention, workers, memory.read and memory.learned: memory
-        items synced to fact nodes first, the query's embedding off the loop, SQLite on it."""
+        items synced to fact nodes first, the query's embedding off the loop, SQLite on it. `sources` False: without
+        each node's source refs (a prompt's lines)."""
         if not self.learning:
             return []
         await self._search_ready()
         self.learning.sync_facts(self.memory)
         vector, embed = await self._query_vector(query)
         return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
-                                         **filters))
+                                         sources=sources, **filters))
 
     async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS,
                                    procedures: bool = True) -> list[dict[str, Any]]:
@@ -1613,7 +1614,7 @@ class Daemon:
         what cites the node (the memory.learned tool cites items the same way)."""
         if not self.learning:
             return []
-        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT)
+        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT, sources=False)
         from ferb.memory.learning import line_safe, shown_state, shown_text
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots

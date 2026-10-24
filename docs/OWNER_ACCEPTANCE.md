@@ -1574,8 +1574,10 @@ Checkout validation is in the changelog entries; nothing here is installed or ob
 with the owner watching. Later L36 tasks add their checks here.
 
 - The first start after the update re-indexes your memory's search text once (L36 §3), in the background, in short
-  steps: about 5 seconds on a copy of your 1,150 learned nodes (the 2.3 GB database is mostly other records; the
-  index text goes from 30 MB to 1 MB). Check that the journal holds one `memory.search_reindexed` with
+  steps: 6.6 s in 189 steps on a scratch copy of your database (1,150 learned nodes; the 2.3 GB is mostly other records;
+  the index text goes from 30 MB to 1 MB). Each step holds the database's write lock 76 ms at most on that copy, so the
+  daemon's own writes (a chat message, a forget) wait no longer than that while it runs; anything slower to answer in
+  the first seconds after the start is worth recording. Check that the journal holds one `memory.search_reindexed` with
   `"finished": true` and no `memory.search_reindex_failed` (`sqlite3 ~/.ferb/ferb.db "select at, kind, data_json from
   journal where kind like 'memory.search_reindex%'"`), and that a chat message sent right after the start gets its reply
   (its memory waits for the re-index). A restart during it resumes where it stopped; a later restart journals nothing.

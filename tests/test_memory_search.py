@@ -1,17 +1,19 @@
 """L36 §3: one ranked search over content, with the owner's budgets ("Planner 60, worker 20")."""
 import threading
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ferb.memory import embeddings
-from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, SEARCH_TEXT_VERSION, WORKER_MEMORY_ITEMS, digest, encoded,
+from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, RECENCY_WEIGHT, SEARCH_TEXT_VERSION, WORKER_MEMORY_ITEMS,
+                                  digest, encoded,
                                   reindex_search, search_text, shown_text, slug_words)
 from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.schemas import TargetsSpec
 from tests.conftest import chat, install, sup, task
-from tests.support.learning_fixtures import new_store
+from tests.support.learning_fixtures import TickingClock, new_store
 from tests.support.live_steer import StalledWorker
 from tests.support.memory_corpus import USERNAME, fact, owner_like_store
 from tests.support.memory_items import owner_fact, run
@@ -149,6 +151,21 @@ def test_embeddings_embed_what_search_matches_and_never_a_rollup(store: Any) -> 
     assert rollup["id"] not in hashes                          # nothing to match: its older vector goes too
 
 
+def test_a_budgeted_search_reads_only_the_bodies_it_returns(store: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """On the owner's store a planner query matched 698 nodes; reading every body before the budget applied took 1.4 s
+    a turn (review fix 5). Nodes are ranked and filtered by their columns first, then read best first until the budget
+    is full, in the same order as reading them all."""
+    everything = store.search("owner is kept in the gmail inbox and the kaggle leaderboard")
+    read: list[str] = []
+    get = type(store).get
+    monkeypatch.setattr(type(store), "get", lambda self, ident, sources=True: (read.append(ident),
+                                                                               get(self, ident, sources))[1])
+    top = store.search("owner is kept in the gmail inbox and the kaggle leaderboard", limit=5)
+    assert [n["id"] for n in top] == [n["id"] for n in everything[:5]] and len(everything) > 20
+    assert len(read) == 5
+    assert "sources" in top[0] and "sources" not in store.search("gmail inbox", limit=1, sources=False)[0]
+
+
 def test_json_field_names_and_scaffolding_are_not_searched(store: Any) -> None:
     fact(store, "dentist", "my dentist is Dr. Rao")
     assert store.search("unconfirmed_hint observed_at confidence") == []
@@ -175,6 +192,38 @@ def test_the_owners_words_rank_before_a_confirmed_guess_at_equal_relevance(tmp_p
     mine = fact(learning, "editor", "the editor is Zed")
     guess = fact(learning, "editor", "the editor is Zed", owner=False)     # can't supersede the owner's version
     assert [n["id"] for n in learning.search("which editor")][:2] == [mine["id"], guess["id"]]
+    db.close()
+
+
+def test_a_guess_recorded_after_the_owners_identical_fact_still_ranks_after_it(tmp_path: Path) -> None:
+    """Recency never cancels owner-first: the owner's words don't age, so an owner-stated node takes the full recency
+    share, and a guess written a second later scores no higher at equal relevance (review fix 1)."""
+    db, learning = new_store(tmp_path / "m.db", clock=TickingClock())
+    for i in range(4):
+        fact(learning, f"other_{i}", f"bicycle chain note {i}")
+    mine = fact(learning, "editor", "the editor is Zed")
+    guess = fact(learning, "editor", "the editor is Zed", owner=False)
+    assert guess["recorded_at"] > mine["recorded_at"]
+    assert [n["id"] for n in learning.search("which editor")][:2] == [mine["id"], guess["id"]]
+    db.close()
+
+
+def test_recency_orders_equal_matches_newest_first_and_never_passes_a_better_match(tmp_path: Path) -> None:
+    """At equal bm25 the newer node ranks first; the boost is at most RECENCY_WEIGHT, so it never lifts a weaker match
+    over a better one (a rank's reciprocal is at least 1/2 - 1/3 apart from the next)."""
+    clock = TickingClock()
+    db, learning = new_store(tmp_path / "m.db", clock=clock)
+    better = fact(learning, "chain", "the bicycle chain was oiled", owner=False)
+    clock.at += timedelta(days=40)
+    older = fact(learning, "note_a", "a kettle descaling note", owner=False)
+    clock.at += timedelta(days=40)
+    newer = fact(learning, "note_b", "a kettle descaling note", owner=False)
+    weaker = fact(learning, "bell", "the bicycle bell rings", owner=False)
+    clock.at += timedelta(days=1)
+    assert [n["id"] for n in learning.search("kettle descaling")] == [newer["id"], older["id"]]
+    found = learning.search("bicycle chain")
+    assert [n["id"] for n in found] == [better["id"], weaker["id"]]
+    assert 1 < found[0]["score"] <= 1 + RECENCY_WEIGHT and 0.5 < found[1]["score"] <= 0.5 + RECENCY_WEIGHT
     db.close()
 
 
@@ -209,12 +258,36 @@ def test_a_stopped_reindex_resumes_where_it_stopped(tmp_path: Path) -> None:
     for node in (first, second):
         _indexed_by_json(db, node)
     db.conn.execute("DELETE FROM learning_search_version")
+    content = {first["id"]: "my dentist is Dr. Rao owner dentist", second["id"]: "the editor is Zed owner editor"}
     batches: list[int] = []
     assert reindex_search(db, batch_bytes=1, stop=lambda: batches.append(1) or len(batches) > 1) is True
-    assert _fts_text(db, first) == "my dentist is Dr. Rao owner dentist"
-    assert _fts_text(db, second).startswith("owner/editor {")                 # not reached yet
+    assert sorted(_fts_text(db, n) == content[n["id"]] for n in (first, second)) == [False, True]   # one batch done
     assert reindex_search(db, batch_bytes=1) is True
-    assert _fts_text(db, second) == "the editor is Zed owner editor"
+    assert all(_fts_text(db, n) == content[n["id"]] for n in (first, second))
+    assert reindex_search(db) is False
+    db.close()
+
+
+def test_a_reindex_resumes_after_a_compaction_renumbers_the_nodes(tmp_path: Path) -> None:
+    """The re-index resumes after the last node id it did, never an implicit rowid: a compaction (VACUUM) may
+    renumber those, and a forget between runs leaves gaps for it to close (review fix 2)."""
+    db, learning = new_store(tmp_path / "m.db")
+    nodes = [fact(learning, f"note_{i}", f"kettle note number {i}") for i in range(6)]
+    for node in nodes:
+        _indexed_by_json(db, node)
+    db.conn.execute("DELETE FROM learning_search_version")
+    batches: list[int] = []
+    assert reindex_search(db, batch_bytes=1, stop=lambda: batches.append(1) or len(batches) > 3) is True
+    done = [n for n in nodes if not _fts_text(db, n).startswith("owner/")]
+    assert len(done) == 3
+    learning.forget([n["id"] for n in done])            # the re-indexed ones go, then the store is compacted
+    db.compact()
+    # VACUUM may renumber the rowids of a table without an INTEGER PRIMARY KEY (SQLite's documented right; this
+    # build happens to keep them), so the test renumbers them as it may: the remaining nodes now hold the old ones'
+    db.conn.execute("UPDATE learning_nodes SET rowid = rowid - 3")
+    assert reindex_search(db, batch_bytes=1) is True
+    assert all(_fts_text(db, n) == f"kettle note number {n['key'][-1]} owner note {n['key'][-1]}"
+               for n in nodes if n not in done)
     assert reindex_search(db) is False
     db.close()
 

@@ -2851,23 +2851,28 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   `memory.read` and `memory.learned` move onto it in the later L36 tasks. `learning_fts` holds each node's content only
   (`search_text`; a fact with the words of its subject and key slugs, `slug_words`; day digests, rollups and intent
   labels index nothing, found through what they cite). Every start asks `reindex_search` for `SEARCH_TEXT_VERSION`
-  (migration 0048); once per version it re-indexes every node in a worker thread on a connection of its own, in batches
-  of about 256 KB of stored bodies (`REINDEX_BATCH_BYTES`), each one transaction that records how far it got
-  (`learning_search_version.through`), so a stop or a crash resumes at the next start and a forget waits one batch at
-  most. Searches wait for it (`Daemon._search_ready`). Journal `memory.search_reindexed` (only when nodes were
-  re-indexed; `finished`) or `memory.search_reindex_failed`. On a copy of the owner's 1,150 nodes (30 MB of JSON-indexed
-  text, 2026-10-24) it took 4.5 s in 78 batches, each holding the write lock 128 ms at most; the index text went to 1
+  (migration 0048); once per version it re-indexes every node in a worker thread on a connection of its own, in node-id
+  order, in batches of about 64 KB of stored bodies (`REINDEX_BATCH_BYTES`), each one transaction that records the last
+  id it did (`learning_search_version.through`; never a rowid, which VACUUM may renumber), so a stop or a crash resumes
+  at the next start, and the daemon's own writes and a forget wait one batch at most. Searches wait for it
+  (`Daemon._search_ready`). Journal `memory.search_reindexed` (only when nodes were re-indexed; `finished`) or
+  `memory.search_reindex_failed`. On a scratch copy of the owner's database (2026-10-24: 1,150 nodes, 30 MB of
+  JSON-indexed text) it took 6.6 s in 189 batches, each holding the write lock 76 ms at most; the index text went to 1
   MB. A planner turn recalls for the owner's message plus the goals and targets (`target_words`: sites' host labels,
   apps, recipients, paths' last parts) of the tasks its task layers show (`Supervisor._chat_task_words`: this chat's
   running tasks and the resumable attempts it is shown), so a message that shares no word with a fact still recalls it
   through the work it continues. A word found in more than half of the nodes carries no weight (`weighted_terms`, with
   `Memory.recall`'s rule `items.weighted`); a query whose every word is such finds nothing, by embedding similarity too,
   and a query with no words lists the newest. bm25 ranks with ties sharing a rank, the trigram title match and an
-  adopted embedding are fused by reciprocal rank, plus at most 0.05 for recency (half-life 30 days); at equal score an
-  owner-stated node comes first. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60 (the planner and attention) and
-  `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity layer and the planner's
-  procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and procedures before the
-  budget applies. The memory blocks stay protected inside the budgets (the planner's conversation fills its window
+  adopted embedding are fused by reciprocal rank, plus at most 0.05 for recency (half-life 30 days). An owner-stated
+  node always takes the full 0.05 (the owner's words don't age), so at equal relevance no guess outscores it, and at
+  equal score it comes first. Nodes are ranked and filtered by their columns first and their bodies read best first
+  until the budget is full; prompt lines are read without their source refs (`search(sources=False)`: the 60 lines of
+  one owner query cited 944,554). On that copy one planner turn's memory (facts synced, task words, search) took about
+  73 ms, against 1.3 s reading every matched node. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60 (the planner and
+  attention) and `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity layer and the
+  planner's procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and procedures before
+  the budget applies. The memory blocks stay protected inside the budgets (the planner's conversation fills its window
   before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>): <goal> — <status>[,
   verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the same `search_text`; a
   node without one has no vector.
