@@ -10,13 +10,13 @@ entry's name.
 
 A record serves its own place and the sites it lists (I14): the visa site's sign-in form is a single sign-on page on
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
-task's sites the owner typed (the gateway picks them, `Gateway._login_sites`), a listing for the site finds it, and a
-username the owner gave for the site names the form's account too. Before any entry is saved there, a question or a
-listing during a task reads the task's one owner-typed site as a link the same way, writing nothing. A username read
-through a link is shown with the place it came from (`account`). A site matches a host exactly, a leading "www." aside
-(`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own. The
-records of one site with and without "www." serve each other too. Entries still fill only at their record's own place
-(`reveal`).
+task's site the owner typed, when they typed exactly one (the gateway picks it, `Gateway._question_sites`), a listing
+for the site finds it, and a username the owner gave for the site names the form's account too. Before any entry is
+saved there, a question or a listing during a task reads the task's one owner-typed site as a link the same way,
+writing nothing. A username read through a link is shown with the place it came from (`account`). A site matches a
+host exactly, a leading "www." aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com,
+github.io) each tenant has its own. The records of one site with and without "www." serve each other too. Entries
+still fill only at their record's own place (`reveal`).
 
 `owner-secret-handles.json` (version 2): {"version": 2, "records": {place: {"username", "username_source", "sites":
 [host], "entries": {name: Keychain account}}}, "unusable": [{"name", "place", "why"}]}. A new entry's Keychain account
@@ -142,8 +142,8 @@ def _linked(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> l
     """The other records that serve `place` (I14): one at the same site, a leading "www." aside (the planner writes a
     username's site either way, L36 §5), one listing its host's site (a sign-on form's record saved during a task on
     that site), or one at the host of a site its own record lists (the site that task named). `sites`: the current
-    task's owner-typed sites (`Gateway._login_sites`), read as if the place's record listed them, so the first sign-in
-    on a form already finds the site's record; never written (coordinator ruling on concern 1)."""
+    task's one owner-typed site (`Gateway._question_sites`), read as if the place's record listed it, so the first
+    sign-in on a form already finds the site's record; never written (coordinator ruling on concern 1)."""
     host, own_sites = site_host(place), [*records.get(place, {}).get('sites', []), *sites]
     found = []
     for other, record in records.items():
@@ -248,7 +248,7 @@ class OwnerSecrets:
 
     def remember(self, handle: str, target: str, value: str, sites: Iterable[str] = ()) -> None:
         """Save `value` under the name `handle` for the place `target`, replacing that name's value; `sites`: the
-        sites the record lists from then on (I14; the gateway's `_login_sites`). A new entry's Keychain account is
+        sites the record lists from then on (I14; the gateway's `_question_sites`). A new entry's Keychain account is
         never one another entry already uses (a version-1 handle can be any text)."""
         refuse_whole_browser(target)
         own = site_host(target)

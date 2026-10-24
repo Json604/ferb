@@ -2965,8 +2965,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   bound to a whole browser is listed in `unusable`, with "ask the owner again", in every listing; a file that can't be
   read, has another shape or a field of the wrong type (`sites` not strings, `username` not a string or null) is never
   overwritten, and every call refuses naming the file. A record serves several sites (I14): when `Gateway.ask_secret`
-  saves an entry it passes `_login_sites`: the task's target sites (`state.requests`, as a steer left them) whose host
-  the owner typed in the request's words, a leading "www." aside (rule 8's provenance; a site only the model or outside
+  saves an entry it passes `_question_sites` (below: `_login_sites`, only when that is exactly one site, re-review
+  N-1: a password saved at Google's form in a task naming the visa site and gmail.com must never show the visa
+  username at Google later), from the task's target sites (`state.requests`, as a steer left them) whose host the
+  owner typed in the request's words, a leading "www." aside (rule 8's provenance; a site only the model or outside
   content named never links; `typed_site`), and none at all when the fill place is an app or itself one of those
   owner-typed sites (only a sign-in form on another address needs a link; a sign-in on usvisascheduling.com in a task
   that also names gmail.com must not hand its username to gmail.com). Only the owner-typed sites count for that test,
@@ -2978,21 +2980,20 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   site, or the place's own record lists the record's host's site. During a task, `ask_secret`'s question and
   `secrets.list` also read that task's owner-typed site for the place as if its record listed it
   (`Gateway._question_sites`: `_login_sites`, only when that is exactly one site, "www." aside; review I-2: with
-  several, a sign-in on any other page could be any of their accounts), read only (a link is stored only when an
-  entry is saved), so the first sign-in on a form already names the account (coordinator ruling). A place's username
-  is its record's own, else the one its linked records agree on (two that differ name none); it is read through the
-  link, never copied, and then names the place it came from (`OwnerSecrets.account`): the question says
+  several, a sign-in on any other page could be any of their accounts), read only (a link is stored only when an entry
+  is saved), so the first sign-in on a form already names the account (coordinator ruling). A place's username is its
+  record's own, else the one its linked records agree on (two that differ name none); it is read through the link,
+  never copied, and then names the place it came from (`OwnerSecrets.account`): the question says
   "(usvisascheduling.com account: Asha Rao)" and `secrets.list` adds `username_site`, so on any other page, an
-  attacker's included, the owner sees whose account it is (review I-2). Entries
-  fill only at their own record's place (`reveal`, D12). The owner-only observation `secrets.list`
-  (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the unusable list and, under
-  `linked`, each linked record by the place its entries fill; never a value or an account. worker.md tells a worker to
-  call it before typing into a login form, so the username comes from the record, not memory's ranking. The
-  hidden-input line names the account after FERB's place (ruling C1, re-review R1): "For atlasauth.b2clogin.com only
-  (account: Asha Rao): …", and the full question "Destination: … Account: …"; the username is printable, on one line,
-  without format or line-separator characters (Cf, Cs, Zl, Zp: no bidi override), and clipped to 64 characters
-  (`_account`). A handle file `ask_secret` can't read names no account and still asks a one-time input; a save is
-  refused before the question (m17).
+  attacker's included, the owner sees whose account it is (review I-2). Entries fill only at their own record's place
+  (`reveal`, D12). The owner-only observation `secrets.list` (`identity/secret_tools.py`, input `place`) returns a
+  place's username, entry names, the unusable list and, under `linked`, each linked record by the place its entries
+  fill; never a value or an account. worker.md tells a worker to call it before typing into a login form, so the
+  username comes from the record, not memory's ranking. The hidden-input line names the account after FERB's place
+  (ruling C1, re-review R1): "For atlasauth.b2clogin.com only (account: Asha Rao): …", and the full question
+  "Destination: … Account: …"; the username is printable, on one line, without format or line-separator characters
+  (Cf, Cs, Zl, Zp: no bidi override), and clipped to 64 characters (`_account`). A handle file `ask_secret` can't read
+  names no account and still asks a one-time input; a save is refused before the question (m17).
 - **The username (§5).** A planner `remember` entry may carry `login_origin`; its content is then the username alone.
   `Daemon._save_login_name` writes the owner's own spelling of it (`owner_span`) to that https:// origin's record
   (`set_username`, `username_source` `memory:<id>`) only from an owner-stated item, when the host, exactly or with or

@@ -878,7 +878,8 @@ After the owner's update (2026-10-24):
   its login form (`secrets.list`: names only, never values, whatever memory ranked), saving the same name replaces it,
   and the hidden-input question names the account after the site ("For atlasauth.b2clogin.com only (account: Asha
   Rao): …"). The visa site's sign-in form is on atlasauth.b2clogin.com, not usvisascheduling.com: a login saved during
-  a task on a sign-in page at another address now also counts for the sites you typed for that task, so a listing for
+  a task on a sign-in page at another address now also counts for the site you typed for that task (only when you
+  typed one; with two, a login saved at Google's page would otherwise show the visa username there), so a listing for
   usvisascheduling.com finds it and the username you gave for that site names the form's account; its secrets still
   fill only on the form's own address. A site counts exactly, with or without "www.": never another address under it
   (on shared hosting such as b2clogin.com each customer has their own), never a site only a page or the model named,

@@ -151,30 +151,31 @@ def test_a_forget_that_cannot_clear_the_username_says_so(daemon: Any, monkeypatc
     assert username(daemon) == "Asha Rao"                                 # left, and said
 
 
-def test_a_retract_during_a_username_write_still_clears_it(daemon: Any) -> None:
-    """Review m-3: username writes are serialized (one daemon lock), so a retract that starts while the write waits
-    clears it after the write, never before."""
-    from ferb.identity import owner_secrets
+def test_a_retract_during_a_username_write_waits_for_it_and_clears_it(daemon: Any,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review m-3: username writes are serialized (one daemon lock), so a retract that starts while the write is under
+    way clears it after the write, never before (when it would find nothing to clear and the write would then leave
+    the username of a retracted memory)."""
     src = journal(daemon, "chat.message", {"text": "the username is Asha Rao", "untrusted_parts": 0})
-    held, release = threading.Event(), threading.Event()
+    real, entered, gate = OwnerSecrets.set_username, threading.Event(), threading.Event()
 
-    def save_in_progress() -> None:
-        with owner_secrets._write_lock:
-            held.set()
-            release.wait(10)
-    holder = threading.Thread(target=save_in_progress)
-    holder.start()
-    assert held.wait(5)
+    def held_write(self: Any, *args: Any) -> None:                  # the write, stopped before the handle file's lock
+        entered.set()
+        gate.wait(10)
+        real(self, *args)
+    monkeypatch.setattr(OwnerSecrets, "set_username", held_write)
     try:
         writing = asyncio.run_coroutine_threadsafe(daemon.daemon._remember(
             [entry()], "the username is Asha Rao", src, frozenset({"usvisascheduling.com"})), daemon.loop)
+        assert entered.wait(5)
         [item] = run(daemon, lambda: daemon.daemon.memory.items("active"))
         retracting = asyncio.run_coroutine_threadsafe(daemon.daemon._memory_retract(None, {"id": item.id}),
                                                       daemon.loop)
         assert daemon.run(_ping(), timeout=2) == "pong"
+        with pytest.raises(TimeoutError):
+            retracting.result(0.5)                                  # its clear waits for the write
     finally:
-        release.set()
-        holder.join(5)
+        gate.set()
     writing.result(5)
     retracting.result(5)
     assert username(daemon) is None
@@ -276,6 +277,31 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
     assert ("linked" in listed) == linked
     assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()) == {SITE: {
         "username": "Asha Rao", "username_source": "memory:x", "sites": [], "entries": {}}}     # nothing written
+
+
+def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """Re-review N-1: a save stores links only under the one-typed-site rule too. A password saved at Google's
+    sign-in form in a task the owner typed usvisascheduling.com and gmail.com for lists neither site, so later tasks
+    never show the visa username at Google."""
+    from ferb.policy.targets import Request, Targets
+    google = "https://accounts.google.com"
+    keychain = keychain_helper(monkeypatch)
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", "memory:x"))
+    words = "check my visa appointment on usvisascheduling.com and mail it from gmail.com"
+    run(daemon, lambda: daemon.daemon.state.requests.record(
+        Request("req-q", words, Targets.of(sites=["usvisascheduling.com", "gmail.com"]))))
+    ctx = ToolContext("q", "w-q", "req-q", Identity.OWNER, frozenset({"task:read"}), "dev", None, "/tmp", (), ())
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(ctx, google, remember="password"),
+                                               daemon.loop)
+    ap = asked(daemon)
+    assert ap.summary == "For accounts.google.com only: “password” · saved in your Mac's Keychain"
+    daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, True, None, "hidden-canary-1")
+    assert waiting.result(5) == "hidden-canary-1"
+    store = OwnerSecrets(daemon.daemon.home)
+    assert keychain == {f"{google} · password": "hidden-canary-1"}
+    assert run(daemon, lambda: store.records()[google]["sites"]) == []
+    assert run(daemon, lambda: store.account(google)) == (None, None)
 
 
 USERNAME_ENTRY = {"kind": "fact", "subject": "owner", "key": "usvisascheduling-username", "content": "Asha Rao",

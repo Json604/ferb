@@ -1776,8 +1776,9 @@ class Gateway:
             state = await self._wait_answer(grant, ap.id)
             if state != "granted" or not ap.answer:
                 return None
-            if remember:                               # I14: the record serves the sites the owner named
-                await asyncio.to_thread(store.remember, remember, target, ap.answer, self._login_sites(ctx, target))
+            if remember:                               # I14: the record serves the one site the owner named
+                await asyncio.to_thread(store.remember, remember, target, ap.answer,
+                                        self._question_sites(ctx, target))
             delivered = True
             return ap.answer
         finally:
@@ -1804,8 +1805,10 @@ class Gateway:
 
     def _question_sites(self, ctx: ToolContext, target: str) -> list[str]:
         """The task's owner-typed site a question or `secrets.list` at `target` reads as a link before any entry is
-        saved there (coordinator ruling): `_login_sites`, only when they are exactly one site ("www." aside; review
-        I-2: with several, a sign-in on any other page could be any of their accounts)."""
+        saved there (coordinator ruling), and the one a save there stores (re-review N-1): `_login_sites`, only when
+        they are exactly one site ("www." aside; review I-2: with several, a sign-in on any other page could be any of
+        their accounts, and a password saved at Google's form in a task naming the visa site and gmail.com would show
+        the visa username at Google in every later task)."""
         typed = self._login_sites(ctx, target)
         return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
 
