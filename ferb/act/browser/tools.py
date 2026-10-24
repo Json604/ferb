@@ -792,10 +792,11 @@ class BrowserKeepOpen(_Base):
     on_screen = True
     holds_tab = True   # only keeps hold of a tab, changing nothing in it: a look-only loop round may call it (L31)
     blurb = ("Keep this exact tab ({whose}) open after the task ends. Use when the owner wants a class, playback or "
-             "other page left running. A tab FERB opened is handed over at once; one of the owner's own tabs (from "
-             "use_tab) stays held while the task runs and is let go of, open, when the task ends (a loop's tabs: when "
-             "the loop stops). Does not navigate, switch tabs or take focus. Returns confirmed tab lifetime; verify "
-             "the page's actual playback/session separately. You may still inspect it before finishing.")
+             "other page left running after the task. A tab FERB opened is handed over at once, and the browser "
+             "confirms it is kept open. One of the owner's own tabs (from use_tab) stays held while the task runs: the "
+             "browser confirms it is open now, and FERB lets go of it, open, when the task ends. In a loop round, "
+             "leave the tab held instead: the loop keeps it until it stops. Does not navigate, switch tabs or take "
+             "focus. Verify the page's actual playback/session separately. You may still inspect it before finishing.")
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:

@@ -919,14 +919,20 @@ class _TabDriver:
         (a loop's: until the loop) ends, when `close` lets go of it, kept open: letting go detaches the debugger, which
         turns focus emulation off, and a site that pauses on blur paused the very playback the owner asked to keep
         (L31, live cc5debe4, 2026-10-25: Instagram 0.3 s after each round's keep_open). Such a tab is never closed, so
-        nothing is lost holding it. A tab FERB opened is handed over at once: the extension records it kept before it
-        detaches, so a lost answer can't let a later cleanup close it."""
+        nothing is lost holding it; the browser is asked only whether it still has the tab. A tab FERB opened is
+        handed over at once: the extension records it kept before it detaches, so a lost answer can't let a later
+        cleanup close it."""
         t = self._tab(tab)
-        t.keep_open = True
         if t.attached:
+            # the browser confirms the tab is open now; letting go of it, kept open, is confirmed at the task's end
+            listed = await t.bridge.call("list_tabs", {}, timeout=10)
+            if not any(int(x.get("tab_id", -1)) == t.chrome_id for x in listed.get("tabs", [])):
+                raise DriverError(f"tab {tab.tab_id} isn't open in the browser any more, so it can't be kept open")
+            t.keep_open = True
             return self._lifecycle(t, {"kept_open": True}) | {
-                "held_until_task_end": "FERB keeps holding the tab while the task runs and lets go of it, open, "
-                                       "when the task ends"}
+                "held_until_task_end": "the browser has the tab open now; FERB keeps holding it while the task runs "
+                                       "and lets go of it, open, when the task ends"}
+        t.keep_open = True
         v = await t.bridge.call("release_tab", {"tab_id": t.chrome_id, "keep_open": True}, timeout=10)
         if not v.get("released") or not v.get("kept_open"):
             raise DriverError("browser did not confirm keeping the tab open and releasing control")

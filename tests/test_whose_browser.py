@@ -362,3 +362,22 @@ def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
     br.calls.clear()
     assert asyncio.run(r.release("task-1"))[0]["closed"] is True
     assert br.calls == [] and r.task_tabs("task-1") == []                     # nothing to ask the browser to let go of
+
+
+def test_keep_open_on_the_owners_tab_confirms_it_is_still_open() -> None:
+    """Review M9: holding the owner's tab asked the browser nothing, so keep_open said "kept open" even for a tab the
+    owner had just closed. It checks the browser still has the tab, and says so plainly when it hasn't."""
+    from ferb.core.errors import DriverError
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    br.calls.clear()
+    kept = asyncio.run(r.keep_open(ref))
+    assert kept["kept_open"] and br.calls == ["list_tabs"]
+    gone = asyncio.run(r.attach("brave:Default:12", "task-1"))
+
+    async def without_12(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        br.calls.append(op)
+        return {"tabs": [{"tab_id": 11, "host": "www.youtube.com", "url": "https://www.youtube.com/", "title": "L"}]}
+    br.call = without_12                                                             # type: ignore[method-assign]
+    with pytest.raises(DriverError, match="isn't open"):
+        asyncio.run(r.keep_open(gone))
