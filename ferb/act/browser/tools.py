@@ -304,8 +304,9 @@ class BrowserTabs(_Base):
     verb = "tabs"
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
-    blurb = ("List the tabs the owner has open in their connected browser profiles: a tab_ref, the site, and whether "
-             "it's the active tab. Use it when the owner refers to a tab they already have open (\"my current "
+    blurb = ("List the tabs the owner has open in their connected browser profiles: a tab_ref, the site, whether "
+             "it's the active tab, and whether it plays sound (audible) and is muted; `tabs_by_ref` has the same tabs "
+             "keyed by tab_ref. Use it when the owner refers to a tab they already have open (\"my current "
              "YouTube tab\"), then {p}_use_tab.")
     origin = "private"                                 # no tabs listed: the owner's browser state
 
@@ -317,7 +318,9 @@ class BrowserTabs(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         tabs = await self.driver.open_tabs(getattr(args, "profile"), ctx.task_id)   # type: ignore[attr-defined]
-        return ToolResult({"tabs": tabs}, read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
+        # L31: one tab by its ref, for a probe's dot path (`tabs_by_ref.<tab_ref>.audible`; a ref has no dots)
+        return ToolResult({"tabs": tabs, "tabs_by_ref": {t["tab_ref"]: t for t in tabs}},
+                          read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
 
 
 class BrowserUseTab(_Base):
@@ -479,7 +482,9 @@ class BrowserMedia(_Base):
     verb = "media"
     on_screen = True                                   # the owner may hear what plays (owner accepted, L26)
     blurb = ("Play, pause, mute, unmute or seek one video or audio element in one of this task's tabs ({whose}), by "
-             "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one). "
+             "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one) "
+             "or by its media_id (its key in that snapshot's `media_by_id`, which stays with the element while the "
+             "page lives). "
              "Returns that element's state: playing (true only once its time has moved), paused, current_time, "
              "duration, muted, volume. Right after play, `playing` stays false until the media's time moves: check "
              "again with {p}_snapshot. Sound must actually play for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
@@ -489,12 +494,16 @@ class BrowserMedia(_Base):
     class Input(_Tab):
         action: Literal["play", "pause", "mute", "unmute", "seek"]
         index: int | None = Field(default=None, ge=0, description="the element's index in the latest snapshot's media")
+        media_id: str | None = Field(default=None, max_length=32,
+                                     description="or the element's id: its key in the latest snapshot's media_by_id")
         to: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="seek: the time, in seconds")
 
         @model_validator(mode="after")
         def seek_time(self) -> "BrowserMedia.Input":
             if (self.action == "seek") != (self.to is not None):
                 raise ValueError("seek needs `to` (seconds); only seek takes it")
+            if self.index is not None and self.media_id is not None:
+                raise ValueError("name the element by index or by media_id, one of them")
             return self
 
     def _scopes(self) -> set[str]:
@@ -503,11 +512,12 @@ class BrowserMedia(_Base):
     def describe(self, args: Any) -> ActionSpec:
         # Page playback only, reversible like scroll: no ledger row, so a timed-out play stays retryable (P19 is for
         # consequential actions); on_screen marks it in the disturbance record.
-        return self._spec(Kind.READ, args, content=f"media:{args.action}:{args.index}:{args.to}")
+        return self._spec(Kind.READ, args, content=f"media:{args.action}:{args.media_id or args.index}:{args.to}")
 
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(args.tab, ctx.task_id)
-        state = await self.driver.media(ref, args.action, args.index, args.to)  # type: ignore[attr-defined]
+        state = await self.driver.media(ref, args.action, args.index, args.to,  # type: ignore[attr-defined]
+                                        media_id=args.media_id)
         return ToolResult({"state": state, "next": "`playing` is true once the media's time moves; check it and "
                            "`muted` (in a snapshot) before listening or recording"},
                           is_error=bool(state.get("error")), read_sources=self._page(ref.tab_id))

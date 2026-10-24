@@ -10,6 +10,7 @@ WakeServer serves only the temporary local pairing page; ordinary wake launches 
 import asyncio
 import json
 import os
+import re
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,9 @@ TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
 # a media element's state (L26): `playing` once its time moves (I5), `paused` as the page has it
 MEDIA_FIELDS = ("playing", "paused", "current_time", "duration", "muted", "volume", "in_view")
+# a media element's own id in its frame (extension 0.15.8, L31): the content script's `m<n>`, no dots, so a probe's
+# dot path reaches it (`media_by_id.m12.playing`)
+MEDIA_ID = re.compile(r"m[0-9]{1,9}")
 
 
 class OutcomeUnknown(DriverError):
@@ -599,6 +603,7 @@ class _Tab:
     containers: dict[str, tuple[int, str]] = field(default_factory=dict)
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
     media: dict[int, tuple[int, int]] = field(default_factory=dict)   # snapshot media index -> frame, local index
+    media_ids: dict[str, int] = field(default_factory=dict)  # a media element's own id (L31) -> its snapshot index
     masking: str = ""               # how the latest screenshot's secret fields were found, when worth saying (L13)
     unread_shot: str | None = None  # a screenshot of a page the extension can't read: no point resolves on it (I1)
     native_shot: bool = False       # the latest screenshot is the whole browser window (a debugger-proof tab)
@@ -874,12 +879,17 @@ class _TabDriver:
         scrollers: list[dict[str, Any]] = []
         media: list[dict[str, Any]] = []
         media_refs: dict[int, tuple[int, int]] = {}
+        media_ids: dict[str, int] = {}
         for f in v["frames"]:
             fid = int(f["frame_id"])
             for m in f.get("media", []):               # L26: one index across frames, as browser.media takes it
                 media_refs[len(media)] = (fid, int(m["index"]))
-                media.append({k: m[k] for k in MEDIA_FIELDS if k in m} | {"index": len(media)}
-                             | ({"frame": fid} if fid else {}))
+                entry: dict[str, Any] = {"index": len(media)}
+                if isinstance(m.get("id"), str) and MEDIA_ID.fullmatch(m["id"]):
+                    # the element's own id for the page's life (L31); a child frame numbers its own, as scrollers do
+                    entry["id"] = m["id"] if fid == 0 else f"f{fid}:{m['id']}"
+                    media_ids[entry["id"]] = len(media)
+                media.append(entry | {k: m[k] for k in MEDIA_FIELDS if k in m} | ({"frame": fid} if fid else {}))
             for sc in f.get("scrollers", []):
                 local = str(sc['id'])
                 alias = local if fid == 0 else f"f{fid}:{local}"
@@ -903,7 +913,7 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
-        t.containers, t.media = containers, media_refs
+        t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
                               scroll, scrollers, media)
         from ferb.act.browser.snapshot import for_model
@@ -1123,12 +1133,18 @@ class _TabDriver:
             out["frame"] = frame
         return out
 
-    async def media(self, tab: TabRef, action: str, index: int | None, to: float | None) -> dict[str, Any]:
-        """L26: play/pause/mute/unmute/seek one media element of the latest snapshot, by its index there; returns its
-        state afterwards (and the page's error when it refused, e.g. play() without a real click)."""
+    async def media(self, tab: TabRef, action: str, index: int | None, to: float | None,
+                    media_id: str | None = None) -> dict[str, Any]:
+        """L26: play/pause/mute/unmute/seek one media element of the latest snapshot, by its index there or its own id
+        (`media_id`, L31); returns its state afterwards (and the page's error when it refused, e.g. play() without a
+        real click)."""
         t = self._tab(tab)
         if not t.snapshot_json:
             raise Refused("take a snapshot first: browser.media uses an index from its `media` list")
+        if media_id is not None:
+            if media_id not in t.media_ids:
+                raise Refused(f"the latest snapshot has no media element {media_id}: take a new snapshot")
+            index = t.media_ids[media_id]
         if index is None:
             if len(t.media) != 1:
                 raise Refused(f"this page has {len(t.media)} media elements in the latest snapshot; choose one by its "
@@ -1145,7 +1161,9 @@ class _TabDriver:
                 raise Refused(f"the FERB extension in that browser is older than FERB: reload it "
                               f"({MIN_EXTENSION_VERSION} or later)") from None
             raise
-        return {k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index} | ({"frame": frame} if frame else {})
+        own = next((qid for qid, i in t.media_ids.items() if i == index), None)
+        return ({k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index}
+                | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}))
 
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool:
         t = self._tab(tab)
@@ -1541,6 +1559,8 @@ class Router(_TabDriver):
                             "url":str(t.get("url") or ""), "title":str(t.get("title") or ""),
                             "site": str(t.get("host") or ""), "active": bool(t.get("active")),
                             "window_id": t.get("window_id")}
+                # whether it plays sound, and is muted (extension 0.15.8, L31); absent from an older one, never guessed
+                entry |= {k: bool(t[k]) for k in ("audible", "muted") if k in t}
                 if mine is not None:
                     entry["taken_over_as"] = mine.ref.tab_id      # already this task's: use this tab id
                     if mine.taken_over_from:                      # what it held then: navigating never loses it

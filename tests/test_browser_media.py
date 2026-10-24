@@ -59,8 +59,9 @@ def _content(mode: str = "allow") -> dict[str, Any]:
 
 def test_play_on_a_paused_video_shows_playing_once_its_time_moves() -> None:
     out = _content()
-    assert out["before"] == [{"index": 0, "playing": False, "paused": True, "current_time": 3, "duration": 30,
-                              "muted": True, "volume": 1, "in_view": True}]
+    assert out["before"] == [{"index": 0, "id": "m1", "playing": False, "paused": True, "current_time": 3,
+                              "duration": 30, "muted": True, "volume": 1, "in_view": True}]
+    assert out["played"]["id"] == "m1" and out["after"][0]["id"] == "m1"
     # play() clears `paused` at once; `playing` waits for the media's time to move (I5)
     assert out["played"]["playing"] is False and out["played"]["paused"] is False and "error" not in out["played"]
     assert out["unmuted"]["playing"] is True                      # its time moved: really playing
@@ -95,6 +96,51 @@ def test_media_from_an_older_snapshot_is_stale_and_a_refused_play_is_reported() 
     assert refused["played"]["error"] == "NotAllowedError"
 
 
+# A feed whose videos come and go (Instagram): the list the page shows changes between snapshots.
+FEED_HARNESS = r'''
+const vm = require('vm'), fs = require('fs');
+const video = name => ({tagName: 'VIDEO', name, isConnected: true, paused: false, ended: false, currentTime: 1,
+  duration: 30, muted: false, volume: 1, shadowRoot: null, play() { return Promise.resolve(); }, pause() {},
+  addEventListener() {}, matches() { return false; }, getAttribute() { return null; }, setAttribute() {},
+  removeAttribute() {}, closest() { return null; },
+  getBoundingClientRect() { return {x: 0, y: 0, width: 640, height: 360, right: 640, bottom: 360, left: 0, top: 0}; }});
+const [a, b, c] = [video('a'), video('b'), video('c')];
+let page = [a];
+const root = {setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, scrollTop: 0, scrollHeight: 900};
+const doc = {documentElement: root, scrollingElement: root, body: {}, title: 'Feed',
+  querySelectorAll: sel => sel === '*' ? page : [],
+  createTreeWalker: () => ({nextNode: () => null}), createRange: () => ({})};
+const ctx = vm.createContext({document: doc, window: {}, top: null, location: {href: 'https://www.instagram.com/'},
+  crypto: globalThis.crypto, WeakRef, WeakMap, URL, setTimeout, innerWidth: 1280, innerHeight: 900,
+  addEventListener() {}, MutationObserver: class { observe() {} }, ShadowRoot: class {},
+  NodeFilter: {SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1}});
+ctx.top = ctx.window;
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
+const f = ctx.window.__ferb, ids = m => m.map(x => [x.index, x.id]);
+const first = ids(f.snapshot(1).media);
+page = [b, a];                       // a new video loads above the first one
+const second = ids(f.snapshot(2).media);
+page = [c, a];                       // b scrolled away, c loaded
+const third = ids(f.snapshot(3).media);
+page = [b, c, a];                    // b back in the page
+const fourth = ids(f.snapshot(4).media);
+console.log(JSON.stringify({first, second, third, fourth}));
+'''
+
+
+def test_each_media_element_keeps_one_id_for_the_page_while_list_positions_shift() -> None:
+    """Live 2026-10-24: a loop's probe on media.44 watched another video once the feed loaded more. An element's id
+    is its own for the page's lifetime, assigned on first sight and never given to another element."""
+    result = subprocess.run([_node(), "-e", FEED_HARNESS, str(EXT / "content.js")], capture_output=True, text=True,
+                            timeout=10)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["first"] == [[0, "m1"]]
+    assert out["second"] == [[0, "m2"], [1, "m1"]]          # a moved from index 0 to 1, still m1
+    assert out["third"] == [[0, "m3"], [1, "m1"]]           # c is new: m3, never b's m2
+    assert out["fourth"] == [[0, "m2"], [1, "m3"], [2, "m1"]]
+
+
 def test_worker_media_command_runs_the_content_script_in_the_exact_frame() -> None:
     result = worker('''(async () => {
       const calls = [];
@@ -110,6 +156,21 @@ def test_worker_media_command_runs_the_content_script_in_the_exact_frame() -> No
     assert "__ferb.media" in call["func"]
     assert "older snapshot" in result["stale"]
     assert result["listed"] is True
+
+
+def test_the_tabs_listing_says_whether_each_tab_plays_sound_and_is_muted() -> None:
+    """L31: whether a tab makes sound is the browser's own fact (chrome.tabs `audible`, `mutedInfo.muted`): a probe on
+    it needs no snapshot of the page."""
+    result = worker('''(async () => {
+      chrome.tabs.query = async () => [
+        {id: 4, windowId: 2, url: "https://www.instagram.com/reels/x/", title: "Reel", active: false, audible: true,
+         mutedInfo: {muted: false}},
+        {id: 5, windowId: 2, url: "https://example.com/", title: "Quiet", active: true, mutedInfo: {muted: true}}];
+      return await commands.list_tabs();
+    })()''')
+    tabs = {t["tab_id"]: t for t in result["tabs"]}
+    assert (tabs[4]["audible"], tabs[4]["muted"]) == (True, False)
+    assert (tabs[5]["audible"], tabs[5]["muted"]) == (False, True)
 
 
 # ---------- the daemon side ----------
@@ -140,11 +201,11 @@ def _driver(frames: list[dict[str, Any]]) -> tuple[Any, Any, TabRef]:
 
 
 FRAMES = [{"frame_id": 0, "url": "https://www.instagram.com/reel/x", "title": "Reel", "text": "", "elements": [],
-           "media": [{"index": 0, "playing": False, "current_time": 3, "duration": 30, "muted": True, "volume": 1,
-                      "in_view": True}]},
+           "media": [{"index": 0, "id": "m7", "playing": False, "current_time": 3, "duration": 30, "muted": True,
+                      "volume": 1, "in_view": True}]},
           {"frame_id": 5, "url": "https://player.example/embed", "text": "", "elements": [],
-           "media": [{"index": 0, "playing": True, "current_time": 1, "duration": None, "muted": False, "volume": 1,
-                      "in_view": False}]}]
+           "media": [{"index": 0, "id": "m7", "playing": True, "current_time": 1, "duration": None, "muted": False,
+                      "volume": 1, "in_view": False}]}]
 
 
 def test_snapshot_reports_every_frames_media_with_one_index_and_the_model_sees_it() -> None:
@@ -155,6 +216,30 @@ def test_snapshot_reports_every_frames_media_with_one_index_and_the_model_sees_i
     assert [m["index"] for m in shown] == [0, 1]
     assert shown[0]["playing"] is False and shown[0]["muted"] is True and "frame" not in shown[0]
     assert shown[1]["frame"] == 5 and shown[1]["duration"] is None
+
+
+def test_the_snapshot_keys_each_frames_media_by_its_own_id_and_a_probe_reads_one_element() -> None:
+    """Each frame numbers its own media: a child frame's id carries its frame ("f5:m7"), as a scroller's does. A probe
+    path reaches one element by id, whatever its list position."""
+    from ferb.act.browser.snapshot import for_model
+    from ferb.orchestrator.probes import MISSING, field_value
+    d, _, ref = _driver(FRAMES)
+    shown = for_model(asyncio.run(d.snapshot(ref)))
+    assert [m["id"] for m in shown["media"]] == ["m7", "f5:m7"]
+    assert shown["media_by_id"] == {"m7": shown["media"][0], "f5:m7": shown["media"][1]}
+    assert field_value(shown, "media_by_id.m7.playing") is False
+    assert field_value(shown, "media_by_id.f5:m7.playing") is True
+    assert field_value(shown, "media_by_id.m9.playing") is MISSING      # gone from the page: the probe trips
+
+
+def test_an_older_extensions_snapshot_has_no_media_ids() -> None:
+    """Extension 0.15.7 and older send no id: the list is as before and media_by_id is absent, so a probe on it sees
+    its field missing (refused at arming; a vanished field trips a round)."""
+    from ferb.act.browser.snapshot import for_model
+    old = [dict(f, media=[{k: v for k, v in m.items() if k != "id"} for m in f["media"]]) for f in FRAMES]
+    d, _, ref = _driver(old)
+    shown = for_model(asyncio.run(d.snapshot(ref)))
+    assert "media_by_id" not in shown and all("id" not in m for m in shown["media"])
 
 
 def _ctx() -> ToolContext:
@@ -178,6 +263,22 @@ def test_browser_media_tool_targets_the_frame_and_local_index_from_the_snapshot(
     assert op == "media" and args["frame_id"] == 5 and args["index"] == 0 and args["snap"] == 1
     assert args["action"] == "unmute" and r.content["state"]["muted"] is False and r.content["state"]["index"] == 1
     assert r.read_sources == (("web", "https://www.instagram.com/reel/x"),)
+
+
+def test_browser_media_takes_a_media_id_from_the_latest_snapshot() -> None:
+    from ferb.act.browser.tools import OWNER_BROWSER, BrowserMedia
+    d, bridge, ref = _driver(FRAMES)
+    asyncio.run(d.snapshot(ref))
+    tool = BrowserMedia(d, OWNER_BROWSER)
+    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="f5:m7"), _ctx()))
+    assert not r.is_error, r.content
+    op, args = bridge.calls[-1]
+    assert op == "media" and args["frame_id"] == 5 and args["index"] == 0 and args["snap"] == 1
+    assert r.content["state"]["index"] == 1 and r.content["state"]["id"] == "f5:m7"
+    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="m9"), _ctx()))
+    assert r.is_error and "m9" in r.content["error"]
+    with pytest.raises(ValueError):
+        tool.Input(tab="t1", action="pause", index=0, media_id="m7")     # one way to name it
 
 
 def test_browser_media_needs_an_index_when_the_page_has_several_and_seek_needs_a_time() -> None:

@@ -61,6 +61,34 @@ def test_the_owners_open_tabs_can_be_taken_over_and_are_never_closed() -> None:
     assert "release_tab" in br.calls
 
 
+def test_the_tabs_tool_says_which_tab_plays_sound_and_keys_each_tab_by_its_ref() -> None:
+    """L31: a loop watches whether the owner's tab plays sound through browser_tabs (`tabs_by_ref.<ref>.audible`),
+    cheaper than a snapshot. A tab_ref holds colons and a profile folder's space, never a dot, so the probe's dot path
+    reaches it. An older extension sends no sound facts: they stay absent (never a guessed false)."""
+    from ferb.act.browser.tools import OWNER_BROWSER, BrowserTabs
+    from ferb.core.types import ToolContext
+    from ferb.orchestrator.probes import MISSING, field_value
+    r, br = router()
+    br.binding = SimpleNamespace(browser="chrome", folder="Profile 1", identity=Identity.OWNER)
+
+    async def call(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        assert op == "list_tabs"
+        return {"tabs": [{"tab_id": 11, "host": "www.instagram.com", "url": "https://www.instagram.com/reels/x/",
+                          "title": "Reel", "active": False, "audible": True, "muted": False},
+                         {"tab_id": 12, "host": "mail.google.com", "url": "https://mail.google.com/mail/",
+                          "title": "Inbox", "active": True}]}
+    br.call = call  # type: ignore[method-assign]
+    tool = BrowserTabs(r, OWNER_BROWSER)
+    ctx = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"browser:read"}), "device", None, "/tmp", (), ())
+    out = asyncio.run(tool.run(tool.Input(), ctx)).content
+    reel, inbox = out["tabs"]
+    assert reel["tab_ref"] == "chrome:Profile 1:11" and (reel["audible"], reel["muted"]) == (True, False)
+    assert "audible" not in inbox and "muted" not in inbox
+    assert out["tabs_by_ref"] == {"chrome:Profile 1:11": reel, "chrome:Profile 1:12": inbox}
+    assert field_value(out, "tabs_by_ref.chrome:Profile 1:11.audible") is True
+    assert field_value(out, "tabs_by_ref.chrome:Profile 1:12.audible") is MISSING
+
+
 def test_handoff_preserves_task_tab_and_cleanup_releases_it_without_closing() -> None:
     r, br = router()
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))

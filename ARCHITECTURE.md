@@ -302,11 +302,12 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.7 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.8 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
-answer for pages it can't read or attach to, see section 16.4). Task
+answer for pages it can't read or attach to, see section 16.4; 0.15.8 adds media ids and tab sound facts as optional
+reply fields, no protocol change). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
@@ -2520,7 +2521,14 @@ protected FERB state (16.9).
 - `browser.media` plays, pauses, mutes, unmutes or seeks a snapshot's media element (protocol 14); snapshots report
   each element's state. `playing` is true only once the element's time has moved while unpaused (content.js `moving`:
   its `timeupdate` events, or a change between two looks; a play, pause, seek, stall or reset needs fresh movement),
-  never from `!paused` alone, which play() sets before any playback; `paused` is reported beside it (I5).
+  never from `!paused` alone, which play() sets before any playback; `paused` is reported beside it (I5). Since
+  0.15.8 (L31) each element also has its own `id` for the page's life (content.js `mediaId`: a WeakMap, `m<n>` on
+  first sight, never given to another element; a child frame's is `f<frame>:m<n>`), and the snapshot keys the same
+  entries by it in `media_by_id`, so a loop's probe watches one element (`media_by_id.m12.playing`) while list
+  positions shift as a feed loads; `browser.media` takes `media_id` as well as `index`, both from the latest snapshot.
+  `browser.tabs` lists each tab's `audible` and `muted` (chrome.tabs `audible`, `mutedInfo.muted`) and keys the tabs by
+  `tab_ref` in `tabs_by_ref` (`tabs_by_ref.<tab_ref>.audible`; a tab_ref holds colons and spaces, never a dot). An
+  older extension sends none of these: they are absent, never guessed, and a probe on them sees its field missing.
 - `with_audio` recordings attach a time-aligned transcript and keep no audio track.
 - `ferb setup` asks for Speech Recognition only (`request-speech`); `doctor.check` reports `hearing`; push-to-talk is
   on-device only too, and so is the notch's own dictation (`OnDeviceSpeech` in `Microphone.swift`): without on-device

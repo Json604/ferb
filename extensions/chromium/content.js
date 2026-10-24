@@ -507,10 +507,18 @@
     return p.moved;
   }
   function restart(el) { const p = progress.get(el); if (p) { p.moved = false; p.at = el.currentTime; } }
+  // Each media element's own id for this page's lifetime (L31): given on first sight, never given to another element.
+  // List positions shift as a feed loads more videos; a loop's probe watches one element by its id.
+  const mediaIds = new WeakMap();
+  let mediaSeen = 0;
+  function mediaId(el) {
+    if (!mediaIds.has(el)) mediaIds.set(el, `m${++mediaSeen}`);
+    return mediaIds.get(el);
+  }
   function mediaState(el, index) {
     const r = el.getBoundingClientRect();
     const finite = v => Number.isFinite(v) ? round(v) : null;    // an unknown or live duration is null
-    return { index, playing: !el.paused && !el.ended && moving(el), paused: !!el.paused, current_time: finite(el.currentTime),
+    return { index, id: mediaId(el), playing: !el.paused && !el.ended && moving(el), paused: !!el.paused, current_time: finite(el.currentTime),
              duration: finite(el.duration), muted: !!el.muted, volume: finite(el.volume),
              in_view: r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight };
   }

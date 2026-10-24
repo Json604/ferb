@@ -84,6 +84,9 @@ def for_model(snap: PageSnapshot, *, full: bool = False) -> dict[str, Any]:
         out["scrollers"] = snap.scrollers
     if snap.media:                                 # L26: confirm playback before listening or recording
         out["media"] = snap.media
+        by_id = {m["id"]: m for m in snap.media if "id" in m}
+        if by_id:                                  # L31: one element by its own id, wherever the list moves it
+            out["media_by_id"] = by_id
     if snap.truncated or omitted or len(text) < len(snap.text):
         out["truncated"] = True
         out["omitted_elements"] = omitted

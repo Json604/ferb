@@ -292,9 +292,10 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    # 0.15.7 (another extension's frame no longer blocks act) changes no protocol: the daemon still accepts 0.15.6,
-    # the Web Store copy until the store carries 0.15.7
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.6", "0.15.7")
+    # 0.15.7 (another extension's frame no longer blocks act) and 0.15.8 (media ids, tab sound: optional reply fields
+    # an older side ignores or misses) change no protocol: the daemon still accepts 0.15.6, the Web Store copy until
+    # the store carries 0.15.8
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.6", "0.15.8")
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 

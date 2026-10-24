@@ -30,7 +30,10 @@ and `window` ({bounds, active, minimized, title, emulated?}); a page the debugge
 with `undebuggable` and `window`, for the daemon's native window capture.
 Protocol 17 (fix wave 4 round 5, extension 0.15.6): a capture of a page scripts can't reach stays armed (no full
 attach and detach per capture), a tab already attached fully isn't attached again, and a scriptable page's input
-setup or readiness failure refuses no capture: the reply's `input_note` says so."""
+setup or readiness failure refuses no capture: the reply's `input_note` says so.
+Extension 0.15.8 (L31) adds optional reply fields without a protocol change: each snapshot media entry's `id` (the
+element's own for the page's life) and each `list_tabs` tab's `audible` and `muted`. An older daemon ignores them; with
+an older extension they are absent, so a loop probe on them sees its field missing (refused at arming, a trip after)."""
 
 import base64
 import hashlib

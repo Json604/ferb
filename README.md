@@ -79,7 +79,7 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.7** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
+FERB's browser hands are its extension, **0.15.8** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
 refuses an older protocol with a reload notice. `ferb setup` (and `--update`) handles it for every Chromium browser it
 finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
@@ -90,8 +90,10 @@ finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Viva
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
 The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
-this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) isn't
-on the listing until it is uploaded; until then a profile gets it only by Load unpacked. A profile that already has
+this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) and
+0.15.8 (each video's own id and each tab's sound, which a loop watches) aren't on the listing until 0.15.8 is uploaded;
+until then a profile gets them only by Load unpacked. With the store copy those facts are absent: a loop's probe on
+one is refused (its field is missing), and the loop runs on its 30-minute backup check until a round picks another. A profile that already has
 the unpacked copy is offered the store copy too; setup's report and `ferb browsers pair` use the copy that is turned
 on (the unpacked one when both are), so keep one turned on.
 In browsers without the store request, setup prints the Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers
@@ -600,7 +602,9 @@ to remain capturable. A frame whose secret fields can't be painted over is skipp
 ### Hearing during tasks
 
 A worker can listen to one app, or the browser showing a task's tab, for as long as it chooses (`audio.listen`), and
-can play, pause, mute or unmute a page's video first (`browser.media`). FERB's voice helper transcribes the sound on
+can play, pause, mute or unmute a page's video first (`browser.media`). Each video keeps its own id while the page is
+open (extension 0.15.8), and the tab list says which tabs play sound, so a loop keeping a video playing watches that
+exact video or tab. FERB's voice helper transcribes the sound on
 this Mac with Apple's on-device speech recognition; there is no cloud fallback, so where on-device recognition isn't
 available the tool says so. Only the redacted transcript reaches the model, labelled as outside content; the sound
 file is deleted as soon as it is transcribed. The sound has to actually play, so FERB may briefly unmute or play a tab

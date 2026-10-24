@@ -1399,10 +1399,12 @@ const commands = {
     const hits=results.flatMap(r=>(r.result?.hits || []).map(text=>({frame_id:r.frameId,text})));
     return {count:hits.length,lines:results.reduce((n,r)=>n+(r.result?.lines || 0),0),hits};
   },
+  // L31: `audible` and `muted` are the browser's own facts about a tab's sound, for a loop's probe without a snapshot.
   async list_tabs() {
     const tabs = await chrome.tabs.query({}), s = await session(), kept = new Set(await keptTabs());
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),
                                       url:t.url || "",title:t.title || "", active: t.active, window_id: t.windowId, kept_open:kept.has(t.id),
+                                      audible: !!t.audible, muted: !!(t.mutedInfo && t.mutedInfo.muted),
                                       ferb: !kept.has(t.id) && s.windowId != null && t.windowId === s.windowId })) };
   },
   async snapshot({ tab_id, snap }) {
