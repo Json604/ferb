@@ -181,7 +181,7 @@ def page_bounds(text: str, offset: int, size: int, secrets: Iterable[str]) -> tu
 
 def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Callable[[str], bool],
                    redact: Callable[[Any], Any], secrets: Callable[[], Iterable[str]],
-                   above: int = 0, earlier_runs: int = 0) -> list[ContextBlock]:
+                   above: int = 0, earlier_runs: int = 0, since: int = 0) -> list[ContextBlock]:
     """The final checker's starting evidence (fix wave 6b): the worker task's recorded tool calls with their results,
     in recorded order, every run of the worker included (a repair round runs as the same task). Each is the record
     task.evidence returns for its span_id (the same filter and stored, already redacted rows: no new capture), shown up
@@ -199,9 +199,10 @@ def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Calla
     before one it would split, as task.evidence's pages do (`page_bounds`, round 2 N2). `earlier_runs`: how many of the
     worker's runs answered the task's earlier messages (`SpanStore.request_began`); a call in one of them is labelled
     as an earlier message's, and its action gets no priority over this run's (owner live case 2026-10-24: a follow-up
-    failed for the earlier run's actions)."""
+    failed for the earlier run's actions). `since`: only what was recorded after this span cursor (a loop round's check
+    judges that round's calls alone, L31; earlier rounds share the task id)."""
     runs, found = 0, []
-    after: int | None = 0
+    after: int | None = since
     while after is not None:
         page = spans.tool_calls(task_id, after=after, root_id=root_id)
         for item in page["records"]:

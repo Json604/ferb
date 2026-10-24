@@ -1023,6 +1023,9 @@ def test_a_vanished_probe_field_is_recorded_as_null_and_what_the_probe_read_coun
         assert "the probe's field playing isn't in test.state's result" in second
         page = origin.from_read_source('web', 'https://www.instagram.com/reel/1')
         assert page in _on_loop(daemon, sv.spans.outside_exposure_origins, tree_id)
+        shown = _on_loop(daemon, lambda: [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
+            "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=?", (f'{tree_id}.loop.keep',))])
+        assert shown == [{'payload': "the probe's field playing isn't in test.state's result"}]     # the raw text
         daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()
@@ -1055,5 +1058,219 @@ def test_each_loop_state_change_is_published_as_loop_status(daemon, monkeypatch)
         states = [s['state'] for s in statuses]
         assert states[:3] == ['acting', 'watching', 'acting'] and states[-1] == 'stopped'
         assert sv.loop_statuses() == []                       # an ended loop is no longer listed
+    finally:
+        c.close()
+
+
+def test_a_stop_during_a_failing_probe_read_records_nothing_and_sends_no_notice(db):
+    """Two rounds that didn't last, then the owner's Stop cuts the next read short: that read is not a third short
+    round (no back-off notice as the loop stops) and isn't recorded as a trip."""
+    stopped_read = 'the probe read was stopped'
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()) for _ in range(3)],
+                [(True, None), (False, None), (True, None), (False, None), (True, None), (None, stopped_read)])
+    original = h._probe
+
+    async def stop_during_the_last_read(p):
+        out = await original(p)
+        if out[1] == stopped_read:
+            h.stop = True
+        return out
+    h.runner.probe = stop_during_the_last_read
+    result = h.run()
+    assert h.notices == [] and result['status'] == 'cancelled' and len(h.reasons) == 3
+    assert h.records[-1][0] == 'baseline' and h.statuses[-1]['state'] == 'stopped'
+
+
+def test_the_owners_stop_during_a_probe_read_ends_the_loop_as_stopped(daemon, monkeypatch):
+    """Stop cancels the probe read in flight, not the loop step running it: the loop ends 'stopped', says so on the
+    bus, and the task's outcome is cancelled (not interrupted)."""
+    from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolResult
+    from ferb.policy.rules import Kind
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    entered = asyncio.Event()
+    reads: list[int] = []
+
+    class Slow:
+        name, description, scopes = 'test.state', 'slow state', set()
+        identities = {Identity.OWNER, Identity.FERB}
+        risk, reversible, observation, probe_safe = RiskLevel.LOW, True, True, True
+
+        class Input(BaseModel):
+            pass
+
+        def describe(self, args): return ActionSpec(Kind.READ)
+
+        async def run(self, args, ctx):
+            reads.append(1)
+            if len(reads) >= 3:                               # a later quiet read takes a while (a round trip)
+                entered.set()
+                await asyncio.sleep(30)
+            return ToolResult({'playing': True})
+    daemon.daemon.registry.capabilities['test.state'] = Slow()
+    sv = daemon.daemon.supervisor
+    statuses: list[dict] = []
+    publish = sv.publish
+
+    def spy(topic, data):
+        if topic == 'loop.status':
+            statuses.append(dict(data))
+        return publish(topic, data)
+    monkeypatch.setattr(sv, 'publish', spy)
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())], {'loop.keep': [_round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+
+        async def stop_mid_read():
+            await entered.wait()
+            sv.stop_tree(tree_id)
+            while tree_id in sv._tree_of:
+                await asyncio.sleep(0.02)
+        daemon.run(stop_mid_read(), timeout=20)
+        assert _on_loop(daemon, sv.loops.load, tree_id, 'keep')['state'] == 'stopped'
+        assert statuses[-1]['state'] == 'stopped'
+        assert [e['status'] for e in _journal(daemon, 'task.outcome') if e['task_id'] == tree_id] == ['cancelled']
+        assert [e for e in _journal(daemon, 'task.interrupted') if e['task_id'] == tree_id] == []
+    finally:
+        c.close()
+
+
+def test_a_rounds_check_judges_only_the_calls_of_that_round(daemon, monkeypatch):
+    """Every round runs under the loop's one task id, but a round's check is given only the calls made in that round;
+    earlier rounds reach it only as the loop's one-line results."""
+    from tests.conftest import FakeCap, done, install, sup, tool
+    _fast(monkeypatch)
+    _state_cap(daemon, [True, False, True])
+    for name in ('probe.first', 'probe.second'):
+        daemon.daemon.registry.capabilities[name] = FakeCap(name, 'read', set())
+
+    def calling(name):
+        def act(token):
+            got = tool(daemon.sock, token, name)
+            assert not got['is_error'], got
+            return _round()
+        return act
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [calling('probe.first'), calling('probe.second')], 'worker': done()})
+    sv = daemon.daemon.supervisor
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        checks = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep.verify']
+        assert 'probe.first (' in checks[0] and 'probe.second (' not in checks[0]
+        assert 'probe.second (' in checks[1] and 'probe.first (' not in checks[1]
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_verified_finish_does_not_end_a_loop_whose_round_left_an_unknown_outcome(daemon, monkeypatch):
+    """P19 wins over a finish: a round that may have done something it couldn't see the end of pauses the loop,
+    and its end condition isn't even checked."""
+    from tests.conftest import FakeCap, done, install, sup, tool
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])
+    lost = FakeCap('probe.type', 'fill_form', set(), boom=True)
+    daemon.daemon.registry.capabilities[lost.name] = lost
+
+    def act(token):
+        assert tool(daemon.sock, token, 'probe.type')['is_error']
+        return _round('finished', summary='Checks look green.')
+    script = install(daemon, [sup('task', 'Watching the checks.', _loop_plan('Watch PR 12 checks', 'the checks pass'))],
+                     {'loop.keep': [act], 'worker': done()})
+    sv = daemon.daemon.supervisor
+    c, plan = _start_loop(daemon, 'loop until the checks pass')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused')
+        assert _roles(script).count('loop.keep.verify') == 1 and 'worker' not in _roles(script)
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_probe_that_cannot_be_checked_is_disarmed_with_a_note(daemon, monkeypatch):
+    import ferb.orchestrator.supervisor as supervisor
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])
+
+    def broken(*args, **kwargs):
+        raise RuntimeError('the tool list is gone')
+    monkeypatch.setattr(supervisor, 'refusal', broken)
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())], {'loop.keep': [_round()], 'worker': done()})
+    sv = daemon.daemon.supervisor
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        row = _on_loop(daemon, sv.loops.load, tree_id, 'keep')
+        assert row['probe_json'] is None and row['note'].startswith("the probe couldn't be checked")
+        assert 'arm' in {f['what'] for f in _journal(daemon, 'loop.failed')}
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_what_a_probe_read_saw_before_a_restart_still_counts_as_read_in_the_next_round(daemon, monkeypatch):
+    """A trip read before FERB stopped (its round was waiting out the back-off gap) is in the records, not only in
+    memory: the round after the restart still counts its page as read (MP2, S4)."""
+    from ferb.core import origin
+    from tests.conftest import done, install, task
+    _fast(monkeypatch)
+    _state_cap(daemon, [False])                              # the stored probe trips at once after the restart
+    sv = daemon.daemon.supervisor
+    spec = task('Keep the tab playing')
+    plan = Plan(steps=[Step(id='keep', kind='loop', goal='Keep the tab playing')])
+    spec['plan'] = plan.model_dump()
+    request = {'spec': spec, 'request_id': 'req-resume', 'words': 'keep this tab playing',
+               'payload': 'keep this tab playing', 'origins': ['owner'], 'message_origins': []}
+    page = origin.from_read_source('web', 'https://www.instagram.com/reel/1')
+    armed = {'tool': 'test.state', 'args_json': '{}', 'field': 'playing', 'op': 'equals', 'value_json': 'false'}
+
+    async def seed():
+        sv.plans.create('tree-r', plan, request, 's1')
+        sv.plans.set_status('tree-r', 'suspended')
+        sv.loops.load('tree-r', 'keep')
+        sv.loops.save('tree-r', 'keep', state='backing_off', rounds=1, probe_json=json.dumps(armed),
+                      baseline_json='true')
+        first = sv.spans.start('loop.round', task_id='tree-r.loop.keep', input={'step': 'keep', 'number': 1})
+        sv.spans.finish(first, output={})
+        trip = sv.spans.start('loop.probe_read', task_id='tree-r.loop.keep',
+                              input={'step': 'keep', 'read': 'trip', 'probe': armed, 'reads_since_armed': 3})
+        sv.spans.finish(trip, output={'value': False}, origin=page)
+    daemon.run(seed())
+    script = install(daemon, [], {'loop.keep': [_round(probe=False)], 'worker': done()})
+
+    async def resume_then_stop():
+        job = asyncio.create_task(sv.resume_plans())
+        while _roles(script).count('loop.keep') < 1:
+            await asyncio.sleep(0.02)
+        sv.stop_tree('tree-r')
+        await asyncio.wait_for(job, 20)
+    daemon.run(resume_then_stop(), timeout=30)
+    assert page in _on_loop(daemon, sv.spans.outside_exposure_origins, 'tree-r')
+
+
+def test_a_loop_round_is_given_the_results_of_the_steps_it_depends_on(daemon, monkeypatch):
+    from tests.conftest import done, install, sup, task
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])
+    spec = task('Keep the tab playing')
+    spec['plan'] = Plan(steps=[Step(id='find', kind='do', goal='Find the Instagram tab'),
+                               Step(id='keep', kind='loop', goal='Keep the tab playing', depends_on=['find'])]
+                        ).model_dump()
+    script = install(daemon, [sup('task', 'Keeping it playing.', spec)],
+                     {'step.find': done('Found it: Brave tab 7.'), 'loop.keep': [_round()], 'worker': done()})
+    sv = daemon.daemon.supervisor
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: _roles(script).count('loop.keep') >= 1)
+        first = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][0]
+        assert 'Found it: Brave tab 7.' in first
+        daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()

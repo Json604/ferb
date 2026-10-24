@@ -323,6 +323,8 @@ class LoopRunner:
                 return {'why': 'backup check'}
             if probe is not None and now >= next_read:
                 value, error, origins = await self.probe(probe)
+                if self.stopped():          # the owner's stop came during the read (and may have cut it short):
+                    return None             # nothing it saw is a trip, a short round or a notice
                 self._save(reads=self.row['reads'] + 1)
                 next_read = self.now() + PROBE_SECONDS
                 if error is None and value is MISSING:
