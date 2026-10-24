@@ -883,6 +883,8 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
+            # resuming a loop posts nothing to chat: no plan line (L31)
+            quiet = bool(spec.plan) and any(s.kind == 'loop' for s in spec.plan.steps)
             try:                # the tree's per-request context goes when it ends (final review M4)
                 # nobody started this from chat: only the scope already granted to this tree, and still in force,
                 # carries
@@ -890,6 +892,8 @@ class Supervisor(WorkerRuns):
                 async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
                         conversation_id=saved['conversation'], origins=set(data.get('origins', [])),
                         resume_id=tree_id, unattended_scopes=self.standing.scopes(tree_id)):
+                    if quiet and event.get('type') == 'plan':
+                        continue
                     # no chat stream stamps these: each names its request and when it was sent, as task.result does
                     event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
                     self.publish('task.resumed_event', event)
@@ -2524,7 +2528,8 @@ class Supervisor(WorkerRuns):
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},
                                 origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
-            return result | {'probe': member.probe}
+            # the corrections this round's worker took: delivered while it ran, or read as an attempt began
+            return result | {'probe': member.probe, 'steers_seen': member.result_revision}
 
         async def round_(cause: dict[str, Any]) -> dict[str, Any]:
             try:

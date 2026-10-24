@@ -1274,3 +1274,242 @@ def test_a_loop_round_is_given_the_results_of_the_steps_it_depends_on(daemon, mo
         daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def test_a_steer_wakes_a_watching_loop_at_once(daemon, monkeypatch):
+    """The owner's correction to a loop that is watching starts its next round at once, told why (spec §4): the loop
+    isn't left to notice it at its next probe read or poll."""
+    from ferb.orchestrator import loops
+    from tests.conftest import chat, done, install, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])                               # the probe never trips
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [_round(), _round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        sv = daemon.daemon.supervisor
+        _wait(daemon, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        monkeypatch.setattr(loops, 'PROBE_SECONDS', 600)     # from here on, only a wake ends the wait soon
+        monkeypatch.setattr(loops, 'POLL_S', 600)
+        update = json.loads(sup('task', 'Noted.', _loop_plan()))
+        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        script.sup.append(json.dumps(update))
+        chat(daemon, 'also keep the volume up', timeout=10)
+        _wait(daemon, lambda: _roles(script).count('loop.keep') == 2, timeout=5)
+        second = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][1]
+        assert 'your message' in second
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_loop_resumes_after_restart_without_a_chat_line(daemon, monkeypatch):
+    """A loop that was mid-round when FERB stopped re-runs that round on start-up, with no plan line in chat."""
+    from tests.conftest import done, install, task
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])
+    sv = daemon.daemon.supervisor
+    spec = task('Keep the tab playing')
+    plan = Plan(steps=[Step(id='keep', kind='loop', goal='Keep the tab playing')])
+    spec['plan'] = plan.model_dump()
+    request = {'spec': spec, 'request_id': 'req-resume', 'words': 'keep this tab playing',
+               'payload': 'keep this tab playing', 'origins': ['owner'], 'message_origins': []}
+
+    async def seed():
+        sv.plans.create('tree-r', plan, request, 's1')
+        sv.plans.set_status('tree-r', 'suspended')
+        sv.loops.load('tree-r', 'keep')
+        sv.loops.save('tree-r', 'keep', state='acting', rounds=1)
+    daemon.run(seed())
+    script = install(daemon, [], {'loop.keep': [_round()], 'worker': done()})
+    published: list[tuple[str, dict]] = []
+    original = sv.publish
+
+    def spy(topic, data):
+        published.append((topic, data))
+        return original(topic, data)
+    monkeypatch.setattr(sv, 'publish', spy)
+
+    async def resume_then_stop():
+        job = asyncio.create_task(sv.resume_plans())
+        while _roles(script).count('loop.keep') < 1:
+            await asyncio.sleep(0.02)
+        sv.stop_tree('tree-r')
+        await asyncio.wait_for(job, 20)
+    daemon.run(resume_then_stop(), timeout=30)
+    first = next(ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep')
+    assert 'FERB restarted during a round' in first
+    assert [t for t, d in published if t == 'task.resumed_event']               # the resume itself still runs
+    assert not [d for t, d in published if t == 'task.resumed_event' and d.get('type') == 'plan']
+
+
+def test_a_correction_the_round_took_starts_no_round_of_its_own(db):
+    """A correction that reached the running round's worker was read by that round (Task 6 carry): it doesn't cost a
+    second round."""
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe())], [(True, None)] * 5)
+    original = h._round
+
+    async def steered_mid_round(reason):
+        h.steer_count += 1                                   # delivered to this round's worker while it ran
+        return {**await original(reason), 'steers_seen': h.steer_count}
+    h.runner.round = steered_mid_round
+    h.run()
+    assert [r['why'] for r in h.reasons] == ['first round']
+    assert h.store.load('tree', 'keep')['steer_seen'] == 1
+
+
+def test_a_correction_the_round_could_not_take_starts_the_next_round(db):
+    """A correction that came after the round's worker had finished (or a round that crashed and reports nothing) was
+    never read by that round: the next round starts at once for it."""
+    for seen in ('before', None):
+        h = Harness(db, _clock(), Step(id=f'keep-{seen}', kind='loop', goal='Keep the tab playing'),
+                    [round_result(p=probe()), round_result(p=probe())], [(True, None)] * 5)
+        original = h._round
+
+        async def steered_after_its_worker(reason, h=h, original=original, seen=seen):
+            before = h.steer_count
+            if not h.reasons:
+                h.steer_count += 1
+            result = await original(reason)
+            return {**result, 'steers_seen': before} if seen else result
+        h.runner.round = steered_after_its_worker
+        h.run()
+        assert [r['why'] for r in h.reasons][:2] == ['first round', 'your message'], seen
+
+
+def test_a_correction_delivered_to_the_running_round_costs_no_extra_round(daemon, monkeypatch):
+    """The owner corrects a loop while a round's worker is running: the correction is delivered to that worker, which
+    acts on it, so the loop goes back to watching instead of running another round for it (Task 6 carry)."""
+    import threading
+
+    from tests.conftest import FakeRuntime, chat, done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True])                         # the probe never trips
+    running, received = threading.Event(), []
+    original_events = FakeRuntime.events
+
+    async def events(rt, run):
+        if run.state['key'] == 'loop.keep' and not received:  # round 1's worker runs until the correction reaches it
+            running.set()
+            while not received and not run.state['cancel']:
+                await asyncio.sleep(0.01)
+        async for ev in original_events(rt, run):
+            yield ev
+
+    async def steer(rt, run, message):
+        received.append(run.state['key'])
+    monkeypatch.setattr(FakeRuntime, 'events', events)
+    monkeypatch.setattr(FakeRuntime, 'continue_', steer)
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [_round(), _round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        sv = daemon.daemon.supervisor
+        assert running.wait(10)
+        update = json.loads(sup('task', 'Noted.', _loop_plan()))
+        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        script.sup.append(json.dumps(update))
+        reply = chat(daemon, 'also keep the volume up', timeout=10)
+        assert received == ['loop.keep']
+        assert "next step" not in json.dumps(reply)          # delivered: nothing waits for a next step
+        _wait(daemon, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] == 1)    # predicates run on its loop
+        reads = cap.calls
+        _wait(daemon, lambda: cap.calls >= reads + 5)        # several quiet probe reads after the round
+        assert _roles(script).count('loop.keep') == 1
+        assert _on_loop(daemon, sv.loops.load, tree_id, 'keep')['steer_seen'] == 1
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_correction_during_the_end_check_starts_the_next_round(daemon, monkeypatch):
+    """A correction that comes while the round's end condition is being checked (its worker already finished, so it
+    couldn't take it) starts the next round at once, told why."""
+    import threading
+
+    from tests.conftest import FakeRuntime, chat, done, install, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True])                               # the probe never trips
+    sv = daemon.daemon.supervisor
+    checking, verify_runs = threading.Event(), []
+    original_events = FakeRuntime.events
+
+    async def events(rt, run):
+        if run.state['key'] == 'loop.keep.verify':
+            verify_runs.append(run.id)
+            if len(verify_runs) == 2:                        # round 1's separate check of the end condition
+                checking.set()
+                tree = sv._tree_of[run.task_id.split('.', 1)[0]]
+                while not tree.steering.messages and not run.state['cancel']:
+                    await asyncio.sleep(0.01)
+        async for ev in original_events(rt, run):
+            yield ev
+    monkeypatch.setattr(FakeRuntime, 'events', events)
+
+    def met(ok):
+        return json.dumps({'results': [{'index': 0, 'met': ok, 'evidence': 'scripted'}]})
+    script = install(daemon, [sup('task', 'Watching the checks.', _loop_plan('Watch PR 12 checks', 'the checks pass'))],
+                     {'loop.keep': [_round('finished', summary='Checks look green.'), _round()],
+                      'loop.keep.verify': [met(True), met(False), met(True)], 'worker': done()})
+    c, plan = _start_loop(daemon, 'loop until the checks pass')
+    try:
+        tree_id = plan['task_id']
+        assert checking.wait(10)
+        update = json.loads(sup('task', 'Noted.', _loop_plan('Watch PR 12 checks', 'the checks pass')))
+        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        script.sup.append(json.dumps(update))
+        chat(daemon, 'also check the lint job', timeout=10)
+        _wait(daemon, lambda: _roles(script).count('loop.keep') == 2)
+        second = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][1]
+        assert 'your message' in second
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_correction_the_running_round_could_not_receive_is_read_by_its_next_attempt(daemon, monkeypatch):
+    """A correction that can't be delivered to the round's running worker (its runtime can't take one mid-run) is read
+    by a fresh attempt of the same round, as for any task's worker; the round took it, so no extra round runs."""
+    import threading
+
+    from tests.conftest import FakeRuntime, chat, done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True])                         # the probe never trips
+    sv = daemon.daemon.supervisor
+    running, attempts = threading.Event(), []
+    original_events = FakeRuntime.events
+
+    async def events(rt, run):
+        if run.state['key'] == 'loop.keep':
+            attempts.append(run.id)
+            if len(attempts) == 1:                           # round 1's first attempt runs until the correction comes
+                running.set()
+                tree = sv._tree_of[run.task_id.split('.', 1)[0]]
+                while not tree.steering.messages and not run.state['cancel']:
+                    await asyncio.sleep(0.01)
+        async for ev in original_events(rt, run):
+            yield ev
+    monkeypatch.setattr(FakeRuntime, 'events', events)       # FakeRuntime.continue_ refuses: never delivered
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [_round(), _round(), _round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        assert running.wait(10)
+        update = json.loads(sup('task', 'Noted.', _loop_plan()))
+        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        script.sup.append(json.dumps(update))
+        reply = chat(daemon, 'also keep the volume up', timeout=10)
+        assert 'next step' in json.dumps(reply)              # not delivered to the running worker
+        _wait(daemon, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] == 1)
+        reads = cap.calls
+        _wait(daemon, lambda: cap.calls >= reads + 5)        # several quiet probe reads after the round
+        contexts = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep']
+        assert len(contexts) == 2 and 'also keep the volume up' in contexts[1]    # two attempts, one round
+        assert 'your message' not in contexts[1]
+        assert _on_loop(daemon, sv.loops.load, tree_id, 'keep')['steer_seen'] == 1
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()

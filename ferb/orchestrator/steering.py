@@ -226,6 +226,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         message = supervisor.gateway.redact(message)
         state.messages.append(message)
         revision = len(state.messages)
+        supervisor.wake_loops(tree.id)              # a sleeping loop reads the correction now (L31)
         root = supervisor.tasks.get(tree.id)
         if root is not None:
             root.task.goal = tree.spec.goal

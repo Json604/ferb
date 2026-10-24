@@ -154,10 +154,11 @@ Read = Callable[[Probe], Awaitable[tuple[Any, str | None, set[str]]]]
 class LoopRunner:
     """One loop step: a round, then quiet probe reads on the wall clock until a waker starts the next round. Wakers:
     the probe trips (a match, a tool error or a missing field), the step's plan event, the owner's correction, or
-    BACKUP_SECONDS since the last round. Churn backs off (Pacer) and tells the owner once per episode; a correction
-    skips the gap. A round that is blocked or needs the owner pauses the loop until the owner replies. Only a verified
-    finish of a stated end, or the owner's stop, ends it. Every wait re-checks `stopped()`, and the row is saved at each
-    state change, so a restart resumes where it was."""
+    BACKUP_SECONDS since the last round. A correction the round's own worker took (`steers_seen` in its result: the
+    count of corrections it read or was delivered) wakes no further round. Churn backs off (Pacer) and tells the owner
+    once per episode; a correction skips the gap. A round that is blocked or needs the owner pauses the loop until the
+    owner replies. Only a verified finish of a stated end, or the owner's stop, ends it. Every wait re-checks
+    `stopped()`, and the row is saved at each state change, so a restart resumes where it was."""
 
     def __init__(self, *, store: LoopStore, task_id: str, step: Any, round: Round,
                  arm: Callable[[Probe], str | None], probe: Read,
@@ -233,8 +234,10 @@ class LoopRunner:
             result = await self.round(reason)
             self.pacer.ended(self.now())
             recent = json.loads(self.row['recent_json']) + [f"{result['status']}: {result['summary']}"]
+            # a correction the round's worker took while it ran was acted on; only one it never read wakes a round
+            seen = max(self.row['steer_seen'], min(int(result.get('steers_seen', 0)), self.steers()))
             self._save(rounds=self.row['rounds'] + 1, recent_json=json.dumps(recent[-RECENT_ROUNDS:]), note='',
-                       pacing_json=self.pacer.to_json())
+                       pacing_json=self.pacer.to_json(), steer_seen=seen)
             reason = None
             if self.stopped():
                 break
