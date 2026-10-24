@@ -45,7 +45,10 @@ class Pacer:
         return False
 
     def tripped(self, at: float) -> bool:
-        """The first probe trip after a round, at `at`. True when a back-off episode starts now (its one notice)."""
+        """The first probe trip after a round, at `at`. True when a back-off episode starts now (its one notice).
+        Idempotent per round: a round already counted (a restart during the back-off wait) changes nothing."""
+        if self.last_end is not None and self.last_end in self.short:
+            return False
         self.lasted(at)
         if self.last_end is None or at - self.last_end > NO_LASTING_FIX_SECONDS:
             return False
@@ -240,12 +243,14 @@ class LoopRunner:
                 self._set('finished')
                 return {'status': 'done', 'summary': result['summary'], 'evidence': result.get('evidence', []),
                         'rounds': self.row['rounds']}
-            if result['status'] != 'done' or action == 'blocked':
+            if action == 'blocked' or result['status'] in ('needs_user', 'blocked'):
                 why = result.get('question') or result['summary']
                 await self.notify(f"I've paused keeping this going: {self._goal()}. {why} "
                                   'Reply to continue, or say stop.')
                 reason = await self._paused()
                 continue
+            if result['status'] != 'done' and result.get('probe') is None:
+                continue        # a failed round fixed nothing: the armed probe and its stored baseline carry on
             probe, baseline = await self._arm(result.get('probe'))
         self._set('stopped')
         return {'status': 'cancelled', 'summary': 'Stopped by you.', 'rounds': self.row['rounds']}
@@ -324,7 +329,9 @@ class LoopRunner:
                     error = f"the probe's field {probe.field} isn't in {probe.tool}'s result"
                 if error or tripped(probe, value, baseline):
                     self.record('error' if error else 'trip', probe, value, error, origins, self.row['reads'])
-                    if self.pacer.tripped(self.now()):                # called once per round: the first trip after it
+                    started = self.pacer.tripped(self.now())          # the first trip after the round
+                    self._save(pacing_json=self.pacer.to_json())       # saved before the notice: never sent twice
+                    if started:
                         await self.notify(
                             f"I keep having to redo this: {self._goal()}. I fixed it {len(self.pacer.short)} times "
                             f"in the last {CHURN_WINDOW_SECONDS // 60} minutes and it didn't hold, so I'll now wait "

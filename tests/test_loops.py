@@ -456,3 +456,83 @@ def test_a_round_reason_is_small_and_wraps_what_came_from_outside():
 def test_the_plan_line_says_how_the_loop_ends():
     assert 'until you say stop' in loop_line(KEEP)
     assert 'until the checks pass' in loop_line(Step(id='ci', kind='loop', goal='Watch CI', end_when='the checks pass'))
+
+
+def test_a_failed_round_keeps_the_loop_going_without_a_notice(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe(), status='failed'), round_result(p=probe())],
+                [(True, None), (False, None)])
+    h.run()
+    assert h.notices == [] and 'paused' not in [s['state'] for s in h.statuses]
+    assert [r['why'] for r in h.reasons][:2] == ['first round', 'probe']
+
+
+def test_a_round_that_needs_the_owner_pauses_even_without_blocked(db):
+    h = Harness(db, _clock(), KEEP, [round_result('continue', probe(), status='needs_user')], [])
+    original = h._sleep
+    async def stop_while_paused(seconds):
+        if h.statuses and h.statuses[-1]['state'] == 'paused':
+            h.stop = True
+        await original(seconds)
+    h.runner.sleep = stop_while_paused
+    h.run()
+    assert len(h.notices) == 1 and 'paused' in h.notices[0]
+
+
+def test_a_failed_round_with_no_probe_keeps_the_previous_probe_and_baseline(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe(op='changed')), round_result(p=None, status='failed'),
+                                     round_result(p=None)], [('a', None), ('b', None), ('b', None)])
+    h.run()
+    # no fresh baseline after the failed round: 'b' still differs from the stored 'a', so it trips again at once
+    assert h.records == [('baseline', 'a', None), ('trip', 'b', None), ('trip', 'b', None)]
+    assert [r['why'] for r in h.reasons][:3] == ['first round', 'probe', 'probe']
+
+
+def test_failed_rounds_that_keep_re_tripping_reach_back_off_once(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe())] + [round_result(p=None, status='failed')] * 4,
+                [(True, None)] + [(False, None)] * 5)
+    h.run()
+    states = [s['state'] for s in h.statuses]
+    assert len(h.notices) == 1 and 'longer between fixes' in h.notices[0]
+    assert 'backing_off' in states and 'paused' not in states
+
+
+def test_tripping_twice_for_one_round_changes_nothing_the_second_time():
+    p = Pacer()
+    t = 0.0
+    for _ in range(CHURN_ROUNDS):
+        p.ended(t)
+        t += 10
+        started = p.tripped(t)
+    assert started
+    before = p.to_json()
+    assert not p.tripped(t + 5)
+    assert p.to_json() == before
+
+
+def test_a_restart_during_the_back_off_wait_does_not_count_the_round_again(db):
+    last = 999_970.0                                                # the harness clock starts 30 s later
+    _seed(db, state='backing_off', rounds=3, probe_json=probe().model_dump_json(), baseline_json='true',
+          pacing_json=Pacer(gap=240.0, short=[last - 300, last - 150, last], episode=True, last_end=last).to_json())
+    h = Harness(db, _clock(), KEEP, [], [(False, None)])
+    seen = {}
+    original = h._round
+    async def look_at_the_pace(reason):
+        seen['gap'], seen['short'] = h.runner.pacer.gap, list(h.runner.pacer.short)
+        return await original(reason)
+    h.runner.round = look_at_the_pace
+    h.run()
+    assert seen == {'gap': 240.0, 'short': [last - 300, last - 150, last]}
+    assert h.round_times == [last + 240] and h.notices == []
+
+
+def test_the_back_off_notice_is_not_repeated_when_its_send_is_cut_short(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()) for _ in range(3)], [(True, None), (False, None)] * 3)
+    async def cut_short(text):
+        raise RuntimeError('FERB stopped while telling you')
+    h.runner.notify = cut_short
+    with pytest.raises(RuntimeError):
+        h.run()
+    again = Harness(db, _clock(), KEEP, [], [(False, None)])
+    again.t = h.t + 10
+    again.run()
+    assert again.notices == [] and again.reasons[0]['why'] == 'probe'
