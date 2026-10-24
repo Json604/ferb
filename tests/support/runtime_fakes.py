@@ -106,12 +106,16 @@ class Pipe:
 
 
 class Process:
-    """A Codex app-server stand-in on the pinned stdio protocol: answers initialize, account/read, thread/start and
-    turn/start (streaming a final answer's deltas); complete() ends the turn and kill() ends the process. `errors`:
-    a JSON-RPC error object to answer a method with instead (Codex's own error, e.g. its input cap on turn/start)."""
+    """A Codex app-server stand-in on the pinned stdio protocol: answers initialize, account/read, thread/start,
+    thread/resume and turn/start (streaming a final answer's deltas); complete() ends the turn and kill() ends the
+    process. `errors`: a JSON-RPC error object to answer a method with instead (Codex's own error, e.g. its input cap on
+    turn/start)."""
 
-    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True, errors=None):
+    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True, errors=None,
+                 resume_changes=None):
         self.stdout, self.stderr = Pipe(), Pipe()
+        self.thread = 'th'
+        self.resume_changes = resume_changes or {}         # thread/resume: fields of its answer to change
         self.stdin = self
         self.returncode = None
         self.requests = []
@@ -132,9 +136,17 @@ class Process:
         elif method == 'account/read':
             self.stdout.put({'id': ident, 'result': {'account': {'type': self.account}}})
         elif method == 'thread/start':
+            self.thread = 'th'
             self.stdout.put({'id': ident, 'result': {'thread': {'id': 'th', 'ephemeral': True},
-                'model': 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
+                'model': msg['params'].get('model') or 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
                 'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}})
+        elif method == 'thread/resume':                    # Codex 0.157.1 resuming the rollout at params['path']
+            result = {'thread': {'id': msg['params']['threadId'], 'ephemeral': False},
+                      'model': msg['params'].get('model'), 'modelProvider': 'openai', 'approvalPolicy': 'never',
+                      'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}
+            result.update(self.resume_changes)
+            self.thread = result['thread']['id']
+            self.stdout.put({'id': ident, 'result': result})
         elif method == 'turn/start':
             if self.catalog:
                 self.stderr.queue.put_nowait(('TRACE {"tools":' + json.dumps(self.tools, separators=(',', ':')) + '}\n').encode())
@@ -148,11 +160,11 @@ class Process:
                                                'text': '{"text":"Hello there"}'}})
         self.notify('thread/tokenUsage/updated', {'tokenUsage': {'last': {'inputTokens': 8,
                     'cachedInputTokens': 2, 'outputTokens': 4, 'reasoningOutputTokens': 1}}})
-        self.stdout.put({'method': 'turn/completed', 'params': {'threadId': 'th', 'turn': {
+        self.stdout.put({'method': 'turn/completed', 'params': {'threadId': self.thread, 'turn': {
             'id': 'tu', 'status': 'failed' if self.fail else 'completed', 'error': {'message': 'interrupted'} if self.fail else None}}})
 
     def notify(self, method, params):
-        self.stdout.put({'method': method, 'params': {'threadId': 'th', 'turnId': 'tu', **params}})
+        self.stdout.put({'method': method, 'params': {'threadId': self.thread, 'turnId': 'tu', **params}})
 
     async def drain(self):
         pass
@@ -167,3 +179,30 @@ class Process:
     async def wait(self):
         await self.finished.wait()
         return self.returncode
+
+
+class AnsweringProcess(Process):
+    """The app-server stand-in answering its one turn at once with `final` (a typed answer): for daemon-level tests whose
+    planner runs through the real CodexRuntime and codex_stream."""
+
+    def __init__(self, final: str, **kw):
+        super().__init__(**kw)
+        self.final = final
+
+    def write(self, data):
+        msg = json.loads(data)
+        if msg.get('method') != 'turn/start' or msg['method'] in self.errors:
+            super().write(data)
+            return
+        self.requests.append(msg)
+        if self.catalog:
+            self.stderr.queue.put_nowait(('TRACE {"tools":' + json.dumps(self.tools, separators=(',', ':')) + '}\n').encode())
+        self.stdout.put({'id': msg['id'], 'result': {'turn': {'id': 'tu', 'status': 'inProgress'}}})
+        item = {'type': 'agentMessage', 'id': 'a', 'phase': 'final_answer'}
+        self.notify('item/started', {'item': {**item, 'text': ''}})
+        self.notify('item/agentMessage/delta', {'itemId': 'a', 'delta': self.final})
+        self.notify('item/completed', {'item': {**item, 'text': self.final}})
+        self.notify('thread/tokenUsage/updated', {'tokenUsage': {'last': {'inputTokens': 8, 'cachedInputTokens': 2,
+                                                                          'outputTokens': 4, 'reasoningOutputTokens': 1}}})
+        self.stdout.put({'method': 'turn/completed', 'params': {'threadId': self.thread, 'turn': {
+            'id': 'tu', 'status': 'completed', 'error': None}}})

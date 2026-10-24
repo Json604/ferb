@@ -4061,7 +4061,8 @@ class Daemon:
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
                                 timeout_s=None if mode == 'worker' else 900, on_abandoned=self.server.abandon,
-                                redact=self.redact)
+                                redact=self.redact, cache_role=self._codex_cache_role(role, mode, schema),
+                                on_cache_fallback=self._codex_cache_fallback)
         if name in ("anthropic", "openai", "google"):
             from ferb.runtimes.api import ApiRuntime, GatewayBridge
             from ferb.runtimes.catalog import CATALOG
@@ -4073,6 +4074,19 @@ class Daemon:
             self._proxy = ToolListProxy()
         return ClaudeRuntime(mode, self._proxy, str(self.home), shim_cmd=shim, tool_names=tool_names,  # type: ignore[arg-type]
                              output_schema=schema, model=model)
+
+    def _codex_cache_role(self, role: str, mode: str, schema: dict[str, Any]) -> str | None:
+        """P20 (owner, 2026-10-25): "planner" for the planner's chat turn (the orchestrator's SUPERVISOR_SCHEMA call) when
+        `[runtimes] codex_planner_cache = true`, so its stable context goes in Codex's developer role under a fixed cache
+        key; None otherwise, today's path. Off by default until the owner passes the live injection eval
+        (tests/security/test_planner_injection_real.py); only the boolean true turns it on."""
+        from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
+        planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
+        return "planner" if planner and self.config.get("runtimes", "codex_planner_cache", False) is True else None
+
+    def _codex_cache_fallback(self, why: str) -> None:
+        """One journal line when a cached planner turn took today's path instead, with why (P20)."""
+        self._journal().append("runtime.cache_fallback", {"runtime": "codex", "role": "planner", "why": why})
 
     async def _api_key(self, provider: str) -> str | None:
         """From the Keychain at call time; added to the redactor so an echo never reaches a trace or the journal."""
