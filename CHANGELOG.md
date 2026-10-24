@@ -801,6 +801,15 @@ After the owner's update (2026-10-24):
   username is …" during the visa task; the task used it but nothing was saved, so a later task typed your email as
   the username. The planner now remembers a login name or account detail for a site in the same turn as the task
   change (a fact with a key naming the site, e.g. "usvisascheduling-username").
+- Stopping or correcting a task no longer drops the rest of what you said (L11, MP2). Live 2026-10-24: at 05:44 ("take
+  my creds once, don't ask every time") and 12:22 ("book anywhere, don't wait for Chennai") the planner wrote a memory
+  entry alongside the correction, and FERB dropped both, because a live correction and a stop answered before saving
+  memory, forgets, reminders or schedule changes; the visa schedule kept its old scope. Every kind of turn (a reply, a
+  new task, a stop, a live correction, a continue or a retry) now applies them once, with the same checks, and the
+  reply to a stop or correction ends with FERB's lines about them ("Remembered: …", "Paused: …").
+- Pausing a task that has a schedule pauses the schedule too (L3, P27). Live 2026-10-24 12:34: "pause the visa task
+  for now, I'll say when to continue" stopped the task but left its daily 10:00 schedule active. The planner is told
+  to pause or resume a job's schedule in the same turn as the task, and to cancel it when you end the job for good.
 
 Licensed under Apache-2.0.
 

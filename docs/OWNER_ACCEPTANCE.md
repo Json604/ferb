@@ -1540,3 +1540,7 @@ version `ferb doctor` shows.
 - `mac.act` set_value into a Chrome web text field: the result is ok once the field shows the text, with no second
   typing.
 - Say "the username is …" while FERB works on a site: `ferb memory` (or the dashboard) shows a fact keyed for that site.
+- Correct a running task with something to remember ("book anywhere, don't wait for Chennai"): the reply ends with
+  "Remembered: …" and `ferb memory` shows it once.
+- "Pause the visa task for now" while its daily schedule exists: the reply says the task stopped and the schedule was
+  paused; `ferb schedules` shows it paused.
