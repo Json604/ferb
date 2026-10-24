@@ -136,6 +136,25 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(model.normalizeApproval(["approval_id": "unknown", "task_id": "rootish.worker"])?.taskID, "rootish.worker")
     }
 
+    func testCodeQuestionShowsItsSummaryFirstAndTheExactQuestionUnderDetails() {
+        let reason = "Destination: https://atlasauth.b2clogin.com. Type the password or secret for it here (hidden; Enter cancels)."
+        let summary = "atlasauth.b2clogin.com needs your password or another private answer. FERB fills it only there and doesn't save it."
+        let secret = DaemonApproval(["approval_id": "s", "kind": "owner_secret", "capability": "secret.fill",
+                                     "reason": reason, "summary": summary, "display_text": "Model words"])!
+        XCTAssertEqual(secret.visibleReason, summary)
+        XCTAssertEqual(secret.details, reason)
+        let confirm: [String: Any] = ["approval_id": "c", "kind": "owner_question", "capability": "ferb.confirm",
+                                      "reason": "FERB: this sends to bob@x.com, whom you didn't name in this request. Go ahead?",
+                                      "options": ["Yes", "No"], "display_text": "Model short"]
+        XCTAssertEqual(DaemonApproval(confirm)?.visibleReason, confirm["reason"] as? String)   // D33: model text never
+        XCTAssertNil(DaemonApproval(confirm)?.details)
+        var withSummary = confirm
+        withSummary["summary"] = "FERB wants to send to bob@x.com, whom you didn't name."
+        XCTAssertEqual(DaemonApproval(withSummary)?.visibleReason, "FERB wants to send to bob@x.com, whom you didn't name.")
+        XCTAssertEqual(DaemonApproval(withSummary)?.details, confirm["reason"] as? String)
+        XCTAssertNil(DaemonApproval(["approval_id": "plain", "reason": "Which file?"])?.details)
+    }
+
     func testSecretAndConsequentialApprovalsNeverHideTheirExactReason() {
         for kind in ["owner_login_code", "owner_admin_password", "owner_secret", "send", "approval", "owner_question"] {
             let approval = DaemonApproval(["approval_id": kind, "kind": kind, "reason": "Exact scope", "display_text": "Short"])

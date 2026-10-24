@@ -565,7 +565,9 @@ class MacSecret(_Base):
         ask = getattr(self.driver, "ask_secret", None)
         if ask is None:
             raise Refused("hidden secret input is unavailable")
-        value = await ask(ctx, "app:" + a.bundle_id, handle=args.secret, remember=args.remember)
+        name = getattr(a, "name", None)
+        value = await ask(ctx, "app:" + a.bundle_id, handle=args.secret, remember=args.remember,
+                          shown=name if isinstance(name, str) and name else None)
         if not value:
             return ToolResult({"ok": False, "detail": "secret input declined"}, is_error=True)
         try:

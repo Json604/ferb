@@ -19,9 +19,9 @@ struct ApprovalView: View {
                     .help("Task " + (approval.taskID ?? ""))
             }
             MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12))
-            if approval.visibleReason != approval.reason {
+            if let details = approval.details {
                 DisclosureGroup("Details") {
-                    MarkdownContent(approval.reason).equatable().font(.system(size: 11))
+                    MarkdownContent(details).equatable().font(.system(size: 11))
                 }.font(.system(size: 11))
             }
             if !approval.evidence.isEmpty {

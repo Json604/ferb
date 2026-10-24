@@ -544,6 +544,67 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
+_LIFTED = {   # what an escape lifts, in the owner's terms (D31): the protection list's kinds (protection.rules)
+    "read": "read {path} once, with one command (normally off-limits: a private store FERB's shell never reads)",
+    "write": "change {path} once, with one command (normally off-limits: FERB's shell never writes there)",
+    "admin": ("run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's shell "
+              "never uses admin rights)"),
+    "service": ("let one command use macOS's certificate service, trustd (normally off: it reaches certificate "
+                "addresses outside FERB's proxy)"),
+}
+
+
+def _short(n: Need, alongside: frozenset[str]) -> str | None:
+    """One need as what FERB wants to do, a verb phrase from the need's facts only (never the step or the task's
+    reason); None when another need of the same question already says it."""
+    v = n.values
+    if n.rule == "floor:pay":
+        return (f"pay {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
+                + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
+    if n.rule == "floor:account_security":
+        return ("change a password, sign-in or recovery setting" + (f" on {v['site']}" if v["site"] else "")
+                + (f" for {v['account']}" if v["account"] else ""))
+    if n.rule == "floor:delete_permanent" and v.get("place"):
+        return f"permanently delete {v['path']} on {v['place']}"
+    if n.rule == "floor:delete_permanent":
+        return f"permanently delete {v['path']}, skipping the Trash"
+    if n.rule == "floor:new_recipient" and not v["recipients"]:
+        where = (f" in {v['place']}" if v.get("place") else "") + (f" as {v['account']}" if v.get("account") else "")
+        if v["verb"] == "calls":
+            return f"start a call{where}, with someone the step doesn't name"
+        return f"send something{where}, to someone the step doesn't name"
+    if n.rule == "floor:new_recipient":
+        return f"{'call' if v['verb'] == 'calls' else 'send to'} {v['recipients']}, whom you didn't name"
+    if n.rule == "sink:new_destination":
+        return (f"send to {v['destination']}, a place you haven't named, after reading "
+                f"{v['read'] or 'outside content'}")
+    if n.rule == "sink:private_url":
+        return f"open {v['destination']} with your own data in the address ({v['value']})"
+    if n.rule == "sink:outside_value" and v["what"] == "typed":
+        return f"type {v['value']}, which came from {v['origin']}, not from you"
+    if n.rule == "sink:outside_value":
+        return f"use the {v['what']} {v['value']}, which came from {v['origin']}, not from you"
+    if n.rule == BULK and v.get("what") == "delete":
+        return f"permanently delete {v['path']}: {v['files']} in {v['folders']}, {v['bytes']}"
+    if n.rule == BULK and "floor:new_recipient" in alongside:      # the new recipients are named beside it
+        return None
+    if n.rule == BULK:
+        return f"{'call' if v.get('what') == 'call' else 'send to'} {v['count']} recipients at once: {v['sample']}"
+    if n.rule.startswith("escape:") and v.get("lift") in _LIFTED:
+        return _LIFTED[v["lift"]].format(path=v.get("path", ""))
+    return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
+
+
+def summary(needs: list[Need]) -> str:
+    """FERB's question in one line (P27; owner 2026-10-24: "we should have the short version and in details see if
+    you want the raw things"): what FERB wants to do, from the needs' facts, never the step or the task's reason. The
+    full question (`line`) stays the approval's reason, shown under Details. Display only: it decides nothing."""
+    said = {n.values.get("covers") for n in needs if n.rule == BULK}
+    rules = frozenset(n.rule for n in needs)
+    parts = [p for n in needs if n.rule not in said and (p := _short(n, rules))]
+    return "FERB wants to " + "; ".join(parts) + "."
+
+
 def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:
     """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the text last
     typed on that page (`typed`: what the worker typed there, likely what it sends; display only, L3), the reason the

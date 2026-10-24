@@ -62,7 +62,7 @@ from ferb.daemon.auth import RunGrant
 from ferb.daemon.server import caller_left
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import TaskTree
-from ferb.policy import confirm, provenance
+from ferb.policy import confirm, provenance, urls
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
 from ferb.policy.rules import EFFECTS, declare, declared_kinds
@@ -1093,6 +1093,11 @@ class Gateway:
             return None
         return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
 
+    def _one_line(self, text: str) -> str:
+        """A short line FERB's code wrote for the owner (an approval's `summary`): redacted, one line, no terminal
+        control characters (its facts can hold a page's or an app's text)."""
+        return " ".join(printable(self.redact({"s": text})["s"]).split())
+
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
@@ -1137,9 +1142,10 @@ class Gateway:
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, [YES, NO], key=text)
         if new:
+            ap.summary = self._one_line(confirm.summary(needs))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": [YES, NO],
-                                                "task_id": grant.task_id})
+                                                "task_id": grant.task_id, "summary": ap.summary})
         self.observer.tool_call(grant, done=False)
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1239,9 +1245,11 @@ class Gateway:
         root = rec.tree_id or grant.task_id
         if self.confirmations is None:
             raise Refused("FERB cannot record the escape approval")
-        shown = next(row["path"] for row in protection.rules() if row["id"] == rule)
+        lifted = next(row for row in protection.rules() if row["id"] == rule)
+        shown = lifted["path"]
         need = confirm.Need("escape:" + rule, key,
-                            {"text": f"this exact command needs rule {rule} lifted once: {shown}"}, always=True)
+                            {"text": f"this exact command needs rule {rule} lifted once: {shown}",
+                             "lift": lifted["kind"], "path": shown}, always=True)
         async with self._confirming.setdefault(root, asyncio.Lock()):
             row = self.confirmations.find(root, key, self.spans.reopened_answers(root))
             if row is not None and not row["granted"]:
@@ -1269,8 +1277,10 @@ class Gateway:
         question = "Enter your Mac password for the approved command (hidden; Enter cancels)."
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_admin_password"
+        ap.summary = ADMIN_SUMMARY
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability,
-                                            "kind": ap.kind, "reason": question, "task_id": grant.task_id})
+                                            "kind": ap.kind, "reason": question, "task_id": grant.task_id,
+                                            "summary": ap.summary})
         delivered = False
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1704,8 +1714,9 @@ class Gateway:
                                          "task_id": grant.task_id, "status": status, "why": action.why})
 
     async def ask_secret(self, ctx: ToolContext, target: str, *, handle: str | None = None,
-                         remember: str | None = None) -> str | None:
-        """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only."""
+                         remember: str | None = None, shown: str | None = None) -> str | None:
+        """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only. `shown`: the
+        app's name as macOS reports it, for an `app:` target's one-line question."""
         from ferb.identity.owner_secrets import OwnerSecrets
         from ferb.sanitize.redact import Redactor
         if not isinstance(self.redact, Redactor):
@@ -1726,8 +1737,10 @@ class Gateway:
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
+        ap.summary = self._one_line(secret_summary(target, remember, shown))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
-                     "capability": ask.capability, "reason": question, "task_id": ctx.task_id})
+                     "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
+                     "summary": ap.summary})
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         delivered = False
         try:
@@ -1761,8 +1774,10 @@ class Gateway:
         question = login_code_question(origin)
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
+        ap.summary = self._one_line(f"{_site(origin)} asks for a login code. FERB fills it only there and doesn't "
+                                    "save it.")
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
-                                            "reason": question, "task_id": ctx.task_id})
+                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary})
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1979,6 +1994,30 @@ def secret_question(target: str, remember: str | None) -> str:
     if remember:
         text += f" Entering it also saves it in your Mac's Keychain as {remember!r}, usable only at this destination."
     return text
+
+
+def _site(target: str) -> str:
+    """Where a hidden value goes, as a one-line question names it: an origin's host (its port is in the full
+    question), else the target as given."""
+    parsed = urls.parse(target)
+    return parsed.host if parsed is not None and parsed.host else target
+
+
+def secret_summary(target: str, remember: str | None, app: str | None = None) -> str:
+    """The owner secret question in one line (P27): the place from the code-derived target (an origin's host, or the
+    app: its name as macOS reports it, else its bundle id), first, so no secret word comes before it; the worker's
+    proposed name only as the name it is saved under, never as the place."""
+    if target.startswith("app:"):
+        place = f"The {app} app" if app else f"The app {target[4:]}"
+    else:
+        place = _site(target)
+    keep = (f"FERB saves it in your Mac's Keychain as {remember!r} and fills it only there." if remember
+            else "FERB fills it only there and doesn't save it.")
+    return f"{place} needs your password or another private answer. {keep}"
+
+
+ADMIN_SUMMARY = ("Your Mac password, for the one command you just approved. FERB passes it only to that command and "
+                 "doesn't save it.")
 
 
 def login_code_question(origin: str) -> str:

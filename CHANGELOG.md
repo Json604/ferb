@@ -687,6 +687,22 @@ After the owner's update (2026-10-24):
   here (hidden; Enter cancels); FERB fills it only at this exact destination.", then the name it is saved under when
   you asked FERB to keep it. Tests check them through the real redaction, in the event the app receives and in
   `chat.status`.
+- The questions FERB's own code asks now start with one plain line saying what FERB wants, with the exact question
+  under Details (P27, D33; owner, 2026-10-24: "the questions it asks are too ambiguous and doesn't simply state what is
+  it and what it wants. so here we should have the short version and in details see if you want the raw things").
+  - **A password:** "atlasauth.b2clogin.com needs your password or another private answer. FERB saves it in your
+    Mac's Keychain as 'US Visa Scheduling password for …' and fills it only there." The place comes from the page's
+    address (or the app's name), never from the name the worker proposed.
+  - **A login code:** "accounts.google.com asks for a login code. FERB fills it only there and doesn't save it."
+  - **Your Mac password:** "Your Mac password, for the one command you just approved. …"
+  - **A protected folder (the escape hatch):** "FERB wants to read ~/Library/Application Support/Google/Chrome once,
+    with one command (normally off-limits: a private store FERB's shell never reads)."
+  - **A confirmation:** the concrete action, e.g. "FERB wants to send to bob@x.com, whom you didn't name." or "FERB
+    wants to permanently delete ~/Desktop/old.txt, skipping the Trash."
+
+  Code writes the line from the facts it checked, never from the task's words; the step, the rule id and the task's
+  reason stay under Details. A worker's own question is unchanged. The notification for a waiting question uses the
+  short line too.
 
 Licensed under Apache-2.0.
 

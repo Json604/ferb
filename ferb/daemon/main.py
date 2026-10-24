@@ -2356,7 +2356,7 @@ class Daemon:
         if (tid.split(".", 1)[0] in self._attached_trees or data.get("capability") == "setup.persona"
                 or self._client_shows("approval.requested")):
             return
-        text = f"FERB needs your OK: {str(data.get('reason', ''))}"
+        text = f"FERB needs your OK: {str(data.get('summary') or data.get('reason', ''))}"   # the short line first
         asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
 
     async def _notify_safely(self, title: str, text: str) -> None:
@@ -2412,7 +2412,8 @@ class Daemon:
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
-                    "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {})} for ap in approvals]
+                    "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {}),
+                    **({"summary": ap.summary} if ap.summary else {})} for ap in approvals]
         if persona.get('approval'):
             pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
                        for p in pending]

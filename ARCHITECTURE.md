@@ -99,8 +99,22 @@ task verifier judges that answer under the report condition; verified success us
 that isn't simply done shows code's status line and its full report (`supervisor._report`: the open question, the
 findings, why work stopped, what was confirmed, the files); the orchestrator's `stop_reason` and `question` are the
 model's words in it. Only an ordinary question routed by `question.md` still carries a separate `display_text`, with
-its complete reason under Details. Consequential approvals and secret prompts keep their full concrete scope. Answers
-saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.
+its complete reason under Details. Consequential approvals and secret prompts keep their full concrete scope as their
+`reason`; the questions FERB's own code builds also carry a one-line `summary` that code writes (owner, 2026-10-24:
+"we should have the short version and in details see if you want the raw things"). The app shows the summary first
+and the reason under Details; it takes `display_text` only for an ordinary `owner.ask` question (D33), never for these.
+- A code confirmation (`ferb.confirm`): `confirm.summary(needs)`, "FERB wants to send to bob@x.com, whom you didn't
+  name." / "… permanently delete <path>, skipping the Trash." / "… pay 20 on amazon.com.", from the needs' facts only,
+  never the step or the task's reason.
+- The escape hatch (D31): "FERB wants to read <folder> once, with one command (normally off-limits: a private store
+  FERB's shell never reads)." (`confirm._LIFTED`, by the lifted rule's kind: read, write, admin, the trustd service).
+- An owner secret: "<site or app> needs your password or another private answer. FERB saves it in your Mac's
+  Keychain as '<name>' and fills it only there." (`gateway.secret_summary`): the place from the code-derived target
+  (an origin's host; an app's name as macOS reports it, passed by `mac.secret`), the worker's name only as the saved
+  name. A login code: "<host> asks for a login code. …"; the admin password: "Your Mac password, for the one command
+  you just approved. …".
+The summary travels on `approval.requested` and in `chat.status`; a banner for a waiting question uses it too.
+Answers saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.
 
 Conversational text streams through `RuntimeEvent.text_delta`, `WorkerRuns._run`'s planner-only callback and
 `orchestrator/reply_stream.py`. The incremental JSON reader requires every action/control field before streaming
