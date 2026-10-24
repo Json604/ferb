@@ -1867,9 +1867,11 @@ class Daemon:
             self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
 
     async def _settle_forgets(self) -> None:
-        """Wait until every forget's echo scrub has finished."""
-        while self._forgetting:
-            await asyncio.gather(*list(self._forgetting), return_exceptions=True)
+        """Wait until every forget's echo scrub has finished. A finished one leaves `_forgetting` only when its done
+        callback runs, a loop pass later; gathering finished tasks completes without yielding, so waiting on it again
+        would spin the event loop and that callback would never run. Only unfinished ones are awaited."""
+        while pending := [job for job in self._forgetting if not job.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     def _forget_stating_cards(self, plan: Any) -> None:
         """After a forget's echo scrub: the cards of tasks given the item whose body states it are forgotten too, with

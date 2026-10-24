@@ -2044,7 +2044,9 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   notice; a memory forget's scrub never rewrites one, and `expire_derived` clears only those made from its rows).
   Otherwise work that starts after the forget waits for the scrub (`Supervisor.settle`) and reads what it left; the
   same item is never saved again unless the owner states it (`memory_forgotten`); a card built on it is never written
-  (its tombstones).
+  (its tombstones). The wait (`Daemon._settle_forgets`) awaits only scrubs not yet finished: a finished one leaves
+  `_forgetting` a loop pass later, and gathering finished tasks never yields, so waiting on it spun the event loop at
+  full CPU (`Supervisor.finish_episodes` likewise).
 Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
 with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
 without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.

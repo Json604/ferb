@@ -2357,9 +2357,11 @@ class Supervisor(WorkerRuns):
         job.add_done_callback(self._episode_jobs.discard)
 
     async def finish_episodes(self) -> None:
-        """Wait for every pending learning capture (tests); none is cancelled."""
-        while self._episode_jobs:
-            await asyncio.gather(*list(self._episode_jobs), return_exceptions=True)
+        """Wait for every pending learning capture (tests); none is cancelled. Only unfinished ones are awaited: a
+        finished one leaves the set a loop pass later, and gathering it again would spin without yielding (as
+        Daemon._settle_forgets)."""
+        while pending := [job for job in self._episode_jobs if not job.done()]:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def stop_episodes(self) -> None:
         """Shutdown: cancel every pending learning capture rather than wait for it (an in-flight card reader is killed);

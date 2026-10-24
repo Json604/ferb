@@ -876,6 +876,39 @@ def test_echo_scrubs_run_one_at_a_time(daemon: RunningDaemon) -> None:
                       ("end", "flinvek two")]
 
 
+def test_waiting_for_forgets_never_spins_on_a_scrub_that_just_finished(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """A finished scrub leaves the daemon's set only when its done callback runs, a loop pass later. A chat turn that
+    waited in between found it still there, and gathering only finished tasks completes without yielding to the loop,
+    so the turn spun the event loop at full CPU and the callback never ran (seen under parallel test load). Waiting
+    skips work that has finished; so does waiting for the learning captures."""
+    import asyncio
+    d = daemon.daemon
+    real = asyncio.gather
+    calls: list[int] = []
+
+    def bounded(*aws: Any, **kw: Any) -> Any:
+        calls.append(len(aws))
+        assert len(calls) < 50, "waiting spun on work that had already finished"
+        return real(*aws, **kw)
+
+    async def finished_but_not_yet_dropped() -> None:
+        async def done() -> None:
+            return None
+        job = asyncio.get_running_loop().create_task(done())
+        await job                                         # finished; still in the sets until its callback would run
+        d._forgetting.add(job)
+        d.supervisor._episode_jobs.add(job)
+        try:
+            await d._settle_forgets()
+            await d.supervisor.finish_episodes()
+        finally:
+            d._forgetting.discard(job)
+            d.supervisor._episode_jobs.discard(job)
+    with monkeypatch.context() as patched:
+        patched.setattr(asyncio, "gather", bounded)
+        daemon.run(finished_but_not_yet_dropped())
+
+
 def test_the_consolidators_clean_up_forgets_through_the_daemons_path(daemon: RunningDaemon) -> None:
     """Round 5 (docs said "by any path"): the consolidator's clean-up of what its rollups wrote on a source forgotten
     meanwhile called Learning.forget directly, so a waiting question about a node it deleted stayed open. It forgets
