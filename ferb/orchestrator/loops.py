@@ -169,9 +169,10 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
     """Owner, 2026-10-25 ("Skip it for look-only rounds"): a round that only looked needs no model checker; its probe's
     first read, when the runner arms it, is the check. Returns the trace's note when the round may skip it, else None
     and the checker runs. `calls`: the round's recorded tool calls (span input with its `output`). It may when the
-    round made at least one call and every call only looked: a W2 `read` of an observation tool (W4), or a call that
-    only takes or keeps hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab), with no declared effect. Any
-    other call acts (media, act, navigate, a send, a question to the owner, an unknown tool), and the checker runs. The
+    round made at least one call and every call only looked: a W2 `read` of an observation tool (W4) that doesn't move
+    the view (`on_screen`: scroll changes which reel plays, or marks messages read), or a call that only takes or keeps
+    hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab), with no declared effect. Any other call acts (media,
+    act, navigate, scroll, a send, a question to the owner, an unknown tool), and the checker runs. The
     probe must name what it reads (a string in its tool's own arguments, or a field segment that is no key, such as a
     tab_ref or a media id) and all it names must be among the values the round's own calls sent or got back: a probe
     on a tab or element the round never looked at could read as fine and pass unchecked. Exact matches of recorded
@@ -182,7 +183,8 @@ def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapp
     for call in calls:
         cap = caps.get(str(call.get('tool')))
         kind = call.get('kind')
-        looked = ((getattr(cap, 'observation', False) and kind == Kind.READ)
+        # an observation that moves the view (scroll: `on_screen`) changes what plays or what is read: it acts here
+        looked = ((getattr(cap, 'observation', False) and not getattr(cap, 'on_screen', False) and kind == Kind.READ)
                   or (getattr(cap, 'holds_tab', False) and kind == Kind.OPEN_TAB))
         if cap is None or not looked or call.get('declared'):
             return None

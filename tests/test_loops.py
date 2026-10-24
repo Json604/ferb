@@ -2124,18 +2124,20 @@ class _Looks:
     """A capability as the look-only rule sees it: its W4 observation mark, whether it only holds a tab, and the keys a
     probe read adds to its result."""
 
-    def __init__(self, observation=False, holds_tab=False, probe_keys=()):
+    def __init__(self, observation=False, holds_tab=False, probe_keys=(), on_screen=False):
         from pydantic import BaseModel
 
         class Input(BaseModel):
             tab: str | None = None
             profile: str | None = None
         self.observation, self.holds_tab, self.probe_keys, self.Input = observation, holds_tab, probe_keys, Input
+        self.on_screen = on_screen
 
 
-LOOKS = {'browser.tabs': _Looks(True, probe_keys=('tabs_by_ref',)), 'browser.snapshot': _Looks(True,
-         probe_keys=('media_by_id',)), 'browser.use_tab': _Looks(holds_tab=True), 'browser.keep_open': _Looks(
-         holds_tab=True), 'browser.media': _Looks(), 'browser.navigate': _Looks(), 'browser.scroll': _Looks(True)}
+LOOKS = {'browser.tabs': _Looks(True, probe_keys=('tabs_by_ref',)),
+         'browser.snapshot': _Looks(True, probe_keys=('media_by_id',)),
+         'browser.use_tab': _Looks(holds_tab=True), 'browser.keep_open': _Looks(holds_tab=True),
+         'browser.media': _Looks(), 'browser.navigate': _Looks(), 'browser.scroll': _Looks(True, on_screen=True)}
 TABS_CALL = {'tool': 'browser.tabs', 'kind': 'read', 'args': {'profile': 'Work'},
              'output': {'tabs': [{'tab_ref': 'brave:Default:5', 'audible': True}]}}
 USE_CALL = {'tool': 'browser.use_tab', 'kind': 'open_tab', 'args': {'tab_ref': 'brave:Default:5'},
@@ -2170,6 +2172,8 @@ def test_a_round_that_only_looked_with_a_probe_on_what_it_saw_needs_no_model_che
     {'tool': 'owner_ask', 'args': {'question': 'Which tab?'}, 'output': {}},                            # no kind
     {'tool': 'browser.snapshot', 'kind': 'read', 'declared': 'send', 'args': {'tab': 't2'}, 'output': {}},
     {'tool': 'browser.unknown', 'kind': 'read', 'args': {}, 'output': {}},
+    # an observation for the checker (W4) that moves the view: on a reels feed it changes which reel plays (review I3)
+    {'tool': 'browser.scroll', 'kind': 'read', 'args': {'tab': 't2', 'direction': 'down'}, 'output': {}},
 ])
 def test_any_call_that_isnt_only_looking_keeps_the_model_check(call):
     from ferb.orchestrator.loops import look_only_round
@@ -2446,3 +2450,13 @@ def test_the_owners_typed_answer_to_a_pause_reaches_the_next_round():
     shown = round_reason({'why': 'your answer to my question', 'question': 'Which account?', 'answer': 'the work one'})
     assert shown == {'why': 'your answer to my question',
                      'your_answer': {'question': 'Which account?', 'answer': 'the work one'}}
+
+
+def test_a_scroll_by_the_real_browser_tool_is_acting_for_the_look_only_rule():
+    """BrowserScroll is a W4 observation and reports kind read, but it moves the view (`on_screen`): a round that
+    scrolled didn't only look."""
+    from ferb.act.browser.tools import BrowserScroll
+    from ferb.orchestrator.loops import look_only_round
+    caps = dict(LOOKS, **{'browser.scroll': BrowserScroll})
+    scroll = {'tool': 'browser.scroll', 'kind': 'read', 'args': {'tab': 't2', 'direction': 'down'}, 'output': {}}
+    assert look_only_round([USE_CALL, SNAP_CALL, scroll], _media_probe(), caps) is None
