@@ -2831,9 +2831,18 @@ planner's own words say what the loop does.
   round already took costs no extra round) or the backup interval. Trips inside a back-off gap are remembered and
   handled when it ends.
 - Pausing: only a round reporting `blocked`, a round ending `needs_user` or `blocked`, or a new unknown-outcome (P19)
-  action pauses a loop; a round that fails continues, and the back-off covers repeats. The question is asked once.
+  action pauses a loop; a round that fails continues, and the back-off covers repeats. The question is asked once, as
+  a real owner question (`_LoopQuestion`, capability `loop.ask`: the notch's card with buttons and its notification;
+  owner, 2026-10-25: "shouldn't it ask 'hey, should I stop the task since you closed the tab'"): when a tab the loop
+  held is closed (the driver's `task_tabs` fact), FERB's own "The <site> tab you asked me to keep going was closed.
+  Stop this task?" with Stop / Keep watching; otherwise the round's own question, labelled as the task's, with Stop.
+  Stop is the owner's stop of the task; Keep watching or typed words start the next round (`why_this_round` carries
+  the answer); a reply in chat steers as before (the question is left out of the planner's open questions) and closes
+  the card. A loop paused before a restart asks again (the last round's question, as journaled). Journal:
+  `loop.question`, `loop.answer` (owner origin).
 - Notices are FERB's own chat messages (`chat.notice`, journal `loop.notice`): a back-off notice has FERB origin; a pause
-  notice quotes the round's words, so its origin is FERB plus INFERRED and it stays visible in chat. A resumed loop
+  notice quotes the round's words, so its origin is FERB plus INFERRED and it stays visible in chat. Both name the loop
+  by `loops.short_label` (the goal's first clause, at most 60 characters, no closing stop), never the whole goal. A resumed loop
   after a restart posts no plan line and no notice. Stop, including during a probe read, ends the loop as `stopped`.
 - Surfaces: the bus topic `loop.status` (critical) and `chat.status`'s `loops`; the notch shows "Keeping: … · fixed N
   times · last X min ago" with Stop, and "N kept going" in the active-tasks row.

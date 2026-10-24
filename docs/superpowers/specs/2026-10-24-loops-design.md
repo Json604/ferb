@@ -86,7 +86,13 @@ Owner decisions (2026-10-24):
   `finished` is treated as `continue` (as a converse hand-over needs evidence, `conversations.py:186-188`). With an empty
   `end_when`, `finished` is refused and the round counts as `continue`: only the owner ends such a loop.
 - `blocked`, a round that ends `needs_user`, or a P19 unknown outcome pauses the loop: no probes, no rounds, until the
-  owner answers or steers. The question is asked once and never expires while the loop waits (rule 9).
+  owner answers or steers. The question is asked once and never expires while the loop waits (rule 9). Added
+  2026-10-25 (owner, after closing the Instagram tab a loop kept: "shouldn't it ask 'hey, should I stop the task since
+  you closed the tab' when it notices the task is not there"): the question is a real owner question with buttons, not
+  only the chat line. A tab the loop held that is closed: "The <site> tab you asked me to keep going was closed. Stop
+  this task?" with Stop / Keep watching ("I'll reopen it; resume"); any other pause: the round's own question with
+  Stop. Stop ends the loop and its task; Keep watching (or typed words) starts the next round; a chat reply steers as
+  before. The chat line names the loop in a few words (its goal's first clause, at most 60 characters).
 
 ### 3. Probes (code compares; the model chose what and when)
 - Code validates a probe before arming it: the tool exists, is in the task's scopes, its arguments validate against its

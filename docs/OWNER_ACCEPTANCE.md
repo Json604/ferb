@@ -1559,6 +1559,10 @@ so the profile runs 0.15.10 (`ferb doctor` shows it), then reload the Instagram 
   the tab). The trace shows the loop as the plan's only step, round 1 with `verify.skipped` if it only looked (a
   check if it had to play the reel), no `model.resources`, and one snapshot to learn the reel plays.
 - Stop it: the tab stays open and FERB lets go of it.
+- Start it again and close the Instagram tab: within about 10 s a question card (with a notification) asks "The
+  www.instagram.com tab you asked me to keep going was closed. Stop this task?" with Stop / Keep watching; the chat line
+  names the loop in a few words. Stop ends the task; on another run, reopen the reel and press Keep watching: the
+  next round starts and the loop watches again.
 
 ## FERB's cursor (L33) — pending live checks (2026-10-24)
 

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 from typing import Any, AsyncIterator, Awaitable, Callable
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -50,7 +51,8 @@ from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
-from ferb.orchestrator.loops import LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line, round_reason
+from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line, round_reason,
+                                     short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
@@ -389,6 +391,70 @@ class _Tree:
     # no owner present (a scheduled or resumed run): the only standing scopes it may be granted, recorded by an owner
     # turn; None when the owner started it from chat (D30, L3)
     unattended_scopes: list[Any] | None = None
+
+
+LOOP_ASK = "loop.ask"                 # a paused loop's question to the owner (L31 item 8)
+LOOP_STOP, LOOP_KEEP = "Stop", "Keep watching"
+
+
+class _LoopQuestion:
+    """A paused loop asks the owner with a real owner question: the notch's card with buttons, and its notification
+    (owner, 2026-10-25: "shouldn't it ask 'hey, should I stop the task since you closed the tab' when it notices the
+    task is not there"). When a tab the loop held is gone (closed: the browser driver's fact), FERB asks in its own
+    words whether to stop, with Stop / Keep watching; any other pause asks the round's own question, with Stop. Stop is
+    the owner's stop of the task; Keep watching, or the owner's own typed words, starts the next round. A reply in chat
+    steers the task as before: this question isn't offered to the planner as one to answer, and the steer that resumes
+    the loop closes it. One per pause; asked again after a restart (rule 9: it never expires while its task waits)."""
+
+    def __init__(self, sup: "Supervisor", tree: "_Tree", step: Step, child: Task) -> None:
+        self.sup, self.tree, self.step, self.child = sup, tree, step, child
+        self.wake: Callable[[], None] = lambda: None
+        self.approval: Any = None
+        self._watch: asyncio.Future[None] | None = None
+
+    async def ask(self, result: dict[str, Any] | None) -> None:
+        sup, child = self.sup, self.child
+        if self.approval is not None or child.request_id in sup.state.approvals.unattended:
+            return
+        question, options, origin = sup._pause_question(self.tree.id, self.step, child.id, result)
+        action = ActionRequest(LOOP_ASK, 'owner_question', child.identity, frozenset(), child.id, child.id,
+                               child.request_id, frozenset(child.scopes), content=question)
+        self.approval = ap = sup.state.approvals.question(action, question, options)
+        sup.journal.append('loop.question', {'task_id': self.tree.id, 'step': self.step.id, 'approval_id': ap.id,
+                                             'question': question, 'options': options}, origin=origin)
+        sup.publish('approval.requested', {'approval_id': ap.id, 'capability': LOOP_ASK, 'kind': 'owner_question',
+                                           'reason': question, 'options': options, 'task_id': child.id,
+                                           'request_id': child.request_id})
+        self._watch = asyncio.ensure_future(self._answered(ap))
+
+    async def _answered(self, ap: Any) -> None:
+        """The runner sleeps up to POLL_S while paused: wake it as the owner answers."""
+        while ap.state == 'pending':
+            await asyncio.sleep(self.sup.gateway.hold_poll_s)
+        self.wake()
+
+    def answer(self) -> dict[str, Any] | None:
+        ap = self.approval
+        if ap is None or ap.state != 'granted':
+            return None
+        self.approval = None
+        words = ap.choice or ap.answer or ''
+        self.sup.journal.append('loop.answer', {'task_id': self.tree.id, 'step': self.step.id, 'approval_id': ap.id,
+                                                'answer': words}, origin=origins_.OWNER)
+        if ap.choice == LOOP_STOP:
+            self.sup.stop_tree(self.tree.id)            # the owner's stop: the loop and its task end
+            return None
+        if ap.choice == LOOP_KEEP:
+            return {'why': f'you chose "{LOOP_KEEP}"'}
+        return {'why': 'your answer to my question', 'question': ap.reason, 'answer': words}
+
+    def close(self) -> None:
+        if self._watch is not None:
+            self._watch.cancel()
+            self._watch = None
+        if self.approval is not None and self.sup.state.approvals.supersede(self.approval.id) is not None:
+            self.sup.publish('approval.resolved', {'approval_id': self.approval.id, 'state': 'superseded'})
+        self.approval = None
 
 
 class _Watch(Observer):
@@ -873,6 +939,33 @@ class Supervisor(WorkerRuns):
             refs.append(TASK + r["id"])
         return rows, origins, refs
 
+    def _paused_words(self, tree_id: str, step_id: str) -> str:
+        """The question of a loop's latest round as journaled (no round runs while it waits): its first line."""
+        last = self.journal.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind = 'loop.round' AND json_extract(data_json, '$.task_id') "
+            "= ? AND json_extract(data_json, '$.step') = ? ORDER BY seq DESC LIMIT 1", (tree_id, step_id)).fetchone()
+        data = json.loads(last[0]) if last is not None else {}
+        return str(data.get("question") or data.get("summary") or "").strip().split("\n", 1)[0][:300]
+
+    def _pause_question(self, tree_id: str, step: Step, task_id: str,
+                        result: dict[str, Any] | None) -> tuple[str, list[str], str]:
+        """A paused loop's question to the owner, its options and its origin (`_LoopQuestion`). A tab the loop held
+        that the browser reports closed: FERB's own words naming its site, Stop / Keep watching. Otherwise the round's
+        own question (model-written, labelled as the task's, D33; after a restart, the last round's as journaled),
+        with Stop."""
+        closed = [t for t in self.task_tabs(task_id) if t.get('closed')]
+        if closed:
+            page = str((closed[0].get('taken_over_from') or {}).get('url') or '')
+            host = urlsplit(page).hostname or '' if page else ''
+            what = f'The {host} tab' if host else 'The tab'
+            return f'{what} you asked me to keep going was closed. Stop this task?', [LOOP_STOP, LOOP_KEEP], \
+                origins_.FERB
+        words = ' '.join(str((result or {}).get('question') or (result or {}).get('summary')
+                             or self._paused_words(tree_id, step.id)
+                             or f'I paused keeping this going: {short_label(step.goal)}.').split())
+        return (confirm.task_question(printable(words)), [LOOP_STOP],
+                origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id)))
+
     def _loop_facts(self, tree_id: str) -> list[dict[str, Any]]:
         """Each running loop of this tree as the planner's task status shows it (L31): its goal, state and rounds; a
         paused loop also its question, the pausing round's own as journaled (no round runs while it waits), so the
@@ -884,13 +977,8 @@ class Supervisor(WorkerRuns):
             fact: dict[str, Any] = {"goal": " ".join(str(status.get("goal", "")).split())[:300],
                                     "state": str(status.get("state", "")).replace("_", " "),
                                     "rounds": status.get("rounds", 0)}
-            if status.get("state") == "paused":
-                last = self.journal.db.conn.execute(
-                    "SELECT data_json FROM journal WHERE kind = 'loop.round' AND json_extract(data_json, '$.task_id') "
-                    "= ? AND json_extract(data_json, '$.step') = ? ORDER BY seq DESC LIMIT 1", (tree, step)).fetchone()
-                data = json.loads(last[0]) if last is not None else {}
-                if question := str(data.get("question") or data.get("summary") or "").strip():
-                    fact["question"] = question.split("\n", 1)[0][:300]
+            if status.get("state") == "paused" and (question := self._paused_words(tree, step)):
+                fact["question"] = question
             out.append(fact)
         return out
 
@@ -1552,7 +1640,8 @@ class Supervisor(WorkerRuns):
                           {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
         open_questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options), 'kind': a.kind,
                            'ferb_check': a.capability in FERB_CHECKS}
-                          for a in self.state.approvals.pending() if a.kind not in ('owner_login_code', 'owner_admin_password', 'owner_secret')]
+                          for a in self.state.approvals.pending() if a.kind not in ('owner_login_code', 'owner_admin_password', 'owner_secret')
+                          and a.capability != LOOP_ASK]   # a paused loop's: the reply steers its task (L31 item 8)
         state.append((ContextBlock('Layer 6 — running tasks and open questions (data):\n' + wrap_untrusted(json.dumps({
             'tasks': self.running_trees(), 'questions': open_questions,
             'delegated_conversations': [row for row in self.conversations.list() if row['tree_id'] in self.continuity.task_ids(session.id)],
@@ -2807,11 +2896,13 @@ class Supervisor(WorkerRuns):
             except Exception as exc:
                 self._loop_failed(tree.id, step.id, 'status', exc)
 
+        asker = _LoopQuestion(self, tree, step, child)
         runner = LoopRunner(
             store=self.loops, task_id=tree.id, step=step, round=round_, arm=arm, probe=read, record=record,
             event=event if step.event else None, steers=lambda: len(tree.steering.messages), notify=notify,
             status=status, stopped=lambda: bool(tree.stop) and not self._suspending,
-            now=time.time, event_cursor=self.plans.event_cursor())
+            now=time.time, event_cursor=self.plans.event_cursor(), question=asker)
+        asker.wake = runner.wake
         self._loops.setdefault(tree.id, set()).add(runner)
         try:
             result = await runner.run()

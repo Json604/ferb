@@ -2310,3 +2310,133 @@ def test_each_round_after_the_first_is_told_which_tabs_the_loop_holds(bd, monkey
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+# ---------- a paused loop asks the owner (owner, 2026-10-25: "shouldn't it ask … since you closed the tab") ----------
+
+class _Question:
+    """The supervisor's question as the runner sees it: ask once per pause, the owner's answer as a round reason (or
+    None while unanswered), closed when the pause ends another way."""
+
+    def __init__(self, answers=()):
+        self.asked, self.answers, self.closed = [], list(answers), 0
+
+    async def ask(self, result):
+        self.asked.append(result)
+
+    def answer(self):
+        return self.answers.pop(0) if self.answers else None
+
+    def close(self):
+        self.closed += 1
+
+
+def test_a_pausing_round_asks_the_owner_once_and_their_answer_resumes_the_loop(db):
+    h = Harness(db, _clock(), KEEP, [round_result('blocked', None, status='needs_user', summary='The tab was closed.'),
+                                     round_result(p=probe())], [(True, None)])
+    question = _Question([None, None, {'why': 'you chose Keep watching'}])
+    h.runner.question = question
+    h.run()
+    assert [r['summary'] for r in question.asked] == ['The tab was closed.']
+    assert h.reasons[1]['why'] == 'you chose Keep watching' and question.closed == 1
+
+
+def test_a_reply_in_chat_still_resumes_a_paused_loop_and_closes_its_question(db):
+    h = Harness(db, _clock(), KEEP, [round_result('blocked', None, summary='Which account?'), round_result(p=None)], [])
+    question = _Question()
+    h.runner.question = question
+    original = h._sleep
+
+    async def reply(seconds):
+        if h.statuses and h.statuses[-1]['state'] == 'paused':
+            h.steer_count += 1
+        await original(seconds)
+    h.runner.sleep = reply
+    h.run()
+    assert h.reasons[1]['why'] == 'your message' and len(question.asked) == 1 and question.closed == 1
+
+
+def test_a_loop_paused_before_a_restart_asks_its_question_again(db):
+    """A question never expires while its task waits (rule 9): FERB's questions live in memory, so a loop that was
+    paused when FERB stopped asks again when it resumes (with no result: the supervisor reads the last round's)."""
+    _seed(db, state='paused', rounds=1, pacing_json=Pacer(last_end=999_000.0).to_json())
+    h = Harness(db, _clock(), KEEP, [round_result(p=None)], [])
+    question = _Question([{'why': 'you chose Keep watching'}])
+    h.runner.question = question
+    h.run()
+    assert question.asked == [None] and h.reasons[0]['why'] == 'you chose Keep watching'
+
+
+def test_a_pause_line_names_the_loop_in_a_few_words():
+    """Live 2026-10-25: "I've paused keeping this going: <the planner's whole long goal>.. The exact Instagram tab was
+    closed…". The line names the loop by its goal's first clause, at most 60 characters, with no doubled stop."""
+    from ferb.orchestrator.loops import short_label
+    long = ('Keep the exact Instagram tab in Brave Work (brave:Default:526968918) playing, re-playing it whenever the '
+            'site pauses it, until the owner says stop.')
+    label = short_label(long)
+    assert len(label) <= 60 and label.startswith('Keep the exact Instagram tab in Brave Work')
+    assert not label.endswith(('.', ',', ';', ':'))
+    assert short_label('Keep the tab playing.') == 'Keep the tab playing'
+    step = Step(id='keep', kind='loop', goal=long)
+    assert '..' not in LoopRunner._pause_line(step, 'The exact Instagram tab was closed.')
+
+
+def _questions(d, capability='loop.ask'):
+    return [a for a in d.daemon.state.approvals.pending() if a.capability == capability]
+
+
+def _closed_tab_loop(bd, monkeypatch, third_round=None):
+    """The live case: a loop holds the owner's Instagram tab; the owner closes it; the next round finds it gone and
+    needs the owner."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    gone = 'The exact Instagram tab was closed, so I can no longer keep it playing.'
+    rounds = [_tab_round(d, ext, seen, keep=True),
+              json.dumps({'status': 'needs_user', 'summary': gone, 'artifacts': [], 'evidence': [], 'answer': gone,
+                          'loop_action': 'blocked'})] + ([third_round] if third_round else [])
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop(
+        'Keep the exact Instagram tab in Brave Work playing, re-playing it whenever the site pauses it, until you say '
+        'stop.'))], {'loop.keep': rounds, 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    tree_id = plan['task_id']
+    sv = d.daemon.supervisor
+    _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+    ext.tabs.pop(OWNER_TAB)
+    ext.attached.discard(OWNER_TAB)
+    ext.tab_event('removed', OWNER_TAB)                                    # the owner closed it
+    _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused' and _questions(d))
+    return d, c, tree_id, script
+
+
+def test_closing_the_held_tab_asks_once_whether_to_stop_and_stop_ends_the_task(bd, monkeypatch):
+    d, c, tree_id, _ = _closed_tab_loop(bd, monkeypatch)
+    try:
+        [question] = _questions(d)
+        assert question.reason == 'The www.instagram.com tab you asked me to keep going was closed. Stop this task?'
+        assert question.options == ('Stop', 'Keep watching') and question.task_id == f'{tree_id}.loop.keep'
+        [line] = [n['text'] for n in _journal(d, 'loop.notice')]
+        assert line.startswith("I've paused keeping this going: Keep the exact Instagram tab in Brave Work") and '..' not in line
+        assert len(line.split(':', 1)[1].split('.')[0].strip()) <= 60
+        _on_loop(d, d.daemon._resolve_approval, question.id, True, 1)       # the notch's Stop button
+        _wait(d, lambda: tree_id not in d.daemon.supervisor._tree_of)
+        assert [r for r in _on_loop(d, d.daemon.supervisor.loops.running) if r['task_id'] == tree_id] == []
+        assert _questions(d) == []
+    finally:
+        c.close()
+
+
+def test_keep_watching_resumes_the_loop_with_its_next_round(bd, monkeypatch):
+    d, c, tree_id, script = _closed_tab_loop(bd, monkeypatch, third_round=_round())
+    try:
+        [question] = _questions(d)
+        _on_loop(d, d.daemon._resolve_approval, question.id, True, 2)       # Keep watching: "I'll reopen it"
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 3)
+        third = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][2]
+        assert 'Keep watching' in third and _questions(d) == []
+        assert tree_id in sv._tree_of                                       # still running
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()

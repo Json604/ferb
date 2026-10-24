@@ -927,6 +927,14 @@ After the owner's update (2026-10-24):
 - Each round of a loop is told which tabs the loop holds (L31). Every live round listed your tabs and borrowed the reel
   again to find the tab the loop already held. A round's plan-step context now lists them by id (with the page each
   held when the task took it over), so the next round can read the tab at once.
+- A paused loop asks you with buttons (L31; you, 2026-10-25: "shouldn't it ask 'hey, should I stop the task since you
+  closed the tab' when it notices the task is not there"). Live: you closed the Instagram tab at about 01:40:41, the
+  next round found it gone at 01:40:57, and the loop paused with only a chat line repeating the planner's whole goal
+  ("…until you say stop.. The exact Instagram tab was closed…"); the task stayed paused until 02:48. Now a pause raises
+  a question card (with its notification): when a tab the loop held was closed, "The www.instagram.com tab you asked
+  me to keep going was closed. Stop this task?" with Stop / Keep watching; any other pause asks the round's own
+  question with Stop. Stop ends the task; Keep watching starts the next round; a reply in chat still steers it. The
+  chat line names the loop in a few words.
 
 Licensed under Apache-2.0.
 

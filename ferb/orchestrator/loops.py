@@ -4,6 +4,7 @@ The runner gets everything it touches as callbacks, so the supervisor decides ho
 status line happen."""
 import asyncio
 import json
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -146,7 +147,21 @@ def round_reason(reason: dict[str, Any]) -> dict[str, Any]:
         shown['event'] = _outside(json.dumps(reason['event'], ensure_ascii=False))
     if reason.get('probe_refused'):
         shown['probe_refused'] = _outside(str(reason['probe_refused']))
+    if reason.get('answer'):                         # the owner's own words, typed into the pause question's card
+        shown['your_answer'] = {'question': str(reason.get('question', ''))[:_LIMIT], 'answer': str(reason['answer'])[:_LIMIT]}
     return shown
+
+
+def short_label(text: str, limit: int = 60) -> str:
+    """A loop named in a few words for FERB's lines: its goal's first clause, at most `limit` characters (cut at a
+    word, with an ellipsis), with no closing punctuation, so a line that adds its own stop never doubles one (live
+    2026-10-25: "I've paused keeping this going: <the planner's whole goal>.. The exact Instagram tab was closed")."""
+    words = ' '.join(text.split())
+    first = re.split(r'(?<=[.;:!?])\s|,\s|\s[—–-]\s', words, maxsplit=1)[0].rstrip(' .,;:!?')
+    if len(first) <= limit:
+        return first
+    cut = first[:limit - 1].rsplit(' ', 1)[0].rstrip(' .,;:!?(')
+    return cut + '…'
 
 
 def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapping[str, Any]) -> str | None:
@@ -235,8 +250,13 @@ class LoopRunner:
                  event: Callable[[int], tuple[int, dict[str, Any]] | None] | None, steers: Callable[[], int],
                  notify: Callable[..., Awaitable[None]], status: Callable[[dict[str, Any]], None],
                  stopped: Callable[[], bool], now: Callable[[], float],
-                 sleep: Callable[[float], Awaitable[None]] | None = None, event_cursor: int = 0) -> None:
+                 sleep: Callable[[float], Awaitable[None]] | None = None, event_cursor: int = 0,
+                 question: Any = None) -> None:
         self.store, self.task_id, self.step = store, task_id, step
+        # a pause's owner question (item 8, 2026-10-25): `ask(result)` once per pause (None after a restart),
+        # `answer()` the owner's answer as the next round's reason (None while unanswered), `close()` when the pause
+        # ends another way. None: the pause has only its chat line.
+        self.question = question
         self.round, self.arm, self.probe, self.record = round, arm, probe, record
         self.event, self.steers, self.notify, self.status = event, steers, notify, status
         self.stopped, self.now = stopped, now
@@ -323,10 +343,9 @@ class LoopRunner:
                 return {'status': 'done', 'summary': result['summary'], 'evidence': result.get('evidence', []),
                         'rounds': self.row['rounds']}
             if pausing:
-                why = result.get('question') or result['summary']
-                await self.notify(f"I've paused keeping this going: {self._goal()}. {why} "
-                                  'Reply to continue, or say stop.', model_written=True)
-                reason = await self._paused()
+                await self.notify(self._pause_line(self.step, result.get('question') or result['summary']),
+                                  model_written=True)
+                reason = await self._paused(result)
                 continue
             if result['status'] != 'done' and result.get('probe') is None:
                 continue        # a failed round fixed nothing: the armed probe and its stored baseline carry on
@@ -335,7 +354,13 @@ class LoopRunner:
         return {'status': 'cancelled', 'summary': 'Stopped by you.', 'rounds': self.row['rounds']}
 
     def _goal(self) -> str:
-        return ' '.join(self.step.goal.split())
+        return short_label(self.step.goal)
+
+    @staticmethod
+    def _pause_line(step: Any, why: str) -> str:
+        """The chat line of a pause: the loop in a few words, then the round's own words (model-written)."""
+        return f"I've paused keeping this going: {short_label(step.goal)}. {' '.join(str(why).split())} " \
+               'Reply to continue, or say stop.'
 
     async def _arm(self, probe: Probe | None) -> tuple[Probe | None, Any, dict[str, Any] | None]:
         """Code's checks, then one read as the baseline. A probe that is refused, can't read or can't see its field is
@@ -402,14 +427,25 @@ class LoopRunner:
             await self.sleep(start - self.now())
         return reason
 
-    async def _paused(self) -> dict[str, Any] | None:
-        """Blocked or waiting for the owner: no probe, event or backup round; only the owner's reply, or stop."""
+    async def _paused(self, result: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """Blocked or waiting for the owner: no probe, event or backup round; only the owner's answer to the pause's
+        question, their reply in chat (a steer), or stop. The question is asked as the pause starts, again after a
+        restart (`result` None), and closed when the pause ends without it."""
         self._set('paused')
-        while not self.stopped():
-            if self._steered():
-                return {'why': 'your message'}
-            await self.sleep(POLL_S)
-        return None
+        if self.question is not None:
+            await self.question.ask(result)
+        try:
+            while not self.stopped():
+                if self._steered():
+                    return {'why': 'your message'}
+                answered = self.question.answer() if self.question is not None else None
+                if answered is not None:
+                    return answered
+                await self.sleep(POLL_S)
+            return None
+        finally:
+            if self.question is not None:
+                self.question.close()
 
     async def _watch(self, probe: Probe | None, baseline: Any) -> dict[str, Any] | None:
         """Between rounds, no model: the probe is read every PROBE_SECONDS and only a trip, an error or a missing field

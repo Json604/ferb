@@ -435,7 +435,8 @@ class FakeExtension:
 
     def op_list_tabs(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         # `audible` / `muted`: the browser's own sound facts (extension 0.15.8, L31), for a loop probe on a tab
-        return {"tabs": [{"tab_id": t, "host": urlsplit(u).hostname, "active": self.tab_active.get(t, False),
+        return {"tabs": [{"tab_id": t, "host": urlsplit(u).hostname, "url": u, "title": page(u)["title"],
+                          "active": self.tab_active.get(t, False),
                           "audible": t in self.audible, "muted": False,
                           "window_id": self.tab_windows.get(t), "kept_open": t in self.kept,
                           "ferb": t not in self.kept and self.tab_windows.get(t) == self.ferb_window}
