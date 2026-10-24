@@ -12,7 +12,11 @@ struct TaskItem: Identifiable {
     let activity: [TaskActivity]
     var answer: String? = nil
     var artifacts: [URL] = []
+    /// A running loop's line (L31); its task is standing work while no round is acting.
+    var standing: String? = nil
     var isRunning: Bool { ["working", "needs_user"].contains(status) }
+    /// Still going: running, or a loop kept between its rounds. Either can be stopped.
+    var isOngoing: Bool { isRunning || standing != nil }
 }
 
 @MainActor
@@ -37,19 +41,52 @@ extension NotchModel {
                 title: title.isEmpty ? (work.backendTaskID == nil ? "New request" : "A task from earlier") : title,
                 status: work.phase == .attention ? "needs_user" : "working", activity: work.activity)
         }
+        let now = Date()
         for (id, title) in runningTasks where !id.isEmpty {
             let old = rows[id]
-            rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title,
-                status: pendingApprovals.contains(where: { $0.taskID == id }) ? "needs_user" : "working",
-                activity: old?.activity ?? [])
+            let status = pendingApprovals.contains(where: { $0.taskID == id }) ? "needs_user"
+                : standingWork[id].map { $0.state == "acting" ? "working" : "standing" } ?? "working"
+            rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title, status: status,
+                activity: old?.activity ?? [], standing: standingLine(id, now: now))
         }
         return rows.values.sorted {
             if $0.isRunning != $1.isRunning { return $0.isRunning }
+            if $0.isOngoing != $1.isOngoing { return $0.isOngoing }
             return $0.id < $1.id
         }
     }
 
     var activeTaskCount: Int { taskItems.filter(\.isRunning).count }
+
+    /// Loops kept between their rounds (L31): standing work, counted apart from the active tasks.
+    var keptGoingCount: Int { taskItems.filter { $0.status == "standing" }.count }
+
+    /// The chat's work row: shown while a task runs or a loop is kept; its spinner turns only for running work.
+    var showsWorkRow: Bool { hasRunningWork || keptGoingCount > 0 }
+
+    var workRowText: String {
+        let items = taskItems
+        let active = items.filter(\.isRunning).count
+        let kept = items.filter { $0.status == "standing" }.count
+        var parts: [String] = []
+        if active > 0 { parts.append("\(active) active \(active == 1 ? "task" : "tasks")") }
+        if kept > 0 { parts.append("\(kept) kept going") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "Keeping: <goal> · fixed N times · last X min ago", plus the loop's state when it waits longer or needs you.
+    func standingLine(_ id: String, now: Date) -> String? {
+        guard let work = standingWork[id] else { return nil }
+        var parts = ["Keeping: \(work.goal)"]
+        if work.rounds > 0 { parts.append("fixed \(work.rounds) \(work.rounds == 1 ? "time" : "times")") }
+        if let end = work.lastRoundEnd {
+            let minutes = max(0, Int(now.timeIntervalSince(end) / 60))
+            parts.append(minutes == 0 ? "last just now" : minutes < 60 ? "last \(minutes) min ago" : "last \(minutes / 60) hr ago")
+        }
+        if work.state == "backing_off" { parts.append("waiting longer between fixes") }
+        if work.state == "paused" { parts.append("paused: needs you") }
+        return parts.joined(separator: " · ")
+    }
 
     /// The owner's message, or for a task this chat didn't send, the daemon's goal.
     static func title(of turn: ConversationTurn) -> String {
@@ -114,7 +151,7 @@ extension NotchModel {
     }
 
     func stopTask(_ item: TaskItem) {
-        guard item.isRunning, !isStopping(item) else { return }
+        guard item.isOngoing, !isStopping(item) else { return }
         guard let backend = item.backendID else {
             if let local = item.localID { pendingStops.insert(local) }
             return
@@ -140,7 +177,8 @@ struct TaskListView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Tasks").font(.system(size: 13, weight: .semibold))
-                Text("\(model.activeTaskCount) active").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                Text("\(model.activeTaskCount) active" + (model.keptGoingCount > 0 ? " · \(model.keptGoingCount) kept going" : ""))
+                    .font(.system(size: 11)).foregroundStyle(Palette.secondary)
                 Spacer()
                 Button("Back", action: model.toggleTasks).buttonStyle(.plain)
             }
@@ -158,7 +196,7 @@ struct TaskListView: View {
                                     if model.inspectedTaskID == item.id { model.clearTaskInspection() }
                                     else { model.inspectTask(item) }
                                 }.buttonStyle(.plain)
-                                if item.isRunning {
+                                if item.isOngoing {
                                     Button(model.isStopping(item) ? "Stopping…" : "Stop task") { model.stopTask(item) }
                                         .buttonStyle(.plain).disabled(model.isStopping(item))
                                         .help("Stop only this task")
@@ -209,6 +247,7 @@ struct TaskListView: View {
     private func status(_ item: TaskItem) -> String {
         if item.backendID == nil && item.isRunning { return "Sending request" }
         if item.status == "needs_user" { return "Needs your answer" }
+        if let standing = item.standing { return standing }
         if item.status == "working" { return item.activity.last?.title ?? "Working" }
         return item.status.replacingOccurrences(of: "_", with: " ").capitalized
     }

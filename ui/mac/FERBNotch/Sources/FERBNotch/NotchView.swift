@@ -206,10 +206,11 @@ struct NotchView: View {
             if let error = model.promptError {
                 Text(error).font(.system(size: 11)).foregroundStyle(Palette.amber).textSelection(.enabled)
             }
-            if model.hasRunningWork {
+            if model.showsWorkRow {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini)
-                    Text("\(model.activeTaskCount) active \(model.activeTaskCount == 1 ? "task" : "tasks")")
+                    // Turns only while work runs; a loop kept between its rounds is standing work (L31).
+                    if model.hasRunningWork { ProgressView().controlSize(.mini) }
+                    Text(model.workRowText)
                         .font(.system(size: 11)).foregroundStyle(Palette.secondary)
                     Spacer()
                     Button("View tasks", action: model.toggleTasks)

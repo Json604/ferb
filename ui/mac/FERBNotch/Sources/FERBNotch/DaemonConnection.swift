@@ -80,6 +80,13 @@ extension NotchModel {
                 guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
                 return (id, row["goal"] as? String ?? "Running task")
             }, uniquingKeysWith: { _, last in last })
+            // Standing work only for a task still running (L31).
+            let loops = status["loops"] as? [[String: Any]] ?? []
+            standingWork = Dictionary(loops.compactMap { row in
+                guard let id = row["task_id"] as? String, runningTasks[id] != nil,
+                      let work = StandingWork(loopStatus: row) else { return nil }
+                return (id, work)
+            }, uniquingKeysWith: { _, last in last })
             let approvals = (status["approvals"] as? [[String: Any]] ?? []).compactMap(normalizeApproval)
             let changed = pendingApprovals != approvals
             pendingApprovals = approvals
@@ -368,6 +375,12 @@ extension NotchModel {
             if taskID == session.backendTaskID, data["type"] as? String == "reply" {
                 session.noteBackendActivity(data["text"] as? String ?? "Task resumed")
             }
+        case "loop.status":
+            // A loop's state change (L31). A finished or stopped loop leaves; a status arriving after its task's
+            // result never brings the row back.
+            guard let taskID else { return }
+            if runningTasks[taskID] != nil, let work = StandingWork(loopStatus: data) { standingWork[taskID] = work }
+            else { standingWork.removeValue(forKey: taskID) }
         case "attention.notice":
             receiveNotices([data])
         case "bus.overflow", "bus.dropped":
@@ -380,6 +393,8 @@ extension NotchModel {
     func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
         guard let taskID = event["task_id"] as? String else { return }
         if recordEvent { taskStateRevision += 1 }
+        // The task ended, so its loops did too (L31).
+        standingWork.removeValue(forKey: taskID)
         if session.backendTaskID == taskID, session.activeTaskID != nil { handleOutcome(event, announce: announce); return }
         if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
             withWorkSession(localID) { handleOutcome(event, announce: announce) }

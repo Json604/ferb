@@ -3,6 +3,29 @@ import SwiftUI
 import UniformTypeIdentifiers
 import NotchCore
 
+/// A running loop's latest `loop.status` (L31): what it keeps, its state (acting, watching, backing_off, paused), how
+/// many rounds fixed something and when the last one ended.
+struct StandingWork: Equatable {
+    var goal: String
+    var state: String
+    var rounds: Int
+    var lastRoundEnd: Date?
+    var gapSeconds: Double
+}
+
+extension StandingWork {
+    /// From a `loop.status` event or a `chat.status` loop row; nil once the loop finished or stopped. Its numbers
+    /// arrive as JSON whole or decimal numbers, and `last_round_end` (epoch seconds) is null before any round ended.
+    init?(loopStatus row: [String: Any]) {
+        let state = row["state"] as? String ?? "watching"
+        guard !["finished", "stopped"].contains(state) else { return nil }
+        self.init(goal: row["goal"] as? String ?? "", state: state,
+                  rounds: (row["rounds"] as? NSNumber)?.intValue ?? 0,
+                  lastRoundEnd: (row["last_round_end"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) },
+                  gapSeconds: (row["gap_seconds"] as? NSNumber)?.doubleValue ?? 0)
+    }
+}
+
 /// The owner asked to answer this question: its field has keyboard focus until it loses it, the question is
 /// resolved or the body hides. Only an explicit owner action creates one.
 struct QuestionFocus: Equatable {
@@ -62,6 +85,8 @@ final class NotchModel: ObservableObject {
     @Published var promptError: String?
     @Published var sendingAnswer = false
     @Published var runningTasks: [String: String] = [:]
+    /// Running loops (L31), keyed by root task id: standing work, shown with its counts until the loop or its task ends.
+    @Published var standingWork: [String: StandingWork] = [:]
     var conversationID: String?
     var supportsAttachments = false
     var eventsTask: Task<Void, Never>?
@@ -145,7 +170,7 @@ final class NotchModel: ObservableObject {
         if showingTasks { return 320 }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
-            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (hasRunningWork ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
+            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
         }
         if showingActivity { return 204 }
         switch session.phase {
