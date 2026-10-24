@@ -40,6 +40,11 @@ SENTENCES = [
     # final loops review (L31): shell_list's order isn't an identity; a command's own id is
     ("worker.md",
      'To watch a command you started, probe shell_read with its id (field running), not a shell_list index.'),
+    # live 2026-10-24 (task 4a8b1d73): probes on media.44 / media.51 watched another video as the feed loaded more
+    ("worker.md",
+     'To watch one video or audio element, use media_by_id.<id> from a fresh snapshot: positions in the media list '
+     'shift as a page loads. To watch whether a tab plays sound, probe browser_tabs with '
+     'tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot.'),
     # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"
     ("worker.md",
      'A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner\'s own browser profile is an '
