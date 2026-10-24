@@ -2697,6 +2697,27 @@ protected FERB state (16.9).
   whether launchd runs the bundled Python from a quarantined download is untested; the app is about 666 MB;
   `mac.applescript` keeps Apple Events, so a script could ask Finder to move Trash items (not a file rule).
 
+### 16.10 Journal kinds added in the launch week
+
+`chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
+`standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
+`screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`,
+`shell.local_reports_stopped`, `memory.consolidate_failed`,
+`memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
+`memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
+`standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
+Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch`,
+`task.answer` gained `watch_met` (a watch run's), and `standing.revoked` can give the reason "schedule met".
+Perf plan 2026-10-23: `store.cards_cleaned` (L28, C1: setup's card clean-out ran to the end; `tasks`, `nodes`,
+`cleaned`, `rows`, `untraced`), `store.compacted` (the compaction after it; `bytes_before`, `bytes_after`), both
+written by setup with the daemon stopped (section 10, "Store clean-out and compaction"), and `resources.failed` (L30: a
+resource sample, or the log's start, failed; its error); `retention.failed` gained `resources` (the resource purge
+failed).
+Loops (L31): journal `loop.round` (a round's number, status, summary, `loop_action` and question), `loop.notice` (a
+back-off or pause notice's text) and `loop.failed` (a round, read, record, notice or status line that failed and was
+swallowed); spans `loop.round` (one per round, its worker and checker under it) and `loop.probe_read` (a probe's
+baseline, trip or error, with the count of reads since it was armed).
+
 ### 16.11 Loops (L31)
 
 Spec `docs/superpowers/specs/2026-10-24-loops-design.md`. A loop is a general capability: work that must be repeated or
@@ -2748,20 +2769,3 @@ stays a watch.
   counts; the journal has `loop.round`, `loop.notice` and `loop.failed` (a round, read, record, notice or status line
   that failed and was swallowed so the loop runs on). Tests: `tests/test_loops.py`, `tests/test_watches.py`,
   `tests/test_prompt_contract.py`.
-
-### 16.10 Journal kinds added in the launch week
-
-`chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
-`standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
-`screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`,
-`shell.local_reports_stopped`, `memory.consolidate_failed`,
-`memory.embedding_restore_failed`, `memory.embedding_unavailable`, `memory.episode_refs_damaged`,
-`memory.episode_deferred`, `memory.receipt_replayed` and `store.wal_not_truncated`. `schedule.created` gained
-`standing_sends`, `not_recorded` and `request_origins`; `attention.failed` records `batch_ids`.
-Fix wave 6c: `schedule.met` (a one-shot watch ended by its confirmed met run); `schedule.created` gained `watch`,
-`task.answer` gained `watch_met` (a watch run's), and `standing.revoked` can give the reason "schedule met".
-Perf plan 2026-10-23: `store.cards_cleaned` (L28, C1: setup's card clean-out ran to the end; `tasks`, `nodes`,
-`cleaned`, `rows`, `untraced`), `store.compacted` (the compaction after it; `bytes_before`, `bytes_after`), both
-written by setup with the daemon stopped (section 10, "Store clean-out and compaction"), and `resources.failed` (L30: a
-resource sample, or the log's start, failed; its error); `retention.failed` gained `resources` (the resource purge
-failed).

@@ -85,7 +85,7 @@ prompts.
 | `ping` | `{}` | PID, role, timestamp, explicit stop state |
 | `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id, capabilities:["input_paths"]}`; resume/new conversation; marks running tasks attached |
 | `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications (`ack` first), then `{ended:true}` |
-| `chat.status` | `{peek?: bool}` | `results` (each with `request_id` and `at`, when the result arrived), `running`, `approvals`, `notices`; fetching unseen results marks them shown unless `peek:true`; `notices` are the perception notices no client has acknowledged yet, each `{id, text, quotes, at}` |
+| `chat.status` | `{peek?: bool}` | `results` (each with `request_id` and `at`, when the result arrived), `running`, `approvals`, `notices`, `loops`; fetching unseen results marks them shown unless `peek:true`; `notices` are the perception notices no client has acknowledged yet, each `{id, text, quotes, at}`; `loops` is each running loop step's latest `loop.status` payload (below) |
 | `results.ack` | `{task_ids:[task_id,...]}` | Marks only those results shown, for a client that reads `chat.status` with `peek:true` and acknowledges each result it placed in its chat (the notch UI); `{ok:true}`. Unknown ids are ignored |
 | `attention.ack` | `{ids: [notice_id,...]}` (older CLIs: `{id}`) | `{ok:true}`; the client showed those notices, so they leave `chat.status.notices`; an unknown id refuses the whole call |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
@@ -147,6 +147,13 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
   message.
 - `task.resumed_event` (bus): each event of a plan resumed after a restart, with no chat stream, carries the saved
   request's `request_id` and `at`, as `task.result` does.
+- `loop.status` (bus, critical: never dropped for a slow subscriber; L31): a loop step's state each time it changes,
+  `{task_id, step, goal, state, rounds, last_round_end, gap_seconds}`. `task_id` is the tree id, `step` the plan step's
+  id, `goal` the step's goal; `state` is `acting` (a round runs), `watching`, `backing_off`, `paused` (waiting for the
+  owner's reply), `finished` or `stopped`; `rounds` counts the rounds done; `last_round_end` is when the last round
+  ended (epoch seconds, a whole or decimal number) or null before any; `gap_seconds` is the back-off gap between rounds
+  (0 outside a back-off). Show a loop between rounds as standing work, not running work; drop it at `finished`,
+  `stopped` or the task's `task.result`.
 - The `task.result` bus event carries `request_id` and `at`: the outcome's own when a chat turn sent it, otherwise
   (a resumed plan, a scheduled run) the request the task ran for and when the result was recorded; `request_id` is
   null when no task record names one. A scheduled run's request is its own, never a chat message's.
