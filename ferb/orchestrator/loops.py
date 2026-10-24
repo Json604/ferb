@@ -236,17 +236,21 @@ class LoopRunner:
             recent = json.loads(self.row['recent_json']) + [f"{result['status']}: {result['summary']}"]
             # a correction the round's worker took while it ran was acted on; only one it never read wakes a round
             seen = max(self.row['steer_seen'], min(int(result.get('steers_seen', 0)), self.steers()))
+            action = result.get('loop_action')
+            pausing = action == 'blocked' or result['status'] in ('needs_user', 'blocked')
+            # the round is over in the same write that counts it: a restart from here on (arming the probe, sending
+            # the pause notice) never acts for it again
             self._save(rounds=self.row['rounds'] + 1, recent_json=json.dumps(recent[-RECENT_ROUNDS:]), note='',
-                       pacing_json=self.pacer.to_json(), steer_seen=seen)
+                       pacing_json=self.pacer.to_json(), steer_seen=seen,
+                       state='paused' if pausing else 'backing_off' if self.pacer.gap else 'watching')
             reason = None
             if self.stopped():
                 break
-            action = result.get('loop_action')
             if action == 'finished' and result.get('finished_verified') and self.step.end_when.strip():
                 self._set('finished')
                 return {'status': 'done', 'summary': result['summary'], 'evidence': result.get('evidence', []),
                         'rounds': self.row['rounds']}
-            if action == 'blocked' or result['status'] in ('needs_user', 'blocked'):
+            if pausing:
                 why = result.get('question') or result['summary']
                 await self.notify(f"I've paused keeping this going: {self._goal()}. {why} "
                                   'Reply to continue, or say stop.', model_written=True)

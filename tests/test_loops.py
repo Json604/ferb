@@ -412,6 +412,40 @@ def test_a_loop_restarted_mid_round_reruns_that_round_quietly(db):
     assert h.notices == []
 
 
+def test_a_restart_while_the_probe_is_armed_does_not_run_the_finished_round_again(db):
+    """The round's count and the loop's next state are saved together: FERB stopping during the baseline read finds
+    the round over ('watching'), so the restart doesn't act again for it."""
+    import pytest
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe())], [])
+    states = []
+
+    async def dies_during_the_baseline_read(p):
+        states.append(h.store.load('tree', 'keep')['state'])
+        raise RuntimeError('FERB stopped')
+    h.runner.probe = dies_during_the_baseline_read
+    with pytest.raises(RuntimeError):
+        h.run()
+    assert states == ['watching'] and h.store.load('tree', 'keep')['rounds'] == 1
+    again = Harness(db, _clock(), KEEP, [round_result(p=None)], [])
+    again.t = h.t
+    again.run()
+    assert again.reasons[0]['why'] != 'FERB restarted during a round'
+
+
+def test_a_pausing_round_is_saved_paused_before_its_notice(db):
+    h = Harness(db, _clock(), KEEP, [round_result('blocked')], [])
+    at_notice = []
+    original = h._notify
+
+    async def notify(text, model_written=False):
+        at_notice.append(h.store.load('tree', 'keep')['state'])
+        h.stop = True
+        await original(text, model_written)
+    h.runner.notify = notify
+    h.run()
+    assert at_notice == ['paused']
+
+
 def test_a_restarted_loop_compares_with_its_stored_baseline(db):
     """A value that changed while FERB was down still trips (spec §5: re-armed from the stored row)."""
     _seed(db, state='watching', rounds=1, probe_json=probe(op='changed').model_dump_json(), baseline_json='"a"',
