@@ -740,11 +740,11 @@ def _state_cap(daemon, values):
     return cap
 
 
-def _round(action='continue', probe=True, summary='Played the tab.'):
+def _round(action='continue', probe=True, summary='Played the tab.', tool='test.state'):
     out = {'status': 'done', 'summary': summary, 'artifacts': [], 'evidence': ['media time moved'],
            'answer': summary, 'loop_action': action}
     if probe:
-        out['probe'] = {'tool': 'test.state', 'args_json': '{}', 'field': 'playing', 'op': 'equals',
+        out['probe'] = {'tool': tool, 'args_json': '{}', 'field': 'playing', 'op': 'equals',
                         'value_json': 'false'}
     return json.dumps(out)
 
@@ -1550,3 +1550,43 @@ def test_chat_status_lists_running_loops(daemon):
     finally:
         c.close()
     assert status['loops'][0]['goal'] == 'Keep it'
+
+
+def test_a_probe_written_with_underscores_is_the_registered_tool_and_trips(daemon, monkeypatch):
+    """The model sees tool names with `_` for `.`; the probe resolves to the registered name once, so it arms,
+    reads and trips like the dotted form, and the stored probe carries the registered name."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True, True, False, True])
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+            {'loop.keep': [_round(tool='test_state'), _round(tool='test_state')], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        assert type(cap).calls >= 2
+        spans = _on_loop(daemon, lambda: [r for r in daemon.daemon.supervisor.spans.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'loop.probe_read' AND task_id LIKE ?", (tree_id + '%',))])
+        assert spans and all('"test.state"' in r[0] and 'test_state' not in r[0] for r in spans)
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_probe_naming_no_registered_tool_is_still_refused(daemon, monkeypatch):
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True, False])
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+            {'loop.keep': [_round(tool='test_nothing')], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 1)
+        import time
+        time.sleep(0.5)
+        assert type(cap).calls == 0                          # refused at arming: nothing was read
+        assert _on_loop(daemon, daemon.daemon.supervisor.loops.digest, tree_id, 'keep')['rounds'] == 1
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()

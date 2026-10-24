@@ -2473,6 +2473,16 @@ class Supervisor(WorkerRuns):
                                         input={'source_refs': [], 'reference': 'loop probe read'})
             self.spans.finish(exposure, output={'payload': '\n'.join(shown)}, origin=origins_.join(read))
 
+    def _resolved_probe(self, probe: Probe | None) -> Probe | None:
+        """The model sees tool names with `_` for `.`: resolve the probe's tool to the registered name once, so the
+        refusal check, the read and the stored probe all use it. An unknown name stays as written (refused as such)."""
+        if probe is None or probe.tool in self.gateway.caps:
+            return probe
+        for name in self.gateway.caps:
+            if name.replace('.', '_') == probe.tool:
+                return probe.model_copy(update={'tool': name})
+        return probe
+
     async def _loop_step(self, tree: _Tree, step: Step, span: str, prior: dict[str, Any]) -> dict[str, Any]:
         """L31: a loop step. Every round is an ordinary worker run with its check, under one task id, so what a round
         starts (a shell session, a FERB tab) is still the loop's in the next round; between rounds LoopRunner reads the
@@ -2520,16 +2530,17 @@ class Supervisor(WorkerRuns):
                 self.spans.finish(round_span, error=SHUT_DOWN if self._suspending else f'{type(exc).__name__}: {exc}')
                 raise
             status, question = out.status, member.owner_question
+            probe = self._resolved_probe(member.probe)
             if unknown and status not in ('needs_user', 'blocked'):
                 status, question = 'blocked', LOOP_UNKNOWN       # the loop waits for the owner
             result = {'status': status, 'summary': member.owner_answer or out.summary, 'evidence': out.evidence,
                       'loop_action': member.loop_action, 'finished_verified': finished, 'question': question}
-            self.spans.finish(round_span, output=result | {'probe': member.probe.model_dump() if member.probe else None})
+            self.spans.finish(round_span, output=result | {'probe': probe.model_dump() if probe else None})
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},
                                 origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
             # the corrections this round's worker took: delivered while it ran, or read as an attempt began
-            return result | {'probe': member.probe, 'steers_seen': member.result_revision}
+            return result | {'probe': probe, 'steers_seen': member.result_revision}
 
         async def round_(cause: dict[str, Any]) -> dict[str, Any]:
             try:
