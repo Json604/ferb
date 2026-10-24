@@ -1634,8 +1634,9 @@ node and uses only AXValue. `mac.secret` refuses a web browser (`profiles.is_web
 and `OTHER_BROWSERS`), before any question: a native secret is bound to the app, and a browser app is every site it
 shows, so a web page's secret goes only through `browser.secret` and its origin. Optional owner-confirmed handles
 persist nonsecret target metadata in `owner-secret-handles.json`; values live in Keychain. `OwnerSecrets` neither saves
-nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install builds/signs `ferb-secrets` with the existing
-local certificate and writes its designated requirement; FERB.app ships the helper in `Contents/Helpers` and setup
+nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install
+builds/signs `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships
+the helper in `Contents/Helpers` and setup
 pins its copy to the exact code hash FERB.app's own signature seals (the `cdhash` when ad-hoc, the Developer ID team
 later). Each call verifies that requirement. No unsigned fallback exists.
 Python production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain
@@ -2335,7 +2336,11 @@ protected FERB state (16.9).
   `task.interrupted`), as do a worker attempt's summary (stopped, stopped responding after N s, report not usable,
   couldn't run), a dispatch failure, a refused reminder or memory (each with code's reason), a scheduled run's
   failure (with `chat.failed`) and a voice turn.
-- A steer replies "Switched to: …" or "Added your correction: …".
+- A steer replies with one short line in the owner's words, "Got it: <the correction, one line, clipped to
+  `SHOWN_WORDS`>" (+ " I'll apply it at my next step." while no run has taken it, + the restated standing scope), as
+  the reply's `display_text`; its `text` (Details in the app; `ferb chat`; the conversation record when a scope is
+  restated) keeps the whole correction and the planner's "Updated task: <goal>" (`steering.acknowledgement`; owner
+  2026-10-24: "whenever i change something in a task it replies with this big ass message").
 
 ### 16.4 Seeing (L12, L13)
 

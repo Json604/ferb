@@ -703,6 +703,12 @@ After the owner's update (2026-10-24):
   Code writes the line from the facts it checked, never from the task's words; the step, the rule id and the task's
   reason stay under Details. A worker's own question is unchanged. The notification for a waiting question uses the
   short line too.
+- Changing a running task gets a one-line reply in your own words (L11; owner, 2026-10-24: "whenever i change
+  something in a task it replies with this big ass message: 'Switched to: <the whole rewritten goal>' ... can we fix
+  this somehow???"). It now reads "Got it: <your correction, on one line, cut at 120 characters>", plus "I'll apply it
+  at my next step." when the running step hasn't taken it yet, and the restated send permission when there is one.
+  The whole correction and the task's updated goal ("Updated task: …") are under Details in the app and are what
+  `ferb chat` shows. This is the acknowledgement of a change, not an answer: answers still show in full.
 
 Licensed under Apache-2.0.
 

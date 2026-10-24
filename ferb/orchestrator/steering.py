@@ -10,16 +10,37 @@ from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
 from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
 from ferb.orchestrator.plans import SendScope
-from ferb.policy import confirm
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
+from ferb.trace.lines import clip
 
+SHOWN_WORDS = 120                           # display only: the correction quoted in a steer's short reply; it decides nothing
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
 CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1: the owner's Yes/No to keeping FERB's wording of what they said
 # FERB's own consequential Yes/No questions: answered only by a plain Yes or No, never by a correction's words (L3)
 FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK})
+
+
+def acknowledgement(words: str, goal: str | None, delivered: bool, stated: str | None) -> tuple[str, str]:
+    """A steer's reply as (text, display_text) (L11; owner 2026-10-24: "whenever i change something in a task it
+    replies with this big ass message: 'Switched to: <the whole rewritten goal>' ... can we fix this somehow???"). The
+    short line repeats the owner's correction on one line, clipped (SHOWN_WORDS); the full text, under Details in the
+    app and in the conversation record, keeps it whole with the planner's updated goal, if any. Either says when it
+    waits for the next step, and carries the restated standing scope (D30). The goal is the planner's words: a line of
+    it that reads like FERB's own check is marked as the task's (D33)."""
+    said = ' '.join(words.split())
+    full = 'Got it: ' + said + ('\nUpdated task: ' + goal if goal is not None else '')
+    short = 'Got it: ' + clip(said, SHOWN_WORDS)
+    if not delivered:
+        full += "\nI'll apply it at my next step."
+        short += " I'll apply it at my next step."
+    full, short = from_task_lines(full), from_task_lines(short)
+    if stated is not None:           # D30: the revised standing scope is stated to the owner in this reply (D33)
+        full += '\n' + from_task_lines(stated)
+        short += '\n' + from_task_lines(stated)
+    return full, short
 
 
 @dataclass
@@ -234,13 +255,8 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))
         supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal})
-        # L11: the reply names what changed: the planner's updated goal, else the owner's correction itself. The goal
-        # is the planner's words: a line of it that reads like FERB's own check is marked as the task's (D33).
-        changed = ('Switched to: ' + tree.spec.goal if spec is not None else
-                   'Added your correction: ' + ' '.join(clean['words'].split()))
-        if not (active and all(accepted)):
-            changed += "\nI'll apply it at my next step."
-        reply = {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}
-        if stated is not None:           # D30: the revised standing scope is stated to the owner in this reply (D33)
-            reply['text'] += '\n' + confirm.from_task_lines(stated.text)
+        # L11: the reply names what changed in the owner's own words; the planner's updated goal is its Details
+        text, short = acknowledgement(clean['words'], tree.spec.goal if spec is not None else None,
+                                      bool(active and all(accepted)), stated.text if stated is not None else None)
+        reply = {'type': 'reply', 'task_id': tree.id, 'text': text, 'display_text': short}
         return reply, stated
