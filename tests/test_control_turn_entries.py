@@ -122,4 +122,3 @@ def test_a_continue_of_an_ended_task_still_saves_its_memory_entry_once(daemon: A
     assert [e['type'] for e in events].count('memory') == 1, events
     assert len(_saved(daemon)) == 1
     assert outcome(events)['task_id'] == tree_id
-
