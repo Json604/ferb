@@ -148,9 +148,10 @@ def round_reason(reason: dict[str, Any]) -> dict[str, Any]:
 
 
 def loop_line(step: Any) -> str:
-    end = f'until {step.end_when.strip()}' if step.end_when.strip() else 'until you say stop'
-    return (f'I\'ll keep at this {end}: {" ".join(step.goal.split())}. Between rounds I only check one fact, '
-            'without the model.')
+    """The code's line under the plan for one loop: only how it ends, the owner's end condition quoted as written; the
+    planner's own words already say what it does (owner 2026-10-24: "so much extra text with this loop message")."""
+    end = step.end_when.rstrip()
+    return f'⟳ Until: “{end}”' if end.strip() else '⟳ Until you say stop'
 
 
 Round = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]

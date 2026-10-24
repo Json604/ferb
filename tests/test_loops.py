@@ -554,9 +554,14 @@ def test_a_round_reason_is_small_and_wraps_what_came_from_outside():
     assert '\nnull\n' in round_reason({'why': 'probe', 'observed': MISSING, 'error': 'gone'})['observed']
 
 
-def test_the_plan_line_says_how_the_loop_ends():
-    assert 'until you say stop' in loop_line(KEEP)
-    assert 'until the checks pass' in loop_line(Step(id='ci', kind='loop', goal='Watch CI', end_when='the checks pass'))
+def test_the_plan_line_marks_how_the_loop_ends_without_repeating_the_goal():
+    """Owner 2026-10-24, on "I'll keep at this until You say to stop.: Monitor the bound Instagram tab …": "why is it
+    spitting so much extra text with this loop message???" The code line is a short marker; the planner's own words
+    already say what the loop does."""
+    assert loop_line(KEEP) == '⟳ Until you say stop'
+    assert loop_line(Step(id='ci', kind='loop', goal='Watch CI', end_when='the checks pass  \n')) == \
+        '⟳ Until: “the checks pass”'
+    assert 'Keep the tab playing' not in loop_line(KEEP)
 
 
 def test_a_failed_round_keeps_the_loop_going_without_a_notice(db):
@@ -954,7 +959,7 @@ def test_a_loop_runs_rounds_under_one_task_and_stops_on_the_owners_stop(daemon, 
                      {'loop.keep': [_round(), _round()], 'worker': done()})
     c, plan = _start_loop(daemon, 'keep this tab playing until I say stop')
     try:
-        assert 'until you say stop' in plan['text']
+        assert '⟳ Until you say stop' in plan['text'] and 'Between rounds' not in plan['text']
         tree_id = plan['task_id']
         _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 2)
         assert _roles(script).count('loop.keep') == 2        # two rounds, one task id

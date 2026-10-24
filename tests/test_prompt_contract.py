@@ -18,8 +18,13 @@ SENTENCES = [
      'Work FERB must repeat or keep true while the owner\'s request runs ("keep this tab playing", "loop until the '
      'checks pass", "every time a reply comes, answer it") is a plan with a loop step: goal is what to keep true or '
      'repeat, end_when is the owner\'s own end condition or empty when they gave none (then only the owner\'s stop '
-     'ends it). Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; '
-     'it grants nothing.'),
+     'ends it).'),
+    ("supervisor.md",
+     'Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it grants '
+     'nothing.'),
+    # owner 2026-10-24: "until I say stop" became end_when "You say to stop."; the owner's own stop is no end condition
+    ("supervisor.md",
+     'When the owner\'s only end is their own stop ("until I say stop", "keep it running"), end_when is empty.'),
     ("supervisor.md",
      'loop repeats a checked round until the owner says stop or end_when is verified, with code checking one exact '
      'fact between rounds;'),

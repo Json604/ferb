@@ -500,7 +500,8 @@ notification, as a reminder does, even with the app open; a check with nothing n
 `ferb schedules` lists each watch with its kind; cancel one there or by asking.
 
 To have something kept true or repeated ("keep this Instagram tab playing until I say stop", "watch PR 12's checks and
-loop until they pass"), FERB makes a loop (L31) and says so in its plan line. A round does the work and checks it,
+loop until they pass"), FERB makes a loop (L31) and says so in its plan line, with one short line for how it ends
+("⟳ Until you say stop", or "⟳ Until: “the checks pass”"). A round does the work and checks it,
 then picks one exact fact that would show the job needs doing again (a tab's playing state, a command's running
 state). Between rounds no model runs: FERB reads that fact every 10 seconds and starts another round only when it
 changes, when something you named happens, when you reply with a correction, or after 30 minutes without one. A loop
