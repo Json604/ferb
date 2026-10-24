@@ -2847,26 +2847,49 @@ Spec `docs/superpowers/specs/2026-10-24-ferb-cursor-design.md`; plan `docs/super
 Geometry only: nothing about what the action does or says leaves the tool.
 - **Point.** `ferb/act/point.py`: `Point(kind, rect, display)` (validated), `display_of`, `POINT_TIMEOUT_S = 0.5`. A tool may
   define `point(args, grant)`; `Gateway._point` calls it before `before_action` under that timeout, so a slow or failing
-  lookup costs the action nothing, and publishes the bus topic `cursor.point` `{task_id, kind, rect: [x, y, w, h],
-  display}` (global points). The topic is TELEMETRY, so the bus may drop it under load. It is not journaled.
-- **Native.** MacAct and MacSecret report their Accessibility element's rect. MacClick maps screenshot pixels to an
-  8×8 pt rect through `driver.shot_to_screen` (shared with `click_at`). MacMenu and MacPointer report none.
-  `screenshot.window_on_screen` accepts only a layer-0, on-screen window that matches, so a minimized window, another
-  Space or a covered window gets no pointer.
-- **Browser (extension 0.15.9, protocol 17, minimum 0.15.6).** BrowserAct and BrowserSecret place the element through the
-  page's AX web area (`page_on_screen`) and predict where the extension's scroll-to-centre leaves it. New optional
-  snapshot facts: `window`, `visual`, per element `pinned` and `scroll_box`, and page `scroll.x` / `scroll.width` /
-  `body_scrolls`; `scrollIntoView` and `scrollBy` are now `behavior: "instant"` (smooth-scroll pages made real input aim at
-  the pre-scroll spot). There is no point for: sub-frames, FERB's own minimized window, fixed or sticky elements
-  ("unknown" under a transform-like ancestor, found by walking drawn parents through slots and shadow roots), sideways
-  scrolling, a body that scrolls itself, inner scroll boxes, stale rects after FERB's own scrolls (the `moved` flag),
-  refused acts, and pinch zoom (`visualViewport.scale != 1`). Publishing nothing beats publishing a wrong spot.
+  lookup costs the action nothing, and publishes the bus topic `cursor.point` `{task_id, worker_id, kind, rect:
+  [x, y, w, h], display}` (global points). `task_id` is the step's root task (`TaskRecord.tree_id`; a step runs as
+  `<tree>.worker`, `<tree>.step.N` or `<tree>.loop.N`), so a task keeps one pointer across its steps and its
+  `task.result` ends it; `worker_id` is the worker that acted, as `tool.called` names it. The topic is TELEMETRY, so
+  the bus may drop it under load. It is not journaled.
+- **Native.** MacAct and MacSecret report their element's Accessibility frame read at act time (`ax.frame`, off the
+  loop), not the snapshot's rect, which goes stale when a list scrolls or the window moves. They report none for an act
+  the driver would refuse before any input or that doesn't go to the element (`driver.acts_on` mirrors `act`'s checks:
+  no text, foreground without the call's permission, a route the action doesn't take, typing a password; keys go to
+  the app's focus; a drift test runs `act` against it) or that `precheck` refuses (a terminal app, `mac.secret` on a
+  browser). MacClick maps screenshot pixels to an 8×8 pt rect through `driver.shot_to_screen` (shared with
+  `click_at`); `shot_point` applies `click_at`'s moved-window check. MacMenu and MacPointer report none.
+  `screenshot.window_on_screen` counts a spot only when the frontmost normal window (layer 0, not transparent) at its
+  centre, in the window server's front-to-back order, is the target: the process's window, the screenshot's window
+  (by id) or the browser's matched window. So a minimized window, another Space or a window behind another window at
+  that spot gets no pointer. Residual: a native element's own window isn't matched (a sheet or popover is a window of
+  its own), so another window of the same app over the spot still counts.
+- **Browser (extension 0.15.9, protocol 17, minimum 0.15.6).** BrowserAct, BrowserSecret and BrowserLoginCode place the
+  element through the page's AX web area (`page_on_screen`) and predict where the extension's scroll-to-centre leaves
+  it. New optional snapshot facts: `window`, `visual`, per element `pinned` and `scroll_box`, and page `scroll.x` /
+  `scroll.width` / `body_scrolls`; `scrollIntoView` and `scrollBy` are now `behavior: "instant"` (smooth-scroll pages
+  made real input aim at the pre-scroll spot). A typing point is clipped to the part of the field the visual viewport
+  shows (`page_rect(visible=True)`). There is no point for: sub-frames, FERB's own minimized window, a tab its window
+  doesn't show (task tabs open in the background, so most browser work shows none), centring acts on fixed or sticky
+  elements (a fixed one is pointed for acts that don't scroll; "unknown" under a transform-like ancestor, found by
+  walking drawn parents through slots and shadow roots), sideways scrolling, a body that scrolls itself, inner scroll
+  boxes, stale rects after FERB's own scrolls (the `moved` flag), refused acts (`_refused`), and pinch zoom for
+  centring acts (`visualViewport.scale != 1`). Publishing nothing beats publishing a wrong spot.
 - **Overlay (`ui/mac/FERBNotch`).** `DaemonConnection` parses `cursor.point`; `CursorController` keeps one pointer per
-  task and `CursorPanel` is a borderless, click-through window per display (`ignoresMouseEvents`, `hidesOnDeactivate =
+  root task, ended by its `task.result`, with a shade the task keeps across idle gaps until then (a new task takes a
+  shade no running task holds), and aims a typing pointer at the field's leading edge, never past its middle.
+  `CursorPanel` is a borderless, click-through window per display (`ignoresMouseEvents`, `hidesOnDeactivate =
   false`, `.ignoresSafeArea()` so the notch inset doesn't shift it). The pointer springs to each point, fades after 1.5 s
   idle and fades in place under Reduce Motion. Panels close on screen changes. No ripple, shimmer or drift: the owner left
   decoration to a later polish. The switch "Show FERB's pointer" (`cursor.enabled`, default on) is in the settings.
-- **Debugging.** `cursor.point` goes to the app only, not to the journal, so `ferb logs` does not show it; compare the
-  action's `tool.called` span in `ferb trace TASK --full` with what the pointer did. No pointer for an action means the
-  tool gave none (see the cases above), the lookup passed 0.5 s, or the switch is off. Tests: `tests/test_cursor.py` and
-  the Swift suite.
+- **What it is not.** The pointer shows where FERB aims from its last look. A page controls its own layout, so it can
+  mislead the pointer (a shift between the snapshot and the act); nothing in FERB reads the pointer to decide anything
+  (confirmations, the sink rule and the trace never use it), and the trace records what FERB actually touched. The
+  first point on a display, and the first after a screen change or a switch toggle, creates FERB.app's overlay window,
+  which the disturbance record (`visible_window_order`) may list inside that action: it is FERB's own.
+- **Debugging.** Run `ferb logs` (no filter) while the task runs: each `cursor.point` (root task, worker, kind, rect,
+  display) appears between its action's `tool.called` and `tool.finished`. It is not journaled, so `ferb trace` can't
+  show it afterwards, and a filtered `ferb logs` (`--tools` and the like) omits it; the action's span in `ferb trace
+  TASK --full` is `tool.call`. No `cursor.point` for an action means the tool returned none (the cases above), the
+  lookup passed 0.5 s, or the bus dropped it; an event but no arrow means the switch is off or that display has no
+  panel. Tests: `tests/test_cursor.py` and the Swift suite.
