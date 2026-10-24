@@ -2806,7 +2806,9 @@ planner's own words say what the loop does.
   and a reconnect's sweep from disarming it. The extension is unchanged (its D35 interception and page hook stay on;
   what they catch goes back to the browser), so every extension version behaves so. During a round, what its
   actions start is FERB's (D35). `keep_open` on the owner's tab asks the browser's tab list that the tab is still
-  open. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
+  open. Known residual (review M10): after an extension reconnect a held tab's ref keeps the old connection's
+  generation, and `attach` hands later rounds that stale ref ("belongs to an older browser connection"), so the loop
+  can't borrow the tab again until it ends; a long-held loop tab makes this likelier. Not fixed in this batch. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
   `Supervisor.task_tabs`, the daemon's `_task_tabs`, redacted), so a later round uses them without listing and
   borrowing again. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
   for look-only rounds"; `loops.look_only_round`, called by `Supervisor._look_only`): it reported `continue` with a
