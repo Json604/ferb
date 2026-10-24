@@ -632,19 +632,20 @@ class Daemon:
             return text
         from ferb.orchestrator.steering import MEMORY_ASKS
         open_now = self.state.approvals.pending()
+        choice = text.strip().rstrip(".!").strip()      # as an option pick reads it (supervisor `_bare`): "Keep." is Keep
         for ap in open_now:
             if ap.capability in MEMORY_ASKS:            # FERB's memory questions never ask for a secret (L36)
                 continue
             # a login-code prompt asks for a code by its kind, whatever its words say
             reason = "login code" if ap.kind == "owner_login_code" else ap.reason
-            if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(text.strip()) is None:
+            if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(choice) is None:
                 text = self.redact.answer(text, question=reason, reply=True)
         if session_id is not None and self.supervisor is not None:
             asked = self.supervisor.continuity.pending(session_id)[1]
             # never a choice (exactly an option of a waiting question), and never after FERB's own "which is it?"
             # about memory questions only, whose words quote a guess (L36: "passwords" there asks for nothing); the
             # planner's question FERB's asking displaced still counts (rule 14)
-            if not any(ap.option_for(text.strip()) is not None for ap in open_now):
+            if not any(ap.option_for(choice) is not None for ap in open_now):
                 if asked and not self.supervisor.asked_only_about(session_id, MEMORY_ASKS):
                     text = self.redact.answer(text, question=asked, reply=True)
                 displaced = self.supervisor.displaced_question(session_id)

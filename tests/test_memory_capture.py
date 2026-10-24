@@ -321,8 +321,8 @@ def test_a_password_for_the_planners_question_ferb_displaced_is_still_hidden(dae
     install(daemon, [json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": q.id,
                                                                                     "answer": q.options[0]}})])
     assert "Is that" in " ".join(str(e.get("text")) for e in chat(daemon, "sure"))          # FERB's own question
-    assert run(daemon, lambda: [daemon.daemon._hide_code_reply(w, "s1") for w in ("hunter2!", option)]) == [
-        "[redacted]", option]
+    assert run(daemon, lambda: [daemon.daemon._hide_code_reply(w, "s1") for w in ("hunter2!", option, option + ".")]) == [
+        "[redacted]", option, option + "."]                 # a closing full stop is still the choice, as `_bare` reads it
 
 
 def test_an_option_of_a_waiting_question_is_never_hidden_as_a_password(daemon: Any) -> None:
