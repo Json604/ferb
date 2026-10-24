@@ -1,8 +1,7 @@
 # Code watchers: long-running watches without AI calls — design (2026-10-25)
 
-Status: the owner approved the idea ("YES add this") and answered its questions on 2026-10-25 (below). This written
-design awaits the owner's review before a plan. Decision id: L38. Built before the public launch, after memory (L36)
-and the 2026-10-25 loop-speed batch, and before proactivity (L37), whose offers can use it.
+Status: PARKED by the owner on 2026-10-25 ("lets drop this. not doing this now. lets stay on track"). Not
+scheduled; kept for a later decision. Decision id reserved: L38.
 
 ## Why
 
