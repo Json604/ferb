@@ -10,6 +10,7 @@ import dataclasses
 import inspect
 import json
 import re
+import time
 import hashlib
 from pathlib import Path
 from contextlib import suppress
@@ -48,6 +49,8 @@ from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
+from ferb.orchestrator.loops import LOOP_ROUND, LoopRunner, LoopStore, loop_line, round_reason
+from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
@@ -75,6 +78,9 @@ SHUT_DOWN = "FERB shut down before it finished"
 # P19: an attempt whose outcome is still unknown after the owner approved trying it once more (it may have happened)
 RETRY_APPROVED_STATUS = "outcome unknown; the owner approved one retry, not tried yet"
 RETRY_USED_STATUS = "outcome unknown; the owner approved one retry, which has been tried"
+# L31 with P19: a loop round left an action whose outcome is unknown; the loop pauses until the owner replies
+LOOP_UNKNOWN = ("Something I did in the last round may or may not have gone through (I couldn't see how it ended), "
+                "so I won't do it again without you.")
 WORKER = "worker"                                # the one worker's step id (task id "<tree>.worker")
 
 # F4 live fixes (task 79bc5bfa): every check also judges the report the owner will see against the recorded evidence.
@@ -342,6 +348,9 @@ class _Tree:
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     watch_met: bool | None = None        # a watch run's worker: whether the watched condition holds now (fix wave 6c)
     watch: bool = False                  # a watch's run: its check judges watch_met; its start isn't published
+    loop_action: str | None = None       # a loop round's worker: continue / finished / blocked (L31)
+    probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
+    hold_resources: bool = False         # a loop round: what it starts stays the loop's until the loop ends
     step_context: str = ''
     required_inputs: list[str] = field(default_factory=list)
     steering: Steering = field(default_factory=Steering)
@@ -414,6 +423,11 @@ class Supervisor(WorkerRuns):
         self.on_conversation_resume: Callable[[], None] = lambda: None
         self.gateway.standing = self.standing
         self._plan_runs: dict[str, PlanExecutor] = {}
+        self.loops = LoopStore(self.plans.db, self.clock)                 # loop steps' durable state (L31)
+        self._loops: dict[str, set[Any]] = {}                             # tree id -> its running LoopRunners
+        self._loop_status: dict[tuple[str, str], dict[str, Any]] = {}     # (tree id, step id) -> its last status
+        # a loop's chat notice (a pause, a back-off): (tree id, step id, text); the daemon supplies it
+        self.on_loop_notice: Callable[[str, str, str], Awaitable[None]] | None = None
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
@@ -837,6 +851,8 @@ class Supervisor(WorkerRuns):
             tree.stop = tree.stop or (SHUT_DOWN if self._suspending else "FERB was stopped")
         for engine in self._plan_runs.values():
             engine.wake()
+        for tree_id in list(self._loops):
+            self.wake_loops(tree_id)
 
     def suspend_plans(self) -> None:
         """A daemon shutdown differs from the owner's permanent stop."""
@@ -846,12 +862,13 @@ class Supervisor(WorkerRuns):
 
     def notify_plan_event(self, topic: str, data: dict[str, Any]) -> None:
         # Only persist events a currently registered plan actually waits for; no retention policy is invented here.
-        interested = [run for key, run in self._plan_runs.items()
+        interested = [(key, run) for key, run in self._plan_runs.items()
                       if any(s.event == topic for s in self.plans.load(key)['plan'].steps)]
         if interested:
             self.plans.event(topic, data)
-            for run in interested:
+            for key, run in interested:
                 run.wake()
+                self.wake_loops(key)            # a loop step waiting on this event looks now (L31)
 
     async def resume_plans(self) -> None:
         """Restore exactly the same tree, so completed steps and P19 uncertain-action checks retain their identity."""
@@ -1890,6 +1907,8 @@ class Supervisor(WorkerRuns):
                 stated = "\n" + self.gateway.redact(self._plan_statement(
                     spec.plan, self._allowed_scopes(tree, spec.plan), unattended=unattended,
                     attended=tree.unattended_scopes is None))
+            if spec.plan and any(s.kind == 'loop' for s in spec.plan.steps):     # how each loop ends (L31)
+                stated += "\n" + self.gateway.redact("\n".join(loop_line(s) for s in spec.plan.steps if s.kind == 'loop'))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
@@ -2164,6 +2183,8 @@ class Supervisor(WorkerRuns):
                 return await self._plan_question(tree, step.question, step.options)
             if step.kind == 'converse':
                 return await self._conversation_steps(tree, step, span, queue, prior)
+            if step.kind == 'loop':
+                return await self._loop_step(tree, step, span)
             child_spec = tree.spec.model_copy(deep=True)
             child_spec.plan = None
             child_spec.goal, child_spec.worker_type = step.goal, step.worker_type
@@ -2396,6 +2417,193 @@ class Supervisor(WorkerRuns):
             origins_.external('conversation')}))
         return result
 
+    # ---------- loops (L31) ----------
+
+    def wake_loops(self, tree_id: str) -> None:
+        """A steer, a plan event or a stop for this tree: its loops look now (L31)."""
+        for runner in list(self._loops.get(tree_id, ())):
+            runner.wake()
+
+    def loop_statuses(self) -> list[dict[str, Any]]:
+        """Each running loop's latest `loop.status`: the notch's standing work and chat.status (L31)."""
+        return list(self._loop_status.values())
+
+    def _loop_failed(self, tree_id: str, step_id: str, what: str, exc: BaseException) -> None:
+        """A loop's round, read, record, notice or status line that failed: journaled (the journal redacts) and
+        swallowed, so the loop runs on; its runner has no try/finally (L31)."""
+        with suppress(Exception):
+            self.journal.append('loop.failed', {'task_id': tree_id, 'step': step_id, 'what': what,
+                                                'error': f'{type(exc).__name__}: {exc}'})
+
+    def _unknown_actions(self, tree_id: str, task_id: str) -> set[str]:
+        """The ledger rows this task wrote whose outcome is unknown (P19)."""
+        return {row['id'] for row in self.gateway.ledger.unresolved(tree_id)
+                if row['task_id'] == task_id and row['state'] == 'unknown'}
+
+    async def _loop_step(self, tree: _Tree, step: Step, span: str) -> dict[str, Any]:
+        """L31: a loop step. Every round is an ordinary worker run with its check, under one task id, so what a round
+        starts (a shell session, a FERB tab) is still the loop's in the next round; between rounds LoopRunner reads the
+        round's probe through `Gateway.probe` without a model. The loop's resources are released when it ends (not at a
+        shutdown: the loop isn't over, and its round re-runs after the restart). Every callback the runner gets is
+        kept from raising (only a cancellation passes), since the runner has no try/finally."""
+        conditions = [Condition(text=text, owner_text=text, check=Check(kind='none', path=None, text=None,
+                      url_contains=None, site=None, expected=None)) for text in (step.conditions or [step.goal])]
+        child = dataclasses.replace(tree.worker, id=f'{tree.id}.loop.{step.id}', goal=step.goal,
+                                    success_conditions=[c.text for c in conditions])
+        if self.tasks.get(child.id) is None:
+            self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
+        holder = _Tree(tree.id, tree.spec.model_copy(deep=True), child, steering=tree.steering)
+        self._tree_of[child.id] = holder              # a stop before the first round reaches the loop's task id too
+        shown: set[str] = set()                       # origins of the probe reads the next round is told of
+
+        async def play(cause: dict[str, Any]) -> dict[str, Any]:
+            spec = tree.spec.model_copy(deep=True)
+            spec.plan, spec.goal, spec.worker_type = None, step.goal, step.worker_type
+            spec.success_conditions = list(conditions)
+            why = round_reason(cause)
+            member = _Tree(tree.id, spec, child, prior_task=tree.prior_task, steering=tree.steering,
+                           hold_resources=True, step_context=json.dumps({
+                               'loop': {'goal': step.goal, 'end_when': step.end_when, 'why_this_round': why},
+                               'earlier_rounds': self.loops.digest(tree.id, step.id), 'instruction': LOOP_ROUND}))
+            self._tree_of[child.id] = member
+            if shown:          # what a probe read reaches this round's worker: outside content read (MP2, S4)
+                read = self.spans.start('context.exposure', task_id=child.id,
+                                        input={'source_refs': [], 'reference': 'loop probe read'})
+                self.spans.finish(read, output={'payload': json.dumps(why, ensure_ascii=False)},
+                                  origin=origins_.join(shown))
+                shown.clear()
+            round_span = self.spans.start('loop.round', task_id=child.id, parent_id=span,
+                                          input={'step': step.id, 'number': cause.get('number'),
+                                                 'why': cause.get('why')})
+            before = self._unknown_actions(tree.id, child.id)
+            try:
+                out = await self._worker(member, round_span.id)
+                finished = (member.loop_action == 'finished' and bool(step.end_when.strip()) and out.status == 'done'
+                            and not (member.stop or tree.stop)
+                            and await self._loop_end_reached(member, step, out, round_span.id))
+                if self._suspending:
+                    # FERB is shutting down: the round reports nothing; it stays 'acting' and re-runs after the restart
+                    raise asyncio.CancelledError
+            except BaseException as exc:
+                self.spans.finish(round_span, error=SHUT_DOWN if self._suspending else f'{type(exc).__name__}: {exc}')
+                raise
+            status, question = out.status, member.owner_question
+            if self._unknown_actions(tree.id, child.id) - before and status not in ('needs_user', 'blocked'):
+                status, question = 'blocked', LOOP_UNKNOWN       # P19: the loop waits for the owner
+            result = {'status': status, 'summary': member.owner_answer or out.summary, 'evidence': out.evidence,
+                      'loop_action': member.loop_action, 'finished_verified': finished, 'question': question}
+            self.spans.finish(round_span, output=result | {'probe': member.probe.model_dump() if member.probe else None})
+            self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
+                                               **result},
+                                origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+            return result | {'probe': member.probe}
+
+        async def round_(cause: dict[str, Any]) -> dict[str, Any]:
+            try:
+                return await play(cause)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:               # a round that crashed is a failed round: the loop runs on
+                self._loop_failed(tree.id, step.id, 'round', exc)
+                return {'status': 'failed', 'summary': couldnt('finish this round', exc, self.gateway.redact),
+                        'evidence': [], 'loop_action': None, 'probe': None, 'finished_verified': False, 'question': ''}
+
+        def arm(probe: Probe) -> str | None:
+            return refusal(probe, self.gateway.caps.get(probe.tool), child.scopes, child.identity)
+
+        async def read(probe: Probe) -> tuple[Any, str | None, set[str]]:
+            try:
+                grant = RunGrant(child.id, child.id + '.probe', frozenset(child.scopes), child.identity, float('inf'),
+                                 True)
+                got = await self.gateway.probe(grant, probe.tool, probe.args(), span)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._loop_failed(tree.id, step.id, 'probe', exc)
+                return MISSING, reason(exc, self.gateway.redact), {origins_.FERB}
+            if got['is_error']:
+                content = got['content']
+                error = content.get('error') if isinstance(content, dict) else content
+                return MISSING, str(error or 'the probe failed'), set(got['origins'])
+            return field_value(got['content'], probe.field), None, set(got['origins'])
+
+        def record(kind: str, probe: Probe, value: Any, error: str | None, origins: set[str], reads: int) -> None:
+            try:
+                if kind != 'baseline':                # a trip's value or a read's error goes to the next round
+                    shown.update(origins)
+                s = self.spans.start('loop.probe_read', task_id=child.id, parent_id=span,
+                                     input={'step': step.id, 'read': kind, 'probe': probe.model_dump(),
+                                            'reads_since_armed': reads})
+                self.spans.finish(s, output={'value': None if value is MISSING else value}, error=error,
+                                  origin=origins_.join(origins or {origins_.FERB}))
+            except Exception as exc:
+                self._loop_failed(tree.id, step.id, 'record', exc)
+
+        def event(cursor: int) -> tuple[int, dict[str, Any]] | None:
+            try:
+                return self.plans.event_seq_after(step.event or '', cursor, step.event_match)
+            except Exception as exc:
+                self._loop_failed(tree.id, step.id, 'event', exc)
+                return None
+
+        async def notify(text: str) -> None:
+            try:
+                # a pause quotes the round's own words: model-written from what the task read (MP2)
+                self.journal.append('loop.notice', {'task_id': tree.id, 'step': step.id, 'text': text},
+                                    origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
+                if self.on_loop_notice is not None:
+                    await self.on_loop_notice(tree.id, step.id, text)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._loop_failed(tree.id, step.id, 'notice', exc)
+
+        def status(view: dict[str, Any]) -> None:
+            try:
+                data = {'task_id': tree.id, 'step': step.id, 'goal': step.goal, **view}
+                self._loop_status[(tree.id, step.id)] = data
+                self.publish('loop.status', data)
+            except Exception as exc:
+                self._loop_failed(tree.id, step.id, 'status', exc)
+
+        runner = LoopRunner(
+            store=self.loops, task_id=tree.id, step=step, round=round_, arm=arm, probe=read, record=record,
+            event=event if step.event else None, steers=lambda: len(tree.steering.messages), notify=notify,
+            status=status, stopped=lambda: bool(tree.stop) and not self._suspending,
+            now=time.time, event_cursor=self.plans.event_cursor())
+        self._loops.setdefault(tree.id, set()).add(runner)
+        try:
+            result = await runner.run()
+            self.tasks.set_status(child.id, result['status'], {'summary': result['summary']})
+            return result
+        finally:
+            runners = self._loops.get(tree.id, set())
+            runners.discard(runner)
+            if not runners:
+                self._loops.pop(tree.id, None)
+            if not self._suspending:
+                self._loop_status.pop((tree.id, step.id), None)
+                await self._release_resources(holder, span)
+                tree.resources.extend(holder.resources)
+                tree.cleanup_errors.extend(holder.cleanup_errors)
+
+    async def _loop_end_reached(self, member: _Tree, step: Step, out: Outcome, span: str) -> bool:
+        """A round reported the owner's end condition met: a check of that condition alone decides (V3, W4). A check
+        that can't run decides nothing: the loop goes on."""
+        spec = member.spec.model_copy(deep=True)
+        spec.success_conditions = [Condition(text=step.end_when, owner_text=step.end_when, check=Check(
+            kind='none', path=None, text=None, url_contains=None, site=None, expected=None))]
+        judge = dataclasses.replace(member, spec=spec, outcome=out, verification=[])
+        try:
+            results = await self.verify(judge, span)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.journal.append('task.inspection_failed', {'task_id': member.worker.id,
+                                                           'error': f'{type(exc).__name__}: {exc}'})
+            return False
+        return bool(results) and all(r.met is True for r in results)
+
     async def _release_resources(self, tree: _Tree, parent_span: str) -> bool:
         """Release worker and checker resources, preserving actual observations and every cleanup failure."""
         observed = False
@@ -2478,6 +2686,7 @@ class Supervisor(WorkerRuns):
                 member.stop = tree.stop or STOPPED_BY_YOU
         if tree.id in self._plan_runs:
             self._plan_runs[tree.id].wake()
+        self.wake_loops(tree.id)
         ids = self._tree_task_ids(tree)
         self.gateway.cancel_tasks(ids)
         for worker_id, (_, run) in list(self._worker_runs.items()):
@@ -2500,6 +2709,8 @@ class Supervisor(WorkerRuns):
             tree.check_problem = ""
             tree.checked_report = None
             tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
+            tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
+            tree.probe = None
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
@@ -2512,6 +2723,8 @@ class Supervisor(WorkerRuns):
                 tree.conversation_action = getattr(w, 'conversation_action', None)
                 tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
                 tree.watch_met = getattr(w, 'watch_met', None)
+                tree.loop_action = getattr(w, 'loop_action', None)
+                tree.probe = getattr(w, 'probe', None)
                 if out.status == 'done' and tree.required_inputs:
                     covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
                     missing = [p for p in tree.required_inputs if covered.count(p) != 1]
@@ -2557,7 +2770,8 @@ class Supervisor(WorkerRuns):
                                   artifacts, evidence + unresolved)
             if out.status == 'done' and not tree.stop:
                 tree.outcome = out
-                changed = await self._release_resources(tree, span)
+                # a loop round's resources stay the loop's until the loop ends (L31): released once, by _loop_step
+                changed = False if tree.hold_resources else await self._release_resources(tree, span)
                 if changed and not tree.stop:
                     await self._reconcile_resources(tree, span)
                     out = tree.outcome

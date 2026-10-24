@@ -23,6 +23,7 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
             "voice.heard", "voice.said", "browser.debugger_detached",
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",
+            "loop.status",       # a loop's state change (L31): the notch's standing work must never miss its last
             "voice.device_unresolved",
             "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback",
             "memory.forgot"}   # a forget the owner said Yes to from the notch's buttons (I2)

@@ -13,6 +13,7 @@ from pydantic import BaseModel, model_validator
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
 from ferb.orchestrator.plans import Plan, SendScope
+from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
 
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
 
@@ -137,6 +138,9 @@ WORKER_SCHEMA: dict[str, Any] = _obj({
                       "note": {"type": "string"}, "evidence": _strings()})},
     # a watch's run only: whether the watched condition holds now, from the worker's fresh observation (null otherwise)
     "watch_met": {"type": ["boolean", "null"]},
+    # a loop round only (L31): what the loop does next, and the probe code reads between rounds (null otherwise)
+    "loop_action": {"type": ["string", "null"], "enum": ["continue", "finished", "blocked", None]},
+    "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]},
 })
 
 DISPATCH_SCHEMA = _obj({
@@ -345,6 +349,8 @@ class WorkerOutcome(BaseModel):
     conversation_action: Literal['wait', 'handover', 'finished', 'blocked'] | None = None
     conversation_proposals: list[dict[str, Any]] = []
     watch_met: bool | None = None
+    loop_action: Literal['continue', 'finished', 'blocked'] | None = None
+    probe: Probe | None = None
 
 
 class DispatchOutcome(BaseModel):
