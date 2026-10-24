@@ -136,6 +136,7 @@ def _named_node(node: dict[str, Any]) -> str:
 
 
 # L36 §2: FERB's questions about one of its guesses (a chat paraphrase; distillation asks with distill.KEEP_GUESS)
+BACKLOG_OFFERED = "memory.backlog_offered"     # L36: the older guesses are offered once, as one list
 KEEP_WORDING = "Keep this, in FERB's words (you didn't say it this way)? “{text}”"
 EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB saves exactly what you type. "
                  "(Its guess: “{text}”)")
@@ -1830,6 +1831,20 @@ class Daemon:
             return "Saved in your words: " + " ".join(mine.content.split())
         raise FerbError("Pick Keep, Edit or Drop; Edit needs the words to save.")
 
+    def _guess_backlog(self) -> dict[str, Any] | None:
+        """L36 ruling ("The backlog"): FERB's guesses that were waiting before it asked about each at once, offered
+        once as one "Review N older guesses" list (each Keep / Edit / Drop, through op "guess"); a guess already asked
+        about is not in it. Marked offered whenever it is read, so it never comes back; None when there is nothing."""
+        if self._journal().of_kind(BACKLOG_OFFERED):
+            return None
+        asked = {r["target"] for r in self.db.conn.execute("SELECT target FROM memory_questions")}
+        waiting = [i for i in self.memory.items("proposed") if i.origin == "inferred" and i.id not in asked]
+        entry = self._journal().append(BACKLOG_OFFERED, {"count": len(waiting)})
+        if not waiting:
+            return None
+        return {"id": entry.id, "text": f"Review {len(waiting)} older guess{'' if len(waiting) == 1 else 'es'}",
+                "proposals": [{"id": i.id, "text": " ".join(i.content.split())} for i in waiting]}
+
     def _forget_would_take(self, item_id: str) -> bool:
         """Whether a waiting "Forget for good?" about a memory would delete this item: its target, another version of the
         same fact, or an item built on the same sources (`plan_forget`, worked out as its Yes would)."""
@@ -1927,6 +1942,10 @@ class Daemon:
         if l is None:
             raise LearningRefused("learning store unavailable")
         op, ident = params.get("op", "inventory"), str(params.get("id", ""))
+        if op == "backlog":
+            return {"backlog": self._guess_backlog()}
+        if op == "guess":
+            return {"line": self._settle_guess(ident, str(params.get("action", "")), str(params.get("text") or ""))}
         if op == "inventory":
             l.sync_facts(self.memory)
             return {"items": [n | {"confirmable": not n["confirmed"] and (

@@ -846,6 +846,8 @@ After the owner's update (2026-10-24):
   look, becomes a question at once: Keep, Edit (your own words are saved instead) or Drop (deleted); after Edit or Drop
   FERB never suggests that guess again. Text typed into that question that isn't one of the three is refused, so a
   stray "yes" is never saved.
+- The guesses FERB had made about you without asking appear once in the notch as one list, "Review N older guesses",
+  each with Keep, Drop or your own words (L36).
 
 Licensed under Apache-2.0.
 

@@ -680,6 +680,8 @@ When FERB guesses something about you that you didn't say in those words (from c
 day), it asks at once: "Keep this? …" with Keep, Edit and Drop. Edit asks for your own words and saves them as yours;
 Drop deletes the guess (your messages stay) and FERB never suggests it again. The nightly look saves what you said in so
 many words as your own, after checking the words against what you typed (never pasted text).
+The guesses FERB made before it started asking appear once in the notch as one list, "Review N older guesses", each
+with Keep, Drop or a field for your own words.
 
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, with full paged bodies. "Remember that …" saves as yours the whole sentence you

@@ -105,13 +105,17 @@ public struct NoticeQuote: Codable, Equatable {
 public struct LearningProposal: Codable, Equatable {
     public let id: String
     public let text: String
-    /// "confirmed" or "not right"; nil while undecided.
+    /// "confirmed" or "not right" for a learning digest item; "kept", "dropped" or "edited" for a guess; nil while
+    /// undecided.
     public var decision: String?
+    /// "guess" for one of FERB's older guesses about the owner (L36: Keep, Edit or Drop); nil for a digest item.
+    public var kind: String?
 
-    public init(id: String, text: String, decision: String? = nil) {
+    public init(id: String, text: String, decision: String? = nil, kind: String? = nil) {
         self.id = id
         self.text = text
         self.decision = decision
+        self.kind = kind
     }
 }
 

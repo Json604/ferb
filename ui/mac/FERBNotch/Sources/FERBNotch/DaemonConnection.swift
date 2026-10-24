@@ -54,7 +54,7 @@ extension NotchModel {
         guard !refreshingStatus else { return }
         refreshingStatus = true
         // Before the snapshot below, so this extra read never makes it stale.
-        if bodyVisible && viewingToday { await fetchLearningDigest() }
+        if bodyVisible && viewingToday { await fetchLearningDigest(); await fetchGuessBacklog() }
         let rootsBefore = Set(workSessions.values.compactMap(\.backendTaskID))
             .union(session.backendTaskID.map { [$0] } ?? [])
             .union(conversation.turns.filter { ["working", "interrupted", "needs_user"].contains($0.status) }.compactMap(\.backendTaskID))
@@ -467,14 +467,34 @@ extension NotchModel {
     func fetchLearningDigest() async {
         guard let reply = try? await rpc.call("memory.learning", params: ["op": "digest"]),
               let digest = reply["digest"] as? [String: Any] else { return }
-        let proposals = (digest["proposals"] as? [[String: Any]] ?? []).compactMap { proposal -> LearningProposal? in
-            guard let id = proposal["id"] as? String, !id.isEmpty, let text = proposal["text"] as? String else { return nil }
-            return LearningProposal(id: id, text: text)
-        }
+        let proposals = learningProposals(digest["proposals"], kind: nil)
         guard !proposals.isEmpty else { return }
         let day = digest["day"] as? String ?? proposals.map(\.id).joined(separator: ",")
-        guard conversation.addNotice(id: "learned:" + day, text: "Here are things I learned that need your confirmation:",
-                                     tag: nil, proposals: proposals) else { return }
+        showLearningNotice(id: "learned:" + day, text: "Here are things I learned that need your confirmation:",
+                           proposals: proposals)
+    }
+
+    /// FERB's guesses that were waiting before it asked about each at once (L36): offered once as one list
+    /// (`memory.learning {op: backlog}`, which marks it offered), shown at once in today's chat.
+    func fetchGuessBacklog() async {
+        guard let reply = try? await rpc.call("memory.learning", params: ["op": "backlog"]),
+              let backlog = reply["backlog"] as? [String: Any], let id = backlog["id"] as? String,
+              let text = backlog["text"] as? String else { return }
+        let proposals = learningProposals(backlog["proposals"], kind: "guess")
+        guard !proposals.isEmpty else { return }
+        showLearningNotice(id: "guesses:" + id, text: text, proposals: proposals)
+    }
+
+    /// The items of a learning notice from a daemon reply; `kind` marks what they are ("guess", or nil for a digest item).
+    private func learningProposals(_ items: Any?, kind: String?) -> [LearningProposal] {
+        (items as? [[String: Any]] ?? []).compactMap { item -> LearningProposal? in
+            guard let id = item["id"] as? String, !id.isEmpty, let text = item["text"] as? String else { return nil }
+            return LearningProposal(id: id, text: text, kind: kind)
+        }
+    }
+
+    private func showLearningNotice(id: String, text: String, proposals: [LearningProposal]) {
+        guard conversation.addNotice(id: id, text: text, tag: nil, proposals: proposals) else { return }
         saveConversation()
         onBackgroundChange?(true)
     }
@@ -482,12 +502,28 @@ extension NotchModel {
     /// The owner's answer to one learned item: Confirm keeps it (`confirm`); Not right retires it so it isn't proposed
     /// again (`retire`, a state change, not a deletion).
     func decideLearning(noticeID: String, proposalID: String, confirm: Bool) {
+        settleLearning(noticeID: noticeID, proposalID: proposalID, params: ["op": confirm ? "confirm" : "retire"],
+                       decision: confirm ? "confirmed" : "not right",
+                       failure: "That answer about what FERB learned wasn't recorded. Try again.")
+    }
+
+    /// The owner's answer to one older guess: Keep, Drop, or their own words saved instead (`edit`).
+    func decideGuess(noticeID: String, proposalID: String, action: String, text: String?) {
+        var params: [String: Any] = ["op": "guess", "action": action]
+        if let text { params["text"] = text }
+        settleLearning(noticeID: noticeID, proposalID: proposalID, params: params,
+                       decision: ["keep": "kept", "drop": "dropped", "edit": "edited"][action] ?? action,
+                       failure: "That answer about FERB's guess wasn't recorded. Try again.")
+    }
+
+    private func settleLearning(noticeID: String, proposalID: String, params: [String: Any], decision: String,
+                                failure: String) {
         Task {
             do {
-                _ = try await rpc.call("memory.learning", params: ["op": confirm ? "confirm" : "retire", "id": proposalID])
-                conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: confirm ? "confirmed" : "not right")
+                _ = try await rpc.call("memory.learning", params: params.merging(["id": proposalID]) { $1 })
+                conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: decision)
                 saveConversation()
-            } catch { promptError = "That answer about what FERB learned wasn't recorded. Try again." }
+            } catch { promptError = failure }
         }
     }
 

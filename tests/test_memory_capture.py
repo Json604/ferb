@@ -381,3 +381,21 @@ def test_other_text_typed_into_a_guess_question_is_refused_and_it_stays_open(dae
         run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, None, "yes keep it"))
     assert run(daemon, lambda: daemon.daemon.state.approvals.get(q.id)).state == "pending"
     assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "proposed"
+
+
+def test_the_older_guesses_are_offered_once_as_one_list(daemon: Any) -> None:
+    src = said(daemon, "x")
+    old = [run(daemon, lambda c=c: daemon.daemon.memory.propose("fact", "owner", f"k{c}", f"guess number {c}",
+                                                                "inferred", [("journal", src)], 0.6)) for c in range(3)]
+    run(daemon, lambda: daemon.daemon._ask_keep(old[2], "Keep this?"))        # asked already: not in the list
+    first = daemon.run(daemon.daemon._memory_learning(None, {"op": "backlog"}))["backlog"]
+    assert first["text"] == "Review 2 older guesses"
+    assert [p["id"] for p in first["proposals"]] == [old[0].id, old[1].id]
+    assert daemon.run(daemon.daemon._memory_learning(None, {"op": "backlog"}))["backlog"] is None
+    kept = daemon.run(daemon.daemon._memory_learning(None, {"op": "guess", "id": old[0].id, "action": "keep"}))
+    assert kept["line"] == "Kept." and run(daemon, lambda: daemon.daemon.memory.get(old[0].id)).status == "active"
+    with pytest.raises(FerbError):
+        daemon.run(daemon.daemon._memory_learning(None, {"op": "guess", "id": old[1].id, "action": "edit", "text": " "}))
+    edited = daemon.run(daemon.daemon._memory_learning(None, {"op": "guess", "id": old[1].id, "action": "edit",
+                                                              "text": "my own words"}))
+    assert edited["line"] == "Saved in your words: my own words"

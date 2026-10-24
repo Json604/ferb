@@ -410,7 +410,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
         await fulfillment(of: [decided], timeout: 2)
         rpc.onCall = nil
         await settle()
-        let decisions = rpc.calls.filter { $0.0 == "memory.learning" && $0.1["op"] as? String != "digest" }
+        let decisions = rpc.calls.filter { $0.0 == "memory.learning" && ["confirm", "retire"].contains($0.1["op"] as? String ?? "") }
         // Each decision is sent from its own task, so the two calls may arrive in either order.
         let sent = decisions.map { "\($0.1["id"] as? String ?? "?")=\($0.1["op"] as? String ?? "?")" }
         XCTAssertEqual(sent.sorted(), ["p-1=confirm", "p-2=retire"])
@@ -418,6 +418,38 @@ final class QuestionsAndNoticesTests: XCTestCase {
         // The same day's digest is never shown twice.
         await model.refreshDaemonStatus()
         XCTAssertEqual(model.conversation.notices.filter { $0.proposals != nil }.count, 1)
+    }
+
+    func testOlderGuessesAreShownOnceWithKeepEditAndDrop() async throws {
+        let rpc = StatusRPC()
+        rpc.responses["memory.learning"] = ["backlog": ["id": "b-1", "text": "Review 2 older guesses", "proposals": [
+            ["id": "g-1", "text": "You use Brave for work"], ["id": "g-2", "text": "You study at Scaler"]
+        ]]]
+        let model = makeModel(rpc)
+        model.expand()
+        await model.refreshDaemonStatus()
+        XCTAssertTrue(rpc.calls.contains { $0.0 == "memory.learning" && $0.1["op"] as? String == "backlog" })
+        let backlog = try XCTUnwrap(model.conversation.notices.first { $0.id == "guesses:b-1" })
+        XCTAssertEqual(backlog.text, "Review 2 older guesses")
+        XCTAssertEqual(backlog.proposals?.map(\.kind), ["guess", "guess"])
+
+        let decided = expectation(description: "Both decisions sent")
+        decided.expectedFulfillmentCount = 2
+        rpc.onCall = { method, params in
+            if method == "memory.learning", params["op"] as? String == "guess" { decided.fulfill() }
+        }
+        model.decideGuess(noticeID: backlog.id, proposalID: "g-1", action: "keep", text: nil)
+        model.decideGuess(noticeID: backlog.id, proposalID: "g-2", action: "edit", text: "I studied at Scaler")
+        await fulfillment(of: [decided], timeout: 2)
+        rpc.onCall = nil
+        await settle()
+        let sent = rpc.calls.filter { $0.0 == "memory.learning" && $0.1["op"] as? String == "guess" }
+            .map { "\($0.1["id"] as? String ?? "?")=\($0.1["action"] as? String ?? "?"):\($0.1["text"] as? String ?? "")" }
+        XCTAssertEqual(sent.sorted(), ["g-1=keep:", "g-2=edit:I studied at Scaler"])
+        XCTAssertEqual(model.conversation.notices.first { $0.id == backlog.id }?.proposals?.map(\.decision),
+                       ["kept", "edited"])
+        await model.refreshDaemonStatus()
+        XCTAssertEqual(model.conversation.notices.filter { $0.id.hasPrefix("guesses:") }.count, 1)
     }
 
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {

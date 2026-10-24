@@ -176,21 +176,25 @@ private struct NoticeView: View {
                 Text(notice.text).textSelection(.enabled)
                 // What FERB learned, each confirmed or turned down here.
                 ForEach(notice.proposals ?? [], id: \.id) { proposal in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(proposal.text).textSelection(.enabled)
-                        if let decision = proposal.decision {
-                            Text(decision == "confirmed" ? "Confirmed" : "Marked not right")
-                                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                        } else {
-                            HStack(spacing: 8) {
-                                Button("Confirm") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: true) }
-                                    .buttonStyle(FerbButtonStyle())
-                                Button("Not right") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: false) }
-                                    .buttonStyle(FerbButtonStyle(quiet: true))
+                    if proposal.kind == "guess" {
+                        GuessRow(notice: notice, proposal: proposal, model: model)
+                    } else {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(proposal.text).textSelection(.enabled)
+                            if let decision = proposal.decision {
+                                Text(decision == "confirmed" ? "Confirmed" : "Marked not right")
+                                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                            } else {
+                                HStack(spacing: 8) {
+                                    Button("Confirm") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: true) }
+                                        .buttonStyle(FerbButtonStyle())
+                                    Button("Not right") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: false) }
+                                        .buttonStyle(FerbButtonStyle(quiet: true))
+                                }
                             }
                         }
+                        .padding(.top, 2)
                     }
-                    .padding(.top, 2)
                 }
                 ForEach(Array(notice.quotes.enumerated()), id: \.offset) { _, quote in
                     VStack(alignment: .leading, spacing: 2) {
@@ -206,6 +210,43 @@ private struct NoticeView: View {
             }
         }
         .help((notice.noticedAt ?? notice.createdAt).formatted(date: .omitted, time: .shortened))
+    }
+}
+
+/// One of FERB's older guesses (L36): Keep, Drop, or the owner's own words saved instead.
+private struct GuessRow: View {
+    let notice: ConversationNotice
+    let proposal: LearningProposal
+    @ObservedObject var model: NotchModel
+    @State private var words = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(proposal.text).textSelection(.enabled)
+            if let decision = proposal.decision {
+                Text(["kept": "Kept", "dropped": "Dropped", "edited": "Saved in your words"][decision] ?? decision)
+                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    Button("Keep") {
+                        model.decideGuess(noticeID: notice.id, proposalID: proposal.id, action: "keep", text: nil)
+                    }.buttonStyle(FerbButtonStyle())
+                    Button("Drop") {
+                        model.decideGuess(noticeID: notice.id, proposalID: proposal.id, action: "drop", text: nil)
+                    }.buttonStyle(FerbButtonStyle(quiet: true))
+                }
+                TextField("Or type it in your own words…", text: $words)
+                    .textFieldStyle(.plain).padding(6)
+                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .onSubmit {
+                        let typed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !typed.isEmpty else { return }
+                        words = ""
+                        model.decideGuess(noticeID: notice.id, proposalID: proposal.id, action: "edit", text: typed)
+                    }
+            }
+        }
+        .padding(.top, 2)
     }
 }
 

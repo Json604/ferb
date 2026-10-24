@@ -2840,6 +2840,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   An answer from the notch's buttons gets no FERB line yet: `approval.resolved` carries no text and the notch shows none.
   Debugging: `memory_questions` rows of kind `confirm` / `edit`; journal `memory.edited` (an Edit's words, the new
   version's source) and `memory.capture_refused`; `distill_runs.detail` lists what a day proposed and refused.
+- **The older guesses (§2 ruling).** `memory.learning {op: backlog}` returns the inferred proposals with no open
+  question once (journal `memory.backlog_offered`, marked on read); the notch shows them as one list in today's chat
+  (a learning-digest notice whose items have `kind: "guess"`, one `learningProposals` parser for both), and each answer
+  goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
 
 ### 16.13 FERB's cursor (L33)
 
