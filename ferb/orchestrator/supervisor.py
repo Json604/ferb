@@ -793,8 +793,9 @@ class Supervisor(WorkerRuns):
         return True
 
     def _status_facts(self, session: ChatSession) -> tuple[list[dict[str, Any]], set[str], list[str]]:
-        """FERB's own record of the tasks a progress question can be about: each running tree (running, blocked when
-        its latest worker report or a plan step is blocked, failed or needs an answer, stopping), and this
+        """FERB's own record of the tasks a progress question can be about: each running tree (running, paused while
+        one of its loops waits for the owner, blocked when its latest worker report or a plan step is blocked, failed
+        or needs an answer, stopping; with its loops' states, `_loop_facts`), and this
         conversation's latest tasks recorded since its session started (above the session's rowid floor, by key:
         never the task table or the conversation's whole history, re-review 2/3 R4); with the first line of the latest worker report and the plan's step
         counts. The report lines are model-written, so the block carries those tasks' origins (MP2)."""
@@ -814,7 +815,9 @@ class Supervisor(WorkerRuns):
                     if not step_id.startswith(EARLIER):
                         counts[str(step["status"])] = counts.get(str(step["status"]), 0) + 1
             stuck = ("blocked", "needs_user", "failed")
+            loops = self._loop_facts(key)
             state = ("stopping" if tree.stop else
+                     "paused" if any(loop["state"] == "paused" for loop in loops) else
                      "blocked" if (last is not None and last.get("status") in stuck) or any(s in counts for s in stuck)
                      else "running")
             row: dict[str, Any] = {"task_id": key, "goal": first_line(tree.spec.goal), "state": state,
@@ -823,6 +826,8 @@ class Supervisor(WorkerRuns):
                 row["last_report"] = first_line(last.get("summary"))
             if tree.spec.plan:
                 row["plan_steps"] = counts
+            if loops:
+                row["loops"] = loops
             rows.append(row)
             origins |= self._task_line_origins(key)
             refs.append(TASK + key)
@@ -835,6 +840,27 @@ class Supervisor(WorkerRuns):
             origins |= self._task_line_origins(r["id"])
             refs.append(TASK + r["id"])
         return rows, origins, refs
+
+    def _loop_facts(self, tree_id: str) -> list[dict[str, Any]]:
+        """Each running loop of this tree as the planner's task status shows it (L31): its goal, state and rounds; a
+        paused loop also its question, the pausing round's own as journaled (no round runs while it waits), so the
+        owner's reply routes to it as a steer. Model-written: the block carries the task's origins."""
+        out = []
+        for (tree, step), status in list(self._loop_status.items()):
+            if tree != tree_id:
+                continue
+            fact: dict[str, Any] = {"goal": " ".join(str(status.get("goal", "")).split())[:300],
+                                    "state": str(status.get("state", "")).replace("_", " "),
+                                    "rounds": status.get("rounds", 0)}
+            if status.get("state") == "paused":
+                last = self.journal.db.conn.execute(
+                    "SELECT data_json FROM journal WHERE kind = 'loop.round' AND json_extract(data_json, '$.task_id') "
+                    "= ? AND json_extract(data_json, '$.step') = ? ORDER BY seq DESC LIMIT 1", (tree, step)).fetchone()
+                data = json.loads(last[0]) if last is not None else {}
+                if question := str(data.get("question") or data.get("summary") or "").strip():
+                    fact["question"] = question.split("\n", 1)[0][:300]
+            out.append(fact)
+        return out
 
     def running_trees(self, watches: bool = True) -> list[tuple[str, str]]:
         """Running task trees; `watches=False` leaves out watch checks, which clients hear of only through a result the

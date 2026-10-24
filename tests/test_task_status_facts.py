@@ -108,3 +108,49 @@ def test_finished_tasks_come_from_tasks_recorded_since_the_session_started(daemo
         return ([row["task_id"] for row in supervisor._status_facts(session)[0]],
                 [row["task_id"] for row in supervisor._status_facts(unstarted)[0]])
     assert daemon.run(facts()) == (["new-task"], [])
+
+
+def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemon: RunningDaemon,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """L31: a loop's rounds are not the tree's worker reports, so its row said "running" while the loop waited for the
+    owner. The row now names each loop's state, and a paused loop's question (the round's own, as journaled), so the
+    owner's reply to it routes as a steer of that task."""
+    d = daemon.daemon
+    supervisor = d.supervisor
+    assert supervisor is not None
+    plan = Plan(steps=[Step(id="keep", kind="loop", goal="Keep the inbox at zero"),
+                       Step(id="tab", kind="loop", goal="Keep the tab playing")])
+    tree = _tree("tree-loop", "Keep the inbox at zero and the tab playing", [], plan)
+    monkeypatch.setattr(supervisor.plans, "steps", lambda key: {"keep": {"status": "running", "output": {}},
+                                                                "tab": {"status": "running", "output": {}}})
+
+    def status(step: str, goal: str, state: str) -> dict[str, Any]:
+        return {"task_id": tree.id, "step": step, "goal": goal, "state": state, "rounds": 2, "last_round_end": 1.0,
+                "gap_seconds": 120.0 if state == "backing_off" else 0.0}
+
+    async def facts() -> list[dict[str, Any]]:
+        supervisor._tree_of[tree.id] = tree
+        d.journal.append("loop.round", {"task_id": tree.id, "step": "keep", "number": 1, "status": "done",
+                                        "summary": "Archived 3 mails.", "question": ""})
+        d.journal.append("loop.round", {"task_id": tree.id, "step": "keep", "number": 2, "status": "needs_user",
+                                        "summary": "Two inboxes are signed in.",
+                                        "question": "Which account should I keep at zero?"})
+        supervisor._loop_status[(tree.id, "keep")] = status("keep", "Keep the inbox at zero", "paused")
+        supervisor._loop_status[(tree.id, "tab")] = status("tab", "Keep the tab playing", "backing_off")
+        try:
+            return supervisor._status_facts(ChatSession("chat-loop"))[0]
+        finally:
+            supervisor._tree_of.pop(tree.id, None)
+            supervisor._loop_status.clear()
+    row = daemon.run(facts())[0]
+    assert row["state"] == "paused"
+    assert row["loops"] == [
+        {"goal": "Keep the inbox at zero", "state": "paused", "rounds": 2,
+         "question": "Which account should I keep at zero?"},
+        {"goal": "Keep the tab playing", "state": "backing off", "rounds": 2}]
+
+
+def test_the_planner_routes_a_reply_to_a_paused_loop_as_a_steer() -> None:
+    words = " ".join((PROMPTS / "supervisor.md").read_text().split())
+    assert ("The owner's reply to a paused loop's question (its task's row in the task status facts) is a steer of "
+            "that task.") in words

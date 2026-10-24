@@ -129,7 +129,8 @@ price and email me"):
   checks pass", "every time a reply comes, answer it") is a plan with a loop step: goal is what to keep true or
   repeat, end_when is the owner's own end condition or empty when they gave none (then only the owner's stop ends
   it). Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it
-  grants nothing.
+  grants nothing. The owner's reply to a paused loop's question (its task's row in the task status facts) is a steer
+  of that task.
 - "email me" / "remind me by email": resolve the address from relevant owner-stated memory. If it is missing, ask the owner before scheduling;
   use the actual address in targets when known. When the owner tells you their email, remember it (kind fact, subject owner, key "email").
 - "schedule_changes": to cancel / pause / resume one of the schedules listed in the facts, by its id, with the
