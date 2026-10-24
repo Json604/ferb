@@ -28,8 +28,13 @@ SENTENCES = [
      'with continue, a probe: one probe-safe observation tool (browser_tabs, browser_snapshot or browser_find; '
      'shell_list or shell_read; fs_list or fs_read; mac_snapshot), its arguments as a JSON object '
      'string, a dot path to one field of its result, and equals, not_equals or changed. Choose the field that shows '
-     'when the job needs doing again. Report finished only with observed evidence that end_when holds; never when '
-     'end_when is empty. Outside the loop, loop_action and probe are null.'),
+     'when the job needs doing again.'),
+    ("worker.md",
+     'Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the '
+     'loop, loop_action and probe are null.'),
+    # final loops review (L31): shell_list's order isn't an identity; a command's own id is
+    ("worker.md",
+     'To watch a command you started, probe shell_read with its id (field running), not a shell_list index.'),
     # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"
     ("worker.md",
      'A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner\'s own browser profile is an '
