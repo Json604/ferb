@@ -109,7 +109,7 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
  nodes = nodes.map(n => Object.assign(new HTMLInputElement(), n));
  const document = {querySelectorAll:()=>nodes}, documentId='same-document';
  const implicitRole=()=> 'textbox', hitTest=()=>false, scrollerOf=()=>null, round=n=>n, formKind=()=>null;
- const pinnedOf=()=>null, boxedBy=()=>false, parentOf=()=>null;   // L33's scroll facts: none here
+ const pinnedOf=()=>null, boxedBy=()=>false;   // L33's scroll facts: none here
  const innerWidth=1000, innerHeight=1000;
  nodes.forEach(n=>{n.getBoundingClientRect=()=>({x:0,y:0,width:10,height:10,left:0,top:0,right:10,bottom:10});n.getAttribute=()=>null;});
  const shown=nodes.map(describe), capture=captureState();

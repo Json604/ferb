@@ -637,10 +637,12 @@ class _Page:
 
 
 def _motion(raw: dict[str, Any]) -> tuple[str | None, bool]:
-    """An element's scroll facts from the extension (L33): fixed or sticky (itself or an ancestor), and whether a box
+    """An element's scroll facts from the extension (L33): fixed or sticky (itself or an ancestor as the page is drawn),
+    or "unknown" (fixed inside a box that holds fixed descendants: it scrolls with the page after all), and whether a box
     other than the page scrolls it (its scroll container, a carousel, hidden overflow)."""
     pinned = raw.get("pinned")
-    return (pinned if pinned in ("fixed", "sticky") else None), bool(raw.get("scroll_box") or raw.get("container"))
+    return (pinned if pinned in ("fixed", "sticky", "unknown") else None), \
+        bool(raw.get("scroll_box") or raw.get("container"))
 
 
 class _NoSecrets:
@@ -1412,7 +1414,8 @@ class _TabDriver:
         would refuse the act (a drag or a pointer act without a fresh screenshot's points, typing into a secret
         field); a centring act's element is fixed, sticky or in a box that scrolls too, or the page can't say where
         the scroll ends (`_Page.centred`); FERB scrolled the page since the snapshot and the element isn't fixed
-        (fixed in a box that scrolls doesn't count); it is sticky; or the spot is off the page's visible part."""
+        (fixed in a box that scrolls doesn't count); it is sticky or its pin is unknown; or the spot is off the page's
+        visible part."""
         try:
             t, frame, _, _, info = self._resolve(el)
         except FerbError:
@@ -1426,7 +1429,8 @@ class _TabDriver:
         if centres:
             rect = None if pinned or boxed else page.centred(info.rect)
         else:
-            rect = None if pinned == "sticky" or (t.moved and (pinned != "fixed" or boxed)) else info.rect
+            rect = None if pinned in ("sticky", "unknown") or (t.moved and (pinned != "fixed" or boxed)) \
+                else info.rect
         vx, vy, vw, vh, _ = page.visual
         if rect is None or rect[2] <= 0 or rect[3] <= 0 \
                 or not (vx <= rect[0] + rect[2] / 2 <= vx + vw and vy <= rect[1] + rect[3] / 2 <= vy + vh):

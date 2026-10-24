@@ -64,7 +64,7 @@
   }
   function point(gen, x, y) {
     if (gen !== snapGen) return {error: "stale"};
-    pinCache.clear(); boxCache.clear();
+    pinCache.clear(); boxCache.clear(); frameCache.clear();
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return {error: "outside_viewport"};
     let el = document.elementFromPoint(x, y);
     while (el && el.shadowRoot) {
@@ -245,19 +245,40 @@
              at_end: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 };
   }
 
-  // L33: what a scroll into view moves besides the page, for FERB's cursor (geometry facts only). `pinnedOf`: the
-  // element or a flat-tree ancestor is position fixed or sticky (sticky wins). `boxedBy`: that node or an ancestor below
-  // the body is a box a scroll into view can scroll, on either axis (overflow other than visible or clip, with more to
-  // show: a carousel, hidden overflow). `bodyScrolls`: the body scrolls by itself instead of the page (html's overflow
-  // isn't visible, so the body's stays its own). Cached per snapshot, like scrollerCache.
-  const pinCache = new Map(), boxCache = new Map();
+  // L33: what a scroll into view moves besides the page, for FERB's cursor (geometry facts only), up the element's
+  // ancestors as the page is drawn (`drawnParent`: a slotted element through its shadow tree's wrappers to the host).
+  // `pinnedOf`: the element or an ancestor is position fixed or sticky (sticky wins), or "unknown" for a fixed one
+  // inside a containing block for fixed descendants (`framesFixed`: a transform, filter, contain, will-change...), which
+  // then scrolls with the page after all. `boxedBy`: that node or an ancestor below the body is a box a scroll into view
+  // can scroll, on either axis (overflow other than visible or clip, with more to show: a carousel, hidden overflow).
+  // `bodyScrolls`: the body scrolls by itself instead of the page (html's overflow isn't visible, so the body's stays
+  // its own). Cached per snapshot, like scrollerCache.
+  const pinCache = new Map(), boxCache = new Map(), frameCache = new Map();
   const SCROLLS = new Set(["auto", "scroll", "overlay", "hidden"]);
+  const FRAMING = ["transform", "translate", "rotate", "scale", "perspective", "filter", "backdropFilter"];
+  function framesFixed(s) {
+    return FRAMING.some((k) => s[k] && s[k] !== "none") || /\b(paint|layout|strict|content)\b/.test(s.contain || "") ||
+      /\b(transform|translate|rotate|scale|perspective|filter|backdrop-filter)\b/.test(s.willChange || "") ||
+      (!!s.containerType && s.containerType !== "normal") || s.contentVisibility === "auto";
+  }
+  function framed(p) {                             // p or an ancestor below the root frames fixed descendants
+    if (!p || p === document.documentElement) return false;
+    let v = frameCache.get(p);
+    if (v === undefined) {
+      v = framesFixed(getComputedStyle(p)) || framed(drawnParent(p));
+      frameCache.set(p, v);
+    }
+    return v;
+  }
   function pinnedOf(el) {
     if (!el || el === document.documentElement) return null;
     let v = pinCache.get(el);
     if (v === undefined) {
-      const own = getComputedStyle(el).position, up = pinnedOf(parentOf(el));
-      v = own === "sticky" || up === "sticky" ? "sticky" : own === "fixed" || up === "fixed" ? "fixed" : null;
+      const own = getComputedStyle(el).position, up = pinnedOf(drawnParent(el));
+      if (up === "unknown" || up === "sticky") v = up;
+      else if (own === "sticky") v = "sticky";
+      else if (own === "fixed") v = framed(drawnParent(el)) ? "unknown" : "fixed";
+      else v = up;
       pinCache.set(el, v);
     }
     return v;
@@ -271,7 +292,7 @@
     if (!p || p === document.body || p === document.documentElement) return false;
     let v = boxCache.get(p);
     if (v === undefined) {
-      v = overflows(p) || boxedBy(parentOf(p));
+      v = overflows(p) || boxedBy(drawnParent(p));
       boxCache.set(p, v);
     }
     return v;
@@ -325,7 +346,7 @@
     if (container) e.container = container;
     const pinned = pinnedOf(el);                     // L33: what a scroll into view moves besides the page
     if (pinned) e.pinned = pinned;
-    if (boxedBy(parentOf(el))) e.scroll_box = true;
+    if (boxedBy(drawnParent(el))) e.scroll_box = true;
     if (el.disabled || el.getAttribute("aria-disabled") === "true") e.disabled = true;
     const exp = el.getAttribute("aria-expanded"), sel = el.getAttribute("aria-selected"), chk = el.getAttribute("aria-checked");
     if (exp !== null) e.expanded = exp === "true";
@@ -492,7 +513,7 @@
     }
     bindings = new Map();
     snapGen = gen;
-    els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear();
+    els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear(); frameCache.clear();
     const found = [];
     collect(document, found);
     const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file"));
@@ -672,7 +693,8 @@
     if (kind === "scroll") {                       // element-relative: its own box if it scrolls, else its container
       const sc = isScroller(el) ? el : scrollerOf(el);
       const step = Math.round((sc ? sc.clientHeight : innerHeight) * 0.85) * (text === "up" ? -1 : 1);
-      if (sc) sc.scrollBy(0, step); else window.scrollBy(0, step);
+      // instant: a smooth-scrolling page would still report where it was (L33 review)
+      if (sc) sc.scrollBy({top: step, behavior: "instant"}); else window.scrollBy({top: step, behavior: "instant"});
       return { ok: true, detail: "scrolled", ...scrollState(sc) };
     }
     return { ok: false, detail: "unknown_action" };

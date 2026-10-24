@@ -22,6 +22,7 @@ pytestmark = pytest.mark.real
 
 FILL = "<div style='height:1500px'></div>"
 TARGET = "<button id=x onclick=\"this.textContent='hit '+event.isTrusted\">Target</button>"
+SHADOW = "<script>document.getElementById('host').attachShadow({mode: 'open'}).innerHTML = '%s';</script>"
 PAGES = {
     "/normal": "<style>body{margin:0}</style>" + FILL + TARGET + FILL,
     "/smooth": "<style>html{scroll-behavior:smooth}body{margin:0}</style>" + FILL + TARGET + FILL,
@@ -34,10 +35,19 @@ PAGES = {
              + FILL + TARGET + FILL,
     "/hiddenx": "<style>body{margin:0}</style><div style='width:300px;overflow-x:hidden;white-space:nowrap;"
                 "margin-top:100px'><span style='display:inline-block;width:500px;height:10px'></span>" + TARGET + "</div>",
-    "/carousel": "<style>body{margin:0}</style><div style='width:400px;overflow-x:auto;white-space:nowrap;"
-                 "margin-top:100px'>" + "".join(f"<button style='width:300px'>Slide {i}</button>" for i in (1, 2))
-                 + TARGET.replace(">Target<", " style='width:300px'>Target<") + "<button style='width:300px'>Slide 4"
-                 "</button></div>",
+    "/carousel": "<style>body{margin:0}button{width:300px;height:60px}</style><div style='width:400px;"
+                 "overflow-x:auto;white-space:nowrap;margin-top:100px'>"
+                 + "".join(f"<button>Slide {i}</button>" for i in (1, 2)) + TARGET + "<button>Slide 4</button></div>",
+    # a fixed element inside a transformed box scrolls with the page after all (review round 2)
+    "/fixed-transformed": "<style>body{margin:0}</style><div style='transform:translateZ(0)'>" + FILL
+                          + "<div style='position:fixed;top:300px;left:10px'>" + TARGET + "</div>" + FILL + "</div>",
+    # slotted light-DOM elements drawn inside a shadow tree's fixed wrapper or carousel (review round 2)
+    "/shadow-fixed": "<style>body{margin:0}</style>" + FILL + "<div id=host>" + TARGET + "</div>" + FILL
+                     + SHADOW % '<div style="position:fixed;top:300px;left:10px"><slot></slot></div>',
+    "/shadow-carousel": "<style>body{margin:0}button{width:300px;height:60px}</style><div id=host style='margin-top:"
+                        "100px'>" + "".join(f"<button>Slide {i}</button>" for i in (1, 2)) + TARGET
+                        + "<button>Slide 4</button></div>"
+                        + SHADOW % '<div style="width:400px;overflow-x:auto;white-space:nowrap"><slot></slot></div>',
 }
 PLACED = ("/normal", "/smooth", "/end")
 

@@ -401,6 +401,8 @@ def test_a_fixed_or_sticky_element_is_pointed_only_where_it_stays(monkeypatch):
     assert _bpoint(d, 'select', text='A').rect == (210.0, 120.0, 100.0, 30.0)
     d, *_ = _browser(monkeypatch, pinned='sticky', scroll=LONG_PAGE)
     assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is None
+    d, *_ = _browser(monkeypatch, pinned='unknown', scroll=LONG_PAGE)   # fixed in a transformed box: it scrolls too
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is None
     d, *_ = _browser(monkeypatch, pinned='fixed', scroll_box=True, scroll=LONG_PAGE)   # in a fixed panel that scrolls
     assert _bpoint(d, 'select', text='A') is not None
     _act(d, 'scroll')
@@ -579,35 +581,56 @@ console.log(JSON.stringify(seen));
 
 
 def test_the_extension_says_what_a_scroll_into_view_moves_besides_the_page():
-    """Review (1-3): an element that is fixed or sticky (itself or a flat-tree ancestor; sticky wins), one inside a box
-    that scrolls on either axis (a carousel, hidden overflow), and a body that scrolls by itself instead of the page."""
+    """Review (1-3; round 2): an element that is fixed or sticky (itself or an ancestor as the page is drawn, through
+    the shadow tree a slotted element is drawn in; sticky wins), "unknown" for a fixed one inside a containing block
+    (transform, filter, contain, will-change...: it scrolls with the page after all), one inside a box that scrolls on
+    either axis (a carousel, hidden overflow, also in a shadow tree), and a body that scrolls by itself."""
     import json
     import subprocess
     from tests.chromelab import EXT, _node
     source = (EXT / 'content.js').read_text()
     block = source[source.index('  // L33: what a scroll into view moves'):source.index('  function hitTest(')]
+    flat = (source[source.index('  const shadowOf = (el) =>'):source.index('  function eachElement(')]
+            + source[source.index('  function drawnParent(el) {'):source.index('  // Whether the element is drawn again')])
     script = r'''
-const styles = new Map();
+const chrome = {}, styles = new Map(), page = {};
 const getComputedStyle = n => styles.get(n);
 const node = (parent, style = {}, size = {}) => {
-  const n = {parentElement: parent, scrollWidth: 100, clientWidth: 100, scrollHeight: 100, clientHeight: 100, ...size};
-  styles.set(n, {position: 'static', overflowX: 'visible', overflowY: 'visible', ...style});
+  const n = {parentElement: parent, scrollWidth: 100, clientWidth: 100, scrollHeight: 100, clientHeight: 100,
+             getRootNode: () => page, ...size};
+  styles.set(n, {position: 'static', overflowX: 'visible', overflowY: 'visible', transform: 'none', filter: 'none',
+                 perspective: 'none', contain: 'none', willChange: 'auto', ...style});
   return n;
+};
+const shadow = (host, style, size) => {           // host's shadow root: a wrapper around the <slot> its child is drawn in
+  const sr = {host, querySelectorAll: () => []};
+  host.shadowRoot = sr;
+  const wrap = node(null, style, size); wrap.getRootNode = () => sr;
+  const slot = node(wrap); slot.getRootNode = () => sr;
+  const light = node(host); light.assignedSlot = slot;
+  return light;
 };
 const root = node(null), body = node(root, {}, {scrollHeight: 3000});
 const document = {documentElement: root, body, scrollingElement: root};
-const parentOf = el => el.parentElement;
-''' + block + r'''
+''' + flat + block + r'''
 const header = node(body, {position: 'fixed'}), inHeader = node(node(header));
 const bar = node(body, {position: 'sticky'}), inBar = node(node(bar, {position: 'fixed'}));
+const slotted = shadow(node(body), {position: 'fixed'});
+const turned = node(node(body, {transform: 'matrix(1, 0, 0, 1, 0, 0)'}), {position: 'fixed'}), inTurned = node(turned);
+const willTurn = node(node(body, {willChange: 'transform'}), {position: 'fixed'});
+const contained = node(node(body, {contain: 'paint'}), {position: 'fixed'});
+const turnedInside = node(node(node(body, {position: 'fixed'}), {transform: 'matrix(1, 0, 0, 1, 0, 0)'}));
+const inTransformed = node(node(body, {transform: 'matrix(1, 0, 0, 1, 0, 0)'}));
 const carousel = node(body, {overflowX: 'auto'}, {scrollWidth: 900}), slide = node(node(carousel));
 const clipped = node(body, {overflowX: 'hidden'}, {scrollWidth: 600}), past = node(clipped);
 const short = node(body, {overflowY: 'auto'}), inShort = node(short);      // nothing more to show: it can't scroll
 const shown = node(body, {overflowX: 'clip'}, {scrollWidth: 600}), inShown = node(shown);   // clip never scrolls
+const shadowSlide = shadow(node(body), {overflowX: 'auto'}, {scrollWidth: 900});
 const plain = node(body), inPlain = node(plain);
-const out = {pins: [pinnedOf(inHeader), pinnedOf(inBar), pinnedOf(inPlain)],
-             boxes: [boxedBy(parentOf(slide)), boxedBy(parentOf(past)), boxedBy(parentOf(inShort)),
-                     boxedBy(parentOf(inShown)), boxedBy(parentOf(inPlain))],
+const out = {pins: [pinnedOf(inHeader), pinnedOf(inBar), pinnedOf(slotted), pinnedOf(inTurned), pinnedOf(willTurn),
+                    pinnedOf(contained), pinnedOf(turnedInside), pinnedOf(inTransformed), pinnedOf(inPlain)],
+             boxes: [boxedBy(drawnParent(slide)), boxedBy(drawnParent(past)), boxedBy(drawnParent(inShort)),
+                     boxedBy(drawnParent(inShown)), boxedBy(drawnParent(shadowSlide)), boxedBy(drawnParent(inPlain))],
              body: [bodyScrolls()]};
 styles.get(body).overflowY = 'auto';                    // body{overflow:auto} with html's overflow visible: the page's
 out.body.push(bodyScrolls());
@@ -619,5 +642,35 @@ console.log(JSON.stringify(out));
 '''
     result = subprocess.run([_node(), '-e', script], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {'pins': ['fixed', 'sticky', None], 'boxes': [True, True, False, False, False],
-                                         'body': [False, False, True, False]}
+    assert json.loads(result.stdout) == {
+        'pins': ['fixed', 'sticky', 'fixed', 'unknown', 'unknown', 'unknown', 'fixed', None, None],
+        'boxes': [True, True, False, False, True, False], 'body': [False, False, True, False]}
+
+
+def test_the_extensions_page_scroll_is_instant_so_it_reports_where_it_ended():
+    """Review round 2 (3): on a `scroll-behavior: smooth` page a bare scrollBy animates, so the position it reported
+    was the one before the scroll. The scroll act's scrollBy is instant, for a container and for the page."""
+    import json
+    import subprocess
+    from tests.chromelab import EXT, _node
+    script = r'''
+const vm = require('vm'), fs = require('fs'); const seen = [];
+const box = (overflowY, name) => ({isConnected: true, tagName: 'DIV', scrollTop: 0, scrollHeight: 2000, clientHeight: 400,
+  parentElement: null, style: {overflowY}, getRootNode() { return doc; }, scrollBy(...a) { seen.push([name, ...a]); }});
+const el = box('auto', 'box'), plain = box('visible', 'plain');
+const root = {scrollTop: 0, scrollHeight: 3000};
+const doc = {documentElement: root, scrollingElement: root, body: {}};
+const ctx = vm.createContext({document: doc, window: {scrollBy(...a) { seen.push(['page', ...a]); }},
+  crypto: globalThis.crypto, WeakRef, innerWidth: 800, innerHeight: 600, addEventListener() {},
+  MutationObserver: class { observe() {} }, ShadowRoot: class {}, getComputedStyle: n => n.style, el, plain});
+const source = fs.readFileSync(process.argv[1], 'utf8').replace('let els = new Map();',
+  'let els = new Map([[1, new WeakRef(el)], [2, new WeakRef(plain)]]);').replace('let snapGen = 0;', 'let snapGen = 1;');
+vm.runInContext(source, ctx);
+ctx.window.__ferb.act(1, 1, 'scroll', 'down');           // it scrolls itself
+ctx.window.__ferb.act(1, 2, 'scroll', 'up');             // no scroller around it: the page
+console.log(JSON.stringify(seen));
+'''
+    result = subprocess.run([_node(), '-e', script, str(EXT / 'content.js')], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [['box', {'top': 340, 'behavior': 'instant'}],
+                                         ['page', {'top': -510, 'behavior': 'instant'}]]
