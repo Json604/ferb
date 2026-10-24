@@ -574,9 +574,11 @@ def _window_bounds(window: dict[str, Any]) -> tuple[float, float, float, float] 
 
 Rect = tuple[float, float, float, float]
 # Acts that scroll their element to the viewport's centre before acting on it (content.js `act` for a click or hover,
-# and `rect` for real input: scrollIntoView, block and inline "center")
+# and `rect` for real input: scrollIntoView, block and inline "center", instant)
 CENTRING = frozenset({"click", "dblclick", "rightclick", "hover"})
 CENTRING_REAL = frozenset({"type", "press"})
+POINTER_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "drag"})   # what a screenshot point takes
+STILL = frozenset({"select", "upload"})          # acts that never scroll the page (no focus, no scroll into view)
 
 
 def _numbers(v: Any, n: int) -> tuple[float, ...] | None:
@@ -588,36 +590,57 @@ def _numbers(v: Any, n: int) -> tuple[float, ...] | None:
 
 @dataclass(frozen=True)
 class _Page:
-    """Where the latest snapshot saw the tab (L33, FERB's cursor; extension 0.15.8, optional fields): its window as the
-    extension reported it, and the top frame's layout viewport (w, h), visual viewport (x, y, w, h: what the screen
-    shows of the page, pinch zoom included) and own vertical scroll (top, height, viewport height), CSS px. Geometry
-    only; None for a fact an older extension doesn't give."""
+    """Where the latest snapshot saw the tab (L33, FERB's cursor; extension 0.15.9, optional fields): its window as the
+    extension reported it, and the top frame's layout viewport (w, h), visual viewport (x, y, w, h and its pinch zoom:
+    what the screen shows of the page), own scroll (top, height, viewport height, left, width) and whether its body
+    scrolls by itself, CSS px. Geometry only; None for a fact an older extension doesn't give."""
     window: dict[str, Any] | None
     layout: tuple[float, ...] | None
     visual: tuple[float, ...] | None
     scroll: tuple[float, ...] | None
+    body_scrolls: bool = False
 
     @classmethod
     def of(cls, window: Any, top: dict[str, Any]) -> "_Page":
         s = top.get("scroll")
-        scroll = _numbers([s.get("y"), s.get("height"), s.get("viewport_h")], 3) if isinstance(s, dict) else None
-        visual = _numbers(top.get("visual"), 4)
-        return cls(window if isinstance(window, dict) else None, _numbers(top.get("viewport"), 2),
-                   visual if visual is not None and visual[2] > 0 and visual[3] > 0 else None, scroll)
+        scroll = _numbers([s.get(k) for k in ("y", "height", "viewport_h", "x", "width")], 5) \
+            if isinstance(s, dict) else None
+        layout, visual = _numbers(top.get("viewport"), 2), _numbers(top.get("visual"), 5)
+        return cls(window if isinstance(window, dict) else None,
+                   layout if layout is not None and layout[0] > 0 and layout[1] > 0 else None,
+                   visual if visual is not None and visual[2] > 0 and visual[3] > 0 and visual[4] > 0 else None,
+                   scroll, top.get("body_scrolls") is True)
 
-    def centred(self, rect: Rect, container: str | None) -> Rect | None:
+    def mapping(self) -> Rect | None:
+        """The page's part the screen shows, in CSS px, as placement maps it onto the window's page area: the layout
+        viewport (the page area holds it whole, a classic scrollbar included, which the visual viewport leaves out),
+        shifted and shrunk by a pinch zoom."""
+        if self.layout is None or self.visual is None:
+            return None
+        (lw, lh), (ox, oy, _, _, scale) = self.layout, self.visual
+        return ox, oy, lw / scale, lh / scale
+
+    def centred(self, rect: Rect) -> Rect | None:
         """Where an act that centres its element (CENTRING) will have scrolled it: the page's own vertical scroll, from
-        the snapshot's scroll facts, as far as the page can scroll. None when FERB can't tell: the element is in a
-        scroll container (which scrolls too), the page is pinch-zoomed, the facts are missing, or it is beside the
-        viewport (a sideways scroll). A page that scrolls sideways or scrolls its body instead is a residual."""
-        if container or self.layout is None or self.visual is None or self.scroll is None:
+        the snapshot's scroll facts, as far as the page can scroll. Its place in the page doesn't change when the page
+        scrolls, so this holds after FERB's own scrolls too. None when FERB can't tell: the page is pinch-zoomed,
+        scrolls sideways or has its body scroll instead, the facts are missing, or the element is beside the viewport.
+        The element's own boxes (fixed, sticky, a scroll box) are the caller's to check."""
+        if self.body_scrolls or self.layout is None or self.visual is None or self.scroll is None:
             return None
-        (lw, lh), (_, _, vw, vh) = self.layout, self.visual
-        if abs(vw - lw) > 1 or abs(vh - lh) > 1 or not 0 <= rect[0] + rect[2] / 2 <= lw:
+        (lw, _), scale = self.layout, self.visual[4]
+        top, height, view, _, width = self.scroll
+        if abs(scale - 1) > 1e-3 or width > lw + 1 or not 0 <= rect[0] + rect[2] / 2 <= lw:
             return None
-        top, height, view = self.scroll
         to = min(max(top + rect[1] + rect[3] / 2 - view / 2, 0.0), max(height - view, 0.0))
         return rect[0], rect[1] - (to - top), rect[2], rect[3]
+
+
+def _motion(raw: dict[str, Any]) -> tuple[str | None, bool]:
+    """An element's scroll facts from the extension (L33): fixed or sticky (itself or an ancestor), and whether a box
+    other than the page scrolls it (its scroll container, a carousel, hidden overflow)."""
+    pinned = raw.get("pinned")
+    return (pinned if pinned in ("fixed", "sticky") else None), bool(raw.get("scroll_box") or raw.get("container"))
 
 
 class _NoSecrets:
@@ -661,6 +684,8 @@ class _Tab:
     taken_over_from: dict[str, str] = field(default_factory=dict)
     closed: bool = False            # closed in the browser (the owner): listed as closed, never driven again
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
+    motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
+    moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
 
 
 class _TabDriver:
@@ -935,6 +960,7 @@ class _TabDriver:
         media: list[dict[str, Any]] = []
         media_refs: dict[int, tuple[int, int]] = {}
         media_ids: dict[str, int] = {}
+        motion: dict[str, tuple[str | None, bool]] = {}
         for f in v["frames"]:
             fid = int(f["frame_id"])
             for m in f.get("media", []):               # L26: one index across frames, as browser.media takes it
@@ -957,9 +983,12 @@ class _TabDriver:
                 if fid and raw.get("container"):
                     raw = dict(raw, container=f"f{fid}:{raw['container']}")
                 elements[eid] = (fid, gen, int(raw["id"]), page_element(eid, str(fid), raw))
+                if any(_motion(raw)):
+                    motion[eid] = _motion(raw)
             if fid == 0:
                 text, title, url = f.get("text", ""), f.get("title", ""), f.get("url", url)
-                scroll = f.get("scroll") or None
+                # the page's sideways scroll is FERB's cursor's fact (L33), not the worker's
+                scroll = {k: n for k, n in (f.get("scroll") or {}).items() if k not in ("x", "width")} or None
                 top = f
         child_text = [str(f.get("text", "")) for f in v["frames"] if int(f["frame_id"]) != 0 and f.get("text")]
         if child_text:
@@ -970,7 +999,7 @@ class _TabDriver:
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
-        t.page = _Page.of(v.get("window"), top)
+        t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
                               scroll, scrollers, media)
         from ferb.act.browser.snapshot import for_model
@@ -1009,6 +1038,8 @@ class _TabDriver:
             args["expect_dialog"] = action.expect_dialog
             if action.dialog_text is not None:
                 args["dialog_text"] = action.dialog_text
+        if action.kind not in STILL:
+            t.moved = True                              # it may scroll the page (L33: the snapshot's rects go stale)
         try:
             v = await t.bridge.call("act", args, timeout=30, cid=intent_id or None)
         except DriverError as e:
@@ -1021,21 +1052,27 @@ class _TabDriver:
                             {k:value for k,value in v.items() if k not in {"ok","detail"}})
 
     async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
-        if action.page_mode or action.kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
+        if action.page_mode or action.kind not in POINTER_KINDS:
             raise Refused("visual points support trusted pointer actions; take a semantic snapshot for typing")
-        v = t.visual
-        if not v or v[1] != t.snap_gen or v[2] != t.bridge.navs.get(t.chrome_id, 0) or \
-                asyncio.get_running_loop().time() - v[3] > 30:
+        if not self._visual_fresh(t):
             raise StaleRef("the visual target is stale; take a fresh screenshot and resolve its points")
         start = t.points.get(el.element_id)
         end = t.points.get(action.end_element or "")
         if not start or (action.kind == "drag" and not end):
             raise Refused("drag needs two points resolved from the same screenshot")
         t.visual = None
+        t.moved = True                                  # a gesture may scroll the page (L33)
         result = await t.bridge.call("pointer", {"tab_id": t.chrome_id, "point": start, "end": end,
                                                 "kind": action.kind}, timeout=10, cid=intent_id or None)
         return ActionResult(bool(result.get("ok")), str(result.get("detail", "")),
                             {k: v for k, v in result.items() if k not in {"ok", "detail"}})
+
+    @staticmethod
+    def _visual_fresh(t: _Tab) -> bool:
+        """The tab's latest screenshot still resolves points: of this snapshot and page, under 30 seconds old, unused."""
+        v = t.visual
+        return v is not None and v[1] == t.snap_gen and v[2] == t.bridge.navs.get(t.chrome_id, 0) and \
+            asyncio.get_running_loop().time() - v[3] <= 30
 
     @staticmethod
     def _detached_msg(reason: str) -> str:
@@ -1170,6 +1207,7 @@ class _TabDriver:
         args: dict[str, Any] = {"tab_id": t.chrome_id, "direction": direction, "frame_id": frame}
         if container:
             args["container"] = local
+        t.moved = True                                  # L33: the snapshot's rects go stale
         try:
             v = await t.bridge.call("scroll", args, timeout=15)
         except DriverError as e:
@@ -1365,33 +1403,63 @@ class _TabDriver:
         conn = self._tab(tab).bridge.conn
         return conn.browser_pid if conn is not None else None
 
-    async def screen_rect(self, el: ElementRef, action: BrowserAction | None = None) -> Rect | None:
-        """L33, FERB's cursor: where the element an act is about to touch is on screen (global points), from the
-        latest snapshot (its rect, the tab's window and viewport) placed on that window's page area (`native_place`).
-        An `action` that scrolls its element to the viewport's centre first (CENTRING; real typing and key presses
-        too, as `act` sends them) is pointed at where the element will be; a screenshot point is pressed where it is,
-        and a fill (no `action`) scrolls nothing. None whenever unsure: a stale element, one in a child frame (its rect
-        is its frame's), FERB's own minimized window or a tab its window doesn't show (decided from the snapshot,
-        with no Accessibility read), a tab laid out at FERB's own size, an older extension's snapshot, a spot off the
-        page's visible part, or a window that can't be matched or isn't on screen."""
+    def page_rect(self, el: ElementRef, action: BrowserAction | None = None) -> Rect | None:
+        """L33, FERB's cursor: where the element `action` touches will be when it does, in the top frame's layout
+        viewport (CSS px), from the latest snapshot. An act that scrolls its element to the viewport's centre first
+        (CENTRING; real typing and key presses too, as `act` sends them) is pointed at where the scroll takes it; a
+        screenshot point is pressed where it is, and a fill (no `action`) scrolls nothing. Publish nothing rather
+        than a wrong spot, so None when: the element is stale or in a child frame (its rect is its frame's); `act`
+        would refuse the act (a drag or a pointer act without a fresh screenshot's points, typing into a secret
+        field); a centring act's element is fixed, sticky or in a box that scrolls too, or the page can't say where
+        the scroll ends (`_Page.centred`); FERB scrolled the page since the snapshot and the element isn't fixed
+        (fixed in a box that scrolls doesn't count); it is sticky; or the spot is off the page's visible part."""
         try:
             t, frame, _, _, info = self._resolve(el)
         except FerbError:
             return None
-        page, conn = t.page, t.bridge.conn
-        window = page.window if page is not None else None
-        pid = conn.browser_pid if conn is not None else None
-        if frame != 0 or page is None or page.visual is None or window is None or _hidden(window) \
-                or window.get("emulated") or self.native_place is None or not isinstance(pid, int):
+        page = t.page
+        if frame != 0 or page is None or page.visual is None or self._refused(t, el, info, action):
             return None
-        bounds, (vx, vy, vw, vh) = _window_bounds(window), page.visual
+        pinned, boxed = t.motion.get(el.element_id, (None, False))
         centres = action is not None and el.element_id not in t.points and (
             action.kind in CENTRING or action.kind in CENTRING_REAL and not (action.page_mode and not action.trusted))
-        rect = page.centred(info.rect, info.container) if centres else info.rect
-        if bounds is None or rect is None or rect[2] <= 0 or rect[3] <= 0 \
+        if centres:
+            rect = None if pinned or boxed else page.centred(info.rect)
+        else:
+            rect = None if pinned == "sticky" or (t.moved and (pinned != "fixed" or boxed)) else info.rect
+        vx, vy, vw, vh, _ = page.visual
+        if rect is None or rect[2] <= 0 or rect[3] <= 0 \
                 or not (vx <= rect[0] + rect[2] / 2 <= vx + vw and vy <= rect[1] + rect[3] / 2 <= vy + vh):
             return None
-        return await self.native_place(rect, (vx, vy, vw, vh), pid, bounds, str(window.get("title") or ""))
+        return rect
+
+    def _refused(self, t: _Tab, el: ElementRef, info: PageElement, action: BrowserAction | None) -> bool:
+        """Whether `act` would refuse this act before doing anything (its own checks, in its order)."""
+        if action is None:
+            return False
+        if el.element_id in t.points or action.kind == "drag":
+            return bool(action.page_mode or action.kind not in POINTER_KINDS or not self._visual_fresh(t)
+                        or el.element_id not in t.points
+                        or (action.kind == "drag" and (action.end_element or "") not in t.points))
+        return action.kind == "type" and info.secret
+
+    async def screen_rect(self, el: ElementRef, action: BrowserAction | None = None) -> Rect | None:
+        """L33, FERB's cursor: `page_rect` in global screen points, placed on the page area of the tab's window
+        (`native_place`). None besides when FERB's own minimized window or a tab its window doesn't show holds it
+        (decided from the snapshot, with no Accessibility read), the tab is laid out at FERB's own size, an older
+        extension's snapshot lacks the facts, or the window can't be matched or isn't on screen."""
+        rect = self.page_rect(el, action)
+        t = self._tabs.get(el.tab.tab_id)
+        page = t.page if t is not None else None
+        window = page.window if page is not None else None
+        pid = t.bridge.conn.browser_pid if t is not None and t.bridge.conn is not None else None
+        if rect is None or page is None or window is None or _hidden(window) or window.get("emulated") \
+                or self.native_place is None or not isinstance(pid, int):
+            return None
+        bounds, viewport = _window_bounds(window), page.mapping()
+        if bounds is None or viewport is None:
+            return None
+        return await self.native_place(rect, viewport, pid, bounds, str(window.get("title") or ""))
 
     def recording_source(self, tab: TabRef, owner: str) -> tuple[dict[str, Any], Any]:
         t = self._tab(tab)
@@ -1467,6 +1535,8 @@ class _TabDriver:
         eid = f"s{t.snap_gen}e{len(t.elements) + 1}"
         info = page_element(eid, str(frame), raw["element"])
         t.elements[eid] = (frame, t.snap_gen, local, info)
+        if any(_motion(raw["element"])):
+            t.motion[eid] = _motion(raw["element"])
         t.points[eid] = str(raw["pointer"])       # two points can share a shot; the gesture consumes it
         return info
 

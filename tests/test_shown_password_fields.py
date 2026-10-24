@@ -164,6 +164,7 @@ let sealedSplitDocument = false, target = null;
 const location = {origin: 'https://accounts.example'}, element = () => ({el: target}), setValue = (n, v) => n.value = v;
 const sealedFields = new WeakSet(), visible = () => true, maskedEditable = () => false, label = el => el.labelText;
 const implicitRole = () => 'textbox', hitTest = () => false, scrollerOf = () => null, round = n => n;
+const pinnedOf = () => null, boxedBy = () => false, parentOf = () => null;   // L33's scroll facts: none here
 const formKind = () => null, maskUrl = u => u, innerWidth = 1000, innerHeight = 1000, containers = new Map();
 const input = (attrs, labelText = '') => Object.assign(new HTMLInputElement(), {tagName: 'INPUT', type: 'text', name: '', id: '',
   autocomplete: '', value: '', maxLength: -1, inputMode: '', pattern: '', disabled: false, readOnly: false,

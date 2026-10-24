@@ -64,6 +64,7 @@
   }
   function point(gen, x, y) {
     if (gen !== snapGen) return {error: "stale"};
+    pinCache.clear(); boxCache.clear();
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return {error: "outside_viewport"};
     let el = document.elementFromPoint(x, y);
     while (el && el.shadowRoot) {
@@ -244,6 +245,45 @@
              at_end: sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 };
   }
 
+  // L33: what a scroll into view moves besides the page, for FERB's cursor (geometry facts only). `pinnedOf`: the
+  // element or a flat-tree ancestor is position fixed or sticky (sticky wins). `boxedBy`: that node or an ancestor below
+  // the body is a box a scroll into view can scroll, on either axis (overflow other than visible or clip, with more to
+  // show: a carousel, hidden overflow). `bodyScrolls`: the body scrolls by itself instead of the page (html's overflow
+  // isn't visible, so the body's stays its own). Cached per snapshot, like scrollerCache.
+  const pinCache = new Map(), boxCache = new Map();
+  const SCROLLS = new Set(["auto", "scroll", "overlay", "hidden"]);
+  function pinnedOf(el) {
+    if (!el || el === document.documentElement) return null;
+    let v = pinCache.get(el);
+    if (v === undefined) {
+      const own = getComputedStyle(el).position, up = pinnedOf(parentOf(el));
+      v = own === "sticky" || up === "sticky" ? "sticky" : own === "fixed" || up === "fixed" ? "fixed" : null;
+      pinCache.set(el, v);
+    }
+    return v;
+  }
+  function overflows(p) {
+    const s = getComputedStyle(p);
+    return (SCROLLS.has(s.overflowX) && p.scrollWidth > p.clientWidth + 1) ||
+           (SCROLLS.has(s.overflowY) && p.scrollHeight > p.clientHeight + 1);
+  }
+  function boxedBy(p) {
+    if (!p || p === document.body || p === document.documentElement) return false;
+    let v = boxCache.get(p);
+    if (v === undefined) {
+      v = overflows(p) || boxedBy(parentOf(p));
+      boxCache.set(p, v);
+    }
+    return v;
+  }
+  function bodyScrolls() {
+    const b = document.body, root = document.documentElement;
+    if (!b || !root || b === document.scrollingElement ||
+        !(b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1)) return false;
+    const r = getComputedStyle(root);
+    return !(r.overflowX === "visible" && r.overflowY === "visible") && overflows(b);
+  }
+
   function hitTest(el, r) {
     const cx = Math.min(Math.max(r.x + r.width / 2, 0), innerWidth - 1);
     const cy = Math.min(Math.max(r.y + r.height / 2, 0), innerHeight - 1);
@@ -283,6 +323,9 @@
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
     if (container) e.container = container;
+    const pinned = pinnedOf(el);                     // L33: what a scroll into view moves besides the page
+    if (pinned) e.pinned = pinned;
+    if (boxedBy(parentOf(el))) e.scroll_box = true;
     if (el.disabled || el.getAttribute("aria-disabled") === "true") e.disabled = true;
     const exp = el.getAttribute("aria-expanded"), sel = el.getAttribute("aria-selected"), chk = el.getAttribute("aria-checked");
     if (exp !== null) e.expanded = exp === "true";
@@ -449,7 +492,7 @@
     }
     bindings = new Map();
     snapGen = gen;
-    els = new Map(); containers = new Map(); scrollerCache.clear();
+    els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear();
     const found = [];
     collect(document, found);
     const shown = found.filter(el => visible(el) || (el.tagName === "INPUT" && el.type === "file"));
@@ -476,11 +519,14 @@
     const text = pageText();
     mediaEls = new Map();
     const media = mediaElements(document, []).map((el, index) => { mediaEls.set(index, new WeakRef(el)); return mediaState(el, index); });
-    const vv = window.visualViewport;    // L33: what the screen shows of the page (pinch zoom included), for the cursor
+    // L33, for the cursor: what the screen shows of the page (its pinch zoom `scale`), its scroll sideways, and
+    // whether the body scrolls by itself
+    const vv = window.visualViewport, d = document.scrollingElement || document.documentElement;
     return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
-             viewport: [innerWidth, innerHeight], scroll: scrollState(null), scrollers, iframes, elements: out, text,
-             visual: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight],
-             media, truncated: false };
+             viewport: [innerWidth, innerHeight], scroll: {...scrollState(null), x: Math.round(d.scrollLeft), width: d.scrollWidth},
+             scrollers, iframes, elements: out, text,
+             visual: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height, vv.scale] : [0, 0, innerWidth, innerHeight, 1],
+             ...(bodyScrolls() ? {body_scrolls: true} : {}), media, truncated: false };
   }
 
   // Video and audio elements (L26), in document order with open shadow roots, visible or not (an <audio> never is).
@@ -604,7 +650,7 @@
       return { ok: true, detail: "selected" };
     }
     if (kind === "click" || kind === "dblclick" || kind === "rightclick" || kind === "hover") {
-      el.scrollIntoView({ block: "center", inline: "center" });
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
       const r = el.getBoundingClientRect(), at = { bubbles: true, cancelable: true, composed: true,
                                                    clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
       if (kind === "hover") {
@@ -635,7 +681,7 @@
   function rect(gen, id) {           // for trusted input: element centre in this frame's viewport, after scrolling it in
     const { el, error } = element(gen, id);
     if (error) return { error };
-    el.scrollIntoView({ block: "center", inline: "center" });
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return { error: "not_visible" };
     const occluded = hitTest(el, r);

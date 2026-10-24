@@ -1427,7 +1427,7 @@ const commands = {
     if (st.axErrors.length) top.truncated = true;
     if (st.axErrors.length) top.text = `[Accessibility view incomplete: ${st.axErrors.join("; ")}]\n${top.text}`;
     const dialogs = st.dialogs.splice(0);
-    // L33 (0.15.8, optional): where the tab is shown, so FERB's cursor can point at an element on screen
+    // L33 (0.15.9, optional): where the tab is shown, so FERB's cursor can point at an element on screen
     return { frames, dialogs, window: await tabWindow(tab_id) };
   },
   async point({tab_id, snap, x, y, image_width, image_height}) {

@@ -528,8 +528,8 @@ class MacComputerDriver:
         points, on the page area of that browser process's window at `bounds` showing the tab titled `title`
         (`page_on_screen`, as captures place a page's secret fields). None whenever unsure: the app is excluded or
         gone, no single window there shows that tab (`window_with_frame`, then its title), its page areas can't be
-        read quickly, the page fits none or several equally (a split view), or the spot isn't in an on-screen window
-        of the browser (minimized, another Space). Accessibility and Quartz work runs off the event loop."""
+        read quickly, the page fits none or several equally (a split view), or the spot isn't in that very window on
+        screen (minimized, another Space, moved). Accessibility and Quartz work runs off the event loop."""
         def place() -> Rect | None:
             try:
                 self.app(f"pid:{pid}")
@@ -542,7 +542,8 @@ class MacComputerDriver:
                 placed = page_on_screen([rect], viewport, axm.outermost(self.ax.web_areas_of(win) or []))
             except Withheld:
                 return None
-            return placed[0] if len(placed) == 1 and shotm.window_on_screen(pid, placed[0]) else None
+            return placed[0] if len(placed) == 1 and shotm.window_on_screen(pid, placed[0], bounds, title or None) \
+                else None
         return await asyncio.to_thread(place)
 
     def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:

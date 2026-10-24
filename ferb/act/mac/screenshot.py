@@ -54,18 +54,21 @@ def _info_windows(everywhere: bool = False) -> list[dict[str, Any]]:
     return list(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])
 
 
-def window_on_screen(pid: int, rect: tuple[float, float, float, float]) -> bool:
+def window_on_screen(pid: int, rect: tuple[float, float, float, float],
+                     like: tuple[float, float, float, float] | None = None, title: str | None = None) -> bool:
     """True when an on-screen window of the process contains the rect's centre (L33: the cursor never points at an
-    element in a hidden or other-Space window). Synchronous Quartz work: call it off the event loop."""
+    element in a hidden or other-Space window). With `like`, only the one window at those bounds counts (and with
+    `title`, the one the window server names so: a browser window carries its tab's title), so the spot is in the very
+    window that was matched; none or several there: False. Synchronous Quartz work: call it off the event loop."""
     cx, cy = rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
-    for d in _info_windows():
-        if (int(d.get("kCGWindowOwnerPID", -1)) != pid or int(d.get("kCGWindowLayer", 1)) != 0
-                or float(d.get("kCGWindowAlpha", 1)) <= 0):
-            continue
-        x, y, w, h = _window(d).bounds
-        if x <= cx <= x + w and y <= cy <= y + h:
-            return True
-    return False
+    shown = [_window(d) for d in _info_windows() if int(d.get("kCGWindowOwnerPID", -1)) == pid
+             and int(d.get("kCGWindowLayer", 1)) == 0 and float(d.get("kCGWindowAlpha", 1)) > 0]
+    if like is not None:
+        shown = [w for w in shown if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))
+                 and (title is None or " ".join(w.title.split()) == " ".join(title.split()))]
+        if len(shown) != 1:
+            return False
+    return any(x <= cx <= x + w and y <= cy <= y + h for x, y, w, h in (s.bounds for s in shown))
 
 
 def _window(d: dict[str, Any]) -> Window:

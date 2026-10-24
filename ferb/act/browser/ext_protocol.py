@@ -34,9 +34,12 @@ setup or readiness failure refuses no capture: the reply's `input_note` says so.
 Extension 0.15.8 (L31) adds optional reply fields without a protocol change: each snapshot media entry's `id` (the
 element's own for the page's life) and each `list_tabs` tab's `audible` and `muted`. An older daemon ignores them; with
 an older extension they are absent, so a loop probe on them sees its field missing (refused at arming, a trip after).
-It also (L33) gives the `snapshot` reply the tab's `window` (as protocol 16's captures do) and each frame its `visual`
-viewport, so FERB's cursor can place an element on screen; without them (an older extension) no browser point is
-published."""
+Extension 0.15.9 (L33) adds optional reply fields without a protocol change, for FERB's cursor: the `snapshot` reply
+carries the tab's `window` (as protocol 16's captures do); each frame its `visual` viewport with its pinch zoom
+(x, y, w, h, scale), its `scroll` sideways too (`x`, `width`) and `body_scrolls` when its body scrolls by itself; and
+each element `pinned` (fixed or sticky) and `scroll_box` (a box other than the page scrolls it). Its centring scrolls
+are instant (`behavior: "instant"`), so a smooth-scrolling page no longer moves under real input's aim. Without these
+fields (an older extension) no browser point is published."""
 
 import base64
 import hashlib

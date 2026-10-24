@@ -184,6 +184,25 @@ def test_window_on_screen_wants_a_normal_window_of_the_pid_holding_the_centre(mo
     assert on(win(layer=25), win()) is True
 
 
+def test_window_on_screen_with_bounds_wants_the_matched_window(monkeypatch):
+    """L33 review (7): the spot must be in the very window placement matched (its bounds and the tab's title), not
+    in any on-screen window of the browser that holds it."""
+    from ferb.act.mac import screenshot
+    def win(b=(0, 0, 400, 300), name='Page'):
+        return {'kCGWindowOwnerPID': 1, 'kCGWindowLayer': 0, 'kCGWindowAlpha': 1.0, 'kCGWindowNumber': 9,
+                'kCGWindowName': name, 'kCGWindowBounds': {'X': b[0], 'Y': b[1], 'Width': b[2], 'Height': b[3]}}
+    def on(*ws, rect=(100, 100, 20, 20), title='Page'):
+        monkeypatch.setattr(screenshot, '_info_windows', lambda everywhere=False: list(ws))
+        return screenshot.window_on_screen(1, rect, (0.0, 0.0, 400.0, 300.0), title)
+    assert on(win()) is True
+    assert on(win(b=(0, 0, 800, 600))) is False                # another window of the browser holds the spot
+    assert on(win(name='Other tab')) is False                  # the window there shows another page
+    assert on(win(), win(name='Other tab')) is True            # two at those bounds: the title tells them apart
+    assert on(win(), win()) is False                           # two showing the same page: which one can't be told
+    assert on(win(), rect=(500, 100, 20, 20)) is False         # outside the matched window
+    assert on(win(name='Untitled tab'), title=None) is True    # no title to tell by: the one window there
+
+
 def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
     from types import SimpleNamespace
     from ferb.act.mac import tools
@@ -213,12 +232,16 @@ def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
 
 WEB_AREA = (200.0, 100.0, 1000.0, 800.0)          # where the browser window draws the tab's page, screen points
 TAB_WINDOW = {'bounds': [200, 25, 1000, 875], 'active': True, 'minimized': False, 'title': 'Window'}
+BOUNDS = (200.0, 25.0, 1000.0, 875.0)
+LONG_PAGE = {'y': 0, 'height': 3000, 'viewport_h': 800, 'x': 0, 'width': 1000}
 
 
 def _browser(monkeypatch, *, frame=0, rect=(10, 20, 100, 30), window=TAB_WINDOW, scroll=None, container=None,
-             areas=(WEB_AREA,), on_screen=True, display=1, layout=(1000, 800), visual=None):
-    """A real ext-bridge tab driver after one snapshot (a fake bridge answers it), placed by a real Mac driver whose
-    Accessibility and window list are fakes: one element `s1e1`, the tab's window as the extension reported it."""
+             areas=(WEB_AREA,), on_screen=True, display=1, layout=(1000, 800), visual=None, pinned=None,
+             scroll_box=False, body_scrolls=False, secret=False):
+    """A real ext-bridge tab driver after one snapshot (a fake bridge answers it, and acts, scrolls and gestures with
+    ok), placed by a real Mac driver whose Accessibility and window list are fakes: the element `e1` (and `e2`, below
+    it), the tab's window as the extension reported it."""
     from types import SimpleNamespace
     from ferb.act.browser import tools as btools
     from ferb.act.browser.ext_bridge import _Tab, _TabDriver
@@ -229,18 +252,24 @@ def _browser(monkeypatch, *, frame=0, rect=(10, 20, 100, 30), window=TAB_WINDOW,
     ax.tree.web_areas = list(areas)
     asked = []                                        # every look at the browser's windows, Accessibility's or Quartz's
     ax.window_with_frame = lambda pid, bounds, title=None, *a: asked.append(('ax', pid, bounds, title)) or 'win'
-    monkeypatch.setattr(screenshot, 'window_on_screen', lambda pid, r: asked.append(('cg', pid, r)) or on_screen)
+    monkeypatch.setattr(screenshot, 'window_on_screen',
+                        lambda pid, r, like=None, title=None: asked.append(('cg', pid, r, like, title)) or on_screen)
     monkeypatch.setattr(btools, 'display_of', lambda r: display)
-    raw = {'id': 0, 'role': 'button', 'label': 'Go', 'rect': list(rect), **({'container': container} if container else {})}
-    top = {'frame_id': 0, 'url': 'https://example.test/', 'title': 'Window', 'text': '', 'elements': [] if frame else [raw],
-           'viewport': list(layout), 'visual': list(visual or (0, 0, *layout)),
-           'scroll': scroll or {'y': 0, 'height': layout[1], 'viewport_h': layout[1], 'at_end': True}}
+    raw = {'id': 0, 'role': 'button', 'label': 'Go', 'rect': list(rect), **({'container': container} if container else {}),
+           **({'pinned': pinned} if pinned else {}), **({'scroll_box': True} if scroll_box else {}),
+           **({'secret': True, 'role': 'textbox', 'input_type': 'password'} if secret else {})}
+    other = {'id': 1, 'role': 'button', 'label': 'Next', 'rect': [10, 60, 100, 30]}
+    top = {'frame_id': 0, 'url': 'https://example.test/', 'title': 'Window', 'text': '',
+           'elements': [] if frame else [raw, other], 'viewport': list(layout),
+           'visual': list(visual or (0, 0, *layout, 1)), **({'body_scrolls': True} if body_scrolls else {}),
+           'scroll': scroll or {'y': 0, 'height': layout[1], 'viewport_h': layout[1], 'x': 0, 'width': layout[0]}}
     child = {'frame_id': frame, 'url': 'https://pay.example/', 'title': '', 'text': '', 'elements': [raw],
-             'viewport': [300, 200], 'visual': [0, 0, 300, 200], 'scroll': {'y': 0, 'height': 200, 'viewport_h': 200}}
+             'viewport': [300, 200], 'visual': [0, 0, 300, 200, 1], 'scroll': {'y': 0, 'height': 200, 'viewport_h': 200}}
     reply = {'frames': [top] + ([child] if frame else []), 'dialogs': [], **({'window': window} if window is not None else {})}
 
     async def call(op, args, **kw):
-        return reply
+        return {'snapshot': reply, 'scroll': {'y': 700, 'height': 3000, 'viewport_h': 800, 'frame_id': 0}}.get(
+            op, {'ok': True, 'detail': 'done'})
     bridge = SimpleNamespace(gen=1, conn=SimpleNamespace(browser_pid=12), call=call, navs={})
     d = _TabDriver(None, lambda: [])
     ref = TabRef('device', 'brave', 'Default', 1, 't1')
@@ -250,19 +279,39 @@ def _browser(monkeypatch, *, frame=0, rect=(10, 20, 100, 30), window=TAB_WINDOW,
     return d, mac, ax, asked
 
 
+def _el(d, n=1):
+    return f"s{d._tabs['t1'].snap_gen}e{n}"          # an element of the latest snapshot
+
+
 def _bpoint(d, action='click', tool='act', task='task', **kw):
     from types import SimpleNamespace
     from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct, BrowserLoginCode, BrowserSecret
     cls = {'act': BrowserAct, 'secret': BrowserSecret, 'code': BrowserLoginCode}[tool]
-    args = cls.Input(tab='t1', element='s1e1', **({'action': action} if tool == 'act' else {}), **kw)
+    args = cls.Input(tab='t1', element=_el(d), **({'action': action} if tool == 'act' else {}), **kw)
     return asyncio.run(cls(d, OWNER_BROWSER).point(args, SimpleNamespace(task_id=task)))
+
+
+def _visual(d):
+    """A fresh screenshot whose points e1 and e2 resolved (browser_point)."""
+    t = d._tabs['t1']
+    t.points.update({_el(d, 1): 'p1', _el(d, 2): 'p2'})
+    t.visual = ('bs-1', t.snap_gen, t.snap_nav, time.monotonic(), 1000, 800)
+    return t
+
+
+def _act(d, action, n=2):
+    from ferb.core.types import BrowserAction
+    ref = d._tabs['t1'].ref
+    return asyncio.run(d.act(d.element_ref(ref, _el(d, n)), BrowserAction(action, 'A' if action == 'select' else None),
+                             ''))
 
 
 def test_a_browser_act_points_at_its_element_on_the_pages_screen_area(monkeypatch):
     d, _, _, asked = _browser(monkeypatch)
     assert _bpoint(d) == Point('click', (210.0, 120.0, 100.0, 30.0), 1)
-    # the browser's window at the bounds the extension reported, showing the tab (its title); the spot on screen
-    assert asked == [('ax', 12, (200.0, 25.0, 1000.0, 875.0), 'Window'), ('cg', 12, (210.0, 120.0, 100.0, 30.0))]
+    # the browser's window at the bounds the extension reported, showing the tab (its title); the spot in that very
+    # window, on screen
+    assert asked == [('ax', 12, BOUNDS, 'Window'), ('cg', 12, (210.0, 120.0, 100.0, 30.0), BOUNDS, 'Window')]
 
 
 def test_an_element_in_a_frame_gets_no_point(monkeypatch):
@@ -290,7 +339,7 @@ def test_a_browser_point_needs_its_window_its_page_area_and_the_screen(monkeypat
     for areas in [(), ((200.0, 100.0, 500.0, 800.0), (700.0, 100.0, 500.0, 800.0))]:   # no page area; a split view
         d, *_ = _browser(monkeypatch, areas=areas)
         assert _bpoint(d) is None
-    d, *_ = _browser(monkeypatch, on_screen=False)             # minimized since, or on another Space
+    d, *_ = _browser(monkeypatch, on_screen=False)             # minimized since, on another Space, or moved
     assert _bpoint(d) is None
     d, *_ = _browser(monkeypatch, display=None)
     assert _bpoint(d) is None
@@ -315,27 +364,27 @@ def test_browser_points_have_the_kind_of_their_act(monkeypatch):
     assert _bpoint(d, 'upload', files=['/tmp/a.txt']) is None  # a file field: often hidden, nothing to point at
     assert _bpoint(d, tool='secret') == Point('type', (210.0, 120.0, 100.0, 30.0), 1)
     assert _bpoint(d, tool='code') == Point('type', (210.0, 120.0, 100.0, 30.0), 1)
+    _visual(d)
+    assert _bpoint(d, 'drag', end_element=_el(d, 2)) == Point('drag', (210.0, 120.0, 100.0, 30.0), 1)
 
 
 def test_a_click_points_where_its_act_scrolls_the_element(monkeypatch):
     """The act centres its element in the viewport first (content.js scrollIntoView, block "center"): the point is
     where the element will be, from the snapshot's scroll facts, as far as the page can scroll."""
-    long_page = {'y': 0, 'height': 3000, 'viewport_h': 800}
-    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=long_page)
+    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=LONG_PAGE)
     assert _bpoint(d).rect == (210.0, 485.0, 100.0, 30.0)     # scrolled by 715 - 400 = 315
     assert _bpoint(d, 'select', text='A').rect == (210.0, 800.0, 100.0, 30.0)   # select scrolls nothing
-    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=dict(long_page, y=2100))
+    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=dict(LONG_PAGE, y=2100))
     assert _bpoint(d).rect == (210.0, 700.0, 100.0, 30.0)     # only 100 more to the page's end
-    d, *_ = _browser(monkeypatch, rect=(10, 900, 100, 30), scroll=long_page)          # below the viewport
+    d, *_ = _browser(monkeypatch, rect=(10, 900, 100, 30), scroll=LONG_PAGE)          # below the viewport
     assert _bpoint(d, 'type', text='x').rect == (210.0, 485.0, 100.0, 30.0)         # real typing clicks it first
     assert _bpoint(d, 'type', text='x', page_mode=True) is None   # page events focus it: where it lands is unknown
     assert _bpoint(d, tool='secret') is None
     d, *_ = _browser(monkeypatch, rect=(1200, 20, 100, 30))    # right of the viewport: a sideways scroll FERB can't tell
     assert _bpoint(d) is None
-    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=long_page)
-    d._tabs['t1'].points['s1e1'] = 'pointer-token'             # a screenshot point: pressed where it is, no scroll
+    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=LONG_PAGE)
+    _visual(d)                                                 # a screenshot point: pressed where it is, no scroll
     assert _bpoint(d).rect == (210.0, 800.0, 100.0, 30.0)
-    assert _bpoint(d, 'drag', end_element='s1e2') == Point('drag', (210.0, 800.0, 100.0, 30.0), 1)
 
 
 def test_a_centred_act_in_a_scroll_container_gets_no_point(monkeypatch):
@@ -344,10 +393,78 @@ def test_a_centred_act_in_a_scroll_container_gets_no_point(monkeypatch):
     assert _bpoint(d, 'select', text='A') == Point('type', (210.0, 120.0, 100.0, 30.0), 1)
 
 
+def test_a_fixed_or_sticky_element_is_pointed_only_where_it_stays(monkeypatch):
+    d, *_ = _browser(monkeypatch, pinned='fixed', scroll=LONG_PAGE)
+    assert _bpoint(d) is None                                  # a centring act: where it ends up isn't known
+    assert _bpoint(d, 'select', text='A').rect == (210.0, 120.0, 100.0, 30.0)
+    _act(d, 'click')                                           # the page scrolled since the snapshot; a fixed one didn't
+    assert _bpoint(d, 'select', text='A').rect == (210.0, 120.0, 100.0, 30.0)
+    d, *_ = _browser(monkeypatch, pinned='sticky', scroll=LONG_PAGE)
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is None
+    d, *_ = _browser(monkeypatch, pinned='fixed', scroll_box=True, scroll=LONG_PAGE)   # in a fixed panel that scrolls
+    assert _bpoint(d, 'select', text='A') is not None
+    _act(d, 'scroll')
+    assert _bpoint(d, 'select', text='A') is None
+
+
+def test_a_page_or_a_box_that_scrolls_sideways_gets_no_centred_point(monkeypatch):
+    d, *_ = _browser(monkeypatch, scroll=dict(LONG_PAGE, width=1500))   # the page itself scrolls sideways
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is not None
+    d, *_ = _browser(monkeypatch, scroll_box=True)             # a carousel, or a box whose overflow is hidden
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is not None
+    d, *_ = _browser(monkeypatch, scroll={'y': 0, 'height': 800, 'viewport_h': 800})   # no sideways facts: unknown
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is not None
+
+
+def test_a_body_that_scrolls_by_itself_gets_no_centred_point(monkeypatch):
+    d, *_ = _browser(monkeypatch, body_scrolls=True)           # html{overflow:hidden} body{overflow:auto}
+    assert _bpoint(d) is None and _bpoint(d, 'select', text='A') is not None
+
+
+def test_after_ferbs_own_scroll_only_centred_points_hold_until_the_next_snapshot(monkeypatch):
+    d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=LONG_PAGE)
+    _act(d, 'click')                                           # it centred e2: the page moved under e1's snapshot rect
+    assert _bpoint(d, 'select', text='A') is None
+    assert _bpoint(d).rect == (210.0, 485.0, 100.0, 30.0)     # a centring act lands it by its place in the page
+    asyncio.run(d.snapshot(d._tabs['t1'].ref))                 # a new look: its rects are current again
+    assert _bpoint(d, 'select', text='A').rect == (210.0, 800.0, 100.0, 30.0)
+    asyncio.run(d.scroll(d._tabs['t1'].ref, 'down'))
+    assert _bpoint(d, 'select', text='A') is None
+    asyncio.run(d.snapshot(d._tabs['t1'].ref))
+    _act(d, 'select')                                          # a select scrolls nothing
+    assert _bpoint(d, 'select', text='A') is not None
+    _visual(d)
+    _act(d, 'click')                                           # a screenshot gesture (`_pointer`) counts too
+    assert d._tabs['t1'].moved
+
+
+def test_classic_scrollbars_map_with_the_layout_viewport(monkeypatch):
+    """With scrollbars always shown, the visual viewport leaves out the scrollbar (985 of 1000 CSS px); the page area
+    holds the whole layout viewport, so placement uses it (pinch zoom 1), never a stretch by 1000/985."""
+    d, *_ = _browser(monkeypatch, rect=(900, 20, 50, 30), visual=(0, 0, 985, 785, 1))
+    assert _bpoint(d, 'select', text='A').rect == (1100.0, 120.0, 50.0, 30.0)
+    assert _bpoint(d).rect == (1100.0, 120.0, 50.0, 30.0)
+
+
 def test_a_pinch_zoomed_page_is_placed_from_its_visual_viewport(monkeypatch):
-    d, *_ = _browser(monkeypatch, rect=(200, 150, 50, 20), visual=(100, 50, 500, 400))
+    d, *_ = _browser(monkeypatch, rect=(200, 150, 50, 20), visual=(100, 50, 500, 400, 2))
     assert _bpoint(d, 'select', text='A').rect == (400.0, 300.0, 100.0, 40.0)      # 2x: (200-100)*2, (150-50)*2
     assert _bpoint(d) is None                                  # how a centring scroll moves a zoomed view: unknown
+
+
+def test_acts_the_driver_refuses_publish_no_point(monkeypatch):
+    d, *_ = _browser(monkeypatch)
+    assert _bpoint(d, 'drag', end_element=_el(d, 2)) is None   # a drag needs two points from one screenshot
+    t = _visual(d)
+    assert _bpoint(d, 'type', text='x') is None                # typing on a screenshot point is refused
+    assert _bpoint(d, page_mode=True) is None                  # so are page events
+    t.visual = ('bs-1', t.snap_gen, t.snap_nav, time.monotonic() - 31, 1000, 800)
+    assert _bpoint(d) is None                                  # a screenshot older than 30 s
+    t.visual = None
+    assert _bpoint(d) is None                                  # one an act used up
+    d, *_ = _browser(monkeypatch, secret=True)
+    assert _bpoint(d, 'type', text='x') is None                # FERB never types into a password or code field
+    assert _bpoint(d, tool='secret').kind == 'type'            # its hidden fill does point there
 
 
 def test_the_browser_placement_reads_accessibility_off_the_event_loop(monkeypatch):
@@ -383,7 +500,7 @@ def test_the_daemon_wires_the_cursor_placement(daemon, monkeypatch):
     assert daemon.daemon.router.native_place == daemon.daemon._native_place
     _fake_mac(daemon, monkeypatch)
     daemon.daemon.mac.ax.tree.web_areas = [WEB_AREA]
-    monkeypatch.setattr(screenshot, 'window_on_screen', lambda pid, r: True)
+    monkeypatch.setattr(screenshot, 'window_on_screen', lambda pid, r, like=None, title=None: True)
     got = daemon.run(daemon.daemon._native_place((10.0, 20.0, 100.0, 30.0), (0.0, 0.0, 1000.0, 800.0), 12,
                                                  (200.0, 25.0, 1000.0, 875.0), 'Window'))
     assert got == (210.0, 120.0, 100.0, 30.0)
@@ -396,8 +513,9 @@ def test_the_daemon_wires_the_cursor_placement(daemon, monkeypatch):
 
 
 def test_the_extensions_snapshot_says_where_the_tab_is_shown():
-    """Extension 0.15.8 (optional fields, protocol 17 unchanged): the snapshot reply carries the tab's window (bounds,
-    whether it shows the tab, minimized, title), and the top frame its visual viewport."""
+    """Extension 0.15.9 (optional fields, protocol 17 unchanged): the snapshot reply carries the tab's window (bounds,
+    whether it shows the tab, minimized, title), and each frame its visual viewport with its pinch zoom and its own
+    scroll sideways too."""
     import json
     import subprocess
     from tests.chromelab import EXT, _node, worker
@@ -412,18 +530,94 @@ def test_the_extensions_snapshot_says_where_the_tab_is_shown():
     assert out['window'] == {'bounds': [200, 25, 1000, 875], 'active': True, 'minimized': False, 'title': 'Go'}
     harness = r'''
 const vm = require('vm'), fs = require('fs');
-const root = {setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, scrollTop: 0, scrollHeight: 900};
+const root = {setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, scrollTop: 0, scrollHeight: 900,
+  scrollLeft: 0, scrollWidth: 1000};
 const doc = {documentElement: root, scrollingElement: root, body: {}, title: 'Go', querySelectorAll: () => [],
   createTreeWalker: () => ({nextNode: () => null}), createRange: () => ({})};
 const ctx = vm.createContext({document: doc, window: {visualViewport: {offsetLeft: 100, offsetTop: 50, width: 500,
-  height: 400}}, top: null, location: {href: 'https://example.test/'}, crypto: globalThis.crypto, WeakRef, URL,
+  height: 400, scale: 2}}, top: null, location: {href: 'https://example.test/'}, crypto: globalThis.crypto, WeakRef, URL,
   setTimeout, innerWidth: 1000, innerHeight: 800, addEventListener() {}, MutationObserver: class { observe() {} },
   ShadowRoot: class {}, NodeFilter: {SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1}});
 ctx.top = ctx.window;
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const s = ctx.window.__ferb.snapshot(1);
-console.log(JSON.stringify({viewport: s.viewport, visual: s.visual}));
+console.log(JSON.stringify({viewport: s.viewport, visual: s.visual, scroll: s.scroll, body: s.body_scrolls}));
 '''
     result = subprocess.run([_node(), '-e', harness, str(EXT / 'content.js')], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {'viewport': [1000, 800], 'visual': [100, 50, 500, 400]}
+    assert json.loads(result.stdout) == {'viewport': [1000, 800], 'visual': [100, 50, 500, 400, 2],
+                                         'scroll': {'y': 0, 'height': 900, 'viewport_h': 800, 'at_end': False,
+                                                    'x': 0, 'width': 1000}}
+
+
+def test_the_extension_scrolls_instantly_before_reading_where_to_aim():
+    """Review (6): under `scroll-behavior: smooth` a bare scrollIntoView animates, so the rect read right after it was
+    the one before the scroll and real input aimed at the wrong place. Both centring scrolls are instant."""
+    import json
+    import subprocess
+    from tests.chromelab import EXT, _node
+    script = r'''
+const vm = require('vm'), fs = require('fs'); const seen = [];
+const el = {isConnected: true, tagName: 'BUTTON', disabled: false, isContentEditable: false,
+  scrollIntoView(o) { seen.push(o); }, getAttribute() { return null; }, getRootNode() { return doc; },
+  getBoundingClientRect() { return {x: 10, y: 20, width: 30, height: 10, left: 10, top: 20, right: 40, bottom: 30}; },
+  contains(n) { return n === el; }, click() {}, dispatchEvent() {}};
+const doc = {documentElement: {}, body: {}, elementFromPoint: () => el};
+const ctx = vm.createContext({document: doc, window: {}, crypto: globalThis.crypto, WeakRef, innerWidth: 800,
+  innerHeight: 600, addEventListener() {}, MutationObserver: class { observe() {} }, ShadowRoot: class {},
+  MouseEvent: class {}, PointerEvent: class {}, el});
+const source = fs.readFileSync(process.argv[1], 'utf8').replace('let els = new Map();',
+  'let els = new Map([[1, new WeakRef(el)]]);').replace('let snapGen = 0;', 'let snapGen = 1;');
+vm.runInContext(source, ctx);
+ctx.window.__ferb.rect(1, 1);
+ctx.window.__ferb.act(1, 1, 'click');
+console.log(JSON.stringify(seen));
+'''
+    result = subprocess.run([_node(), '-e', script, str(EXT / 'content.js')], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [{'block': 'center', 'inline': 'center', 'behavior': 'instant'}] * 2
+
+
+def test_the_extension_says_what_a_scroll_into_view_moves_besides_the_page():
+    """Review (1-3): an element that is fixed or sticky (itself or a flat-tree ancestor; sticky wins), one inside a box
+    that scrolls on either axis (a carousel, hidden overflow), and a body that scrolls by itself instead of the page."""
+    import json
+    import subprocess
+    from tests.chromelab import EXT, _node
+    source = (EXT / 'content.js').read_text()
+    block = source[source.index('  // L33: what a scroll into view moves'):source.index('  function hitTest(')]
+    script = r'''
+const styles = new Map();
+const getComputedStyle = n => styles.get(n);
+const node = (parent, style = {}, size = {}) => {
+  const n = {parentElement: parent, scrollWidth: 100, clientWidth: 100, scrollHeight: 100, clientHeight: 100, ...size};
+  styles.set(n, {position: 'static', overflowX: 'visible', overflowY: 'visible', ...style});
+  return n;
+};
+const root = node(null), body = node(root, {}, {scrollHeight: 3000});
+const document = {documentElement: root, body, scrollingElement: root};
+const parentOf = el => el.parentElement;
+''' + block + r'''
+const header = node(body, {position: 'fixed'}), inHeader = node(node(header));
+const bar = node(body, {position: 'sticky'}), inBar = node(node(bar, {position: 'fixed'}));
+const carousel = node(body, {overflowX: 'auto'}, {scrollWidth: 900}), slide = node(node(carousel));
+const clipped = node(body, {overflowX: 'hidden'}, {scrollWidth: 600}), past = node(clipped);
+const short = node(body, {overflowY: 'auto'}), inShort = node(short);      // nothing more to show: it can't scroll
+const shown = node(body, {overflowX: 'clip'}, {scrollWidth: 600}), inShown = node(shown);   // clip never scrolls
+const plain = node(body), inPlain = node(plain);
+const out = {pins: [pinnedOf(inHeader), pinnedOf(inBar), pinnedOf(inPlain)],
+             boxes: [boxedBy(parentOf(slide)), boxedBy(parentOf(past)), boxedBy(parentOf(inShort)),
+                     boxedBy(parentOf(inShown)), boxedBy(parentOf(inPlain))],
+             body: [bodyScrolls()]};
+styles.get(body).overflowY = 'auto';                    // body{overflow:auto} with html's overflow visible: the page's
+out.body.push(bodyScrolls());
+styles.get(root).overflowY = 'hidden'; styles.get(root).overflowX = 'hidden';   // html{overflow:hidden}: body's own
+out.body.push(bodyScrolls());
+document.scrollingElement = body;                       // quirks mode: the body is the page's scroller
+out.body.push(bodyScrolls());
+console.log(JSON.stringify(out));
+'''
+    result = subprocess.run([_node(), '-e', script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'pins': ['fixed', 'sticky', None], 'boxes': [True, True, False, False, False],
+                                         'body': [False, False, True, False]}

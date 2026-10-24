@@ -633,7 +633,8 @@ class BrowserAct(_Base):
         if kind is None:
             return None
         return await _point(self.driver, args, grant, kind, BrowserAction(args.action, args.text, args.trusted,
-                                                                         page_mode=args.page_mode))
+                                                                         page_mode=args.page_mode,
+                                                                         end_element=args.end_element))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
