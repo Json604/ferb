@@ -758,6 +758,49 @@ After the owner's update (2026-10-24):
   with the wheel, uploads and clicks on screenshot points fail the same known way there, and scrolling points to the
   page-event scroll. New_Personal runs the Web Store copy: it gets 0.15.7 once that is uploaded and published, or by
   Load unpacked from `~/.ferb/extensions/chromium` after `ferb setup --update`.
+- Password and login-code questions say what the value is for first (D12, P27, D33; owner, 2026-10-24: "these secret
+  questions need to be better asked, just state what is this for rather than all this confusing text"):
+  "“US Visa Scheduling password for …” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain", or "A
+  password or private answer for x.com — used once, not saved", and "Login code for accounts.google.com — used once".
+  The name is the worker's proposed name, in quotes, only as the name; the place still comes from the page's address
+  (or the app's name). When FERB's redaction would hide part of the place (a code word before a port or a number in
+  the host), the line names the place first ("For x.test:8443: a login code — used once"). The full question under
+  Details is unchanged.
+- A loop's plan line is one short marker (L31; owner, 2026-10-24: "why is it spitting so much extra text with this
+  loop message???"): "⟳ Until you say stop", or "⟳ Until: “the checks pass”". It used to repeat the whole goal and how
+  rounds work ("I'll keep at this until You say to stop.: Monitor the bound Instagram tab … Between rounds I only
+  check one fact, without the model."). The planner is told that "until I say stop" leaves end_when empty.
+- A loop watches the exact video or tab it fixed (L26, L31; extension 0.15.8, protocol 17 unchanged). Live
+  2026-10-24, keeping your Instagram reel playing: the round armed `media.44.playing` (and earlier `media.51.paused`),
+  but Instagram's feed holds dozens of videos whose list positions shift as it loads, so the probe watched another
+  video and your reel paused unnoticed ("it stops sometimes"). Each video or audio element now has its own id for as
+  long as the page is open, and the snapshot lists them by id (`media_by_id`, e.g. `media_by_id.m12.playing`);
+  `browser.media` takes that id too. `browser.tabs` says whether each tab plays sound and is muted and keys tabs by
+  their tab_ref (`tabs_by_ref.<tab_ref>.audible`), cheaper than a snapshot. The worker is told to watch these. A probe
+  whose very first read already shows the job needs doing (as `media.44.playing` = false did) is no longer armed: the
+  next round starts at once, told that its probe is probably watching a different element, and three such rounds in
+  a row start the usual back-off with its one notice. The daemon still accepts 0.15.6: with the Web Store copy the
+  new fields are absent, so a probe on them is refused (its field is missing) and the loop runs on its 30-minute
+  backup check until a round picks another field; upload 0.15.8 to the listing to give every profile the ids.
+- A paired browser profile that isn't running no longer reads as broken (L25, P27). Live 2026-10-24, 12:27–12:31:
+  the planner's facts said your New_Personal Chrome profile was "paired, extension transport disconnected"; the
+  worker never used a browser tool, opened the profile through Chrome's Profiles menu and drove it with
+  Accessibility, typing the address into the address bar (which drew a provenance question) and fumbling the
+  Cloudflare page. FERB's browser tools already start a paired profile in the background with no window. The facts
+  now say so ("not connected now (usually the profile just isn't running) — FERB's browser tools start it in the
+  background, with no window; its first page needs FERB's minimized window, whose creation may switch Space"; a
+  refused extension gives its reason), and the worker is told to use the browser tools for such a profile, ask you
+  once when FERB's window must be created, and open sites with browser_open or browser_navigate.
+- Setting a web field's text through Accessibility waits for the browser to catch up (P19, W2). Live 2026-10-24 12:09
+  and 12:34, usvisascheduling.com's Username field in Chrome: `mac.act` set_value reported "not confirmed" though the
+  field had your name; the worker typed it again and the field held it twice. Chrome updates what Accessibility reads
+  a moment later, and FERB read it only once, at once. It now reads again until the field shows the text (up to 0.4
+  s); when it still differs, the result says whether the field is empty and its length (never its text) and to read
+  it in a fresh snapshot before typing again, since typing adds to what is there.
+- A login name you give while FERB works on a site is remembered (P27). Live 2026-10-24: at 06:31 you said "the
+  username is …" during the visa task; the task used it but nothing was saved, so a later task typed your email as
+  the username. The planner now remembers a login name or account detail for a site in the same turn as the task
+  change (a fact with a key naming the site, e.g. "usvisascheduling-username").
 
 Licensed under Apache-2.0.
 

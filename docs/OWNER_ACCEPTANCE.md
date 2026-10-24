@@ -1521,3 +1521,22 @@ with the owner watching; pause between supervised actions and record what the ow
 - Resource log before and during a loop (`ferb stats`): the daemon's CPU and the database's growth with a loop armed for
   an hour, to judge the 10-second probe cadence and the `loop.probe_read` spans.
 - Churn: a loop whose fix doesn't last backs off, tells the owner once, and a reply wakes it at once.
+
+### Loop polish after the first live loop and visa runs — pending live checks (2026-10-24)
+
+Not installed or observed yet. Run after `ferb setup --update`; for the media and tab-sound checks, reload the
+unpacked extension so the profile runs 0.15.8 (the Web Store copy is 0.15.6 until 0.15.8 is uploaded), and record the
+version `ferb doctor` shows.
+
+- Keep the owner's Instagram reel playing ("keep this Instagram tab playing until I say stop"): the plan line ends
+  with "⟳ Until you say stop" and doesn't repeat the goal; `ferb trace TASK` shows the round's probe on
+  `media_by_id.<id>` or `tabs_by_ref.<tab_ref>.audible` (not a `media.<n>` position) with a baseline showing it playing,
+  and a pause by the site starts a round within about 10 seconds.
+- A secret question in the notch: the line reads "“<name>” — for <site> only · saved in your Mac's Keychain" (or "A
+  password or private answer for <site> — used once, not saved"), with the full question under Details.
+- With the paired profile's windows all closed, ask for a page in it: the planner facts say it starts in the
+  background; the worker uses the browser tools (no Profiles menu, no address-bar typing), and asks once before FERB's
+  minimized window is created.
+- `mac.act` set_value into a Chrome web text field: the result is ok once the field shows the text, with no second
+  typing.
+- Say "the username is …" while FERB works on a site: `ferb memory` (or the dashboard) shows a fact keyed for that site.
