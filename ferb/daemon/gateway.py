@@ -1720,9 +1720,7 @@ class Gateway:
             return value
         if ctx.request_id in self.state.approvals.unattended:
             return None
-        question = f"Enter the secret for {target} (hidden; Enter cancels)."
-        if remember:
-            question += f" Entering it also saves it in Keychain as {remember!r} for this exact destination."
+        question = secret_question(target, remember)
         ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
@@ -1760,7 +1758,7 @@ class Gateway:
         ask = ActionRequest(capability="browser.login_code", kind="owner_login_code", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
-        question = f"Enter the login code for {origin} (hidden; Enter cancels)."
+        question = login_code_question(origin)
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
@@ -1970,6 +1968,24 @@ class Gateway:
             if not self._waiting[approval_id]:
                 del self._waiting[approval_id]
             self.observer.waiting(grant.worker_id, False)
+
+
+def secret_question(target: str, remember: str | None) -> str:
+    """The hidden-input question for an owner secret, its exact destination first: no secret word comes before it, so
+    the redactor's label rule ("the secret for <X>: …") never hides the destination the owner is asked about (live
+    2026-10-24: "Enter the secret for app:[redacted]"). The saved name is the worker's: only ever the saved name."""
+    text = (f"Destination: {target}. Type the password or secret for it here (hidden; Enter cancels); FERB fills it "
+            "only at this exact destination.")
+    if remember:
+        text += f" Entering it also saves it in your Mac's Keychain as {remember!r}, usable only at this destination."
+    return text
+
+
+def login_code_question(origin: str) -> str:
+    """The hidden-input question for a login code, its exact origin first: a code word before it would read the
+    origin's port or a number in its host as the code ("login code for https://x.test:8443")."""
+    return (f"Destination: {origin}. Type the login code for it here (hidden; Enter cancels); FERB fills it only at "
+            "this exact destination.")
 
 
 def _unfilled(state: str) -> Literal["denied", "superseded"]:

@@ -679,6 +679,14 @@ After the owner's update (2026-10-24):
   through the browser connection (browser.secret), which ties it to that site's address; FERB won't tie it to all of
   Google Chrome". A password saved for a whole browser before this change is never filled, and none is saved that way.
   Native apps work as before.
+- The password and login-code questions always show where the value goes (D12, P27). Live 2026-10-24, visa login,
+  you saw "Enter the secret for app:[redacted] (hidden; Enter cancels)": the question's own words "the secret for X"
+  looked like a password label to FERB's redaction, so it hid the place it was asking about. A login code's question
+  had the same flaw with a port or a number in the address ("login code for https://x.test:[redacted]"). The
+  questions now start with the place: "Destination: https://atlasauth.b2clogin.com. Type the password or secret for it
+  here (hidden; Enter cancels); FERB fills it only at this exact destination.", then the name it is saved under when
+  you asked FERB to keep it. Tests check them through the real redaction, in the event the app receives and in
+  `chat.status`.
 
 Licensed under Apache-2.0.
 
