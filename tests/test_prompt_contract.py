@@ -14,6 +14,12 @@ def _words(name: str) -> str:
 
 
 SENTENCES = [
+    # owner 2026-10-24, visa task: nine escape questions in two minutes, one per command reading a Chrome profile folder
+    ("worker.md",
+     "A command that needs escape (one shell_rules rule lifted) asks the owner, and the approval covers that exact "
+     "command once. Before asking, look where no escape is needed: a public page about it (an extension's Web Store "
+     "listing shows its permissions) or a tool that already reads it. When a protected folder really must be read, get "
+     "everything you need from it in one command, never one command per file or step."),
         ("worker.md",
      'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",
