@@ -1,5 +1,6 @@
 """L33: FERB's cursor — a geometry-only `cursor.point` event before each on-screen action."""
 import asyncio
+import time
 
 from pydantic import BaseModel
 
@@ -15,10 +16,12 @@ def _cap(point_result=None, delay=0.0, boom=False):
         identities = {Identity.OWNER, Identity.FERB}
         risk, reversible, on_screen = RiskLevel.LOW, True, True
         ran: list = []
+        pointed: list = []
         class Input(BaseModel):
             element: str = 'e1'
         def describe(self, args): return ActionSpec(Kind.READ)
         async def point(self, args, ctx):
+            Pointed.pointed.append(1)
             await asyncio.sleep(delay)
             if boom:
                 raise RuntimeError('ax gone')
@@ -60,6 +63,7 @@ def test_a_failing_point_never_fails_the_action(daemon, monkeypatch):
     cap = _cap(boom=True)
     grant, _ = gateway_setup(daemon, set(), None, [cap], identity=Identity.FERB)
     out = gateway_tool_call(daemon, grant, 'test.click', element='e1')
+    assert cap.pointed
     assert out['is_error'] is False and cap.ran and not [t for t, _ in seen if t == 'cursor.point']
 
 
@@ -67,6 +71,35 @@ def test_a_slow_point_never_delays_the_action(daemon, monkeypatch):
     seen = _published(daemon, monkeypatch)
     cap = _cap(Point('click', (1.0, 1.0, 1.0, 1.0), 1), delay=5.0)
     grant, _ = gateway_setup(daemon, set(), None, [cap], identity=Identity.FERB)
+    t0 = time.monotonic()
     out = gateway_tool_call(daemon, grant, 'test.click', element='e1')
-    assert out['is_error'] is False and cap.ran
+    assert cap.pointed
+    assert out['is_error'] is False and cap.ran and cap.ran[0] - t0 < 1.0
     assert not [t for t, _ in seen if t == 'cursor.point']
+
+
+def test_a_bad_point_is_refused_at_construction_and_the_action_runs(daemon, monkeypatch):
+    import pytest
+    seen = _published(daemon, monkeypatch)
+    with pytest.raises(ValueError):
+        Point('click', (float('nan'), 0, 10, 10), 1)
+    for bad in [('hover', (0, 0, 1, 1)), ('click', (0, 0, 0, 1)), ('click', (0, 0, 1))]:
+        with pytest.raises(ValueError):
+            Point(bad[0], bad[1], 1)
+    cap = _cap(boom=True)           # a capability that builds a bad Point raises inside point()
+    grant, _ = gateway_setup(daemon, set(), None, [cap], identity=Identity.FERB)
+    out = gateway_tool_call(daemon, grant, 'test.click', element='e1')
+    assert cap.pointed and out['is_error'] is False and cap.ran and not [t for t, _ in seen if t == 'cursor.point']
+
+
+def test_display_of_reads_the_display_under_the_centre(monkeypatch):
+    import Quartz
+    from ferb.act.point import display_of
+    seen = []
+    def fake(pt, n, ids, count):
+        seen.append(pt)
+        return (0, [7], 1)
+    monkeypatch.setattr(Quartz, 'CGGetDisplaysWithPoint', fake)
+    assert display_of((10.0, 20.0, 30.0, 40.0)) == 7 and seen == [(25.0, 40.0)]
+    monkeypatch.setattr(Quartz, 'CGGetDisplaysWithPoint', lambda *a: (0, [], 0))
+    assert display_of((10.0, 20.0, 30.0, 40.0)) is None
