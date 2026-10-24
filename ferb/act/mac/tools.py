@@ -10,6 +10,7 @@ from typing import Any, Collection, ContextManager, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from ferb.act.browser.profiles import is_web_browser
 from ferb.act.evidence.mask import Box, to_image_boxes
 from ferb.act.mac import applescript
 from ferb.act.mac.ax_browser import is_browser
@@ -24,6 +25,13 @@ from ferb.policy.rules import Kind
 
 def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
+
+
+def whole_browser(name: str) -> str:
+    """mac.secret's refusal for a web browser (D12, rule 5): a native secret is bound to the app, and a browser app
+    is every site it shows (owner 2026-10-24: "at places only ive approved")."""
+    return ("a password for a web page is filled through the browser connection (browser.secret), which ties it to "
+            f"that site's address; FERB won't tie it to all of {name}")
 
 
 def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
@@ -67,6 +75,8 @@ class _Base:
         if self.protection is not None and (typing or self.name in {"mac.applescript", "mac.secret"}):
             if self._bundle(args).casefold() in self.protection.terminal_apps:
                 return "FERB never types or runs scripts into terminal apps; use FERB's own shell"
+        if self.name == "mac.secret" and is_web_browser(self._bundle(args)):
+            return whole_browser(self._shown(args))
         return None
 
     def _bundle(self, args: BaseModel) -> str:
@@ -536,7 +546,8 @@ class MacSecret(_Base):
     on_screen = False
     marks_own_input = True             # the owner's hidden-input wait is not FERB acting in the app; the fill is
     description = ("Fill an exact native AX field using hidden owner input or an owner-saved Keychain handle. "
-                   "No foreground typing fallback. remember asks the owner to save this item for this app.")
+                   "No foreground typing fallback. remember asks the owner to save this item for this app. Never a "
+                   "web browser: a web page's secret goes through browser.secret, bound to the page's address.")
 
     class Input(_App):
         element: str
@@ -548,6 +559,8 @@ class MacSecret(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(args.app)
+        if is_web_browser(a.bundle_id):                  # the resolved app, whatever the call named
+            raise Refused(whole_browser(str(getattr(a, "name", "") or a.bundle_id)))
         node = self.driver.node(a.bundle_id, args.element)
         ask = getattr(self.driver, "ask_secret", None)
         if ask is None:

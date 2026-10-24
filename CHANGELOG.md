@@ -670,6 +670,15 @@ After the owner's update (2026-10-24):
   asked nine times in two minutes. Workers now look where no approval is needed first (a public page such as the
   extension's Web Store listing, or a tool that already reads it) and, when a protected folder really must be read,
   get everything from it in one command. One approval still covers one exact command (your choice).
+- A password is never tied to a whole web browser (D12, D28; owner, 2026-10-24: "can it take my cred safely and not
+  expose but able to access them whenever it wants?? BUT at places only ive approved. SO THAT IT DOESNT LEAK
+  ANYWHERE"). Live 2026-10-24, visa login: when the browser connection failed on the Microsoft sign-in page, the worker
+  filled your password through Accessibility (`mac.secret`), which ties a saved password to the app,
+  `app:com.google.Chrome`: every page Chrome shows. `mac.secret` now refuses any web browser (Chrome, Brave, Arc, Edge,
+  Safari, Firefox, Opera, Vivaldi and others) before it asks you anything: "a password for a web page is filled
+  through the browser connection (browser.secret), which ties it to that site's address; FERB won't tie it to all of
+  Google Chrome". A password saved for a whole browser before this change is never filled, and none is saved that way.
+  Native apps work as before.
 
 Licensed under Apache-2.0.
 

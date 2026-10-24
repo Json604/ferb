@@ -46,6 +46,25 @@ BROWSERS: dict[str, Browser] = {
     "arc": Browser("Arc", "Arc/User Data", "company.thebrowser.Browser", "Arc"),
     "opera": Browser("Opera", "com.operasoftware.Opera", "com.operasoftware.Opera", "Opera"),
 }
+# The other web browsers FERB knows by bundle id (Safari, Firefox and others FERB doesn't pair with). With BROWSERS they
+# are every browser `is_web_browser` names: one app that shows any site, so an owner secret is never bound to all of it
+# (mac.secret, OwnerSecrets; D12, D28). Bundle ids are data for a destination boundary (rule 5), never an intent list.
+# An id no installed app has never matches; a browser missing here is the residual.
+OTHER_BROWSERS = frozenset({
+    "com.apple.Safari", "com.apple.SafariTechnologyPreview",
+    "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
+    "com.brave.Browser.beta", "com.brave.Browser.nightly",
+    "com.operasoftware.OperaGX", "com.operasoftware.OperaNext", "com.operasoftware.OperaDeveloper",
+    "com.vivaldi.Vivaldi.snapshot", "company.thebrowser.dia", "com.kagi.kagimacOS", "com.duckduckgo.macos.browser",
+    "org.torproject.torbrowser", "app.zen-browser.zen", "net.waterfox.waterfox", "io.gitlab.librewolf-community",
+    "com.sigmaos.sigmaos.macos", "ai.perplexity.comet",
+})
+WEB_BROWSERS = frozenset({b.bundle_id.casefold() for b in BROWSERS.values()} | {b.casefold() for b in OTHER_BROWSERS})
+
+
+def is_web_browser(bundle_id: str) -> bool:
+    """Whether a bundle id is a web browser FERB knows (bundle ids compare without case, as macOS compares them)."""
+    return bundle_id.strip().casefold() in WEB_BROWSERS
 
 
 def data_dir(browser: str, support: Path | None = None) -> Path:

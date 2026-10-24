@@ -401,6 +401,8 @@ fails. OCR can miss unreadable/obscured text; this is class-based redaction,
 not a guarantee that all private text is removed. A browser's URL is read from the window actually in front, or not
 sent.
 `browser.secret` and `mac.secret` ask through hidden CLI input and fill only the exact origin/app and element.
+`mac.secret` never fills a web browser: a web page's password goes through the browser connection, tied to that site's
+address, never to all of Chrome or Safari.
 They can offer to remember a specific item in Keychain; the prompt names the handle and bound destination. Models
 receive only handles and fill facts. Login codes, including recognized split numeric boxes, use sealed browser fills.
 A choice you pick (a "1" for SMS) is never treated as a secret. A code typed into an ordinary question that asks for a
