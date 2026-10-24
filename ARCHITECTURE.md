@@ -2864,16 +2864,22 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   (below), so a message that shares no word with a fact still recalls it through the work it continues. A word found
   in more than half of the nodes carries no weight (`weighted_terms`, with `Memory.recall`'s rule `items.weighted`); a
   query whose every word is such finds nothing, by embedding similarity too, and a query with no words lists the newest
-  first, with no recency or owner boost. bm25 ranks with ties sharing a rank, the trigram title match, an adopted
-  embedding and, when the caller gives `focus` words, a bm25 ranking of those words alone are fused by reciprocal rank
-  (each ranking adds 1 / (rank + 1), ranks from 0: the fusion's k is 0, so recency's 0.05 stays a nudge), plus at most
-  0.05 for recency (half-life 30 days). `focus` (§4 fix round) is the target words of the work being served: the
-  planner's are those of the tasks its layers show, a worker's or plan step's its own task's; attention and the memory
-  tools give none. It exists because long past-task texts that share a long goal's ordinary words outrank a short fact
-  that shares only the site's name: on a scratch copy of the owner's database (2026-10-24, with a stand-in username
-  fact) the visa research step's query ranked the username 94th of 198 and the 12:17 planner query 91st of 189; with
-  the targets as `focus`, 4th for both (and for 12:22), adding under 1 ms a search. Focus words that carry no weight or
-  match nothing change no score, and the filters, the owner's order and the budgets apply after the fusion.
+  first, with no recency or owner boost. bm25 ranks with ties sharing a rank (dense: the next distinct score takes the
+  next rank), the trigram title match, an adopted embedding and, when the caller gives `focus` words, a bm25 ranking of
+  those words alone are fused by reciprocal rank (each ranking adds 1 / (rank + 1), ranks from 0: the fusion's k is 0,
+  so recency's 0.05 stays a nudge), plus at most 0.05 for recency (half-life 30 days). `focus` (§4 fix round) is the
+  target words of the work being served: the planner's are those of the tasks its layers show, a worker's or plan step's
+  its own task's; attention and the memory tools give none. It exists because long past-task texts that share a long
+  goal's ordinary words outrank a short fact that shares only the site's name. The focus ranking's ties take competition
+  ranks instead (the next distinct score takes its own position, `_tied(positional=True)`, fix round 2): a common target
+  word ("Chrome") is held by many nodes at one bm25 score, and with dense ranks that tied group fused at or above the
+  main ranking's second item and filled the budget (on the test corpus the visa step kept 6 of its main top 20 and a
+  flight task's relevant notes in its 20 fell from 9 to 4; now 14 and 7). On a scratch copy of the owner's database
+  (2026-10-24, with a stand-in username fact) the visa research step's query ranked the username 94th of 198 and the
+  12:17 planner query 91st of 189; with the targets as `focus`, 4th for both (and for 12:22), while the step keeps 15
+  (12:17) and 13 (12:22) of its main top 20 and the planner 50 and 52 of its main top 60; a short query naming the site
+  keeps all 20. It adds under 1.5 ms a search. Focus words that carry no weight or match nothing change no score, and
+  the filters, the owner's order and the budgets apply after the fusion.
   An owner-stated node always takes the full 0.05 (the owner's words don't age), so at equal relevance no guess
   outscores it, and at equal score it comes first. Nodes are ranked and filtered by their columns first and their bodies
   read best first until the budget is full; prompt lines are read without their source refs (`search(sources=False)`:
@@ -2901,7 +2907,13 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   the query in a worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy of the owner's
   database (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research step's 223-word
   query and 22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare supervisor), a
-  worker gets the plain `recall` block, as before.
+  worker gets the plain `recall` block, as before. Every worker attempt and every loop round records the memory blocks
+  it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20 items on that copy;
+  the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that much a round, and its
+  spans stay until it ends and its episode exists (retention). They are not deduplicated: `task_memory_refs` outlives a
+  forget, so it can't say which exposures are still recorded since the last one, and the sink rule's incremental reads
+  (`Spans.payload_outputs` and `tool_outputs` after a rowid cursor) and `task_origins` count each exposure where it
+  happened (fix round 2).
 
 ### 16.13 FERB's cursor (L33)
 

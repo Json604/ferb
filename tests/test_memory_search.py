@@ -8,7 +8,7 @@ import pytest
 
 from ferb.memory import embeddings
 from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, RECENCY_WEIGHT, SEARCH_TEXT_VERSION, WORKER_MEMORY_ITEMS,
-                                  digest, encoded,
+                                  _tied, digest, encoded,
                                   reindex_search, search_text, shown_text, slug_words)
 from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.schemas import TargetsSpec
@@ -96,6 +96,43 @@ def test_focus_words_that_match_nothing_or_carry_no_weight_change_nothing(busy_s
     plain = [(n["id"], n["score"]) for n in busy_store.search(query)]
     for focus in ("zqxjv vrrkt", "the is for and owner", ""):
         assert [(n["id"], n["score"]) for n in busy_store.search(query, focus=focus)] == plain, focus
+
+
+# Invented notes for a flight task (review of fix round 1): what such a task should recall.
+FLIGHT_NOTES = ("the owner prefers IndiGo flights to Goa over Air India", "for flights the owner wants an aisle seat",
+                "the owner flies from Bengaluru airport", "cheapest flight fares are on Tuesday the owner noticed",
+                "the owner's frequent flyer number is with IndiGo", "the owner avoids red-eye flights",
+                "Goa trip budget is 15000 rupees for flights", "the owner compares airlines on price and timing",
+                "for Goa the owner likes north Goa beaches", "the owner books flights with the HDFC card",
+                "flight check-in: the owner checks in online", "Friday flights cost more for the owner",
+                "the owner's travel buddy for Goa is Ravi", "airlines: Vistara merged into Air India",
+                "the owner wants a refundable flight fare")
+
+
+def test_a_common_target_word_never_takes_over_the_budget(busy_store: Any) -> None:
+    """Fix round 2: many nodes hold a common target word ("Chrome") at one bm25 score. With dense tie ranks that tied
+    group fused at or above the main ranking's second item and filled the budget (the visa step kept 6 of its main
+    top 20; a flight task's relevant notes in its 20 fell from 9 to 4). The focus ranking's ties now take competition
+    ranks, so the next distinct score takes its position."""
+    username = fact(busy_store, "usvisascheduling_username", USERNAME)
+    flights = {fact(busy_store, f"flight_{i}", text)["id"] for i, text in enumerate(FLIGHT_NOTES)}
+    targets = target_words(VISA_TARGETS)
+    step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
+    main = [n["id"] for n in busy_store.search(step, limit=WORKER_MEMORY_ITEMS)]
+    fused = [n["id"] for n in busy_store.search(step, limit=WORKER_MEMORY_ITEMS, focus=targets)]
+    assert username["id"] in fused and len(set(main) & set(fused)) >= 12
+    aimed = target_words(TargetsSpec(apps=["Google Chrome"], sites=["makemytrip.com"]))
+    query = ("find me a cheap flight to goa next friday\nFind the cheapest flight to Goa next Friday and compare "
+             f"airlines\n{aimed}")
+    plain = [n["id"] for n in busy_store.search(query, limit=WORKER_MEMORY_ITEMS)]
+    aimed_too = [n["id"] for n in busy_store.search(query, limit=WORKER_MEMORY_ITEMS, focus=aimed)]
+    assert len(flights & set(plain)) >= 9 and len(flights & set(aimed_too)) >= 6
+
+
+def test_tied_ranks_are_dense_or_by_position() -> None:
+    rows = [("a", -3.0), ("b", -3.0), ("c", -2.0), ("d", -1.0), ("e", -1.0), ("f", 0.5)]
+    assert _tied(rows) == {"a": 0, "b": 0, "c": 1, "d": 2, "e": 2, "f": 3}
+    assert _tied(rows, positional=True) == {"a": 0, "b": 0, "c": 2, "d": 3, "e": 3, "f": 5}
 
 
 def test_focus_never_brings_back_what_search_leaves_out(busy_store: Any) -> None:

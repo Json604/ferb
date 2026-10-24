@@ -3074,8 +3074,8 @@ class Supervisor(WorkerRuns):
         """A worker's or plan step's memory (L36 §4): the one search (`memory_push`) for the owner's request, then a
         step's parent goal, then its own goal, then the task's targets (`target_words`), the targets also ranked alone
         (the search's `focus`, fix round); each item its own block, kept whole (the owner's budget bounds them), its
-        refs recorded on the task as for any shown block, so a forget reaches what it was given. A query with no words gets nothing, never the newest items. Without the daemon's
-        search: the plain recall block, as before."""
+        refs recorded on the task as for any shown block, so a forget reaches what it was given. A query with no words
+        gets nothing, never the newest items. Without the daemon's search: the plain recall block, as before."""
         targets = target_words(tree.spec.targets)
         query = "\n".join(part for part in (request.words, tree.parent_goal, tree.spec.goal, targets) if part.strip())
         if self.memory_push is None:

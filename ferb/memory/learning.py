@@ -230,14 +230,16 @@ def shown_text(node: dict[str, Any]) -> str:
     return f"{key}: {text}" if text else key
 
 
-def _tied(rows: Iterable[Any]) -> dict[str, int]:
+def _tied(rows: Iterable[Any], *, positional: bool = False) -> dict[str, int]:
     """Ranks from rows (id, score) ordered best first; equal scores share a rank, so two equally good matches score
-    alike and the owner's statement can come first (L36 §3)."""
+    alike and the owner's statement can come first (L36 §3). Dense by default (the next distinct score takes the next
+    rank); `positional`: competition ranks, as standard reciprocal rank fusion uses (the next distinct score takes its
+    own position), so a large tied group can't lift the scores after it (the focus ranking, L36 §4 fix round 2)."""
     out: dict[str, int] = {}
     rank, last = -1, None
-    for ident, score in rows:
+    for position, (ident, score) in enumerate(rows):
         if score != last:
-            rank, last = rank + 1, score
+            rank, last = (position if positional else rank + 1), score
         out.setdefault(ident, rank)
     return out
 
@@ -1360,8 +1362,9 @@ class Learning:
         nodes without their source refs (`get`), for a prompt's lines. `focus`: a task's target words (`target_words`),
         also ranked alone by bm25 with the same weight rule and fused like the others, so a short fact that shares only
         the site's name with a long goal isn't buried by long texts sharing the goal's ordinary words (L36 §4 fix
-        round); focus words that carry no weight or match nothing change nothing. The filters, the owner's order and
-        the budget apply after the fusion, as without it."""
+        round); its ties take competition ranks, so a common target word ("Chrome") can't fill the budget with one big
+        tied group (fix round 2); focus words that carry no weight or match nothing change nothing. The filters, the
+        owner's order and the budget apply after the fusion, as without it."""
         words = query_terms(query)
         terms = self.weighted_terms(words) if words else []
         if words and not terms:
@@ -1370,8 +1373,8 @@ class Learning:
         if terms:
             rankings.append(self._bm25(terms))
             focused = self.weighted_terms(query_terms(focus)) if focus else []
-            if focused:
-                rankings.append(self._bm25(focused))
+            if focused:                   # competition ranks: a common target word's big tied group stays one rank
+                rankings.append(self._bm25(focused, positional=True))
             if len(query) >= 3:
                 rankings.append(_tied(self.db.conn.execute(
                     'SELECT id, bm25(learning_titles) FROM learning_titles WHERE learning_titles MATCH ? ORDER BY 2',
@@ -1431,11 +1434,12 @@ class Learning:
             out.append(p)
         return out
 
-    def _bm25(self, terms: list[str]) -> dict[str, int]:
-        """The nodes whose content holds any of `terms`, ranked by bm25 (ties share a rank)."""
+    def _bm25(self, terms: list[str], *, positional: bool = False) -> dict[str, int]:
+        """The nodes whose content holds any of `terms`, ranked by bm25 (ties share a rank: `_tied`)."""
         match = ' OR '.join('"' + t.replace('"', '""') + '"' for t in terms)
         return _tied(self.db.conn.execute(
-            'SELECT id, bm25(learning_fts) FROM learning_fts WHERE learning_fts MATCH ? ORDER BY 2', (match,)))
+            'SELECT id, bm25(learning_fts) FROM learning_fts WHERE learning_fts MATCH ? ORDER BY 2', (match,)),
+            positional=positional)
 
     def _columns(self, ids: Iterable[str]) -> list[Any]:
         """The columns search ranks and filters by, for these nodes (no body), in chunks SQLite's variable limit

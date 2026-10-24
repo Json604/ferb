@@ -869,8 +869,9 @@ After the owner's update (2026-10-24):
   worker and plan step now gets the 20 memories most relevant to your request and the task, and a plan step sees its
   parent task's goal above its own. The sites, apps and people the task names also count on their own, so a short
   note that names the site isn't buried under long past tasks that share the goal's ordinary words: on a copy of your
-  database, with a stand-in username, the research step's search ranked it 94th; it now ranks 4th of its 20, for
-  under 1 ms more per search. The planner gets the same for the tasks it is shown.
+  database, with a stand-in username, the research step's search ranked it 94th; it now ranks 4th of its 20, while 15
+  of the 20 the goal alone would pick stay (a common name like "Chrome" can't crowd them out), for about 1 ms more
+  per search. The planner gets the same for the tasks it is shown (4th of 60; 50 of the 60 stay).
 
 Licensed under Apache-2.0.
 

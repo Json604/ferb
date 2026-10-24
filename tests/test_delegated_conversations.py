@@ -266,3 +266,7 @@ def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
     assert any(json.loads(row['input_json']).get('tool') == 'conversation.read' for row in calls)
     roles = [role for _, role, _, _ in script.contexts]
     assert 'conversation.contact.1.verify' in roles and 'worker.verify' in roles
+    turn = next(ctx for _, role, ctx, _ in script.contexts if role == 'conversation.contact.1')
+    # L36 §4: a converse member sees its parent task's goal above its own
+    assert turn.index('Parent task goal: Discuss the project and hand over a lead') < turn.index(
+        'Task: Read the self-chat lead')
