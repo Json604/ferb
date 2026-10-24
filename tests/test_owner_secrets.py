@@ -128,3 +128,45 @@ def test_every_browser_ferb_pairs_with_counts_as_a_web_browser() -> None:
     assert all(is_web_browser(b.bundle_id) for b in BROWSERS.values())
     assert is_web_browser('com.apple.Safari') and is_web_browser('org.mozilla.firefox')
     assert not is_web_browser('com.apple.Notes') and not is_web_browser('com.apple.mail')
+
+
+@pytest.mark.parametrize('bundle', ['com.google.Chrome.app.kjgfgldnnfoeklkmfkjfagphfepbbdan',   # a Chrome web app
+                                    'com.apple.Safari.WebApp.5D8C1B2A-0F3E-4C1A',              # a Safari web app
+                                    'com.brave.Browser.app.mpnpojknpmmopombnjdcgaaiekajbnjb',
+                                    'com.google.chrome.for.testing', 'ru.yandex.desktop.yandex-browser',
+                                    'one.ablaze.floorp', 'net.mullvad.mullvadbrowser', 'org.chromium.Thorium',
+                                    'com.operasoftware.OperaCryptoBrowser', 'company.thebrowser.dia'])
+def test_browser_channels_web_app_shims_and_browser_vendors_count_as_browsers(bundle: str) -> None:
+    from ferb.act.browser.profiles import is_web_browser
+    assert is_web_browser(bundle)
+
+
+@pytest.mark.parametrize('bundle', ['com.apple.mail', 'com.apple.Notes', 'org.mozilla.thunderbird',
+                                    'com.google.ChromeRemoteDesktopHost', 'com.google.drivefs'])
+def test_other_apps_of_a_browser_maker_are_not_browsers(bundle: str) -> None:
+    from ferb.act.browser.profiles import is_web_browser
+    assert not is_web_browser(bundle)
+
+
+def test_mac_secret_refuses_an_app_launch_services_lists_as_opening_https_links() -> None:
+    """A browser missing from FERB's list is still refused when macOS lists it among the apps that open https links;
+    refusing a non-browser that way only blocks a native secret fill there (the safe side)."""
+    import asyncio
+    from types import SimpleNamespace
+    from ferb.act.mac.tools import MacSecret
+    asked: list[dict] = []
+    cap = MacSecret(secret_driver('com.example.NewBrowser', 'New Browser', asked, web=['com.example.newbrowser']))
+    args = cap.Input(app='New Browser', element='e1')
+    assert 'all of New Browser' in (cap.precheck(args) or '')
+    with pytest.raises(Refused, match='browser connection'):
+        asyncio.run(cap._run(args, SimpleNamespace(task_id='t1')))
+    assert asked == []
+    native = MacSecret(secret_driver('com.example.Bank', 'Bank', asked, web=['com.example.newbrowser']))
+    assert native.precheck(native.Input(app='Bank', element='e1')) is None
+
+
+def test_launch_services_lists_safari_as_opening_https_links_and_not_notes() -> None:
+    pytest.importorskip('AppKit')
+    from ferb.act.mac import apps
+    assert apps.opens_web_links('com.apple.Safari')
+    assert not apps.opens_web_links('com.apple.Notes')

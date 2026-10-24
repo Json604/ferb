@@ -40,6 +40,26 @@ def find(name_or_bundle: str) -> RunningApp | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def opens_web_links(bundle_id: str) -> bool:
+    """Whether Launch Services lists this app among those that open https links: a web browser, or an app that shows
+    web pages like one (D12: mac.secret binds no secret to it). Read-only; nothing is opened. False when Launch
+    Services can't be asked: FERB's own browser list (`profiles.is_web_browser`) still applies."""
+    try:
+        from AppKit import NSWorkspace
+        from Foundation import NSURL, NSBundle
+        link = NSURL.URLWithString_("https://example.com")               # only its scheme is looked up
+        handlers = NSWorkspace.sharedWorkspace().URLsForApplicationsToOpenURL_(link)
+        want = bundle_id.strip().casefold()
+        for url in handlers or ():
+            bundle = NSBundle.bundleWithURL_(url)
+            ident = bundle.bundleIdentifier() if bundle is not None else None
+            if ident and str(ident).casefold() == want:
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def frontmost() -> RunningApp | None:
     """The app the owner is in. Accessibility's focused application first: NSWorkspace's "active" flag goes stale in
     a long-running daemon, which made FERB "put back" the wrong app and leave the owner on another

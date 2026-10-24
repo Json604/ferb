@@ -75,9 +75,16 @@ class _Base:
         if self.protection is not None and (typing or self.name in {"mac.applescript", "mac.secret"}):
             if self._bundle(args).casefold() in self.protection.terminal_apps:
                 return "FERB never types or runs scripts into terminal apps; use FERB's own shell"
-        if self.name == "mac.secret" and is_web_browser(self._bundle(args)):
+        if self.name == "mac.secret" and self._web_browser(self._bundle(args)):
             return whole_browser(self._shown(args))
         return None
+
+    def _web_browser(self, bundle_id: str) -> bool:
+        """A web browser FERB knows by bundle id, or an app Launch Services lists as opening https links (D12)."""
+        if is_web_browser(bundle_id):
+            return True
+        opens = getattr(getattr(self.driver, "apps", None), "opens_web_links", None)
+        return bool(opens(bundle_id)) if callable(opens) else False
 
     def _bundle(self, args: BaseModel) -> str:
         a = self.driver.apps.find(str(getattr(args, "app")))
@@ -559,7 +566,7 @@ class MacSecret(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(args.app)
-        if is_web_browser(a.bundle_id):                  # the resolved app, whatever the call named
+        if self._web_browser(a.bundle_id):               # the resolved app, whatever the call named
             raise Refused(whole_browser(str(getattr(a, "name", "") or a.bundle_id)))
         node = self.driver.node(a.bundle_id, args.element)
         ask = getattr(self.driver, "ask_secret", None)

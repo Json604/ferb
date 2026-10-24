@@ -1643,9 +1643,12 @@ only when none was given, then only explicit screenshots return images. Browser 
 generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
 
 `browser.secret` seals hidden input to the command ID and HTTPS origin; `mac.secret` binds to the app PID and exact AX
-node and uses only AXValue. `mac.secret` refuses a web browser (`profiles.is_web_browser`: every browser in `BROWSERS`
-and `OTHER_BROWSERS`), before any question: a native secret is bound to the app, and a browser app is every site it
-shows, so a web page's secret goes only through `browser.secret` and its origin. Optional owner-confirmed handles
+node and uses only AXValue. `mac.secret` refuses a web browser before any question: one FERB knows
+(`profiles.is_web_browser`: a browser in `BROWSERS` or `OTHER_BROWSERS`, any app under one such as a channel or a web
+app's shim, `com.google.Chrome.app.<id>` or `com.apple.Safari.WebApp.<id>`, or any app of a `BROWSER_VENDORS` maker),
+or one Launch Services lists as opening https links (`apps.opens_web_links`; when Launch Services can't be asked, the
+list alone applies). A native secret is bound to the app, and a browser app is every site it shows, so a web page's
+secret goes only through `browser.secret` and its origin. Optional owner-confirmed handles
 persist nonsecret target metadata in `owner-secret-handles.json`; values live in Keychain. `OwnerSecrets` neither saves
 nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install
 builds/signs `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships
