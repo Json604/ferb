@@ -1998,10 +1998,13 @@ def secret_question(target: str, remember: str | None) -> str:
 
 
 def _site(target: str) -> str:
-    """Where a hidden value goes, as a one-line question names it: an origin's host (its port is in the full
-    question), else the target as given."""
+    """Where a hidden value goes, as a one-line question names it: an origin's host, with its port unless it is
+    HTTPS's own (443), else the target as given."""
     parsed = urls.parse(target)
-    return parsed.host if parsed is not None and parsed.host else target
+    if parsed is None or not parsed.host:
+        return target
+    host = f"[{parsed.host}]" if ":" in parsed.host else parsed.host          # an IPv6 address, as a URL writes it
+    return host + (f":{parsed.port}" if parsed.port and parsed.port != "443" else "")
 
 
 def secret_summary(target: str, remember: str | None, app: str | None = None) -> str:

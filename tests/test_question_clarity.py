@@ -111,7 +111,8 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
 
 @pytest.mark.parametrize('target, shown, place', [('app:com.example.Bank', 'Bank', 'The Bank app'),
                                                   ('app:com.example.Bank', None, 'The app com.example.Bank'),
-                                                  ('https://x.test:8443', None, 'x.test')])
+                                                  ('https://x.test:8443', None, 'x.test:8443'),
+                                                  ('https://x.test:443', None, 'x.test')])
 def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, target: str, shown: str | None,
                                                                  place: str) -> None:
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target, shown=shown),
@@ -137,7 +138,9 @@ def test_mac_secret_tells_the_question_the_apps_name() -> None:
 
 @pytest.mark.parametrize('origin, host', [('https://accounts.google.com', 'accounts.google.com'),
                                           ('https://1234.example.com', '1234.example.com'),
-                                          ('https://x.test:8443', 'x.test')])
+                                          ('https://x.test:8443', 'x.test:8443'),     # a port that isn't 443 shows
+                                          ('https://x.test:443', 'x.test'),
+                                          ('https://[::1]:8443', '[::1]:8443')])
 def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, monkeypatch: pytest.MonkeyPatch,
                                                                 origin: str, host: str) -> None:
     published = _published(daemon, monkeypatch)

@@ -110,9 +110,9 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   FERB's shell never reads)." (`confirm._LIFTED`, by the lifted rule's kind: read, write, admin, the trustd service).
 - An owner secret: "<site or app> needs your password or another private answer. FERB saves it in your Mac's
   Keychain as '<name>' and fills it only there." (`gateway.secret_summary`): the place from the code-derived target
-  (an origin's host; an app's name as macOS reports it, passed by `mac.secret`), the worker's name only as the saved
-  name. A login code: "<host> asks for a login code. …"; the admin password: "Your Mac password, for the one command
-  you just approved. …".
+  (an origin's host, with its port unless it is 443; an app's name as macOS reports it, passed by `mac.secret`), the
+  worker's name only as the saved name. A login code: "<host[:port]> asks for a login code. …"; the admin password:
+  "Your Mac password, for the one command you just approved. …".
 The summary travels on `approval.requested` and in `chat.status`; a banner for a waiting question uses it too.
 Answers saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.
 
