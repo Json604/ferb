@@ -1547,6 +1547,19 @@ older content script, whose media entries have no ids.
 - "Pause the visa task for now" while its daily schedule exists: the reply says the task stopped and the schedule was
   paused; `ferb schedules` shows it paused.
 
+### Loop speed (L31 follow-up) — pending live check (2026-10-25)
+
+After the owner's live loop cc5debe4 ("keep this tab running": watching began 96.5 s after the message, and each round
+paused the reel itself). Not installed or observed yet. Run after `ferb setup --update`; reload the unpacked extension
+so the profile runs 0.15.10 (`ferb doctor` shows it), then reload the Instagram tab.
+
+- "keep this tab playing" on the owner's Instagram reel in Brave, with Brave behind another app: the reel is playing
+  within about 25 s of the message and the loop is watching (a `loop.probe_read` baseline in `ferb trace`) within about
+  35 s, and nothing pauses it by itself (cc5debe4 paused at 01:28:40 and 01:29:24, 0.3 s after each round let go of
+  the tab). The trace shows the loop as the plan's only step, round 1 with `verify.skipped` if it only looked (a
+  check if it had to play the reel), no `model.resources`, and one snapshot to learn the reel plays.
+- Stop it: the tab stays open and FERB lets go of it.
+
 ## FERB's cursor (L33) — pending live checks (2026-10-24)
 
 Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run after `ferb setup --update`,
