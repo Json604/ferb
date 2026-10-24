@@ -102,6 +102,34 @@ def test_only_reading_tools_that_move_nothing_are_probe_safe():
         assert not getattr(cls, 'probe_safe', False), cls.__name__
 
 
+def test_a_probe_tool_resolves_from_the_name_a_runtime_shows_the_model():
+    """The model sees `_` for `.`, behind its runtime's prefix for FERB's MCP server (Claude SDK `mcp__ferb__`, Codex
+    `mcp__ferb__`/`ferb__`, FERB's own Codex allow-list form `mcp__ferb.`): one exact leading prefix is dropped before
+    the name is matched. `ferb_browser.*` is a tool family, never a prefix."""
+    from ferb.orchestrator.probes import resolve_tool
+    names = ['browser.snapshot', 'ferb_browser.snapshot', 'shell.read']
+    assert resolve_tool('browser.snapshot', names) == ('browser.snapshot', None)
+    assert resolve_tool('browser_snapshot', names) == ('browser.snapshot', None)
+    assert resolve_tool('ferb_browser_snapshot', names) == ('ferb_browser.snapshot', None)
+    for prefix in ('mcp__ferb__', 'mcp__ferb.', 'ferb__'):
+        assert resolve_tool(prefix + 'browser_snapshot', names) == ('browser.snapshot', None), prefix
+        assert resolve_tool(prefix + 'ferb_browser_snapshot', names) == ('ferb_browser.snapshot', None), prefix
+        assert resolve_tool(prefix + 'shell.read', names) == ('shell.read', None), prefix
+    for unknown in ('mcp__other__shell_read', 'mcp__ferb__mcp__ferb__shell_read', 'xmcp__ferb__shell_read',
+                    'shell_write'):
+        assert resolve_tool(unknown, names) == (unknown, None), unknown       # as written: refused as no FERB tool
+
+
+def test_a_probe_name_two_registered_tools_share_is_refused_never_guessed():
+    from ferb.orchestrator.probes import resolve_tool
+    for names, written in ((['a.b_c', 'a_b.c'], 'a_b_c'), (['test.state', 'test_state'], 'test_state'),
+                           (['test.state', 'test_state'], 'mcp__ferb__test_state')):
+        name, note = resolve_tool(written, names)
+        assert name == written and note is not None, (names, written)
+        assert all(n in note for n in names), note
+    assert resolve_tool('a.b_c', ['a.b_c', 'a_b.c']) == ('a.b_c', None)         # the exact registered name is one tool
+
+
 def test_a_missing_baseline_never_crashes_a_comparison():
     assert tripped(_probe(op='changed'), 5, MISSING)             # a value appeared where none was
     assert not same(MISSING, None) and same(MISSING, MISSING)
@@ -1587,6 +1615,49 @@ def test_a_probe_naming_no_registered_tool_is_still_refused(daemon, monkeypatch)
         time.sleep(0.5)
         assert type(cap).calls == 0                          # refused at arming: nothing was read
         assert _on_loop(daemon, daemon.daemon.supervisor.loops.digest, tree_id, 'keep')['rounds'] == 1
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_probe_written_with_its_runtime_prefix_is_the_registered_tool(daemon, monkeypatch):
+    """A Claude SDK or Codex worker writes the name its runtime showed it (`mcp__ferb__test_state`): the probe arms,
+    reads and trips as the registered tool, and the stored probe carries the registered name."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True, True, False, True])
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+            {'loop.keep': [_round(tool='mcp__ferb__test_state'), _round(tool='mcp__ferb__test_state')],
+             'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        assert type(cap).calls >= 2
+        row = _on_loop(daemon, daemon.daemon.supervisor.loops.load, tree_id, 'keep')
+        assert json.loads(row['probe_json'])['tool'] == 'test.state'
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_probe_name_two_tools_share_is_refused_and_the_next_round_is_told_why(daemon, monkeypatch):
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    cap = _state_cap(daemon, [True, False])
+    twin = type(cap)()
+    twin.name = 'test_state'                                  # its model-facing name is test.state's too
+    daemon.daemon.registry.capabilities[twin.name] = twin
+    install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+            {'loop.keep': [_round(tool='test_state')], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        sv = daemon.daemon.supervisor
+        _wait(daemon, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 1)
+        row = _on_loop(daemon, sv.loops.load, tree_id, 'keep')
+        assert row['probe_json'] is None and 'test.state' in row['note'] and 'test_state' in row['note']
+        assert type(cap).calls == 0                          # neither tool was read
         daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()

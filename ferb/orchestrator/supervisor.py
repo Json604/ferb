@@ -50,7 +50,7 @@ from ferb.orchestrator.availability import Availability, build as build_availabi
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.loops import LOOP_ROUND, LoopRunner, LoopStore, loop_line, round_reason
-from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal
+from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
                                        SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
@@ -2474,14 +2474,13 @@ class Supervisor(WorkerRuns):
             self.spans.finish(exposure, output={'payload': '\n'.join(shown)}, origin=origins_.join(read))
 
     def _resolved_probe(self, probe: Probe | None) -> Probe | None:
-        """The model sees tool names with `_` for `.`: resolve the probe's tool to the registered name once, so the
-        refusal check, the read and the stored probe all use it. An unknown name stays as written (refused as such)."""
-        if probe is None or probe.tool in self.gateway.caps:
+        """The model writes the tool's name as its runtime showed it (`_` for `.`, maybe behind a runtime prefix):
+        resolve it to the registered name once, so the refusal check, the read and the stored probe all use it. An
+        unknown or ambiguous name stays as written, and `arm` refuses it (`probes.resolve_tool`)."""
+        if probe is None:
             return probe
-        for name in self.gateway.caps:
-            if name.replace('.', '_') == probe.tool:
-                return probe.model_copy(update={'tool': name})
-        return probe
+        name, _ = resolve_tool(probe.tool, self.gateway.caps)
+        return probe if name == probe.tool else probe.model_copy(update={'tool': name})
 
     async def _loop_step(self, tree: _Tree, step: Step, span: str, prior: dict[str, Any]) -> dict[str, Any]:
         """L31: a loop step. Every round is an ordinary worker run with its check, under one task id, so what a round
@@ -2554,7 +2553,8 @@ class Supervisor(WorkerRuns):
 
         def arm(probe: Probe) -> str | None:
             try:
-                return refusal(probe, self.gateway.caps.get(probe.tool), child.scopes, child.identity)
+                return (resolve_tool(probe.tool, self.gateway.caps)[1]          # two tools share the name written
+                        or refusal(probe, self.gateway.caps.get(probe.tool), child.scopes, child.identity))
             except Exception as exc:
                 self._loop_failed(tree.id, step.id, 'arm', exc)
                 return f"the probe couldn't be checked: {reason(exc, self.gateway.redact)}"

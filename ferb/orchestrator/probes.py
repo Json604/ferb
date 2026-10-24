@@ -34,6 +34,27 @@ class Probe(BaseModel):
         return json.loads(self.value_json or 'null')
 
 
+# What a runtime puts before a FERB tool's name in the name its model sees: the Claude Agent SDK and Codex name an MCP
+# server's tool `mcp__<server>__<tool>` (claude_sdk.py's allow-list; Codex's own convention, `ferb__<tool>` in older
+# Codex), and FERB's Codex adapter allow-lists `mcp__ferb.<tool>` (codex_exec.py, codex_stream.py).
+RUNTIME_PREFIXES = ('mcp__ferb__', 'mcp__ferb.', 'ferb__')
+
+
+def resolve_tool(written: str, registered: Iterable[str]) -> tuple[str, str | None]:
+    """The registered tool a probe names, from the name the model wrote: a registered name itself, or the form a model
+    sees (`_` for `.`, cli/mcp.py), after at most one exact runtime prefix (RUNTIME_PREFIXES). Returns (name, None);
+    a name that is no tool comes back as written, for `refusal` to refuse. When two registered tools share that form,
+    neither is guessed: (written, why)."""
+    names = list(registered)
+    for name in (written, *(written[len(p):] for p in RUNTIME_PREFIXES if written.startswith(p))):
+        found = sorted(n for n in names if n == name or n.replace('.', '_') == name)
+        if len(found) == 1:
+            return found[0], None
+        if found:
+            return written, f"the probe's tool {written} could be any of {', '.join(found)}: name one of them exactly"
+    return written, None
+
+
 def refusal(probe: Probe, cap: Any, scopes: Iterable[str], identity: Any) -> str | None:
     """Why this probe can't be armed, as a plain sentence for the next round; None when it can."""
     if cap is None:

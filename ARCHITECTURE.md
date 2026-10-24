@@ -2714,8 +2714,10 @@ stays a watch.
   step that depends on such a loop is refused for repair.
 - Probes: one exact field of one observation tool's result, compared with `equals`, `not_equals` or `changed`. The
   tool must be `observation` and `probe_safe` (capability attributes; no pictures, no moving a view, no blocking). The
-  model writes the name in the underscore form it sees (`browser_snapshot`) and the supervisor resolves it to the
-  registered name before checking, reading and storing it. Reads go through `Gateway.probe` under the loop's task id:
+  model writes the name as its runtime shows it (`browser_snapshot`, or `mcp__ferb__browser_snapshot` behind a
+  runtime prefix) and the supervisor resolves it to the registered name before checking, reading and storing it
+  (`probes.resolve_tool`: at most one exact prefix from `RUNTIME_PREFIXES` is dropped; a name two registered tools
+  share is refused, never guessed). Reads go through `Gateway.probe` under the loop's task id:
   the gateway's checks and provenance apply, no model runs, and a read returns no picture. The span store keeps
   `loop.probe_read` spans for the baseline, each trip and each error and a running count, never one per unchanged read
   (the resource log, L30, is the measure). A probe's result never reaches a model; the tripping value goes to the next
