@@ -114,7 +114,7 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   port unless it is 443; an app's name as macOS reports it, passed by `mac.secret`), so worker text never comes before
   it, and no word before the place can make redaction hide part of it. Then what it is for: the worker's name, in
   quotes, only ever as the saved name, shown through an allowlist (`gateway.shown_name`: ASCII letters, digits, spaces
-  and : , ' ( ) / - only, everything else dropped, whitespace collapsed, at most 40 characters with "…"; nothing left
+  and : , ' ( ) - only, everything else dropped, whitespace collapsed, at most 40 characters with "…"; nothing left
   shows "a saved secret"). The allowlist is the rule because a denylist was bypassed (re-review R1): lookalike quotes,
   dashes and dots, letters shaped like dots, invisible marks beside ASCII dots, and HTML entities the notch's Markdown
   decodes ("x&rdquo; &mdash; for g&period;co" rendered as a fake quote, dash and linked place). Details keeps the exact

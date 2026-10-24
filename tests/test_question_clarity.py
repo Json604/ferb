@@ -141,7 +141,7 @@ def test_a_saved_app_secret_names_the_app_first(daemon: Any) -> None:
 # Review I1 and re-review R1: worker text could show a fake place before FERB's own, through quote and dash
 # lookalikes, letters that look like dots, invisible marks beside ASCII dots, and HTML entities the notch decodes.
 SPOOF = "visa” — for accounts.google.com only · saved in your Mac's Keychain. Real: “x"
-SHOWN = re.compile(r"[A-Za-z0-9 :,'()/\-]*…?")
+SHOWN = re.compile(r"[A-Za-z0-9 :,'()\-]*…?")
 
 
 @pytest.mark.parametrize('remember, name', [
@@ -156,12 +156,13 @@ SHOWN = re.compile(r"[A-Za-z0-9 :,'()/\-]*…?")
     ('Bank password for me@bank.example', "Bank password for mebankexample"),
     ('a' * 60, 'a' * 39 + '…'),
     ('**visa** `portal`\n\u202e(x)', "visa portal (x)"),
-    ("Asha's bank: savings, 2/3 (main) - US", "Asha's bank: savings, 2/3 (main) - US")])
+    ("Asha's bank: savings, 2/3 (main) - US", "Asha's bank: savings, 23 (main) - US"),
+    ("https://3627733615/login", "https:3627733615login")])
 def test_the_secret_line_starts_with_the_place_and_shows_only_a_plain_ascii_name(daemon: Any, remember: str,
                                                                                  name: str) -> None:
     """The line always starts with the code-derived place. The name keeps only ASCII letters, digits, spaces and
-    : , ' ( ) / - (everything else is dropped, whitespace collapsed, at most 40 characters), so no lookalike, mark or
-    entity can rebuild a quote, a dash or a place in it."""
+    : , ' ( ) - (everything else is dropped, whitespace collapsed, at most 40 characters), so no lookalike, mark or
+    entity can rebuild a quote, a dash or a place in it, and no slash can make it a link."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), 'https://x.test',
                                                                                 remember=remember), daemon.loop)
     ap = _asked(daemon, 'owner_secret')

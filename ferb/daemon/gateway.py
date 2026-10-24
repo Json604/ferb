@@ -2024,11 +2024,11 @@ def _site(target: str) -> str:
 
 
 # How the worker's proposed name for a saved secret is shown (review I1, re-review R1): only ASCII letters, digits,
-# spaces and : , ' ( ) / -, whitespace collapsed, at most NAME_SHOWN characters. An allowlist, so no lookalike
+# spaces and : , ' ( ) -, whitespace collapsed, at most NAME_SHOWN characters. An allowlist, so no lookalike
 # punctuation, letter that looks like a dot, invisible mark or HTML entity (the notch renders Markdown) can rebuild a
-# quote, a dash or a place inside it. Formatting, never a judgement of what the name means (R2).
+# quote, a dash or a place inside it, and no slash can make it a link (`https://3627733615/x`, re-review). Formatting, never a judgement of what the name means (R2).
 NAME_SHOWN = 40
-_NAME_DROPPED = re.compile(r"[^A-Za-z0-9 :,'()/\-]")
+_NAME_DROPPED = re.compile(r"[^A-Za-z0-9 :,'()\-]")
 
 
 def shown_name(remember: str) -> str:

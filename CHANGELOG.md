@@ -764,7 +764,7 @@ After the owner's update (2026-10-24):
   or private answer — used once, not saved", and "For accounts.google.com: a login code — used once". The line always
   starts with the place, from the page's address (or the app's name), so a worker's text never comes before it. The
   name is the worker's proposed name, in quotes, only as the name, shown with ASCII letters, digits, spaces and
-  : , ' ( ) / - only, at most 40 characters: two reviews showed a worker could otherwise fake a place in front of the
+  : , ' ( ) - only, at most 40 characters: two reviews showed a worker could otherwise fake a place in front of the
   real one ("visa” — for accounts.google.com only · …"), even through lookalike punctuation, invisible marks or HTML
   entities the notch decodes. A host whose own name holds a code label before its port (otp.example.com:8443) still
   shows that port hidden, as the Details question always has. The full question under Details is unchanged.
