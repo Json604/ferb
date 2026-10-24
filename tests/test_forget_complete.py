@@ -149,6 +149,37 @@ def test_forget_reaches_what_a_task_did_with_the_item(daemon: RunningDaemon) -> 
     assert "Zorblat" not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
 
 
+def test_forget_reaches_a_loops_round_results_note_and_baseline(daemon: RunningDaemon) -> None:
+    """L31 (D14): a loop step's stored state holds model-written round results, a probe refusal note and an outside
+    baseline value, and the next round is shown the results and the note. A task given the item loses its lines there
+    too; another task's loop keeps its own."""
+    from tests.conftest import done, outcome, sup, task
+    d = daemon.daemon
+    item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
+    install(daemon, [sup("task", "Emailing.", task("email my dentist to book Monday"))],
+            {"worker": done("Emailed Dr. Zorblat's office to book Monday.")})
+    task_id = outcome(chat(daemon, "email my dentist to book Monday"))["task_id"]
+
+    def seed() -> None:
+        for tree in (task_id, "tree-other"):
+            d.supervisor.loops.load(tree, "keep")
+            d.supervisor.loops.save(tree, "keep", note="the probe could not read: no reply from Dr. Zorblat yet",
+                                    recent_json=json.dumps(["done: Asked Dr. Zorblat's office again.",
+                                                            "done: Checked the inbox."]),
+                                    baseline_json=json.dumps({"from": "Dr. Zorblat", "unread": 2}))
+    _on_loop(daemon, seed)
+    _on_loop(daemon, lambda: d.memory.forget(item.id))
+
+    def row(tree: str) -> dict[str, Any]:
+        return dict(d.db.conn.execute("SELECT recent_json, note, baseline_json FROM loop_state WHERE task_id = ?",
+                                      (tree,)).fetchone())
+    given, other = _on_loop(daemon, lambda: row(task_id)), _on_loop(daemon, lambda: row("tree-other"))
+    assert "Zorblat" not in json.dumps(given)
+    assert "done: Checked the inbox." in json.loads(given["recent_json"])
+    assert json.loads(given["baseline_json"])["unread"] == 2
+    assert "Zorblat" in other["note"] and "Zorblat" in other["recent_json"]
+
+
 def test_a_reply_sharing_one_word_with_the_item_keeps_its_line(daemon: RunningDaemon) -> None:
     """Review Q2: a reply about something else that shares one rare word with the item was emptied."""
     item = _added(daemon, "My wifi hint is the blue router", "wifi_hint")

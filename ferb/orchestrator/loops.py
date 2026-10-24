@@ -100,6 +100,12 @@ class LoopStore:
         self.db.conn.execute(f'UPDATE loop_state SET {sets}, updated_at=? WHERE task_id=? AND step_id=?',
                              (*values.values(), self.clock.now().isoformat(), task_id, step_id))
 
+    def texts(self, task_id: str, step_id: str) -> dict[str, Any]:
+        """The row's round results and note as stored now: a forget may have rewritten them since it was read (D14)."""
+        row = self.db.conn.execute('SELECT recent_json, note FROM loop_state WHERE task_id=? AND step_id=?',
+                                   (task_id, step_id)).fetchone()
+        return dict(row) if row else {'recent_json': '[]', 'note': ''}
+
     def digest(self, task_id: str, step_id: str) -> dict[str, Any]:
         row = self.db.conn.execute('SELECT rounds, recent_json FROM loop_state WHERE task_id=? AND step_id=?',
                                    (task_id, step_id)).fetchone()
@@ -229,11 +235,14 @@ class LoopRunner:
             self._save(steer_seen=self.steers())
             self._set('acting')
             reason = {**reason, 'number': self.row['rounds'] + 1}
-            if self.row['note']:
-                reason['probe_refused'] = self.row['note']
+            # the stored note and results, never a copy read earlier: a forget may have rewritten them (D14)
+            note = self.store.texts(self.task_id, self.step.id)['note']
+            if note:
+                reason['probe_refused'] = note
             result = await self.round(reason)
             self.pacer.ended(self.now())
-            recent = json.loads(self.row['recent_json']) + [f"{result['status']}: {result['summary']}"]
+            recent = (json.loads(self.store.texts(self.task_id, self.step.id)['recent_json'])
+                      + [f"{result['status']}: {result['summary']}"])
             # a correction the round's worker took while it ran was acted on; only one it never read wakes a round
             seen = max(self.row['steer_seen'], min(int(result.get('steers_seen', 0)), self.steers()))
             action = result.get('loop_action')

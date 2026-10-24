@@ -9,7 +9,7 @@ runs it):
   answered words that are gone);
 - a task given the item (`task_memory_refs`: its exposures or memory reads cited the item, or a node built on it that
   holds the item's text or a rare word of it; or its card cited it; or its exposures cited a forgotten entry) loses each line, in its answer and outcome rows, its stored goal, outcome,
-  saved spec and permanent record, that holds the item's text word for word or a word of the item nothing left holds
+  saved spec, permanent record and loop steps' state (L31), that holds the item's text word for word or a word of the item nothing left holds
   (no remaining owner message, memory item or FERB row not given the item: data-driven, no word list); its episode card
   is deleted, and never rebuilt, when its body does (`Scrubbed.cards`; no partial card);
 - a chat reply whose turn was given the item (its recorded source refs cite it) loses a line that holds the item's
@@ -489,10 +489,11 @@ Change = tuple[Callable[[str], str], Callable[[Any], Any]]      # how one task's
 
 def _scrub_records(db: Any, changes: dict[str, Change], ours: "Ours | None" = None) -> None:
     """The tasks' own records, each changed by its root task's rule, one pass per table (never a scan per task): their
-    stored goal and outcome, saved spec, permanent record and "while you were away" result. Each row is written only
-    while it still holds what was read (`swap`): an outcome the loop wrote meanwhile is changed, never lost. `ours`: a
-    run again, which touches a tree's task rows and saved plan while the recorded request still runs it, and its
-    permanent record and result while its latest answer is that request's (`Ours.trees`, `Ours.finished`)."""
+    stored goal and outcome, saved spec, permanent record, "while you were away" result and their loop steps' stored
+    round results, note and baseline (L31). Each row is written only while it still holds what was read (`swap`): an
+    outcome the loop wrote meanwhile is changed, never lost. `ours`: a run again, which touches a tree's task rows,
+    saved plan and loop state while the recorded request still runs it, and its permanent record and result while its
+    latest answer is that request's (`Ours.trees`, `Ours.finished`)."""
     if not changes:
         return
 
@@ -509,13 +510,27 @@ def _scrub_records(db: Any, changes: dict[str, Change], ours: "Ours | None" = No
 
     def result(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:
         return change[0](held[0]), change[0](held[1])
-    for table, key, columns, root, rule, owned in (
-            ("tasks", "id", ("goal", "outcome_json"), _root, task, ours and ours.trees),
-            ("task_context", "task_id", ("spec_json",), str, spec, ours and ours.trees),
-            ("episodes", "task_id", EPISODE_FIELDS, str, episode, ours and ours.finished),
-            ("task_results", "task_id", ("goal", "answer"), str, result, ours and ours.finished)):
-        for row in db.conn.execute(f"SELECT {key}, {', '.join(columns)} FROM {table}").fetchall():
-            tree = root(str(row[key]))
+
+    def loop(change: Change, held: tuple[Any, ...]) -> tuple[Any, ...]:   # a loop step's state (L31)
+        def document(text: Any) -> Any:             # a JSON column, written again only when its value changes
+            if text is None:
+                return None
+            value = json.loads(text)
+            new = change[1](value)
+            return text if new == value else json.dumps(new)
+        return document(held[0]), change[0](held[1]), document(held[2])
+    for table, key, tree_of, columns, root, rule, owned in (
+            ("tasks", "id", "id", ("goal", "outcome_json"), _root, task, ours and ours.trees),
+            ("task_context", "task_id", "task_id", ("spec_json",), str, spec, ours and ours.trees),
+            ("episodes", "task_id", "task_id", EPISODE_FIELDS, str, episode, ours and ours.finished),
+            ("task_results", "task_id", "task_id", ("goal", "answer"), str, result, ours and ours.finished),
+            # its rounds' one-line results (model-written), a probe refusal note and the probe's baseline value
+            # (outside content): the next round is shown the first two
+            ("loop_state", "rowid", "task_id", ("recent_json", "note", "baseline_json"), str, loop,
+             ours and ours.trees)):
+        read = ", ".join(dict.fromkeys((key, tree_of, *columns)))
+        for row in db.conn.execute(f"SELECT {read} FROM {table}").fetchall():
+            tree = root(str(row[tree_of]))
             if ours is not None and tree not in (owned or set()):
                 continue
             if (change := changes.get(tree)) is not None:

@@ -1860,7 +1860,8 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   turn that wrote it); for tasks given the item (shown, read or cited the item itself, its source entries or rows, or
   a learned node whose own body holds its text or one of its rare words: `echoes.settle`, rare words measured once
   against every candidate) each line of their answer and outcome rows, stored goal and outcome, saved spec, permanent
-  record, `task_results` row, every span of their tree and the planner turn that planned them, holding the item's text
+  record, `task_results` row, loop steps' `loop_state` round results, note and baseline (L31), every span of their
+  tree and the planner turn that planned them, holding the item's text
   or a word of it nothing left holds; their cards are forgotten (keys tombstoned) only when the body restates the
   item; in chat rows whose turn listed the item, a line holding its text or two of its words in a row (one of them a
   word nothing left holds); elsewhere, its text word for word. The given tasks' spans lose those lines; every span

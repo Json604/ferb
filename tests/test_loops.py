@@ -465,6 +465,25 @@ def test_quiet_probe_reads_write_nothing_and_the_count_is_kept_with_the_next_cha
     assert h.store.load('tree', 'keep')['reads'] == 3            # round 2's probe: three quiet reads, then the stop
 
 
+def test_a_forget_between_rounds_is_not_undone_by_the_next_round(db):
+    """A forget rewrites the stored round results and note (D14); the runner reads them back from the row, so the next
+    round neither sees nor saves again what the forget removed."""
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe(), summary='Asked Zorblat.'),
+                                     round_result(p=probe(), summary='Played it.')],
+                [(True, None), (True, None), (False, None)])
+    original = h._probe
+    reads = []
+
+    async def forget_during_the_watch(p):
+        reads.append(p)
+        if len(reads) == 2:                                   # a quiet read, after round 1 was saved
+            h.store.save('tree', 'keep', recent_json=json.dumps(['done: [removed]']), note='')
+        return await original(p)
+    h.runner.probe = forget_during_the_watch
+    h.run()
+    assert json.loads(h.store.load('tree', 'keep')['recent_json'])[:2] == ['done: [removed]', 'done: Played it.']
+
+
 def test_a_restarted_loop_compares_with_its_stored_baseline(db):
     """A value that changed while FERB was down still trips (spec §5: re-armed from the stored row)."""
     _seed(db, state='watching', rounds=1, probe_json=probe(op='changed').model_dump_json(), baseline_json='"a"',
