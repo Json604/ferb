@@ -536,3 +536,88 @@ def test_the_back_off_notice_is_not_repeated_when_its_send_is_cut_short(db):
     again.t = h.t + 10
     again.run()
     assert again.notices == [] and again.reasons[0]['why'] == 'probe'
+
+
+def _probe_caps(image=None, boom=False):
+    from pydantic import BaseModel
+    from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolResult
+    from ferb.policy.rules import Kind
+
+    class State:
+        name, description, scopes = 'test.state', 'state', set()
+        identities = {Identity.OWNER, Identity.FERB}
+        risk, reversible, observation, probe_safe = RiskLevel.LOW, True, True, True
+
+        class Input(BaseModel):
+            pass
+
+        def describe(self, args): return ActionSpec(Kind.READ)
+
+        async def run(self, args, ctx):
+            if boom:
+                raise RuntimeError('tool blew up')
+            return ToolResult({'playing': False}, read_sources=(('web', 'instagram.com'),), image=image)
+
+    class Mover(State):
+        name, probe_safe = 'test.mover', False
+
+    return [State(), Mover()]
+
+
+def _spans(daemon):
+    async def count():
+        return daemon.daemon.db.conn.execute("SELECT COUNT(*) FROM spans WHERE kind='tool.call'").fetchone()[0]
+    return daemon.run(count())
+
+
+def test_a_probe_read_runs_through_the_gateway_admission_without_a_span(daemon):
+    from ferb.core.types import Identity
+    from tests.conftest import gateway_setup
+
+    grant, _ = gateway_setup(daemon, set(), None, _probe_caps(), identity=Identity.FERB)
+    events = []
+    original = daemon.daemon.gateway.publish
+    daemon.daemon.gateway.publish = lambda kind, *a, **k: (events.append(kind), original(kind, *a, **k))[1]
+    before = _spans(daemon)
+    got = daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 'span-x'))
+    assert got['is_error'] is False and got['content'] == {'playing': False} and got['origins']
+    refused = daemon.run(daemon.daemon.gateway.probe(grant, 'test.mover', {}, 'span-x'))
+    assert refused['is_error'] and "can't be a probe" in refused['content']['error']
+    assert before == _spans(daemon) and 'tool.called' not in events
+
+
+def test_a_probe_read_refuses_what_a_call_would_refuse(daemon):
+    from ferb.core.types import Identity
+    from tests.conftest import gateway_setup
+
+    grant, _ = gateway_setup(daemon, set(), None, _probe_caps(), identity=Identity.FERB)
+    gw = daemon.daemon.gateway
+    assert 'not available' in daemon.run(gw.probe(grant, 'test.nope', {}, 's'))['content']['error']
+    gw._cancelled_tasks.add(grant.task_id)
+    assert daemon.run(gw.probe(grant, 'test.state', {}, 's'))['is_error']
+    gw._cancelled_tasks.discard(grant.task_id)
+    daemon.daemon.state.stopped = True
+    try:
+        assert daemon.run(gw.probe(grant, 'test.state', {}, 's'))['is_error']
+    finally:
+        daemon.daemon.state.stopped = False
+
+
+def test_a_probe_read_never_attaches_an_image_and_a_tool_error_is_a_return(daemon, monkeypatch):
+    from ferb.core.types import Identity
+    from ferb.daemon.gateway import Gateway
+    from tests.conftest import gateway_setup
+
+    called = []
+
+    async def record(*a, **k):
+        called.append(1)
+        raise AssertionError('a probe never takes the initial image')
+    monkeypatch.setattr(Gateway, '_initial_image', record)
+    grant, _ = gateway_setup(daemon, set(), None, _probe_caps(image=b'\xff\xd8jpeg'), identity=Identity.FERB)
+    got = daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 's'))
+    assert 'image' not in got and set(got) == {'content', 'is_error', 'origins'} and called == []
+    boom = _probe_caps(boom=True)
+    daemon.daemon.registry.capabilities['test.state'] = boom[0]
+    failed = daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 's'))
+    assert failed['is_error'] is True and 'tool blew up' in failed['content']['error']

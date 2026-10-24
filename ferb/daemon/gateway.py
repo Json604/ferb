@@ -456,6 +456,50 @@ class Gateway:
                 self._in_flight.pop(job, None)
         return r
 
+    async def probe(self, grant: RunGrant, name: str, arguments: dict[str, Any], span_id: str) -> dict[str, Any]:
+        """L31: one read by a loop's armed probe. The same admission as `call` (FERB not stopped, the task running,
+        the tool in its scopes and identity, an observation tool marked probe-safe, valid arguments, its precheck and
+        the protection lists) but no span, `tool.called` event or disturbance record of its own: a probe reads every
+        10 seconds, and the loop records its baseline, trips, errors and a count (`loop.probe_read`, under `span_id`).
+        Its result never reaches a model; only a tripping field value does, as untrusted data. It never takes the
+        initial working-app image, and a tool's failure is a returned error, never a raise."""
+        def refused(error: str) -> dict[str, Any]:
+            return {"content": self.redact({"error": error}), "is_error": True, "origins": [origin.FERB]}
+        rec = self.tasks.get(grant.task_id)
+        if self.state.stopped or grant.task_id in self._cancelled_tasks or rec is None:
+            return refused("task stopped or not running")
+        cap = self.caps.get(name)
+        if cap is None or not cap.scopes <= grant.scopes or grant.identity not in cap.identities:
+            return refused(f"tool {name} is not available to this loop")
+        if not observes(cap) or not getattr(cap, "probe_safe", False):
+            return refused(f"{name} can't be a probe: a probe must only read, move nothing and return at once")
+        try:
+            args = cap.Input.model_validate(dict(arguments))
+            if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
+                return refused(refusal)
+            closed = self._files_closed(cap, name, args)
+            if closed is not None:
+                return refused(closed[1])
+            spec = cap.describe(args)
+            ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
+                              identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
+                              scopes=grant.scopes, device_id=self.device_id, span_id=span_id,
+                              workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
+                              untrusted_roots=self.roots.untrusted_roots, observe_only=True,
+                              path_closed=self._path_closed(name))
+            lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
+            async with self.locks.hold(lock_keys, grant.worker_id):
+                result = await cap.run(args, ctx)
+        except asyncio.CancelledError:
+            raise
+        except ValidationError as e:
+            return refused(f"invalid arguments: {e.errors(include_url=False)}")
+        except Exception as e:
+            return refused(f"{name} failed: {type(e).__name__}: {e}")
+        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
+                                         self.excluded_host)
+        return {"content": self.redact(result.content), "is_error": bool(result.is_error), "origins": sorted(origins)}
+
     def in_flight(self, task_ids: set[str]) -> bool:
         return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())
 
