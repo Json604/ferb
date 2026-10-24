@@ -16,6 +16,8 @@ from ferb.act.mac import applescript
 from ferb.act.mac.ax_browser import is_browser
 from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver
 from ferb.act.mac.input import Yielded
+from ferb.act.mac.screenshot import window_on_screen
+from ferb.act.point import Point, display_of
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
@@ -109,6 +111,25 @@ class _Base:
     def _acting(self, bundle_id: str, ctx: ToolContext) -> ContextManager[None]:
         acting = getattr(self.driver, "acting", None)
         return contextlib.nullcontext() if acting is None else acting(bundle_id, ctx.task_id)  # type: ignore[no-any-return]
+
+    async def _element_point(self, args: BaseModel, kind: Literal['click', 'type', 'scroll', 'press', 'drag']) -> Point | None:
+        """L33: the element this call names, as geometry for FERB's cursor; None whenever unsure (no element, stale,
+        empty rect, its window off screen, no display). Accessibility and Quartz work runs off the event loop."""
+        element = getattr(args, "element", None)
+        if not element:
+            return None
+
+        def find() -> Point | None:
+            try:
+                a = self.driver.app(str(getattr(args, "app")))
+                rect = tuple(float(v) for v in self.driver.node(a.bundle_id, str(element)).rect)
+                if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0 or not window_on_screen(a.pid, rect):  # type: ignore[arg-type]
+                    return None
+                shown = display_of(rect)  # type: ignore[arg-type]
+                return None if shown is None else Point(kind, rect, shown)  # type: ignore[arg-type]
+            except (StaleRef, Refused, ValueError, LookupError):
+                return None
+        return await asyncio.to_thread(find)
 
     def _shown(self, args: BaseModel) -> str:
         """The app's name as the owner knows it (for FERB's questions), else what the agent called it."""
@@ -319,6 +340,11 @@ class MacAct(_Base):
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
+
+    async def point(self, args: BaseModel, grant: Any) -> Point | None:
+        action = getattr(args, "action")
+        kind = {"type": "type", "key": "type", "set_value": "type", "edit": "type", "scroll": "scroll"}.get(action, "click")
+        return await self._element_point(args, kind)  # type: ignore[arg-type]
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         r = await self.driver.act(str(getattr(args, "app")),
@@ -571,6 +597,9 @@ class MacSecret(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.FILL_FORM, Target(site=self._bundle(args)))
+
+    async def point(self, args: BaseModel, grant: Any) -> Point | None:
+        return await self._element_point(args, "type")
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(args.app)

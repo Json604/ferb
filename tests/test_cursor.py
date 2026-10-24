@@ -103,3 +103,68 @@ def test_display_of_reads_the_display_under_the_centre(monkeypatch):
     assert display_of((10.0, 20.0, 30.0, 40.0)) == 7 and seen == [(25.0, 40.0)]
     monkeypatch.setattr(Quartz, 'CGGetDisplaysWithPoint', lambda *a: (0, [], 0))
     assert display_of((10.0, 20.0, 30.0, 40.0)) is None
+
+
+# ---- macOS tools report their element's point ----
+
+def _mac(monkeypatch, rect=(100, 200, 50, 20), stale=False, on_screen=True, display=1, tool='act'):
+    from types import SimpleNamespace
+    from ferb.act.mac import tools
+    from ferb.core.errors import StaleRef
+    from ferb.act.mac.accessibility import AxNode
+    calls = []
+
+    class Driver:
+        def app(self, name):
+            return SimpleNamespace(bundle_id='com.x', pid=1, name='X')
+        def node(self, bundle, element):
+            calls.append(asyncio.get_running_loop)   # sync call; thread check below
+            if stale:
+                raise StaleRef('old')
+            return AxNode(ref=None, role='button', label='', value=None, rect=rect, secret=False, enabled=True)
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: on_screen)
+    monkeypatch.setattr(tools, 'display_of', lambda r: display)
+    cls = {'act': tools.MacAct, 'secret': tools.MacSecret}[tool]
+    return cls(Driver()), cls
+
+
+def _point(tool, cls, **kw):
+    return asyncio.run(tool.point(cls.Input(app='pid:1', **kw), None))
+
+
+def test_a_mac_act_reports_the_element_it_touches(monkeypatch):
+    tool, cls = _mac(monkeypatch)
+    assert _point(tool, cls, element='s1e2', action='click') == Point('click', (100, 200, 50, 20), 1)
+    assert _point(tool, cls, element='s1e2', action='press').kind == 'click'
+    assert _point(tool, cls, element='s1e2', action='type', text='x').kind == 'type'
+    assert _point(tool, cls, element='s1e2', action='set_value', text='x').kind == 'type'
+    assert _point(tool, cls, element='s1e2', action='scroll', direction='down').kind == 'scroll'
+
+
+def test_a_stale_element_gets_no_point(monkeypatch):
+    tool, cls = _mac(monkeypatch, stale=True)
+    assert _point(tool, cls, element='s1e2', action='click') is None
+
+
+def test_no_element_an_empty_rect_a_hidden_window_or_no_display_get_no_point(monkeypatch):
+    tool, cls = _mac(monkeypatch)
+    assert _point(tool, cls, action='scroll', direction='down') is None            # window-level scroll
+    assert _point(*_mac(monkeypatch, rect=(1, 2, 0, 5)), element='s1e2', action='click') is None
+    assert _point(*_mac(monkeypatch, on_screen=False), element='s1e2', action='click') is None
+    assert _point(*_mac(monkeypatch, display=None), element='s1e2', action='click') is None
+
+
+def test_mac_secret_points_at_its_field_as_typing(monkeypatch):
+    tool, cls = _mac(monkeypatch, tool='secret')
+    assert _point(tool, cls, element='s1e2') == Point('type', (100, 200, 50, 20), 1)
+
+
+def test_the_element_lookup_runs_off_the_event_loop(monkeypatch):
+    import threading
+    tool, cls = _mac(monkeypatch)
+    seen = []
+    orig = tool.driver.node
+    tool.driver.node = lambda b, e: (seen.append(threading.current_thread()), orig(b, e))[1]
+    main = threading.current_thread()
+    assert _point(tool, cls, element='s1e2', action='click') is not None
+    assert seen and seen[0] is not main

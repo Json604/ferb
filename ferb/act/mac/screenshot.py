@@ -54,6 +54,19 @@ def _info_windows(everywhere: bool = False) -> list[dict[str, Any]]:
     return list(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])
 
 
+def window_on_screen(pid: int, rect: tuple[float, float, float, float]) -> bool:
+    """True when an on-screen window of the process contains the rect's centre (L33: the cursor never points at an
+    element in a hidden or other-Space window). Synchronous Quartz work: call it off the event loop."""
+    cx, cy = rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
+    for d in _info_windows():
+        if int(d.get("kCGWindowOwnerPID", -1)) != pid or float(d.get("kCGWindowAlpha", 1)) <= 0:
+            continue
+        x, y, w, h = _window(d).bounds
+        if x <= cx <= x + w and y <= cy <= y + h:
+            return True
+    return False
+
+
 def _window(d: dict[str, Any]) -> Window:
     b = d.get("kCGWindowBounds") or {}
     return Window(int(d["kCGWindowNumber"]), int(d.get("kCGWindowOwnerPID", -1)),
