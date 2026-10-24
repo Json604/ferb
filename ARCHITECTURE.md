@@ -2783,7 +2783,14 @@ planner's own words say what the loop does.
   tab only marks it kept (`_TabDriver.keep_open`): the tab stays held, its debugger attached and focus emulation on,
   until its task ends (a loop's: until the loop stops), when `close` lets go of it, open; letting go at `keep_open`
   turned focus emulation off and Instagram paused 0.3 s after each round (live cc5debe4, 2026-10-25). A tab FERB
-  opened is still handed over at once. A round's checker judges only the calls made in that round, and earlier rounds reach
+  opened is still handed over at once. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
+  for look-only rounds"; `loops.look_only_round`, called by `Supervisor._look_only`): it reported `continue` with a
+  probe, made at least one call, and every call was a W2 `read` of an observation tool or one that only holds a tab
+  (`holds_tab`: `use_tab`, `keep_open`), with no declared effect; and what its probe names (a string argument, or a
+  field segment that is no key and no `probe_keys` entry of its tool, such as a tab_ref or media id) is among the
+  values its own calls sent or got back. Its probe's first read is then the check, and a `verify.skipped` span says
+  why. Any acting call (media, act, navigate or a reload, a send, a question) or a finish keeps the check. A round's
+  checker judges only the calls made in that round, and earlier rounds reach
   the next one as a digest of one-line results (`RECENT_ROUNDS` 5). The round's worker reports `loop_action`
   (`continue`/`finished`/`blocked`) and a `probe`; `finished` counts only with an `end_when`, observed evidence and the
   checker's verification, otherwise it is `continue`. A loop with no `end_when` ends only by the owner's stop, and a

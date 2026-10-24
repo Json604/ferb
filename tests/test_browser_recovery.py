@@ -515,6 +515,28 @@ def test_release_keeps_tab_open_detaches_and_survives_extension_session_reset() 
     assert result['closed']['closed'] is False
 
 
+def test_reloading_a_held_tab_keeps_its_debugger_session_and_focus_emulation() -> None:
+    """L31 (the owner's question, 2026-10-25): a loop round that reloads the owner's held tab keeps holding it. The
+    extension's navigate re-arms nothing on a tab it already holds and never detaches, so focus emulation (off only
+    in detach) stays on through the reload."""
+    result = worker('''(async () => {
+      const calls = []; chrome.debugger = {
+        sendCommand: async (target, method, params) => {calls.push([method, params]);},
+        attach: async () => {calls.push(['attach']);},
+        detach: async () => {calls.push(['detach']);}
+      };
+      chrome.tabs.get = async id => ({id, windowId:5, url:'https://www.instagram.com/reels/x/', title:'Reels'});
+      load = async () => {};                       // the page loads (chrome.tabs.update and its events)
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true;
+      const got = await commands.navigate({tab_id:22, url:'https://www.instagram.com/reels/x/'});
+      return {got, calls, attached: TABS.get(22).attached, armed: TABS.get(22).armed};
+    })()''')
+    assert result['got']['url'] == 'https://www.instagram.com/reels/x/'
+    assert result['attached'] is True and result['armed'] is True
+    assert ['detach'] not in result['calls'] and ['attach'] not in result['calls']
+    assert not [c for c in result['calls'] if c[0] == 'Emulation.setFocusEmulationEnabled']
+
+
 def test_release_failure_keeps_debugger_tracked_and_does_not_claim_success() -> None:
     result = worker('''(async () => {
       tabState(22).attached = true;

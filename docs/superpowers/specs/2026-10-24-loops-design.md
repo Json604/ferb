@@ -61,6 +61,16 @@ Owner decisions (2026-10-24):
 - A round is an ordinary worker run for the step, followed by the checker: same tools, gateway, confirmations, sink
   rule, P19 unknown-outcome rule and standing scope as any plan step (`supervisor.py:2149-2175`). A loop grants nothing:
   only the owner's words and the plan's stated standing permission authorize (MP2, D30).
+- Owner decision, 2026-10-25 ("Skip it for look-only rounds"; live loop cc5debe4 waited 14 s for a checker after a
+  round that only looked at a reel already playing): a round that only looked skips the model checker, and its probe's
+  first read (the baseline, when the probe is armed) is the check. A round only looked when it made at least one call,
+  every call was a W2 `read` of an observation tool (W4) or only took or kept hold of a tab (`use_tab`, `keep_open`:
+  kind `open_tab`, which count as non-acting here) with no declared effect, and it reports `continue` with a probe.
+  Code also requires that the probe reads a tab or id the round actually looked at: what the probe names (a string in
+  its tool's own arguments, or a field segment that is no key, such as a tab_ref or media id) must be among the values
+  the round's own calls sent or got back, so a wrong-but-consistent probe field can't pass unchecked. Any acting call
+  (media, act, navigate or a reload, a send, a question to the owner) or a `finished` report with an `end_when` still
+  runs the checker. The trace records a `verify.skipped` span saying why (`loops.look_only_round`).
 - The round's context (`step_context`) carries the loop goal and `end_when`, why this round started (first round, probe
   tripped with the observed field value as untrusted data, event payload, backup interval, or the owner's steer), and a
   digest of earlier rounds: count, the last few rounds' summaries and outcomes, and the action receipts, like

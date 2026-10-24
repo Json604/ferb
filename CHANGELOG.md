@@ -903,6 +903,12 @@ After the owner's update (2026-10-24):
   the plan bound the tab in a separate step before the loop (43–55 s), and that step let go of the tab when it ended,
   so the loop's first round found and borrowed it again. The planner is told a loop's first round does its own setup
   (finds the target, starts or fixes it, arms its probe) and to plan an earlier step only for different work.
+- A round that only looked no longer waits for a model checker (L31, W2, W4; your decision, 2026-10-25: "Skip it for
+  look-only rounds"). In cc5debe4 the first round only listed, borrowed and read your reel, already playing, then
+  waited 14 s for the checker before its probe armed. Such a round now arms at once, and the probe's first read is
+  the check. It counts as look-only only when every call just read (or borrowed or kept a tab) and its probe reads a
+  tab or video the round itself looked at; a round that plays, clicks, reloads or navigates, sends or asks you
+  anything, or reports the loop finished, is still checked. `ferb trace` shows `verify.skipped` with why.
 
 Licensed under Apache-2.0.
 

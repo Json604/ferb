@@ -50,7 +50,7 @@ from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
-from ferb.orchestrator.loops import LOOP_ROUND, LoopRunner, LoopStore, loop_line, round_reason
+from ferb.orchestrator.loops import LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line, round_reason
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
                                        WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
@@ -374,6 +374,7 @@ class _Tree:
     probe: Any = None                    # and the probe it chose for between rounds (probes.Probe | None)
     hold_resources: bool = False         # a loop round: what it starts stays the loop's until the loop ends
     calls_since: int = 0                 # and its check reads only the calls recorded after this span cursor
+    unchecked: str = ''                  # why this round's model check was skipped (a look-only round), else ''
     step_context: str = ''
     parent_goal: str = ''                # a plan step's: the goal of the task it belongs to, above its own (L36 §4)
     required_inputs: list[str] = field(default_factory=list)
@@ -2703,8 +2704,9 @@ class Supervisor(WorkerRuns):
                 self.spans.finish(round_span, error=SHUT_DOWN if self._suspending else f'{type(exc).__name__}: {exc}')
                 raise
             # the round's checker (its check, and any end check) is done: its tabs and processes go now, into the
-            # loop's lists; what the round's worker started stays the loop's until it ends
-            await self._release_task(holder, child.id + '.verify', round_span.id)
+            # loop's lists; what the round's worker started stays the loop's until it ends. A look-only round ran none.
+            if not member.unchecked:
+                await self._release_task(holder, child.id + '.verify', round_span.id)
             status, question = out.status, member.owner_question
             probe = self._resolved_probe(member.probe)
             if unknown and status not in ('needs_user', 'blocked'):
@@ -2953,6 +2955,7 @@ class Supervisor(WorkerRuns):
             tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
             tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
             tree.probe = None
+            tree.unchecked = ''
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
@@ -2987,8 +2990,14 @@ class Supervisor(WorkerRuns):
             if out.status == "done" and tree.spec.success_conditions and not tree.stop:
                 tree.outcome = out
                 checking_revision = len(tree.steering.messages)
+                tree.unchecked = self._look_only(tree)
                 try:
-                    tree.verification = await self.verify(tree, span)
+                    if tree.unchecked:       # owner 2026-10-25: the probe's first read is this round's check (L31)
+                        skipped = self.spans.start('verify.skipped', task_id=task.id, parent_id=span,
+                                                   input={'reason': tree.unchecked})
+                        self.spans.finish(skipped, output={'checker': 'not run'})
+                    else:
+                        tree.verification = await self.verify(tree, span)
                 except Exception as exc:
                     self.journal.append("task.inspection_failed", {"task_id": task.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
@@ -3064,6 +3073,19 @@ class Supervisor(WorkerRuns):
             tree.spec.worker_type = choice.worker_type
             instructions = "\nOrchestrator continuation: " + choice.instructions
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, artifacts, evidence)
+
+    def _look_only(self, tree: _Tree) -> str:
+        """A loop round that reported `continue` with a probe and only looked (`loops.look_only_round`): why its model
+        check may be skipped, redacted for the trace; '' when the check runs (any other task, an acting round, a finish,
+        or a probe on something the round never looked at)."""
+        if not tree.calls_since or tree.loop_action != 'continue' or tree.probe is None:
+            return ''
+        rows = self.journal.db.conn.execute("SELECT input_json, output_json FROM spans WHERE task_id = ? AND "
+                                            "kind = 'tool.call' AND rowid > ? ORDER BY rowid",
+                                            (tree.worker.id, tree.calls_since))
+        calls = [json.loads(row[0]) | {'output': json.loads(row[1]) if row[1] else None} for row in rows]
+        note = look_only_round(calls, self._resolved_probe(tree.probe), self.gateway.caps)
+        return str(self.gateway.redact({'note': note})['note']) if note else ''
 
     async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str) -> DispatchOutcome:
         report = ("\nAvailable worker types: " + json.dumps(self.worker_types()) +

@@ -4,12 +4,13 @@ The runner gets everything it touches as callbacks, so the supervisor decides ho
 status line happen."""
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ferb.clock.timers import POLL_S
 from ferb.orchestrator.probes import MISSING, Probe, tripped
+from ferb.policy.rules import Kind
 from ferb.sanitize.untrusted import wrap_untrusted
 
 # The owner's numbers (2026-10-24: "yes numbers work"). Changing one is an owner decision.
@@ -146,6 +147,66 @@ def round_reason(reason: dict[str, Any]) -> dict[str, Any]:
     if reason.get('probe_refused'):
         shown['probe_refused'] = _outside(str(reason['probe_refused']))
     return shown
+
+
+def look_only_round(calls: list[dict[str, Any]], probe: Probe | None, caps: Mapping[str, Any]) -> str | None:
+    """Owner, 2026-10-25 ("Skip it for look-only rounds"): a round that only looked needs no model checker; its probe's
+    first read, when the runner arms it, is the check. Returns the trace's note when the round may skip it, else None
+    and the checker runs. `calls`: the round's recorded tool calls (span input with its `output`). It may when the
+    round made at least one call and every call only looked: a W2 `read` of an observation tool (W4), or a call that
+    only takes or keeps hold of a tab (`holds_tab`: use_tab, keep_open; kind open_tab), with no declared effect. Any
+    other call acts (media, act, navigate, a send, a question to the owner, an unknown tool), and the checker runs. The
+    probe must name what it reads (a string in its tool's own arguments, or a field segment that is no key, such as a
+    tab_ref or a media id) and all it names must be among the values the round's own calls sent or got back: a probe
+    on a tab or element the round never looked at could read as fine and pass unchecked. Exact matches of recorded
+    values only; code never judges what a page says (R2). Whether the round reported `continue` (a finish with an
+    end_when is always checked) is the supervisor's to check."""
+    if probe is None or not calls:
+        return None
+    for call in calls:
+        cap = caps.get(str(call.get('tool')))
+        kind = call.get('kind')
+        looked = ((getattr(cap, 'observation', False) and kind == Kind.READ)
+                  or (getattr(cap, 'holds_tab', False) and kind == Kind.OPEN_TAB))
+        if cap is None or not looked or call.get('declared'):
+            return None
+    keys: set[str] = set()
+    values: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                keys.add(str(key))
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+        elif isinstance(node, str):
+            values.add(node)
+    for call in calls:
+        walk(call.get('args'))
+        walk(call.get('output'))
+    cap = caps.get(probe.tool)
+    if cap is None:
+        return None
+    try:
+        given = cap.Input.model_validate(probe.args()).model_dump(exclude_unset=True)
+    except Exception:
+        return None
+    named = [v for v in given.values() if isinstance(v, str) and v]
+    added = set(getattr(cap, 'probe_keys', ()))
+    for part in probe.field.split('.'):
+        if part.isdigit() or part in added:
+            continue
+        if part in values:
+            named.append(part)
+        elif part not in keys:
+            return None
+    if not named or any(v not in values for v in named):
+        return None
+    tools = ', '.join(dict.fromkeys(str(c.get('tool')) for c in calls))
+    return (f"a look-only round ({len(calls)} calls, none acting: {tools}); its probe reads {', '.join(named)}, which "
+            "this round looked at, so the probe's first read is the check (owner, 2026-10-25)")
 
 
 def loop_line(step: Any) -> str:

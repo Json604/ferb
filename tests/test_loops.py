@@ -2116,3 +2116,171 @@ def test_when_the_owner_closes_the_held_tab_the_probe_trips_and_the_loop_pauses_
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+# ---------- look-only rounds skip the model checker (owner 2026-10-25: "Skip it for look-only rounds") ----------
+
+class _Looks:
+    """A capability as the look-only rule sees it: its W4 observation mark, whether it only holds a tab, and the keys a
+    probe read adds to its result."""
+
+    def __init__(self, observation=False, holds_tab=False, probe_keys=()):
+        from pydantic import BaseModel
+
+        class Input(BaseModel):
+            tab: str | None = None
+            profile: str | None = None
+        self.observation, self.holds_tab, self.probe_keys, self.Input = observation, holds_tab, probe_keys, Input
+
+
+LOOKS = {'browser.tabs': _Looks(True, probe_keys=('tabs_by_ref',)), 'browser.snapshot': _Looks(True,
+         probe_keys=('media_by_id',)), 'browser.use_tab': _Looks(holds_tab=True), 'browser.keep_open': _Looks(
+         holds_tab=True), 'browser.media': _Looks(), 'browser.navigate': _Looks(), 'browser.scroll': _Looks(True)}
+TABS_CALL = {'tool': 'browser.tabs', 'kind': 'read', 'args': {'profile': 'Work'},
+             'output': {'tabs': [{'tab_ref': 'brave:Default:5', 'audible': True}]}}
+USE_CALL = {'tool': 'browser.use_tab', 'kind': 'open_tab', 'args': {'tab_ref': 'brave:Default:5'},
+            'output': {'tab': 't2'}}
+SNAP_CALL = {'tool': 'browser.snapshot', 'kind': 'read', 'args': {'tab': 't2'},
+             'output': {'tab': 't2', 'media': [{'index': 0, 'id': 'm3-ab12cd', 'playing': True}]}}
+KEEP_CALL = {'tool': 'browser.keep_open', 'kind': 'open_tab', 'args': {'tab': 't2'}, 'output': {'kept_open': True}}
+
+
+def _media_probe(tab='t2', media='m3-ab12cd'):
+    from ferb.orchestrator.probes import Probe
+    return Probe(tool='browser.snapshot', args_json=json.dumps({'tab': tab}), field=f'media_by_id.{media}.playing',
+                 op='equals', value_json='false')
+
+
+def test_a_round_that_only_looked_with_a_probe_on_what_it_saw_needs_no_model_check():
+    from ferb.orchestrator.loops import look_only_round
+    from ferb.orchestrator.probes import Probe
+    looked = [TABS_CALL, USE_CALL, SNAP_CALL, KEEP_CALL]
+    note = look_only_round(looked, _media_probe(), LOOKS)
+    assert note and 't2' in note and 'm3-ab12cd' in note
+    sound = Probe(tool='browser.tabs', args_json='{"profile": "Work"}', field='tabs_by_ref.brave:Default:5.audible',
+                  op='equals', value_json='false')
+    assert look_only_round(looked, sound, LOOKS)
+    # a probe's own `why` and other words outside its tool's arguments name nothing
+    assert look_only_round(looked, _media_probe().model_copy(update={'args_json': '{"tab": "t2", "why": "x"}'}), LOOKS)
+
+
+@pytest.mark.parametrize('call', [
+    {'tool': 'browser.media', 'kind': 'read', 'args': {'tab': 't2', 'action': 'play'}, 'output': {}},   # acts, reads as read
+    {'tool': 'browser.navigate', 'kind': 'navigate', 'args': {'tab': 't2', 'url': 'https://x.example/'}, 'output': {}},
+    {'tool': 'owner_ask', 'args': {'question': 'Which tab?'}, 'output': {}},                            # no kind
+    {'tool': 'browser.snapshot', 'kind': 'read', 'declared': 'send', 'args': {'tab': 't2'}, 'output': {}},
+    {'tool': 'browser.unknown', 'kind': 'read', 'args': {}, 'output': {}},
+])
+def test_any_call_that_isnt_only_looking_keeps_the_model_check(call):
+    from ferb.orchestrator.loops import look_only_round
+    assert look_only_round([TABS_CALL, USE_CALL, SNAP_CALL, call], _media_probe(), LOOKS) is None
+
+
+def test_a_probe_on_a_tab_or_element_the_round_never_looked_at_keeps_the_model_check():
+    """A probe that reads as fine on the wrong tab or video would pass unchecked: what it names must be what the
+    round's own calls sent or got back."""
+    from ferb.orchestrator.loops import look_only_round
+    from ferb.orchestrator.probes import Probe
+    looked = [USE_CALL, SNAP_CALL]
+    assert look_only_round(looked, _media_probe(tab='t5'), LOOKS) is None
+    assert look_only_round(looked, _media_probe(media='m9-ab12cd'), LOOKS) is None
+    other = Probe(tool='browser.tabs', args_json='{}', field='tabs_by_ref.brave:Default:9.audible', op='equals',
+                  value_json='false')
+    assert look_only_round(looked + [TABS_CALL], other, LOOKS) is None
+    by_place = Probe(tool='browser.tabs', args_json='{}', field='tabs.0.audible', op='equals', value_json='false')
+    assert look_only_round(looked + [TABS_CALL], by_place, LOOKS) is None            # it names nothing it read
+    assert look_only_round([], _media_probe(), LOOKS) is None                        # it looked at nothing
+    assert look_only_round(looked, None, LOOKS) is None
+
+
+def _checks(script):
+    return _roles(script).count('loop.keep.verify')
+
+
+def _span_kinds(d, kind):
+    return _on_loop(d, lambda: [json.loads(r[0]) for r in d.daemon.db.conn.execute(
+        'SELECT input_json FROM spans WHERE kind=? ORDER BY rowid', (kind,))])
+
+
+def test_a_look_only_round_skips_the_model_check_and_arms_its_probe_at_once(bd, monkeypatch):
+    """Live cc5debe4: round 1 only listed, borrowed and read the playing reel, then waited 14 s for a model checker
+    before its probe armed. A round that only looked, whose probe reads the tab it looked at, skips it: the probe's
+    first read is the check, and the trace says why."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+                     {'loop.keep': [_tab_round(d, ext, seen)], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert _checks(script) == 0
+        [skipped] = _span_kinds(d, 'verify.skipped')
+        assert OWNER_REF in skipped['reason']
+        assert [r['read'] for r in _span_kinds(d, 'loop.probe_read')] == ['baseline']
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+def test_a_round_that_reloads_the_held_tab_is_checked_and_the_tab_stays_held(bd, monkeypatch):
+    """The owner's question (2026-10-25): other long-running work, like reloading a tab to see what only shows after a
+    refresh, keeps working. A round that reloads the held tab acts (browser.navigate), so its check runs; the loop
+    keeps holding the tab through the reload (one attach, never let go of), and the next round uses the same tab."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    script = install(d, [sup('task', 'Keeping it fresh.', _owner_loop('Reload my tab whenever it goes quiet'))],
+                     {'loop.keep': [_tab_round(d, ext, seen), _tab_round(d, ext, seen, reload=True),
+                                    _tab_round(d, ext, seen)], 'worker': done()})
+    c, plan = _start_loop(d, 'reload my Instagram tab in Chrome whenever it goes quiet')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+
+        def trip_to(n):
+            ext.audible.discard(OWNER_TAB)
+            _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= n)
+            ext.audible.add(OWNER_TAB)
+            _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        trip_to(2)                                                         # round 2 reloads the tab
+        trip_to(3)                                                         # round 3 only looks again
+        assert _checks(script) == 1                                        # the reload round's, alone
+        assert [s['tab'] for s in seen] == [seen[0]['tab']] * 3 and all(s['attached'] for s in seen)
+        assert ext.attaches == 1 and OWNER_TAB in ext.attached and OWNER_TAB not in ext.kept
+        assert ext.tabs[OWNER_TAB] == 'https://www.instagram.com/reels/x/'
+        assert not [w for w in ext.wire if '"release_tab"' in w]          # never let go of while the loop ran
+        d.run(_stop(d, tree_id), timeout=20)
+        assert OWNER_TAB not in ext.attached and OWNER_TAB in ext.tabs
+    finally:
+        c.close()
+
+
+def test_a_look_only_round_whose_probe_reads_a_tab_it_never_looked_at_is_checked(bd, monkeypatch):
+    from tests.conftest import done, install, sup, tool
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    ext.tabs[201], ext.tab_windows[201] = 'https://www.youtube.com/watch?v=y', 5      # another tab of the owner's
+    ext.audible.add(201)
+
+    def act(token):
+        tab = tool(d.sock, token, 'browser.use_tab', tab_ref=OWNER_REF)['content']['tab']
+        assert not tool(d.sock, token, 'browser.snapshot', tab=tab)['is_error']
+        probe = _sound_probe() | {'field': 'tabs_by_ref.chrome:Profile 1:201.audible'}    # never listed or borrowed
+        return json.dumps({'status': 'done', 'summary': 'Playing.', 'artifacts': [], 'evidence': [], 'answer': 'Playing.',
+                           'loop_action': 'continue', 'probe': probe})
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop())], {'loop.keep': [act], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert _checks(script) == 1 and _span_kinds(d, 'verify.skipped') == []
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
