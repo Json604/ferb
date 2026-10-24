@@ -73,7 +73,8 @@ Owner decisions (2026-10-24):
   runs the checker. The trace records a `verify.skipped` span saying why (`loops.look_only_round`).
 - The round's context (`step_context`) carries the loop goal and `end_when`, why this round started (first round, probe
   tripped with the observed field value as untrusted data, event payload, backup interval, or the owner's steer), and a
-  digest of earlier rounds: count, the last few rounds' summaries and outcomes, and the action receipts, like
+  digest of earlier rounds: count, the last few rounds' summaries and outcomes, the tabs the loop holds (`held_tabs`,
+  added 2026-10-25 so a later round doesn't find and borrow its tab again), and the action receipts, like
   `ConversationStore.digest` (`conversations.py:262-270`). Never the whole history.
 - The worker schema gains two nullable fields, used only by a loop round (as `conversation_action` and `watch_met` are
   used only by their steps, `schemas.py:131-140`):

@@ -68,7 +68,8 @@ SENTENCES = [
     # live loop cc5debe4 (2026-10-25): every round ended with keep_open, which let go of the owner's tab and paused it
     ("worker.md",
      'The loop holds for you the tabs and sessions its rounds open or borrow, across rounds until it stops: leave them '
-     'held and use them again in the next round.'),
+     "held and use them again in the next round (step_context's held_tabs lists its tabs by id, ready for "
+     'browser_snapshot).'),
     ("worker.md",
      'In a loop round the loop holds the tabs its rounds open or borrow until it stops, so leave them held for the '
      'next round.'),

@@ -2284,3 +2284,29 @@ def test_a_look_only_round_whose_probe_reads_a_tab_it_never_looked_at_is_checked
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def test_each_round_after_the_first_is_told_which_tabs_the_loop_holds(bd, monkeypatch):
+    """Live cc5debe4: every round listed the owner's tabs and borrowed the reel again to find the tab the loop already
+    held. Each round's step context lists the loop's held tabs (the task's tabs by id, with the page each held when the
+    task took it over), redacted like every tool result."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    seen: list = []
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+                     {'loop.keep': [_tab_round(d, ext, seen), _tab_round(d, ext, seen)], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        ext.audible.discard(OWNER_TAB)
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        first, second = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep']
+        assert 'held_tabs' not in first
+        held = second.split('held_tabs', 1)[1][:400]
+        assert f'"tab": "{seen[0]["tab"]}"' in held.replace('\\"', '"') and 'browser' in held
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()

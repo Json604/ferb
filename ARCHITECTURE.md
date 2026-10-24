@@ -2795,7 +2795,9 @@ planner's own words say what the loop does.
   tab only marks it kept (`_TabDriver.keep_open`): the tab stays held, its debugger attached and focus emulation on,
   until its task ends (a loop's: until the loop stops), when `close` lets go of it, open; letting go at `keep_open`
   turned focus emulation off and Instagram paused 0.3 s after each round (live cc5debe4, 2026-10-25). A tab FERB
-  opened is still handed over at once. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
+  opened is still handed over at once. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
+  `Supervisor.task_tabs`, the daemon's `_task_tabs`, redacted), so a later round uses them without listing and
+  borrowing again. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
   for look-only rounds"; `loops.look_only_round`, called by `Supervisor._look_only`): it reported `continue` with a
   probe, made at least one call, and every call was a W2 `read` of an observation tool or one that only holds a tab
   (`holds_tab`: `use_tab`, `keep_open`), with no declared effect; and what its probe names (a string argument, or a

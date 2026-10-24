@@ -235,7 +235,8 @@ Return the supplied JSON schema:
   that element's id in a fresh snapshot's media list: positions in the list shift as a page loads. To watch whether
   one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with
   tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot. The loop holds for you the tabs and sessions its
-  rounds open or borrow, across rounds until it stops: leave them held and use them again in the next round. Report
+  rounds open or borrow, across rounds until it stops: leave them held and use them again in the next round
+  (step_context's held_tabs lists its tabs by id, ready for browser_snapshot). Report
   finished only with observed evidence that end_when holds; never when end_when is empty. Outside the loop,
   loop_action and probe are null.
 Do not claim a requested agent finished, a submission happened, or a message arrived without evidence.

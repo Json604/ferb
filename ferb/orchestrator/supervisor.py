@@ -431,6 +431,8 @@ class Supervisor(WorkerRuns):
         self.disturbance_context: Callable[[str], str] = lambda task_id: ""
         self.disturbance: Any = None              # the desktop sentinel: cleanup is an on-screen FERB action (P26)
         self.browser_context: Callable[[str], str] = lambda task_id: ""
+        # the browser tabs a task holds now, by tab id, redacted (daemon supplied; L31: a loop's, for each round)
+        self.task_tabs: Callable[[str], list[dict[str, Any]]] = lambda task_id: []
         # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
         self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
         self.relevant_source_refs: Callable[[str], list[str]] = lambda words: []
@@ -2679,10 +2681,12 @@ class Supervisor(WorkerRuns):
             spec.plan, spec.goal, spec.worker_type = None, step.goal, step.worker_type
             spec.success_conditions = list(conditions)
             why = round_reason(cause)
+            # what earlier rounds left held, so this one uses it instead of finding and borrowing it again
+            held = {'held_tabs': tabs} if (tabs := self.task_tabs(child.id)) else {}
             member = _Tree(tree.id, spec, child, prior_task=tree.prior_task, steering=tree.steering,
                            parent_goal=tree.spec.goal, hold_resources=True, step_context=json.dumps({
                                'loop': {'goal': step.goal, 'end_when': step.end_when, 'why_this_round': why},
-                               'earlier_rounds': self.loops.digest(tree.id, step.id), **handed,
+                               'earlier_rounds': self.loops.digest(tree.id, step.id), **held, **handed,
                                'instruction': LOOP_ROUND}))
             self._tree_of[child.id] = member
             self._probe_exposure(child.id, cause)

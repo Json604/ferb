@@ -924,6 +924,9 @@ After the owner's update (2026-10-24):
   playing, paused, time, muted, in view) came after up to 24,000 characters of page elements and 8,000 of text, so
   checkers paged the recorded call to offset 24000 to learn whether your reel played (cc5debe4, three such reads). It
   now follows the tab, address and title; nothing else in the result changed.
+- Each round of a loop is told which tabs the loop holds (L31). Every live round listed your tabs and borrowed the reel
+  again to find the tab the loop already held. A round's plan-step context now lists them by id (with the page each
+  held when the task took it over), so the next round can read the tab at once.
 
 Licensed under Apache-2.0.
 
