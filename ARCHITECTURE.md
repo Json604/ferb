@@ -2707,7 +2707,8 @@ stays a watch.
   `loop_statuses`, the `round_`/`probe`/`record`/`notify` callbacks given to the runner).
 - A round is an ordinary worker run for the step, then the checker, under the same gateway, confirmations, sink rule,
   P19 rule and standing scope as any step; a loop grants nothing. All rounds share the task id `<tree>.loop.<step>`
-  and each is a `loop.round` span; a round's checker judges only the calls made in that round, and earlier rounds reach
+  and each is a `loop.round` span; what a round's worker starts (a shell session, a FERB tab) stays the loop's until
+  it ends, while the round's checker resources are released right after its check; a round's checker judges only the calls made in that round, and earlier rounds reach
   the next one as a digest of one-line results (`RECENT_ROUNDS` 5). The round's worker reports `loop_action`
   (`continue`/`finished`/`blocked`) and a `probe`; `finished` counts only with an `end_when`, observed evidence and the
   checker's verification, otherwise it is `continue`. A loop with no `end_when` ends only by the owner's stop, and a

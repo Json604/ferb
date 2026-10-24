@@ -918,6 +918,35 @@ def test_resources_a_round_starts_stay_until_the_loop_ends(daemon, monkeypatch):
         c.close()
 
 
+def test_a_rounds_checker_resources_are_released_before_the_next_round(daemon, monkeypatch):
+    """The checker's tabs and processes are that round's alone: released after each round's check, while what the
+    round's worker started stays the loop's until it ends."""
+    from ferb.orchestrator.supervisor import Supervisor
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    ended: list[tuple[str, int]] = []
+    original = Supervisor._end_task
+
+    async def spy(self, tid, span_id):
+        ended.append((tid, _roles(script).count('loop.keep')))      # how many rounds had started by then
+        return await original(self, tid, span_id)
+    monkeypatch.setattr(Supervisor, '_end_task', spy)
+    _state_cap(daemon, [True, False, True])
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [_round(), _round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        child = f'{tree_id}.loop.keep'
+        assert (child + '.verify', 1) in ended and (child + '.verify', 2) in ended
+        assert not [n for tid, n in ended if tid == child]           # the worker's stay until the loop ends
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+        assert [tid for tid, _ in ended].count(child) == 1
+    finally:
+        c.close()
+
+
 def test_finished_needs_the_end_condition_checked_separately(daemon, monkeypatch):
     """Round 1 says finished but the separate check of the owner's end condition finds it not met: the loop goes on.
     Round 2 says finished and the check agrees: the loop ends and the plan's final worker answers."""

@@ -2485,8 +2485,9 @@ class Supervisor(WorkerRuns):
     async def _loop_step(self, tree: _Tree, step: Step, span: str, prior: dict[str, Any]) -> dict[str, Any]:
         """L31: a loop step. Every round is an ordinary worker run with its check, under one task id, so what a round
         starts (a shell session, a FERB tab) is still the loop's in the next round; between rounds LoopRunner reads the
-        round's probe through `Gateway.probe` without a model. The loop's resources are released when it ends (not at a
-        shutdown: the loop isn't over, and its round re-runs after the restart). Every callback the runner gets is
+        round's probe through `Gateway.probe` without a model. Each round's checker resources go after its check; the
+        workers' are released when the loop ends (not at a shutdown: the loop isn't over, and its round re-runs after
+        the restart). Every callback the runner gets is
         kept from raising (only a cancellation passes), since the runner has no try/finally."""
         conditions = [Condition(text=text, owner_text=text, check=Check(kind='none', path=None, text=None,
                       url_contains=None, site=None, expected=None)) for text in (step.conditions or [step.goal])]
@@ -2528,6 +2529,9 @@ class Supervisor(WorkerRuns):
             except BaseException as exc:
                 self.spans.finish(round_span, error=SHUT_DOWN if self._suspending else f'{type(exc).__name__}: {exc}')
                 raise
+            # the round's checker (its check, and any end check) is done: its tabs and processes go now, into the
+            # loop's lists; what the round's worker started stays the loop's until it ends
+            await self._release_task(holder, child.id + '.verify', round_span.id)
             status, question = out.status, member.owner_question
             probe = self._resolved_probe(member.probe)
             if unknown and status not in ('needs_user', 'blocked'):
@@ -2666,29 +2670,35 @@ class Supervisor(WorkerRuns):
     async def _release_resources(self, tree: _Tree, parent_span: str) -> bool:
         """Release worker and checker resources, preserving actual observations and every cleanup failure."""
         observed = False
-        if self.on_task_end is None:
-            return observed
         for tid in (tree.worker.id, f"{tree.worker.id}.verify"):
-            cleanup = self.spans.start("task.cleanup", task_id=tid, parent_id=parent_span,
-                                      input={"operation": "release task resources"})
-            try:
-                resources = await self._end_task(tid, cleanup.id)
-                observed = observed or bool(resources)
-                tree.resources.extend(resources)
-                errors = [str(r['error']) for r in resources if r.get('error')]
-                tree.cleanup_errors.extend(errors)
-                self.spans.finish(cleanup, output={"resources": resources}, error='; '.join(errors) or None)
-            except asyncio.CancelledError:
-                detail = f"{tid}: cleanup cancelled; resource outcome is unknown"
-                tree.cleanup_errors.append(detail)
-                self.spans.finish(cleanup, error=detail)
-                raise
-            except Exception as exc:
-                observed = True
-                detail = f"{tid}: {type(exc).__name__}: {exc}"
-                tree.cleanup_errors.append(detail)
-                self.spans.finish(cleanup, error=detail)
+            released = await self._release_task(tree, tid, parent_span)
+            observed = observed or released
         return observed
+
+    async def _release_task(self, tree: _Tree, tid: str, parent_span: str) -> bool:
+        """One task id's resources released, recorded in `tree`'s resources and cleanup errors: whether any were
+        observed (a failed release counts)."""
+        if self.on_task_end is None:
+            return False
+        cleanup = self.spans.start("task.cleanup", task_id=tid, parent_id=parent_span,
+                                   input={"operation": "release task resources"})
+        try:
+            resources = await self._end_task(tid, cleanup.id)
+            tree.resources.extend(resources)
+            errors = [str(r['error']) for r in resources if r.get('error')]
+            tree.cleanup_errors.extend(errors)
+            self.spans.finish(cleanup, output={"resources": resources}, error='; '.join(errors) or None)
+            return bool(resources)
+        except asyncio.CancelledError:
+            detail = f"{tid}: cleanup cancelled; resource outcome is unknown"
+            tree.cleanup_errors.append(detail)
+            self.spans.finish(cleanup, error=detail)
+            raise
+        except Exception as exc:
+            detail = f"{tid}: {type(exc).__name__}: {exc}"
+            tree.cleanup_errors.append(detail)
+            self.spans.finish(cleanup, error=detail)
+            return True
 
     async def _end_task(self, tid: str, span_id: str) -> list[dict[str, Any]]:
         """One task's resource release, observed by the desktop sentinel as an on-screen FERB action: closing tabs and
