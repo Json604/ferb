@@ -1526,14 +1526,16 @@ with the owner watching; pause between supervised actions and record what the ow
 
 Not installed or observed yet. Run after `ferb setup --update`; for the media and tab-sound checks, reload the
 unpacked extension so the profile runs 0.15.8 (the Web Store copy is 0.15.6 until 0.15.8 is uploaded), and record the
-version `ferb doctor` shows.
+version `ferb doctor` shows. Reload the Instagram tab after reloading the extension: a page opened before keeps the
+older content script, whose media entries have no ids.
 
 - Keep the owner's Instagram reel playing ("keep this Instagram tab playing until I say stop"): the plan line ends
   with "⟳ Until you say stop" and doesn't repeat the goal; `ferb trace TASK` shows the round's probe on
   `media_by_id.<id>` or `tabs_by_ref.<tab_ref>.audible` (not a `media.<n>` position) with a baseline showing it playing,
   and a pause by the site starts a round within about 10 seconds.
 - A secret question in the notch: the line reads "“<name>” — for <site> only · saved in your Mac's Keychain" (or "A
-  password or private answer for <site> — used once, not saved"), with the full question under Details.
+  password or private answer for <site> — used once, not saved"), with the full question under Details; a name with
+  an address or an email in it shows after the site ("For <site> only: “…” · saved in your Mac's Keychain").
 - With the paired profile's windows all closed, ask for a page in it: the planner facts say it starts in the
   background; the worker uses the browser tools (no Profiles menu, no address-bar typing), and asks once before FERB's
   minimized window is created.
