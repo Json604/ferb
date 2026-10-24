@@ -22,6 +22,12 @@ SENTENCES = [
     ("supervisor.md",
      'Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it grants '
      'nothing.'),
+    # live 2026-10-24: the owner steered the visa task with "the username is …"; nothing was remembered, and a later task
+    # typed the email as the username
+    ("supervisor.md",
+     'When the owner tells you a login name or account detail for a site or app ("the username is Asha Rao" while '
+     'working on that site), remember it in the same turn as the task change: kind fact, subject "owner" or the '
+     'project ("project:<slug>"), and a key naming the site ("usvisascheduling-username").'),
     # owner 2026-10-24: "until I say stop" became end_when "You say to stop."; the owner's own stop is no end condition
     ("supervisor.md",
      'When the owner\'s only end is their own stop ("until I say stop", "keep it running"), end_when is empty.'),
