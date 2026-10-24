@@ -209,6 +209,18 @@ def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, mon
         _cancel(daemon, ap, waiting)
 
 
+def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_but_not_its_port(daemon: Any) -> None:
+    """Review M4, a known limit: "otp" in the host labels the port after it as a code, wherever FERB shows it (Details
+    too), and FERB's redaction has no bypass for its own text. The place-first line still shows the host's name."""
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_login_code(_ctx(), 'https://otp.example.com:8443'),
+                                               daemon.loop)
+    ap = _asked(daemon, 'owner_login_code')
+    try:
+        assert ap.summary == 'For otp.example.com:[redacted]: a login code — used once'
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
 def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]:
     from types import SimpleNamespace
     from ferb.core.errors import Refused

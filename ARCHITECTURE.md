@@ -118,7 +118,10 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   Mac's Keychain"), so worker text never shows a place before FERB's own (review I1). A login code: "Login code for
   <host[:port]> — used once". When redaction would change
   the line (a code word before the place reads a port or a number in the host as a code), the same facts come with the
-  place first ("For x.test:8443: a login code — used once"; `Gateway._place_line`), so the place always shows whole.
+  place first ("For x.test:8443: a login code — used once"; `Gateway._place_line`), so no word of the line hides the
+  place. A known limit (review M4): a host whose own name holds a code label followed by a code-shaped port
+  (otp.example.com:8443) shows that port as [redacted] wherever FERB shows it, Details included; FERB's redaction has
+  no bypass for code-written text and no layout avoids it, so the host's name shows and the port doesn't.
   The admin password: "Your Mac password, for the one command you just approved. …".
 The summary travels on `approval.requested` and in `chat.status`; a banner for a waiting question uses it too.
 Answers saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.

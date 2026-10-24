@@ -1101,9 +1101,10 @@ class Gateway:
         return " ".join(printable(self.redact({"s": text})["s"]).split())
 
     def _place_line(self, line: str, place_first: str) -> str:
-        """A hidden input's one-line question (P27), whose place must show whole: `line` leads with what the value is
-        for; when redaction would change it (a code word before the place reads a port, or a number in the host, as a
-        code: "Login code for x.test:8443"), `place_first`, which names the place before any such word."""
+        """A hidden input's one-line question (P27): `line` leads with what the value is for; when redaction would change
+        it (a code word before the place reads a port, or a number in the host, as a code: "Login code for
+        x.test:8443"), `place_first`, which names the place before any such word. A host whose own name holds a code
+        label before a code-shaped port (otp.example.com:8443) still loses that port to redaction (review M4)."""
         shown = self._one_line(line)
         return shown if shown == " ".join(printable(line).split()) else self._one_line(place_first)
 
