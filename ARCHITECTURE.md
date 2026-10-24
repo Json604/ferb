@@ -2937,8 +2937,11 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   never a subdomain: on shared hosting (b2clogin.com, github.io) each tenant has its own, so a record listing
   b2clogin.com never serves evil.b2clogin.com (fix round 1). A record is linked to a place when the two are one site
   ("www." aside: the planner writes a username's site either way, §5 below), one of its sites is the place's host's
-  site, or the place's own record lists the record's host's site. A place's username is its record's own, else the
-  one its linked records agree on (two that differ name none); it is read through the link, never copied. Entries
+  site, or the place's own record lists the record's host's site. During a task, `ask_secret`'s question and
+  `secrets.list` also read that task's `_login_sites` for the place as if its record listed them (read only; a link
+  is stored only when an entry is saved), so the first sign-in on a form already names the account (coordinator
+  ruling). A place's username is its record's own, else the one its linked records agree on (two that differ name
+  none); it is read through the link, never copied. Entries
   fill only at their own record's place (`reveal`, D12). The owner-only observation `secrets.list`
   (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the unusable list and, under
   `linked`, each linked record by the place its entries fill; never a value or an account. worker.md tells a worker to
@@ -2955,11 +2958,14 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   turn's task's sites (`Supervisor._turn_sites`: a new task's, or the task a control acts on, live or saved, plus the
   sites a steered task named before the steer restated it). An app's username stays ordinary memory. The owner's line
   gains "Saved as your login name for <host>."; a refusal is journaled (`memory.login_refused`, with why), and a
-  username the redactor hid is never saved. The username is set on the site's record only; a sign-in form's record on
-  another address shows it through its listed sites (above), once an entry saved there during a task the owner typed
-  the site for lists it. A forget of that item (`Memory.on_forget`) or a retract (`memory.retract`) clears it
-  (`Daemon._clear_login_names`; journal `memory.login_cleared`, or `memory.login_unreadable` when the handle file
-  can't be read).
+  username the redactor hid is never saved. The username is set on the site's record only; a sign-in form on another
+  address shows it through the task's owner-typed sites and, once an entry is saved there, through its listed sites
+  (above). A forget of that item (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`) or a retract
+  (`memory.retract`) clears it (`Daemon._clear_login_names`; journal `memory.login_cleared`, or
+  `memory.login_unreadable` when the handle file can't be read). Setting and clearing run in a worker thread
+  (`asyncio.to_thread`), as Keychain saves do: a hidden input's save holds the handle file's lock across its Keychain
+  call, and the event loop must not wait on it (coordinator ruling), so `Daemon._remember` and the supervisor's
+  `_side_entries` are coroutines.
 
 ### 16.13 FERB's cursor (L33)
 

@@ -792,7 +792,8 @@ class Daemon:
                             lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE},
                             search=self._memory_item_search)
         from ferb.identity.secret_tools import SecretsList
-        self.registry.add(SecretsList(lambda: self.home))              # L36 §5: names only, never values
+        self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
+                                      lambda ctx, place: self.gateway._login_sites(ctx, place) if self.gateway else []))
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         from ferb.orchestrator.conversation_tools import ConversationRead
@@ -1667,13 +1668,16 @@ class Daemon:
             # a running summary that folded a forgotten entry; one that folded FERB's rows stating it goes in
             # echoes.finish
             self.supervisor.forget_summaries(set(plan.journal))
-        self._clear_login_names(plan.items)              # L36 §5: a username goes with the memory it came from
+        items = list(plan.items)                         # L36 §5: a username goes with the memory it came from,
+        self._after_forgets(lambda: self._clear_login_names(items))   # in a worker thread, awaited like the scrub
 
-    def _clear_login_names(self, item_ids: list[str]) -> None:
-        """Clear every login record's username that came from one of these memory items (forgotten or retracted)."""
+    async def _clear_login_names(self, item_ids: list[str]) -> None:
+        """Clear every login record's username that came from one of these memory items (forgotten or retracted), in a
+        worker thread: the handle file's lock may be held by a hidden input's Keychain save (coordinator ruling)."""
         from ferb.identity.owner_secrets import OwnerSecrets
         try:
-            cleared = OwnerSecrets(self.home).clear_usernames({"memory:" + i for i in item_ids})
+            cleared = await asyncio.to_thread(OwnerSecrets(self.home).clear_usernames,
+                                              {"memory:" + i for i in item_ids})
         except Refused as e:                             # an unreadable handle file: left as it is, said in the journal
             self._journal().append("memory.login_unreadable", {"error": str(e)})
             return
@@ -2350,8 +2354,8 @@ class Daemon:
         if self.memory is not None:
             export(self.memory, self.home / "memory")
 
-    def _remember(self, items: list[Any], own_words: str, source_id: str,
-                  sites: frozenset[str] = frozenset()) -> list[dict[str, str]]:
+    async def _remember(self, items: list[Any], own_words: str, source_id: str,
+                        sites: frozenset[str] = frozenset()) -> list[dict[str, str]]:
         """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
         `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
         owner_stated is only the owner's own text: the whole sentence(s) of their words that hold the planner's content
@@ -2361,8 +2365,8 @@ class Daemon:
         preference in the owner's typed words joins their identity whatever was on screen (owner decision 2026-10-20:
         "No hold for my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused
         item: why, in plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side").
-        An entry with `login_origin` also gives that site's login record its username (`_save_login_name`; `sites`: the
-        sites the turn's task names, L36 §5)."""
+        An entry with `login_origin` also gives that site's login record its username (`_save_login_name`, in a worker
+        thread; `sites`: the sites the turn's task names, L36 §5)."""
         from ferb.memory.items import CAPTURE_TOLD, capture
         saved: list[dict[str, str]] = []
         for it in items:
@@ -2379,8 +2383,8 @@ class Daemon:
                 saved.append({"refused": reason(e, self.redact)})
                 continue
             text = " ".join(m.content.split())
-            told = self._save_login_name(it, m.id, own_words, sites, m.origin) if getattr(it, "login_origin", None) \
-                else ""
+            told = (await self._save_login_name(it, m.id, own_words, sites, m.origin)
+                    if getattr(it, "login_origin", None) else "")
             if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}",
                               "line": f"Remembered: {text}" + (f"\n{told}" if told else "")})
@@ -2391,14 +2395,15 @@ class Daemon:
                                       f"“{text}”."})
         return saved
 
-    def _save_login_name(self, entry: Any, item_id: str, own_words: str, sites: frozenset[str],
-                         origin: str = "owner_stated") -> str:
+    async def _save_login_name(self, entry: Any, item_id: str, own_words: str, sites: frozenset[str],
+                               origin: str = "owner_stated") -> str:
         """L36 §5: an owner-stated entry's username for its site's login record. Only when the username is the owner's
         own words (kept in their spelling, `owner_span`; never FERB's wording, which is an inferred item) and the site
         is an https:// origin whose host the owner typed in this message or one the turn's task names
         (`Supervisor._turn_sites`), exactly, a leading "www." aside (`same_site`, the rule a record's sites follow:
-        never a subdomain, which on shared hosting is another tenant's). A line for the owner, or "" (the refusal is
-        journaled, `memory.login_refused`)."""
+        never a subdomain, which on shared hosting is another tenant's). The write runs in a worker thread: the handle
+        file's lock may be held by a hidden input's Keychain save (coordinator ruling). A line for the owner, or ""
+        (the refusal is journaled, `memory.login_refused`)."""
         from ferb.identity.owner_secrets import OwnerSecrets, login_place, same_site, site_host, typed_site
         from ferb.memory.items import owner_span
         from ferb.policy import provenance
@@ -2413,7 +2418,7 @@ class Daemon:
                else "the username was hidden as a secret" if REDACTED in str(entry.content) else "")
         if not why and username:
             try:
-                OwnerSecrets(self.home).set_username(place, username, "memory:" + item_id)
+                await asyncio.to_thread(OwnerSecrets(self.home).set_username, place, username, "memory:" + item_id)
                 return f"Saved as your login name for {host}."
             except Refused as e:
                 why = str(e)
@@ -2455,7 +2460,7 @@ class Daemon:
 
     async def _memory_retract(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         self.memory.retract(str(params["id"]), str(params.get("reason", "the owner")))
-        self._clear_login_names([str(params["id"])])     # L36 §5: a username goes with the memory it came from
+        await self._clear_login_names([str(params["id"])])   # L36 §5: a username goes with the memory it came from
         return {"retracted": params["id"]}
 
     async def _memory_forget(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

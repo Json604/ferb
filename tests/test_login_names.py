@@ -31,7 +31,7 @@ def entry(content: str = "Asha Rao", origin: str = VISA, quote: str = "the usern
 
 def remember(d: Any, items: list[Remember], own: str, sites: frozenset[str]) -> list[dict[str, str]]:
     src = journal(d, "chat.message", {"text": own, "untrusted_parts": 0})
-    return list(run(d, lambda: d.daemon._remember(items, own, src, sites)))
+    return list(d.run(d.daemon._remember(items, own, src, sites)))
 
 
 def username(d: Any, place: str = VISA) -> str | None:
@@ -108,6 +108,86 @@ def test_retracting_the_memory_clears_the_username(daemon: Any) -> None:
     assert run(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "retracted"
 
 
+def _ping() -> Any:
+    async def pong() -> str:
+        return "pong"
+    return pong()
+
+
+@pytest.mark.parametrize("change", ["remember", "retract", "forget"])
+def test_a_login_save_in_progress_never_stalls_the_event_loop(daemon: Any, change: str) -> None:
+    """Coordinator ruling: setting and clearing a username run in a worker thread, as Keychain saves do. While another
+    thread holds the handle file's lock (a hidden input being saved), the change waits there and the event loop keeps
+    answering."""
+    from ferb.identity import owner_secrets
+    item = None
+    if change != "remember":
+        remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+        [item] = run(daemon, lambda: daemon.daemon.memory.items("active"))
+    src = journal(daemon, "chat.message", {"text": "the username is Asha Rao", "untrusted_parts": 0})
+    held, release = threading.Event(), threading.Event()
+
+    def save_in_progress() -> None:
+        with owner_secrets._write_lock:
+            held.set()
+            release.wait(10)
+    holder = threading.Thread(target=save_in_progress)
+    holder.start()
+    assert held.wait(5)
+    try:
+        if change == "remember":
+            work = daemon.daemon._remember([entry()], "the username is Asha Rao", src,
+                                           frozenset({"usvisascheduling.com"}))
+        elif change == "retract":
+            work = daemon.daemon._memory_retract(None, {"id": item.id})
+        else:
+            async def forget() -> None:
+                daemon.daemon._forget_memory(item.id)
+                await daemon.daemon._settle_forgets()
+            work = forget()
+        pending = asyncio.run_coroutine_threadsafe(work, daemon.loop)
+        assert daemon.run(_ping(), timeout=2) == "pong"                 # the loop answers while the change waits
+        assert not pending.done()
+    finally:
+        release.set()
+        holder.join(5)
+    pending.result(5)
+    assert username(daemon) == ("Asha Rao" if change == "remember" else None)
+
+
+@pytest.mark.parametrize("words, account", [
+    ("check my visa appointment on usvisascheduling.com", "Asha Rao"),
+    ("check my visa appointment", None),                                       # the site isn't in the owner's words
+    ("sign in at atlasauth.b2clogin.com for usvisascheduling.com", None),      # the form is one of the typed sites
+], ids=["typed", "not-typed", "form-typed"])
+def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_sites(
+        daemon: Any, monkeypatch: pytest.MonkeyPatch, words: str, account: str | None) -> None:
+    """Coordinator ruling on concern 1: before any entry is saved at the sign-in form, the hidden-input question and
+    secrets.list read the username through the current task's owner-typed sites (`Gateway._login_sites`: the same
+    provenance as a stored link). They only read: no link is written until an entry is saved."""
+    from ferb.policy.targets import Request, Targets
+    keychain_helper(monkeypatch)
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", "memory:x"))
+    owner = grant(daemon, "q", Identity.OWNER, {"task:read"}, words)
+    run(daemon, lambda: daemon.daemon.state.requests.record(
+        Request("req-q", words, Targets.of(sites=["usvisascheduling.com", "atlasauth.b2clogin.com"]))))
+    ctx = ToolContext("q", "w-q", "req-q", Identity.OWNER, frozenset({"task:read"}), "dev", None, "/tmp", (), ())
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(ctx, ATLAS, remember="password"),
+                                               daemon.loop)
+    ap = asked(daemon)
+    try:
+        shown = " (account: Asha Rao)" if account else ""
+        assert ap.summary == f"For atlasauth.b2clogin.com only{shown}: “password” · saved in your Mac's Keychain"
+    finally:
+        daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, False)
+        assert waiting.result(5) is None
+    listed = call(daemon, owner, "secrets.list", place=ATLAS)["content"]
+    assert listed["username"] == account
+    assert ("linked" in listed) == bool(account)
+    assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()) == {SITE: {
+        "username": "Asha Rao", "username_source": "memory:x", "sites": [], "entries": {}}}     # nothing written
+
+
 def test_a_new_tasks_site_names_the_site_for_a_username_given_with_it(daemon: Any) -> None:
     """The turn that starts a task: its targets name the site (`Supervisor._turn_sites`), though the owner didn't type
     it."""
@@ -144,9 +224,9 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
     """The spec's username case, live 2026-10-24: a steer of the running visa task saves the fact and the site's
     username. A later task the owner typed usvisascheduling.com for signs in on the single sign-on form at
-    atlasauth.b2clogin.com: once its first entry is saved there, the form's record lists the site, so its next hidden
-    input names the account and secrets.list for the form returns the username; the login step got the fact in its
-    memory."""
+    atlasauth.b2clogin.com: its first hidden input already names the account (through the task's typed sites), the
+    entry saved there makes the form's record list the site, so the next one names it too and secrets.list for the
+    form returns the username after the task; the login step got the fact in its memory."""
     keychain = keychain_helper(monkeypatch)
     for i in range(6):
         owner_fact(daemon, f"hose_{i}", f"the garden hose note {i}")
@@ -191,7 +271,7 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
     chat(daemon, "check my visa appointment on usvisascheduling.com", session="other")
     assert keychain == {f"{ATLAS} · password": "hidden-canary-1"}
     assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()[ATLAS]["sites"]) == ["usvisascheduling.com"]
-    assert shown[1].startswith("For atlasauth.b2clogin.com only (account: Asha Rao): ")
+    assert all(line.startswith("For atlasauth.b2clogin.com only (account: Asha Rao): ") for line in shown), shown
     step = next(ctx for _, key, ctx, _ in script.contexts if key == "step.login")
     assert "the username is Asha Rao" in step
     listed = call(daemon, grant(daemon, "q", Identity.OWNER, {"task:read"}, None), "secrets.list", place=ATLAS)

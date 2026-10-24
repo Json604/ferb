@@ -11,7 +11,9 @@ entry's name.
 A record serves its own place and the sites it lists (I14): the visa site's sign-in form is a single sign-on page on
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
 task's sites the owner typed (the gateway picks them, `Gateway._login_sites`), a listing for the site finds it, and a
-username the owner gave for the site names the form's account too. A site matches a host exactly, a leading "www."
+username the owner gave for the site names the form's account too. Before any entry is saved there, a question or a
+listing during a task reads the task's owner-typed sites as links the same way, writing nothing. A site matches a host
+exactly, a leading "www."
 aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own. The
 records of one site with and without "www." serve each other too. Entries still fill only at their record's own place
 (`reveal`).
@@ -136,11 +138,13 @@ def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
     return {'version': VERSION, 'records': shaped, 'unusable': unusable}
 
 
-def _linked(records: dict[str, Any], place: str) -> list[str]:
+def _linked(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> list[str]:
     """The other records that serve `place` (I14): one at the same site, a leading "www." aside (the planner writes a
     username's site either way, L36 §5), one listing its host's site (a sign-on form's record saved during a task on
-    that site), or one at the host of a site its own record lists (the site that task named)."""
-    host, own_sites = site_host(place), records.get(place, {}).get('sites', [])
+    that site), or one at the host of a site its own record lists (the site that task named). `sites`: the current
+    task's owner-typed sites (`Gateway._login_sites`), read as if the place's record listed them, so the first sign-in
+    on a form already finds the site's record; never written (coordinator ruling on concern 1)."""
+    host, own_sites = site_host(place), [*records.get(place, {}).get('sites', []), *sites]
     found = []
     for other, record in records.items():
         other_host = site_host(other)
@@ -156,13 +160,13 @@ def _accounts(data: dict[str, Any]) -> set[str]:
             | {u['name'] for u in data['unusable']})
 
 
-def _username(records: dict[str, Any], place: str) -> str | None:
+def _username(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> str | None:
     """A place's username: its own record's, else the one its linked records agree on (never one of two that
     differ, so a question never names the wrong account)."""
     own = records.get(place, {}).get('username')
     if own:
         return str(own)
-    linked = {str(records[p]['username']) for p in _linked(records, place) if records[p].get('username')}
+    linked = {str(records[p]['username']) for p in _linked(records, place, sites) if records[p].get('username')}
     return linked.pop() if len(linked) == 1 else None
 
 
@@ -205,20 +209,22 @@ class OwnerSecrets:
     def unusable(self) -> list[dict[str, str]]:
         return list(self._load()['unusable'])
 
-    def username(self, target: str) -> str | None:
-        return _username(self._load()['records'], target)
+    def username(self, target: str, sites: Iterable[str] = ()) -> str | None:
+        """`sites`: the current task's owner-typed sites, read as links (`_linked`)."""
+        return _username(self._load()['records'], target, sites)
 
-    def listing(self, target: str) -> dict[str, Any]:
+    def listing(self, target: str, sites: Iterable[str] = ()) -> dict[str, Any]:
         """What `secrets.list` shows for one place: its username and its entries' names, never a value or a Keychain
         account (L36 §5); every entry saved for a whole browser, unusable; and, under `linked`, each other record that
-        serves this place, by the place where its entries fill (I14)."""
+        serves this place, by the place where its entries fill (I14). `sites`: the current task's owner-typed sites,
+        read as links (`_linked`)."""
         data = self._load()
         records = data['records']
-        out: dict[str, Any] = {'place': target, 'username': _username(records, target),
+        out: dict[str, Any] = {'place': target, 'username': _username(records, target, sites),
                                'entries': sorted(records.get(target, _empty())['entries']),
                                'unusable': [{'name': u['name'], 'why': u['why']} for u in data['unusable']]}
         linked = [{'place': p, 'username': records[p]['username'], 'entries': sorted(records[p]['entries'])}
-                  for p in _linked(records, target)]
+                  for p in _linked(records, target, sites)]
         return out | ({'linked': linked} if linked else {})
 
     def reveal(self, handle: str, target: str) -> str:

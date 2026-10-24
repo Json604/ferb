@@ -1753,8 +1753,9 @@ class Gateway:
             return value
         if ctx.request_id in self.state.approvals.unattended:
             return None
-        try:                                           # L36 §5: which account, shown to the owner, never a secret
-            username = await asyncio.to_thread(store.username, target)
+        try:                                           # L36 §5: which account, shown to the owner, never a secret;
+            # the task's owner-typed sites count as links before any entry is saved here (read only)
+            username = await asyncio.to_thread(store.username, target, self._login_sites(ctx, target))
         except Refused:
             if remember:                               # the save would fail after the owner typed: say why now
                 raise

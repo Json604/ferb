@@ -891,8 +891,8 @@ After the owner's update (2026-10-24):
   named or the task's site (exactly, with or without "www.", never another address under it; never from FERB's
   rewording; an app's username stays ordinary memory), shown in the hidden-input question, listed on the login page
   and given to the steps that log in; FERB's line says "Saved as your login name for <site>." A sign-in page at
-  another address (atlasauth.b2clogin.com for the visa site) names it once a login is saved there during a task you
-  typed the site for. Forgetting or retracting the memory removes it from the login record.
+  another address (atlasauth.b2clogin.com for the visa site) names it from the first sign-in of a task you typed the
+  site for. Forgetting or retracting the memory removes it from the login record.
 
 Licensed under Apache-2.0.
 

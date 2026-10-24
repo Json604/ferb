@@ -350,8 +350,8 @@ def _paraphrased(d: RunningDaemon, content: str = "Owner's boss is Quentarr Vexl
     dd = d.daemon
     said = "my manager is Quentarr"
     src = str(_on_loop(d, lambda: dd._journal().append("chat.message", {"text": said}).id))
-    _on_loop(d, lambda: dd._remember([Remember(kind="person", subject="owner", key="boss",
-                                               content=content, quote=said)], said, src))
+    d.run(dd._remember([Remember(kind="person", subject="owner", key="boss",
+                                 content=content, quote=said)], said, src))
     return _on_loop(d, lambda: next(i for i in dd.memory.items(None, valid_now=False) if i.key == "boss"))
 
 
