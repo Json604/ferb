@@ -2440,3 +2440,9 @@ def test_keep_watching_resumes_the_loop_with_its_next_round(bd, monkeypatch):
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def test_the_owners_typed_answer_to_a_pause_reaches_the_next_round():
+    shown = round_reason({'why': 'your answer to my question', 'question': 'Which account?', 'answer': 'the work one'})
+    assert shown == {'why': 'your answer to my question',
+                     'your_answer': {'question': 'Which account?', 'answer': 'the work one'}}

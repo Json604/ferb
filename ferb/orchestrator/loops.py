@@ -148,7 +148,8 @@ def round_reason(reason: dict[str, Any]) -> dict[str, Any]:
     if reason.get('probe_refused'):
         shown['probe_refused'] = _outside(str(reason['probe_refused']))
     if reason.get('answer'):                         # the owner's own words, typed into the pause question's card
-        shown['your_answer'] = {'question': str(reason.get('question', ''))[:_LIMIT], 'answer': str(reason['answer'])[:_LIMIT]}
+        shown['your_answer'] = {'question': str(reason.get('question', ''))[:_LIMIT],
+                                'answer': str(reason['answer'])[:_LIMIT]}
     return shown
 
 
@@ -438,7 +439,7 @@ class LoopRunner:
             while not self.stopped():
                 if self._steered():
                     return {'why': 'your message'}
-                answered = self.question.answer() if self.question is not None else None
+                answered: dict[str, Any] | None = self.question.answer() if self.question is not None else None
                 if answered is not None:
                     return answered
                 await self.sleep(POLL_S)
