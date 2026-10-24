@@ -589,6 +589,18 @@ notes it down"; retention: "30 days"; not installed or live-tested):
   one window.
 
 After the owner's update (2026-10-24):
+- Loops (L31; spec `docs/superpowers/specs/2026-10-24-loops-design.md`; owner: "there should be general capabilities
+  like loop, or long running task so that it can use them here. not a per task addition everytime."): the planner can
+  make a `loop` step for work that must be repeated or kept true ("keep this tab playing until I say stop", "loop
+  until the PR's checks pass"). Each round is an ordinary worker run and check under one task id
+  `<tree>.loop.<step>` (a `loop.round` span); the round names one exact field of a probe-safe observation tool and
+  code reads it every 10 seconds with no model, starting a round when it trips, on a plan event, on the owner's steer
+  or after 30 minutes. A loop with no `end_when` ends only by the owner's stop; `finished` needs observed evidence and
+  the checker. Churn (3 rounds that didn't last within 10 minutes) backs off from 2 minutes, doubling to an hour, and
+  tells the owner once; a pause comes only from `blocked`, `needs_user` or an unknown outcome. The loop state
+  (`loop_state`, migration 0047) survives restarts quietly. The notch shows "Keeping: … · fixed N times · last X min
+  ago" with Stop; `chat.status` lists `loops`. `ferb trace` shows `loop.round` and `loop.probe_read` spans. Not
+  installed; live checks pending (`docs/OWNER_ACCEPTANCE.md`).
 - A profile that already had the unpacked copy takes the Web Store request too, so it can hold both copies. Setup's
   report and `ferb browsers pair` now use the copy that is turned on (the unpacked one when both are). Before, with the
   unpacked copy turned off and the store copy on, setup said the profile's extension was waiting to be turned on, and

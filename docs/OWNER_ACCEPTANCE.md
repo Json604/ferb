@@ -1505,3 +1505,19 @@ Residuals to know during the week (accepted or recorded, not checks):
   you turned down blocks any procedure for it; forgetting the run that first named a kind of task leaves that name in
   its other runs' labels; a procedure whose slot is named like a credential never becomes learned (CHANGELOG lists them
   all).
+
+## Loops (L31) — pending live checks (2026-10-24)
+
+Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run after `ferb setup --update`,
+with the owner watching; pause between supervised actions and record what the owner saw.
+
+- Instagram keep-playing on the owner's own Brave tab: "keep this Instagram tab playing until I say stop". Expect a plan
+  line, the tab playing, and a new round within about 10 seconds each time the site pauses it while Brave is unfocused,
+  with no question to switch apps and the cursor and focus left alone.
+- A CI loop on an owner-controlled repo PR: "watch PR N's checks; when they fail, tell the Claude session; loop until
+  they pass". Expect a round per failure, and a verified finish with the checks' output when they pass.
+- A daemon restart mid-loop: the loop resumes with the same probe, posts no plan line and no chat message.
+- Stop during a round, and Stop during a probe read: the loop ends as stopped, resources are released, FERB says it stopped.
+- Resource log before and during a loop (`ferb stats`): the daemon's CPU and the database's growth with a loop armed for
+  an hour, to judge the 10-second probe cadence and the `loop.probe_read` spans.
+- Churn: a loop whose fix doesn't last backs off, tells the owner once, and a reply wakes it at once.

@@ -46,22 +46,22 @@ Owner decisions (2026-10-24):
 ### 1. Plan vocabulary: a `loop` step
 - `Step.kind` gains `loop` (`plans.py:22`, `STEP_SCHEMA` in `schemas.py`). Its fields:
   - `goal`: what the loop keeps true or repeats, in the planner's words grounded in the owner's.
-  - `until`: the end condition in the owner's words, or empty for "until I say stop". Code never interprets it; the
+  - `end_when`: the end condition in the owner's words, or empty for "until I say stop". Code never interprets it; the
     round's worker reports `finished` against it and the checker verifies that report (below).
   - `conditions`: as for `do` steps, what each round must achieve.
   - `event` / `event_match`: optional, as for `wait` (exact daemon event plus exact field matches), as one more waker.
-- A loop may depend on earlier steps, and later steps may depend on a loop that has an `until` (they run once it
-  finishes). Code's plan check refuses a step that depends on a loop with an empty `until`, which could never run, and
+- A loop may depend on earlier steps, and later steps may depend on a loop that has an `end_when` (they run once it
+  finishes). Code's plan check refuses a step that depends on a loop with an empty `end_when`, which could never run, and
   sends the plan back for repair (`repair.md`, as other feasibility failures). A plan holds any number of loops;
   independent loops run side by side like other independent steps.
 - `plan.stated` (`supervisor.py:2141-2147`) states each loop in one line: what it keeps true, its end ("until you say
-  stop" or the owner's `until` words), and that it checks without the model between rounds.
+  stop" or the owner's `end_when` words), and that it checks without the model between rounds.
 
 ### 2. A round
 - A round is an ordinary worker run for the step, followed by the checker: same tools, gateway, confirmations, sink
   rule, P19 unknown-outcome rule and standing scope as any plan step (`supervisor.py:2149-2175`). A loop grants nothing:
   only the owner's words and the plan's stated standing permission authorize (MP2, D30).
-- The round's context (`step_context`) carries the loop goal and `until`, why this round started (first round, probe
+- The round's context (`step_context`) carries the loop goal and `end_when`, why this round started (first round, probe
   tripped with the observed field value as untrusted data, event payload, backup interval, or the owner's steer), and a
   digest of earlier rounds: count, the last few rounds' summaries and outcomes, and the action receipts, like
   `ConversationStore.digest` (`conversations.py:262-270`). Never the whole history.
@@ -71,9 +71,9 @@ Owner decisions (2026-10-24):
   - `probe`: `{tool, args_json, field, op, value_json}` — one observation tool, its arguments as JSON, a dot path into
     its result (`media.0.playing`), an operator `equals` | `not_equals` | `changed`, and the compared value as JSON
     (unused for `changed`). `continue` needs a probe or relies on the backup interval and wakers alone.
-- `finished` needs observed evidence that the `until` condition holds, and the checker must verify it; an unverified
+- `finished` needs observed evidence that the `end_when` condition holds, and the checker must verify it; an unverified
   `finished` is treated as `continue` (as a converse hand-over needs evidence, `conversations.py:186-188`). With an empty
-  `until`, `finished` is refused and the round counts as `continue`: only the owner ends such a loop.
+  `end_when`, `finished` is refused and the round counts as `continue`: only the owner ends such a loop.
 - `blocked`, a round that ends `needs_user`, or a P19 unknown outcome pauses the loop: no probes, no rounds, until the
   owner answers or steers. The question is asked once and never expires while the loop waits (rule 9).
 
@@ -115,8 +115,11 @@ Owner decisions (2026-10-24):
 ### 5. Durable state and restarts
 - Loop state lives with the plan: a `loop_state` row per loop step (migration): round number, state
   (`acting` / `watching` / `backing_off` / `paused` / `finished` / `stopped`), the armed probe and its baseline, last
-  round end, back-off gap and episode, and the round counts. Each round is a child task
-  `<tree>.loop.<step>.<n>` with its own record and spans, like conversation turns (`supervisor.py:2341-2343`).
+  round end, back-off gap and episode, and the round counts. All rounds share the task id
+  `<tree>.loop.<step>`; each round is a `loop.round` span under it (as built, 2026-10-24). A child task per round was
+  dropped because a loop that runs for days would leave thousands of task records, and because one id lets Stop, the
+  gateway's task ownership and the loop's resources all name the same task. A round's checker judges only the calls
+  made in that round; earlier rounds reach the next round through the digest's one-line results.
 - Daemon shutdown suspends the plan (`suspend_plans`); start-up resumes it (`resume_plans`) and re-arms the probe from
   the stored row; a probe that now errors (e.g. the tab went with a browser restart) trips a round that re-establishes
   the state. Resuming a loop posts nothing to chat.
@@ -138,20 +141,20 @@ Owner decisions (2026-10-24):
   gap) on each state change. The tasks list shows a loop as standing work — "Keeping: the Instagram tab playing ·
   fixed 4 times · last 2 min ago" — with Stop and Inspect (every round's record). The "active tasks" row counts loops
   separately ("1 thing kept going") and shows the spinner only while a round is acting.
-- `ferb trace` shows the rounds as child tasks and the probe's trips and counts.
+- `ferb trace` shows the rounds as `loop.round` spans and the probe's baseline, trips and errors as `loop.probe_read` spans.
 
 ### 8. Planner guidance
 - `supervisor.md`: replace "Never wait for a condition with a loop or sleep inside a task …" with: work that must be
   repeated or kept true ("keep …", "loop until …", "every time … do …" while the owner's request is running) is a plan
-  with a `loop` step, its `until` taken from the owner's words or empty; a request only to be told when something
+  with a `loop` step, its `end_when` taken from the owner's words or empty; a request only to be told when something
   outside FERB's work becomes true stays a watch; work at set times stays a schedule.
 - `worker.md`: in a loop round, act once toward the goal, verify it, and report `loop_action` with a probe that would show
   the job needs doing again, choosing a probe-safe observation tool and an exact field; `finished` only with evidence of
-  the owner's `until`.
+  the owner's `end_when`.
 - No keyword list routes requests to loops (R2): the planner decides.
 
 ### 9. The two live cases, end to end
-- Instagram (task e9c65477's request): the plan has one loop step, goal "keep the front Instagram tab playing", `until`
+- Instagram (task e9c65477's request): the plan has one loop step, goal "keep the front Instagram tab playing", `end_when`
   empty. Round 1 plays the tab and verifies the media time moves (`extensions/chromium/content.js:492-513`), then reports
   `continue` with probe `{browser snapshot of that tab, field media.0.playing, equals, false}`. The site pauses it while
   Brave is unfocused, the probe trips within 10 seconds, round 2 plays it again. No question to switch apps: the probe
@@ -168,11 +171,11 @@ Owner decisions (2026-10-24):
 
 ## Testing
 - Offline (new `tests/test_loops.py`, shared fakes in `tests/support/`): the step validates, and a step depending on a
-  loop with no `until` is refused for repair; rounds run through the
+  loop with no `end_when` is refused for repair; rounds run through the
   worker and checker; probe validation refuses non-observation, non-probe-safe, out-of-scope and invalid-argument
   probes; exact comparisons for `equals` / `not_equals` / `changed`, errors and missing fields trip; the backup interval
   fires; event and steer wakers; back-off thresholds and reset with a fake clock, one notice per episode; `finished`
-  refused without `until` and without verified evidence; pause on `blocked`, `needs_user` and P19; stop disarms and
+  refused without `end_when` and without verified evidence; pause on `blocked`, `needs_user` and P19; stop disarms and
   releases loop resources; restart resumes with the same probe and no chat line; the wall clock after a paused monotonic
   clock (as `tests/test_waits_and_loop.py`); probe recording keeps counts, not a span per unchanged read; quiet chat;
   `loop.status` events; the planner prompt routes "keep …" to a loop and "tell me when …" to a watch (contract tests).

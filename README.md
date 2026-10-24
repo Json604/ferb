@@ -499,6 +499,16 @@ it happens stops itself after a confirmed check finds it, and that answer says F
 notification, as a reminder does, even with the app open; a check with nothing new to tell stays out of your chat.
 `ferb schedules` lists each watch with its kind; cancel one there or by asking.
 
+To have something kept true or repeated ("keep this Instagram tab playing until I say stop", "watch PR 12's checks and
+loop until they pass"), FERB makes a loop (L31) and says so in its plan line. A round does the work and checks it,
+then picks one exact fact that would show the job needs doing again (a tab's playing state, a command's running
+state). Between rounds no model runs: FERB reads that fact every 10 seconds and starts another round only when it
+changes, when something you named happens, when you reply with a correction, or after 30 minutes without one. A loop
+with no end you stated runs until you say stop (Stop on the task in the notch, or "stop" in chat), and survives
+restarts and updates without a message. If a fix keeps not lasting, FERB waits longer between rounds (2 minutes,
+doubling up to an hour) and tells you once. It pauses and asks only when a round is blocked, needs you, or an action's
+outcome is unknown. The notch lists a loop as "Keeping: … · fixed N times · last X min ago" with Stop.
+
 FERB keeps a log of its own resource use (L30). Every 5 minutes the daemon writes one row of numbers to its database:
 its CPU and memory, those of the processes it started (and theirs) and of FERB.app, the database's size, and counts of
 what it did in those minutes (activity events by source, perception batches, Jev calls, model runs, tool calls, tasks
@@ -553,6 +563,10 @@ no automated test proves that the owner experienced no disturbance.
 - A watch checks on the schedule interval (the planner uses every 15 minutes or more): no battery, power or file event
   wakes it sooner.
 - Notices need the optional Jev service; notification triage is shadow only.
+- A watch only tells you; to have FERB keep something going, ask for a loop ("keep … going", "loop until …"). A loop
+  can only watch what an observation tool reads exactly (a field of a tab snapshot, a shell session's state); it adds
+  no wake-up of its own, so it does not keep the Mac awake, and it reads every 10 seconds, so a change that reverts
+  within seconds can pass unseen.
 - The terminal chat shows no live progress line.
 
 ## Development and documentation

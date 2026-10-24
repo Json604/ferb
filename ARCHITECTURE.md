@@ -2141,7 +2141,7 @@ Unix-socket RPC; SQLite stays on the daemon's thread. Workers never receive the 
 
 ## 15. Durable task loop and release measurement (F6/F10)
 
-`orchestrator/plans.py` defines do/map/reduce/wait/ask/converse dependencies and validates complete inventories and
+`orchestrator/plans.py` defines do/map/reduce/wait/ask/converse/loop dependencies and validates complete inventories and
 batch context feasibility. `plan_store.py` persists the plan, completed outputs and event cursors (migration 0028).
 `plan_executor.py` runs ready steps and resumes incomplete work. The supervisor uses ordinary workers, gateway
 security and final verification for plan work. Explicit continuation of the same plan keeps the root and step IDs,
@@ -2172,11 +2172,11 @@ measurements remain null, denominators are retained and aggregate deltas are not
 Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
 local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.
 
-## 16. Launch week (L1–L30), as built (checkout; owner install and live checks pending)
+## 16. Launch week (L1–L31), as built (checkout; owner install and live checks pending)
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
-clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L30 to their tests (L29, learning by intent of 2026-10-21, is
+clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L31 to their tests (L29, learning by intent of 2026-10-21, is
 described with the learning store above; L30, FERB's resource log of 2026-10-23, next to the perception batcher's cost
 in section 8). What follows is the design as built. Nothing here is live-accepted yet
 ([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
@@ -2692,6 +2692,52 @@ protected FERB state (16.9).
 - **Residuals** (owner-accepted or live checks): ad-hoc builds lose macOS grants and may prompt the Keychain on update;
   whether launchd runs the bundled Python from a quarantined download is untested; the app is about 666 MB;
   `mac.applescript` keeps Apple Events, so a script could ask Finder to move Trash items (not a file rule).
+
+### 16.11 Loops (L31)
+
+Spec `docs/superpowers/specs/2026-10-24-loops-design.md`. A loop is a general capability: work that must be repeated or
+kept true ("keep this tab playing until I say stop", "loop until the PR's checks pass") is a plan with a `loop` step
+(`plans.Step.kind`; fields `goal`, `end_when`, `conditions`, optional `event`/`event_match`). The planner decides
+which requests are loops; no keyword list routes them (R2). A request only to be told when something becomes true
+stays a watch.
+
+- Files: `orchestrator/loops.py` (`Pacer` the back-off arithmetic, `LoopStore` the `loop_state` rows from migration
+  0047, `LoopRunner` the watch/act/back-off cycle), `orchestrator/probes.py` (`Probe`, exact JSON comparison,
+  `PROBE_SCHEMA`), `Gateway.probe` (a probe read), and the supervisor's loop section (`wake_loops`,
+  `loop_statuses`, the `round_`/`probe`/`record`/`notify` callbacks given to the runner).
+- A round is an ordinary worker run for the step, then the checker, under the same gateway, confirmations, sink rule,
+  P19 rule and standing scope as any step; a loop grants nothing. All rounds share the task id `<tree>.loop.<step>`
+  and each is a `loop.round` span; a round's checker judges only the calls made in that round, and earlier rounds reach
+  the next one as a digest of one-line results (`RECENT_ROUNDS` 5). The round's worker reports `loop_action`
+  (`continue`/`finished`/`blocked`) and a `probe`; `finished` counts only with an `end_when`, observed evidence and the
+  checker's verification, otherwise it is `continue`. A loop with no `end_when` ends only by the owner's stop, and a
+  step that depends on such a loop is refused for repair.
+- Probes: one exact field of one observation tool's result, compared with `equals`, `not_equals` or `changed`. The
+  tool must be `observation` and `probe_safe` (capability attributes; no pictures, no moving a view, no blocking). The
+  model writes the name in the underscore form it sees (`browser_snapshot`) and the supervisor resolves it to the
+  registered name before checking, reading and storing it. Reads go through `Gateway.probe` under the loop's task id:
+  the gateway's checks and provenance apply, no model runs, and a read returns no picture. The span store keeps
+  `loop.probe_read` spans for the baseline, each trip and each error and a running count, never one per unchanged read
+  (the resource log, L30, is the measure). A probe's result never reaches a model; the tripping value goes to the next
+  round as untrusted outside data.
+- Pacing (`loops.py`): `PROBE_SECONDS` 10, `BACKUP_SECONDS` 1800, `NO_LASTING_FIX_SECONDS` 120, `CHURN_ROUNDS` 3 in
+  `CHURN_WINDOW_SECONDS` 600, `FIRST_GAP_SECONDS` 120 doubling to `MAX_GAP_SECONDS` 3600, `RESET_SECONDS` 1800. A round
+  starts on a probe trip, the step's `event`, the owner's steer (a steer wakes the loop at once; a correction a
+  round already took costs no extra round) or the backup interval. Trips inside a back-off gap are remembered and
+  handled when it ends.
+- Pausing: only a round reporting `blocked`, a round ending `needs_user` or `blocked`, or a new unknown-outcome (P19)
+  action pauses a loop; a round that fails continues, and the back-off covers repeats. The question is asked once.
+- Notices are FERB's own chat messages (`chat.notice`, journal `loop.notice`): a back-off notice has FERB origin; a pause
+  notice quotes the round's words, so its origin is FERB plus INFERRED and it stays visible in chat. A resumed loop
+  after a restart posts no plan line and no notice. Stop, including during a probe read, ends the loop as `stopped`.
+- Surfaces: the bus topic `loop.status` (critical) and `chat.status`'s `loops`; the notch shows "Keeping: … · fixed N
+  times · last X min ago" with Stop, and "N kept going" in the active-tasks row.
+- Debugging: `ferb trace TASK` shows the `loop.round` spans (the round's input has its number and `why` it started) and the
+  `loop.probe_read` spans; the `loop_state` table holds the state (`acting`, `watching`, `backing_off`, `paused`,
+  `finished`, `stopped`), the armed probe and its baseline, the last round's end, the gap, the episode and the round
+  counts; the journal has `loop.round`, `loop.notice` and `loop.failed` (a round, read, record, notice or status line
+  that failed and was swallowed so the loop runs on). Tests: `tests/test_loops.py`, `tests/test_watches.py`,
+  `tests/test_prompt_contract.py`.
 
 ### 16.10 Journal kinds added in the launch week
 
