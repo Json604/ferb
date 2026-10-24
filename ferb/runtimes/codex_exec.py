@@ -59,6 +59,10 @@ DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "mult
 SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_environment_context=false",
                        "-c", "include_permissions_instructions=false", "-c", "include_apps_instructions=false",
                        "-c", "include_collaboration_mode_instructions=false"]
+# P20: no skills message for any role. Otherwise Codex adds a `<skills_instructions>` developer message right after
+# FERB's instructions, naming the run's random temporary CODEX_HOME, so nothing after FERB's system prompt repeats
+# across runs: ~611 tokens and 1-3 s per run (measured 2026-10-25, Codex 0.157.1). FERB loads no Codex skills.
+SKILLS_OFF = ["-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
 # Codex finds the owner's personal skills through HOME (~/.agents/skills), even with skill_search disabled and its own
 # CODEX_HOME. An empty, owner-only HOME of its own keeps them out (verified 2026-10-07: no skill loads, auth unaffected,
 # because auth lives in CODEX_HOME). FERB's MCP shim is unaffected: it gets FERB_HOME explicitly.
@@ -269,6 +273,7 @@ class CodexRuntime:
                "-c", 'approval_policy="never"', "-c", 'web_search="disabled"']
         for f in DISABLED:
             cmd += ["--disable", f]
+        cmd += SKILLS_OFF
         if (catalog := locked_catalog(self.ferb_home)) is not None:      # no code mode / sub-agents for any model
             cmd += ["-c", f"model_catalog_json={json.dumps(str(catalog))}"]
         if self.mode == "worker":

@@ -109,10 +109,11 @@ def _save_refresh(state: dict[str, Any]) -> None:
 
 
 def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | None = None) -> list[str]:
-    from ferb.runtimes.codex_exec import DISABLED, SUPERVISOR_SETTINGS
+    from ferb.runtimes.codex_exec import DISABLED, SKILLS_OFF, SUPERVISOR_SETTINGS
     cmd = [str(runtime.binary), 'app-server', '--stdio', '--strict-config']
     for feature in DISABLED:
         cmd += ['--disable', feature]
+    cmd += SKILLS_OFF
     if runtime.mode == "supervisor":
         cmd += SUPERVISOR_SETTINGS
     else:

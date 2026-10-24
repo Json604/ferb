@@ -966,6 +966,10 @@ After the owner's update (2026-10-24):
   same hour (unset, past a subscription's usage limits it picks 5 minutes, and the API would refuse FERB's marker after
   them). Claude Code also adds text FERB didn't write (a reminder with your account email, an environment message);
   `ferb trace` doesn't show it.
+- Codex runs without its skills message (P20, D32). Every Codex run carried a `<skills_instructions>` message naming
+  the run's random temporary folder right after FERB's instructions: about 611 tokens and 1-3 s per run, and it kept
+  the rest of the prompt from ever matching the previous run's. FERB loads no Codex skills, so every role now runs with
+  `skills.include_instructions=false` and `skills.bundled.enabled=false`.
 
 Licensed under Apache-2.0.
 

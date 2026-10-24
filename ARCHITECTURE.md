@@ -705,7 +705,12 @@ by `ferb setup --key PROVIDER` and read at call time; the daemon adds each key i
 ([`sanitize/redact.py`](ferb/sanitize/redact.py)). The `Redactor` is reconfigured in place on a config reload, so the journal, spans and
 gateway keep the one instance that knows exact secret values (API keys, OTPs); a Google API key pattern (`AIza...`) is
 also redacted by shape. Codex runs with its own empty HOME (`~/.ferb/codex-user`) and
-`skill_mcp_dependency_install` disabled, so the owner's personal skills never load.
+`skill_mcp_dependency_install` disabled, so the owner's personal skills never load. Every Codex run, in every role and
+both transports, also passes `codex_exec.SKILLS_OFF` (`skills.include_instructions=false`,
+`skills.bundled.enabled=false`; P20): without them Codex adds a `<skills_instructions>` developer message naming the
+run's random temporary CODEX_HOME right after FERB's instructions, about 611 tokens and 1-3 s per run, and nothing after
+it could repeat across runs. `tests/test_codex_prompt_cache.py` reads what the pinned binary sends (a loopback model
+server, a fake API key: no model, no credential) to check the message is gone.
 
 Remaining: Codex sends its per-process session id as the cache key, so its calls rarely reach the previous prefix's cache
 and FERB cannot change that. The remedy is an API runtime for the orchestrator (the owner's choice); the P20 re-check with
