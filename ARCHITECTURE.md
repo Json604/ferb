@@ -990,8 +990,9 @@ after-cleanup rewording became the answer and dropped that FERB, not Codex Astra
 left nothing to decide (`supervisor._left_as_intended`: a release with no cleanup error, every resource a tab still
 open, kept open as asked or the owner's borrowed tab let go of without closing) no review model runs and a
 `resources.skipped` span lists what was released (owner, 2026-10-25: "Skip when nothing changed"; live a1f16a32 and
-cc5debe4 spent 6–9 s reviewing a tab kept as intended). A closed tab, an ended listen, recording or process, an
-unconfirmed release or anything unrecognised is still reviewed. The story's
+cc5debe4 spent 6–9 s reviewing a tab kept as intended). A closed tab, an ended listen or recording, an unconfirmed
+release or anything unrecognised is still reviewed. A process FERB ended at cleanup isn't among the resources
+(`_task_end` reports a shell only when ending it failed), so a kept tab plus an ended process skips the review. The story's
 "checked nothing — N conditions unknown" counts the report condition.
 
 **Read-only checker (V3, W4).** The checker's run token is observe-only (`RunGrant.observe_only` in
@@ -2804,15 +2805,22 @@ planner's own words say what the loop does.
   that keeps the page running (the debugger, its focus emulation) stays: `Hub.holds` keeps the link's pass-through
   and a reconnect's sweep from disarming it. The extension is unchanged (its D35 interception and page hook stay on;
   what they catch goes back to the browser), so every extension version behaves so. During a round, what its
-  actions start is FERB's (D35). Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
+  actions start is FERB's (D35). `keep_open` on the owner's tab asks the browser's tab list that the tab is still
+  open. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
   `Supervisor.task_tabs`, the daemon's `_task_tabs`, redacted), so a later round uses them without listing and
   borrowing again. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
   for look-only rounds"; `loops.look_only_round`, called by `Supervisor._look_only`): it reported `continue` with a
-  probe, made at least one call, and every call was a W2 `read` of an observation tool or one that only holds a tab
-  (`holds_tab`: `use_tab`, `keep_open`), with no declared effect; and what its probe names (a string argument, or a
-  field segment that is no key and no `probe_keys` entry of its tool, such as a tab_ref or media id) is among the
-  values its own calls sent or got back. Its probe's first read is then the check, and a `verify.skipped` span says
-  why. Any acting call (media, act, navigate or a reload, a send, a question) or a finish keeps the check. A round's
+  probe, made at least one call, and every call was a W2 `read` of an observation tool that doesn't move the view (not
+  `on_screen`: scroll acts) or one that only holds a tab (`holds_tab`: `use_tab`, `keep_open`, not one that released
+  it), with no declared effect; its probe would arm (`resolve_tool` finds one tool and `probes.refusal` is None, as
+  `arm` checks); and what its probe names (a string argument, or a field segment that is no key and no `probe_keys`
+  entry of its tool, such as a tab_ref or media id) is what the round named in its calls' arguments, an id a result
+  returned (`tab`, `id`) or a tab the loop holds, never a listing's other values or page text. Its probe's first read
+  is then the check, and a `verify.skipped` span says why; anything `_look_only` can't work out keeps the check. When
+  such a round's probe isn't armed with a baseline (refused, read error, missing field) the next round starts at once,
+  paced like a trip (`LoopRunner._arm`, the round's `unchecked`). Any acting call (media, act, navigate or a reload,
+  scroll, a send, a question) or a finish keeps the check. The round's checker resources are always released after
+  it, even when this attempt skipped the check. A round's
   checker judges only the calls made in that round, and earlier rounds reach
   the next one as a digest of one-line results (`RECENT_ROUNDS` 5). The round's worker reports `loop_action`
   (`continue`/`finished`/`blocked`) and a `probe`; `finished` counts only with an `end_when`, observed evidence and the
@@ -2843,11 +2851,12 @@ planner's own words say what the loop does.
   action pauses a loop; a round that fails continues, and the back-off covers repeats. The question is asked once, as
   a real owner question (`_LoopQuestion`, capability `loop.ask`: the notch's card with buttons and its notification;
   owner, 2026-10-25: "shouldn't it ask 'hey, should I stop the task since you closed the tab'"): when a tab the loop
-  held is closed (the driver's `task_tabs` fact), FERB's own "The <site> tab you asked me to keep going was closed.
-  Stop this task?" with Stop / Keep watching; otherwise the round's own question, labelled as the task's, with Stop.
-  Stop is the owner's stop of the task; Keep watching or typed words start the next round (`why_this_round` carries
-  the answer); a reply in chat steers as before (the question is left out of the planner's open questions) and closes
-  the card. A loop paused before a restart asks again (the last round's question, as journaled). Journal:
+  held is closed (the driver's `task_tabs` fact; only the owner's own tab, `taken_over_from`, closed since the last
+  round or question, and never over a P19 unknown-outcome question), FERB's own "The <site> tab you asked me to keep
+  going was closed. Stop this task?" with Stop / Keep watching; otherwise the round's own question, labelled as the
+  task's, with Stop. Stop is the owner's stop of the task; Keep watching or typed words start the next round
+  (`why_this_round` carries the answer) at once, skipping a back-off gap as a chat reply does; a reply in chat steers
+  as before (the question is left out of the planner's open questions) and closes the card. A loop paused before a restart asks again (the last round's question, as journaled). Journal:
   `loop.question`, `loop.answer` (owner origin).
 - Notices are FERB's own chat messages (`chat.notice`, journal `loop.notice`): a back-off notice has FERB origin; a pause
   notice quotes the round's words, so its origin is FERB plus INFERRED and it stays visible in chat. Both name the loop

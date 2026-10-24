@@ -921,8 +921,9 @@ After the owner's update (2026-10-24):
 - No resource review when cleanup changed nothing (L31; your decision, 2026-10-25: "Skip when nothing changed"). After
   a step that borrowed your tab and kept it, a review model ran for 6–9 s (a1f16a32, cc5debe4) although the tab had
   been kept and let go of as intended. When every tab is still open (kept as asked, or your own tab let go of without
-  closing) and nothing failed, FERB skips it; `ferb trace` shows `resources.skipped`. A closed tab, an ended listen,
-  recording or process, or a release the browser didn't confirm is still reviewed.
+  closing) and nothing failed, FERB skips it; `ferb trace` shows `resources.skipped`. A closed tab, an ended listen or
+  recording, or a release the browser didn't confirm is still reviewed (a process FERB ended isn't reported among the
+  released resources, so it doesn't bring the review back).
 - One snapshot says whether a video plays (L26, L31; extension 0.15.10, protocol 17 and minimum 0.15.6 unchanged). The
   first time FERB looked at a video its `playing` was always false (nothing had moved yet), so every live round took a
   second snapshot to learn your reel was playing. A snapshot now waits up to 300 ms for unpaused media it hasn't seen
@@ -944,6 +945,13 @@ After the owner's update (2026-10-24):
   me to keep going was closed. Stop this task?" with Stop / Keep watching; any other pause asks the round's own
   question with Stop. Stop ends the task; Keep watching starts the next round; a reply in chat still steers it. The
   chat line names the loop in a few words.
+- Loop speed review fixes (L31, 2026-10-25): a round that scrolled is checked (a scroll changes which reel plays); a
+  probe counts as grounded only by what the round named or the loop holds, never a tab listing or page text; a skipped
+  check needs a probe that will arm, and when an unchecked round's probe can't arm the next round starts at once; a
+  keep_open that let go of a tab is acting, and workers are told the loop keeps the tab held between rounds; the
+  closed-tab question is asked once, only for your own tab and never over an unknown-outcome question; Keep watching
+  starts the next round without waiting out a back-off; a round always lets go of its checker's tabs; keep_open on
+  your tab checks the browser still has it.
 - Between a loop's rounds, the tab it keeps going is yours again (L31, D35; your decision, 2026-10-25: "give them back
   between rounds"). Holding your tab for the whole loop also meant your own downloads there went to FERB's workspace
   and links you opened in a new tab became the loop's tabs, even while it was paused. Now, between rounds and while
