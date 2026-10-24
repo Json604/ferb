@@ -754,6 +754,7 @@ class Daemon:
         from ferb.orchestrator.attention import AttentionNotices
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
         self.attention_notices = AttentionNotices(self.db, self.clock, self.redact)
+        self.supervisor.on_loop_notice = self._loop_notice
         self.supervisor.notification_rule = self._notification_rule_from_chat
         self.supervisor.on_conversation_resume = self._resume_conversation_plans
         self.supervisor.typed_behind_memory = self._typed_behind_memory   # attended scopes too (final review I1)
@@ -2430,7 +2431,8 @@ class Daemon:
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
                 "notices": self.attention_notices.unseen() if self.attention_notices else [],
-                "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
+                "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else [],
+                "loops": self.supervisor.loop_statuses() if self.supervisor else []}
 
     async def _results_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """A client that reads `chat.status` with `peek` showed these results in its chat: mark only them shown, so
@@ -2501,6 +2503,18 @@ class Daemon:
         (the notch UI, `ferb chat`) or a filter that includes it. Then the client shows it and the macOS banner stays
         off; a subscription filtered to other topics (`ferb logs --filter timers`, `ferb voice`) shows nothing."""
         return any(sub.wants(topic) for sub in self._log_subscriptions)
+
+    async def _loop_notice(self, tree_id: str, step_id: str, text: str, notice_origin: str = origin_.FERB) -> None:
+        """L31: a loop's back-off or pause notice, posted to the owner's chat like a notice (listed in `chat.status`
+        until a client shows it; a banner when no client is connected). Its origin follows its text: a back-off is
+        FERB's own; a pause quotes the round's words, so it also carries INFERRED."""
+        if self.attention_notices is None:
+            return
+        import uuid
+        notice = self.attention_notices.add(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text,
+                                            notice_origin=notice_origin)
+        if notice is not None:
+            await self._post_notice(notice)
 
     async def _post_notice(self, notice: dict[str, Any]) -> None:
         """L9: a notice is a FERB message in the owner's chat: journaled `chat.notice`, published `attention.notice`, and

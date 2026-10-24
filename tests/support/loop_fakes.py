@@ -58,7 +58,7 @@ class Harness:
     def _event(self, cursor: int) -> tuple[int, dict[str, Any]] | None:
         return self.events.pop(0) if self.events and self.events[0][0] > cursor else None
 
-    async def _notify(self, text: str) -> None:
+    async def _notify(self, text: str, model_written: bool = False) -> None:
         self.notices.append(text)
 
     async def _sleep(self, seconds: float) -> None:

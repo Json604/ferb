@@ -29,7 +29,8 @@ class AttentionNotices:
         self.db, self.clock, self.redact = db, clock, redact
 
     def add(self, ident: str, refs: list[str], text: str, quotes: Any = None,
-            considered: list[str] | None = None, quote_origin: str = origin.external("observation")) -> dict[str, Any] | None:
+            considered: list[str] | None = None, quote_origin: str = origin.external("observation"),
+            notice_origin: str = ORIGIN) -> dict[str, Any] | None:
         """The new notice, or None when that id was already made (posted once: a replayed batch never posts again).
         `refs` are the rows it cites; `considered` every row the consideration saw (the D14 purge reaches both);
         `quote_origin` the least trusted origin of those rows, which every quote carries."""
@@ -37,7 +38,7 @@ class AttentionNotices:
         made = self.db.conn.execute(
             "INSERT OR IGNORE INTO attention_notices (id, source_refs_json, text, origin, created_at, delivered_at, "
             "quotes_json, considered_refs_json) VALUES (?,?,?,?,?,NULL,?,?)",
-            (ident, json.dumps(refs), clean["text"], ORIGIN, self.clock.now().isoformat(), json.dumps(clean["quotes"]),
+            (ident, json.dumps(refs), clean["text"], notice_origin, self.clock.now().isoformat(), json.dumps(clean["quotes"]),
              json.dumps(sorted(set(considered or []) | set(refs))))).rowcount
         return dict(self.db.conn.execute("SELECT * FROM attention_notices WHERE id=?", (ident,)).fetchone()) if made else None
 

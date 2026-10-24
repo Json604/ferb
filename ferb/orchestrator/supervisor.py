@@ -428,7 +428,7 @@ class Supervisor(WorkerRuns):
         self._loops: dict[str, set[LoopRunner]] = {}                      # tree id -> its running LoopRunners
         self._loop_status: dict[tuple[str, str], dict[str, Any]] = {}     # (tree id, step id) -> its last status
         # a loop's chat notice (a pause, a back-off): (tree id, step id, text); the daemon supplies it
-        self.on_loop_notice: Callable[[str, str, str], Awaitable[None]] | None = None
+        self.on_loop_notice: Callable[[str, str, str, str], Awaitable[None]] | None = None
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
@@ -2590,13 +2590,16 @@ class Supervisor(WorkerRuns):
                 self._loop_failed(tree.id, step.id, 'event', exc)
                 return None
 
-        async def notify(text: str) -> None:
+        async def notify(text: str, model_written: bool = False) -> None:
             try:
                 # a pause quotes the round's own words: model-written from what the task read (MP2)
                 self.journal.append('loop.notice', {'task_id': tree.id, 'step': step.id, 'text': text},
                                     origin=origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id)))
                 if self.on_loop_notice is not None:
-                    await self.on_loop_notice(tree.id, step.id, text)
+                    # a back-off notice is code-written (FERB); a pause quotes the round's words (FERB + INFERRED)
+                    await self.on_loop_notice(tree.id, step.id, text,
+                                              origins_.join({origins_.FERB, origins_.INFERRED}) if model_written
+                                              else origins_.FERB)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

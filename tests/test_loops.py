@@ -963,7 +963,7 @@ def test_an_action_whose_outcome_is_unknown_pauses_the_loop(daemon, monkeypatch)
     sv = daemon.daemon.supervisor
     told: list[str] = []
 
-    async def undeliverable(tree_id, step_id, text):
+    async def undeliverable(tree_id, step_id, text, notice_origin):
         told.append(text)
         raise RuntimeError('no chat to post to')
     sv.on_loop_notice = undeliverable
@@ -1513,3 +1513,40 @@ def test_a_correction_the_running_round_could_not_receive_is_read_by_its_next_at
         daemon.run(_stop(daemon, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def _notices(daemon):
+    async def read():
+        d = daemon.daemon
+        rows = [dict(r) for r in d.db.conn.execute("SELECT origin, source_refs_json, text FROM attention_notices")]
+        return rows, [n['text'] for n in d.attention_notices.unseen()]
+    return daemon.run(read())
+
+
+def test_a_back_off_notice_is_ferbs_own_message_in_chat(daemon):
+    daemon.run(daemon.daemon._loop_notice('tree-1', 'keep', 'I keep having to redo this: keep the tab playing.'))
+    rows, unseen = _notices(daemon)
+    assert rows[0]['origin'] == 'ferb' and json.loads(rows[0]['source_refs_json']) == ['task:tree-1']
+    assert any(t.startswith('I keep having to redo this') for t in unseen)
+
+
+def test_a_pause_notice_carries_the_inferred_origin_of_the_words_it_quotes(daemon):
+    from ferb.core import origin
+    daemon.run(daemon.daemon._loop_notice('tree-1', 'keep', 'paused: which account?',
+                                          origin.join({origin.FERB, origin.INFERRED})))
+    rows, _ = _notices(daemon)
+    assert set(rows[0]['origin'].split(',')) == {origin.FERB, origin.INFERRED}
+
+
+def test_chat_status_lists_running_loops(daemon):
+    from tests.conftest import Client
+    d = daemon.daemon
+    d.supervisor._loop_status[('tree-1', 'keep')] = {'task_id': 'tree-1', 'step': 'keep', 'goal': 'Keep it',
+                                                    'state': 'watching', 'rounds': 2, 'last_round_end': 1.0,
+                                                    'gap_seconds': 0.0}
+    c = Client(daemon.sock)
+    try:
+        status = c.call('chat.status', {'peek': True})
+    finally:
+        c.close()
+    assert status['loops'][0]['goal'] == 'Keep it'

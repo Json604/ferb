@@ -164,7 +164,7 @@ class LoopRunner:
                  arm: Callable[[Probe], str | None], probe: Read,
                  record: Callable[[str, Probe, Any, str | None, set[str], int], None],
                  event: Callable[[int], tuple[int, dict[str, Any]] | None] | None, steers: Callable[[], int],
-                 notify: Callable[[str], Awaitable[None]], status: Callable[[dict[str, Any]], None],
+                 notify: Callable[..., Awaitable[None]], status: Callable[[dict[str, Any]], None],
                  stopped: Callable[[], bool], now: Callable[[], float],
                  sleep: Callable[[float], Awaitable[None]] | None = None, event_cursor: int = 0) -> None:
         self.store, self.task_id, self.step = store, task_id, step
@@ -249,7 +249,7 @@ class LoopRunner:
             if action == 'blocked' or result['status'] in ('needs_user', 'blocked'):
                 why = result.get('question') or result['summary']
                 await self.notify(f"I've paused keeping this going: {self._goal()}. {why} "
-                                  'Reply to continue, or say stop.')
+                                  'Reply to continue, or say stop.', model_written=True)
                 reason = await self._paused()
                 continue
             if result['status'] != 'done' and result.get('probe') is None:
