@@ -496,7 +496,7 @@ class Gateway:
                               identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
                               scopes=grant.scopes, device_id=self.device_id, span_id=span_id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
-                              untrusted_roots=self.roots.untrusted_roots, observe_only=True,
+                              untrusted_roots=self.roots.untrusted_roots, observe_only=True, probe=True,
                               path_closed=self._path_closed(name))
             lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
             async with self.locks.hold(lock_keys, grant.worker_id):

@@ -567,7 +567,7 @@ def test_the_back_off_notice_is_not_repeated_when_its_send_is_cut_short(db):
     assert again.notices == [] and again.reasons[0]['why'] == 'probe'
 
 
-def _probe_caps(image=None, boom=False):
+def _probe_caps(image=None, boom=False, seen=None):
     from pydantic import BaseModel
     from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolResult
     from ferb.policy.rules import Kind
@@ -583,6 +583,8 @@ def _probe_caps(image=None, boom=False):
         def describe(self, args): return ActionSpec(Kind.READ)
 
         async def run(self, args, ctx):
+            if seen is not None:
+                seen.append(ctx)
             if boom:
                 raise RuntimeError('tool blew up')
             return ToolResult({'playing': False}, read_sources=(('web', 'instagram.com'),), image=image)
@@ -613,6 +615,60 @@ def test_a_probe_read_runs_through_the_gateway_admission_without_a_span(daemon):
     refused = daemon.run(daemon.daemon.gateway.probe(grant, 'test.mover', {}, 'span-x'))
     assert refused['is_error'] and "can't be a probe" in refused['content']['error']
     assert before == _spans(daemon) and 'tool.called' not in events
+
+
+def test_a_probe_read_tells_the_tool_it_is_a_probe(daemon):
+    from ferb.core.types import Identity
+    from tests.conftest import gateway_setup
+
+    seen: list = []
+    grant, _ = gateway_setup(daemon, set(), None, _probe_caps(seen=seen), identity=Identity.FERB)
+    assert daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 'span-x'))['is_error'] is False
+    assert seen[-1].probe is True and seen[-1].observe_only is True
+
+
+class _NewsDriver:
+    """One task tab that started a download and a new tab the round hasn't been told of yet (D35)."""
+
+    def __init__(self):
+        self.downloads, self.opened = [{'path': '/w/report.pdf'}], [{'tab': 't2', 'url': 'https://example.com/2'}]
+
+    def owned_by(self, tab, task_id, borrow=True):
+        from ferb.core.types import TabRef
+        return TabRef('dev', 'chrome', 'Default', 1, tab)
+
+    def tab_url(self, tab):
+        return 'https://example.com/'
+
+    async def snapshot(self, ref):
+        from ferb.core.types import PageSnapshot
+        return PageSnapshot(ref, 1, 'https://example.com/', 'Example')
+
+    async def downloads_for(self, ref, wait=0.0):
+        out, self.downloads = self.downloads, []
+        return out
+
+    def opened_for(self, ref):
+        out, self.opened = self.opened, []
+        return out
+
+
+def test_a_probe_snapshot_leaves_the_tabs_downloads_and_new_tabs_for_the_next_round():
+    """Reporting a download or a new tab hands it over once: a probe read that reported them would leave the round
+    that needs them nothing to see."""
+    from ferb.act.browser.tools import OWNER_BROWSER, BrowserSnapshot
+    from ferb.core.types import Identity, ToolContext
+    driver = _NewsDriver()
+    tool = BrowserSnapshot(driver, OWNER_BROWSER)
+
+    def ctx(probe):
+        return ToolContext('task', 'w', 'r', Identity.OWNER, frozenset({'browser:read'}), 'dev', None, '/tmp', (), (),
+                           observe_only=True, probe=probe)
+    read = asyncio.run(tool.run(tool.Input(tab='t1'), ctx(True)))
+    assert not read.is_error and 'downloads' not in read.content and 'opened_tabs' not in read.content
+    assert all(kind != 'download' for kind, _ in read.read_sources)
+    seen = asyncio.run(tool.run(tool.Input(tab='t1'), ctx(False)))
+    assert seen.content['downloads'] == [{'path': '/w/report.pdf'}] and seen.content['opened_tabs'][0]['tab'] == 't2'
 
 
 def test_a_probe_read_refuses_what_a_call_would_refuse(daemon):

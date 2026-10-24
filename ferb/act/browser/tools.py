@@ -391,7 +391,8 @@ class BrowserSnapshot(_Base):
         sources: tuple[tuple[str, str], ...] = (("web", s.url),)
         if self.family.identity is Identity.OWNER:                   # the owner's signed-in pages: owner data
             sources += (("owner_account", f"{_host(s.url) or ''}|"),)
-        news, more = await _news(self.driver, ref)                    # e.g. a download link clicked before this
+        # e.g. a download link clicked before this; a loop's probe read leaves them for the next round (L31)
+        news, more = ({}, ()) if ctx.probe else await _news(self.driver, ref)
         return ToolResult(for_model(s) | news, read_sources=sources + more)
 
 

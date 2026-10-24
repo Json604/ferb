@@ -2718,7 +2718,9 @@ stays a watch.
   runtime prefix) and the supervisor resolves it to the registered name before checking, reading and storing it
   (`probes.resolve_tool`: at most one exact prefix from `RUNTIME_PREFIXES` is dropped; a name two registered tools
   share is refused, never guessed). Reads go through `Gateway.probe` under the loop's task id:
-  the gateway's checks and provenance apply, no model runs, and a read returns no picture. The span store keeps
+  the gateway's checks and provenance apply, no model runs, and a read returns no picture. The read's context says
+  it is a probe (`ToolContext.probe`), so what a tool hands over only once (a browser tab's new downloads and tabs,
+  reported with its snapshot) stays for the next round. The span store keeps
   `loop.probe_read` spans for the baseline, each trip and each error and a running count, never one per unchanged read
   (the resource log, L30, is the measure). A probe's result never reaches a model; the tripping value goes to the next
   round as untrusted outside data.

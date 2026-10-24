@@ -251,6 +251,9 @@ class ToolContext:
     untrusted_roots: tuple[str, ...]
     intent_id: str | None = None             # ledger row of this call when consequential (drivers tag with it)
     observe_only: bool = False               # the final checker's call (V3, W4): its tools keep it to observing
+    # a loop's probe read between rounds (L31): what a tool hands over once (a tab's new downloads and tabs) stays for
+    # the next round
+    probe: bool = False
     # The protection lists' check of a file as the tool really opened it (macOS F_GETPATH) and what it does to it:
     # the error to return when the lists close it, else None. None when the daemon has no lists (rule 10).
     path_closed: Callable[[Path, str], str | None] | None = None
