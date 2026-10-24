@@ -508,11 +508,13 @@
   }
   function restart(el) { const p = progress.get(el); if (p) { p.moved = false; p.at = el.currentTime; } }
   // Each media element's own id for this page's lifetime (L31): given on first sight, never given to another element.
-  // List positions shift as a feed loads more videos; a loop's probe watches one element by its id.
+  // List positions shift as a feed loads more videos; a loop's probe watches one element by its id. The page's own
+  // token ends it, so an id from an earlier page of the tab matches nothing in this one (review I2).
   const mediaIds = new WeakMap();
+  const mediaPage = randomId().slice(0, 6);
   let mediaSeen = 0;
   function mediaId(el) {
-    if (!mediaIds.has(el)) mediaIds.set(el, `m${++mediaSeen}`);
+    if (!mediaIds.has(el)) mediaIds.set(el, `m${++mediaSeen}-${mediaPage}`);
     return mediaIds.get(el);
   }
   function mediaState(el, index) {

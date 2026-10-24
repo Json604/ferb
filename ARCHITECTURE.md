@@ -2540,9 +2540,11 @@ protected FERB state (16.9).
   its `timeupdate` events, or a change between two looks; a play, pause, seek, stall or reset needs fresh movement),
   never from `!paused` alone, which play() sets before any playback; `paused` is reported beside it (I5). Since
   0.15.8 (L31) each element also has its own `id` for the page's life (content.js `mediaId`: a WeakMap, `m<n>` on
-  first sight, never given to another element; a child frame's is `f<frame>:m<n>`), and the snapshot keys the same
-  entries by it in `media_by_id`, so a loop's probe watches one element (`media_by_id.m12.playing`) while list
-  positions shift as a feed loads; `browser.media` takes `media_id` as well as `index`, both from the latest snapshot.
+  first sight, never given to another element, then the page's own random token, `m12-3fa91c`, so an id from an
+  earlier page of the tab matches nothing in a later one (review I2); a child frame's is `f<frame>:m<n>-<token>`), and
+  the snapshot keys the same entries by it in `media_by_id`, so a loop's probe watches one element
+  (`media_by_id.m12-3fa91c.playing`) while list positions shift as a feed loads; `browser.media` takes `media_id` as
+  well as `index`, both from the latest snapshot.
   `browser.tabs` lists each tab's `audible` and `muted` (chrome.tabs `audible`, `mutedInfo.muted`) and keys the tabs by
   `tab_ref` in `tabs_by_ref` (`tabs_by_ref.<tab_ref>.audible`; a tab_ref holds colons and spaces, never a dot). An
   older extension sends none of these: they are absent, never guessed, and a probe on them sees its field missing.

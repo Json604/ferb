@@ -4,6 +4,7 @@ under node with a fake DOM; the daemon side runs against a fake bridge. No brows
 
 import asyncio
 import json
+import re
 import subprocess
 from types import SimpleNamespace
 from typing import Any
@@ -59,9 +60,11 @@ def _content(mode: str = "allow") -> dict[str, Any]:
 
 def test_play_on_a_paused_video_shows_playing_once_its_time_moves() -> None:
     out = _content()
-    assert out["before"] == [{"index": 0, "id": "m1", "playing": False, "paused": True, "current_time": 3,
+    page = out["before"][0].pop("id")
+    assert re.fullmatch(r"m1-[0-9a-f]{6}", page)              # the element's number, then this page's own token
+    assert out["before"] == [{"index": 0, "playing": False, "paused": True, "current_time": 3,
                               "duration": 30, "muted": True, "volume": 1, "in_view": True}]
-    assert out["played"]["id"] == "m1" and out["after"][0]["id"] == "m1"
+    assert out["played"]["id"] == page and out["after"][0]["id"] == page
     # play() clears `paused` at once; `playing` waits for the media's time to move (I5)
     assert out["played"]["playing"] is False and out["played"]["paused"] is False and "error" not in out["played"]
     assert out["unmuted"]["playing"] is True                      # its time moved: really playing
@@ -124,7 +127,13 @@ page = [c, a];                       // b scrolled away, c loaded
 const third = ids(f.snapshot(3).media);
 page = [b, c, a];                    // b back in the page
 const fourth = ids(f.snapshot(4).media);
-console.log(JSON.stringify({first, second, third, fourth}));
+// the tab loads a new page: a fresh content script, whose first element is m1 again, with its own page token
+page = [a];
+const next = vm.createContext({...ctx, window: {}});
+next.top = next.window;
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), next);
+const reloaded = ids(next.window.__ferb.snapshot(1).media);
+console.log(JSON.stringify({first, second, third, fourth, reloaded}));
 '''
 
 
@@ -135,10 +144,16 @@ def test_each_media_element_keeps_one_id_for_the_page_while_list_positions_shift
                             timeout=10)
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
-    assert out["first"] == [[0, "m1"]]
-    assert out["second"] == [[0, "m2"], [1, "m1"]]          # a moved from index 0 to 1, still m1
-    assert out["third"] == [[0, "m3"], [1, "m1"]]           # c is new: m3, never b's m2
-    assert out["fourth"] == [[0, "m2"], [1, "m3"], [2, "m1"]]
+    page = out["first"][0][1].split("-")[1]
+    numbers = {k: [[i, mid.split("-")[0]] for i, mid in out[k]] for k in ("first", "second", "third", "fourth")}
+    assert all(mid.endswith("-" + page) for k in numbers for _, mid in out[k])
+    assert numbers["first"] == [[0, "m1"]]
+    assert numbers["second"] == [[0, "m2"], [1, "m1"]]          # a moved from index 0 to 1, still m1
+    assert numbers["third"] == [[0, "m3"], [1, "m1"]]           # c is new: m3, never b's m2
+    assert numbers["fourth"] == [[0, "m2"], [1, "m3"], [2, "m1"]]
+    # review I2: a new page of the tab numbers from m1 again; its token keeps an old id from matching anything there
+    (_, again), = out["reloaded"]
+    assert again.startswith("m1-") and again != out["first"][0][1]
 
 
 def test_worker_media_command_runs_the_content_script_in_the_exact_frame() -> None:
@@ -201,10 +216,10 @@ def _driver(frames: list[dict[str, Any]]) -> tuple[Any, Any, TabRef]:
 
 
 FRAMES = [{"frame_id": 0, "url": "https://www.instagram.com/reel/x", "title": "Reel", "text": "", "elements": [],
-           "media": [{"index": 0, "id": "m7", "playing": False, "current_time": 3, "duration": 30, "muted": True,
+           "media": [{"index": 0, "id": "m7-a1b2c3", "playing": False, "current_time": 3, "duration": 30, "muted": True,
                       "volume": 1, "in_view": True}]},
           {"frame_id": 5, "url": "https://player.example/embed", "text": "", "elements": [],
-           "media": [{"index": 0, "id": "m7", "playing": True, "current_time": 1, "duration": None, "muted": False,
+           "media": [{"index": 0, "id": "m7-d4e5f6", "playing": True, "current_time": 1, "duration": None, "muted": False,
                       "volume": 1, "in_view": False}]}]
 
 
@@ -219,17 +234,22 @@ def test_snapshot_reports_every_frames_media_with_one_index_and_the_model_sees_i
 
 
 def test_the_snapshot_keys_each_frames_media_by_its_own_id_and_a_probe_reads_one_element() -> None:
-    """Each frame numbers its own media: a child frame's id carries its frame ("f5:m7"), as a scroller's does. A probe
-    path reaches one element by id, whatever its list position."""
+    """Each frame numbers its own media: a child frame's id carries its frame ("f5:m7-d4e5f6"), as a scroller's does. A
+    probe path reaches one element by id, whatever its list position."""
     from ferb.act.browser.snapshot import for_model
     from ferb.orchestrator.probes import MISSING, field_value
-    d, _, ref = _driver(FRAMES)
+    d, bridge, ref = _driver(FRAMES)
     shown = for_model(asyncio.run(d.snapshot(ref)))
-    assert [m["id"] for m in shown["media"]] == ["m7", "f5:m7"]
-    assert shown["media_by_id"] == {"m7": shown["media"][0], "f5:m7": shown["media"][1]}
-    assert field_value(shown, "media_by_id.m7.playing") is False
-    assert field_value(shown, "media_by_id.f5:m7.playing") is True
-    assert field_value(shown, "media_by_id.m9.playing") is MISSING      # gone from the page: the probe trips
+    assert [m["id"] for m in shown["media"]] == ["m7-a1b2c3", "f5:m7-d4e5f6"]
+    assert shown["media_by_id"] == {"m7-a1b2c3": shown["media"][0], "f5:m7-d4e5f6": shown["media"][1]}
+    assert field_value(shown, "media_by_id.m7-a1b2c3.playing") is False
+    assert field_value(shown, "media_by_id.f5:m7-d4e5f6.playing") is True
+    assert field_value(shown, "media_by_id.m9-a1b2c3.playing") is MISSING      # gone from the page: the probe trips
+    # review I2: the tab loads a new page, whose content script numbers from m1 again with its own token
+    bridge.frames = [dict(FRAMES[0], media=[dict(FRAMES[0]["media"][0], id="m7-0f0f0f", playing=True)])]
+    again = for_model(asyncio.run(d.snapshot(ref)))
+    assert field_value(again, "media_by_id.m7-a1b2c3.playing") is MISSING     # the old page's id matches nothing
+    assert field_value(again, "media_by_id.m7-0f0f0f.playing") is True
 
 
 def test_an_older_extensions_snapshot_has_no_media_ids() -> None:
@@ -270,15 +290,15 @@ def test_browser_media_takes_a_media_id_from_the_latest_snapshot() -> None:
     d, bridge, ref = _driver(FRAMES)
     asyncio.run(d.snapshot(ref))
     tool = BrowserMedia(d, OWNER_BROWSER)
-    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="f5:m7"), _ctx()))
+    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="f5:m7-d4e5f6"), _ctx()))
     assert not r.is_error, r.content
     op, args = bridge.calls[-1]
     assert op == "media" and args["frame_id"] == 5 and args["index"] == 0 and args["snap"] == 1
-    assert r.content["state"]["index"] == 1 and r.content["state"]["id"] == "f5:m7"
-    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="m9"), _ctx()))
-    assert r.is_error and "m9" in r.content["error"]
+    assert r.content["state"]["index"] == 1 and r.content["state"]["id"] == "f5:m7-d4e5f6"
+    r = asyncio.run(tool.run(tool.Input(tab="t1", action="pause", media_id="m9-a1b2c3"), _ctx()))
+    assert r.is_error and "m9-a1b2c3" in r.content["error"]
     with pytest.raises(ValueError):
-        tool.Input(tab="t1", action="pause", index=0, media_id="m7")     # one way to name it
+        tool.Input(tab="t1", action="pause", index=0, media_id="m7-a1b2c3")     # one way to name it
 
 
 def test_browser_media_needs_an_index_when_the_page_has_several_and_seek_needs_a_time() -> None:

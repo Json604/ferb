@@ -46,9 +46,9 @@ TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
 # a media element's state (L26): `playing` once its time moves (I5), `paused` as the page has it
 MEDIA_FIELDS = ("playing", "paused", "current_time", "duration", "muted", "volume", "in_view")
-# a media element's own id in its frame (extension 0.15.8, L31): the content script's `m<n>`, no dots, so a probe's
-# dot path reaches it (`media_by_id.m12.playing`)
-MEDIA_ID = re.compile(r"m[0-9]{1,9}")
+# a media element's own id in its frame (extension 0.15.8, L31): the content script's `m<n>-<page token>`, no dots, so
+# a probe's dot path reaches it (`media_by_id.m12-3fa91c.playing`); the token differs in each page the tab loads
+MEDIA_ID = re.compile(r"m[0-9]{1,9}-[0-9a-f]{6}")
 
 
 class OutcomeUnknown(DriverError):
