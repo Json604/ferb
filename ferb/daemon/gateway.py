@@ -1717,8 +1717,9 @@ class Gateway:
                          remember: str | None = None, shown: str | None = None) -> str | None:
         """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only. `shown`: the
         app's name as macOS reports it, for an `app:` target's one-line question."""
-        from ferb.identity.owner_secrets import OwnerSecrets
+        from ferb.identity.owner_secrets import OwnerSecrets, refuse_whole_browser
         from ferb.sanitize.redact import Redactor
+        refuse_whole_browser(target)                   # before any question, for every caller (D12)
         if not isinstance(self.redact, Redactor):
             raise Refused("hidden secret redaction is unavailable")
         if self.roots.protection is None:

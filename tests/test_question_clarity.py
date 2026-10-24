@@ -294,3 +294,13 @@ def test_a_waiting_code_questions_banner_carries_its_short_line(daemon: Any) -> 
     daemon.run(ask())
     assert notes == [('FERB needs you',
                       'FERB needs your OK: atlasauth.b2clogin.com needs your password or another private answer.')]
+
+
+@pytest.mark.parametrize('handle', [None, 'visa'])
+def test_ask_secret_refuses_a_whole_browser_before_any_question(daemon: Any, handle: str | None) -> None:
+    """Defense in depth for any caller: the gateway itself never asks for, saves or fills a secret bound to a whole
+    browser app."""
+    from ferb.core.errors import Refused
+    with pytest.raises(Refused, match='whole web browser'):
+        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), 'app:com.google.Chrome', handle=handle, remember='visa'))
+    assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']

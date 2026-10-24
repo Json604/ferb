@@ -19,7 +19,7 @@ def _keychain(handle: str, value: str | None = None, home: Path | None = None) -
     return out.get('value')
 
 
-def _not_a_whole_browser(target: str) -> None:
+def refuse_whole_browser(target: str) -> None:
     """A secret is bound to the exact place it is filled: a web page's HTTPS origin, or a native app. A web browser
     as an app (`app:com.google.Chrome`) is every site it shows, so no handle is bound to one (owner 2026-10-24: "at
     places only ive approved")."""
@@ -38,7 +38,7 @@ class OwnerSecrets:
         return json.loads(self.path.read_text()) if self.path.exists() else {}
 
     def reveal(self, handle: str, target: str) -> str:
-        _not_a_whole_browser(target)                    # a handle saved that way before the rule is never filled
+        refuse_whole_browser(target)                    # a handle saved that way before the rule is never filled
         if self.handles().get(handle) != target:
             raise Refused('the secret handle is not bound to this exact destination')
         value = self.keychain(handle)
@@ -47,7 +47,7 @@ class OwnerSecrets:
         return value
 
     def remember(self, handle: str, target: str, value: str) -> None:
-        _not_a_whole_browser(target)
+        refuse_whole_browser(target)
         # Instances are short-lived per prompt; serialize their metadata updates across daemon worker threads.
         with _write_lock:
             self._remember(handle, target, value)
