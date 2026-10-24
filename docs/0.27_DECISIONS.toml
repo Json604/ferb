@@ -631,7 +631,7 @@ summary = "Loops: a loop plan step repeats an ordinary checked worker round unde
 [L36]
 milestone = "L"
 tests = ["tests/test_memory_capture.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/QuestionsAndNoticesTests.swift",
-         "tests/test_memory_search.py"]
+         "tests/test_memory_search.py", "tests/test_worker_memory.py"]
 note = "Owner 2026-10-24 approved the direction of \"memory and learning that work\" and answered its questions: \"BEFORE LAUNCH\"; guesses \"Ask right away\"; memory size \"Planner 60, worker 20\"; usernames \"Yes, plain\". Spec docs/superpowers/specs/2026-10-24-memory-that-works-design.md; plan docs/superpowers/plans/2026-10-24-memory-that-works.md. Section 1 (capture on every turn path) landed in 1c22dcb and f747d37."
 summary = "Memory that works: the owner's quoted words saved by distillation, every new guess asked at once (Keep / Edit / Drop) and the older ones reviewed once as one list; one ranked content search for the planner (60), workers and plan steps (20, with the parent goal), memory.read and memory.learned; one login record per site with a plain username and sealed entries, listed by secrets.list without values; dated facts retire; sealed values redacted as whole tokens and never inside FERB's ids; procedures compared modulo per-run handles with app-version ranges, and their use recorded."
 

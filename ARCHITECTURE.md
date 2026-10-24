@@ -2848,7 +2848,7 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
 - **One ranked search (§3).** `Learning.search` is the one ranked search. The planner turn and attention use it through
   the daemon's `_search` (facts synced, the query's embedding off the loop); `memory.read` and `memory.learned` use it
-  too (below); the worker and plan-step pushes (§4) move onto it in a later L36 task. `learning_fts` holds each node's content only
+  too (below), and every worker and plan step gets it pushed (§4, below). `learning_fts` holds each node's content only
   (`search_text`; a fact with the words of its subject and key slugs, `slug_words`; day digests, rollups and intent
   labels index nothing, found through what they cite). Every start asks `reindex_search` for `SEARCH_TEXT_VERSION`
   (migration 0048); once per version it re-indexes every node in a worker thread on a connection of its own, in node-id
@@ -2880,6 +2880,18 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   the memory items behind the matching facts, best first), never a substring match, and without the search a query is
   refused. `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
   (`shown_text`) beside their ids.
+- **Workers and plan steps (§4).** `Supervisor._worker_memory` asks the daemon's `memory_push` (the one search,
+  `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal and
+  the task's `target_words`, and adds each item as a protected "Layer 4 — retrieved memory" block, recorded in
+  `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no longer blank memory, and
+  their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The daemon's `recall` stub is
+  gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the next-attempt and question
+  choices and the resource reconcile judge fresh observations and get none. A query with no words gets nothing, never
+  the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted model embeds the query in a
+  worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy of the owner's database
+  (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research step's 223-word query and
+  22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare supervisor), a worker gets
+  the plain `recall` block, as before.
 
 ### 16.13 FERB's cursor (L33)
 

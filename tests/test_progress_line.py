@@ -329,6 +329,7 @@ def test_a_failing_live_line_is_noted_and_the_task_goes_on(daemon, monkeypatch):
 
 def test_recall_is_read_the_same_way_by_the_planner_and_the_worker(daemon):
     """Recall is a synchronous hook, read at intake and again for each worker's context; neither awaits it."""
+    daemon.daemon.supervisor.memory_push = None   # the plain recall path (no daemon search), still read the same way
     class Recalled:
         def __await__(self) -> Any:
             yield from ()

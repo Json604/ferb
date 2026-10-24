@@ -862,6 +862,10 @@ After the owner's update (2026-10-24):
   because the query had to appear letter for letter in an item ("RSNA knee Kaggle rank score" never could). Both memory
   tools now use the same ranked search as the planner, and `memory.learned` returns what each item says, not only its
   key. A search with no words lists the newest first, with no recency or owner boost.
+- Workers and plan steps get memory (L36). Live 2026-10-24: the visa task's research step got no memory and only its
+  own step goal, so it typed your email as the username even though you had given the username that morning. Every
+  worker and plan step now gets the 20 memories most relevant to your request and the task, and a plan step sees its
+  parent task's goal above its own.
 
 Licensed under Apache-2.0.
 

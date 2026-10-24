@@ -686,7 +686,9 @@ with Keep, Drop or a field for your own words.
 `ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
 workers the same read-only records, each candidate with what it says, with full paged bodies. A worker's `memory.read` query is ranked the same way. Search ranks by what items say (never JSON field names),
 skips words most memories share, and gives recent memories a small boost; what you said yourself counts as always
-recent, so at equal relevance it comes before FERB's guesses. Each planner turn gets the 60 most relevant memories. "Remember that …" saves as yours the whole sentence you
+recent, so at equal relevance it comes before FERB's guesses. Each planner turn gets the 60 most relevant memories.
+Each task worker and each step of a plan gets the 20 memories most relevant to your request and its goal; a plan step
+also sees the whole task's goal. "Remember that …" saves as yours the whole sentence you
 typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"
 saves "like tea"); FERB's rewording, like any inferred fact, waits for your Keep (FERB asks in chat and the notch; or
 `ferb memory confirm ID`) before it reaches a prompt. Observed

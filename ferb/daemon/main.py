@@ -56,7 +56,7 @@ from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
 from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, PROMPT_LEAVES_OUT, SEARCH_TEXT_VERSION, SOURCE_REF_INDEX,
-                                  reindex_search, search_indexed)
+                                  WORKER_MEMORY_ITEMS, reindex_search, search_indexed)
 from ferb.orchestrator import acks, episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
@@ -1385,7 +1385,10 @@ class Daemon:
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
-            self.supervisor.recall = lambda words: ('', {}, [])  # F8 ranked candidates include current facts
+            # L36 §4: every worker and plan step gets the one search at the owner's worker budget (no procedures:
+            # a worker's procedure is chosen by the planner)
+            self.supervisor.memory_push = lambda words: self._learning_candidates(words, WORKER_MEMORY_ITEMS,
+                                                                                  procedures=False)
             self.supervisor.remember = self._remember
             self.supervisor.forget_request = self._chat_forget
             self.supervisor.question_answered = self._question_answered
