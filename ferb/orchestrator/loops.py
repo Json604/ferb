@@ -195,7 +195,7 @@ class LoopRunner:
         self.store.save(self.task_id, self.step.id, **values)
 
     def _set(self, state: str) -> None:
-        self._save(state=state, pacing_json=self.pacer.to_json())
+        self._save(state=state, pacing_json=self.pacer.to_json(), reads=self.row['reads'])
         self.status({'state': state, 'rounds': self.row['rounds'], 'last_round_end': self.pacer.last_end,
                      'gap_seconds': self.pacer.gap})
 
@@ -313,7 +313,8 @@ class LoopRunner:
 
     async def _watch(self, probe: Probe | None, baseline: Any) -> dict[str, Any] | None:
         """Between rounds, no model: the probe is read every PROBE_SECONDS and only a trip, an error or a missing field
-        is recorded (with the count of reads since it was armed)."""
+        is recorded (with the count of reads since it was armed). An unchanged read writes nothing: the count is saved
+        with the next trip, error or state change."""
         self._set('backing_off' if self.pacer.gap else 'watching')
         next_read = self.now()
         while not self.stopped():
@@ -332,14 +333,15 @@ class LoopRunner:
                 value, error, origins = await self.probe(probe)
                 if self.stopped():          # the owner's stop came during the read (and may have cut it short):
                     return None             # nothing it saw is a trip, a short round or a notice
-                self._save(reads=self.row['reads'] + 1)
+                self.row['reads'] += 1      # kept in memory: saved with a trip, an error or a state change
                 next_read = self.now() + PROBE_SECONDS
                 if error is None and value is MISSING:
                     error = f"the probe's field {probe.field} isn't in {probe.tool}'s result"
                 if error or tripped(probe, value, baseline):
                     self.record('error' if error else 'trip', probe, value, error, origins, self.row['reads'])
                     started = self.pacer.tripped(self.now())          # the first trip after the round
-                    self._save(pacing_json=self.pacer.to_json())       # saved before the notice: never sent twice
+                    # saved before the notice: never sent twice
+                    self._save(pacing_json=self.pacer.to_json(), reads=self.row['reads'])
                     if started:
                         await self.notify(
                             f"I keep having to redo this: {self._goal()}. I fixed it {len(self.pacer.short)} times "

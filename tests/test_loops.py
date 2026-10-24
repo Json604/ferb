@@ -446,6 +446,25 @@ def test_a_pausing_round_is_saved_paused_before_its_notice(db):
     assert at_notice == ['paused']
 
 
+def test_quiet_probe_reads_write_nothing_and_the_count_is_kept_with_the_next_change(db):
+    """A probe read every 10 s that changes nothing writes nothing (one write per read is ~8,640 a day per loop); its
+    count is kept in memory and saved with a trip, an error or a state change."""
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()), round_result(p=probe())],
+                [(True, None)] * 6 + [(False, None)] + [(True, None)] * 4)
+    writes: list[set[str]] = []
+    save = h.store.save
+
+    def counting(task_id, step_id, **values):
+        writes.append(set(values))
+        save(task_id, step_id, **values)
+    h.store.save = counting
+    h.run()
+    assert [r['why'] for r in h.reasons] == ['first round', 'probe']
+    assert {'reads'} not in writes
+    assert ('trip', False, None) in h.records
+    assert h.store.load('tree', 'keep')['reads'] == 3            # round 2's probe: three quiet reads, then the stop
+
+
 def test_a_restarted_loop_compares_with_its_stored_baseline(db):
     """A value that changed while FERB was down still trips (spec §5: re-armed from the stored row)."""
     _seed(db, state='watching', rounds=1, probe_json=probe(op='changed').model_dump_json(), baseline_json='"a"',

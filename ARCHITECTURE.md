@@ -2723,7 +2723,8 @@ stays a watch.
   it is a probe (`ToolContext.probe`), so what a tool hands over only once (a browser tab's new downloads and tabs,
   reported with its snapshot) stays for the next round. The span store keeps
   `loop.probe_read` spans for the baseline, each trip and each error and a running count, never one per unchanged read
-  (the resource log, L30, is the measure). A probe's result never reaches a model; the tripping value goes to the next
+  (the resource log, L30, is the measure); an unchanged read writes nothing at all: `loop_state.reads` is kept in
+  memory and saved with the next trip, error or state change. A probe's result never reaches a model; the tripping value goes to the next
   round as untrusted outside data.
 - Pacing (`loops.py`): `PROBE_SECONDS` 10, `BACKUP_SECONDS` 1800, `NO_LASTING_FIX_SECONDS` 120, `CHURN_ROUNDS` 3 in
   `CHURN_WINDOW_SECONDS` 600, `FIRST_GAP_SECONDS` 120 doubling to `MAX_GAP_SECONDS` 3600, `RESET_SECONDS` 1800. A round
