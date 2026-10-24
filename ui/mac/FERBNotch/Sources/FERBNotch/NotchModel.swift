@@ -73,6 +73,7 @@ final class NotchModel: ObservableObject {
     @Published private(set) var isHeaderOnly = false
 
     let feedback = SoundFeedback()
+    var cursor: CursorController?
     let microphone: VoiceCapturing
     @Published var voiceTranscript = ""
     @Published var voiceFinishing = false

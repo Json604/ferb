@@ -358,8 +358,16 @@ extension NotchModel {
             if let taskID, let goal = runningTasks.removeValue(forKey: taskID), result["goal"] == nil { result["goal"] = goal }
             if result["at"] == nil { result["at"] = event["at"] }
             receiveOutcome(result)
+            if let taskID { cursor?.end(taskID: taskID) }
             // A result no attached chat showed would be replayed by `ferb chat`; this chat showed it.
             if let taskID, data["shown"] as? Bool == false { acknowledgeResults([taskID]) }
+        case "cursor.point":
+            if let taskID, let kind = data["kind"] as? String,
+               let r = (data["rect"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.doubleValue }), r.count == 4 {
+                let display = (data["display"] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
+                cursor?.point(taskID: taskID, kind: kind, rect: CGRect(x: r[0], y: r[1], width: r[2], height: r[3]),
+                              display: display)
+            }
         case "tool.called":
             guard let taskID else { return }
             let matches: (String?) -> Bool = { root in

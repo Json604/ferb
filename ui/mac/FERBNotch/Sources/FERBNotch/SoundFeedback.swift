@@ -37,6 +37,8 @@ final class SoundFeedback: ObservableObject {
 
 struct FeedbackSettingsView: View {
     @ObservedObject var feedback: SoundFeedback
+    let cursor: CursorController
+    @AppStorage("cursor.enabled") private var cursorEnabled = true
 
     var body: some View {
         Form {
@@ -51,6 +53,10 @@ struct FeedbackSettingsView: View {
                 Button("Play completion sound") { feedback.play(.completed) }
                     .disabled(!feedback.enabled)
             }
+            Section("Pointer") {
+                Toggle("Show FERB's pointer when it acts on screen", isOn: $cursorEnabled)
+                    .onChange(of: cursorEnabled) { _, on in cursor.enabled = on }
+            }
             Section("Shortcuts") {
                 LabeledContent("Open / close FERB", value: "Double-tap right Option")
                 LabeledContent("Dictation", value: "Hold right Command + Option")
@@ -62,6 +68,6 @@ struct FeedbackSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 410, height: 350)
+        .frame(width: 410, height: 410)
     }
 }

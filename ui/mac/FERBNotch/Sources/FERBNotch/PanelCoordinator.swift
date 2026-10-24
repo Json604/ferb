@@ -92,6 +92,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: run `ferb setup` again
     var onCodexLogin: (() -> Void)?              // set by the packaged FERB.app: `ferb setup --codex-login` (C2)
 
+    private let cursor = CursorController()
+
     override init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
@@ -102,6 +104,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
             if let window = window as? NSWindow { overlaySpace.leave(window) }
         })
         super.init()
+        model.cursor = cursor
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
         model.onPresentationChange = { [weak self] animate in self?.present(animate: animate) }
@@ -631,7 +634,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
                                   backing: .buffered, defer: false)
             window.title = "FERB Settings"
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: FeedbackSettingsView(feedback: model.feedback))
+            window.contentView = NSHostingView(rootView: FeedbackSettingsView(feedback: model.feedback, cursor: cursor))
             window.center()
             settingsWindow = window
         }
