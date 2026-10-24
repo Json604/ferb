@@ -297,6 +297,34 @@ def test_a_which_one_listing_the_planners_password_question_still_hides_a_passwo
     assert run(daemon, lambda: daemon.daemon._hide_code_reply("hunter2!", "s1")) == "[redacted]"
 
 
+def _send_check(daemon: Any) -> Any:
+    """One of FERB's own Yes / No checks (D33), waiting outside any task."""
+    from ferb.core.types import Identity
+    from ferb.daemon.gateway import CONFIRM_ASK
+    from ferb.policy.rules import ActionRequest
+    action = ActionRequest(CONFIRM_ASK, "owner_question", Identity.OWNER, frozenset(), "", "", "req-x", frozenset())
+    return daemon.daemon.state.approvals.question(action, "Send the draft to bob@example.com?", ["Yes", "No"])
+
+
+@pytest.mark.parametrize("which", ["dentist guess", "password guess", "send check"])
+def test_a_password_for_the_planners_question_ferb_displaced_is_still_hidden(daemon: Any, which: str) -> None:
+    """Follow-up (rule 14): the planner asked "What's the Wi-Fi password for the router?"; the owner's "sure" went to a
+    waiting check, and FERB's own "Is that … for this?" replaced the planner's question as the chat's pending one, so
+    a password typed next for the planner's question reached the planner unhidden. An option is still a choice."""
+    if which == "send check":
+        q, option = run(daemon, lambda: _send_check(daemon)), "No"
+    else:
+        q, _ = guess(daemon, **(PASSWORD_GUESS if which == "password guess" else {}))
+        option = "Drop"
+    install(daemon, [json.dumps({"kind": "clarify", "text": "What's the Wi-Fi password for the router?"})])
+    chat(daemon, "connect the TV to the wifi")
+    install(daemon, [json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": q.id,
+                                                                                    "answer": q.options[0]}})])
+    assert "Is that" in " ".join(str(e.get("text")) for e in chat(daemon, "sure"))          # FERB's own question
+    assert run(daemon, lambda: [daemon.daemon._hide_code_reply(w, "s1") for w in ("hunter2!", option)]) == [
+        "[redacted]", option]
+
+
 def test_an_option_of_a_waiting_question_is_never_hidden_as_a_password(daemon: Any) -> None:
     """Fix round 2: a reply that is exactly an option of a waiting question is a choice, even after the planner's own
     question asked about a password; any other one-word reply to that question is still hidden (rule 14)."""

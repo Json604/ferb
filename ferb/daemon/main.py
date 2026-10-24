@@ -623,8 +623,10 @@ class Daemon:
         for a code, and a one-word reply to a password or PIN question is hidden whole. The planner routes answers
         now (L3), so the secret must not travel with the message; a longer message may be a steer and keeps its
         words. The questions: workers' open ones, and the planner's own clarifying question in this conversation
-        (re-review 3, R1-b). FERB's memory questions never ask for a secret, so neither they nor FERB's own "which is
-        it?" about them hide anything, and a reply that is exactly an option of a waiting question is a choice (L36)."""
+        (re-review 3, R1-b), also when FERB's own "which is it?" has since replaced it as the pending question
+        (`Supervisor.displaced_question`). FERB's memory questions never ask for a secret, so neither they nor FERB's own
+        "which is it?" about them hide anything, and a reply that is exactly an option of a waiting question is a
+        choice (L36)."""
         if not isinstance(self.redact, Redactor):
             return text
         from ferb.orchestrator.steering import MEMORY_ASKS
@@ -639,10 +641,14 @@ class Daemon:
         if session_id is not None and self.supervisor is not None:
             asked = self.supervisor.continuity.pending(session_id)[1]
             # never a choice (exactly an option of a waiting question), and never after FERB's own "which is it?"
-            # about memory questions only, whose words quote a guess (L36: "passwords" there asks for nothing)
-            chosen = any(ap.option_for(text.strip()) is not None for ap in open_now)
-            if asked and not chosen and not self.supervisor.asked_only_about(session_id, MEMORY_ASKS):
-                text = self.redact.answer(text, question=asked, reply=True)
+            # about memory questions only, whose words quote a guess (L36: "passwords" there asks for nothing); the
+            # planner's question FERB's asking displaced still counts (rule 14)
+            if not any(ap.option_for(text.strip()) is not None for ap in open_now):
+                if asked and not self.supervisor.asked_only_about(session_id, MEMORY_ASKS):
+                    text = self.redact.answer(text, question=asked, reply=True)
+                displaced = self.supervisor.displaced_question(session_id)
+                if displaced:
+                    text = self.redact.answer(text, question=displaced, reply=True)
         return text
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:

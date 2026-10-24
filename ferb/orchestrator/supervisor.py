@@ -221,12 +221,13 @@ def _not_saved(refused: list[tuple[str, str]]) -> str:
 class _Focus:
     """What FERB itself just asked a chat about an answer (L3), for that chat's next message only: the owner's earlier
     words it asked "which one is it for?" about (None for "Yes or No?"), the questions it named, and the questions
-    open when it asked (one opened since then still competes). `planner_listed`: it also listed the planner's own
-    question that message continued, which may ask for a secret (L36, rule 14)."""
+    open when it asked (one opened since then still competes). `planner_question`: the planner's own question that
+    FERB's asking displaced as the chat's pending question; it may ask for a secret, so the next reply is still hidden
+    against it (L36, rule 14)."""
     words: str | None
     named: frozenset[str]
     seen: frozenset[str]
-    planner_listed: bool = False
+    planner_question: str = ''
 
 
 @dataclass
@@ -1015,18 +1016,21 @@ class Supervisor(WorkerRuns):
         plainly: never an id, a command or a method (I12)."""
         open_now = [q for q in self.state.approvals.pending() if q.kind == 'owner_question']
         seen = frozenset(q.id for q in open_now)
+        # the planner's own question this message continues, which FERB's asking below displaces (kept across FERB's
+        # follow-ups): a secret typed for it next is still hidden (`displaced_question`, rule 14)
+        displaced = clarified if focus is None else focus.planner_question
         ap = self.state.approvals.get(routed.approval_id)
         if ap is None or ap.kind != 'owner_question' or ap.capability not in ROUTABLE_QUESTIONS:
             listed = self._listed(q for q in open_now if q.capability in ROUTABLE_QUESTIONS)
             if not listed:
                 return self._code_turn(session, request_id, 'reply', NO_QUESTION)
-            self._answer_focus[session.id] = _Focus(None, frozenset(), seen)
+            self._answer_focus[session.id] = _Focus(None, frozenset(), seen, displaced)
             return self._code_turn(session, request_id, 'clarify', WHICH_QUESTION + '\n' + listed, owner_words, payload)
         if ap.state != 'pending':
             return self._code_turn(session, request_id, 'reply', NOT_WAITING)
         words = m.own_words.strip()
         if m.untrusted or not words:                  # pasted text is data (MP2): never the owner's answer
-            self._answer_focus[session.id] = _Focus(None, frozenset(), seen)
+            self._answer_focus[session.id] = _Focus(None, frozenset(), seen, displaced)
             return self._code_turn(session, request_id, 'clarify', PASTED_ANSWER, owner_words, payload)
         # the owner's reply to FERB's "which one is it for?": the earlier words answer the question they now name
         carried = (focus is not None and focus.words is not None and ap.id in focus.named
@@ -1036,7 +1040,7 @@ class Supervisor(WorkerRuns):
         if ap.capability in FERB_CHECKS:
             choice = ap.option_for(_bare(text))
             if choice is None or ap.option_for(_bare(routed.answer)) != choice:
-                self._answer_focus[session.id] = _Focus(None, frozenset({ap.id}), seen)
+                self._answer_focus[session.id] = _Focus(None, frozenset({ap.id}), seen, displaced)
                 return self._code_turn(session, request_id, 'clarify', _plain_choice(ap), owner_words, payload)
             if not carried:
                 # FERB just asked "Yes or No?" about exactly this check: questions open then don't compete
@@ -1047,7 +1051,7 @@ class Supervisor(WorkerRuns):
                 planner_asked = clarified if focus is None else ''   # the planner's question this message continues
                 if others or planner_asked.strip():
                     self._answer_focus[session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}), seen,
-                                                            planner_listed=bool(planner_asked.strip()))
+                                                            displaced)
                     lines = [self._listed([ap, *others])]
                     if planner_asked.strip():
                         lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
@@ -1062,14 +1066,20 @@ class Supervisor(WorkerRuns):
 
     def asked_only_about(self, session_id: str, capabilities: Any) -> bool:
         """Whether this chat's pending question is FERB's own "which is it?" about an answer (`_answer`, L3) naming only
-        questions of these capabilities, and not the planner's own question too: then its words are FERB's quote of
-        those questions, not a request for the owner's secret (L36: a guess about "passwords" quoted there never hides
-        the owner's reply)."""
+        questions of these capabilities: then its words are FERB's quote of those questions, not a request for the
+        owner's secret (L36: a guess about "passwords" quoted there never hides the owner's reply). The planner's own
+        question it displaced, or lists, is checked on its own (`displaced_question`)."""
         focus = self._answer_focus.get(session_id)
-        if focus is None or not focus.named or focus.planner_listed:
+        if focus is None or not focus.named:
             return False
         named = [self.state.approvals.get(i) for i in focus.named]
         return all(ap is not None and ap.capability in capabilities for ap in named)
+
+    def displaced_question(self, session_id: str) -> str:
+        """The planner's own question this chat's next message may still answer, which FERB's "which is it?" replaced
+        as the pending question ('' when none): the daemon hides a secret typed for it (rule 14)."""
+        focus = self._answer_focus.get(session_id)
+        return focus.planner_question if focus is not None else ''
 
     @staticmethod
     def _listed(questions: Any) -> str:
