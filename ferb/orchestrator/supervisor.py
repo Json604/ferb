@@ -518,6 +518,7 @@ class Supervisor(WorkerRuns):
         self.browser_context: Callable[[str], str] = lambda task_id: ""
         # the browser tabs a task holds now, by tab id, redacted (daemon supplied; L31: a loop's, for each round)
         self.task_tabs: Callable[[str], list[dict[str, Any]]] = lambda task_id: []
+        self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
         # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
         self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
         self.relevant_source_refs: Callable[[str], list[str]] = lambda words: []
@@ -2718,6 +2719,11 @@ class Supervisor(WorkerRuns):
 
     # ---------- loops (L31) ----------
 
+    def loop_resting(self, task_id: str) -> bool:
+        """A loop's task between its rounds (L31): the owner's tab it holds is theirs again for downloads and new tabs
+        (owner, 2026-10-25: "give them back between rounds"); during a round, its check included, it is FERB's."""
+        return task_id in self._resting
+
     def wake_loops(self, tree_id: str) -> None:
         """A steer, a plan event or a stop for this tree: its loops look now (L31)."""
         for runner in list(self._loops.get(tree_id, ())):
@@ -2795,6 +2801,13 @@ class Supervisor(WorkerRuns):
                   **({'earlier_plan_results': earlier} if (earlier := self.plans.earlier(tree.id)) else {})}
 
         async def play(cause: dict[str, Any]) -> dict[str, Any]:
+            self._resting.discard(child.id)          # the round drives the loop's tabs (D35: what it starts is FERB's)
+            try:
+                return await round_play(cause)
+            finally:
+                self._resting.add(child.id)          # between rounds the owner's held tab is theirs again
+
+        async def round_play(cause: dict[str, Any]) -> dict[str, Any]:
             spec = tree.spec.model_copy(deep=True)
             spec.plan, spec.goal, spec.worker_type = None, step.goal, step.worker_type
             spec.success_conditions = list(conditions)
@@ -2944,6 +2957,7 @@ class Supervisor(WorkerRuns):
             runners.discard(runner)
             if not runners:
                 self._loops.pop(tree.id, None)
+            self._resting.discard(child.id)
             if not self._suspending:
                 self._loop_status.pop((tree.id, step.id), None)
                 await self._release_resources(holder, span)

@@ -261,6 +261,10 @@ class Hub:
         """The live task that drives this tab now, in any driver; None: the extension must not hold its downloads."""
         return next((tt for d in self.drivers if (tt := d.task_tab(br, chrome_id)) is not None), None)
 
+    def holds(self, br: "Bridge", chrome_id: int) -> bool:
+        """A running task still holds this tab (a loop's, resting between rounds, included): it isn't let go of here."""
+        return any(d.holds(br, chrome_id) for d in self.drivers)
+
     def tab_removed(self, br: "Bridge", chrome_id: int) -> None:
         """A tab closed in the browser: a task tab is marked closed in its driver (re-review 2, R5)."""
         for d in self.drivers:
@@ -280,7 +284,7 @@ class Hub:
         """After a reconnect or a daemon restart: let go of every tab the extension still holds downloads for that
         isn't a live task tab here (a failed release, a task that ended while disconnected). Never closes a tab."""
         for tab_id in armed:
-            if self.task_tab(br, int(tab_id)) is None:
+            if self.task_tab(br, int(tab_id)) is None and not self.holds(br, int(tab_id)):
                 self._spawn(br.call("disarm", {"tab_id": int(tab_id)}, timeout=10))
 
     def _on_open(self, br: "Bridge", ev: Event) -> None:
@@ -299,7 +303,9 @@ class Hub:
             if d.task_tab(br, ev.tab_id) is not None:
                 await d.open_from(br, ev.tab_id, str(ev.url or ""), ev.window_id)
                 return
-        await _pass_through(br, ev.tab_id, str(ev.url or ""), active=not ev.background)
+        # a loop's held tab between rounds: the owner's link opens as theirs, and the loop keeps holding the tab
+        await _pass_through(br, ev.tab_id, str(ev.url or ""), active=not ev.background,
+                            disarm=not self.holds(br, ev.tab_id))
 
     def _on_popup(self, br: "Bridge", ev: Event) -> None:
         """A popup the extension claimed by its page-hook token for a live task tab: the same task's tab from now on
@@ -471,14 +477,15 @@ class Hub:
 _cancels: set["asyncio.Task[None]"] = set()
 
 
-async def _pass_through(br: Bridge, tab_id: int, url: str, active: bool = True) -> None:
-    """The owner's own new-tab click caught by a listener in a tab no task drives any more: opened as they asked (cmd/ctrl
+async def _pass_through(br: Bridge, tab_id: int, url: str, active: bool = True, disarm: bool = True) -> None:
+    """The owner's own new-tab click caught by a listener in a tab no task drives now: opened as they asked (cmd/ctrl
     or middle click: in the background; with shift, or a plain target=_blank click: in front, as the browser would), the
-    tab disarmed."""
+    tab disarmed, unless a task still holds it (a loop between rounds, L31)."""
     try:
         await br.call("open_plain", {"tab_id": tab_id, "url": url, "active": active}, timeout=10)
     finally:
-        await br.call("disarm", {"tab_id": tab_id}, timeout=10)
+        if disarm:
+            await br.call("disarm", {"tab_id": tab_id}, timeout=10)
 
 
 def _let_download_go(br: Bridge, ev: Event) -> None:
@@ -707,6 +714,9 @@ class _TabDriver:
         self.downloads: Downloads | None = None         # D35: shared by both drivers, daemon supplied
         self.uploads: Uploads | None = None             # rule 17: daemon supplied; the browser reads FERB's copy
         self.task_running: Callable[[str], bool] = lambda task: True   # daemon supplied: the task hasn't ended
+        # daemon supplied (L31): a loop holds this task's tabs between its rounds; the owner's own tab is then theirs
+        # again for downloads and new tabs (owner, 2026-10-25: "give them back between rounds")
+        self.task_resting: Callable[[str], bool] = lambda task: False
         self.task_root: Callable[[str], str] = lambda task: task      # daemon supplied: the task tree (tab cap)
         self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
         self.redact_text: Callable[[str], str] = Redactor().text      # daemon supplied: its redactor (rule 14)
@@ -791,9 +801,20 @@ class _TabDriver:
         return next((t.owner for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id), None)
 
     def _live(self, br: Bridge, chrome_id: int) -> _Tab | None:
-        """This driver's tab with that browser id, driven by a task that is still running (opened or borrowed)."""
+        """This driver's tab with that browser id, driven by a task that is still running (opened or borrowed). The
+        owner's own tab that a loop holds between its rounds isn't driven (L31, owner 2026-10-25: "give them back
+        between rounds"): a download there goes back to the browser and a new-tab link opens as the owner's own tab;
+        the hold that keeps the page running (the debugger, its focus emulation) stays. A round's own actions, and
+        its check, happen while the tab is driven, so what they start is FERB's (D35)."""
         return next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id and t.owner
-                     and not t.closed and self.task_running(t.owner)), None)
+                     and not t.closed and self.task_running(t.owner)
+                     and not (t.attached and self.task_resting(t.owner))), None)
+
+    def holds(self, br: Bridge, chrome_id: int) -> bool:
+        """A running task still holds this tab, driven or resting between a loop's rounds: never let go of it from
+        outside the task (a link's pass-through, a reconnect's sweep)."""
+        return any(t.bridge is br and t.chrome_id == chrome_id and t.owner and not t.closed
+                   and self.task_running(t.owner) for t in self._tabs.values())
 
     def tab_closed(self, br: Bridge, chrome_id: int) -> None:
         """The browser closed this tab (the owner did): the task's inventory says so; a reopened tab is a new one."""

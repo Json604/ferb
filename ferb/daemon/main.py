@@ -3687,6 +3687,8 @@ class Daemon:
             drv.downloads = self.downloads
             drv.uploads = self.uploads
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
+            # L31: between a loop's rounds, the owner's tab it holds is theirs again (downloads, new tabs)
+            drv.task_resting = lambda task_id: self.supervisor is not None and self.supervisor.loop_resting(task_id)
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
             drv.redact_text = lambda text: str(self.redact({"u": text})["u"])

@@ -2661,3 +2661,53 @@ def test_the_round_s_own_pause_question_is_labelled_as_the_task_s(daemon):
     question, options, origin = _on_loop(daemon, sv._pause_question, 'tree', asker.step,
                                          {'question': 'FERB check: approve?'}, [])
     assert question.startswith(TASK_QUESTION) and options == ['Stop'] and 'inferred' in origin
+
+
+# ---------- between rounds, the owner's held tab is theirs again (owner, 2026-10-25: "give them back") ----------
+
+def _wait_for(predicate, timeout=10.0):
+    import time as _time
+    end = _time.monotonic() + timeout
+    while not predicate():
+        if _time.monotonic() > end:
+            raise AssertionError('timed out')
+        _time.sleep(0.02)
+
+
+def test_between_rounds_the_owners_downloads_and_new_tab_links_in_the_held_tab_are_theirs(bd, monkeypatch):
+    """Review I4, owner decision 2026-10-25 ("give them back between rounds"): while a loop holds the owner's tab
+    between rounds it keeps only what keeps the page running (the debugger and its focus emulation). A download the
+    owner starts there goes back to the browser (their Downloads), and a link they open in a new tab opens as their own
+    tab; the loop's hold isn't let go of for it. During a round both are FERB's, as D35 has them."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    during: dict = {}
+
+    def acting_round(token):
+        out = _tab_round(d, ext, [])(token)
+        did = ext.start_download(OWNER_TAB, 'clip.mp4', b'x' * 64, 'https://www.instagram.com/clip.mp4')
+        _wait_for(lambda: did not in ext.held_downloads)
+        during['download_kept'] = did not in ext.download_releases and bool(ext.download_parts)
+        opens = ext.opens
+        ext.link_to_new_tab(OWNER_TAB, 'https://www.instagram.com/p/during/')
+        _wait_for(lambda: ext.opens > opens or ext.plain_opens)
+        during['adopted'] = ext.opens > opens and not ext.plain_opens
+        return out
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())], {'loop.keep': [acting_round], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert during == {'download_kept': True, 'adopted': True}
+        did = ext.start_download(OWNER_TAB, 'mine.pdf', b'y' * 64, 'https://www.instagram.com/mine.pdf')
+        _wait_for(lambda: did in ext.download_releases)                     # handed back to the browser
+        plain = len(ext.plain_opens)
+        ext.link_to_new_tab(OWNER_TAB, 'https://www.instagram.com/p/mine/')
+        _wait_for(lambda: len(ext.plain_opens) > plain)
+        assert ext.plain_opens[-1]['url'] == 'https://www.instagram.com/p/mine/'
+        assert OWNER_TAB in ext.attached and OWNER_TAB not in ext.disarmed  # still held: the reel keeps playing
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()

@@ -144,6 +144,10 @@ Owner decisions (2026-10-24):
 - Resources a round starts that the loop needs between rounds (a shell session watching CI, a FERB tab) belong to the
   loop step, not the round: they are released when the loop ends, not after each round (today a converse turn releases
   its resources per turn, `supervisor.py:2373-2376`). A restart loses them, and the next round re-creates them.
+  Owner decision, 2026-10-25 ("give them back between rounds"): between rounds (and while paused) a held tab of the
+  owner's keeps only what keeps the page running (the debugger and its focus emulation); a download the owner starts
+  in it goes to their Downloads and a new-tab link opens as their own tab. During a round, what the round's actions
+  start is FERB's (D35).
 
 ### 6. Ending
 - Stop (the task's Stop, `task.stop`, or "stop" in chat) ends the loop at once through the existing stop path

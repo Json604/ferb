@@ -87,6 +87,33 @@ def test_what_becomes_of_a_held_download_nobody_takes(identity: str) -> None:
     assert out["left"] == 0
 
 
+def test_a_download_handed_back_from_a_tab_ferb_keeps_holding_leaves_its_debugger_and_focus_emulation() -> None:
+    """L31, owner 2026-10-25 ("give them back between rounds"): between a loop's rounds the daemon hands the owner's
+    download in the held tab back to the browser and opens their new-tab link as an ordinary tab. Neither touches the
+    tab's debugger session or its focus emulation, which keep the page running."""
+    out = worker('''(async () => {
+      const cmds = [], sent = [], created = [];
+      port = {postMessage() {}}; profileIdentity = 'owner';
+      send = async (type, body) => { sent.push(body); };
+      cdp = async (tab, method, params) => { cmds.push(method); return {}; };
+      chrome.debugger = {sendCommand: async (t, m) => { cmds.push(m); }, detach: async () => { cmds.push('detach'); }};
+      chrome.tabs.get = async id => ({id, windowId: 5, index: 2});
+      chrome.tabs.create = async (props) => { created.push(props); return {id: 77, windowId: props.windowId}; };
+      const st = tabState(3); st.attached = true; st.armed = true; st.ready = true;
+      await onPaused({tabId: 3}, {requestId: 'r1', request: {url: 'https://x/mine.pdf', headers: {}},
+        responseStatusCode: 200, responseHeaders: [{name: 'content-type', value: 'application/pdf'},
+                                                   {name: 'content-disposition', value: 'attachment'}]});
+      const id = sent.filter(b => b.event === 'download').pop().download_id;
+      cmds.splice(0);
+      const back = await commands.download_part({download_id: id, release: true});
+      const opened = await commands.open_plain({tab_id: 3, url: 'https://x/p/mine', active: true});
+      return {back, cmds, opened, created, attached: TABS.get(3).attached, armed: TABS.get(3).armed};
+    })()''')
+    assert out["back"] == {"released": True, "handed_back": True} and out["cmds"] == ["Fetch.continueRequest"]
+    assert out["opened"]["opened"] is True and out["created"][0]["url"] == "https://x/p/mine"
+    assert out["attached"] is True and out["armed"] is True                   # still held, still running
+
+
 def test_a_released_download_whose_body_ferb_already_took_can_only_be_failed() -> None:
     out = worker('''(async () => {
       const cmds = []; port = {postMessage() {}}; send = async () => {};

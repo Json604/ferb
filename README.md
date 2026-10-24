@@ -524,6 +524,9 @@ restarts and updates without a message. If a fix keeps not lasting, FERB waits l
 doubling up to an hour) and tells you once. It pauses and asks only when a round is blocked, needs you, or an action's
 outcome is unknown; the question comes as a card with buttons. If you close the tab a loop keeps going, it asks "The
 <site> tab you asked me to keep going was closed. Stop this task?" (Stop / Keep watching). The notch lists a loop as "Keeping: … · fixed N times · last X min ago" with Stop.
+While a loop keeps one of your own tabs going, FERB holds it (its debugger bar stays) but between rounds the tab is
+yours: a download you start there goes to your Downloads, and a link you open in a new tab is your own tab. FERB's own
+tabs stay in its minimized window.
 
 FERB keeps a log of its own resource use (L30). Every 5 minutes the daemon writes one row of numbers to its database:
 its CPU and memory, those of the processes it started (and theirs) and of FERB.app, the database's size, and counts of

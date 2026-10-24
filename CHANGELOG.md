@@ -939,6 +939,12 @@ After the owner's update (2026-10-24):
   me to keep going was closed. Stop this task?" with Stop / Keep watching; any other pause asks the round's own
   question with Stop. Stop ends the task; Keep watching starts the next round; a reply in chat still steers it. The
   chat line names the loop in a few words.
+- Between a loop's rounds, the tab it keeps going is yours again (L31, D35; your decision, 2026-10-25: "give them back
+  between rounds"). Holding your tab for the whole loop also meant your own downloads there went to FERB's workspace
+  and links you opened in a new tab became the loop's tabs, even while it was paused. Now, between rounds and while
+  paused, FERB keeps only what keeps the page running (its debugger hold, with focus emulation): your download goes to
+  your Downloads and your link opens as your own tab. During a round, what the round does is FERB's, as before. No
+  extension change: it works with every extension version.
 
 Licensed under Apache-2.0.
 

@@ -2796,7 +2796,15 @@ planner's own words say what the loop does.
   tab only marks it kept (`_TabDriver.keep_open`): the tab stays held, its debugger attached and focus emulation on,
   until its task ends (a loop's: until the loop stops), when `close` lets go of it, open; letting go at `keep_open`
   turned focus emulation off and Instagram paused 0.3 s after each round (live cc5debe4, 2026-10-25). A tab FERB
-  opened is still handed over at once. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
+  opened is still handed over at once. Between rounds (and while the loop is paused) the owner's held tab is theirs
+  again for everything but the hold (owner, 2026-10-25: "give them back between rounds"): `Supervisor.loop_resting`
+  is true from a round's end (its check included) to the next round's start, and the driver's `_live` then treats
+  that borrowed tab as no task's (`task_resting`), so a download the owner starts there is handed back to the
+  browser (their Downloads) and a new-tab link they open is opened as their own tab (`open_plain`), while the hold
+  that keeps the page running (the debugger, its focus emulation) stays: `Hub.holds` keeps the link's pass-through
+  and a reconnect's sweep from disarming it. The extension is unchanged (its D35 interception and page hook stay on;
+  what they catch goes back to the browser), so every extension version behaves so. During a round, what its
+  actions start is FERB's (D35). Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
   `Supervisor.task_tabs`, the daemon's `_task_tabs`, redacted), so a later round uses them without listing and
   borrowing again. A round that only looked skips the model checker (owner, 2026-10-25: "Skip it
   for look-only rounds"; `loops.look_only_round`, called by `Supervisor._look_only`): it reported `continue` with a
