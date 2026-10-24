@@ -18,15 +18,13 @@ should take up work, offer me etc". A read of the code and the live database on 
 ## Owner decisions (2026-10-24)
 - **Offer only.** FERB does nothing for a noticed thing until the owner taps **Do it**.
 - **Jev is a switch.** A user with a Jev key may give it, and Jev does the first yes/no filter as today. Without a key,
-  the Jev step is left out, and FERB's own AI service looks at activity directly.
+  activity-based notices and offers are off: no activity checking at all (owner: "cut this 10 min checking. lets drop
+  it if jev is not there"). The daily brief still works without Jev (one call a day), and so do its offers.
 - **No limit** on how often FERB approaches the owner.
 - **Sources:** a **daily brief**, **Mail** and **Calendar**, on top of today's screen, browser and notification
   activity.
 
 ## Rulings in this design (the owner can correct them)
-- **Without Jev, batches are considered every 10 minutes per app.** Only apps with new activity count, and an urgent
-  pattern (a sign-in code, a security warning) is not held back. Why: keeping the minute cadence on the user's own AI
-  plan multiplies its use about tenfold. *Open for the owner: the cadence.*
 - **The daily brief arrives at the owner's first activity after 05:00 local,** not at a fixed clock time. A setting
   turns it off.
 - **Notices and offers go to the separate Noticed list,** with an eye count in the notch (owner, 2026-10-24). Loop
@@ -56,10 +54,10 @@ should take up work, offer me etc". A read of the code and the live database on 
 ### 2. The Jev switch
 - A setting `[attention] jev = "auto" | "off"`, default auto: use Jev when a key exists.
 - `ferb setup --jev` (and later Settings → AI) adds or removes the key.
-- **Without Jev,** `batches.py` stops returning early. Batches go straight to the orchestrator's attention
-  consideration (`Supervisor.attention`), merged per app over the 10-minute window. The existing "one consideration
-  per app at a time" stays.
-- `ferb doctor` and the notch status say which path is active.
+- **Without Jev,** nothing changes in `batches.py`: it keeps returning early, so no activity is considered and no
+  activity notices or offers are made. The trail still records activity for memory and the daily summary, as today.
+- `ferb doctor` and the notch status say whether activity notices are on ("Jev key set") or off ("add a Jev key to get
+  notices about your activity"). The daily brief (section 6) works either way.
 
 ### 3. No cap, but no repeats
 - No rate cap (owner).
@@ -88,7 +86,8 @@ should take up work, offer me etc". A read of the code and the live database on 
     macOS Calendar permission prompt (the setup window's Permissions step, L34).
   - It writes them to the daemon over the app's RPC every 15 minutes and on change.
   - Rows enter the trail as `calendar.upcoming`.
-- **Both feed attention like other trail sources,** so meeting prep, a reply waiting or a delivery can become an offer.
+- **Both feed attention like other trail sources** (with Jev), so meeting prep, a reply waiting or a delivery can
+  become an offer. Without Jev they reach the owner through the daily brief only.
 
 ### 6. The daily brief
 - At the owner's first activity after 05:00, code assembles the day's facts:
@@ -116,8 +115,8 @@ should take up work, offer me etc". A read of the code and the live database on 
 - **Offers.** The attention step's offer is stored and shown. `notice.accept` starts exactly one task with the fixed
   owner part. A tap on an offer from external content still triggers the sink rule for an outside destination, and a
   payment still asks. Not now records dismissed. Ignored is set after 24 hours.
-- **Jev switch.** With no key, batches reach the orchestrator after 10 minutes per app (fake clock), and a sign-in-code
-  row isn't held back. With a key, Jev gates as today. Doctor shows the path.
+- **Jev switch.** With no key, no batch reaches the orchestrator and no activity notice is made, while the daily brief
+  still fires. With a key, Jev gates as today. Doctor shows which is active.
 - **Mail.** A fixture copy of Mail's index yields `mail.new` rows (sender, subject, date only) through redaction and
   exclusion. A missing or unreadable index gives a clear doctor line.
 - **Calendar.** The RPC accepts events and writes `calendar.upcoming`. Swift: the EventKit reader maps events, and
