@@ -763,9 +763,13 @@ After the owner's update (2026-10-24):
   "“US Visa Scheduling password for …” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain", or "A
   password or private answer for x.com — used once, not saved", and "Login code for accounts.google.com — used once".
   The name is the worker's proposed name, in quotes, only as the name; the place still comes from the page's address
-  (or the app's name). When FERB's redaction would hide part of the place (a code word before a port or a number in
-  the host), the line names the place first ("For x.test:8443: a login code — used once"). The full question under
-  Details is unchanged.
+  (or the app's name). The name is shown cleaned (no quote marks, dashes, middle dots, Markdown or control
+  characters, at most 40 characters), and one that looks like a place (a dot between letters, "://", "@") or was
+  clipped comes after the real place, so a worker's text can never show a fake place first (review I1: "visa” — for
+  accounts.google.com only · …" did). When FERB's redaction would hide part of the place (a code word before a port
+  or a number in the host), the line names the place first ("For x.test:8443: a login code — used once"); a host
+  whose own name holds a code label before its port (otp.example.com:8443) still shows that port hidden, as the
+  Details question always has. The full question under Details is unchanged.
 - A loop's plan line is one short marker (L31; owner, 2026-10-24: "why is it spitting so much extra text with this
   loop message???"): "⟳ Until you say stop", or "⟳ Until: “the checks pass”". It used to repeat the whole goal and how
   rounds work ("I'll keep at this until You say to stop.: Monitor the bound Instagram tab … Between rounds I only
@@ -774,12 +778,15 @@ After the owner's update (2026-10-24):
   2026-10-24, keeping your Instagram reel playing: the round armed `media.44.playing` (and earlier `media.51.paused`),
   but Instagram's feed holds dozens of videos whose list positions shift as it loads, so the probe watched another
   video and your reel paused unnoticed ("it stops sometimes"). Each video or audio element now has its own id for as
-  long as the page is open, and the snapshot lists them by id (`media_by_id`, e.g. `media_by_id.m12.playing`);
-  `browser.media` takes that id too. `browser.tabs` says whether each tab plays sound and is muted and keys tabs by
-  their tab_ref (`tabs_by_ref.<tab_ref>.audible`), cheaper than a snapshot. The worker is told to watch these. A probe
+  long as the page is open (`m12-3fa91c`: its number, then the page's own token, so an id from before a reload
+  matches nothing after it), shown in the snapshot's media list; a loop's probe reads one element by it
+  (`media_by_id.m12-3fa91c.playing`), and `browser.media` takes that id too. `browser.tabs` says whether each tab
+  plays sound and is muted, and a probe reads one of your tabs by its tab_ref (`tabs_by_ref.<tab_ref>.audible`),
+  cheaper than a snapshot. The keyed lists go only to a probe's reads, never to the model (an Instagram snapshot of 52
+  videos is 29% smaller for the model than with them). The worker is told to watch these. A probe
   whose very first read already shows the job needs doing (as `media.44.playing` = false did) is no longer armed: the
   next round starts at once, told that its probe is probably watching a different element, and three such rounds in
-  a row start the usual back-off with its one notice. The daemon still accepts 0.15.6: with the Web Store copy the
+  a row start the usual back-off with its one notice (a stop during that first read counts nothing). The daemon still accepts 0.15.6: with the Web Store copy the
   new fields are absent, so a probe on them is refused (its field is missing) and the loop runs on its 30-minute
   backup check until a round picks another field; upload 0.15.8 to the listing to give every profile the ids.
 - A paired browser profile that isn't running no longer reads as broken (L25, P27). Live 2026-10-24, 12:27–12:31:
@@ -799,14 +806,17 @@ After the owner's update (2026-10-24):
   it in a fresh snapshot before typing again, since typing adds to what is there.
 - A login name you give while FERB works on a site is remembered (P27). Live 2026-10-24: at 06:31 you said "the
   username is …" during the visa task; the task used it but nothing was saved, so a later task typed your email as
-  the username. The planner now remembers a login name or account detail for a site in the same turn as the task
-  change (a fact with a key naming the site, e.g. "usvisascheduling-username").
+  the username. The planner now remembers a login name or username for a site in the same turn as the task change (a
+  fact with a key naming the site, e.g. "usvisascheduling-username"); passwords and other secrets still go only
+  through the hidden-input question.
 - Stopping or correcting a task no longer drops the rest of what you said (L11, MP2). Live 2026-10-24: at 05:44 ("take
   my creds once, don't ask every time") and 12:22 ("book anywhere, don't wait for Chennai") the planner wrote a memory
   entry alongside the correction, and FERB dropped both, because a live correction and a stop answered before saving
   memory, forgets, reminders or schedule changes; the visa schedule kept its old scope. Every kind of turn (a reply, a
   new task, a stop, a live correction, a continue or a retry) now applies them once, with the same checks, and the
-  reply to a stop or correction ends with FERB's lines about them ("Remembered: …", "Paused: …").
+  reply to a stop or correction ends with FERB's lines about them ("Remembered: …", "Paused: …") and is kept in the
+  chat's history like any reply. A correction that arrives just as its task ends does none of it and asks you to send
+  the message again, so nothing is applied twice.
 - Pausing a task that has a schedule pauses the schedule too (L3, P27). Live 2026-10-24 12:34: "pause the visa task
   for now, I'll say when to continue" stopped the task but left its daily 10:00 schedule active. The planner is told
   to pause or resume a job's schedule in the same turn as the task, and to cancel it when you end the job for good.
