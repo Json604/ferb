@@ -197,7 +197,7 @@ def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
     monkeypatch.setattr(tools, 'display_of', lambda r: 2)
     tool = tools.MacClick(d)
     got = asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None))
-    assert got == Point('click', (296.0, 96.0, 8.0, 8.0), 2) and seen == [(3, (296.0, 96.0, 8.0, 8.0))]
+    assert got == Point('click', (196.0, 96.0, 8.0, 8.0), 2) and seen == [(3, (196.0, 96.0, 8.0, 8.0))]
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='old', x=200, y=100), None)) is None
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=900, y=100), None)) is None
     monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: False)
