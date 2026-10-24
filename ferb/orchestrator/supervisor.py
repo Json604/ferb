@@ -38,7 +38,7 @@ from ferb.memory.learning import ProcedurePart
 from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering,
+from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, JUST_ENDED, Steering, apply as apply_steering,
                                        grant_stated, not_covered, not_typed)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
@@ -1180,11 +1180,13 @@ class Supervisor(WorkerRuns):
             prior = self.continuity.load(control.task_id, session.id)
             if prior is None:
                 side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                said = self._with_lines({"type": "reply", "text": "I couldn't find that attempt in this chat. Tell me "
+                                                                  "which task to stop or retry."}, side.lines)
+                self._record_reply(session.id, request_id, said["text"], turn_origins)
                 try:
                     for event in side.events:
                         yield event
-                    yield self._with_lines({"type": "reply", "text": "I couldn't find that attempt in this chat. Tell "
-                                                                     "me which task to stop or retry."}, side.lines)
+                    yield said
                 finally:
                     self._env.pop(request_id, None)
                 return
@@ -1196,13 +1198,14 @@ class Supervisor(WorkerRuns):
                                               supersedes=control.supersedes)
                 if steered is not None:
                     reply, restated = steered
-                    # the turn's other entries too, once, and code's lines about them end the steer's reply
-                    side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                    # the turn's other entries too, once, and code's lines about them end the steer's reply; a
+                    # correction that found its task ending applies none of them: the owner sends it all again
+                    side = (_Side([], [], []) if reply["text"] == JUST_ENDED else
+                            self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins))
                     reply = self._with_lines(reply, side.lines)
-                    if restated is not None:     # D30: the stated scope is in the conversation record (next turns)
-                        self.journal.append('chat.reply', {'session_id': session.id, 'request_id': request_id,
-                                                           'text': reply['text']},   # the planner's scopes (MP2)
-                                            origin=origins_.join({origins_.INFERRED} | turn_origins))
+                    # in the conversation record (next turns), with a stated scope's lines (D30; the planner's
+                    # scopes: MP2) and code's lines about the side entries
+                    self._record_reply(session.id, request_id, reply['text'], turn_origins)
                     try:
                         for event in side.events:
                             yield event
@@ -1226,10 +1229,12 @@ class Supervisor(WorkerRuns):
                 said = ("I've requested a stop; the earlier attempt is still settling. I haven't started another."
                         if settling else "Stopped, as you asked." if was_running else "That attempt has already ended.")
                 side = self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                reply = self._with_lines({"type": "reply", "text": said}, side.lines)
+                self._record_reply(session.id, request_id, reply["text"], turn_origins)
                 try:
                     for event in side.events:
                         yield event
-                    yield self._with_lines({"type": "reply", "text": said}, side.lines)
+                    yield reply
                 finally:
                     self._env.pop(request_id, None)
                 return
@@ -1341,6 +1346,12 @@ class Supervisor(WorkerRuns):
         finally:
             self._env.pop(request_id, None)
             self._env.pop(authority_id, None)
+
+    def _record_reply(self, session_id: str, request_id: str, text: str, turn_origins: set[str]) -> None:
+        """A control turn's reply in the conversation record, as a reply turn's is (review M3): the next turns' history
+        shows what FERB said, code's lines about the side entries included."""
+        self.journal.append('chat.reply', {'session_id': session_id, 'request_id': request_id, 'text': text},
+                            origin=origins_.join({origins_.INFERRED} | turn_origins))
 
     def _with_lines(self, reply: dict[str, Any], lines: list[str]) -> dict[str, Any]:
         """A control turn's reply with code's lines about its side entries at its end, in the text and in the short

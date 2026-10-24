@@ -2357,8 +2357,10 @@ protected FERB state (16.9).
 - Code states side outputs in plain words (reminders, memory, cancels, schedules); a refused one adds one line and the
   reply is kept. Every path a turn takes applies them once (`Supervisor._side_entries`): a reply, a new task, and a
   stop, live steer, continue or retry, whose own reply then ends with code's lines (`_with_lines`, in `text` and
-  `display_text`). Live 2026-10-24: the live-steer and stop paths returned first, so two steers' remember entries were
-  dropped. `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
+  `display_text`) and is recorded as `chat.reply` like a reply turn's (`_record_reply`, review M3). Live 2026-10-24:
+  the live-steer and stop paths returned first, so two steers' remember entries were dropped. A correction that finds
+  its task ending (`steering.JUST_ENDED`) applies none of them and asks for the whole message again, so a resend never
+  sets a second reminder, schedule or memory (review M2). `timer.set {timer_id, request_id, quote, set_in}` lets a reminder authorize once per source message
   (`timers.request_id`); a reminder's quote may come from any owner-typed message of the same chat, or be several
   of them joined by blank lines when every part is exactly one owner message within this request's chain of owner
   words (a reminder asked over a clarification; the first part's message is the source).

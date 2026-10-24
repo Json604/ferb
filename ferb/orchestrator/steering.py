@@ -184,6 +184,11 @@ def grant_stated(supervisor: Any, tree: Any, restated: Restated) -> None:
         supervisor.standing.grant(tree.id, restated.scopes, restated.approval_id)
 
 
+# A correction that found its task ending (review M2): nothing of the message is applied, so sending it again applies
+# all of it once (a second reminder, schedule or memory would come from applying part of it now).
+JUST_ENDED = "That task has just ended, so I haven't acted on this message yet; send it again to continue that task."
+
+
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
                 payload: str, spec: Any, source_ref: str, *, standing: Any,
                 supersedes: list[str]) -> tuple[dict[str, Any], Restated | None] | None:
@@ -196,7 +201,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
         if not tree.accepting_updates:
             return None
         if tree.stop or supervisor._tree_of.get(tree.id) is not tree:
-            return {'type': 'reply', 'text': 'That task has just ended; send the follow-up again to continue it.'}, None
+            return {'type': 'reply', 'text': JUST_ENDED}, None
         clean = supervisor.gateway.redact({'words': words, 'payload': payload})
         prior = supervisor.state.requests.get(tree.worker.request_id)
         # Scope/identity grants stay fixed for the active attempt. Corrections update the requested result,
