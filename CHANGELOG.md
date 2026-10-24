@@ -818,6 +818,9 @@ After the owner's update (2026-10-24):
 - Pausing a task that has a schedule pauses the schedule too (L3, P27). Live 2026-10-24 12:34: "pause the visa task
   for now, I'll say when to continue" stopped the task but left its daily 10:00 schedule active. The planner is told
   to pause or resume a job's schedule in the same turn as the task, and to cancel it when you end the job for good.
+- Jev is optional and says where a key comes from (L37; owner: "in the setup just direct users directly to typesafe
+  api creation site if they dont have it"): `ferb setup --jev` first points to https://console.typesafe.ai/keys, and
+  `ferb doctor` shows "jev: not set (optional): activity notices are off; a key comes from …" instead of nothing.
 
 Licensed under Apache-2.0.
 

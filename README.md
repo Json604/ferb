@@ -369,7 +369,7 @@ Incoming text never changes the approved task. A lead is handed over with eviden
 send stays unknown until observed or its retry is explicitly approved.
 
 Ordinary activity can produce a sourced owner notice; it cannot create a task. Jev is an optional third-party triage
-service run by typesafe.ai (`api.typesafe.ai`): with a Jev key (`ferb setup --jev`), FERB sends it batches of redacted
+service run by typesafe.ai (`api.typesafe.ai`; keys at https://console.typesafe.ai/keys): with a Jev key (`ferb setup --jev`), FERB sends it batches of redacted
 activity (app and window names, tab addresses and titles, typed and copied text, notifications, apps installed or
 removed, file paths in watched folders); without one, nothing goes there. When Jev flags a moment, FERB considers it once per app, with your relevant memory, the recent chat,
 running tasks and the

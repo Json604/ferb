@@ -877,6 +877,10 @@ def doctor(env: Env) -> int:
                 else:
                     on = [s["question"] for s in jev["stats"] if s["enabled"]]
                     add(Check("jev", "ok", f"shadow mode{'; enabled: ' + ', '.join(on) if on else ''}"))
+            elif jev is not None:
+                from ferb.decide.decider import JEV_KEYS_URL
+                add(Check("jev", "ok", f"not set (optional): activity notices are off; a key comes from {JEV_KEYS_URL}, "
+                                       "then `ferb setup --jev`"))
             for source, why in sense.get("failed", {}).items():
                 add(Check(f"watcher {source}", "warn", f"stopped: {why}", "restart FERB (`ferb setup --update`)"))
             for problem in sense["folder_problems"]:
@@ -1187,6 +1191,8 @@ def jev_setup(env: Env) -> int:
     import subprocess
     from ferb.decide.decider import KEY_ACCOUNT
     from ferb.identity.secrets import SERVICE
+    from ferb.decide.decider import JEV_KEYS_URL
+    env.say(f"No Jev key yet? Create one at {JEV_KEYS_URL} (Typesafe's console), then come back.")
     env.say("Paste your Jev API key when `security` asks (twice; nothing is shown):")
     r = subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICE, "-a", KEY_ACCOUNT, "-w"])
     if r.returncode != 0:

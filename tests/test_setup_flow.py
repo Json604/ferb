@@ -222,6 +222,26 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
     assert S.doctor(env) == 0, out2.getvalue()
 
 
+def test_doctor_says_jev_is_optional_and_where_a_key_comes_from(world: dict[str, Any]) -> None:
+    """L37 (owner 2026-10-24): without a Jev key activity notices are off; doctor says so and links Typesafe's key page,
+    as an ok line (optional, never a failure)."""
+    world["inst"].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    line = next(l for l in out.getvalue().splitlines() if " jev:" in l)
+    assert line.startswith("✓") and "→" not in line
+    assert "activity notices are off" in line and "https://console.typesafe.ai/keys" in line and "ferb setup --jev" in line
+
+
+def test_jev_setup_links_typesafes_key_page_before_asking(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 1))
+    env, out = make_env(world, [])
+    assert S.jev_setup(env) == 1
+    text = out.getvalue()
+    assert text.index("https://console.typesafe.ai/keys") < text.index("Paste your Jev API key")
+
+
 def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None:
     world["inst"].install()
     env, out = make_env(world, ["yes please"])

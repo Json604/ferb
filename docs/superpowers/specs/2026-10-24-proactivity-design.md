@@ -53,7 +53,8 @@ should take up work, offer me etc". A read of the code and the live database on 
 
 ### 2. The Jev switch
 - A setting `[attention] jev = "auto" | "off"`, default auto: use Jev when a key exists.
-- `ferb setup --jev` (and later Settings → AI) adds or removes the key.
+- `ferb setup --jev` (and later Settings → AI and the setup window's AI step) adds or removes the key. Without one,
+  setup and doctor link Typesafe's key page, https://console.typesafe.ai/keys (owner, 2026-10-24).
 - **Without Jev,** nothing changes in `batches.py`: it keeps returning early, so no activity is considered and no
   activity notices or offers are made. The trail still records activity for memory and the daily summary, as today.
 - `ferb doctor` and the notch status say whether activity notices are on ("Jev key set") or off ("add a Jev key to get
