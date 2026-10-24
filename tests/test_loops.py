@@ -2491,3 +2491,15 @@ def test_a_keep_open_that_let_go_of_the_tab_is_acting():
     let_go = dict(KEEP_CALL, output={'kept_open': True, 'released': True, 'borrowed': False})
     assert look_only_round([USE_CALL, SNAP_CALL, held], _media_probe(), LOOKS)
     assert look_only_round([USE_CALL, SNAP_CALL, let_go], _media_probe(), LOOKS) is None
+
+
+def test_an_answer_to_the_pause_question_skips_the_back_off_gap_as_a_chat_reply_does(db):
+    """Review M6: Keep watching (or typed words) went through the churn back-off, so in an episode the owner's direct
+    answer waited up to the gap (2 to 60 minutes) while a chat reply started the round at once."""
+    _seed(db, state='paused', rounds=3,
+          pacing_json=Pacer(gap=600.0, short=[999_980.0], episode=True, last_end=999_990.0).to_json())
+    h = Harness(db, _clock(), KEEP, [round_result(p=None)], [])
+    h.runner.question = _Question([{'why': 'you chose "Keep watching"'}])
+    start = h.t
+    h.run()
+    assert h.reasons[0]['why'] == 'you chose "Keep watching"' and h.round_times[0] - start < 60

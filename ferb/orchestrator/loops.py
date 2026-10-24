@@ -323,7 +323,7 @@ class LoopRunner:
                 reason = await self._watch(probe, baseline)
                 if reason is None:
                     break
-            if reason['why'] != 'your message':
+            if reason['why'] != 'your message' and not reason.get('owner'):   # the owner's own word skips the gap
                 reason = await self._back_off(reason)
             if reason is None or self.stopped():                   # a stop always wins over a round about to start
                 break
@@ -451,8 +451,8 @@ class LoopRunner:
                 if self._steered():
                     return {'why': 'your message'}
                 answered: dict[str, Any] | None = self.question.answer() if self.question is not None else None
-                if answered is not None:
-                    return answered
+                if answered is not None:                # the owner's answer starts the round as a reply does
+                    return {**answered, 'owner': True}
                 await self.sleep(POLL_S)
             return None
         finally:
