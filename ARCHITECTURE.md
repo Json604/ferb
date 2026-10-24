@@ -2766,7 +2766,9 @@ Spec `docs/superpowers/specs/2026-10-24-loops-design.md`. A loop is a general ca
 kept true ("keep this tab playing until I say stop", "loop until the PR's checks pass") is a plan with a `loop` step
 (`plans.Step.kind`; fields `goal`, `end_when`, `conditions`, optional `event`/`event_match`). The planner decides
 which requests are loops; no keyword list routes them (R2). A request only to be told when something becomes true
-stays a watch. The plan line carries one code-written line per loop, only how it ends (`loops.loop_line`): "⟳ Until
+stays a watch. The planner is told a loop's first round does its own setup (finds the target, starts or fixes it, arms
+its probe) and to plan an earlier step only for different work the loop needs (live 2026-10-25: a separate bind step
+before every loop cost 43–55 s, and its tab was let go of at the step's end). The plan line carries one code-written line per loop, only how it ends (`loops.loop_line`): "⟳ Until
 you say stop" for an empty `end_when` ("until I say stop" is no end condition), else "⟳ Until: “<end_when>”"; the
 planner's own words say what the loop does.
 

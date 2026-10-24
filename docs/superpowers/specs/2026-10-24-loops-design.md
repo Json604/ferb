@@ -148,7 +148,11 @@ Owner decisions (2026-10-24):
 - `supervisor.md`: replace "Never wait for a condition with a loop or sleep inside a task …" with: work that must be
   repeated or kept true ("keep …", "loop until …", "every time … do …" while the owner's request is running) is a plan
   with a `loop` step, its `end_when` taken from the owner's words or empty; a request only to be told when something
-  outside FERB's work becomes true stays a watch; work at set times stays a schedule.
+  outside FERB's work becomes true stays a watch; work at set times stays a schedule. Added 2026-10-25 (live loops
+  cc5debe4, a1f16a32, 4a8b1d73: every plan bound the tab in a `do` step first, 43–55 s, and that step's tab was let go
+  of when it ended, so round 1 did it all again): a loop's first round does its own setup (finds the target, starts or
+  fixes it, arms its probe); its rounds share one task and keep what they open; an earlier step only for different work
+  the loop needs.
 - `worker.md`: in a loop round, act once toward the goal, verify it, and report `loop_action` with a probe that would show
   the job needs doing again, choosing a probe-safe observation tool and an exact field; `finished` only with evidence of
   the owner's `end_when`.

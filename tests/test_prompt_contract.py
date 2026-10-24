@@ -22,6 +22,11 @@ SENTENCES = [
     ("supervisor.md",
      'Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it grants '
      'nothing.'),
+    # live 2026-10-25 (cc5debe4, a1f16a32, 4a8b1d73): every plan bound the tab in a do step before its loop (43-55 s),
+    # and the step's tab was let go of when it ended, so the loop's first round did it all again
+    ("supervisor.md",
+     "A loop's first round does its own setup: it finds the target, starts or fixes it and arms its probe; the loop's "
+     "rounds share one task and keep what they open. Plan an earlier step only for different work the loop needs."),
     # live 2026-10-24: the owner steered the visa task with "the username is …"; nothing was remembered, and a later task
     # typed the email as the username. L36 §5: the username alone, for the site's login record
     ("supervisor.md",

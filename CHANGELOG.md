@@ -899,6 +899,10 @@ After the owner's update (2026-10-24):
   0.3 s later while Brave was hidden and you weren't touching it. `keep_open` on one of your own tabs now only marks it
   kept: FERB holds it until the task ends (a loop's: until you stop it), then lets go of it, still open. A tab FERB
   opened is still handed over at once. Workers are told the loop holds its tabs across rounds.
+- A loop starts with its own first round (L31). In all three of your live "keep this tab playing" runs on 2026-10-25,
+  the plan bound the tab in a separate step before the loop (43–55 s), and that step let go of the tab when it ended,
+  so the loop's first round found and borrowed it again. The planner is told a loop's first round does its own setup
+  (finds the target, starts or fixes it, arms its probe) and to plan an earlier step only for different work.
 
 Licensed under Apache-2.0.
 
