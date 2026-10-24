@@ -61,6 +61,10 @@ SENTENCES = [
     ("worker.md",
      'Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the '
      'loop, loop_action and probe are null.'),
+    # live loops cc5debe4, a1f16a32 (2026-10-25): each round took a second snapshot to learn the reel played
+    ("worker.md",
+     "A snapshot's `playing` is true only when the media's time moved, so one snapshot shows whether it plays; take "
+     "another only after you play, unmute or seek it."),
     # live loop cc5debe4 (2026-10-25): every round ended with keep_open, which let go of the owner's tab and paused it
     ("worker.md",
      'The loop holds for you the tabs and sessions its rounds open or borrow, across rounds until it stops: leave them '

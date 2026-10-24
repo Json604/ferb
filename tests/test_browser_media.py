@@ -39,14 +39,14 @@ vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const f = ctx.window.__ferb;
 (async () => {
   const fire = type => (listeners[type] || []).forEach(fn => fn());
-  const before = f.snapshot(1).media;
+  const before = (await f.snapshot(1)).media;
   const played = await f.media(1, 0, 'play', null);
   if (process.argv[2] !== 'defer') { video.currentTime = 3.25; fire('timeupdate'); }   // the media really plays
   const unmuted = await f.media(1, 0, 'unmute', null);
   const sought = await f.media(1, 0, 'seek', 12.5);
   if (process.argv[2] !== 'defer') { video.currentTime = 12.75; fire('timeupdate'); }
   const stale = await f.media(0, 0, 'pause', null);
-  const after = f.snapshot(2).media;
+  const after = (await f.snapshot(2)).media;
   console.log(JSON.stringify({before, played, unmuted, sought, stale, after}));
 })().catch(e => { console.error(e); process.exit(1); });
 '''
@@ -115,27 +115,99 @@ const doc = {documentElement: root, scrollingElement: root, body: {}, title: 'Fe
   querySelectorAll: sel => sel === '*' ? page : [],
   createTreeWalker: () => ({nextNode: () => null}), createRange: () => ({})};
 const ctx = vm.createContext({document: doc, window: {}, top: null, location: {href: 'https://www.instagram.com/'},
-  crypto: globalThis.crypto, WeakRef, WeakMap, URL, setTimeout, innerWidth: 1280, innerHeight: 900,
+  crypto: globalThis.crypto, WeakRef, WeakMap, URL, setTimeout, clearTimeout, innerWidth: 1280, innerHeight: 900,
   addEventListener() {}, MutationObserver: class { observe() {} }, ShadowRoot: class {},
   NodeFilter: {SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1}});
 ctx.top = ctx.window;
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const f = ctx.window.__ferb, ids = m => m.map(x => [x.index, x.id]);
-const first = ids(f.snapshot(1).media);
+(async () => {
+const first = ids((await f.snapshot(1)).media);
 page = [b, a];                       // a new video loads above the first one
-const second = ids(f.snapshot(2).media);
+const second = ids((await f.snapshot(2)).media);
 page = [c, a];                       // b scrolled away, c loaded
-const third = ids(f.snapshot(3).media);
+const third = ids((await f.snapshot(3)).media);
 page = [b, c, a];                    // b back in the page
-const fourth = ids(f.snapshot(4).media);
+const fourth = ids((await f.snapshot(4)).media);
 // the tab loads a new page: a fresh content script, whose first element is m1 again, with its own page token
 page = [a];
 const next = vm.createContext({...ctx, window: {}});
 next.top = next.window;
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), next);
-const reloaded = ids(next.window.__ferb.snapshot(1).media);
+const reloaded = ids((await next.window.__ferb.snapshot(1)).media);
 console.log(JSON.stringify({first, second, third, fourth, reloaded}));
+})().catch(e => { console.error(e); process.exit(1); });
 '''
+
+
+# One video FERB has never looked at: already playing (its time moves and its page fires timeupdate), moving without a
+# timeupdate, unpaused but stuck, or paused. The first snapshot is timed.
+FIRST_LOOK_HARNESS = r"""
+const vm = require('vm'), fs = require('fs');
+const mode = process.argv[2], listeners = {};
+const video = {tagName: 'VIDEO', isConnected: true, paused: mode === 'paused', ended: false, currentTime: 5,
+  duration: 30, muted: true, volume: 1, shadowRoot: null, play() { return Promise.resolve(); }, pause() {},
+  addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+  removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter(f => f !== fn); },
+  matches() { return false; }, getAttribute() { return null; }, setAttribute() {}, removeAttribute() {},
+  closest() { return null; },
+  getBoundingClientRect() { return {x: 0, y: 0, width: 640, height: 360, right: 640, bottom: 360, left: 0, top: 0}; }};
+const root = {setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, scrollTop: 0, scrollHeight: 900};
+const doc = {documentElement: root, scrollingElement: root, body: {}, title: 'Reel',
+  querySelectorAll: sel => sel === '*' ? [video] : [],
+  createTreeWalker: () => ({nextNode: () => null}), createRange: () => ({})};
+const ctx = vm.createContext({document: doc, window: {}, top: null, location: {href: 'https://www.instagram.com/reel/x'},
+  crypto: globalThis.crypto, WeakRef, WeakMap, URL, setTimeout, clearTimeout, innerWidth: 1280, innerHeight: 900,
+  addEventListener() {}, MutationObserver: class { observe() {} }, ShadowRoot: class {},
+  NodeFilter: {SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1}});
+ctx.top = ctx.window;
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
+const fire = type => (listeners[type] || []).slice().forEach(fn => fn());
+(async () => {
+  const t0 = Date.now();
+  if (mode === 'playing') setTimeout(() => { video.currentTime = 5.25; fire('timeupdate'); }, 40);
+  if (mode === 'silent') setTimeout(() => { video.currentTime = 5.25; }, 40);     // moves, its event comes later
+  const first = (await ctx.window.__ferb.snapshot(1)).media[0];
+  const ms = Date.now() - t0;
+  const t1 = Date.now();
+  const again = (await ctx.window.__ferb.snapshot(2)).media[0];                 // tracked now: no wait
+  console.log(JSON.stringify({first, ms, again, again_ms: Date.now() - t1,
+                              left: (listeners.timeupdate || []).length}));
+})().catch(e => { console.error(e); process.exit(1); });
+"""
+
+
+def _first_look(mode: str) -> dict[str, Any]:
+    result = subprocess.run([_node(), "-e", FIRST_LOOK_HARNESS, str(EXT / "content.js"), mode],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_the_first_snapshot_of_media_already_playing_says_it_plays() -> None:
+    """Live 2026-10-25 (loops cc5debe4, a1f16a32): `playing` was false the first time FERB saw a video, since nothing
+    had moved yet, so every round took a second snapshot to learn the reel played. For media not yet tracked and not
+    paused, the snapshot waits up to 300 ms for its time to move."""
+    out = _first_look("playing")
+    assert out["first"]["playing"] is True and out["first"]["current_time"] > 5           # read after it moved
+    assert out["ms"] < 250                                         # its timeupdate ended the wait
+    assert out["again"]["playing"] is True and out["again_ms"] < 100
+    assert out["left"] == 1                                        # only the tracker's own listener stays
+
+
+def test_media_whose_time_moves_without_an_event_reads_playing_by_the_end_of_the_wait() -> None:
+    out = _first_look("silent")
+    assert out["first"]["playing"] is True and 250 <= out["ms"] < 800
+
+
+def test_unpaused_media_whose_time_stays_put_is_not_playing_after_the_wait() -> None:
+    out = _first_look("stuck")
+    assert out["first"]["playing"] is False and out["first"]["paused"] is False and 250 <= out["ms"] < 800
+
+
+def test_paused_media_is_reported_at_once() -> None:
+    out = _first_look("paused")
+    assert out["first"]["playing"] is False and out["first"]["paused"] is True and out["ms"] < 100
 
 
 def test_each_media_element_keeps_one_id_for_the_page_while_list_positions_shift() -> None:

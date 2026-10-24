@@ -914,6 +914,12 @@ After the owner's update (2026-10-24):
   been kept and let go of as intended. When every tab is still open (kept as asked, or your own tab let go of without
   closing) and nothing failed, FERB skips it; `ferb trace` shows `resources.skipped`. A closed tab, an ended listen,
   recording or process, or a release the browser didn't confirm is still reviewed.
+- One snapshot says whether a video plays (L26, L31; extension 0.15.10, protocol 17 and minimum 0.15.6 unchanged). The
+  first time FERB looked at a video its `playing` was always false (nothing had moved yet), so every live round took a
+  second snapshot to learn your reel was playing. A snapshot now waits up to 300 ms for unpaused media it hasn't seen
+  before: its time moving ends the wait, so the first snapshot already answers; paused media isn't waited for. The
+  worker is told `playing` already means the time moved. Reload the unpacked extension (or upload 0.15.10 to the
+  listing) to get it; an older extension behaves as before.
 
 Licensed under Apache-2.0.
 

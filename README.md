@@ -79,7 +79,7 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.9** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
+FERB's browser hands are its extension, **0.15.10** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
 refuses an older protocol with a reload notice. `ferb setup` (and `--update`) handles it for every Chromium browser it
 finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
@@ -91,7 +91,8 @@ finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Viva
 
 The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
 this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) and
-0.15.8 (each video's own id and each tab's sound, which a loop watches) and 0.15.9 (where the pointer lands) aren't on the listing until 0.15.9 is uploaded;
+0.15.8 (each video's own id and each tab's sound, which a loop watches), 0.15.9 (where the pointer lands) and 0.15.10 (a
+first snapshot already says whether a video plays) aren't on the listing until 0.15.10 is uploaded;
 until then a profile gets them only by Load unpacked. With the store copy those facts are absent: a loop's probe on
 one is refused (its field is missing), and the loop runs on its 30-minute backup check until a round picks another. A profile that already has
 the unpacked copy is offered the store copy too; setup's report and `ferb browsers pair` use the copy that is turned

@@ -309,12 +309,13 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.9 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.10 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
 answer for pages it can't read or attach to, see section 16.4; 0.15.8 adds media ids and tab sound facts as optional
-reply fields, no protocol change; 0.15.9 adds the pointer's snapshot facts, see section 16.13). Task
+reply fields, no protocol change; 0.15.9 adds the pointer's snapshot facts, see section 16.13; 0.15.10 makes a
+snapshot wait up to 300 ms for media it hasn't seen before to move, see section 16.5). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. A paired owner profile that isn't
@@ -2548,6 +2549,10 @@ protected FERB state (16.9).
   each element's state. `playing` is true only once the element's time has moved while unpaused (content.js `moving`:
   its `timeupdate` events, or a change between two looks; a play, pause, seek, stall or reset needs fresh movement),
   never from `!paused` alone, which play() sets before any playback; `paused` is reported beside it (I5). Since
+  0.15.10 (L31) a snapshot waits up to 300 ms (`firstLook`) for unpaused media it hasn't seen before: its
+  `timeupdate` ends the wait once its time moved, and the time is compared again at the end, so the first snapshot
+  already says whether it plays (live 2026-10-25: every loop round took a second snapshot to learn the reel played);
+  `snapshot` is async for it (executeScript waits for the promise). Since
   0.15.8 (L31) each element also has its own `id` for the page's life (content.js `mediaId`: a WeakMap, `m<n>` on
   first sight, never given to another element, then the page's own random token, `m12-3fa91c`, so an id from an
   earlier page of the tab matches nothing in a later one (review I2); a child frame's is `f<frame>:m<n>-<token>`), and
@@ -3008,7 +3013,7 @@ Geometry only: nothing about what the action does or says leaves the tool.
   (by id) or the browser's matched window. So a minimized window, another Space or a window behind another window at
   that spot gets no pointer. Residual: a native element's own window isn't matched (a sheet or popover is a window of
   its own), so another window of the same app over the spot still counts.
-- **Browser (extension 0.15.9, protocol 17, minimum 0.15.6).** BrowserAct, BrowserSecret and BrowserLoginCode place the
+- **Browser (extension 0.15.10, protocol 17, minimum 0.15.6).** BrowserAct, BrowserSecret and BrowserLoginCode place the
   element through the page's AX web area (`page_on_screen`) and predict where the extension's scroll-to-centre leaves
   it. New optional snapshot facts: `window`, `visual`, per element `pinned` and `scroll_box`, and page `scroll.x` /
   `scroll.width` / `body_scrolls`; `scrollIntoView` and `scrollBy` are now `behavior: "instant"` (smooth-scroll pages

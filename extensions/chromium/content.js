@@ -506,7 +506,7 @@
             viewport: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight]};
   }
 
-  function snapshot(gen) {
+  async function snapshot(gen) {
     for (const [token, ref] of bindings) {
       const el = ref.deref();
       if (el && el.getAttribute("data-ferb-ax") === token) el.removeAttribute("data-ferb-ax");
@@ -539,7 +539,10 @@
     }
     const text = pageText();
     mediaEls = new Map();
-    const media = mediaElements(document, []).map((el, index) => { mediaEls.set(index, new WeakRef(el)); return mediaState(el, index); });
+    const players = mediaElements(document, []);
+    players.forEach((el, index) => mediaEls.set(index, new WeakRef(el)));
+    await firstLook(players.filter(el => !progress.has(el) && !el.paused && !el.ended));
+    const media = players.map((el, index) => mediaState(el, index));
     // L33, for the cursor: what the screen shows of the page (its pinch zoom `scale`), its scroll sideways, and
     // whether the body scrolls by itself
     const vv = window.visualViewport, d = document.scrollingElement || document.documentElement;
@@ -576,6 +579,30 @@
     return p.moved;
   }
   function restart(el) { const p = progress.get(el); if (p) { p.moved = false; p.at = el.currentTime; } }
+  // Media FERB hasn't looked at before has nothing to compare its time with, so `playing` would read false even while
+  // it plays (live 2026-10-25: every loop round took a second snapshot to learn the reel played). Unpaused, it is
+  // watched for up to FIRST_LOOK_MS: its timeupdate ends the wait once its time moved, and moving() compares the time
+  // again at the end, so the first snapshot already says whether it plays. Paused or ended media isn't waited for.
+  const FIRST_LOOK_MS = 300;
+  function firstLook(fresh) {
+    if (!fresh.length) return Promise.resolve();
+    fresh.forEach(moving);                                     // tracking starts: its listener, its starting time
+    return new Promise((resolve) => {
+      const waiting = new Set(fresh), heard = [];
+      const done = () => {
+        clearTimeout(timer);
+        for (const [el, fn] of heard) if (typeof el.removeEventListener === "function") el.removeEventListener("timeupdate", fn);
+        resolve();
+      };
+      const timer = setTimeout(done, FIRST_LOOK_MS);
+      for (const el of fresh) {
+        if (typeof el.addEventListener !== "function") continue;
+        const fn = () => { if (progress.get(el).moved && waiting.delete(el) && !waiting.size) done(); };
+        el.addEventListener("timeupdate", fn);                  // after moving()'s own listener: `moved` is current
+        heard.push([el, fn]);
+      }
+    });
+  }
   // Each media element's own id for this page's lifetime (L31): given on first sight, never given to another element.
   // List positions shift as a feed loads more videos; a loop's probe watches one element by its id. The page's own
   // token ends it, so an id from an earlier page of the tab matches nothing in this one (review I2).

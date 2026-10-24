@@ -39,7 +39,10 @@ carries the tab's `window` (as protocol 16's captures do); each frame its `visua
 (x, y, w, h, scale), its `scroll` sideways too (`x`, `width`) and `body_scrolls` when its body scrolls by itself; and
 each element `pinned` (fixed or sticky) and `scroll_box` (a box other than the page scrolls it). Its centring scrolls
 are instant (`behavior: "instant"`), so a smooth-scrolling page no longer moves under real input's aim. Without these
-fields (an older extension) no browser point is published."""
+fields (an older extension) no browser point is published.
+Extension 0.15.10 (L31) changes no reply's shape and no protocol: a snapshot waits up to 300 ms for media it hasn't
+seen before, unpaused, to move, so its first `playing` already says whether it plays (content.js `firstLook`); an
+older extension reports `playing` false on its first look, as before."""
 
 import base64
 import hashlib

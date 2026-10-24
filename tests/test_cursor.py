@@ -713,8 +713,8 @@ const ctx = vm.createContext({document: doc, window: {visualViewport: {offsetLef
   ShadowRoot: class {}, NodeFilter: {SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1}});
 ctx.top = ctx.window;
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
-const s = ctx.window.__ferb.snapshot(1);
-console.log(JSON.stringify({viewport: s.viewport, visual: s.visual, scroll: s.scroll, body: s.body_scrolls}));
+ctx.window.__ferb.snapshot(1).then(s =>          // a snapshot resolves once its media is read (L31)
+  console.log(JSON.stringify({viewport: s.viewport, visual: s.visual, scroll: s.scroll, body: s.body_scrolls})));
 '''
     result = subprocess.run([_node(), '-e', harness, str(EXT / 'content.js')], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
