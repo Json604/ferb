@@ -12,8 +12,9 @@ A record serves its own place and the sites it lists (I14): the visa site's sign
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
 task's sites the owner typed (the gateway picks them, `Gateway._login_sites`), a listing for the site finds it, and a
 username the owner gave for the site names the form's account too. A site matches a host exactly, a leading "www."
-aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own.
-Entries still fill only at their record's own place (`reveal`).
+aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own. The
+records of one site with and without "www." serve each other too. Entries still fill only at their record's own place
+(`reveal`).
 
 `owner-secret-handles.json` (version 2): {"version": 2, "records": {place: {"username", "username_source", "sites":
 [host], "entries": {name: Keychain account}}}, "unusable": [{"name", "place", "why"}]}. A new entry's Keychain account
@@ -82,8 +83,17 @@ def site_host(place_or_site: str) -> str:
 
 def same_site(a: str, b: str) -> bool:
     """Two hosts are one site when equal, a leading "www." aside; never a subdomain or a sibling (fix round 1: with
-    subdomains, a record listing b2clogin.com would serve evil.b2clogin.com, another tenant's page)."""
-    return bool(a) and a.removeprefix('www.') == b.removeprefix('www.')
+    subdomains, a record listing b2clogin.com would serve evil.b2clogin.com, another tenant's page). An empty host (an
+    app's place has none) is no site, nor is "www." alone."""
+    a, b = a.removeprefix('www.'), b.removeprefix('www.')
+    return bool(a) and bool(b) and a == b
+
+
+def typed_site(host: str, typed: Any) -> bool:
+    """Whether the owner typed `host`'s site: the host, with or without a leading "www.", is a whole token or a URL's
+    host of their words (`typed`: `provenance.prepare` of them; rule 8's provenance, as a sink's destination)."""
+    bare = host.removeprefix('www.')
+    return bool(bare) and bool({bare, 'www.' + bare} & (typed.tokens | typed.hosts))
 
 
 def _empty() -> dict[str, Any]:
@@ -127,13 +137,14 @@ def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _linked(records: dict[str, Any], place: str) -> list[str]:
-    """The other records that serve `place` (I14): one listing its host's site (a sign-on form's record saved during
-    a task on that site), or one at the host of a site its own record lists (the site that task named)."""
+    """The other records that serve `place` (I14): one at the same site, a leading "www." aside (the planner writes a
+    username's site either way, L36 §5), one listing its host's site (a sign-on form's record saved during a task on
+    that site), or one at the host of a site its own record lists (the site that task named)."""
     host, own_sites = site_host(place), records.get(place, {}).get('sites', [])
     found = []
     for other, record in records.items():
         other_host = site_host(other)
-        if other != place and (any(same_site(s, host) for s in record.get('sites', []))
+        if other != place and (same_site(host, other_host) or any(same_site(s, host) for s in record.get('sites', []))
                                or any(same_site(s, other_host) for s in own_sites)):
             found.append(other)
     return sorted(found)

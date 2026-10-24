@@ -518,9 +518,10 @@ class Supervisor(WorkerRuns):
         self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
-        # reason in plain words}; supplied by the daemon
-        self.remember: Callable[[list[Any], str, str], list[dict[str, str]]] = \
-            lambda items, own_words, source: [{"refused": "FERB has no memory store running"} for _ in items]
+        # reason in plain words}; supplied by the daemon. `sites`: the sites the turn's task names (L36 §5)
+        self.remember: Callable[..., list[dict[str, str]]] = \
+            lambda items, own_words, source, sites=frozenset(): [{"refused": "FERB has no memory store running"}
+                                                                 for _ in items]
         # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
@@ -1230,6 +1231,7 @@ class Supervisor(WorkerRuns):
                 return
             active = self._tree_of.get(control.task_id)
             if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
+                named = frozenset(active.spec.targets.sites)    # the sites the task named before this steer (L36 §5)
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
                 steered = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
                                               out.task, 'journal:' + entry.id, standing=control.standing_sends,
@@ -1239,7 +1241,8 @@ class Supervisor(WorkerRuns):
                     # the turn's other entries too, once, and code's lines about them end the steer's reply; a
                     # correction that found its task ending applies none of them: the owner sends it all again
                     side = (_Side([], [], []) if reply["text"] == JUST_ENDED else
-                            self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins))
+                            self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
+                                               named))
                     reply = self._with_lines(reply, side.lines)
                     # in the conversation record (next turns), with a stated scope's lines (D30; the planner's
                     # scopes: MP2) and code's lines about the side entries
@@ -1399,11 +1402,23 @@ class Supervisor(WorkerRuns):
         said = confirm.from_task_lines(self.gateway.redact("\n".join(lines)))
         return reply | {key: reply[key].rstrip() + "\n" + said for key in ("text", "display_text") if key in reply}
 
+    def _turn_sites(self, out: SupervisorOutcome, session: ChatSession) -> frozenset[str]:
+        """The sites this turn's task names: its new task's, or the task a stop, steer, continue or retry acts on (live
+        or saved). Where a login name the owner gives may be saved for (L36 §5)."""
+        specs: list[Any] = [out.task] if out.task is not None else []
+        if out.control is not None:
+            live = self._tree_of.get(out.control.task_id)
+            saved = None if live is not None else self.continuity.load(out.control.task_id, session.id)
+            specs.append(live.spec if live is not None else saved[0] if saved else None)
+        return frozenset(site for spec in specs if spec is not None for site in spec.targets.sites)
+
     def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
-                      typed_lines: str, entry_id: str, turn_origins: set[str]) -> _Side:
+                      typed_lines: str, entry_id: str, turn_origins: set[str],
+                      named: frozenset[str] = frozenset()) -> _Side:
         """A turn's side entries, applied once on every path a turn takes (a reply, a new task, and a stop, steer,
         continue or retry: live 2026-10-24, two steers' remember entries were dropped), in this order, with the
-        owner's typed words as their quotes' check."""
+        owner's typed words as their quotes' check. `named`: the sites a steered task named before the steer
+        restated it (a restated task may leave its sites out); with `_turn_sites`, where a login name may be saved."""
         session_id = session.id
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
@@ -1424,8 +1439,9 @@ class Supervisor(WorkerRuns):
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[tuple[str, str]] = []
+        sites = self._turn_sites(out, session) | named if out.remember else frozenset()
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
-            answers = self.remember([item], typed_lines, entry_id)
+            answers = self.remember([item], typed_lines, entry_id, sites)
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]

@@ -882,10 +882,17 @@ After the owner's update (2026-10-24):
   usvisascheduling.com finds it and the username you gave for that site names the form's account; its secrets still
   fill only on the form's own address. A site counts exactly, with or without "www.": never another address under it
   (on shared hosting such as b2clogin.com each customer has their own), never a site only a page or the model named,
-  and a sign-in on the task's own site links nothing. Your existing
-  saved secrets keep working (the file is rewritten in the new form only when something is next saved); the visa
-  password saved for Chrome as a whole is listed as "ask again". An unreadable saved-names file is never overwritten:
-  a one-time hidden input still works, and saving says why it can't.
+  and a sign-in on a site you typed for the task links nothing (one the planner added, such as the sign-in page's own
+  address, doesn't count for that). Your existing saved secrets keep working (the file is rewritten in the new form
+  only when something is next saved); the visa password saved for Chrome as a whole is listed as "ask again". An
+  unreadable saved-names file is never overwritten: a one-time hidden input still works, and saving says why it can't.
+- A username you give is kept for its site (L36, P27). Live 2026-10-24: "the username is …" during the visa task was
+  saved nowhere, and a later task typed your email. Now the username, in your own spelling, is saved for the site you
+  named or the task's site (exactly, with or without "www.", never another address under it; never from FERB's
+  rewording; an app's username stays ordinary memory), shown in the hidden-input question, listed on the login page
+  and given to the steps that log in; FERB's line says "Saved as your login name for <site>." A sign-in page at
+  another address (atlasauth.b2clogin.com for the visa site) names it once a login is saved there during a task you
+  typed the site for. Forgetting or retracting the memory removes it from the login record.
 
 Licensed under Apache-2.0.
 

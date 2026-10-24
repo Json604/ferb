@@ -23,12 +23,18 @@ SENTENCES = [
      'Never make a step depend on a loop whose end_when is empty. A loop only acts through ordinary rounds; it grants '
      'nothing.'),
     # live 2026-10-24: the owner steered the visa task with "the username is …"; nothing was remembered, and a later task
-    # typed the email as the username
+    # typed the email as the username. L36 §5: the username alone, for the site's login record
     ("supervisor.md",
      'When the owner tells you a login name or username for a site or app ("the username is Asha Rao" while working '
      'on that site), remember it in the same turn as the task change: kind fact, subject "owner" or the project '
-     '("project:<slug>"), and a key naming the site ("usvisascheduling-username"). Passwords and other secrets go '
-     'through the hidden-input path.'),
+     '("project:<slug>"), a key naming the site ("usvisascheduling-username"), content: the username alone, exactly '
+     'as they typed it ("Asha Rao"), and login_origin: the site\'s https:// address; FERB saves their whole line as '
+     'the memory and the username for that site. Passwords and other secrets go through the hidden-input path. '
+     'Otherwise login_origin is null.'),
+    # scan m4: the remember bullet's empty-list rule reads as about remember, before the login sentence
+    ("supervisor.md",
+     'any rewording waits for their Yes. When nothing is worth remembering, remember is an empty list. When the owner '
+     'tells you a login name or username'),
     # live 2026-10-24 12:34: "pause the visa task for now, I'll say when to continue" stopped the task and left its
     # daily schedule active
     ("supervisor.md",

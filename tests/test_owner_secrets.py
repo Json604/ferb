@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from ferb.core.errors import Refused
 from ferb.core.types import Identity
-from ferb.identity.owner_secrets import WHOLE_BROWSER, OwnerSecrets, login_place
+from ferb.identity.owner_secrets import WHOLE_BROWSER, OwnerSecrets, login_place, same_site
 from tests.support.mac_secret import secret_driver
 
 
@@ -407,6 +407,36 @@ def test_a_username_given_for_the_site_shows_on_the_record_that_serves_it(tmp_pa
     assert store.username(ATLAS) == 'asha.rao'                              # its own comes first
     assert store.clear_usernames({'memory:1', 'memory:3'}) == [ATLAS, 'https://usvisascheduling.com']
     assert store.username(ATLAS) == 'A. Rao'
+
+
+def test_an_empty_host_is_never_a_site() -> None:
+    """Task 6 re-review: an app's place has no host; nothing, or "www." against nothing, is never one site with
+    anything."""
+    for a, b in (('', ''), ('www.', ''), ('', 'www.'), ('usvisascheduling.com', ''), ('', 'usvisascheduling.com')):
+        assert not same_site(a, b)
+    assert same_site('www.usvisascheduling.com', 'usvisascheduling.com')
+
+
+def test_the_records_of_one_site_with_and_without_www_serve_each_other(tmp_path: Path) -> None:
+    """L36 §5: the planner writes a username's site with or without "www."; the two records are one site
+    (`same_site`), so a username kept for https://usvisascheduling.com names the account of the entries saved at
+    https://www.usvisascheduling.com. Entries still fill only at their own place, and two apps' records (no host)
+    never serve each other."""
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.remember('US visa password', VISA, 'v')
+    store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:1')
+    assert store.username(VISA) == 'Asha Rao'
+    assert store.listing(VISA)['linked'] == [{'place': 'https://usvisascheduling.com', 'username': 'Asha Rao',
+                                              'entries': []}]
+    assert store.listing('https://usvisascheduling.com')['linked'] == [{'place': VISA, 'username': None,
+                                                                         'entries': ['US visa password']}]
+    with pytest.raises(Refused, match='exact destination'):
+        store.reveal('US visa password', 'https://usvisascheduling.com')
+    assert store.username('https://ais.usvisascheduling.com') is None              # never a subdomain
+    store.set_username('app:com.apple.Notes', 'asha', 'memory:2')
+    assert store.username('app:com.example.Other') is None
+    assert 'linked' not in store.listing('app:com.example.Other')
 
 
 def test_a_username_is_kept_only_for_a_login_place(tmp_path: Path) -> None:

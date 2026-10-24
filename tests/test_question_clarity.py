@@ -6,13 +6,13 @@ Live 2026-10-24, visa login: the hidden-input question read "Enter the secret fo
 "the secret for <X>" matched the redactor's label rule, so the destination it asked about was hidden from the owner."""
 import asyncio
 import re
-import time
 from typing import Any
 
 import pytest
 
 from ferb.core.types import Identity, ToolContext
 from ferb.sanitize.redact import Redactor
+from tests.support.hidden_input import asked as _asked, keychain_helper
 
 VISA = 'https://atlasauth.b2clogin.com'
 SAVED = 'US Visa Scheduling password for ktky.attri@gmail.com'
@@ -21,16 +21,6 @@ SAVED = 'US Visa Scheduling password for ktky.attri@gmail.com'
 def _ctx() -> ToolContext:
     return ToolContext('t-visa', 'w1', 'r-visa', Identity.OWNER, frozenset({'browser:act'}), 'dev', None, '/tmp', (),
                        ())
-
-
-def _asked(daemon: Any, kind: str) -> Any:
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        found = [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == kind]
-        if found:
-            return found[0]
-        time.sleep(0.01)
-    raise AssertionError(f'no {kind} question was asked')
 
 
 def _published(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
@@ -436,14 +426,7 @@ def _saved(daemon: Any, monkeypatch: pytest.MonkeyPatch, target: str, words: str
     from ferb.identity.owner_secrets import OwnerSecrets
     from ferb.policy.targets import Request, Targets
     from tests.support.memory_items import run
-    keychain: dict[str, str] = {}
-
-    def helper(body: dict[str, Any], home: Any = None) -> dict[str, Any]:
-        assert body['service'] == 'ferb.owner-secrets'
-        if body['operation'] == 'store':
-            keychain[body['account']] = body['value']
-        return {'value': keychain.get(body['account'])}
-    monkeypatch.setattr('ferb.identity.helper.request', helper)
+    keychain = keychain_helper(monkeypatch)
     run(daemon, lambda: daemon.daemon.state.requests.record(Request('r-visa', words, Targets.of(sites=sites))))
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target, remember='password'),
                                                daemon.loop)
@@ -497,6 +480,15 @@ def test_a_sign_in_on_the_tasks_own_site_links_nothing(daemon: Any, monkeypatch:
     assert store.records()[site]['sites'] == []
     assert store.listing('https://gmail.com') == {'place': 'https://gmail.com', 'username': None, 'entries': [],
                                                   'unusable': []}
+
+
+def test_a_sign_in_host_the_planner_added_to_the_targets_still_links_the_sites_the_owner_typed(
+        daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Task 6 re-review: after a steer the planner may add the sign-in form's own host to the task's targets. The
+    own-site rule reads only the sites the owner typed, so the form's record still lists the visa site."""
+    store = _saved(daemon, monkeypatch, VISA, 'book my visa slot on usvisascheduling.com',
+                   ['usvisascheduling.com', 'atlasauth.b2clogin.com'])
+    assert store.records()[VISA]['sites'] == ['usvisascheduling.com']
 
 
 @pytest.mark.parametrize('content', ['{not json',

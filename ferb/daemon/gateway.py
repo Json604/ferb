@@ -1787,19 +1787,19 @@ class Gateway:
 
     def _login_sites(self, ctx: ToolContext, target: str) -> list[str]:
         """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
-        them) whose host the owner typed in this request's words, a leading "www." aside (rule 8's provenance: a site
-        only outside content or the model named never links). None when `target` is an app or itself one of the
-        task's sites: only a sign-in form on another address needs a link, and a sign-in on the visa site itself
-        must not hand its username to the task's other sites."""
-        from ferb.identity.owner_secrets import same_site, site_host
+        them) whose host the owner typed in this request's words, a leading "www." aside (`typed_site`, rule 8's
+        provenance: a site only outside content or the model named never links). None when `target` is an app or
+        itself one of those sites: only a sign-in form on another address needs a link, and a sign-in on the visa
+        site itself must not hand its username to the task's other sites. Only the owner-typed sites count for that
+        test (Task 6 re-review): the planner may add the sign-in form's host to the targets after a steer."""
+        from ferb.identity.owner_secrets import same_site, site_host, typed_site
         request = self.state.requests.get(ctx.request_id)
         own = site_host(target)
-        hosts = sorted({h for site in request.targets.sites if (h := site_host(site))})
-        if not own or any(same_site(h, own) for h in hosts):
-            return []
         words = provenance.prepare(request.words)
-        return [h for h in hosts if {h, h.removeprefix("www."), "www." + h.removeprefix("www.")}
-                & (words.tokens | words.hosts)]
+        typed = sorted({h for site in request.targets.sites if (h := site_host(site)) and typed_site(h, words)})
+        if not own or any(same_site(h, own) for h in typed):
+            return []
+        return typed
 
     def release_secret(self, value: str) -> None:
         from ferb.sanitize.redact import Redactor

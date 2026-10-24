@@ -1668,18 +1668,17 @@ app's shim, `com.google.Chrome.app.<id>` or `com.apple.Safari.WebApp.<id>`, or a
 or one Launch Services lists as opening https links (`apps.opens_web_links`: the list is enumerated at most once per
 `HANDLERS_TTL_S`, 60 s, in a worker thread from `mac.secret`'s run; its synchronous precheck uses only a list still
 fresh, `known_opens_web_links`; when Launch Services can't be asked, nothing is kept and FERB's list alone applies).
-A native secret is bound to the app, and a browser app is every site it shows, so a web page's
-secret goes only through `browser.secret` and its origin. Owner-confirmed secrets are one login record per place (an
-HTTPS origin or `app:<bundle id>`, L36) in `owner-secret-handles.json` version 2: a plain username from the owner's
-words, the sites the owner named for a task its entries were saved in, and named entries whose values live in
-Keychain; a version-1
-file is read by place, its browser-bound handles listed unusable (§16.12). `OwnerSecrets` neither saves
-nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install
-builds/signs `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships
-the helper in `Contents/Helpers` and setup pins its copy to the exact code hash FERB.app's own signature seals (the
-`cdhash` when ad-hoc, the Developer ID team later). Each call verifies that requirement. No unsigned fallback exists.
-Python production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain
-an injectable crypto implementation. Developer ID distribution remains later work. Swift type-checking is not a live
+A native secret is bound to the app, and a browser app is every site it shows, so a web page's secret goes only
+through `browser.secret` and its origin. Owner-confirmed secrets are one login record per place (an HTTPS origin or
+`app:<bundle id>`, L36) in `owner-secret-handles.json` version 2: a plain username from the owner's words, the sites
+the owner named for a task its entries were saved in, and named entries whose values live in Keychain; a version-1
+file is read by place, its browser-bound handles listed unusable (§16.12). `OwnerSecrets` neither saves nor reveals a
+handle bound to `app:<browser>` (one saved before that rule is never filled). A source install builds/signs
+`ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships the helper in
+`Contents/Helpers` and setup pins its copy to the exact code hash FERB.app's own signature seals (the `cdhash` when
+ad-hoc, the Developer ID team later). Each call verifies that requirement. No unsigned fallback exists. Python
+production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain an
+injectable crypto implementation. Developer ID distribution remains later work. Swift type-checking is not a live
 Keychain/signature test.
 
 Irreversible directory deletion is enumerated before its code question (count, bytes and exact paths); multi-recipient
@@ -2757,6 +2756,9 @@ swallowed); spans `loop.round` (one per round, its worker and checker under it) 
 baseline, trip or error, with the count of reads since it was armed).
 Memory search (L36 §3): `memory.search_reindexed` (the start's content re-index changed nodes; `version`, `finished`)
 and `memory.search_reindex_failed` (its error; search stays as it stands until the next start).
+Login names (L36 §5): `memory.login_refused` (a `login_origin` entry's username not saved; `item`, `place`, `why`),
+`memory.login_cleared` (the places whose username went with a forgotten or retracted item) and
+`memory.login_unreadable` (the handle file couldn't be read to clear them; `error`).
 
 ### 16.11 Loops (L31)
 
@@ -2927,22 +2929,37 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   overwritten, and every call refuses naming the file. A record serves several sites (I14): when `Gateway.ask_secret`
   saves an entry it passes `_login_sites`: the task's target sites (`state.requests`, as a steer left them) whose host
   the owner typed in the request's words, a leading "www." aside (rule 8's provenance; a site only the model or outside
-  content named never links), and none at all when the fill place is an app or itself one of the task's sites (only a
-  sign-in form on another address needs a link; a sign-in on usvisascheduling.com in a task that also names gmail.com
-  must not hand its username to gmail.com). The record lists those hosts. A site matches a host exactly, "www." aside
-  (`same_site`), never a subdomain: on shared hosting (b2clogin.com, github.io) each tenant has its own, so a record
-  listing b2clogin.com never serves evil.b2clogin.com (fix round 1). A record is linked to a place when one of its
-  sites is the place's host's site, or the place's own record lists the record's host's site. A place's username is
-  its record's own, else the one its linked records agree on (two that differ name none); it is read through the
-  link, never copied. Entries fill only at their own record's place (`reveal`, D12). The owner-only
-  observation `secrets.list` (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the
-  unusable list and, under `linked`, each linked record by the place its entries fill; never a value or an account.
-  worker.md tells a worker to call it before typing into a login form, so the username comes from the record, not
-  memory's ranking. The hidden-input line names the account after FERB's place (ruling C1, re-review R1): "For
-  atlasauth.b2clogin.com only (account: Asha Rao): …", and the full question "Destination: … Account: …"; the username
-  is printable, on one line, without format or line-separator characters (Cf, Cs, Zl, Zp: no bidi override), and
-  clipped to 64 characters (`_account`). A handle file `ask_secret` can't read names no account and still asks a one-time
-  input; a save is refused before the question (m17).
+  content named never links; `typed_site`), and none at all when the fill place is an app or itself one of those
+  owner-typed sites (only a sign-in form on another address needs a link; a sign-in on usvisascheduling.com in a task
+  that also names gmail.com must not hand its username to gmail.com). Only the owner-typed sites count for that test,
+  since the planner may add the sign-in form's own host to the targets after a steer (Task 6 re-review). The record
+  lists those hosts. A site matches a host exactly, "www." aside (`same_site`; an empty host, an app's, is no site),
+  never a subdomain: on shared hosting (b2clogin.com, github.io) each tenant has its own, so a record listing
+  b2clogin.com never serves evil.b2clogin.com (fix round 1). A record is linked to a place when the two are one site
+  ("www." aside: the planner writes a username's site either way, §5 below), one of its sites is the place's host's
+  site, or the place's own record lists the record's host's site. A place's username is its record's own, else the
+  one its linked records agree on (two that differ name none); it is read through the link, never copied. Entries
+  fill only at their own record's place (`reveal`, D12). The owner-only observation `secrets.list`
+  (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the unusable list and, under
+  `linked`, each linked record by the place its entries fill; never a value or an account. worker.md tells a worker to
+  call it before typing into a login form, so the username comes from the record, not memory's ranking. The
+  hidden-input line names the account after FERB's place (ruling C1, re-review R1): "For atlasauth.b2clogin.com only
+  (account: Asha Rao): …", and the full question "Destination: … Account: …"; the username is printable, on one line,
+  without format or line-separator characters (Cf, Cs, Zl, Zp: no bidi override), and clipped to 64 characters
+  (`_account`). A handle file `ask_secret` can't read names no account and still asks a one-time input; a save is
+  refused before the question (m17).
+- **The username (§5).** A planner `remember` entry may carry `login_origin`; its content is then the username alone.
+  `Daemon._save_login_name` writes the owner's own spelling of it (`owner_span`) to that https:// origin's record
+  (`set_username`, `username_source` `memory:<id>`) only from an owner-stated item, when the host, exactly or with or
+  without "www." (`same_site`, never a subdomain), is one the owner typed in that message (`typed_site`) or one of the
+  turn's task's sites (`Supervisor._turn_sites`: a new task's, or the task a control acts on, live or saved, plus the
+  sites a steered task named before the steer restated it). An app's username stays ordinary memory. The owner's line
+  gains "Saved as your login name for <host>."; a refusal is journaled (`memory.login_refused`, with why), and a
+  username the redactor hid is never saved. The username is set on the site's record only; a sign-in form's record on
+  another address shows it through its listed sites (above), once an entry saved there during a task the owner typed
+  the site for lists it. A forget of that item (`Memory.on_forget`) or a retract (`memory.retract`) clears it
+  (`Daemon._clear_login_names`; journal `memory.login_cleared`, or `memory.login_unreadable` when the handle file
+  can't be read).
 
 ### 16.13 FERB's cursor (L33)
 

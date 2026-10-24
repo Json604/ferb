@@ -83,6 +83,8 @@ REMEMBER_SCHEMA = _obj({
     "kind": {"type": "string", "enum": ["fact", "preference", "person", "project", "env"]},
     "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
     "quote": {"type": "string"},
+    # L36 §5: this entry's content is the owner's username for this https:// site; null otherwise
+    "login_origin": _nullable("string"),
 })
 TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote": {"type": "string"}})
 SCHEDULE_SCHEMA = _obj({
@@ -236,6 +238,7 @@ class Remember(BaseModel):
     key: str
     content: str
     quote: str
+    login_origin: str | None = None   # L36 §5: this entry's content is the username for this https:// site
 
 
 class ForgetRequest(BaseModel):

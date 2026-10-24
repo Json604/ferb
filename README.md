@@ -694,15 +694,16 @@ Passwords and security answers you save stay in your Mac's Keychain, one login p
 what's already saved for that site (names only, never values) and asks only for what's missing. A login saved during a
 task on a sign-in page at another address (the visa site's atlasauth.b2clogin.com) also counts for the sites you typed
 for that task (exactly that site, with or without "www.", never other addresses under it), so it shows the username
-you gave for the site; the secrets themselves fill only on the page they were saved on. The hidden-input question names the account: "For atlasauth.b2clogin.com only (account: Asha Rao): …".
-A password saved for a whole browser before 2026-10-24 can't be used and is listed as "ask again".
-"Remember that …" saves as yours the whole sentence you
-typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"
-saves "like tea"); FERB's rewording, like any inferred fact, waits for your Keep (FERB asks in chat and the notch; or
-`ferb memory confirm ID`) before it reaches a prompt. Observed
-patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements or confirmed identity
-proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
-A pending identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal
+you gave for the site; the secrets themselves fill only on the page they were saved on. The hidden-input question
+names the account: "For atlasauth.b2clogin.com only (account: Asha Rao): …". Tell FERB a site's username while it
+works ("the username is …") and it is remembered for that site and offered on its login page; forgetting that memory
+removes it from the login record too. A password saved for a whole browser before 2026-10-24 can't be used and is
+listed as "ask again". "Remember that …" saves as yours the whole sentence you typed it in (only a line break or a
+pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea" saves "like tea"); FERB's rewording, like
+any inferred fact, waits for your Keep (FERB asks in chat and the notch; or `ferb memory confirm ID`) before it
+reaches a prompt. Observed patterns not yet seen on three days are labelled unconfirmed hints. Only owner statements
+or confirmed identity proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`). A pending
+identity digest is shown in chat at most once per day: the app shows Confirm and Not right; in the terminal
 `/memory confirm ID` records an explicit confirmation.
 
 The sleep service runs incrementally when no task is active: it reads again only cards whose inputs changed, gives
