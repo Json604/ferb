@@ -14,6 +14,12 @@ def _words(name: str) -> str:
 
 
 SENTENCES = [
+    # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"
+    ("worker.md",
+     'A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner\'s own browser profile is an '
+     "ordinary control: click it once, as the owner would, by the normal input route, then take a fresh snapshot and "
+     "wait for the page to continue; if a further challenge appears or the check still blocks, quote the page's "
+     "message and hand it to the owner as a bounded foreground step."),
     # owner 2026-10-24, visa login: account_security declared on every sign-in step asked five times in four minutes
     ("worker.md",
      "`account_security` only for changing a password, two-factor or recovery settings, or deleting the account. "

@@ -717,6 +717,11 @@ After the owner's update (2026-10-24):
   covering a sign-in. Both now say `account_security` is only for changing a password, two-factor or recovery
   settings, or deleting the account, and that signing in with existing credentials is `edit`. A declared
   account-security change still always asks.
+- A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in your own browser profile is clicked like any
+  other control (P27; owner, 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a
+  box"). Workers click it once, as you would, by the normal input route, then take a fresh look and wait for the page
+  to continue. If a further challenge appears or the check still blocks, they quote the page's message and hand it to
+  you as a short step for you to do.
 
 Licensed under Apache-2.0.
 
