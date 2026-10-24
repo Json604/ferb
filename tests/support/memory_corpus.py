@@ -50,3 +50,31 @@ def owner_like_store(store: Learning) -> None:
         store.put("entity", f"project:{topic(n).replace(' ', '-')}", {
             "text": f"The {topic(n)} is a project of the owner and it is active."},
             [], origin_label="inferred", made_by="code:entity-summary/1", state="active")
+
+
+# Ordinary words of a long research-and-booking goal (none names a site): the owner's store has many past tasks whose
+# long texts share such words with any long goal ("account" was in 275 of 699 nodes, "login" in 52; 2026-10-24).
+RESEARCH_WORDS = (
+    "search official information account report booking documents details available requires decisions security login "
+    "monitoring frequency limits confirmation locations interview date first step final strategy update work personal "
+    "choice agent paid flow system valid exact research chance getting slot blocks extensions optimize securing earliest "
+    "corresponding permits acceptable selections applicable immediately waiting genuinely missing determine implement "
+    "materially improves respecting avoiding bots unsafe guidance availability scheduling rules rescheduling access "
+    "automation abuse restrictions government sources current collect propose good slots online anytime")
+
+
+def goal_like_episodes(store: Learning, n: int = 80, width: int = 30) -> None:
+    """Past tasks with long texts, each sharing `width` of `RESEARCH_WORDS` with a long goal (a rotating window, so each
+    word stays in fewer than half the nodes and carries weight). Beside `owner_like_store` they bury a short fact that
+    shares one rare word with the query (L36 §4 fix round: measured on the owner's store, the username ranked 94th for
+    the research step's query)."""
+    words = RESEARCH_WORDS.split()
+    for i in range(n):
+        start = (i * 7) % len(words)
+        part = [words[(start + j) % len(words)] for j in range(width)]
+        store.put("episode", f"research{i:03d}", {
+            "task_id": f"research{i:03d}", "intent": f"Research the {topic(i)} and report: " + " ".join(part[:width // 2]),
+            "request": f"look into my {topic(i)}", "status": "done", "verified": i % 2 == 0,
+            "narrative": "FERB went through " + " ".join(part[width // 2:]) + f" for the {topic(i + 5)}.",
+            "ended_at": f"2026-10-{1 + i % 24:02d}T11:00:00+00:00", "actions": [], "apps": {}, "slots": {}},
+            [], origin_label="ferb", made_by="code:evidence-card/4", state="active")

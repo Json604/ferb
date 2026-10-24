@@ -899,7 +899,7 @@ def test_the_clarify_turns_outside_origins_reach_the_answers_request(daemon: Run
     assert recorded[0].asked_origins == frozenset({"external:paste"})
     # This assertion isolates request/clarification provenance; learned recalls from the prior task
     # correctly remain outside data and are covered by the context-exposure tests.
-    daemon.daemon.supervisor.memory_candidates = lambda _: []
+    daemon.daemon.supervisor.memory_candidates = lambda _words, _focus: []
     plain: list[Any] = []
     monkeypatch.setattr(daemon.daemon.state.requests, "record", lambda r: (plain.append(r), real(r))[1])
     install(daemon, [sup("clarify", "Which file?"), sup("task", "Ok.", task("open it"))], {"worker": done()})

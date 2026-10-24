@@ -2860,38 +2860,48 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   JSON-indexed text) it took 6.6 s in 189 batches, each holding the write lock 76 ms at most; the index text went to 1
   MB. A planner turn recalls for the owner's message plus the goals and targets (`target_words`: sites' host labels,
   apps, recipients, paths' last parts) of the tasks its task layers show (`Supervisor._chat_task_words`: this chat's
-  running tasks and the resumable attempts it is shown), so a message that shares no word with a fact still recalls it
-  through the work it continues. A word found in more than half of the nodes carries no weight (`weighted_terms`, with
-  `Memory.recall`'s rule `items.weighted`); a query whose every word is such finds nothing, by embedding similarity too,
-  and a query with no words lists the newest first, with no recency or owner boost. bm25 ranks with ties sharing a rank, the trigram title match and an
-  adopted embedding are fused by reciprocal rank, plus at most 0.05 for recency (half-life 30 days). An owner-stated
-  node always takes the full 0.05 (the owner's words don't age), so at equal relevance no guess outscores it, and at
-  equal score it comes first. Nodes are ranked and filtered by their columns first and their bodies read best first
-  until the budget is full; prompt lines are read without their source refs (`search(sources=False)`: the 60 lines of
-  one owner query cited 944,554). On that copy one planner turn's memory (facts synced, task words, search) took about
-  73 ms, against 1.3 s reading every matched node. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60 (the planner and
-  attention) and `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity layer and the
-  planner's procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and procedures before
-  the budget applies. The memory blocks stay protected inside the budgets (the planner's conversation fills its window
-  before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>): <goal> — <status>[,
-  verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the same `search_text`; a
-  node without one has no vector.
+  running tasks and the resumable attempts it is shown); those tasks' target words are also the search's `focus`
+  (below), so a message that shares no word with a fact still recalls it through the work it continues. A word found
+  in more than half of the nodes carries no weight (`weighted_terms`, with `Memory.recall`'s rule `items.weighted`); a
+  query whose every word is such finds nothing, by embedding similarity too, and a query with no words lists the newest
+  first, with no recency or owner boost. bm25 ranks with ties sharing a rank, the trigram title match, an adopted
+  embedding and, when the caller gives `focus` words, a bm25 ranking of those words alone are fused by reciprocal rank
+  (each ranking adds 1 / (rank + 1), ranks from 0: the fusion's k is 0, so recency's 0.05 stays a nudge), plus at most
+  0.05 for recency (half-life 30 days). `focus` (§4 fix round) is the target words of the work being served: the
+  planner's are those of the tasks its layers show, a worker's or plan step's its own task's; attention and the memory
+  tools give none. It exists because long past-task texts that share a long goal's ordinary words outrank a short fact
+  that shares only the site's name: on a scratch copy of the owner's database (2026-10-24, with a stand-in username
+  fact) the visa research step's query ranked the username 94th of 198 and the 12:17 planner query 91st of 189; with
+  the targets as `focus`, 4th for both (and for 12:22), adding under 1 ms a search. Focus words that carry no weight or
+  match nothing change no score, and the filters, the owner's order and the budgets apply after the fusion.
+  An owner-stated node always takes the full 0.05 (the owner's words don't age), so at equal relevance no guess
+  outscores it, and at equal score it comes first. Nodes are ranked and filtered by their columns first and their bodies
+  read best first until the budget is full; prompt lines are read without their source refs (`search(sources=False)`:
+  the 60 lines of one owner query cited 944,554). On that copy one planner turn's memory (facts synced, task words,
+  search) took about 73 ms, against 1.3 s reading every matched node. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60
+  (the planner and attention) and `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity
+  layer and the planner's procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and
+  procedures before the budget applies. The memory blocks stay protected inside the budgets (the planner's conversation
+  fills its window before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>):
+  <goal> — <status>[, verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the
+  same `search_text`; a node without one has no vector.
 - **The tools (§3).** `memory.read` keeps its arguments; a query is ranked by the one search (`Daemon._memory_item_search`:
   the memory items behind the matching facts, best first), never a substring match, and without the search a query is
   refused. `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
   (`shown_text`) beside their ids.
 - **Workers and plan steps (§4).** `Supervisor._worker_memory` asks the daemon's `memory_push` (the one search,
   `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal and
-  the task's `target_words`, and adds each item as a protected "Layer 4 — retrieved memory" block, recorded in
-  `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no longer blank memory, and
-  their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The daemon's `recall` stub is
-  gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the next-attempt and question
-  choices and the resource reconcile judge fresh observations and get none. A query with no words gets nothing, never
-  the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted model embeds the query in a
-  worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy of the owner's database
-  (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research step's 223-word query and
-  22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare supervisor), a worker gets
-  the plain `recall` block, as before.
+  the task's `target_words`, the targets also as the search's `focus` (`memory_push(query, targets)`; the planner's
+  `memory_candidates(query, targets)` likewise), and adds each item as a protected "Layer 4 — retrieved memory"
+  block, recorded in `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no longer
+  blank memory, and their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The daemon's
+  `recall` stub is gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the next-attempt
+  and question choices and the resource reconcile judge fresh observations and get none. A query with no words gets
+  nothing, never the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted model embeds
+  the query in a worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy of the owner's
+  database (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research step's 223-word
+  query and 22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare supervisor), a
+  worker gets the plain `recall` block, as before.
 
 ### 16.13 FERB's cursor (L33)
 

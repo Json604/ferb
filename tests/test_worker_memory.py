@@ -9,7 +9,7 @@ from typing import Any
 from ferb.memory.learning import WORKER_MEMORY_ITEMS
 from ferb.orchestrator.plans import Plan, Step
 from tests.conftest import chat, done, install, outcome, sup, task
-from tests.support.memory_corpus import USERNAME, owner_like_store
+from tests.support.memory_corpus import USERNAME, goal_like_episodes, owner_like_store
 from tests.support.memory_items import owner_fact, run
 from tests.support.visa_audit import (
     MSG_1217,
@@ -49,10 +49,11 @@ def test_a_plan_step_gets_its_parent_goal_and_the_memory_it_needs(daemon: Any) -
     assert node["id"] in refs                              # so a forget still reaches what the step was given
 
 
-def test_the_live_research_step_gets_the_username_in_an_owner_like_store(daemon: Any) -> None:
-    """The owner's live case end to end, on the audit's real texts (Ruling 25) in a store shaped like the owner's: the
-    research_official step of the visa task, started by the 12:17 message, gets the username among its 20."""
-    run(daemon, lambda: owner_like_store(daemon.daemon.learning))
+def test_the_live_research_step_gets_the_username_in_a_busy_store(daemon: Any) -> None:
+    """The owner's live case end to end, on the audit's real texts (Ruling 25) in a store shaped like the owner's, with
+    long past tasks that share the visa goal's words (fix round): the research_official step of the visa task, started
+    by the 12:17 message, gets the username among its 20 through its task's targets ranked alone (`focus`)."""
+    run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
     owner_fact(daemon, "usvisascheduling_username", USERNAME)
     spec = task(VISA_GOAL, apps=tuple(VISA_TARGETS.apps), sites=tuple(VISA_TARGETS.sites))
     spec["plan"] = Plan(steps=[Step(id="research_official", kind="do", goal=RESEARCH_OFFICIAL)]).model_dump()
@@ -107,6 +108,28 @@ def test_the_worker_query_is_the_request_goal_and_targets_embedded_off_the_event
     worker = [(text, name) for text, name in queries if "usvisascheduling" in text]
     assert [text for text, _ in worker] == ["log in now\nLog in to the visa site\nusvisascheduling com"]
     assert daemon.thread.name not in {name for _, name in queries}
+
+
+def test_the_worker_search_carries_its_targets_and_attention_and_memory_read_carry_none(daemon: Any) -> None:
+    """Fix round: the worker's and plan step's focus is the task's targets; attention and the memory tools search a
+    query alone."""
+    calls: list[tuple[str, str]] = []
+    learning = daemon.daemon.learning
+    original = learning.search
+
+    def spy(query: str, **kw: Any) -> Any:
+        calls.append((query, kw.get("focus", "")))
+        return original(query, **kw)
+    learning.search = spy
+    install(daemon, [sup("task", "On it.", task("Log in to the visa site", sites=("usvisascheduling.com",)))],
+            {"worker": done("Done.")})
+    chat(daemon, "log in now")
+    assert ("log in now\nLog in to the visa site\nusvisascheduling com", "usvisascheduling com") in calls
+    calls.clear()
+    install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    daemon.run(daemon.daemon.supervisor.attention(["trail:x"], [{"data": {"title": "usvisascheduling.com login"}}], []))
+    daemon.run(daemon.daemon._memory_item_search("usvisascheduling username"))
+    assert len(calls) == 2 and all(focus == "" for _, focus in calls), calls
 
 
 def test_a_worker_gets_at_most_its_20_items(daemon: Any) -> None:

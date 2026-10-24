@@ -15,7 +15,7 @@ from ferb.orchestrator.schemas import TargetsSpec
 from tests.conftest import chat, install, sup, task
 from tests.support.learning_fixtures import TickingClock, new_store
 from tests.support.live_steer import StalledWorker
-from tests.support.memory_corpus import USERNAME, fact, owner_like_store
+from tests.support.memory_corpus import USERNAME, fact, goal_like_episodes, owner_like_store
 from tests.support.memory_items import owner_fact, run
 from tests.support.visa_audit import MSG_1217, MSG_1222, RESEARCH_OFFICIAL, VISA_GOAL, VISA_TARGETS
 
@@ -32,8 +32,18 @@ def store(tmp_path: Path) -> Any:
     db.close()
 
 
-def ranked(store: Any, query: str, node_id: str, limit: int) -> bool:
-    return node_id in [n["id"] for n in store.search(query, limit=limit)]
+@pytest.fixture
+def busy_store(tmp_path: Path) -> Any:
+    """The owner-like store plus long past tasks that share a long goal's ordinary words (`goal_like_episodes`)."""
+    db, learning = new_store(tmp_path / "memory.db")
+    owner_like_store(learning)
+    goal_like_episodes(learning)
+    yield learning
+    db.close()
+
+
+def ranked(store: Any, query: str, node_id: str, limit: int, **kw: Any) -> bool:
+    return node_id in [n["id"] for n in store.search(query, limit=limit, **kw)]
 
 
 def test_target_and_slug_words_are_the_items_and_tasks_own_words() -> None:
@@ -66,6 +76,41 @@ def test_the_research_official_step_recalls_the_username_within_its_20(store: An
     assert ranked(store, query, username["id"], WORKER_MEMORY_ITEMS)
 
 
+def test_long_past_tasks_bury_the_username_unless_the_tasks_targets_are_ranked_alone(busy_store: Any) -> None:
+    """Fix round (measured on a copy of the owner's store, 2026-10-24): long past tasks share the visa goal's ordinary
+    words, so the research step's query ranked the username 94th and the 12:17 planner query 91st. The task's target
+    words ranked alone (`focus`) and fused with the main ranking bring it inside the 20 and the 60."""
+    username = fact(busy_store, "usvisascheduling_username", USERNAME)
+    targets = target_words(VISA_TARGETS)
+    step = f"{MSG_1217}\n{VISA_GOAL}\n{RESEARCH_OFFICIAL}\n{targets}"
+    planner = f"{MSG_1217}\n{VISA_GOAL}\n{targets}"
+    assert not ranked(busy_store, step, username["id"], WORKER_MEMORY_ITEMS)
+    assert not ranked(busy_store, planner, username["id"], PLANNER_MEMORY_ITEMS)
+    assert ranked(busy_store, step, username["id"], WORKER_MEMORY_ITEMS, focus=targets)
+    assert ranked(busy_store, planner, username["id"], PLANNER_MEMORY_ITEMS, focus=targets)
+
+
+def test_focus_words_that_match_nothing_or_carry_no_weight_change_nothing(busy_store: Any) -> None:
+    fact(busy_store, "usvisascheduling_username", USERNAME)
+    query = "\n".join((MSG_1217, VISA_GOAL, RESEARCH_OFFICIAL, target_words(VISA_TARGETS)))
+    plain = [(n["id"], n["score"]) for n in busy_store.search(query)]
+    for focus in ("zqxjv vrrkt", "the is for and owner", ""):
+        assert [(n["id"], n["score"]) for n in busy_store.search(query, focus=focus)] == plain, focus
+
+
+def test_focus_never_brings_back_what_search_leaves_out(busy_store: Any) -> None:
+    """The state filters, the left-out kinds and the budget apply after the fusion, as without focus."""
+    pending = fact(busy_store, "usvisascheduling_hint", "the usvisascheduling hint waits for Keep", owner=False)
+    busy_store.db.conn.execute("UPDATE learning_nodes SET state='proposed' WHERE id=?", (pending["id"],))
+    retired = fact(busy_store, "usvisascheduling_old", "the usvisascheduling old login")
+    busy_store.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (retired["id"],))
+    procedure = busy_store.put("procedure", "usvisascheduling login", {"steps": [], "text": "usvisascheduling login"},
+                               [], origin_label="ferb", made_by="model:test", state="active")
+    found = [n["id"] for n in busy_store.search("usvisascheduling login", focus="usvisascheduling",
+                                                leave_out=frozenset({"procedure"}), limit=5)]
+    assert len(found) <= 5 and not {pending["id"], retired["id"], procedure["id"]} & set(found)
+
+
 def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A planner turn's memory query adds the goals and targets of the tasks its task layers show: the owner's 12:17
     message, sent while the visa task runs in the same chat, brings the username into the planner's memory. The fillers
@@ -90,6 +135,30 @@ def test_the_planner_recalls_for_the_work_its_message_continues(daemon: Any, mon
         chat(daemon, MSG_1217, session="elsewhere", timeout=5)       # another chat: its planner sees no visa task
         planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
         assert MSG_1217 in planner and USERNAME not in planner
+    finally:
+        worker.release.set()
+        thread.join(5)
+
+
+def test_the_planners_12_17_turn_recalls_the_username_in_a_busy_store(daemon: Any,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round: the planner's focus is the targets of the tasks its task layers show (Ruling 12a). Among long past
+    tasks that share the visa goal's words, the 12:17 message sent while the visa task runs still brings the username
+    into the planner's 60."""
+    run(daemon, lambda: (owner_like_store(daemon.daemon.learning), goal_like_episodes(daemon.daemon.learning)))
+    owner_fact(daemon, "usvisascheduling_username", USERNAME)
+    worker = StalledWorker(monkeypatch)
+    script = install(daemon, [sup("task", "Looking.", task(VISA_GOAL, apps=("Chrome New_Personal",),
+                                                           sites=("usvisascheduling.com",)))])
+    first: list[dict[str, Any]] = []
+    thread = threading.Thread(target=lambda: first.extend(chat(daemon, "look for visa slots", session="visa")))
+    thread.start()
+    try:
+        assert worker.started.wait(5)
+        script.sup.append(sup("reply", "Here is a strategy."))
+        chat(daemon, MSG_1217, session="visa", timeout=5)
+        planner = [ctx for _, key, ctx, _ in script.contexts if key == "supervisor"][-1]
+        assert USERNAME in planner
     finally:
         worker.release.set()
         thread.join(5)

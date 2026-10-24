@@ -304,7 +304,7 @@ def _procedure_scene(d: RunningDaemon, answer: str, steps: list[Any] | None = No
     procedure = _on_loop(d, lambda: dd.learning.put("procedure", "book appointment", {
         "intent": "book appointment", "steps": steps or [{"tool": "gmail.send"}], "preconditions": {"apps": {}}},
         [c1["id"]], made_by="model:t", state="candidate"))
-    dd.supervisor.memory_candidates = lambda words: []                      # T3's planner sees no fact
+    dd.supervisor.memory_candidates = lambda words, focus: []                      # T3's planner sees no fact
     install(d, [sup("task", "Booking.", task(request))], {"worker": done(answer)})
     t3 = outcome(chat(d, request))["task_id"]
     _on_loop(d, lambda: dd.db.conn.execute("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
@@ -439,7 +439,7 @@ def test_a_task_that_read_the_item_with_a_memory_tool_is_given_it(daemon: Runnin
     from tests.conftest import done, outcome, sup, task, tool
     d = daemon.daemon
     item = _added(daemon, "My dentist is Dr. Zorblat", "dentist")
-    d.supervisor.memory_candidates = lambda words: []                       # the planner is shown no memory
+    d.supervisor.memory_candidates = lambda words, focus: []                       # the planner is shown no memory
     d.supervisor.on_episode = lambda task_id: None                          # and no card is built
 
     def act(token: str) -> str:
@@ -799,7 +799,7 @@ def test_a_procedure_forget_scrubs_only_the_spans_that_showed_it(daemon: Running
     script = install(daemon, [_reply("Okay.")])
     chat(daemon, "how do I book qindle visit?")
     assert proc["id"] in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
-    d.supervisor.memory_candidates = lambda words: []                   # the next planner is shown no learned item
+    d.supervisor.memory_candidates = lambda words, focus: []                   # the next planner is shown no learned item
     script = install(daemon, [_reply("Okay.")])
     chat(daemon, "please book qindle visit for friday")
     assert proc["id"] not in "\n".join(str(c) for _, key, c, _ in script.contexts if key == "supervisor")
@@ -987,7 +987,7 @@ def test_a_reply_that_copied_a_lesson_in_a_turn_not_shown_it_loses_the_line(daem
     node = _lesson(daemon, "always cc the trelloquin team")
     install(daemon, [_reply("Noted: always cc the trelloquin team")])
     chat(daemon, "who do I cc on trelloquin updates?")
-    d.supervisor.memory_candidates = lambda words: []
+    d.supervisor.memory_candidates = lambda words, focus: []
     install(daemon, [_reply("As before: always cc the trelloquin team")])
     chat(daemon, "remind me again about trelloquin")
     _dashboard_forget(daemon, node["id"])
@@ -1122,7 +1122,7 @@ def test_a_single_word_line_removed_in_scope_is_never_scrubbed_elsewhere(daemon:
         made_by="model:t", state="active"))
     install(daemon, [_reply("Which one?\nGmail\nOutlook")])
     chat(daemon, "which Gmail should I use?")
-    d.supervisor.memory_candidates = lambda words: []
+    d.supervisor.memory_candidates = lambda words, focus: []
     install(daemon, [_reply("Done.")])
     chat(daemon, "check my Gmail inbox please")
     held = _held_in_spans(daemon, "check my Gmail inbox please")

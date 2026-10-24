@@ -1347,25 +1347,31 @@ class Learning:
     def search(self, query: str, *, kind: str | None = None, app: str | None = None,
                person: str | None = None, since: str | None = None, until: str | None = None,
                query_vector: list[int] | None = None, embed: bool = True, limit: int | None = None,
-               leave_out: frozenset[str] = frozenset(), sources: bool = True) -> list[dict[str, Any]]:
+               leave_out: frozenset[str] = frozenset(), sources: bool = True,
+               focus: str = '') -> list[dict[str, Any]]:
         """The one ranked search (L36 §3): bm25 over each node's content (`search_text`) for the words that carry
         weight (`weighted_terms`), the trigram title match and, when the owner adopted one, embedding similarity,
-        fused by reciprocal rank (equal scores share a rank: `_tied`), plus a small recency boost; at equal score the
-        owner's own statement first. A query whose every word most nodes share finds nothing, by similarity too (m5); a
-        query with no words lists the newest first, with
+        fused by reciprocal rank (each ranking adds 1 / (rank + 1), ranks from 0; equal scores share a rank: `_tied`),
+        plus a small recency boost; at equal score the owner's own statement first. A query whose every word most nodes
+        share finds nothing, by similarity too (m5); a query with no words lists the newest first, with
         no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
         (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
-        nodes without their source refs (`get`), for a prompt's lines."""
+        nodes without their source refs (`get`), for a prompt's lines. `focus`: a task's target words (`target_words`),
+        also ranked alone by bm25 with the same weight rule and fused like the others, so a short fact that shares only
+        the site's name with a long goal isn't buried by long texts sharing the goal's ordinary words (L36 §4 fix
+        round); focus words that carry no weight or match nothing change nothing. The filters, the owner's order and
+        the budget apply after the fusion, as without it."""
         words = query_terms(query)
         terms = self.weighted_terms(words) if words else []
         if words and not terms:
             return []
         rankings: list[dict[str, int]] = []
         if terms:
-            match = ' OR '.join('"' + t.replace('"', '""') + '"' for t in terms)
-            rankings.append(_tied(self.db.conn.execute(
-                'SELECT id, bm25(learning_fts) FROM learning_fts WHERE learning_fts MATCH ? ORDER BY 2', (match,))))
+            rankings.append(self._bm25(terms))
+            focused = self.weighted_terms(query_terms(focus)) if focus else []
+            if focused:
+                rankings.append(self._bm25(focused))
             if len(query) >= 3:
                 rankings.append(_tied(self.db.conn.execute(
                     'SELECT id, bm25(learning_titles) FROM learning_titles WHERE learning_titles MATCH ? ORDER BY 2',
@@ -1424,6 +1430,12 @@ class Learning:
             p['score'] = score
             out.append(p)
         return out
+
+    def _bm25(self, terms: list[str]) -> dict[str, int]:
+        """The nodes whose content holds any of `terms`, ranked by bm25 (ties share a rank)."""
+        match = ' OR '.join('"' + t.replace('"', '""') + '"' for t in terms)
+        return _tied(self.db.conn.execute(
+            'SELECT id, bm25(learning_fts) FROM learning_fts WHERE learning_fts MATCH ? ORDER BY 2', (match,)))
 
     def _columns(self, ids: Iterable[str]) -> list[Any]:
         """The columns search ranks and filters by, for these nodes (no body), in chunks SQLite's variable limit

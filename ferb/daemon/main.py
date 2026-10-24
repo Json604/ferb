@@ -1385,16 +1385,16 @@ class Daemon:
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
-            # L36 §4: every worker and plan step gets the one search at the owner's worker budget (no procedures:
-            # a worker's procedure is chosen by the planner)
-            self.supervisor.memory_push = lambda words: self._learning_candidates(words, WORKER_MEMORY_ITEMS,
-                                                                                  procedures=False)
+            # L36 §4: every worker and plan step gets the one search at the owner's worker budget, its task's targets
+            # also ranked alone (no procedures: a worker's procedure is chosen by the planner)
+            self.supervisor.memory_push = lambda words, focus: self._learning_candidates(
+                words, WORKER_MEMORY_ITEMS, procedures=False, focus=focus)
             self.supervisor.remember = self._remember
             self.supervisor.forget_request = self._chat_forget
             self.supervisor.question_answered = self._question_answered
             self.supervisor.settle = self._settle_forgets
             self.supervisor.procedure_context = self._learning_context
-            self.supervisor.memory_candidates = self._learning_candidates
+            self.supervisor.memory_candidates = lambda words, focus: self._learning_candidates(words, focus=focus)
             self.supervisor.procedure_details = lambda ident, task, slots: self.learning.procedure_parts(
                 ident, self._app_versions(), slots)
             self.supervisor.procedure_problem = self._procedure_problem
@@ -1598,31 +1598,33 @@ class Daemon:
             return None, False
 
     async def _search(self, query: str, *, limit: int | None = None, leave_out: frozenset[str] = frozenset(),
-                      sources: bool = True, **filters: Any) -> list[dict[str, Any]]:
+                      sources: bool = True, focus: str = '', **filters: Any) -> list[dict[str, Any]]:
         """The one ranked search (L36 §3) for the planner, attention, workers, memory.read and memory.learned: memory
         items synced to fact nodes first, the query's embedding off the loop, SQLite on it. `sources` False: without
-        each node's source refs (a prompt's lines)."""
+        each node's source refs (a prompt's lines). `focus`: the target words of the tasks the caller works for, also
+        ranked alone (`Learning.search`; the planner's and workers' searches, L36 §4 fix round)."""
         if not self.learning:
             return []
         await self._search_ready()
         self.learning.sync_facts(self.memory)
         vector, embed = await self._query_vector(query)
         return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
-                                         sources=sources, **filters))
+                                         sources=sources, focus=focus, **filters))
 
     async def _memory_item_search(self, query: str) -> list[str]:
         """memory.read's query, ranked by the one search (L36 §3): the memory items behind the matching facts."""
         return [str(n["body"]["id"]) for n in await self._search(query, kind="fact") if n["body"].get("id")]
 
     async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS,
-                                   procedures: bool = True) -> list[dict[str, Any]]:
+                                   procedures: bool = True, *, focus: str = '') -> list[dict[str, Any]]:
         """Relevant learned memory, ranked, at most `budget` items (the owner's: planner 60, worker 20; L36 §3), each
         line saying what it is (`shown_text`); with `procedures`, every procedure the planner may choose first, outside
-        the budget (L29). Each item cites itself: its node carries its own sources, so forgetting any of them reaches
+        the budget (L29). `focus`: the target words of the tasks the turn or worker serves, also ranked alone (L36 §4
+        fix round). Each item cites itself: its node carries its own sources, so forgetting any of them reaches
         what cites the node (the memory.learned tool cites items the same way)."""
         if not self.learning:
             return []
-        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT, sources=False)
+        found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT, sources=False, focus=focus)
         from ferb.memory.learning import line_safe, shown_state, shown_text
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
         # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots

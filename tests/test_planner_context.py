@@ -32,7 +32,7 @@ def _turn_spans(daemon: RunningDaemon) -> list[dict]:
 
 def _situation_hooks(daemon: RunningDaemon) -> None:
     sv = daemon.daemon.supervisor
-    sv.memory_candidates = lambda words: [{'text': 'REMEMBERED-FACT the owner prefers tea', 'reference': 'memory.learned id=m1',
+    sv.memory_candidates = lambda words, focus: [{'text': 'REMEMBERED-FACT the owner prefers tea', 'reference': 'memory.learned id=m1',
                                            'origin': 'private', 'source_refs': ['m1']}]
     sv.relevant_context = lambda words: ('TODAY-ACTIVITY opened the tea shop page', 'private', 'opened the tea shop page',
                                          ['trail:t1'])
@@ -206,7 +206,7 @@ def test_history_payload_holds_only_entry_texts(daemon):
 
 def test_reply_rows_record_their_history_by_handle_not_by_copy(daemon):
     sv = daemon.daemon.supervisor
-    sv.memory_candidates = lambda words: []
+    sv.memory_candidates = lambda words, focus: []
     sv.relevant_context = lambda words: ('Matching activity', 'private', 'Matching activity', ['trail:first-turn'])
     install(daemon, [sup("reply", "answer 0"), sup("reply", "answer 1")])
     chat(daemon, "message 0")
@@ -574,7 +574,7 @@ def test_reply_rows_keep_their_source_ids_intact(daemon):
     sv = daemon.daemon.supervisor
     node = "m-8e953d2b8ca8fa1fce4363854ff888cff4b8e7875d600c2682390412a8cf79ab"
     daemon.call_soon(daemon.daemon._add_secret_value, "4363854ff888")
-    sv.memory_candidates = lambda words: [{'text': 'A remembered fact.', 'reference': 'memory.learned id=x',
+    sv.memory_candidates = lambda words, focus: [{'text': 'A remembered fact.', 'reference': 'memory.learned id=x',
                                            'origin': 'private', 'source_refs': [node]}]
     install(daemon, [sup("reply", "ok")])
     chat(daemon, "hello")
@@ -776,7 +776,7 @@ def test_a_ref_damaged_by_redaction_that_the_planner_was_only_shown_never_reache
     damaged ref the planner was merely shown neither fails the card nor is reported on every task."""
     damaged = "m-8e953d2b8ca8f[redacted]b46e986ee416a81e4cc270dfe91fe0f6a23784"
     fact = {'text': 'A remembered fact.', 'reference': 'memory.learned id=x', 'origin': 'private', 'source_refs': [damaged]}
-    daemon.daemon.supervisor.memory_candidates = lambda words: [fact]
+    daemon.daemon.supervisor.memory_candidates = lambda words, focus: [fact]
     install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
     outcome(chat(daemon, "do the job"))
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)

@@ -854,7 +854,9 @@ After the owner's update (2026-10-24):
   boost for recent items (your own statements count as always recent, so at equal relevance they come before FERB's
   guesses), and gives each planner turn the 60 most relevant (owner: "Planner 60, worker 20"). A message is also
   matched through the task it continues: at 12:17 your "hmm idk if thats s agood strategy…" shared no word with the
-  saved username, but the running visa task named usvisascheduling.com, and now that brings the username in. Past
+  saved username, but the running visa task named usvisascheduling.com. That task's goal and sites are now searched
+  with your message, and its sites also count on their own (see the worker bullet below): on a copy of your database,
+  with a stand-in username, that message brings it in 4th of the 60 (91st with the goal's words alone). Past
   tasks show their goal, outcome and date. A turn's memory took about 73 ms on a copy of your database. The index is
   rebuilt once at the next start, in the background in short steps (about 7 seconds on that copy; the first reply
   waits for it).
@@ -865,7 +867,10 @@ After the owner's update (2026-10-24):
 - Workers and plan steps get memory (L36). Live 2026-10-24: the visa task's research step got no memory and only its
   own step goal, so it typed your email as the username even though you had given the username that morning. Every
   worker and plan step now gets the 20 memories most relevant to your request and the task, and a plan step sees its
-  parent task's goal above its own.
+  parent task's goal above its own. The sites, apps and people the task names also count on their own, so a short
+  note that names the site isn't buried under long past tasks that share the goal's ordinary words: on a copy of your
+  database, with a stand-in username, the research step's search ranked it 94th; it now ranks 4th of its 20, for
+  under 1 ms more per search. The planner gets the same for the tasks it is shown.
 
 Licensed under Apache-2.0.
 

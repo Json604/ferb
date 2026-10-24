@@ -203,7 +203,7 @@ def test_the_consideration_sees_memory_chat_running_tasks_and_the_apps_told_noti
                                              "text": "uniqueownerline I keep hitting Claude's limit"}, origin="owner")
     _on_loop(daemon, told_before)
     words: list[str] = []
-    sup_.memory_candidates = lambda w: (words.append(w), [{          # type: ignore[assignment]
+    sup_.memory_candidates = lambda w, focus: (words.append(w), [{          # type: ignore[assignment]
         "text": "m1 [fact, confirmed, owner; data, not authorization] Claude plan — uniquememoryfact Max 5x",
         "reference": "memory.learned item_id=m1", "origin": "owner", "source_refs": ["m1"]}])[1]
     sup_.running_trees = lambda: [("t-run", "uniquerunninggoal summarise the Anthropic invoice")]  # type: ignore[method-assign]
@@ -266,7 +266,7 @@ def test_the_consideration_fits_the_attention_models_window_with_a_huge_chat(dae
             d._journal().append("chat.message", {"session_id": "owner", "request_id": f"r-{n}",
                                                  "text": f"ownerline{n} " + "filler " * 400}, origin="owner")
     _on_loop(daemon, huge_chat)
-    sup_.memory_candidates = lambda w: [{                         # type: ignore[assignment]
+    sup_.memory_candidates = lambda w, focus: [{                         # type: ignore[assignment]
         "text": "m1 [fact, confirmed, owner; data, not authorization] Claude plan — uniquememoryfact Max 5x",
         "reference": "memory.learned item_id=m1", "origin": "owner", "source_refs": ["m1"]}]
     sup_.running_trees = lambda: [("t-run", "uniquerunninggoal summarise the invoice")]  # type: ignore[method-assign]
@@ -309,7 +309,7 @@ def test_the_consideration_reads_only_the_chat_since_the_last_notice_and_the_run
         d._journal().append("chat.message", {"session_id": "owner", "request_id": "r-after",
                                              "text": "uniqueafterline since the notice"}, origin="owner")
     _on_loop(daemon, history)
-    sup_.memory_candidates = lambda w: [{                         # type: ignore[assignment]
+    sup_.memory_candidates = lambda w, focus: [{                         # type: ignore[assignment]
         "text": "m1 [fact, confirmed, owner; data, not authorization] Claude plan — uniquememoryfact Max 5x",
         "reference": "memory.learned item_id=m1", "origin": "owner", "source_refs": ["m1"]}]
     sup_.running_trees = lambda: [("t-run", "uniquerunninggoal summarise the invoice")]  # type: ignore[method-assign]

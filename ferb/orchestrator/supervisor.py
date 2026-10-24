@@ -460,10 +460,11 @@ class Supervisor(WorkerRuns):
         self._answer_focus: dict[str, _Focus] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
-        self.memory_candidates: Callable[[str], Any] | None = None      # ranked items, or an awaitable of them
-        # L36 §4: a worker's or plan step's ranked memory for its query (the daemon's one search at the worker budget;
-        # an awaitable); None: the plain `recall`, as before
-        self.memory_push: Callable[[str], Any] | None = None
+        # the planner's ranked items for (its query, the target words of the tasks it is shown), or an awaitable of them
+        self.memory_candidates: Callable[[str, str], Any] | None = None
+        # L36 §4: a worker's or plan step's ranked memory for (its query, its task's target words) (the daemon's one
+        # search at the worker budget; an awaitable); None: the plain `recall`, as before
+        self.memory_push: Callable[[str, str], Any] | None = None
         # what a worker gets for its procedure, given the planner's typed slot values (L29): the procedure, then its
         # intent's lessons and latest verified runs (`Learning.procedure_parts`)
         self.procedure_details: Callable[[str, Task, dict[str, Any] | None], list[ProcedurePart]] = \
@@ -1514,9 +1515,11 @@ class Supervisor(WorkerRuns):
                                        protected=True, source_refs=tuple(activity_refs), payload=activity_payload),
                           origins_.split(activity_origin)))
         # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
-        # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a)
-        recall_for = "\n".join(part for part in (message, self._chat_task_words(session)) if part.strip())
-        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, procedures))
+        # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets
+        # also ranked alone (L36 §4 fix round)
+        task_words, task_targets = self._chat_task_words(session)
+        recall_for = "\n".join(part for part in (message, task_words) if part.strip())
+        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, procedures, focus=task_targets))
         state: list[tuple[ContextBlock, set[str]]] = []
         # A scheduled run starts fresh: its earlier runs are its conversation and its previous-run block, never
         # attempts to continue.
@@ -1623,15 +1626,16 @@ class Supervisor(WorkerRuns):
                    e.origins) for e in entries]], ages
 
     async def _memory_blocks(self, message: str, remembered: Any, mem_text: str, procedures: str, *,
-                             choosing: bool = True) -> list[tuple[ContextBlock, set[str]]]:
+                             choosing: bool = True, focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
         """Relevant memory, always included (L28): the recalled items and every ranked learned item. The procedures the
         planner may choose (L29: the items whose fold route is `PROCEDURES_ROUTE`) are optional instead, the most
         recently used intent first, and those that can't all fit fold into one counted note (spec §5: fitted to the
-        window). `choosing` False, for a call that doesn't choose a procedure: without them."""
+        window). `choosing` False, for a call that doesn't choose a procedure: without them. `focus`: the target words
+        of the tasks the turn is shown, also ranked alone (none for attention)."""
         if self.memory_candidates is None:
             return [self._memory_block(mem_text, procedures, remembered)]
         from ferb.orchestrator.context_layers import PROCEDURES_ROUTE, ranked_memory_blocks
-        found = self.memory_candidates(message)
+        found = self.memory_candidates(message, focus)
         if inspect.isawaitable(found):
             found = await found
         if not choosing:
@@ -1705,10 +1709,11 @@ class Supervisor(WorkerRuns):
         """Resumable attempts, newest first (as candidates() returns them), keeping those that fit max_tokens."""
         return self._attempts(candidates, max_tokens)[0]
 
-    def _chat_task_words(self, session: ChatSession) -> str:
+    def _chat_task_words(self, session: ChatSession) -> tuple[str, str]:
         """The goals and targets of the tasks this chat's planner sees in its task layers (L36 §3): its running tasks
-        and the resumable attempts `_attempts` shows it (recently ended ones among them). An owner message that shares
-        no word with a remembered fact still recalls it when the work it continues names the site."""
+        and the resumable attempts `_attempts` shows it (recently ended ones among them); and their targets alone, which
+        the search also ranks alone (L36 §4 fix round). An owner message that shares no word with a remembered fact
+        still recalls it when the work it continues names the site."""
         mine = self.continuity.task_ids(session.id)
         specs = [tree.spec for key, tree in self._tree_of.items() if key == tree.id and key in mine]
         if not session.id.startswith(SCHEDULE_SESSION):         # a scheduled run's planner is shown no attempts
@@ -1716,7 +1721,9 @@ class Supervisor(WorkerRuns):
                 saved = None if task_id in self._tree_of else self.continuity.load(task_id, session.id)
                 if saved is not None:
                     specs.append(saved[0])
-        return "\n".join(part for spec in specs for part in (spec.goal, target_words(spec.targets)) if part.strip())
+        targets = [target_words(spec.targets) for spec in specs]
+        return ("\n".join(part for spec, aimed in zip(specs, targets) for part in (spec.goal, aimed) if part.strip()),
+                " ".join(aimed for aimed in targets if aimed.strip()))
 
     def _attempts(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> tuple[str, list[str]]:
         """_attempts_text, plus the task ids it shows."""
@@ -3065,12 +3072,12 @@ class Supervisor(WorkerRuns):
 
     async def _worker_memory(self, tree: _Tree, request: Request) -> list[ContextBlock]:
         """A worker's or plan step's memory (L36 §4): the one search (`memory_push`) for the owner's request, then a
-        step's parent goal, then its own goal, then the task's targets (`target_words`); each item its own block, kept
-        whole (the owner's budget bounds them), its refs recorded on the task as for any shown block, so a forget
-        reaches what it was given. A query with no words gets nothing, never the newest items. Without the daemon's
+        step's parent goal, then its own goal, then the task's targets (`target_words`), the targets also ranked alone
+        (the search's `focus`, fix round); each item its own block, kept whole (the owner's budget bounds them), its
+        refs recorded on the task as for any shown block, so a forget reaches what it was given. A query with no words gets nothing, never the newest items. Without the daemon's
         search: the plain recall block, as before."""
-        query = "\n".join(part for part in (request.words, tree.parent_goal, tree.spec.goal,
-                                            target_words(tree.spec.targets)) if part.strip())
+        targets = target_words(tree.spec.targets)
+        query = "\n".join(part for part in (request.words, tree.parent_goal, tree.spec.goal, targets) if part.strip())
         if self.memory_push is None:
             recalled = self.recall(query)
             return [dataclasses.replace(self._source_block(tree, "Layer 4 — recalled memory",
@@ -3079,7 +3086,7 @@ class Supervisor(WorkerRuns):
         if not query_terms(query):
             return []
         from ferb.orchestrator.context_layers import ranked_memory_blocks
-        found = await _value(self.memory_push(query))
+        found = await _value(self.memory_push(query, targets))
         return [dataclasses.replace(block, protected=True) for block, _ in ranked_memory_blocks(found)]
 
     async def _context(self, tree: _Tree, *, learned: bool = False) -> list[ContextBlock]:

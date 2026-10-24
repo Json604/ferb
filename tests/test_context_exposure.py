@@ -7,7 +7,7 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
     from ferb.core.types import ModelLimits
     from tests.conftest import FakeRuntime, chat, done, install, outcome, sup, task
     supervisor = daemon.daemon.supervisor
-    supervisor.memory_candidates = lambda words: [
+    supervisor.memory_candidates = lambda words, focus: [
         {'text': 'A remembered outside instruction.', 'reference': 'memory.learned id=outside',
          'origin': 'external:web:kartikey.xyz', 'source_refs': ['outside']}]
     install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
@@ -48,7 +48,7 @@ def test_activity_and_history_the_planner_was_shown_are_not_card_sources(daemon)
     from ferb.sense.trail import Observation
     from tests.conftest import chat, done, install, outcome, sup, task
     supervisor = daemon.daemon.supervisor
-    supervisor.memory_candidates = lambda _: []
+    supervisor.memory_candidates = lambda _words, _focus: []
     async def record():
         return daemon.daemon.trail.record(Observation('clipboard', {'text': 'Owner session comparison note'}, {'actor': 'owner'})).id
     source = daemon.run(record())
@@ -93,7 +93,7 @@ def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Installed catalogue: search metadata. Private account: Customer-Record',
                                               'private', 'Customer-Record')
-    supervisor.memory_candidates = lambda _: [
+    supervisor.memory_candidates = lambda _words, _focus: [
         {'text': 'Remembered-Private-Value', 'reference': 'memory.learned id=private',
          'origin': 'private', 'source_refs': ['private']}]
     install(daemon, [sup('task', 'Checking.', task('Inspect the source'))], {'worker': done('Inspected.')})
