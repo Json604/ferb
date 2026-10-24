@@ -170,3 +170,56 @@ def test_launch_services_lists_safari_as_opening_https_links_and_not_notes() -> 
     from ferb.act.mac import apps
     assert apps.opens_web_links('com.apple.Safari')
     assert not apps.opens_web_links('com.apple.Notes')
+
+
+def test_the_https_handler_list_is_enumerated_once_per_ttl_and_an_error_is_not_kept(monkeypatch) -> None:
+    from ferb.act.mac import apps
+    now, calls = [100.0], []
+
+    def enumerate_handlers():
+        calls.append(now[0])
+        return frozenset({'com.example.newbrowser'})
+    monkeypatch.setattr(apps, '_handlers', None)
+    monkeypatch.setattr(apps, '_clock', lambda: now[0])
+    monkeypatch.setattr(apps, '_enumerate_handlers', enumerate_handlers)
+    assert not apps.known_opens_web_links('com.example.NewBrowser')      # nothing enumerated yet: never enumerates
+    assert calls == []
+    assert apps.opens_web_links('com.example.NewBrowser') and not apps.opens_web_links('com.apple.Notes')
+    assert apps.known_opens_web_links('com.example.NewBrowser')
+    assert calls == [100.0]                                              # two calls within the TTL: one enumeration
+    now[0] += apps.HANDLERS_TTL_S + 1
+    assert not apps.known_opens_web_links('com.example.NewBrowser')      # stale: the sync check uses the list only
+    assert apps.opens_web_links('com.example.NewBrowser') and len(calls) == 2
+
+    def broken():
+        raise OSError('Launch Services unavailable')
+    monkeypatch.setattr(apps, '_handlers', None)
+    monkeypatch.setattr(apps, '_enumerate_handlers', broken)
+    assert not apps.opens_web_links('com.example.NewBrowser')           # any error: FERB's list alone applies
+    assert apps._handlers is None                                       # and nothing is kept
+
+
+def test_mac_secret_asks_launch_services_off_the_event_loop() -> None:
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+    from ferb.act.mac.tools import MacSecret
+    asked: list[dict] = []
+    driver = secret_driver('com.example.NewBrowser', 'New Browser', asked)
+    threads: list[str] = []
+
+    def opens(bundle: str) -> bool:
+        threads.append(threading.current_thread().name)
+        return bundle == 'com.example.NewBrowser'
+    driver.apps.opens_web_links = opens
+    cap = MacSecret(driver)
+    args = cap.Input(app='New Browser', element='e1')
+    assert cap.precheck(args) is None                    # no fresh list yet: precheck never enumerates
+    loop_thread: list[str] = []
+
+    async def run():
+        loop_thread.append(threading.current_thread().name)
+        return await cap.run(args, SimpleNamespace(task_id='t1'))
+    result = asyncio.run(run())
+    assert result.is_error and 'browser connection' in result.content['error'] and asked == []
+    assert threads and loop_thread[0] not in threads

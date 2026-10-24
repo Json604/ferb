@@ -1,5 +1,7 @@
 """Enumerate running processes and launch or explicitly activate one app. Must not resolve ambiguity by order or restore focus."""
 
+import threading
+import time
 from dataclasses import dataclass
 
 
@@ -40,24 +42,55 @@ def find(name_or_bundle: str) -> RunningApp | None:
     return matches[0] if len(matches) == 1 else None
 
 
+HANDLERS_TTL_S = 60.0     # how long the https-handler list is reused before Launch Services is asked again (speed)
+_clock = time.monotonic
+_handlers: tuple[float, frozenset[str]] | None = None    # (when enumerated, bundle ids casefolded)
+_handlers_lock = threading.Lock()
+
+
+def _enumerate_handlers() -> frozenset[str]:
+    """Every app Launch Services lists as opening https links, by bundle id (casefolded). Read-only; nothing opens."""
+    from AppKit import NSWorkspace
+    from Foundation import NSURL, NSBundle
+    link = NSURL.URLWithString_("https://example.com")                   # only its scheme is looked up
+    found: set[str] = set()
+    for url in NSWorkspace.sharedWorkspace().URLsForApplicationsToOpenURL_(link) or ():
+        bundle = NSBundle.bundleWithURL_(url)
+        ident = bundle.bundleIdentifier() if bundle is not None else None
+        if ident:
+            found.add(str(ident).casefold())
+    return frozenset(found)
+
+
+def _fresh() -> frozenset[str] | None:
+    with _handlers_lock:
+        if _handlers is not None and _clock() - _handlers[0] < HANDLERS_TTL_S:
+            return _handlers[1]
+    return None
+
+
 def opens_web_links(bundle_id: str) -> bool:
     """Whether Launch Services lists this app among those that open https links: a web browser, or an app that shows
-    web pages like one (D12: mac.secret binds no secret to it). Read-only; nothing is opened. False when Launch
-    Services can't be asked: FERB's own browser list (`profiles.is_web_browser`) still applies."""
-    try:
-        from AppKit import NSWorkspace
-        from Foundation import NSURL, NSBundle
-        link = NSURL.URLWithString_("https://example.com")               # only its scheme is looked up
-        handlers = NSWorkspace.sharedWorkspace().URLsForApplicationsToOpenURL_(link)
-        want = bundle_id.strip().casefold()
-        for url in handlers or ():
-            bundle = NSBundle.bundleWithURL_(url)
-            ident = bundle.bundleIdentifier() if bundle is not None else None
-            if ident and str(ident).casefold() == want:
-                return True
-    except Exception:
-        return False
-    return False
+    web pages like one (D12: mac.secret binds no secret to it). Enumerates at most once per HANDLERS_TTL_S; it blocks,
+    so async code calls it off the event loop. False when Launch Services can't be asked (nothing is kept): FERB's own
+    browser list (`profiles.is_web_browser`) still applies."""
+    global _handlers
+    handlers = _fresh()
+    if handlers is None:
+        try:
+            handlers = _enumerate_handlers()
+        except Exception:
+            return False
+        with _handlers_lock:
+            _handlers = (_clock(), handlers)
+    return bundle_id.strip().casefold() in handlers
+
+
+def known_opens_web_links(bundle_id: str) -> bool:
+    """`opens_web_links` from a list enumerated within HANDLERS_TTL_S, never enumerating (for synchronous checks on
+    the event loop); False without one."""
+    handlers = _fresh()
+    return handlers is not None and bundle_id.strip().casefold() in handlers
 
 
 def frontmost() -> RunningApp | None:

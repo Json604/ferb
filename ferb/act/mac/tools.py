@@ -80,11 +80,19 @@ class _Base:
         return None
 
     def _web_browser(self, bundle_id: str) -> bool:
-        """A web browser FERB knows by bundle id, or an app Launch Services lists as opening https links (D12)."""
+        """A web browser FERB knows by bundle id, or one in the https-handler list Launch Services gave within its TTL
+        (D12). Synchronous, so it never enumerates: `_opens_web` does, off the event loop."""
         if is_web_browser(bundle_id):
             return True
+        known = getattr(getattr(self.driver, "apps", None), "known_opens_web_links", None)
+        return bool(known(bundle_id)) if callable(known) else False
+
+    async def _opens_web(self, bundle_id: str) -> bool:
+        """`_web_browser`, asking Launch Services afresh when its list is stale, in a worker thread."""
+        if self._web_browser(bundle_id):
+            return True
         opens = getattr(getattr(self.driver, "apps", None), "opens_web_links", None)
-        return bool(opens(bundle_id)) if callable(opens) else False
+        return bool(await asyncio.to_thread(opens, bundle_id)) if callable(opens) else False
 
     def _bundle(self, args: BaseModel) -> str:
         a = self.driver.apps.find(str(getattr(args, "app")))
@@ -566,7 +574,7 @@ class MacSecret(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(args.app)
-        if self._web_browser(a.bundle_id):               # the resolved app, whatever the call named
+        if await self._opens_web(a.bundle_id):           # the resolved app, whatever the call named
             raise Refused(whole_browser(str(getattr(a, "name", "") or a.bundle_id)))
         node = self.driver.node(a.bundle_id, args.element)
         ask = getattr(self.driver, "ask_secret", None)
