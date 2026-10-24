@@ -168,8 +168,11 @@ a reminder its message already had set, or one line naming what it refused; plai
 never by the planner's text: a `reply`/`clarify` gets them appended to
 `text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
 do), and the outcome's `answer` carries every line. A `timer` event for a reminder just set carries
-its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply names the change
-("Switched to: …"). A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
+its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply acknowledges
+the change in the owner's own words (L11, owner 2026-10-24): its `display_text` is one short line, "Got it: <the
+correction, on one line, clipped>", plus "I'll apply it at my next step." while no running step has taken it and any
+restated standing scope; its `text` keeps the whole correction and the task's "Updated task: <goal>". Show
+`display_text` first, with `text` under Details; a client that shows one text shows `text`. A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
 change anything:", its steps, estimates and standing scopes); work has already started, and a reply is a correction
 (L3). A correction that changes a standing scope says so in its reply ("For this task I'll now send these without
 asking each time: …"); a narrower scope applies at once, a wider one only once that reply is out. On a run nobody
@@ -233,8 +236,16 @@ waits in `chat.status`.
 ## Questions and secrets
 
 An ordinary question has an `approval_id`, reason/question and options. Routed ordinary `owner.ask` questions may
-include `display_text`; retain the complete reason under Details. Secret, retry and consequential approval prompts
-keep their concrete full text; clients must not compress them. Keep full option labels and free-text answers;
+include `display_text`; retain the complete reason under Details. Honour `display_text` only on such a question
+(capability `owner.ask`, kind `owner_question`): it is the orchestrator's rewording (D33). Secret, retry and
+consequential approval prompts keep their concrete full text in `reason`; clients must not compress or reword it. The
+questions FERB's own code builds also carry `summary`, one plain line that code writes from the facts it checked, never
+from a task's words (P27, owner 2026-10-24): a `ferb.confirm` check ("FERB wants to send to bob@x.com, whom you didn't
+name."), the escape hatch ("FERB wants to read <folder> once, with one command (normally off-limits: …)."),
+`owner_secret` ("<site or app> needs your password or another private answer. …"), `owner_login_code` and
+`owner_admin_password`. It is on `approval.requested` and on each `chat.status` approval that has one: show it first,
+with the full `reason` under Details. A question without `summary` shows its `reason` (or an ordinary question's
+`display_text`). Keep full option labels and free-text answers;
 duplicate labels must not become a first-match selection. Ordinary typed chat text is a message, never an answer:
 even when it matches an option of the only open question (a lone "Yes"), send it with `chat.send` and let the planner
 route it. The planner routes an answer by the question's id to any open `owner.ask`, `plan.ask` or `ferb.confirm`
