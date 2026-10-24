@@ -93,12 +93,13 @@ def test_only_reading_tools_that_move_nothing_are_probe_safe():
     from ferb.act.fs import files
     from ferb.act.mac import tools as mac
     from ferb.act.shell import tools as shell
-    safe = [browser.BrowserFind, browser.BrowserRead, browser.BrowserTabs, browser.BrowserSnapshot,
+    safe = [browser.BrowserFind, browser.BrowserTabs, browser.BrowserSnapshot,
             shell.ShellRead, shell.ShellList, files.FsList, files.FsRead, mac.MacSnapshot]
     for cls in safe:
         assert getattr(cls, 'observation', False) and getattr(cls, 'probe_safe', False), cls.__name__
-    for cls in [browser.BrowserScroll, browser.BrowserScreenshot, browser.BrowserPoint, browser.BrowserWait,
-                browser.BrowserOpen, shell.ShellWait, mac.MacScreenshot]:
+    # browser.read pages the last saved snapshot: between rounds nothing takes a new one, so it could never change
+    for cls in [browser.BrowserRead, browser.BrowserScroll, browser.BrowserScreenshot, browser.BrowserPoint,
+                browser.BrowserWait, browser.BrowserOpen, shell.ShellWait, mac.MacScreenshot]:
         assert not getattr(cls, 'probe_safe', False), cls.__name__
 
 

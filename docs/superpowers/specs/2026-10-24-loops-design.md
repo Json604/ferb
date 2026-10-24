@@ -81,9 +81,10 @@ Owner decisions (2026-10-24):
 - Code validates a probe before arming it: the tool exists, is in the task's scopes, its arguments validate against its
   `Input` model, it is marked `observation = True` (`gateway.py:130-133`) and it is probe-safe. Probe-safe is a new
   capability attribute (`probe_safe = True`) on observation tools that read state without moving anything or producing
-  a picture, and return at once: browser `tabs`, `snapshot`, `read`, `find`; `shell.list`, `shell.read`; the file
+  a picture, and return at once: browser `tabs`, `snapshot`, `find`; `shell.list`, `shell.read`; the file
   tools' stat and read; `mac.snapshot`. Not `scroll`, `open`, `screenshot` or `point` (they move a view or return
-  images), nor browser `wait` or `shell.wait` (they block until something happens). A refused
+  images), nor browser `wait` or `shell.wait` (they block until something happens), nor browser `read` (it pages the
+  last saved snapshot, which nothing renews between rounds, so it could never change). A refused
   probe is reported back as the round's error and the loop falls back to the backup interval.
 - Arming: right after the round, code runs the probe once as the baseline (for `changed`, the baseline value is the
   comparison value). Then every `PROBE_SECONDS` (10) it runs the probe through `Gateway.call` with an observe-only grant

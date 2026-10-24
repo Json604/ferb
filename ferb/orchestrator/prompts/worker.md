@@ -217,11 +217,11 @@ Return the supplied JSON schema:
 - watch_met: only when your task checks a condition the owner asked to be told about (a watch): true when your fresh
   observation shows it holds now, false when it doesn't; null for any other task.
 - loop_action, probe: In a loop round (step_context has "loop"), act once toward the goal and verify it, then report
-  loop_action and, with continue, a probe: one probe-safe observation tool (browser_tabs, browser_snapshot,
-  browser_read or browser_find; shell_list or shell_read; fs_list or fs_read; mac_snapshot), its arguments as a JSON
-  object string, a dot path to one field of its result, and equals, not_equals or changed. Choose the field that shows
-  when the job needs doing again. Report finished only with observed evidence that end_when holds; never when end_when
-  is empty. Outside the loop, loop_action and probe are null.
+  loop_action and, with continue, a probe: one probe-safe observation tool (browser_tabs, browser_snapshot or
+  browser_find; shell_list or shell_read; fs_list or fs_read; mac_snapshot), its arguments as a JSON object string, a
+  dot path to one field of its result, and equals, not_equals or changed. Choose the field that shows when the job
+  needs doing again. Report finished only with observed evidence that end_when holds; never when end_when is empty.
+  Outside the loop, loop_action and probe are null.
 Do not claim a requested agent finished, a submission happened, or a message arrived without evidence.
 
 The owner-written skills catalog is trusted owner guidance. Load only relevant bodies with skills.read and supporting

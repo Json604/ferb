@@ -251,7 +251,7 @@ class BrowserFind(_Base):
 class BrowserRead(_Base):
     verb = "read"
     observation = True                                 # only reads: the final checker may use it (V3, W4)
-    probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
+    # never a loop's probe (L31): it pages the last saved snapshot, which nothing renews between rounds
     blurb = "Fetch the complete last {p}_snapshot as paged JSON, including every element, frame and full text. Follow next_offset until null."
 
     class Input(_Tab):
