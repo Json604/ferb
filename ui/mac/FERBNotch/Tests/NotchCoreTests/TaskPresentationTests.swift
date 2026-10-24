@@ -57,6 +57,17 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(Set(model.taskItems.compactMap(\.backendID)), ["first", "recovered"])
     }
 
+    func testTaskHistoryListsTheNewestFirst() {
+        // Owner 2026-10-25: the list showed older tasks on top (it sorted by the random task id).
+        let model = makeModel()
+        for (request, taskID) in [("Oldest", "zzz"), ("Middle", "aaa"), ("Newest", "mmm")] {
+            let local = UUID()
+            model.conversation.begin(id: local, request: request, sources: [])
+            model.conversation.bind(id: local, taskID: taskID)
+        }
+        XCTAssertEqual(model.taskItems.compactMap(\.backendID), ["mmm", "aaa", "zzz"])
+    }
+
     func testStopOneUsesOnlySelectedBackendIdentity() async {
         let rpc = TaskListRPC()
         let model = makeModel(rpc)

@@ -23,10 +23,12 @@ struct TaskItem: Identifiable {
 extension NotchModel {
     var taskItems: [TaskItem] {
         var rows: [String: TaskItem] = [:]
+        var asked: [String: Int] = [:]          // the conversation's order: a later turn was asked later
         var sessions = workSessions
         if let id = session.activeTaskID { sessions[id] = session }
-        for turn in conversation.turns where turn.backendTaskID?.isEmpty == false {
+        for (index, turn) in conversation.turns.enumerated() where turn.backendTaskID?.isEmpty == false {
             let id = turn.backendTaskID!
+            asked[id] = index
             let active = runningTasks[id] != nil || sessions.values.contains { $0.backendTaskID == id && $0.activeTaskID != nil }
             let status = ["working", "needs_user"].contains(turn.status) && !active ? "Status unavailable" : turn.status
             rows[id] = TaskItem(id: id, backendID: id, localID: turn.id, title: Self.title(of: turn),
@@ -49,10 +51,13 @@ extension NotchModel {
             rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title, status: status,
                 activity: old?.activity ?? [], standing: standingLine(id, now: now))
         }
+        // Running first, then kept loops, then the newest first; a task with no turn here (recovered from the daemon)
+        // counts as newest. Never the random task id's order (owner 2026-10-25: "it shows previous on top").
         return rows.values.sorted {
             if $0.isRunning != $1.isRunning { return $0.isRunning }
             if $0.isOngoing != $1.isOngoing { return $0.isOngoing }
-            return $0.id < $1.id
+            let a = asked[$0.id] ?? Int.max, b = asked[$1.id] ?? Int.max
+            return a != b ? a > b : $0.id < $1.id
         }
     }
 
