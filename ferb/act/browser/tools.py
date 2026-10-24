@@ -4,6 +4,7 @@ Agents choose accounts, sources, authorization and verification. Drivers enforce
 Sealed fills retain origin binding. Action kinds are descriptive metadata, never inferred owner permission.
 A download a task tab starts is a file in FERB's workspace reported as facts (`downloads`), never a dialog (D35)."""
 
+import asyncio
 import dataclasses
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -13,7 +14,8 @@ from pydantic import BaseModel, Field, model_validator
 from ferb.act.browser.downloads import SETTLE_S
 from ferb.act.browser.snapshot import for_model
 from ferb.act.fs.files import owner_path
-from ferb.core.errors import DriverError, Refused
+from ferb.act.point import Point, display_of
+from ferb.core.errors import DriverError, FerbError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
@@ -89,6 +91,28 @@ async def _news(driver: Any, tab: TabRef, wait: float = 0.0) -> tuple[dict[str, 
 def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
     """A downloaded file, its name and its source are outside content: external:download (MP2)."""
     return tuple(("download", str(f.get("path") or f.get("source_url") or "")) for f in found)
+
+
+PointKind = Literal["click", "type", "scroll", "press", "drag"]
+# L33: the cursor's kind for each act; an upload's file field (often hidden) has nothing to point at
+POINT_KINDS: dict[str, PointKind] = {"click": "click", "dblclick": "click", "rightclick": "click", "hover": "click",
+                                     "type": "type", "select": "type", "press": "press", "scroll": "scroll",
+                                     "drag": "drag"}
+
+
+async def _point(driver: Any, args: Any, grant: Any, kind: PointKind,
+                 action: BrowserAction | None = None) -> Point | None:
+    """L33: the element this call names, as geometry for FERB's cursor (the driver's `screen_rect`, then the display
+    it is on); None whenever unsure, or when the driver can't place elements."""
+    place = getattr(driver, "screen_rect", None)
+    if place is None:
+        return None
+    try:
+        rect = await place(driver.element_ref(driver.owned_by(str(args.tab), grant.task_id), str(args.element)), action)
+        shown = await asyncio.to_thread(display_of, rect) if rect is not None else None
+        return None if shown is None else Point(kind, rect, shown)
+    except (FerbError, ValueError):
+        return None
 
 
 def _host(url: str | None) -> str | None:
@@ -604,6 +628,13 @@ class BrowserAct(_Base):
             spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(typed,)))
         return spec
 
+    async def point(self, args: Any, grant: Any) -> Point | None:
+        kind = POINT_KINDS.get(args.action)
+        if kind is None:
+            return None
+        return await _point(self.driver, args, grant, kind, BrowserAction(args.action, args.text, args.trusted,
+                                                                         page_mode=args.page_mode))
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         el = self.driver.element_ref(ref, str(getattr(args, "element")))
@@ -640,6 +671,10 @@ class BrowserLoginCode(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return self._spec(Kind.FILL_FORM, args)
+
+    async def point(self, args: Any, grant: Any) -> Point | None:
+        """L33: its field, as typing (a secret field's place is shown like any other; never its value)."""
+        return await _point(self.driver, args, grant, "type")
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)

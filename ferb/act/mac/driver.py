@@ -522,6 +522,29 @@ class MacComputerDriver:
         inside = [b for b in boxes if b[0] < ax + aw and b[0] + b[2] > ax and b[1] < ay + ah and b[1] + b[3] > ay]
         return inside, areas[0], whole
 
+    async def place_on_web_area(self, rect: Rect, viewport: Rect, pid: int, bounds: Rect,
+                                title: str = "") -> Rect | None:
+        """L33, FERB's cursor: a page element's rect (CSS px, `viewport` the page's visual viewport) in global screen
+        points, on the page area of that browser process's window at `bounds` showing the tab titled `title`
+        (`page_on_screen`, as captures place a page's secret fields). None whenever unsure: the app is excluded or
+        gone, no single window there shows that tab (`window_with_frame`, then its title), its page areas can't be
+        read quickly, the page fits none or several equally (a split view), or the spot isn't in an on-screen window
+        of the browser (minimized, another Space). Accessibility and Quartz work runs off the event loop."""
+        def place() -> Rect | None:
+            try:
+                self.app(f"pid:{pid}")
+            except Refused:
+                return None
+            win = self.ax.window_with_frame(pid, bounds, title or None)
+            if win is None or (title and not same_title(self.ax.window_title(win), title)):
+                return None
+            try:
+                placed = page_on_screen([rect], viewport, axm.outermost(self.ax.web_areas_of(win) or []))
+            except Withheld:
+                return None
+            return placed[0] if len(placed) == 1 and shotm.window_on_screen(pid, placed[0]) else None
+        return await asyncio.to_thread(place)
+
     def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
         """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
         window), for masking a stored picture."""

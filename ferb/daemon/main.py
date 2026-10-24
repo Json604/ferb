@@ -782,6 +782,8 @@ class Daemon:
             driver.native_secrets = self._native_page_secrets
         if hasattr(driver, "native_capture"):          # I1: a tab the debugger can't attach to, as the router's
             driver.native_capture = self._native_window_capture
+        if hasattr(driver, "native_place"):            # L33: FERB's cursor, as the router's
+            driver.native_place = self._native_place
         from ferb.identity.helper import seal as helper_seal
         driver.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         add_identity_browser(self.registry, driver, self.recordings)
@@ -906,6 +908,15 @@ class Daemon:
             from ferb.daemon.gateway import error_name
             self._journal().append("screen.page_secrets_failed", {"error": error_name(e)})
             return None
+
+    async def _native_place(self, rect: tuple[float, float, float, float], viewport: tuple[float, float, float, float],
+                            pid: int, bounds: tuple[float, float, float, float],
+                            title: str) -> tuple[float, float, float, float] | None:
+        """L33: a task tab's element in screen points for FERB's cursor, placed on the page area of the on-screen
+        browser window showing the tab (`MacComputerDriver.place_on_web_area`); None without a Mac driver."""
+        if self.mac is None:
+            return None
+        return await self.mac.place_on_web_area(rect, viewport, pid, bounds, title)
 
     async def _native_window_capture(self, pid: int, bounds: tuple[float, float, float, float],
                                      title: str) -> tuple[bytes | None, str]:
@@ -3378,6 +3389,7 @@ class Daemon:
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.native_secrets = self._native_page_secrets      # B6: an unread tab's fields from Accessibility
         self.router.native_capture = self._native_window_capture    # I1: a tab the debugger can't attach to
+        self.router.native_place = self._native_place                # L33: where an element is, for FERB's cursor
         # D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog.
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),

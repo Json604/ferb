@@ -89,6 +89,9 @@ class FakeAx:
     def window_title(self, win: Any) -> str:
         return "Window"
 
+    def web_areas_of(self, win: Any) -> list[Any]:
+        return list(self.tree.web_areas)
+
     def press(self, el: Any) -> bool:
         self.calls.append("ax.press")
         return self.press_ok

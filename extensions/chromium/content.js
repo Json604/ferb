@@ -476,8 +476,10 @@
     const text = pageText();
     mediaEls = new Map();
     const media = mediaElements(document, []).map((el, index) => { mediaEls.set(index, new WeakRef(el)); return mediaState(el, index); });
+    const vv = window.visualViewport;    // L33: what the screen shows of the page (pinch zoom included), for the cursor
     return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
              viewport: [innerWidth, innerHeight], scroll: scrollState(null), scrollers, iframes, elements: out, text,
+             visual: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight],
              media, truncated: false };
   }
 

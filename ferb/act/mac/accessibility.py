@@ -484,6 +484,29 @@ def _frame_of(el: Any) -> tuple[float, float, float, float]:
     return x, y, w, h
 
 
+WEB_AREAS_BUDGET_S = 0.25      # L33: the cursor's look for a window's page areas gives up after this (its 0.5 s bound)
+WEB_AREAS_MAX = 3000           # elements read at most (a cycle included)
+
+
+def web_areas_of(win: Any) -> list[tuple[float, float, float, float]] | None:
+    """Where a browser window draws its pages (L33, FERB's cursor): the frames of its web areas, found without walking
+    into them, so only the browser's own controls are read, never a page. None when that takes longer than
+    WEB_AREAS_BUDGET_S or more than WEB_AREAS_MAX elements: it can't say quickly."""
+    deadline = time.monotonic() + WEB_AREAS_BUDGET_S
+    found: list[tuple[float, float, float, float]] = []
+    stack, read = [win], 0
+    while stack:
+        read += 1
+        if read > WEB_AREAS_MAX or time.monotonic() > deadline:
+            return None
+        el = stack.pop()
+        if role_of(el) == "AXWebArea":
+            found.append(_frame_of(el))
+        else:
+            stack.extend(_attr(el, "AXChildren") or [])
+    return found
+
+
 def outermost(areas: list[tuple[float, float, float, float]]) -> list[tuple[float, float, float, float]]:
     """The web areas no other one holds: a browser's pages, without the frames inside them (each once)."""
     def holds(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
