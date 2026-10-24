@@ -1057,6 +1057,16 @@ class Supervisor(WorkerRuns):
         followed = self.question_answered(ap)                # e.g. the forget the owner just said Yes to (I2)
         return self._code_turn(session, request_id, 'reply', ANSWERED + ('\n' + followed if followed else ''))
 
+    def asked_only_about(self, session_id: str, capabilities: Any) -> bool:
+        """Whether this chat's pending question is FERB's own "which is it?" about an answer (`_answer`, L3) naming only
+        questions of these capabilities: then its words are FERB's quote of those questions, not a request for the
+        owner's secret (L36: a guess about "passwords" quoted there never hides the owner's reply)."""
+        focus = self._answer_focus.get(session_id)
+        if focus is None or not focus.named:
+            return False
+        named = [self.state.approvals.get(i) for i in focus.named]
+        return all(ap is not None and ap.capability in capabilities for ap in named)
+
     @staticmethod
     def _listed(questions: Any) -> str:
         """Open questions as the owner saw them, one per line (each already one labelled paragraph, D33)."""

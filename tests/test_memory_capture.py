@@ -2,6 +2,7 @@
 
 Live 2026-10-24 (memory audit): of the owner's durable statements in 14 days, 14 were missed and 9 only proposed; the
 nightly distill made 27 inferred proposals that nobody was ever asked about."""
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 from ferb.core.errors import FerbError
 from ferb.memory.items import MemoryRefused, capture
 from ferb.sanitize.untrusted import mark, typed_lines_of
+from tests.conftest import chat, install
 from tests.support.memory_items import (c_handle, distill_day, distill_item, journal, owner_fact, pending, run,
                                         said)
 from tests.support.schedules import own_daemon
@@ -245,23 +247,52 @@ def test_a_guess_that_names_passwords_never_hides_the_owners_chat(daemon: Any) -
         "stop", "continue", "thanks"]
 
 
-def test_an_edit_that_comes_back_hidden_is_never_saved(daemon: Any) -> None:
-    """Secret classes are still hidden (rule 14), so an Edit answer can come back as "[redacted]" whole; it is refused
-    and asked again, never saved as the owner's words. In the answer field the question stays open; from chat (the
-    planner routed already-hidden words) FERB asks again and says why."""
+@pytest.mark.parametrize("typed, routed_words", [("hunter2-Zq9", "[redacted]"),
+                                                  ("hunter2-Zq9  hunter2-Zq9", "[redacted] [redacted]")])
+def test_an_edit_that_comes_back_hidden_is_never_saved(daemon: Any, typed: str, routed_words: str) -> None:
+    """Secret classes are still hidden (rule 14), so an Edit answer can come back as nothing but "[redacted]" marks; it
+    is refused and asked again, never saved as the owner's words (fix round 2: several marks too). In the answer field
+    the question stays open; from chat (the planner routed already-hidden words) FERB asks again and says why."""
     daemon.daemon.redact.add_secret_value("hunter2-Zq9")
     q, it = guess(daemon)
     run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 2))
     [edit] = pending(daemon, "memory.edit")
     with pytest.raises(FerbError, match="secret"):
-        run(daemon, lambda: daemon.daemon._resolve_approval(edit.id, True, None, "hunter2-Zq9"))
+        run(daemon, lambda: daemon.daemon._resolve_approval(edit.id, True, None, typed))
     assert [p.id for p in pending(daemon, "memory.edit")] == [edit.id]
-    routed = run(daemon, lambda: daemon.daemon.state.approvals.resolve(edit.id, True, text="[redacted]"))
+    routed = run(daemon, lambda: daemon.daemon.state.approvals.resolve(edit.id, True, text=routed_words))
     line = run(daemon, lambda: daemon.daemon._question_answered(routed))
     [again] = pending(daemon, "memory.edit")
     assert "secret" in line and again.reason == edit.reason
     assert run(daemon, lambda: (daemon.daemon.memory.get(it.id).status, daemon.daemon.memory.items("active"))) == (
         "proposed", [])
+
+
+def test_after_ferbs_which_is_it_about_a_password_guess_the_owners_keep_still_answers_it(daemon: Any) -> None:
+    """Fix round 2: FERB's own clarification ("Is that Keep, Edit or Drop for this? Keep this? “You keep your passwords
+    in 1Password” …") was read as a password question, so the owner's next reply was hidden whole: "Keep" reached the
+    planner and the journal as "[redacted]", and the same clarification came back."""
+    q, it = guess(daemon, **PASSWORD_GUESS)
+    keep = json.dumps({"kind": "reply", "text": "", "answer_question": {"approval_id": q.id, "answer": "Keep"}})
+    install(daemon, [keep])
+    assert "Keep, Edit or Drop" in " ".join(str(e.get("text")) for e in chat(daemon, "yes"))
+    assert run(daemon, lambda: daemon.daemon._hide_code_reply("thanks", "s1")) == "thanks"    # FERB asked about memory
+    install(daemon, [keep])
+    chat(daemon, "Keep")
+    said_ = run(daemon, lambda: [e.data["text"] for e in daemon.daemon._journal().entries_of("chat.message")])
+    assert said_[-1] == "Keep"
+    assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "active"
+
+
+def test_an_option_of_a_waiting_question_is_never_hidden_as_a_password(daemon: Any) -> None:
+    """Fix round 2: a reply that is exactly an option of a waiting question is a choice, even after the planner's own
+    question asked about a password; any other one-word reply to that question is still hidden (rule 14)."""
+    guess(daemon, **PASSWORD_GUESS)
+    continuity = daemon.daemon.supervisor.continuity
+    run(daemon, lambda: (continuity.ensure("s1"), continuity.save_pending("s1", "log me in",
+                                                                         "What's your Zomato password?")))
+    assert run(daemon, lambda: [daemon.daemon._hide_code_reply(w, "s1") for w in ("Keep", "drop", "Bitwarden")]) == [
+        "Keep", "drop", "[redacted]"]
 
 
 def test_ferbs_which_is_it_names_a_checks_own_options() -> None:

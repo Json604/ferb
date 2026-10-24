@@ -557,8 +557,12 @@ extension NotchModel {
                 taskStateRevision += 1
                 resolveApproval(approval.id)
             } catch {
-                // Do not replay an answer after disconnect: it may already have been consumed.
-                promptError = "The answer could not be confirmed. Rechecking the pending request."
+                if case DaemonRPCError.remote(let reason) = error {
+                    promptError = reason        // FERB refused this answer and says why (L36); the question waits
+                } else {
+                    // Do not replay an answer after disconnect: it may already have been consumed.
+                    promptError = "The answer could not be confirmed. Rechecking the pending request."
+                }
                 await refreshDaemonStatus()
             }
             sendingAnswer = false

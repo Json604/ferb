@@ -2832,8 +2832,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   its Yes still purges every copy (re-review R1). A dropped or replaced (Edit) guess keeps its fingerprint either way
   (`Memory.retract(never_again=True)`). None of these questions asks for a secret (`steering.MEMORY_ASKS`), so their
   words (a guess about "passwords") never hide an answer (`_resolve_approval`) or a chat message (`_hide_code_reply`)
-  the way a password question's do; secret classes are still redacted, and an Edit answer hidden whole is refused and
-  asked again, never saved as "[redacted]" (`EDIT_HIDDEN`). The planner prompt routes a check's own options ("Keep",
+  the way a password question's do, nor does FERB's own "which is it?" naming only them (`Supervisor.asked_only_about`);
+  a reply that is exactly an option of a waiting question is never hidden. Secret classes are still redacted, and an
+  Edit answer that redaction left as nothing but "[redacted]" marks is refused and asked again (`EDIT_HIDDEN`); the
+  notch shows FERB's refusal text for a typed answer. The planner prompt routes a check's own options ("Keep",
   "Edit" or "Drop"), and FERB's "which is it?" names them (`supervisor._plain_choice`); `ferb chat` shows "Enter = Drop".
   An answer from the notch's buttons gets no FERB line yet: `approval.resolved` carries no text and the notch shows none.
   Debugging: `memory_questions` rows of kind `confirm` / `edit`; journal `memory.edited` (an Edit's words, the new

@@ -144,6 +144,11 @@ EDIT_HIDDEN = ("Those words looked like a secret, so FERB hid them and saved not
                "without the secret.")
 
 
+def _all_hidden(text: str) -> bool:
+    """Words of which redaction left nothing but its marks ("[redacted]", "[redacted] [redacted]")."""
+    return bool(text.strip()) and not text.replace(REDACTED, "").strip()
+
+
 # Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
 # pairing) and Brave (its profiles paired live). Elsewhere `ferb browsers pair` pairs by hand.
 AUTOPAIR_BROWSERS = ("chrome", "brave")
@@ -618,11 +623,13 @@ class Daemon:
         for a code, and a one-word reply to a password or PIN question is hidden whole. The planner routes answers
         now (L3), so the secret must not travel with the message; a longer message may be a steer and keeps its
         words. The questions: workers' open ones, and the planner's own clarifying question in this conversation
-        (re-review 3, R1-b)."""
+        (re-review 3, R1-b). FERB's memory questions never ask for a secret, so neither they nor FERB's own "which is
+        it?" about them hide anything, and a reply that is exactly an option of a waiting question is a choice (L36)."""
         if not isinstance(self.redact, Redactor):
             return text
         from ferb.orchestrator.steering import MEMORY_ASKS
-        for ap in self.state.approvals.pending():
+        open_now = self.state.approvals.pending()
+        for ap in open_now:
             if ap.capability in MEMORY_ASKS:            # FERB's memory questions never ask for a secret (L36)
                 continue
             # a login-code prompt asks for a code by its kind, whatever its words say
@@ -631,7 +638,10 @@ class Daemon:
                 text = self.redact.answer(text, question=reason, reply=True)
         if session_id is not None and self.supervisor is not None:
             asked = self.supervisor.continuity.pending(session_id)[1]
-            if asked:
+            # never a choice (exactly an option of a waiting question), and never after FERB's own "which is it?"
+            # about memory questions only, whose words quote a guess (L36: "passwords" there asks for nothing)
+            chosen = any(ap.option_for(text.strip()) is not None for ap in open_now)
+            if asked and not chosen and not self.supervisor.asked_only_about(session_id, MEMORY_ASKS):
                 text = self.redact.answer(text, question=asked, reply=True)
         return text
 
@@ -1806,7 +1816,7 @@ class Daemon:
             return "Dropped. FERB won't suggest it again."
         words = text.strip()
         if action == "edit" and words:
-            if self._redact_text(words).strip() == REDACTED:
+            if _all_hidden(self._redact_text(words)):
                 raise FerbError(EDIT_HIDDEN)
             entry = self._journal().append("memory.edited", {"id": item_id, "content": words})
             mine = self.memory.edit(item_id, words, ("journal", entry.id))
@@ -4005,7 +4015,7 @@ class Daemon:
                     # FERB's memory questions never ask for a secret: only secret classes are hidden (L36)
                     text = (self.redact.text(text) if ap.capability in MEMORY_ASKS
                             else self.redact.answer(text, question=ap.reason))
-                if ap is not None and ap.capability == "memory.edit" and text == REDACTED:
+                if ap is not None and ap.capability == "memory.edit" and _all_hidden(text):
                     raise FerbError(EDIT_HIDDEN)
                 if ap is not None and ap.kind == "owner_login_code" and text:
                     self._add_secret_value(text)

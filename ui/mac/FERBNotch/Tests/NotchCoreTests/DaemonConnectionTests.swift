@@ -94,6 +94,29 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertNil(rpc.calls.last?.1["choice"])
     }
 
+    func testARefusedTextAnswerShowsFERBsReasonAndTheQuestionStays() async throws {
+        // L36: FERB refuses an Edit answer that came back hidden as a secret and says why; the notch showed a generic
+        // "could not be confirmed" instead. A lost connection keeps the generic line (the answer may have landed).
+        let rpc = RecordingRPC()
+        let question: [String: Any] = ["approval_id": "edit-1", "kind": "owner_question", "capability": "memory.edit",
+                                       "reason": "How should FERB remember it?", "options": [String]()]
+        rpc.responses["chat.status"] = ["running": [[String: Any]](), "approvals": [question], "results": [[String: Any]]()]
+        let reason = "Those words looked like a secret, so FERB hid them and saved nothing."
+        rpc.failures["chat.answer"] = DaemonRPCError.remote(reason)
+        let model = makeModel(rpc)
+        await model.refreshDaemonStatus()
+        model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "hunter2")
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(model.promptError, reason)
+        XCTAssertEqual(model.pendingApprovals.map(\.id), ["edit-1"])
+        rpc.failures["chat.answer"] = DaemonRPCError.disconnected
+        model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "My dentist is Dr. Rao")
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(model.promptError, "The answer could not be confirmed. Rechecking the pending request.")
+    }
+
     func testEditingOneOfTwoIdenticalSubstringsNeverPromotesPastedCopy() {
         let model = makeModel(RecordingRPC())
         model.pasteProvenance.edit(NSRange(location: 0, length: 0), with: "send example ", in: "")
@@ -115,8 +138,10 @@ private final class RecordingRPC: DaemonRPCTransport {
     private let recorded = RecordedCalls()
     var calls: [(String, [String: Any])] { recorded.all }
     var responses: [String: [String: Any]] = ["chat.status": ["running": [[String: Any]](), "approvals": [[String: Any]](), "results": [[String: Any]]()]]
+    var failures: [String: Error] = [:]
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
+        if let failure = failures[method] { throw failure }
         return responses[method] ?? ["ok": true]
     }
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
