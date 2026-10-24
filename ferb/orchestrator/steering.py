@@ -184,9 +184,11 @@ def grant_stated(supervisor: Any, tree: Any, restated: Restated) -> None:
         supervisor.standing.grant(tree.id, restated.scopes, restated.approval_id)
 
 
-# A correction that found its task ending (review M2): nothing of the message is applied, so sending it again applies
-# all of it once (a second reminder, schedule or memory would come from applying part of it now).
-JUST_ENDED = "That task has just ended, so I haven't acted on this message yet; send it again to continue that task."
+# A correction that found its task ending (review M2): none of the message's side entries are applied, so sending it
+# again applies them once (a second reminder, schedule or memory would come from applying part of it now). An answer
+# to an open question in the same message was already recorded, and a reopened No only asks again (re-review N1).
+JUST_ENDED = ("That task has just ended, so I haven't acted on the rest of this message yet; send it again to continue "
+              "that task.")
 
 
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
