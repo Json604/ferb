@@ -48,7 +48,31 @@ def test_an_action_publishes_its_point_with_geometry_only(daemon, monkeypatch):
                              identity=Identity.FERB)
     gateway_tool_call(daemon, grant, 'test.click', element='e1')
     [(topic, data)] = [(t, d) for t, d in seen if t == 'cursor.point']
-    assert data == {'task_id': grant.task_id, 'kind': 'click', 'rect': [10.0, 20.0, 30.0, 40.0], 'display': 1}
+    assert data == {'task_id': grant.task_id, 'worker_id': grant.worker_id, 'kind': 'click',
+                    'rect': [10.0, 20.0, 30.0, 40.0], 'display': 1}
+
+
+def test_a_steps_point_names_its_root_task_so_one_task_keeps_one_pointer(daemon, monkeypatch):
+    """L33 final review M1: each step runs under its own task id (`<tree>.worker`, `<tree>.step.N`), and the app ends a
+    pointer on the root task's `task.result`: the point names the root task (one pointer and one shade per task,
+    across its steps) and the worker that acted (as `tool.called` names it)."""
+    from datetime import timedelta
+    from ferb.core.types import Task
+    from ferb.orchestrator.tree import TaskRecord
+    seen = _published(daemon, monkeypatch)
+    cap = _cap(Point('click', (10.0, 20.0, 30.0, 40.0), 1))
+    daemon.daemon.registry.capabilities[cap.name] = cap
+
+    async def step(tid, worker):
+        now = daemon.daemon.clock.now()
+        task = Task(tid, 'tree-1', 'g', 'dev', Identity.FERB, set(), 'worker', 'req-1', [], now + timedelta(minutes=10))
+        span = daemon.daemon.spans.start('task', task_id=tid, input={})
+        daemon.daemon.tasks.add(TaskRecord(task, now, span.id, tree_id='tree-1'))
+        return daemon.daemon.tokens.validate(daemon.daemon.tokens.issue(tid, worker, set(), Identity.FERB, ttl_s=600))
+    for tid, worker in [('tree-1.step.a', 'w-a'), ('tree-1.step.b', 'w-b')]:
+        gateway_tool_call(daemon, daemon.run(step(tid, worker)), 'test.click', element='e1')
+    assert [(d['task_id'], d['worker_id']) for t, d in seen if t == 'cursor.point'] == [('tree-1', 'w-a'),
+                                                                                         ('tree-1', 'w-b')]
 
 
 def test_no_point_no_event(daemon, monkeypatch):
@@ -107,18 +131,24 @@ def test_display_of_reads_the_display_under_the_centre(monkeypatch):
 
 # ---- macOS tools report their element's point ----
 
-def _mac(monkeypatch, rect=(100, 200, 50, 20), stale=False, on_screen=True, display=1, tool='act'):
+def _mac(monkeypatch, rect=(100, 200, 50, 20), stale=False, on_screen=True, display=1, tool='act', live='same',
+         secret=False, bundle='com.x'):
+    """A Mac tool over a fake driver: the element's snapshot rect is `rect`, its Accessibility frame now is `live`
+    (the same by default; None: gone or no size)."""
     from types import SimpleNamespace
     from ferb.act.mac import tools
     from ferb.core.errors import StaleRef
     from ferb.act.mac.accessibility import AxNode
+    now = rect if live == 'same' else live
     class Driver:
+        apps = SimpleNamespace(find=lambda q: SimpleNamespace(bundle_id=bundle, pid=1, name='X'))
+        ax = SimpleNamespace(frame=lambda ref: now)
         def app(self, name):
-            return SimpleNamespace(bundle_id='com.x', pid=1, name='X')
+            return SimpleNamespace(bundle_id=bundle, pid=1, name='X')
         def node(self, bundle, element):
             if stale:
                 raise StaleRef('old')
-            return AxNode(ref=None, role='button', label='', value=None, rect=rect, secret=False, enabled=True)
+            return AxNode(ref='el', role='button', label='', value=None, rect=rect, secret=secret, enabled=True)
     monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: on_screen)
     monkeypatch.setattr(tools, 'display_of', lambda r: display)
     cls = {'act': tools.MacAct, 'secret': tools.MacSecret}[tool]
@@ -159,12 +189,90 @@ def test_mac_secret_points_at_its_field_as_typing(monkeypatch):
 def test_the_element_lookup_runs_off_the_event_loop(monkeypatch):
     import threading
     tool, cls = _mac(monkeypatch)
-    seen = []
-    orig = tool.driver.node
+    seen, framed = [], []
+    orig, orig_frame = tool.driver.node, tool.driver.ax.frame
     tool.driver.node = lambda b, e: (seen.append(threading.current_thread()), orig(b, e))[1]
+    tool.driver.ax.frame = lambda ref: (framed.append(threading.current_thread()), orig_frame(ref))[1]
     main = threading.current_thread()
     assert _point(tool, cls, element='s1e2', action='click') is not None
-    assert seen and seen[0] is not main
+    assert seen and seen[0] is not main and framed and framed[0] is not main
+
+
+def test_a_mac_point_is_where_the_element_is_now_not_where_the_snapshot_saw_it(monkeypatch):
+    """L33 final review I3: a list scrolled or a window moved since the snapshot leaves its rect stale (AXPress still
+    works on the element); the point is the element's Accessibility frame read now, and the window check is there."""
+    from ferb.act.mac import tools
+    tool, cls = _mac(monkeypatch, live=(300.0, 450.0, 50.0, 20.0))
+    checked = []
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: checked.append(r) or True)
+    assert _point(tool, cls, element='s1e2', action='click') == Point('click', (300.0, 450.0, 50.0, 20.0), 1)
+    assert checked == [(300.0, 450.0, 50.0, 20.0)]
+    assert _point(*_mac(monkeypatch, live=None), element='s1e2', action='click') is None       # gone, or no size
+    assert _point(*_mac(monkeypatch, live=(300.0, 450.0, 0.0, 20.0)), element='s1e2', action='click') is None
+
+
+def test_native_acts_the_driver_refuses_or_sends_elsewhere_publish_no_point(monkeypatch):
+    """L33 final review M5: as on the browser side, no pointer for an act `act` refuses before any input, and none for
+    keys (they go to the app's focus, not the named element)."""
+    from types import SimpleNamespace
+    tool, cls = _mac(monkeypatch, secret=True)
+    for action in ('type', 'set_value', 'edit'):                                  # FERB never types a password
+        assert _point(tool, cls, element='s1e2', action=action, text='x') is None, action
+    assert _point(tool, cls, element='s1e2', action='click') is not None          # pressing it is fine
+    tool, cls = _mac(monkeypatch)
+    assert _point(tool, cls, element='s1e2', action='type') is None               # no text: refused
+    assert _point(tool, cls, element='s1e2', action='key', text='cmd+s') is None  # keys go to the app
+    assert _point(tool, cls, element='s1e2', action='click', mechanism='foreground') is None   # no permission
+    assert _point(tool, cls, element='s1e2', action='click', mechanism='foreground', allow_foreground=True) is not None
+    assert _point(tool, cls, element='s1e2', action='click', mechanism='pid') is None          # a route it lacks
+    assert _point(tool, cls, element='s1e2', action='type', text='x', mechanism='ax') is None
+    assert _point(tool, cls, element='s1e2', action='set_value', text='x', mechanism='pid') is None
+    assert _point(tool, cls, element='s1e2', action='focus') is not None
+    tool.protection = SimpleNamespace(terminal_apps={'com.x'})                    # FERB never types into a terminal
+    assert _point(tool, cls, element='s1e2', action='type', text='x') is None
+    assert _point(tool, cls, element='s1e2', action='click') is not None
+    assert _point(*_mac(monkeypatch, tool='secret', bundle='com.brave.Browser'), element='s1e2') is None   # web page
+
+
+def test_the_native_pointer_check_agrees_with_what_act_refuses(monkeypatch):
+    """Drift guard for M5: whenever `act` refuses an element action before any input, `acts_on` says no pointer;
+    for the actions whose refusals all come first, `acts_on` also never hides one `act` goes on to do."""
+    import itertools
+    from ferb.act.mac.driver import acts_on
+    from ferb.core.errors import Refused
+    from ferb.core.types import ComputerAction
+    from tests.mackit import mac
+    import ferb.act.mac.driver as drv
+    d, ax, *_ = mac(monkeypatch)
+    ax.has_focus = lambda pid, el: True
+
+    async def no_wait(s: float) -> None:              # select waits for its menu to open
+        return None
+    monkeypatch.setattr(drv.asyncio, 'sleep', no_wait)
+    asyncio.run(d.snapshot('Notes'))
+    kinds = ('press', 'click', 'cancel', 'set_value', 'type', 'focus', 'select', 'edit', 'scroll', 'key')
+    seen = {True: 0, False: 0}
+
+    async def check() -> None:
+        for kind, mechanism, element, text in itertools.product(
+                kinds, (None, 'ax', 'pid', 'ax_keyboard', 'ax_value', 'foreground'), ('s1e1', 's1e2', 's1e3'),
+                ('x', None)):
+            action = ComputerAction(kind, element, text, mechanism=mechanism)
+            try:
+                r = await d.act('Notes', action)
+                refused = r.facts.get('code') == 'needs_foreground'
+            except Refused:
+                refused = True
+            except Exception:                             # past act's own checks, into what these fakes lack
+                refused = False
+            pointed = acts_on(action, d.node('com.apple.Notes', element))
+            seen[refused] += 1
+            if refused:
+                assert not pointed, action
+            elif kind not in ('edit', 'scroll', 'key'):
+                assert pointed, action
+    asyncio.run(check())
+    assert seen[True] > 100 and seen[False] > 50                  # both sides exercised
 
 
 def test_window_on_screen_wants_a_normal_window_of_the_pid_holding_the_centre(monkeypatch):
@@ -203,29 +311,78 @@ def test_window_on_screen_with_bounds_wants_the_matched_window(monkeypatch):
     assert on(win(name='Untitled tab'), title=None) is True    # no title to tell by: the one window there
 
 
+def test_a_window_behind_another_window_at_the_spot_gets_no_point(monkeypatch):
+    """L33 final review I1: the spot counts only where the target window is the frontmost normal window there, in the
+    window server's front-to-back order. The owner typing in another app over FERB's window sees no arrow on top."""
+    from ferb.act.mac import screenshot
+    def win(pid=1, b=(0, 0, 400, 300), name='Page', number=9, layer=0, alpha=1.0):
+        return {'kCGWindowOwnerPID': pid, 'kCGWindowLayer': layer, 'kCGWindowAlpha': alpha, 'kCGWindowNumber': number,
+                'kCGWindowName': name, 'kCGWindowBounds': {'X': b[0], 'Y': b[1], 'Width': b[2], 'Height': b[3]}}
+    def on(*ws, rect=(100, 100, 20, 20), **kw):
+        monkeypatch.setattr(screenshot, '_info_windows', lambda everywhere=False: list(ws))
+        return screenshot.window_on_screen(1, rect, **kw)
+    editor = win(pid=2, b=(50, 50, 300, 300), name='main.py', number=3)          # another app's window over the spot
+    assert on(editor, win()) is False
+    assert on(win(), editor) is True                                             # the target in front
+    assert on(win(pid=2, b=(500, 0, 300, 300), number=3), win()) is True         # another app's window beside the spot
+    assert on(win(pid=99, b=(0, 0, 2000, 2000), layer=24, number=4), win()) is True   # FERB's own overlay is no window
+    assert on(win(pid=2, alpha=0, number=3), win()) is True                      # nor is a transparent one
+    like = (0.0, 0.0, 400.0, 300.0)                                              # a browser's matched window
+    assert on(editor, win(), like=like, title='Page') is False
+    assert on(win(), editor, like=like, title='Page') is True
+    assert on(win(b=(0, 0, 800, 600), name='Other', number=8), win(), like=like, title='Page') is False   # its own
+    assert on(win(number=8), win(), window=9) is False                           # a screenshot's window, by id
+    assert on(win(), win(number=8), window=9) is True
+    assert on(win(), window=7) is False                                          # that window isn't on screen
+
+
 def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
     from types import SimpleNamespace
     from ferb.act.mac import tools
     from ferb.act.mac.driver import MacComputerDriver
-    shot = SimpleNamespace(id='shot1', bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
+    from ferb.act.mac.screenshot import Window
+    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
     d = MacComputerDriver.__new__(MacComputerDriver)
     d.app = lambda name: SimpleNamespace(bundle_id='com.x', pid=3, name='X')
     d._state = {'com.x': SimpleNamespace(shot=shot)}
+    d.shots = SimpleNamespace(window=lambda wid: Window(wid, 3, shot.bounds, 'Doc') if wid == 5 else None)
     seen = []
-    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: seen.append((pid, r)) or True)
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r, window=None: seen.append((pid, r, window)) or True)
     monkeypatch.setattr(tools, 'display_of', lambda r: 2)
     tool = tools.MacClick(d)
     got = asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None))
-    assert got == Point('click', (196.0, 96.0, 8.0, 8.0), 2) and seen == [(3, (196.0, 96.0, 8.0, 8.0))]
+    assert got == Point('click', (196.0, 96.0, 8.0, 8.0), 2) and seen == [(3, (196.0, 96.0, 8.0, 8.0), 5)]
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='old', x=200, y=100), None)) is None
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=900, y=100), None)) is None
-    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: False)
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r, window=None: False)
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None)) is None
-    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: True)
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r, window=None: True)
     monkeypatch.setattr(tools, 'display_of', lambda r: None)
     assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None)) is None
     pt = tools.MacPointer(d)
     assert asyncio.run(pt.point(tools.MacPointer.Input(app='x', shot='shot1', x=1, y=1, action='click'), None)) is None
+
+
+def test_mac_click_points_nowhere_once_its_window_moved(monkeypatch):
+    """L33 final review I3: a pixel click maps through the shot's recorded window bounds; once the window moved,
+    resized, closed or changed owner (click_at then refuses with StaleRef), that spot is stale: no point."""
+    from types import SimpleNamespace
+    from ferb.act.mac import tools
+    from ferb.act.mac.driver import MacComputerDriver
+    from ferb.act.mac.screenshot import Window
+    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
+    d = MacComputerDriver.__new__(MacComputerDriver)
+    d.app = lambda name: SimpleNamespace(bundle_id='com.x', pid=3, name='X')
+    d._state = {'com.x': SimpleNamespace(shot=shot)}
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r, window=None: True)
+    monkeypatch.setattr(tools, 'display_of', lambda r: 2)
+    tool = tools.MacClick(d)
+    for now in [Window(5, 3, (300.0, 50.0, 400.0, 200.0), 'Doc'),     # moved
+                Window(5, 3, (100.0, 50.0, 600.0, 200.0), 'Doc'),     # resized
+                Window(5, 4, (100.0, 50.0, 400.0, 200.0), 'Doc'),     # another process's window now
+                None]:                                                # closed
+        d.shots = SimpleNamespace(window=lambda wid, now=now: now)
+        assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None)) is None, now
 
 
 # ---- browser tools report their element's point, placed on the page's screen area ----
@@ -385,6 +542,20 @@ def test_a_click_points_where_its_act_scrolls_the_element(monkeypatch):
     d, *_ = _browser(monkeypatch, rect=(10, 700, 100, 30), scroll=LONG_PAGE)
     _visual(d)                                                 # a screenshot point: pressed where it is, no scroll
     assert _bpoint(d).rect == (210.0, 800.0, 100.0, 30.0)
+
+
+def test_a_typing_point_is_the_part_of_its_field_the_page_shows(monkeypatch):
+    """L33 final review M4: the app aims a typing pointer at the field's leading edge, so a field wider than the page's
+    visible part (partly scrolled sideways, or built so) is clipped to that part and the arrow stays on the page. A
+    click's point keeps the element whole: its centre is where the click lands."""
+    d, *_ = _browser(monkeypatch, rect=(-300, 20, 1000, 30))
+    assert _bpoint(d, 'type', text='x') == Point('type', (200.0, 120.0, 700.0, 30.0), 1)
+    assert _bpoint(d, 'select', text='A').rect == (200.0, 120.0, 700.0, 30.0)
+    assert _bpoint(d, tool='secret').rect == (200.0, 120.0, 700.0, 30.0)
+    assert _bpoint(d, tool='code').rect == (200.0, 120.0, 700.0, 30.0)
+    assert _bpoint(d).rect == (-100.0, 120.0, 1000.0, 30.0)
+    d, *_ = _browser(monkeypatch, rect=(400, 20, 1000, 30), visual=(0, 0, 985, 785, 1))   # up to a classic scrollbar
+    assert _bpoint(d, tool='secret').rect == (600.0, 120.0, 585.0, 30.0)
 
 
 def test_a_centred_act_in_a_scroll_container_gets_no_point(monkeypatch):

@@ -1405,17 +1405,18 @@ class _TabDriver:
         conn = self._tab(tab).bridge.conn
         return conn.browser_pid if conn is not None else None
 
-    def page_rect(self, el: ElementRef, action: BrowserAction | None = None) -> Rect | None:
+    def page_rect(self, el: ElementRef, action: BrowserAction | None = None, visible: bool = False) -> Rect | None:
         """L33, FERB's cursor: where the element `action` touches will be when it does, in the top frame's layout
-        viewport (CSS px), from the latest snapshot. An act that scrolls its element to the viewport's centre first
-        (CENTRING; real typing and key presses too, as `act` sends them) is pointed at where the scroll takes it; a
-        screenshot point is pressed where it is, and a fill (no `action`) scrolls nothing. Publish nothing rather
-        than a wrong spot, so None when: the element is stale or in a child frame (its rect is its frame's); `act`
-        would refuse the act (a drag or a pointer act without a fresh screenshot's points, typing into a secret
-        field); a centring act's element is fixed, sticky or in a box that scrolls too, or the page can't say where
-        the scroll ends (`_Page.centred`); FERB scrolled the page since the snapshot and the element isn't fixed
-        (fixed in a box that scrolls doesn't count); it is sticky or its pin is unknown; or the spot is off the page's
-        visible part."""
+        viewport (CSS px), from the latest snapshot; with `visible`, only its part the visual viewport shows (a typing
+        pointer aims at the field's leading edge, which must be on the page). An act that scrolls its element to the
+        viewport's centre first (CENTRING; real typing and key presses too, as `act` sends them) is pointed at where
+        the scroll takes it; a screenshot point is pressed where it is, and a fill (no `action`) scrolls nothing.
+        Publish nothing rather than a wrong spot, so None when: the element is stale or in a child frame (its rect is
+        its frame's); `act` would refuse the act (a drag or a pointer act without a fresh screenshot's points, typing
+        into a secret field); a centring act's element is fixed, sticky or in a box that scrolls too, or the page
+        can't say where the scroll ends (`_Page.centred`); FERB scrolled the page since the snapshot and the element
+        isn't fixed (fixed in a box that scrolls doesn't count); it is sticky or its pin is unknown; or the spot is
+        off the page's visible part."""
         try:
             t, frame, _, _, info = self._resolve(el)
         except FerbError:
@@ -1435,6 +1436,9 @@ class _TabDriver:
         if rect is None or rect[2] <= 0 or rect[3] <= 0 \
                 or not (vx <= rect[0] + rect[2] / 2 <= vx + vw and vy <= rect[1] + rect[3] / 2 <= vy + vh):
             return None
+        if visible:                                  # its centre is on the page, so some of it is
+            left, top = max(rect[0], vx), max(rect[1], vy)
+            rect = (left, top, min(rect[0] + rect[2], vx + vw) - left, min(rect[1] + rect[3], vy + vh) - top)
         return rect
 
     def _refused(self, t: _Tab, el: ElementRef, info: PageElement, action: BrowserAction | None) -> bool:
@@ -1447,12 +1451,13 @@ class _TabDriver:
                         or (action.kind == "drag" and (action.end_element or "") not in t.points))
         return action.kind == "type" and info.secret
 
-    async def screen_rect(self, el: ElementRef, action: BrowserAction | None = None) -> Rect | None:
-        """L33, FERB's cursor: `page_rect` in global screen points, placed on the page area of the tab's window
-        (`native_place`). None besides when FERB's own minimized window or a tab its window doesn't show holds it
-        (decided from the snapshot, with no Accessibility read), the tab is laid out at FERB's own size, an older
-        extension's snapshot lacks the facts, or the window can't be matched or isn't on screen."""
-        rect = self.page_rect(el, action)
+    async def screen_rect(self, el: ElementRef, action: BrowserAction | None = None,
+                          visible: bool = False) -> Rect | None:
+        """L33, FERB's cursor: `page_rect` (with `visible`, the part shown) in global screen points, placed on the page
+        area of the tab's window (`native_place`). None besides when FERB's own minimized window or a tab its window
+        doesn't show holds it (decided from the snapshot, with no Accessibility read), the tab is laid out at FERB's
+        own size, an older extension's snapshot lacks the facts, or the window can't be matched or isn't on screen."""
+        rect = self.page_rect(el, action, visible)
         t = self._tabs.get(el.tab.tab_id)
         page = t.page if t is not None else None
         window = page.window if page is not None else None

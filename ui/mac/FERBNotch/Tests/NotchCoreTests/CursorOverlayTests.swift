@@ -55,15 +55,44 @@ final class CursorOverlayTests: XCTestCase {
                        CGPoint(x: 100, y: 600))
     }
 
-    func testABusEventReachesTheController() {
+    /// The daemon names a point by its step's root task (`task_id`) and the worker that acted (`worker_id`): the
+    /// steps of one task share one pointer and one shade, and the root task's result ends it (L33 review M1).
+    func testATasksStepsShareOnePointerThatEndsWithTheTasksResult() {
         let model = NotchModel(rpc: QuietCursorRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
         let c = CursorController(clock: { Date() }, makePanels: false)
         model.cursor = c
-        model.receiveBusEvent(["topic": "cursor.point", "data": ["task_id": "t9", "kind": "click",
-                               "rect": [10.0, 10.0, 20.0, 20.0], "display": 1] as [String: Any]])
-        XCTAssertNotNil(c.pointers["t9"])
+        model.receiveBusEvent(["topic": "cursor.point", "data": ["task_id": "t9", "worker_id": "w-step-a",
+                               "kind": "click", "rect": [10.0, 10.0, 20.0, 20.0], "display": 1] as [String: Any]])
+        let hue = c.pointers["t9"]?.hue
+        model.receiveBusEvent(["topic": "cursor.point", "data": ["task_id": "t9", "worker_id": "w-step-b",
+                               "kind": "click", "rect": [200.0, 10.0, 20.0, 20.0], "display": 1] as [String: Any]])
+        XCTAssertEqual(Array(c.pointers.keys), ["t9"])
+        XCTAssertEqual(c.pointers["t9"]?.target, CGPoint(x: 210, y: 20))
+        XCTAssertEqual(c.pointers["t9"]?.hue, hue)
         model.receiveBusEvent(["topic": "task.result", "data": ["task_id": "t9"] as [String: Any]])
-        XCTAssertNil(c.pointers["t9"])
+        XCTAssertTrue(c.pointers.isEmpty)
+    }
+
+    func testATaskKeepsItsShadeAcrossIdleGapsAndANewTaskTakesAFreeOne() {
+        var now = Date(timeIntervalSince1970: 100)
+        let c = CursorController(clock: { now }, makePanels: false)
+        c.point(taskID: "a", kind: "click", rect: CGRect(x: 0, y: 0, width: 10, height: 10), display: 1)
+        c.point(taskID: "b", kind: "click", rect: CGRect(x: 0, y: 0, width: 10, height: 10), display: 1)
+        let (a, b) = (c.pointers["a"]?.hue, c.pointers["b"]?.hue)
+        now = now.addingTimeInterval(5)                     // the model thinks between steps: the pointers fade
+        c.sweep()
+        XCTAssertTrue(c.pointers.isEmpty)
+        c.point(taskID: "a", kind: "click", rect: CGRect(x: 0, y: 0, width: 10, height: 10), display: 1)
+        XCTAssertEqual(c.pointers["a"]?.hue, a)
+        c.end(taskID: "a")
+        c.point(taskID: "c", kind: "click", rect: CGRect(x: 0, y: 0, width: 10, height: 10), display: 1)
+        XCTAssertNotEqual(c.pointers["c"]?.hue, b)           // never the shade of a task still running
+    }
+
+    func testATypingPointerStaysInsideItsField() {
+        let c = CursorController(clock: { Date() }, makePanels: false)
+        c.point(taskID: "t1", kind: "type", rect: CGRect(x: 50, y: 50, width: 10, height: 20), display: 1)
+        XCTAssertEqual(c.pointers["t1"]?.target, CGPoint(x: 55, y: 60))   // narrower than the lead-in: its middle
     }
 }
 

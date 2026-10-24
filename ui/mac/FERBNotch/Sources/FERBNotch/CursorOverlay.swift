@@ -27,7 +27,8 @@ final class CursorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// One pointer per task, gliding to each element FERB acts on and fading after 1.5 s idle.
+/// One pointer per task (the daemon names each point by its step's root task), gliding to each element FERB acts on
+/// and fading after 1.5 s idle; the task's result ends it.
 @MainActor
 final class CursorController: ObservableObject {
     static let idleSeconds: TimeInterval = 1.5
@@ -67,16 +68,24 @@ final class CursorController: ObservableObject {
         guard enabled else { return }
         let target: CGPoint
         switch kind {
-        case "type": target = CGPoint(x: rect.minX + 12, y: rect.midY)
+        // the field's leading edge, never past its middle (the daemon clips a field to the part its page shows)
+        case "type": target = CGPoint(x: min(rect.minX + 12, rect.midX), y: rect.midY)
         default: target = CGPoint(x: rect.midX, y: rect.midY)
-        }
-        if hues[taskID] == nil {
-            hues[taskID] = Self.hueOffsets[hues.count % Self.hueOffsets.count]
         }
         reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         pointers[taskID] = PointerState(target: target, kind: kind, lastSeen: clock(),
-                                        hue: hues[taskID] ?? 0, display: display)
+                                        hue: hue(for: taskID), display: display)
         if makePanels { showPanel(for: display); startTimer() }
+    }
+
+    /// A task keeps its shade until it ends, across the idle gaps between its steps; a new task takes a shade no
+    /// other task holds, while one is free.
+    private func hue(for taskID: String) -> Double {
+        if let hue = hues[taskID] { return hue }
+        let taken = Set(hues.values)
+        let hue = Self.hueOffsets.first { !taken.contains($0) } ?? Self.hueOffsets[hues.count % Self.hueOffsets.count]
+        hues[taskID] = hue
+        return hue
     }
 
     func end(taskID: String) {

@@ -55,20 +55,32 @@ def _info_windows(everywhere: bool = False) -> list[dict[str, Any]]:
 
 
 def window_on_screen(pid: int, rect: tuple[float, float, float, float],
-                     like: tuple[float, float, float, float] | None = None, title: str | None = None) -> bool:
-    """True when an on-screen window of the process contains the rect's centre (L33: the cursor never points at an
-    element in a hidden or other-Space window). With `like`, only the one window at those bounds counts (and with
-    `title`, the one the window server names so: a browser window carries its tab's title), so the spot is in the very
-    window that was matched; none or several there: False. Synchronous Quartz work: call it off the event loop."""
+                     like: tuple[float, float, float, float] | None = None, title: str | None = None,
+                     window: int | None = None) -> bool:
+    """True when the frontmost normal window (layer 0, not transparent) at the rect's centre, in the window server's
+    front-to-back on-screen order, is the target (L33: the cursor never points at an element in a hidden, other-Space
+    or covered window; FERB's own overlay sits above layer 0, so it never counts). The target is a window of the
+    process; with `window`, that window (a screenshot's); with `like`, the one window at those bounds (and with `title`,
+    the one the window server names so: a browser window carries its tab's title), so the spot is in the very window
+    that was matched; none or several there: False. Synchronous Quartz work: call it off the event loop."""
     cx, cy = rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
-    shown = [_window(d) for d in _info_windows() if int(d.get("kCGWindowOwnerPID", -1)) == pid
-             and int(d.get("kCGWindowLayer", 1)) == 0 and float(d.get("kCGWindowAlpha", 1)) > 0]
-    if like is not None:
-        shown = [w for w in shown if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))
-                 and (title is None or " ".join(w.title.split()) == " ".join(title.split()))]
-        if len(shown) != 1:
-            return False
-    return any(x <= cx <= x + w and y <= cy <= y + h for x, y, w, h in (s.bounds for s in shown))
+    normal = [d for d in _info_windows()
+              if int(d.get("kCGWindowLayer", 1)) == 0 and float(d.get("kCGWindowAlpha", 1)) > 0]
+
+    def target(d: dict[str, Any]) -> bool:
+        w = _window(d)
+        return w.pid == pid and (window is None or w.id == window) and (like is None or (
+            all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))
+            and (title is None or " ".join(w.title.split()) == " ".join(title.split()))))
+    if like is not None and sum(1 for d in normal if target(d)) != 1:
+        return False
+    front = next((d for d in normal if _holds(_window(d).bounds, cx, cy)), None)
+    return front is not None and target(front)
+
+
+def _holds(bounds: tuple[float, float, float, float], x: float, y: float) -> bool:
+    bx, by, bw, bh = bounds
+    return bx <= x <= bx + bw and by <= y <= by + bh
 
 
 def _window(d: dict[str, Any]) -> Window:

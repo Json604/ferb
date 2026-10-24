@@ -103,12 +103,14 @@ POINT_KINDS: dict[str, PointKind] = {"click": "click", "dblclick": "click", "rig
 async def _point(driver: Any, args: Any, grant: Any, kind: PointKind,
                  action: BrowserAction | None = None) -> Point | None:
     """L33: the element this call names, as geometry for FERB's cursor (the driver's `screen_rect`, then the display
-    it is on); None whenever unsure, or when the driver can't place elements."""
+    it is on); None whenever unsure, or when the driver can't place elements. A typing point is the field's part the
+    page shows: the app aims it at the leading edge, which must stay on the page."""
     place = getattr(driver, "screen_rect", None)
     if place is None:
         return None
     try:
-        rect = await place(driver.element_ref(driver.owned_by(str(args.tab), grant.task_id), str(args.element)), action)
+        rect = await place(driver.element_ref(driver.owned_by(str(args.tab), grant.task_id), str(args.element)), action,
+                           visible=kind == "type")
         shown = await asyncio.to_thread(display_of, rect) if rect is not None else None
         return None if shown is None else Point(kind, rect, shown)
     except (FerbError, ValueError):

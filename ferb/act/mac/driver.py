@@ -277,6 +277,32 @@ def shot_to_screen(shot: Any, x: float, y: float) -> tuple[float, float]:
     return bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
 
 
+# The input routes `act` takes for each element action (its own checks); it refuses any other before input. A slider's
+# scroll steps take any route (`_scroll`), but which element is a slider isn't checked here: it gets no point.
+ELEMENT_ROUTES: dict[str, frozenset[str]] = {
+    "press": frozenset({"ax", "foreground"}), "click": frozenset({"ax", "foreground"}),
+    "type": frozenset({"pid", "ax_keyboard", "foreground"}), "set_value": frozenset({"ax", "ax_value"}),
+    "edit": frozenset({"ax", "ax_value"}), "cancel": frozenset({"ax"}),
+    "scroll": frozenset({"ax", "pid", "foreground"}), "focus": frozenset({"ax", "pid", "ax_keyboard", "ax_value"}),
+    "select": frozenset({"ax", "pid", "ax_keyboard", "ax_value"})}
+
+
+def acts_on(action: ComputerAction, n: axm.AxNode) -> bool:
+    """L33: whether `act` would deliver this action to the element `n`, so FERB's cursor points only there. False when
+    `act` refuses it before any input, by its own checks (no text or item title; a foreground route without the
+    call's permission; a route that action doesn't take; typing into a password field), and for keys, which go to the
+    app's keyboard focus, not to the element. Synchronous, no I/O."""
+    if action.kind == "key" or action.kind in {"type", "set_value", "select"} and action.text is None \
+            or action.kind == "select" and not (action.text or "").strip():
+        return False
+    mechanism = action.mechanism or ("pid" if action.kind == "type" else "ax")
+    if mechanism == "foreground" and not action.allow_foreground:
+        return False
+    if n.secret and action.kind in ("set_value", "type", "edit"):
+        return False
+    return mechanism in ELEMENT_ROUTES.get(action.kind, frozenset())
+
+
 class MacComputerDriver:
     os: Literal["macos", "windows", "linux"] = "macos"
 
@@ -696,15 +722,20 @@ class MacComputerDriver:
                             {'method': 'window_pointer' if route else 'pid_pointer', 'delivered': True,
                              'observed_change': changed, 'outcome_verified': False, 'replayed': False})
 
-    def shot_point(self, name_or_bundle: str, shot_id: str, x: float, y: float) -> tuple[int, tuple[float, float]] | None:
-        """L33: the app's pid and the global screen point a click at (x, y) of its latest screenshot lands on, or None
-        when that shot is unknown or expired or (x, y) is outside it. Synchronous."""
+    def shot_point(self, name_or_bundle: str, shot_id: str, x: float,
+                   y: float) -> tuple[int, int, tuple[float, float]] | None:
+        """L33: the app's pid, the shot's window and the global screen point a click at (x, y) of its latest
+        screenshot lands on, or None when that shot is unknown or expired, (x, y) is outside it, or the window moved,
+        resized, changed owner or closed since (`click_at`'s own check: it would refuse). Synchronous Quartz work."""
         a = self.app(name_or_bundle)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
         if shot is None or shot.id != shot_id or not (0 <= x < shot.size[0] and 0 <= y < shot.size[1]):
             return None
-        return a.pid, shot_to_screen(shot, x, y)
+        now = self.shots.window(shot.window)
+        if now is None or now.pid != a.pid or not _same(now.bounds, shot.bounds):
+            return None
+        return a.pid, shot.window, shot_to_screen(shot, x, y)
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
                        task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer") -> ActionResult:

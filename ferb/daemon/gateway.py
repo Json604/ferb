@@ -854,8 +854,9 @@ class Gateway:
             self.observer.tool_call(grant, done=True)
 
     async def _point(self, cap: Any, args: Any, grant: RunGrant) -> None:
-        """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`). Never
-        delays or fails the action: skipped after POINT_TIMEOUT_S or on any error."""
+        """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`), named by
+        the step's root task, so a task keeps one pointer across its steps and the app ends it with that task's
+        `task.result`. Never delays or fails the action: skipped after POINT_TIMEOUT_S or on any error."""
         from ferb.act.point import POINT_TIMEOUT_S, Point
         if not hasattr(cap, "point"):
             return
@@ -866,7 +867,9 @@ class Gateway:
         except Exception:
             return
         if isinstance(p, Point):
-            self.publish("cursor.point", p.payload(grant.task_id))
+            rec = self.tasks.get(grant.task_id)
+            self.publish("cursor.point", p.payload((rec.tree_id if rec is not None else None) or grant.task_id,
+                                                   grant.worker_id))
 
     @staticmethod
     def _identity(cap: Any, name: str, spec: Any, action: ActionRequest, args: Any,

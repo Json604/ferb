@@ -23,8 +23,11 @@ class Point:
         if self.rect[2] <= 0 or self.rect[3] <= 0:
             raise ValueError("a point's rect needs a positive width and height")
 
-    def payload(self, task_id: str) -> dict[str, Any]:
-        return {'task_id': task_id, 'kind': self.kind, 'rect': [float(v) for v in self.rect], 'display': self.display}
+    def payload(self, task_id: str, worker_id: str) -> dict[str, Any]:
+        """`task_id` is the root task (one pointer per task, across its steps; it ends with that task's `task.result`),
+        `worker_id` the worker that acted (as `tool.called` names it)."""
+        return {'task_id': task_id, 'worker_id': worker_id, 'kind': self.kind,
+                'rect': [float(v) for v in self.rect], 'display': self.display}
 
 
 def display_of(rect: tuple[float, float, float, float]) -> int | None:

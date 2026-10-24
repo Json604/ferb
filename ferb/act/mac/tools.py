@@ -6,7 +6,7 @@ Drivers retain actual window/element/coordinate validity, background mechanics a
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from typing import Any, Collection, ContextManager, Literal
+from typing import Any, Callable, Collection, ContextManager, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,7 +14,7 @@ from ferb.act.browser.profiles import is_web_browser
 from ferb.act.evidence.mask import Box, to_image_boxes
 from ferb.act.mac import applescript
 from ferb.act.mac.ax_browser import is_browser
-from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver
+from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver, acts_on
 from ferb.act.mac.input import Yielded
 from ferb.act.mac.screenshot import window_on_screen
 from ferb.act.point import Point, display_of
@@ -112,17 +112,27 @@ class _Base:
         acting = getattr(self.driver, "acting", None)
         return contextlib.nullcontext() if acting is None else acting(bundle_id, ctx.task_id)  # type: ignore[no-any-return]
 
-    async def _element_point(self, args: BaseModel, kind: Literal['click', 'type', 'scroll']) -> Point | None:
-        """L33: the element this call names, as geometry for FERB's cursor; None whenever unsure (no element, stale,
-        empty rect, its window off screen, no display). Accessibility and Quartz work runs off the event loop."""
+    async def _element_point(self, args: BaseModel, kind: Literal['click', 'type', 'scroll'],
+                             acts: Callable[[Any], bool] = lambda node: True) -> Point | None:
+        """L33: the element this call names, as geometry for FERB's cursor: its Accessibility frame read now (the
+        snapshot's rect goes stale when a list scrolls or the window moves after the look). None whenever unsure (no
+        element, stale, gone or empty now, its window off screen or covered there, no display) and when the call
+        won't act on it (`precheck` refuses it, or `acts` says no for that element). Accessibility and Quartz work
+        runs off the event loop."""
         element = getattr(args, "element", None)
         if not element:
             return None
 
         def find() -> Point | None:
             try:
+                if self.precheck(args) is not None:
+                    return None
                 a = self.driver.app(str(getattr(args, "app")))
-                rect = tuple(float(v) for v in self.driver.node(a.bundle_id, str(element)).rect)
+                node = self.driver.node(a.bundle_id, str(element))
+                if not acts(node):
+                    return None
+                now = self.driver.ax.frame(node.ref)
+                rect = tuple(float(v) for v in now) if now is not None else ()
                 if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0 or not window_on_screen(a.pid, rect):
                     return None
                 shown = display_of(rect)  # type: ignore[arg-type]
@@ -341,22 +351,25 @@ class MacAct(_Base):
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
 
+    @staticmethod
+    def _action(args: BaseModel) -> ComputerAction:
+        return ComputerAction(getattr(args, "action"), getattr(args, "element"), getattr(args, "text"),
+                              select=getattr(args, "select", None), direction=getattr(args, "direction", None),
+                              amount=getattr(args, "amount", None), window=getattr(args, "window", None),
+                              allow_foreground=bool(getattr(args, "allow_foreground", False)),
+                              mechanism=getattr(args, "mechanism", None))
+
     async def point(self, args: BaseModel, grant: Any) -> Point | None:
-        action = getattr(args, "action")
+        """L33: the element, unless the driver would refuse the act or send it elsewhere (`acts_on`: keys go to the
+        app's focus)."""
         kinds: dict[str, Literal['click', 'type', 'scroll']] = {
-            "type": "type", "key": "type", "set_value": "type", "edit": "type", "scroll": "scroll"}
-        return await self._element_point(args, kinds.get(action, "click"))
+            "type": "type", "set_value": "type", "edit": "type", "scroll": "scroll"}
+        action = self._action(args)
+        return await self._element_point(args, kinds.get(action.kind, "click"), lambda node: acts_on(action, node))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        r = await self.driver.act(str(getattr(args, "app")),
-                                  ComputerAction(getattr(args, "action"), getattr(args, "element"),
-                                                 getattr(args, "text"), select=getattr(args, "select", None),
-                                                 direction=getattr(args, "direction", None),
-                                                 amount=getattr(args, "amount", None),
-                                                 window=getattr(args, "window", None),
-                                                 allow_foreground=bool(getattr(args, "allow_foreground", False)),
-                                                 mechanism=getattr(args, "mechanism", None)),
-                                  holder=ctx.worker_id, task=ctx.task_id)
+        r = await self.driver.act(str(getattr(args, "app")), self._action(args), holder=ctx.worker_id,
+                                  task=ctx.task_id)
         # facts are read back from the app (observed values, menu candidates): label them with its sources
         return ToolResult({"ok": r.ok, "detail": r.detail, "facts": r.facts, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok, read_sources=_sources(self._bundle(args)))
@@ -479,9 +492,9 @@ class MacClick(_Base):
                                              float(getattr(args, "x")), float(getattr(args, "y")))
                 if got is None:
                     return None
-                pid, (px, py) = got
+                pid, window, (px, py) = got
                 rect = (px - 4.0, py - 4.0, 8.0, 8.0)
-                shown = display_of(rect) if window_on_screen(pid, rect) else None
+                shown = display_of(rect) if window_on_screen(pid, rect, window=window) else None
                 return None if shown is None else Point("click", rect, shown)
             except (StaleRef, Refused, ValueError, LookupError):
                 return None
