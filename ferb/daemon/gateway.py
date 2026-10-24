@@ -41,6 +41,8 @@ import dataclasses
 import ipaddress
 import json
 import logging
+import re
+import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal
@@ -2013,18 +2015,44 @@ def _site(target: str) -> str:
     return host + (f":{parsed.port}" if parsed.port and parsed.port != "443" else "")
 
 
+# How the worker's proposed name for a saved secret is shown (review I1): never quote marks, dashes, middle dots,
+# Markdown or control characters, one line, at most NAME_SHOWN characters. A name that looks like a place, or was
+# clipped, goes after the code-derived place, so worker text never shows a place before FERB's own.
+NAME_SHOWN = 40
+_NAME_DROPPED = re.compile(r"[\"'`“”‘’«»„‟‹›—–―·•*_\[\]()~#>|<!]")
+_NAME_PLACE_LIKE = re.compile(r"\w\.\w|://|@|::")
+
+
+def shown_name(remember: str) -> tuple[str, bool]:
+    """The saved name as the one-line question shows it, and whether it must come after the place: it looks like a
+    place (a dot between letters or digits, "://", "@", "::") or was clipped. Formatting, never a judgement of what
+    the name means (R2)."""
+    name = " ".join(_NAME_DROPPED.sub(" ", printable(remember)).split())
+    name = "".join(ch for ch in name if unicodedata.category(ch) not in ("Cf", "Cc"))   # bidi and format marks too
+    name = " ".join(name.split())
+    clipped = len(name) > NAME_SHOWN
+    if clipped:
+        name = name[:NAME_SHOWN - 1].rstrip() + "…"
+    return name, clipped or bool(_NAME_PLACE_LIKE.search(name))
+
+
 def secret_summary(target: str, remember: str | None, app: str | None = None) -> tuple[str, str]:
     """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"): what the value is
-    for first (the worker's proposed name, in quotes, only ever as the name it is saved under), then the place from the
-    code-derived target (an origin's host, or the app: its name as macOS reports it, else its bundle id) and whether
-    it is kept. Returns that line and the same facts with the place first (`Gateway._place_line`)."""
+    for first (the worker's proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved
+    under), then the place from the code-derived target (an origin's host, or the app: its name as macOS reports it,
+    else its bundle id) and whether it is kept. Returns that line and the same facts with the place first
+    (`Gateway._place_line`); a name that looks like a place or was clipped gets the place-first line only."""
     if target.startswith("app:"):
         place = f"the {app} app" if app else f"the app {target[4:]}"
     else:
         place = _site(target)
     if remember:
-        return (f"“{remember}” — for {place} only · saved in your Mac's Keychain",
-                f"For {place} only: “{remember}” · saved in your Mac's Keychain")
+        name, after_place = shown_name(remember)
+        if not name:
+            first = f"For {place} only: a password or private answer · saved in your Mac's Keychain"
+            return first, first
+        first = f"For {place} only: “{name}” · saved in your Mac's Keychain"
+        return (first if after_place else f"“{name}” — for {place} only · saved in your Mac's Keychain"), first
     return (f"A password or private answer for {place} — used once, not saved",
             f"For {place}: a password or private answer — used once, not saved")
 

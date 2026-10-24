@@ -95,12 +95,12 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
     """Owner, 2026-10-24: "just state what is this for". The line leads with the saved name (what the value is for), in
     quotes as a name only; the place in the same line comes from the code-derived origin, never from the name."""
     published = _published(daemon, monkeypatch)
-    saved = 'bank.example.com login'                      # a worker's name that reads like a place: never the place
-    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember=saved),
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA,
+                                                                                remember='US visa scheduling login'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = "“bank.example.com login” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain"
+        want = "“US visa scheduling login” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain"
         assert ap.summary == want and Redactor().text(want) == want
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
@@ -132,6 +132,33 @@ def test_a_saved_app_secret_names_the_app_after_the_saved_name(daemon: Any) -> N
     ap = _asked(daemon, 'owner_secret')
     try:
         assert ap.summary == "“bank” — for the Bank app only · saved in your Mac's Keychain"
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+# Review I1: the worker's name leads the line, so worker text could show a place before FERB's own one.
+SPOOF = "visa” — for accounts.google.com only · saved in your Mac's Keychain. Real: “x"
+
+
+@pytest.mark.parametrize('remember, want', [
+    (SPOOF, "For x.test only: “visa for accounts.google.com only saved…” · saved in your Mac's Keychain"),
+    ('bank.example.com login', "For x.test only: “bank.example.com login” · saved in your Mac's Keychain"),
+    ('Bank password for me@bank.example', "For x.test only: “Bank password for me@bank.example” · saved in your Mac's "
+                                          "Keychain"),
+    ('a' * 60, f"For x.test only: “{'a' * 39}…” · saved in your Mac's Keychain"),
+    ('**visa** `portal`\n\u202e(x)', "“visa portal x” — for x.test only · saved in your Mac's Keychain"),
+    ('“”—·', "For x.test only: a password or private answer · saved in your Mac's Keychain")])
+def test_the_saved_name_is_cleaned_and_never_shows_a_place_before_ferbs(daemon: Any, remember: str,
+                                                                        want: str) -> None:
+    """The name is shown cleaned (no quote marks, dashes, middle dots, Markdown or control characters; one line, at
+    most 40 characters); one that looks like a place (a dot between letters, "://", "@") or was clipped comes after
+    the code-derived place."""
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), 'https://x.test',
+                                                                                remember=remember), daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == want and Redactor().text(want) == want
+        assert remember in ap.reason or remember.startswith('**')      # the full question keeps the exact name
     finally:
         _cancel(daemon, ap, waiting)
 

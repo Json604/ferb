@@ -112,7 +112,11 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   or private answer for <site or app> — used once, not saved" (`gateway.secret_summary`; owner 2026-10-24: "just
   state what is this for"): what it is for first (the worker's name, in quotes, only ever as the saved name), then the
   place from the code-derived target (an origin's host, with its port unless it is 443; an app's name as macOS reports
-  it, passed by `mac.secret`). A login code: "Login code for <host[:port]> — used once". When redaction would change
+  it, passed by `mac.secret`). The name is shown cleaned (`gateway.shown_name`: no quote marks, dashes, middle dots,
+  Markdown or control characters, one line, at most 40 characters); a name that looks like a place (a dot between
+  letters or digits, "://", "@", "::") or was clipped comes after the place ("For x.test only: “…” · saved in your
+  Mac's Keychain"), so worker text never shows a place before FERB's own (review I1). A login code: "Login code for
+  <host[:port]> — used once". When redaction would change
   the line (a code word before the place reads a port or a number in the host as a code), the same facts come with the
   place first ("For x.test:8443: a login code — used once"; `Gateway._place_line`), so the place always shows whole.
   The admin password: "Your Mac password, for the one command you just approved. …".
