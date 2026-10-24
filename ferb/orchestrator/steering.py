@@ -26,6 +26,9 @@ MEMORY_QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     'forget': (FORGET_ASK, ('Yes', 'No'))}
 # Checks whose typed answer must be one of their options (Ruling: a stray "yes keep it" is never saved as a memory)
 OPTION_ONLY = frozenset({CONFIRM_MEMORY_ASK})
+# None of them asks for a secret, so their own words (a guess about "passwords") never hide an answer or a chat message
+# as a password question's would; secret classes are still hidden (rule 14)
+MEMORY_ASKS = frozenset(capability for capability, _ in MEMORY_QUESTIONS.values())
 # FERB's own consequential checks: answered only by one of their options in plain words (Yes or No; Keep, Edit or
 # Drop), never by a correction's words (L3)
 FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK})

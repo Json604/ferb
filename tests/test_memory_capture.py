@@ -10,7 +10,9 @@ import pytest
 from ferb.core.errors import FerbError
 from ferb.memory.items import MemoryRefused, capture
 from ferb.sanitize.untrusted import mark, typed_lines_of
-from tests.support.memory_items import (c_handle, distill_day, distill_item, journal, pending, run, said)
+from tests.support.memory_items import (c_handle, distill_day, distill_item, journal, owner_fact, pending, run,
+                                        said)
+from tests.support.schedules import own_daemon
 
 FERB_DIR = Path(__file__).resolve().parents[1] / "ferb"
 DISTILL_PROMPT, PLANNER_PROMPT = FERB_DIR / "memory" / "distill.md", FERB_DIR / "orchestrator" / "prompts" / "supervisor.md"
@@ -80,18 +82,36 @@ def test_without_the_owners_typed_words_a_guess_is_asked_at_once(daemon: Any, me
     assert q.options == ("Keep", "Edit", "Drop") and content in q.reason
 
 
-def guess(daemon: Any) -> tuple[Any, Any]:
-    jid = said(daemon, "my dentist is Dr. Rao")
-    distill_day(daemon, distill_item(c_handle(daemon, jid), "Your dentist is Dr. Rao"))
+def guess(daemon: Any, message: str = "my dentist is Dr. Rao", content: str = "Your dentist is Dr. Rao",
+          **fields: Any) -> tuple[Any, Any]:
+    """One of FERB's guesses from the owner's chat that day, and its Keep / Edit / Drop question."""
+    jid = said(daemon, message)
+    distill_day(daemon, distill_item(c_handle(daemon, jid), content, **fields))
     [q] = pending(daemon)
     [it] = run(daemon, lambda: daemon.daemon.memory.items("proposed"))
     return q, it
+
+
+# Fix round 1: a guess whose words name passwords made FERB's question about it look like a password question
+PASSWORD_GUESS = {"message": "opened 1Password again", "content": "You keep your passwords in 1Password",
+                  "key": "password_app", "kind": "preference"}
 
 
 def test_a_guess_is_asked_about_once(daemon: Any) -> None:
     _, it = guess(daemon)
     run(daemon, lambda: daemon.daemon._ask_keep(it, "again"))
     assert len(pending(daemon)) == 1
+
+
+def test_only_a_waiting_guess_is_asked_about(daemon: Any) -> None:
+    """Fix round 1 (minor 3): the planner capturing a paraphrase the owner already kept found it active and asked
+    again; `_ask_keep` asks only about an inferred item still proposed."""
+    q, it = guess(daemon)
+    run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 1))
+    kept = run(daemon, lambda: daemon.daemon.memory.get(it.id))
+    mine = owner_fact(daemon, "dentist_city", "My dentist is in Pune")
+    run(daemon, lambda: (daemon.daemon._ask_keep(kept, "again"), daemon.daemon._ask_keep(mine, "again")))
+    assert pending(daemon) == []
 
 
 def test_keep_makes_a_guess_active(daemon: Any) -> None:
@@ -131,6 +151,41 @@ def test_drop_while_the_owners_forget_question_waits_leaves_the_guess_to_that_fo
     assert pending(daemon, "memory.forget") == []
 
 
+def test_drop_while_a_forget_of_another_version_waits_leaves_the_guess_to_that_forget(daemon: Any) -> None:
+    """Fix round 1 (Important 1): the owner's "Forget for good?" about their own version of the fact lists every
+    version, the guess and the chat message it came from included. Dropping the guess first cut that link, so the Yes
+    left the message the question named. While such a question waits, Drop retracts the guess."""
+    added = journal(daemon, "memory.added", {"content": "My dentist is Dr. Mehta"})
+    mine = run(daemon, lambda: daemon.daemon.memory.propose("person", "owner", "dentist", "My dentist is Dr. Mehta",
+                                                            "owner_stated", [("journal", added)], 1.0))
+    q, it = guess(daemon)
+    message = it.source_ids[0].split(":", 1)[1]
+    told = run(daemon, lambda: daemon.daemon._chat_forget(mine.id, "r-forget"))
+    assert "Your dentist is Dr. Rao" in told and "chat.message" in told
+    [forget] = pending(daemon, "memory.forget")
+    run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 3))
+    assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "retracted"
+    assert [p.id for p in pending(daemon, "memory.forget")] == [forget.id]
+    run(daemon, lambda: daemon.daemon._resolve_approval(forget.id, True, 1))
+    daemon.run(daemon.daemon._settle_forgets())
+    assert run(daemon, lambda: [e.id for e in daemon.daemon._journal().entries_of("chat.message")]) == []
+    assert run(daemon, lambda: [daemon.daemon.memory.get(i) for i in (it.id, mine.id, message)]) == [None] * 3
+
+
+def test_drop_deletes_the_guess_s_index_node(daemon: Any) -> None:
+    """A pending guess is indexed as a `proposed` fact node (the dashboard confirms it there); Drop deletes that too."""
+    q, it = guess(daemon)
+    run(daemon, lambda: daemon.daemon.learning.sync_facts(daemon.daemon.memory))
+
+    def nodes() -> list[str]:
+        return [r[0] for r in daemon.daemon.db.conn.execute(
+            "SELECT node_id FROM learning_sources WHERE source_ref = ?", ("memory:" + it.id,))
+            if daemon.daemon.learning.get(r[0]) is not None]
+    assert len(run(daemon, nodes)) == 1
+    run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 3))
+    assert run(daemon, nodes) == []
+
+
 def test_declining_a_guess_question_drops_it(daemon: Any) -> None:
     q, it = guess(daemon)
     run(daemon, lambda: daemon.daemon._resolve_approval(q.id, False))
@@ -146,6 +201,94 @@ def test_edit_saves_the_owners_text_as_their_own_words(daemon: Any) -> None:
     active = run(daemon, lambda: daemon.daemon.memory.items("active"))
     assert [(a.origin, a.content) for a in active] == [("owner_stated", "My dentist is Dr. Rao at Smile Clinic")]
     assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "retracted"
+    with pytest.raises(MemoryRefused, match="forget"):          # fix round 1 (minor 4): never asked about again
+        run(daemon, lambda: daemon.daemon.memory.propose(it.kind, it.subject, it.key, it.content, "inferred",
+                                                         [("journal", it.source_ids[0].split(":", 1)[1])], 0.6))
+
+
+def test_an_edit_waits_across_a_restart(home: Any) -> None:
+    """Rule 9: the Edit question, like every memory question, comes back after a restart with its words."""
+    d = own_daemon(home, "id")
+    try:
+        q, it = guess(d)
+        run(d, lambda: d.daemon._resolve_approval(q.id, True, 2))
+        [edit] = pending(d, "memory.edit")
+    finally:
+        d.stop()
+    again = own_daemon(home, "again")
+    try:
+        [back] = pending(again, "memory.edit")
+        assert (back.id, back.reason, back.options) == (edit.id, edit.reason, ())
+        run(again, lambda: again.daemon._resolve_approval(back.id, True, None, "My dentist is Dr. Rao in Pune"))
+        assert run(again, lambda: [a.content for a in again.daemon.memory.items("active")]) == [
+            "My dentist is Dr. Rao in Pune"]
+    finally:
+        again.stop()
+
+
+def test_a_guess_that_names_passwords_never_hides_the_owners_edit(daemon: Any) -> None:
+    """Fix round 1 (Important 2): FERB's memory questions never ask for a secret, but "passwords" in a guess made the
+    answer field hide a one-word answer, or this one, whole, and "[redacted]" was saved as the owner's words."""
+    q, it = guess(daemon, **PASSWORD_GUESS)
+    run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 2))
+    [edit] = pending(daemon, "memory.edit")
+    run(daemon, lambda: daemon.daemon._resolve_approval(edit.id, True, None, "I use Bitwarden now"))
+    assert run(daemon, lambda: [(a.origin, a.content) for a in daemon.daemon.memory.items("active")]) == [
+        ("owner_stated", "I use Bitwarden now")]
+
+
+def test_a_guess_that_names_passwords_never_hides_the_owners_chat(daemon: Any) -> None:
+    """Fix round 1 (Important 2): while that guess's question waited, every one-word chat message ("stop") was hidden
+    whole before the planner saw it."""
+    guess(daemon, **PASSWORD_GUESS)
+    assert run(daemon, lambda: [daemon.daemon._hide_code_reply(w) for w in ("stop", "continue", "thanks")]) == [
+        "stop", "continue", "thanks"]
+
+
+def test_an_edit_that_comes_back_hidden_is_never_saved(daemon: Any) -> None:
+    """Secret classes are still hidden (rule 14), so an Edit answer can come back as "[redacted]" whole; it is refused
+    and asked again, never saved as the owner's words. In the answer field the question stays open; from chat (the
+    planner routed already-hidden words) FERB asks again and says why."""
+    daemon.daemon.redact.add_secret_value("hunter2-Zq9")
+    q, it = guess(daemon)
+    run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 2))
+    [edit] = pending(daemon, "memory.edit")
+    with pytest.raises(FerbError, match="secret"):
+        run(daemon, lambda: daemon.daemon._resolve_approval(edit.id, True, None, "hunter2-Zq9"))
+    assert [p.id for p in pending(daemon, "memory.edit")] == [edit.id]
+    routed = run(daemon, lambda: daemon.daemon.state.approvals.resolve(edit.id, True, text="[redacted]"))
+    line = run(daemon, lambda: daemon.daemon._question_answered(routed))
+    [again] = pending(daemon, "memory.edit")
+    assert "secret" in line and again.reason == edit.reason
+    assert run(daemon, lambda: (daemon.daemon.memory.get(it.id).status, daemon.daemon.memory.items("active"))) == (
+        "proposed", [])
+
+
+def test_ferbs_which_is_it_names_a_checks_own_options() -> None:
+    from types import SimpleNamespace
+
+    from ferb.orchestrator.supervisor import _plain_choice
+    assert _plain_choice(SimpleNamespace(options=("Keep", "Edit", "Drop"), reason="Keep this? “x”")) == (
+        "Is that Keep, Edit or Drop for this? Keep this? “x”")
+    assert _plain_choice(SimpleNamespace(options=("Yes", "No"), reason="Forget for good?")) == (
+        "Is that a Yes or a No to this? Forget for good?")
+
+
+def test_the_terminal_names_a_guess_questions_options() -> None:
+    """`ferb chat`: the reply hint and the prompt name Keep, Edit or Drop; Enter (skipping) is Drop (ruling 5)."""
+    import threading
+
+    from ferb.cli.chat import question
+    from ferb.cli.live_chat import LiveChat
+    ask = {"approval_id": "ap-guess", "kind": "owner_question", "capability": "memory.confirm",
+           "reason": "Keep this? “x”", "options": ["Keep", "Edit", "Drop"]}
+    said: list[str] = []
+    chat_ = LiveChat.__new__(LiveChat)
+    chat_.pending, chat_._lock = {}, threading.RLock()
+    chat_.say = said.append                                            # type: ignore[method-assign]
+    chat_.answer_approval(ask)
+    assert said[-1].strip() == "Reply Keep, Edit or Drop."
+    assert question(ask).endswith("number or your answer (Enter = Drop): ")
 
 
 @pytest.mark.parametrize("typed, status, edits", [("keep", "active", 0), ("Drop", None, 0), ("1", "active", 0),

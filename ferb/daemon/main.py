@@ -139,6 +139,9 @@ def _named_node(node: dict[str, Any]) -> str:
 KEEP_WORDING = "Keep this, in FERB's words (you didn't say it this way)? “{text}”"
 EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB saves exactly what you type. "
                  "(Its guess: “{text}”)")
+# An Edit answer that secret redaction hid whole (rule 14): never saved as the owner's words
+EDIT_HIDDEN = ("Those words looked like a secret, so FERB hid them and saved nothing. Type how FERB should remember it, "
+               "without the secret.")
 
 
 # Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
@@ -618,7 +621,10 @@ class Daemon:
         (re-review 3, R1-b)."""
         if not isinstance(self.redact, Redactor):
             return text
+        from ferb.orchestrator.steering import MEMORY_ASKS
         for ap in self.state.approvals.pending():
+            if ap.capability in MEMORY_ASKS:            # FERB's memory questions never ask for a secret (L36)
+                continue
             # a login-code prompt asks for a code by its kind, whatever its words say
             reason = "login code" if ap.kind == "owner_login_code" else ap.reason
             if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(text.strip()) is None:
@@ -1769,9 +1775,10 @@ class Daemon:
 
     def _ask_keep(self, item: Any, reason: str) -> None:
         """L36 §2 ("Ask right away"): one of FERB's guesses about the owner, asked at once with Keep / Edit / Drop;
-        never twice for one item (an open Keep or Edit question about it is enough)."""
-        if self.db.conn.execute("SELECT 1 FROM memory_questions WHERE target = ? AND kind IN ('confirm', 'edit')",
-                                (item.id,)).fetchone():
+        only while it waits (an inferred item still proposed), and never twice for one item (an open Keep or Edit
+        question about it is enough)."""
+        if item.origin != "inferred" or item.status != "proposed" or self.db.conn.execute(
+                "SELECT 1 FROM memory_questions WHERE target = ? AND kind IN ('confirm', 'edit')", (item.id,)).fetchone():
             return
         self._ask_owner("confirm", item.id, reason, "memory-confirm-" + item.id)
 
@@ -1779,9 +1786,11 @@ class Daemon:
         """The owner's answer to one of FERB's guesses (L36 §2). Keep makes it active, owner-confirmed. Edit saves the
         owner's text as their own words (a new owner-stated version of the same fact) and retracts the guess. Drop
         deletes the guess alone (`Memory.drop`; Ruling: never `forget`, which purges every version and the owner's
-        messages); while the owner's own "Forget for good?" about it waits, Drop retracts it instead (scan ruling I1,
-        re-review R1: a deletion would close that question unanswered, and its Yes still purges every copy). A line
-        for the owner; FerbError for an unknown action or an empty edit."""
+        messages). While a waiting "Forget for good?" would delete the guess (about it, or about another version of the
+        same fact: `_forget_would_take`), Drop retracts it instead (scan ruling I1, re-review R1, fix round 1): a
+        deletion would close a question about it unanswered, or cut it from the messages the question names, and that
+        Yes still purges every copy. A replaced or dropped guess keeps its fingerprint either way. A line for the
+        owner; FerbError for an unknown action, an empty edit, or an edit secret redaction hid whole (`EDIT_HIDDEN`)."""
         item = self.memory.get(item_id)
         if item is None or item.status != "proposed" or item.origin != "inferred":
             return "That guess isn't waiting any more."
@@ -1789,26 +1798,41 @@ class Daemon:
             self.memory.confirm(item_id)
             return "Kept."
         if action == "drop":
-            if self.db.conn.execute("SELECT 1 FROM memory_questions WHERE target = ? AND kind = 'forget:memory'",
-                                    (item_id,)).fetchone():
-                self.memory.retract(item_id, "the owner said Drop")
-                return "Not kept. Your question about forgetting it still waits."
+            if self._forget_would_take(item_id):
+                self.memory.retract(item_id, "the owner said Drop", never_again=True)
+                return "Dropped. FERB won't suggest it again; your question about forgetting it still waits."
             self.memory.drop(item_id)
             self._forget_nodes(["memory:" + item_id], named=False)      # its index node goes with it
             return "Dropped. FERB won't suggest it again."
-        if action == "edit" and text.strip():
-            entry = self._journal().append("memory.edited", {"id": item_id, "content": text.strip()})
-            mine = self.memory.edit(item_id, text.strip(), ("journal", entry.id))
-            self.memory.retract(item_id, "the owner wrote it in their own words")
+        words = text.strip()
+        if action == "edit" and words:
+            if self._redact_text(words).strip() == REDACTED:
+                raise FerbError(EDIT_HIDDEN)
+            entry = self._journal().append("memory.edited", {"id": item_id, "content": words})
+            mine = self.memory.edit(item_id, words, ("journal", entry.id))
+            self.memory.retract(item_id, "the owner wrote it in their own words", never_again=True)
             return "Saved in your words: " + " ".join(mine.content.split())
         raise FerbError("Pick Keep, Edit or Drop; Edit needs the words to save.")
 
+    def _forget_would_take(self, item_id: str) -> bool:
+        """Whether a waiting "Forget for good?" about a memory would delete this item: its target, another version of the
+        same fact, or an item built on the same sources (`plan_forget`, worked out as its Yes would)."""
+        from ferb.memory.items import MemoryRefused
+        for row in self.db.conn.execute("SELECT target FROM memory_questions WHERE kind = 'forget:memory'").fetchall():
+            try:
+                if item_id in self.memory.plan_forget(row["target"]).items:
+                    return True
+            except MemoryRefused:                        # its memory went another way
+                continue
+        return False
+
     def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
-        """FERB's Yes/No questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind)
-        about `targets`. A memory confirmed or retracted another way closes its "Keep this?" question only; a memory or
-        learned item deleted closes every question about it, the owner's "Forget for good?" too, which nothing else
-        closes (re-review R1). Each is closed (superseded: never a No), dropped from what a Yes would do, and deleted
-        from `memory_questions`, so no later turn or restart shows its words again."""
+        """FERB's questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind) about
+        `targets`. A memory confirmed or retracted another way closes its "Keep this?" (Keep / Edit / Drop) and Edit
+        questions only; a memory or learned item deleted closes every question about it, the owner's "Forget for
+        good?" too, which nothing else closes (re-review R1). Each is closed (superseded: never a No or a Drop),
+        dropped from what its answer would do, and deleted from `memory_questions`, so no later turn or restart shows
+        its words again."""
         gone = set(targets)
         if not gone:
             return
@@ -1823,8 +1847,9 @@ class Daemon:
                              [*sorted(gone), *(kinds or ())])
 
     def _restore_memory_questions(self) -> None:
-        """At start: FERB's Yes/No questions about memory that were still waiting are asked again, with their ids and
-        words; one whose memory has gone meanwhile is dropped."""
+        """At start: FERB's questions about memory that were still waiting (a forget's Yes / No, a guess's Keep / Edit /
+        Drop and its Edit) are asked again, with their ids, words and options; one whose memory has gone or stopped
+        waiting meanwhile is dropped."""
         for row in self.db.conn.execute("SELECT * FROM memory_questions ORDER BY at").fetchall():
             if row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
@@ -1858,9 +1883,13 @@ class Daemon:
                 return ""
             return self._settle_guess(ident, "keep" if choice == "Keep" else "drop")
         if what == "edit":
-            if ap.state == "granted" and ap.answer:
+            if ap.state != "granted" or not ap.answer:
+                return self._settle_guess(ident, "drop")
+            try:
                 return self._settle_guess(ident, "edit", ap.answer)
-            return self._settle_guess(ident, "drop")
+            except FerbError as e:      # e.g. words routed from chat already hidden (rule 14): asked again, never saved
+                self._ask_owner("edit", ident, ap.reason, "memory-edit-" + ident)
+                return str(e)
         if not yes:
             return "Kept: nothing was forgotten."
         kind = what.removeprefix("forget:")
@@ -2230,7 +2259,7 @@ class Daemon:
                 saved.append({"refused": reason(e, self.redact)})
                 continue
             text = " ".join(m.content.split())
-            if m.origin == "owner_stated":
+            if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}", "line": f"Remembered: {text}"})
             else:
                 self._ask_keep(m, KEEP_WORDING.format(text=text))
@@ -3964,7 +3993,7 @@ class Daemon:
             else:
                 text = text.strip()
                 granted = bool(text)
-                from ferb.orchestrator.steering import OPTION_ONLY, choices
+                from ferb.orchestrator.steering import MEMORY_ASKS, OPTION_ONLY, choices
                 if ap is not None and ap.capability in OPTION_ONLY and text and ap.option_for(text) is None:
                     raise FerbError(f"Pick {choices(ap.options)}.")
                 # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
@@ -3973,7 +4002,11 @@ class Daemon:
                 # (`Redactor.answer`), and never remembered.
                 if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
                         and ap.option_for(text) is None):
-                    text = self.redact.answer(text, question=ap.reason)
+                    # FERB's memory questions never ask for a secret: only secret classes are hidden (L36)
+                    text = (self.redact.text(text) if ap.capability in MEMORY_ASKS
+                            else self.redact.answer(text, question=ap.reason))
+                if ap is not None and ap.capability == "memory.edit" and text == REDACTED:
+                    raise FerbError(EDIT_HIDDEN)
                 if ap is not None and ap.kind == "owner_login_code" and text:
                     self._add_secret_value(text)
         try:

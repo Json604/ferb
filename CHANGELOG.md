@@ -836,8 +836,9 @@ After the owner's update (2026-10-24):
   (memory audit): 14 of your durable statements in two weeks were never saved, and the nightly distill had made 27
   guesses about you that nobody asked you about. Distillation can now quote your own words for an item; FERB checks the
   quote against what you typed (never pasted text) and saves your sentence as yours. Any guess, from chat or the nightly
-  look, becomes a question at once: Keep, Edit (your own words are saved instead) or Drop (deleted; never suggested
-  again). Text typed into that question that isn't one of the three is refused, so a stray "yes" is never saved.
+  look, becomes a question at once: Keep, Edit (your own words are saved instead) or Drop (deleted); after Edit or Drop
+  FERB never suggests that guess again. Text typed into that question that isn't one of the three is refused, so a
+  stray "yes" is never saved.
 
 Licensed under Apache-2.0.
 

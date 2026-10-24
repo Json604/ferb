@@ -2826,9 +2826,16 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   its fingerprint (`Memory.drop`), so it is never proposed again; `forget` is not used, since it purges every version of
   the key and the owner's messages. Text typed into the Keep / Edit / Drop question that is no option is refused
   (`steering.OPTION_ONLY`).
-  While the owner's own "Forget for good?" about the guess waits, Drop retracts it instead (`_settle_guess`): a deletion
-  would close that question unanswered, and its Yes still purges every copy (re-review R1). The planner prompt routes a
-  check's own options ("Keep", "Edit" or "Drop"), and FERB's "which is it?" names them (`supervisor._plain_choice`).
+  While a waiting "Forget for good?" would delete the guess (about it, or about another version of the same fact, whose
+  `plan_forget` lists every version and their sources: `Daemon._forget_would_take`), Drop retracts it instead
+  (`_settle_guess`): a deletion would close that question unanswered or cut the guess from the messages it names, and
+  its Yes still purges every copy (re-review R1). A dropped or replaced (Edit) guess keeps its fingerprint either way
+  (`Memory.retract(never_again=True)`). None of these questions asks for a secret (`steering.MEMORY_ASKS`), so their
+  words (a guess about "passwords") never hide an answer (`_resolve_approval`) or a chat message (`_hide_code_reply`)
+  the way a password question's do; secret classes are still redacted, and an Edit answer hidden whole is refused and
+  asked again, never saved as "[redacted]" (`EDIT_HIDDEN`). The planner prompt routes a check's own options ("Keep",
+  "Edit" or "Drop"), and FERB's "which is it?" names them (`supervisor._plain_choice`); `ferb chat` shows "Enter = Drop".
+  An answer from the notch's buttons gets no FERB line yet: `approval.resolved` carries no text and the notch shows none.
   Debugging: `memory_questions` rows of kind `confirm` / `edit`; journal `memory.edited` (an Edit's words, the new
   version's source) and `memory.capture_refused`; `distill_runs.detail` lists what a day proposed and refused.
 

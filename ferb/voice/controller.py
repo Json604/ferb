@@ -134,6 +134,7 @@ class Voice:
                 if line and line.lstrip().startswith(("ferb>", "?")):
                     shown = line.strip().removeprefix("ferb>").strip()
                     shown = shown.replace("number or your answer (Enter = No):", "say Yes or No")
+                    shown = shown.replace("number or your answer (Enter = Drop):", "say Keep, Edit or Drop")
                     shown = shown.replace("number or your answer (Enter to skip):", "say your answer")
                     shown = shown.replace("your answer (Enter to skip):", "say your answer")
                     words = spoken(shown)

@@ -440,11 +440,15 @@ class Memory:
         assert out is not None
         return out
 
-    def retract(self, item_id: str, reason: str) -> None:
-        """Soft: kept for history, never recalled."""
-        if self.get(item_id) is None:
+    def retract(self, item_id: str, reason: str, *, never_again: bool = False) -> None:
+        """Soft: kept for history, never recalled. `never_again`: its fingerprint is kept too, so distillation never
+        proposes these words for this fact again (the owner replaced or dropped one of FERB's guesses, L36)."""
+        it = self.get(item_id)
+        if it is None:
             raise MemoryRefused(f"no item {item_id}")
         self.db.conn.execute("UPDATE memory_items SET status = 'retracted' WHERE id = ?", (item_id,))
+        if never_again:
+            self._never_again(it)
         self.on_settled([item_id], False)
         self.on_change()
 
@@ -457,10 +461,13 @@ class Memory:
             raise MemoryRefused(f"no proposed item {item_id}")
         self.db.conn.execute("DELETE FROM memory_sources WHERE item_id = ?", (item_id,))
         self.db.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,))
-        self.db.conn.execute("INSERT OR IGNORE INTO memory_forgotten (fingerprint, at) VALUES (?, ?)",
-                             (fingerprint(it.kind, it.subject, it.key, it.content), self.clock.now().isoformat()))
+        self._never_again(it)
         self.on_settled([item_id], True)
         self.on_change()
+
+    def _never_again(self, it: MemoryItem) -> None:
+        self.db.conn.execute("INSERT OR IGNORE INTO memory_forgotten (fingerprint, at) VALUES (?, ?)",
+                             (fingerprint(it.kind, it.subject, it.key, it.content), self.clock.now().isoformat()))
 
     def edit(self, item_id: str, content: str, source: Source) -> MemoryItem:
         """The owner's correction: a new owner-stated version (the old one is kept as history)."""

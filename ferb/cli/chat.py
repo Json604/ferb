@@ -152,9 +152,11 @@ def _question(d: dict[str, Any]) -> str:
     if d.get("kind") in {"owner_login_code", "owner_admin_password", "owner_secret"}:
         return f"   ? {d.get('reason', '')} "
     if d.get("kind") == "owner_question" and d.get("capability") in FERB_CHECKS and d.get("options"):
-        # FERB's own check (D33; P19 retry, F9 conversation scope): skipping it is a No
+        # FERB's own check (D33; P19 retry, F9 conversation scope): skipping it is a No; on a guess's Keep / Edit /
+        # Drop it is Drop (L36 ruling 5)
         opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
-        return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter = No): "
+        skip = "Drop" if d.get("capability") == "memory.confirm" else "No"
+        return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter = {skip}): "
     if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)
         if d.get("options"):
             opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
