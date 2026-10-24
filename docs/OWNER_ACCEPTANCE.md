@@ -1553,7 +1553,15 @@ Checkout validation is in the changelog entry; nothing here is installed or obse
 with the owner watching; pause between supervised actions and record what the owner saw.
 
 - A native task (a disposable TextEdit file) and a browser task (a kartikey.xyz page), watched: the pointer lands on each
-  action's element, and the owner's own cursor, keyboard focus and Space stay untouched.
+  action's element, and the owner's own cursor, keyboard focus and Space stay untouched. Set the browser task up so it
+  can pass: FERB opens its task tabs in the background and keeps its own window minimized, so open the kartikey.xyz page
+  in a visible tab of your own window and say "on this page …"; work in a background tab shows no pointer by design.
+- A window behind another app (type in another app's window over the TextEdit file while FERB acts in it): no pointer.
+- A multi-step task keeps one pointer and one shade, and it goes when the task's result arrives; two tasks at once get
+  a pointer and shade each.
+- The switch "Show FERB's pointer" off shows nothing; with Reduce Motion on, the pointer fades in place.
+- The first pointer on a display (and the first after a screen change or a switch toggle) creates FERB.app's overlay
+  window; the disturbance record may list it as a window-order change inside that action: it is FERB's own.
 - Cost: the per-act Accessibility lookup and Chromium heat during browser tasks (`ferb stats`, resource samples).
 - `drawnParent` cost on a component-heavy page (the extension's snapshot time before and after).
 - The pointer on the built-in notched display and on a second display (it must not sit under the notch inset).

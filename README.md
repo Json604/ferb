@@ -211,10 +211,14 @@ there, the packaged app with `scripts/build-app.sh`). It uses the same local dae
 
 FERB's pointer (L33): when FERB is about to act on something in a window you can see, a small arrow glides to the spot
 and fades after about a second and a half. It is only a picture: it is click-through, never takes focus and never moves
-your own mouse. There is none for a window you can't see (minimized, another Space, behind others), and none where
-FERB can't know the exact spot (a page's pinned header, an inner scrolling list, a zoomed page). Several tasks at once
-get one pointer each. With Reduce Motion on, it fades instead of gliding. Turn it off with the settings switch "Show
-FERB's pointer". Pointing at web pages needs extension 0.15.9; with an older one the pointer shows for native apps only.
+your own mouse. There is none for a window you can't see (minimized, another Space, or behind another window at that
+spot), none where FERB can't know the exact spot (a page's pinned header, an inner scrolling list, a zoomed page), and
+none for an action FERB would refuse. FERB opens its own tabs in the background, so web work shows a pointer only in a
+tab your window shows, for example when you ask FERB to work "on this page". Each task gets one pointer and keeps its
+shade across its steps; several tasks at once get one each. With Reduce Motion on, it fades instead of gliding. Turn it
+off with the settings switch "Show FERB's pointer". Pointing at web pages needs extension 0.15.9; with an older one the
+pointer shows for native apps only. The pointer shows where FERB aims from its last look; a page's own layout can
+mislead it, nothing in FERB reads it to decide anything, and the trace records what FERB actually touched.
 
 The app's history keeps the message as FERB stored it (secret values replaced), never the raw text, and never your
 unsent draft. Native dictation uses the microphone button or right Command + Option and places the transcript in the

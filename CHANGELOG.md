@@ -600,6 +600,13 @@ After the owner's update (2026-10-24):
   `scrollBy` are instant, since smooth-scroll pages made real input aim at pre-scroll spots. No ripple or shimmer: the
   owner leaves decoration to Codex. Checkout validation: pytest 4426 passed, 1 skipped, 77 deselected; mypy ferb/core clean; Swift 231 tests; live checks in
   `docs/OWNER_ACCEPTANCE.md`.
+- FERB's cursor, final review fixes (L33, 183244b): a window behind another window at the spot gets no pointer (the
+  frontmost normal window there must be the target); native points read the element's Accessibility frame at act
+  time, and a screenshot click whose window moved points nowhere; native acts the driver refuses before input, and
+  keys (they go to the app's focus), get none; a typing point is clipped to the part of the field the page shows.
+  `cursor.point` now names the step's root task (`task_id`) and the acting worker (`worker_id`), so a task keeps one
+  pointer and one shade across its steps and its result ends it (they were keyed by the step's task id, never ended
+  and took a new shade per step).
 - Loops (L31; spec `docs/superpowers/specs/2026-10-24-loops-design.md`; owner: "there should be general capabilities
   like loop, or long running task so that it can use them here. not a per task addition everytime."): the planner can
   make a `loop` step for work that must be repeated or kept true ("keep this tab playing until I say stop", "loop
