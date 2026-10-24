@@ -2503,3 +2503,31 @@ def test_an_answer_to_the_pause_question_skips_the_back_off_gap_as_a_chat_reply_
     start = h.t
     h.run()
     assert h.reasons[0]['why'] == 'you chose "Keep watching"' and h.round_times[0] - start < 60
+
+
+def test_a_look_only_round_still_releases_its_check_resources(bd, monkeypatch):
+    """Review M7: an earlier attempt of the round may have been checked (its checker's tabs held) before a retry skipped
+    the check; the round always lets go of `.verify`'s resources, which costs nothing when none are held."""
+    from ferb.orchestrator.supervisor import Supervisor
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    ended: list[str] = []
+    original = Supervisor._end_task
+
+    async def spy(self, tid, span_id):
+        ended.append(tid)
+        return await original(self, tid, span_id)
+    monkeypatch.setattr(Supervisor, '_end_task', spy)
+    seen: list = []
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, seen)], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        assert _span_kinds(d, 'verify.skipped') and f'{tree_id}.loop.keep.verify' in ended
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()

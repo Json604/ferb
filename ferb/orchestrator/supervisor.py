@@ -2807,9 +2807,9 @@ class Supervisor(WorkerRuns):
                 self.spans.finish(round_span, error=SHUT_DOWN if self._suspending else f'{type(exc).__name__}: {exc}')
                 raise
             # the round's checker (its check, and any end check) is done: its tabs and processes go now, into the
-            # loop's lists; what the round's worker started stays the loop's until it ends. A look-only round ran none.
-            if not member.unchecked:
-                await self._release_task(holder, child.id + '.verify', round_span.id)
+            # loop's lists; what the round's worker started stays the loop's until it ends. Always: an earlier attempt
+            # of a round that skipped its check may have been checked (review M7)
+            await self._release_task(holder, child.id + '.verify', round_span.id)
             status, question = out.status, member.owner_question
             probe = self._resolved_probe(member.probe)
             if unknown and status not in ('needs_user', 'blocked'):
