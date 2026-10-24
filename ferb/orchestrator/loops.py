@@ -149,10 +149,10 @@ def round_reason(reason: dict[str, Any]) -> dict[str, Any]:
 
 
 def loop_line(step: Any) -> str:
-    """The code's line under the plan for one loop: only how it ends, the owner's end condition quoted as written; the
+    """The code's line under the plan for one loop: only how it ends, the end condition quoted on one line; the
     planner's own words already say what it does (owner 2026-10-24: "so much extra text with this loop message")."""
-    end = step.end_when.rstrip()
-    return f'⟳ Until: “{end}”' if end.strip() else '⟳ Until you say stop'
+    end = ' '.join(step.end_when.split())          # one line, whatever the planner wrote (review M8)
+    return f'⟳ Until: “{end}”' if end else '⟳ Until you say stop'
 
 
 Round = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -288,6 +288,8 @@ class LoopRunner:
             note = self.arm(probe) or ''
             if not note:
                 value, error, origins = await self.probe(probe)
+                if self.stopped():          # as in `_watch`: nothing a read cut short by the owner's stop saw is a
+                    return None, None, None  # trip, a short round or a notice (review M1)
                 if error:
                     note = f'the probe could not read: {error}'
                     self.record('error', probe, value, error, origins, 0)

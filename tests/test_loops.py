@@ -324,8 +324,24 @@ def test_probes_already_tripped_at_arming_three_times_reach_the_back_off_with_on
     h.run()
     assert len(h.notices) == 1 and 'longer between fixes' in h.notices[0]
     gaps = [h.round_times[i] - (h.round_times[i - 1] + 5) for i in range(1, len(h.round_times))]
-    assert gaps[:2] == [0, 0]                                         # the first two short rounds: at once
-    assert gaps[3] >= FIRST_GAP_SECONDS and gaps[4] >= 2 * FIRST_GAP_SECONDS   # then the back-off, doubling
+    # two short rounds at once; the third starts the back-off at FIRST_GAP_SECONDS, doubling each round after
+    assert gaps == [0, 0, FIRST_GAP_SECONDS, 2 * FIRST_GAP_SECONDS, 4 * FIRST_GAP_SECONDS]
+
+
+def test_a_stop_during_the_arming_read_counts_no_trip_and_sends_no_notice(db):
+    """Review M1: as `_watch` does, a stop that came during the read means nothing it saw is a trip or a notice."""
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()) for _ in range(3)], [(False, None)] * 3)
+    original, calls = h._probe, []
+
+    async def stop_on_the_third_read(p):
+        calls.append(p)
+        if len(calls) == 3:
+            h.stop = True
+        return await original(p)
+    h.runner.probe = stop_on_the_third_read
+    result = h.run()
+    assert result['status'] == 'cancelled' and h.notices == []
+    assert [k for k, _, _ in h.records] == ['trip', 'trip']
 
 
 @pytest.mark.parametrize('op, value', [('not_equals', 'true'), ('equals', 'false')])
@@ -605,6 +621,9 @@ def test_the_plan_line_marks_how_the_loop_ends_without_repeating_the_goal():
     assert loop_line(KEEP) == '⟳ Until you say stop'
     assert loop_line(Step(id='ci', kind='loop', goal='Watch CI', end_when='the checks pass  \n')) == \
         '⟳ Until: “the checks pass”'
+    # review M8: one line, whatever the planner's end_when holds
+    assert loop_line(Step(id='ci', kind='loop', goal='Watch CI', end_when='the checks\n pass\r\nand merge')) == \
+        '⟳ Until: “the checks pass and merge”'
     assert 'Keep the tab playing' not in loop_line(KEEP)
 
 
