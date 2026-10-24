@@ -842,6 +842,7 @@ class Gateway:
         self.observer.tool_call(grant, done=False)
         try:
             async with self.locks.hold(lock_keys, grant.worker_id):
+                await self._point(cap, args, grant)
                 if self.disturbance is not None:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
@@ -852,6 +853,21 @@ class Gateway:
                         await self.disturbance.after_action(span.id)
         finally:
             self.observer.tool_call(grant, done=True)
+
+    async def _point(self, cap: Any, args: Any, grant: RunGrant) -> None:
+        """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`). Never
+        delays or fails the action: skipped after POINT_TIMEOUT_S or on any error."""
+        from ferb.act.point import POINT_TIMEOUT_S, Point
+        if not hasattr(cap, "point"):
+            return
+        try:
+            p = await asyncio.wait_for(cap.point(args, grant), POINT_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
+        if isinstance(p, Point):
+            self.publish("cursor.point", p.payload(grant.task_id))
 
     @staticmethod
     def _identity(cap: Any, name: str, spec: Any, action: ActionRequest, args: Any,

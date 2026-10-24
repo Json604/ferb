@@ -30,7 +30,8 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
              "disturbance.observed", "memory.derived", "memory.consolidated", "memory.digest",
-             "memory.embedding_unavailable", "perception.attention", "perception.batch", "security.alignment"}
+             "memory.embedding_unavailable", "perception.attention", "perception.batch", "security.alignment",
+             "cursor.point"}   # L33: where an action is about to land, for the notch overlay (geometry only)
 STABLE_TOPICS = CRITICAL | TELEMETRY
 DROPPED = "bus.dropped"   # synthetic notice to a subscriber: {"count": n} telemetry events were dropped
 
