@@ -457,12 +457,23 @@ class Gateway:
         return r
 
     async def probe(self, grant: RunGrant, name: str, arguments: dict[str, Any], span_id: str) -> dict[str, Any]:
+        job = asyncio.current_task()
+        if job is not None:                              # stop and cancel reach a hung probe read like any call
+            self._in_flight[job] = grant.task_id
+        try:
+            return await self._probe(grant, name, arguments, span_id)
+        finally:
+            if job is not None:
+                self._in_flight.pop(job, None)
+
+    async def _probe(self, grant: RunGrant, name: str, arguments: dict[str, Any], span_id: str) -> dict[str, Any]:
         """L31: one read by a loop's armed probe. The same admission as `call` (FERB not stopped, the task running,
         the tool in its scopes and identity, an observation tool marked probe-safe, valid arguments, its precheck and
         the protection lists) but no span, `tool.called` event or disturbance record of its own: a probe reads every
         10 seconds, and the loop records its baseline, trips, errors and a count (`loop.probe_read`, under `span_id`).
         Its result never reaches a model; only a tripping field value does, as untrusted data. It never takes the
-        initial working-app image, and a tool's failure is a returned error, never a raise."""
+        initial working-app image, and a tool's failure is a returned error, never a raise. `conversation_guard` is
+        skipped on purpose: a probe only reads, and a delegated conversation is guarded against input."""
         def refused(error: str) -> dict[str, Any]:
             return {"content": self.redact({"error": error}), "is_error": True, "origins": [origin.FERB]}
         rec = self.tasks.get(grant.task_id)
@@ -490,15 +501,16 @@ class Gateway:
             lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
             async with self.locks.hold(lock_keys, grant.worker_id):
                 result = await cap.run(args, ctx)
+            origins = without_excluded_hosts(
+                result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind), self.excluded_host)
+            return {"content": self.redact(result.content), "is_error": bool(result.is_error),
+                    "origins": sorted(origins)}
         except asyncio.CancelledError:
             raise
         except ValidationError as e:
             return refused(f"invalid arguments: {e.errors(include_url=False)}")
         except Exception as e:
             return refused(f"{name} failed: {type(e).__name__}: {e}")
-        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
-                                         self.excluded_host)
-        return {"content": self.redact(result.content), "is_error": bool(result.is_error), "origins": sorted(origins)}
 
     def in_flight(self, task_ids: set[str]) -> bool:
         return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())

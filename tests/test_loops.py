@@ -621,3 +621,92 @@ def test_a_probe_read_never_attaches_an_image_and_a_tool_error_is_a_return(daemo
     daemon.daemon.registry.capabilities['test.state'] = boom[0]
     failed = daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 's'))
     assert failed['is_error'] is True and 'tool blew up' in failed['content']['error']
+
+
+def _counting_caps(runs, block=None, scopes=frozenset(), identities=None):
+    from pydantic import BaseModel
+    from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolResult
+    from ferb.policy.rules import Kind
+
+    class Counted:
+        name, description = 'test.counted', 'counted'
+        risk, reversible, observation, probe_safe = RiskLevel.LOW, True, True, True
+
+        class Input(BaseModel):
+            n: int = 0
+
+        def describe(self, args): return ActionSpec(Kind.READ)
+
+        def precheck(self, args): return 'no thanks' if args.n == 99 else None
+
+        async def run(self, args, ctx):
+            runs.append(args.n)
+            if block is not None:
+                await block.wait()
+            return ToolResult({'ok': True})
+    Counted.scopes = set(scopes)
+    Counted.identities = identities or {Identity.OWNER, Identity.FERB}
+    return [Counted()]
+
+
+def test_a_hung_probe_read_is_seen_and_cancelled_by_stop(daemon):
+    import asyncio
+    from ferb.core.types import Identity
+    from tests.conftest import gateway_setup
+
+    runs = []
+    gw = daemon.daemon.gateway
+
+    async def scenario(grant):
+        block = asyncio.Event()
+        daemon.daemon.registry.capabilities['test.counted'] = _counting_caps(runs, block)[0]
+        job = asyncio.ensure_future(gw.probe(grant, 'test.counted', {}, 's'))
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if runs:
+                break
+        seen = gw.in_flight({grant.task_id})
+        gw.cancel_tasks({grant.task_id})
+        try:
+            await asyncio.wait_for(job, 2)
+            cancelled = False
+        except asyncio.CancelledError:
+            cancelled = True
+        return seen, cancelled, gw.in_flight({grant.task_id})
+    grant, _ = gateway_setup(daemon, set(), None, [], identity=Identity.FERB)
+    seen, cancelled, after = daemon.run(scenario(grant))
+    assert runs == [0] and seen is True and cancelled is True and after is False
+
+
+def test_a_probe_read_is_refused_without_running_the_tool(daemon, tmp_path):
+    from ferb.core.types import Identity
+    from ferb.daemon.auth import RunGrant
+    from ferb.policy.protection import Protection
+    from tests.conftest import gateway_setup
+
+    runs = []
+    grant, _ = gateway_setup(daemon, {'fs:read', 'test:read'}, None, _counting_caps(runs, scopes={'test:read'}),
+                             identity=Identity.FERB)
+    gw = daemon.daemon.gateway
+    ok = RunGrant(grant.task_id, grant.worker_id, grant.scopes, grant.identity, grant.expires_at)
+    assert daemon.run(gw.probe(ok, 'test.counted', {}, 's'))['is_error'] is False       # the control: it runs
+    runs.clear()
+    def refused(g, name='test.counted', args=None):
+        got = daemon.run(gw.probe(g, name, args or {}, 's'))
+        assert got['is_error'] is True and runs == [], (name, got)
+        return got['content']['error']
+    assert 'invalid arguments' in refused(ok, args={'n': 'not a number'})
+    assert refused(ok, args={'n': 99}) == 'no thanks'
+    no_scope = RunGrant(ok.task_id, ok.worker_id, frozenset(), ok.identity, ok.expires_at)
+    assert 'not available' in refused(no_scope)
+    wrong_identity = RunGrant(ok.task_id, ok.worker_id, ok.scopes, Identity.OWNER, ok.expires_at)
+    daemon.daemon.registry.capabilities['test.counted'].identities = {Identity.FERB}
+    assert 'not available' in refused(wrong_identity)
+    no_task = RunGrant('task-none', ok.worker_id, ok.scopes, ok.identity, ok.expires_at)
+    assert 'not running' in refused(no_task)
+    fake = tmp_path / 'fakehome'
+    (fake / '.aws').mkdir(parents=True)
+    (fake / '.aws' / 'config').write_text('region = eu-west-1\n')
+    gw.roots.protection = Protection(fake, daemon.daemon.home, ['~/.aws'], [], [])
+    got = daemon.run(gw.probe(ok, 'fs.read', {'path': str(fake / '.aws' / 'config')}, 's'))
+    assert got['is_error'] is True and '~/.aws' in got['content']['error'] and 'eu-west-1' not in str(got)
