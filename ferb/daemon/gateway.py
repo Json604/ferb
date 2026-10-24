@@ -2038,7 +2038,8 @@ EARLIER_ATTEMPT = ("This identical action already ran to completion in an earlie
 EFFECT_HELP = ("The kind of change this action makes, declared truthfully. send: it delivers the owner's message, "
                "post or email to people or a public audience (a sign-in, search, filter or settings change is edit "
                "or navigate); pay: the final Pay or confirm control of a payment; destroy: a permanent delete; "
-               "account_security: a password, sign-in, two-factor or recovery change. FERB checks a declared send, "
+               "account_security: changing a password, two-factor or recovery settings, or deleting the account; "
+               "signing in with existing credentials is edit. FERB checks a declared send, "
                "payment, delete or account-security change like one and asks the owner when it must; a declaration "
                "never grants permission.")
 DESTINATION_SCHEMA = {

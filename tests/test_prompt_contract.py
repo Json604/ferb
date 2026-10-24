@@ -14,6 +14,12 @@ def _words(name: str) -> str:
 
 
 SENTENCES = [
+    # owner 2026-10-24, visa login: account_security declared on every sign-in step asked five times in four minutes
+    ("worker.md",
+     "`account_security` only for changing a password, two-factor or recovery settings, or deleting the account. "
+     "Signing in with existing credentials (filling a saved or owner-entered password, a login code or existing "
+     "security answers, and pressing the page's sign-in or Continue button) is not an account-security change: "
+     "declare it `edit`."),
     # owner 2026-10-24, visa task: nine escape questions in two minutes, one per command reading a Chrome profile folder
     ("worker.md",
      "A command that needs escape (one shell_rules rule lifted) asks the owner, and the approval covers that exact "
@@ -51,6 +57,14 @@ SENTENCES = [
         ("verifier.md",
      'A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.'),
 ]
+
+
+def test_the_effect_field_says_a_sign_in_is_not_an_account_security_change() -> None:
+    """The tool schema's `effect` help reaches the worker on every call: it says what the worker prompt says."""
+    from ferb.daemon.gateway import EFFECT_HELP
+    assert ("account_security: changing a password, two-factor or recovery settings, or deleting the account; signing "
+            "in with existing credentials is edit") in EFFECT_HELP
+    assert "sign-in, two-factor" not in EFFECT_HELP and "sign-in, two-factor" not in _words("worker.md")
 
 
 @pytest.mark.parametrize("name, sentence", SENTENCES, ids=[f"{n}:{s[:40]}" for n, s in SENTENCES])

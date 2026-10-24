@@ -709,6 +709,14 @@ After the owner's update (2026-10-24):
   at my next step." when the running step hasn't taken it yet, and the restated send permission when there is one.
   The whole correction and the task's updated goal ("Updated task: …") are under Details in the app and are what
   `ferb chat` shows. This is the acknowledgement of a change, not an answer: answers still show in full.
+- Signing in no longer asks you about "account security" (W2, D23; the code floor is unchanged). Live 2026-10-24,
+  06:33–06:38, visa login: the worker declared "account_security" on every sign-in step (filling your existing
+  password and your existing security answers, and clicking Continue on the Microsoft sign-in page), so FERB asked
+  "this changes account security (a password, sign-in or recovery setting)" five times in four minutes. The worker's
+  instructions and the tools' `effect` help said "a password, sign-in, two-factor or recovery change", which read as
+  covering a sign-in. Both now say `account_security` is only for changing a password, two-factor or recovery
+  settings, or deleting the account, and that signing in with existing credentials is `edit`. A declared
+  account-security change still always asks.
 
 Licensed under Apache-2.0.
 

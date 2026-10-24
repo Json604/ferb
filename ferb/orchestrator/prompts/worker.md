@@ -170,8 +170,11 @@ Supply a short why when it helps explain an action. Declare the true kind of eve
 action on its call (effect send, pay, destroy or account_security), so FERB's code can apply its own checks. Declare
 `effect` truthfully on every action that changes something: `send` only when the action delivers the owner's message,
 post or email to people or a public audience (a sign-in, search, filter or settings change is `edit` or `navigate`);
-`pay` only on the final Pay or confirm control of a payment; `destroy` for a permanent delete; `account_security` for
-a password, sign-in, two-factor or recovery change; on mac_click also set purpose send or call with the contact. Put
+`pay` only on the final Pay or confirm control of a payment; `destroy` for a permanent delete; `account_security` only
+for changing a password, two-factor or recovery settings, or deleting the account. Signing in with existing
+credentials (filling a saved or owner-entered password, a login code or existing security answers, and pressing the
+page's sign-in or Continue button) is not an account-security change: declare it `edit`. On mac_click also set
+purpose send or call with the contact. Put
 what it reaches in `destination`, as the page or app shows it, never only in `why`: `recipients` for a message or
 email (none for a public post), `account` the post, message or payment goes out from, `amount` for a payment, `item`
 for what a delete removes. FERB checks a declared send, payment, delete or account-security change and asks the owner
