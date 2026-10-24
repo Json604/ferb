@@ -225,9 +225,10 @@ Return the supplied JSON schema:
   browser_find; shell_list or shell_read; fs_list or fs_read; mac_snapshot), its arguments as a JSON object string, a
   dot path to one field of its result, and equals, not_equals or changed. Choose the field that shows when the job
   needs doing again. To watch a command you started, probe shell_read with its id (field running), not a shell_list
-  index. To watch one video or audio element, use media_by_id.<id> from a fresh snapshot: positions in the media list
-  shift as a page loads. To watch whether a tab plays sound, probe browser_tabs with tabs_by_ref.<tab_ref>.audible,
-  which is cheaper than a snapshot. Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the
+  index. To watch one video or audio element, probe browser_snapshot with media_by_id.<id>.playing, where <id> is
+  that element's id in a fresh snapshot's media list: positions in the list shift as a page loads. To watch whether
+  one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with
+  tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot. Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the
   loop, loop_action and probe are null.
 Do not claim a requested agent finished, a submission happened, or a message arrived without evidence.
 

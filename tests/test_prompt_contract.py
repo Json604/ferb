@@ -62,8 +62,9 @@ SENTENCES = [
      "sites with browser_open or browser_navigate."),
     # live 2026-10-24 (task 4a8b1d73): probes on media.44 / media.51 watched another video as the feed loaded more
     ("worker.md",
-     'To watch one video or audio element, use media_by_id.<id> from a fresh snapshot: positions in the media list '
-     'shift as a page loads. To watch whether a tab plays sound, probe browser_tabs with '
+     'To watch one video or audio element, probe browser_snapshot with media_by_id.<id>.playing, where <id> is that '
+     "element's id in a fresh snapshot's media list: positions in the list shift as a page loads. To watch whether "
+     "one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with "
      'tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot.'),
     # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"
     ("worker.md",
