@@ -589,6 +589,17 @@ notes it down"; retention: "30 days"; not installed or live-tested):
   one window.
 
 After the owner's update (2026-10-24):
+- FERB's cursor (L33; spec `docs/superpowers/specs/2026-10-24-ferb-cursor-design.md`; owner: "also add a cursor and good
+  looking apple design principle cursor", "yeah works", "reviewd. start."): before an action the gateway asks the tool
+  for the element's screen rectangle (0.5 s limit) and publishes the telemetry topic `cursor.point`; the notch app draws
+  a click-through pointer that glides there and fades after 1.5 s idle (Reduce Motion: fade only; switch "Show FERB's
+  pointer", on by default). Native taps report the Accessibility rect (screenshot clicks an 8x8 pt rect); menus and
+  drags report none. Extension 0.15.9 (protocol 17, minimum 0.15.6) adds optional snapshot facts so the daemon predicts
+  the point after the scroll-to-centre; fixed or sticky elements, inner scroll boxes, sideways scrolling, sub-frames,
+  pinch zoom, FERB's minimized window and refused acts get no pointer. Real fix found on the way: `scrollIntoView` and
+  `scrollBy` are instant, since smooth-scroll pages made real input aim at pre-scroll spots. No ripple or shimmer: the
+  owner leaves decoration to Codex. Checkout validation: pytest 4426 passed, 1 skipped, 77 deselected; mypy ferb/core clean; Swift 231 tests; live checks in
+  `docs/OWNER_ACCEPTANCE.md`.
 - Loops (L31; spec `docs/superpowers/specs/2026-10-24-loops-design.md`; owner: "there should be general capabilities
   like loop, or long running task so that it can use them here. not a per task addition everytime."): the planner can
   make a `loop` step for work that must be repeated or kept true ("keep this tab playing until I say stop", "loop

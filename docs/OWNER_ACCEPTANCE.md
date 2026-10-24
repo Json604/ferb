@@ -1546,3 +1546,16 @@ older content script, whose media entries have no ids.
   "Remembered: …" and `ferb memory` shows it once.
 - "Pause the visa task for now" while its daily schedule exists: the reply says the task stopped and the schedule was
   paused; `ferb schedules` shows it paused.
+
+## FERB's cursor (L33) — pending live checks (2026-10-24)
+
+Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run after `ferb setup --update`,
+with the owner watching; pause between supervised actions and record what the owner saw.
+
+- A native task (a disposable TextEdit file) and a browser task (a kartikey.xyz page), watched: the pointer lands on each
+  action's element, and the owner's own cursor, keyboard focus and Space stay untouched.
+- Cost: the per-act Accessibility lookup and Chromium heat during browser tasks (`ferb stats`, resource samples).
+- `drawnParent` cost on a component-heavy page (the extension's snapshot time before and after).
+- The pointer on the built-in notched display and on a second display (it must not sit under the notch inset).
+- No pointer where none is promised: a minimized FERB window, a pinned header, an inner scrolling list.
+- Reload the unpacked 0.15.9 extension (`ferb doctor` shows the version), and upload 0.15.9 to the Chrome Web Store.

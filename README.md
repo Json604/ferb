@@ -79,7 +79,7 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.8** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
+FERB's browser hands are its extension, **0.15.9** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
 refuses an older protocol with a reload notice. `ferb setup` (and `--update`) handles it for every Chromium browser it
 finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
@@ -91,7 +91,7 @@ finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Viva
 
 The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
 this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) and
-0.15.8 (each video's own id and each tab's sound, which a loop watches) aren't on the listing until 0.15.8 is uploaded;
+0.15.8 (each video's own id and each tab's sound, which a loop watches) and 0.15.9 (where the pointer lands) aren't on the listing until 0.15.9 is uploaded;
 until then a profile gets them only by Load unpacked. With the store copy those facts are absent: a loop's probe on
 one is refused (its field is missing), and the loop runs on its 30-minute backup check until a round picks another. A profile that already has
 the unpacked copy is offered the store copy too; setup's report and `ferb browsers pair` use the copy that is turned
@@ -208,6 +208,13 @@ there, the packaged app with `scripts/build-app.sh`). It uses the same local dae
   an app you bring forward under the chat needs the space: it sits just behind that window or under that menu, so a
   screenshot or a clipboard app still shows it. Click it, hover the notch or use the shortcut to bring it to the front;
   clicking the other app sends it back again.
+
+FERB's pointer (L33): when FERB is about to act on something in a window you can see, a small arrow glides to the spot
+and fades after about a second and a half. It is only a picture: it is click-through, never takes focus and never moves
+your own mouse. There is none for a window you can't see (minimized, another Space, behind others), and none where
+FERB can't know the exact spot (a page's pinned header, an inner scrolling list, a zoomed page). Several tasks at once
+get one pointer each. With Reduce Motion on, it fades instead of gliding. Turn it off with the settings switch "Show
+FERB's pointer". Pointing at web pages needs extension 0.15.9; with an older one the pointer shows for native apps only.
 
 The app's history keeps the message as FERB stored it (secret values replaced), never the raw text, and never your
 unsent draft. Native dictation uses the microphone button or right Command + Option and places the transcript in the
@@ -542,7 +549,7 @@ no automated test proves that the owner experienced no disturbance.
 
 ## Current limitations
 
-- Nothing from the launch week (L1–L30) is live-tested yet; the pending checks are in
+- Nothing from the launch week (L1–L33) is live-tested yet; the pending checks are in
   [owner acceptance](docs/OWNER_ACCEPTANCE.md).
 - FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
   update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is

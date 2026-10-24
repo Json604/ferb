@@ -309,12 +309,12 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.8 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.9 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
 answer for pages it can't read or attach to, see section 16.4; 0.15.8 adds media ids and tab sound facts as optional
-reply fields, no protocol change). Task
+reply fields, no protocol change; 0.15.9 adds the pointer's snapshot facts, see section 16.13). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. A paired owner profile that isn't
@@ -2194,11 +2194,11 @@ measurements remain null, denominators are retained and aggregate deltas are not
 Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
 local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.
 
-## 16. Launch week (L1–L31, L36), as built (checkout; owner install and live checks pending)
+## 16. Launch week (L1–L33, L36), as built (checkout; owner install and live checks pending)
 
 The owner's decisions of 2026-10-13/14 are in
 [the launch-week spec](docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md) and the plan's "Launch-week
-clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L31 to their tests (L29, learning by intent of 2026-10-21, is
+clarifications"; `docs/0.27_DECISIONS.toml` maps L1–L33 to their tests (L29, learning by intent of 2026-10-21, is
 described with the learning store above; L30, FERB's resource log of 2026-10-23, next to the perception batcher's cost
 in section 8). What follows is the design as built. Nothing here is live-accepted yet
 ([owner acceptance](docs/OWNER_ACCEPTANCE.md), "0.27 launch week").
@@ -2831,3 +2831,33 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   check's own options ("Keep", "Edit" or "Drop"), and FERB's "which is it?" names them (`supervisor._plain_choice`).
   Debugging: `memory_questions` rows of kind `confirm` / `edit`; journal `memory.edited` (an Edit's words, the new
   version's source) and `memory.capture_refused`; `distill_runs.detail` lists what a day proposed and refused.
+
+### 16.13 FERB's cursor (L33)
+
+Spec `docs/superpowers/specs/2026-10-24-ferb-cursor-design.md`; plan `docs/superpowers/plans/2026-10-24-ferb-cursor.md`.
+Geometry only: nothing about what the action does or says leaves the tool.
+- **Point.** `ferb/act/point.py`: `Point(kind, rect, display)` (validated), `display_of`, `POINT_TIMEOUT_S = 0.5`. A tool may
+  define `point(args, grant)`; `Gateway._point` calls it before `before_action` under that timeout, so a slow or failing
+  lookup costs the action nothing, and publishes the bus topic `cursor.point` `{task_id, kind, rect: [x, y, w, h],
+  display}` (global points). The topic is TELEMETRY, so the bus may drop it under load. It is not journaled.
+- **Native.** MacAct and MacSecret report their Accessibility element's rect. MacClick maps screenshot pixels to an
+  8×8 pt rect through `driver.shot_to_screen` (shared with `click_at`). MacMenu and MacPointer report none.
+  `screenshot.window_on_screen` accepts only a layer-0, on-screen window that matches, so a minimized window, another
+  Space or a covered window gets no pointer.
+- **Browser (extension 0.15.9, protocol 17, minimum 0.15.6).** BrowserAct and BrowserSecret place the element through the
+  page's AX web area (`page_on_screen`) and predict where the extension's scroll-to-centre leaves it. New optional
+  snapshot facts: `window`, `visual`, per element `pinned` and `scroll_box`, and page `scroll.x` / `scroll.width` /
+  `body_scrolls`; `scrollIntoView` and `scrollBy` are now `behavior: "instant"` (smooth-scroll pages made real input aim at
+  the pre-scroll spot). There is no point for: sub-frames, FERB's own minimized window, fixed or sticky elements
+  ("unknown" under a transform-like ancestor, found by walking drawn parents through slots and shadow roots), sideways
+  scrolling, a body that scrolls itself, inner scroll boxes, stale rects after FERB's own scrolls (the `moved` flag),
+  refused acts, and pinch zoom (`visualViewport.scale != 1`). Publishing nothing beats publishing a wrong spot.
+- **Overlay (`ui/mac/FERBNotch`).** `DaemonConnection` parses `cursor.point`; `CursorController` keeps one pointer per
+  task and `CursorPanel` is a borderless, click-through window per display (`ignoresMouseEvents`, `hidesOnDeactivate =
+  false`, `.ignoresSafeArea()` so the notch inset doesn't shift it). The pointer springs to each point, fades after 1.5 s
+  idle and fades in place under Reduce Motion. Panels close on screen changes. No ripple, shimmer or drift: the owner left
+  decoration to a later polish. The switch "Show FERB's pointer" (`cursor.enabled`, default on) is in the settings.
+- **Debugging.** `cursor.point` goes to the app only, not to the journal, so `ferb logs` does not show it; compare the
+  action's `tool.called` span in `ferb trace TASK --full` with what the pointer did. No pointer for an action means the
+  tool gave none (see the cases above), the lookup passed 0.5 s, or the switch is off. Tests: `tests/test_cursor.py` and
+  the Swift suite.
