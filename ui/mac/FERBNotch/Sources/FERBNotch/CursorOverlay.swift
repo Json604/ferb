@@ -17,6 +17,7 @@ final class CursorPanel: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
+        hidesOnDeactivate = false
         level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue - 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     }
@@ -42,12 +43,24 @@ final class CursorController: ObservableObject {
     private var hues: [String: Double] = [:]
     private var panels: [CGDirectDisplayID: CursorPanel] = [:]
     private var timer: Timer?
+    private var screenObserver: NSObjectProtocol?
+
+    /// A global top-left point expressed in a display's own top-left space.
+    nonisolated static func localPoint(target: CGPoint, displayOrigin: CGPoint) -> CGPoint {
+        CGPoint(x: target.x - displayOrigin.x, y: target.y - displayOrigin.y)
+    }
 
     init(clock: @escaping () -> Date = Date.init, makePanels: Bool = true) {
         self.clock = clock
         self.makePanels = makePanels
         self.enabled = UserDefaults.standard.object(forKey: "cursor.enabled") as? Bool ?? true
         self.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if makePanels {
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.closePanels() }   // the next point recreates them
+            }
+        }
     }
 
     func point(taskID: String, kind: String, rect: CGRect, display: CGDirectDisplayID) {
@@ -114,17 +127,19 @@ struct CursorLayerView: View {
     @ObservedObject var controller: CursorController
     let display: CGDirectDisplayID
     let origin: CGPoint
+    private func local(_ s: PointerState) -> CGPoint { CursorController.localPoint(target: s.target, displayOrigin: origin) }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(controller.pointers.sorted(by: { $0.key < $1.key }).filter { $0.value.display == display }, id: \.key) { _, state in
                 CursorPointerView(hue: state.hue)
-                    .position(x: state.target.x - origin.x + 8.5, y: state.target.y - origin.y + 12)
+                    .position(x: local(state).x + 8.5, y: local(state).y + 12)
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .animation(controller.reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 1.0),
+        .ignoresSafeArea()
+        .animation(controller.reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0),
                    value: controller.pointers.mapValues { $0.target.x + $0.target.y * 10_000 })
         .animation(.easeOut(duration: controller.reduceMotion ? 0.15 : 0.3), value: controller.pointers.count)
     }

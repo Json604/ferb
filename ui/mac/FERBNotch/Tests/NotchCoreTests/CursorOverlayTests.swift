@@ -43,6 +43,16 @@ final class CursorOverlayTests: XCTestCase {
         XCTAssertFalse(panel.canBecomeKey)
         XCTAssertFalse(panel.canBecomeMain)
         XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertFalse(panel.hidesOnDeactivate)
+        XCTAssertEqual(panel.level.rawValue, NSWindow.Level.statusBar.rawValue - 1)
+        XCTAssertTrue(panel.collectionBehavior.isSuperset(of: [.fullScreenAuxiliary, .stationary, .ignoresCycle]))
+    }
+
+    func testLocalPointSubtractsTheDisplayOrigin() {
+        XCTAssertEqual(CursorController.localPoint(target: CGPoint(x: 100, y: 50), displayOrigin: CGPoint(x: -1440, y: 0)),
+                       CGPoint(x: 1540, y: 50))
+        XCTAssertEqual(CursorController.localPoint(target: CGPoint(x: 100, y: -300), displayOrigin: CGPoint(x: 0, y: -900)),
+                       CGPoint(x: 100, y: 600))
     }
 
     func testABusEventReachesTheController() {
