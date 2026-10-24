@@ -128,18 +128,11 @@ def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, ta
 def test_mac_secret_tells_the_question_the_apps_name() -> None:
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacSecret
-    seen: dict[str, Any] = {}
-    app, node = SimpleNamespace(bundle_id='com.example.Bank', name='Bank', pid=3), SimpleNamespace(ref='f')
-
-    async def ask(ctx: Any, target: str, **options: Any) -> str:
-        seen.update(options, target=target)
-        return 'hidden-canary'
-    driver = SimpleNamespace(apps=SimpleNamespace(find=lambda _: app), app=lambda _: app, node=lambda *a: node,
-                             ask_secret=ask, ax=SimpleNamespace(set_value=lambda ref, value: True),
-                             release_secret=lambda value: None)
-    cap = MacSecret(driver)                                                  # type: ignore[arg-type]
+    from tests.support.mac_secret import secret_driver
+    asked: list[dict[str, Any]] = []
+    cap = MacSecret(secret_driver('com.example.Bank', 'Bank', asked))
     assert not asyncio.run(cap.run(cap.Input(app='Bank', element='e1'), SimpleNamespace(task_id='t'))).is_error
-    assert seen == {'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank'}
+    assert asked == [{'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank'}]
 
 
 @pytest.mark.parametrize('origin, host', [('https://accounts.google.com', 'accounts.google.com'),

@@ -2,6 +2,7 @@ from pathlib import Path
 import pytest
 from ferb.core.errors import Refused
 from ferb.identity.owner_secrets import OwnerSecrets
+from tests.support.mac_secret import secret_driver
 
 
 def test_keychain_handles_persist_only_exact_destination(tmp_path: Path) -> None:
@@ -69,18 +70,6 @@ BROWSER_BUNDLES = ['com.google.Chrome', 'com.brave.Browser', 'company.thebrowser
                    'org.chromium.Chromium', 'COM.GOOGLE.CHROME']
 
 
-def _secret_driver(bundle: str, name: str, asked: list[str]):
-    from types import SimpleNamespace
-    app, node = SimpleNamespace(bundle_id=bundle, name=name, pid=7), SimpleNamespace(ref='field')
-
-    async def ask(ctx, target, **options):
-        asked.append(target)
-        return 'hidden-canary'
-    return SimpleNamespace(apps=SimpleNamespace(find=lambda _: app), app=lambda _: app,
-                           node=lambda *args: node, ask_secret=ask,
-                           ax=SimpleNamespace(set_value=lambda ref, value: True), release_secret=lambda value: None)
-
-
 @pytest.mark.parametrize('bundle', BROWSER_BUNDLES)
 def test_mac_secret_refuses_a_web_browser_before_any_hidden_question(bundle: str) -> None:
     """Live 2026-10-24, visa login: mac.secret asked for the password with target app:com.google.Chrome, so a saved
@@ -89,8 +78,8 @@ def test_mac_secret_refuses_a_web_browser_before_any_hidden_question(bundle: str
     import asyncio
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacSecret
-    asked: list[str] = []
-    cap = MacSecret(_secret_driver(bundle, 'Google Chrome', asked))
+    asked: list[dict] = []
+    cap = MacSecret(secret_driver(bundle, 'Google Chrome', asked))
     args = cap.Input(app='Google Chrome', element='e1', remember='US Visa Scheduling password')
     refusal = cap.precheck(args)                       # the gateway refuses here, before the ledger and the span
     assert refusal is not None and 'browser connection' in refusal and "all of Google Chrome" in refusal
@@ -105,12 +94,12 @@ def test_mac_secret_still_fills_a_native_app() -> None:
     import asyncio
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacSecret
-    asked: list[str] = []
-    cap = MacSecret(_secret_driver('com.example.Bank', 'Bank', asked))
+    asked: list[dict] = []
+    cap = MacSecret(secret_driver('com.example.Bank', 'Bank', asked))
     args = cap.Input(app='Bank', element='e1')
     assert cap.precheck(args) is None
     assert not asyncio.run(cap.run(args, SimpleNamespace(task_id='t1'))).is_error
-    assert asked == ['app:com.example.Bank']
+    assert [a['target'] for a in asked] == ['app:com.example.Bank']
 
 
 @pytest.mark.parametrize('bundle', ['com.google.Chrome', 'com.apple.Safari', 'org.mozilla.firefox'])
