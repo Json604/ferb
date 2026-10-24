@@ -112,6 +112,14 @@ SENTENCES = [
      "A selected procedure lists its steps with this run's values filled in, then lessons and verified earlier runs of "
      "the same kind of task: start from those tools and arguments instead of searching again, and check each step's "
      "expected result as you go."),
+    # L36 §5: a resumed task re-asked for two secrets saved that morning; nothing listed them by site
+    ("worker.md",
+     'Before typing into a login form, call secrets_list for that site.'),
+    ("worker.md",
+     'It gives the username saved for that site and the names of its saved secrets, never their values, whatever your '
+     'memory shows. Type a listed username like any text; fill a listed secret with browser_secret (or mac_secret) '
+     'secret=<its name>; ask the owner, through the hidden input, only for what is not listed, and save it with '
+     'remember=<a clear name>: "password", or the security question\'s own text.'),
         ("verifier.md",
      'A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.'),
 ]

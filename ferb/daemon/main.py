@@ -791,6 +791,8 @@ class Daemon:
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
                             lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE},
                             search=self._memory_item_search)
+        from ferb.identity.secret_tools import SecretsList
+        self.registry.add(SecretsList(lambda: self.home))              # L36 §5: names only, never values
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         from ferb.orchestrator.conversation_tools import ConversationRead

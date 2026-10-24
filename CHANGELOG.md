@@ -872,6 +872,17 @@ After the owner's update (2026-10-24):
   database, with a stand-in username, the research step's search ranked it 94th; it now ranks 4th of its 20, while 15
   of the 20 the goal alone would pick stay (a common name like "Chrome" can't crowd them out), for about 1 ms more
   per search. The planner gets the same for the tasks it is shown (4th of 60; 50 of the 60 stay).
+- One login per site (L36, D12). Live 2026-10-24: a resumed visa task couldn't see the two answers saved that morning
+  and asked for them again, saving them under new names. Saved secrets are now one record per site (the username, the
+  password and each security answer under its question), a worker lists what's saved for the page before typing into
+  its login form (`secrets.list`: names only, never values, whatever memory ranked), saving the same name replaces it,
+  and the hidden-input question names the account after the site ("For atlasauth.b2clogin.com only (account: Asha
+  Rao): …"). The visa site's sign-in form is on atlasauth.b2clogin.com, not usvisascheduling.com: a login saved during
+  a task now also counts for the sites the task names, so a listing for usvisascheduling.com finds it and the username
+  you gave for that site names the form's account; its secrets still fill only on the form's own address. Your existing
+  saved secrets keep working (the file is rewritten in the new form only when something is next saved); the visa
+  password saved for Chrome as a whole is listed as "ask again". An unreadable saved-names file is never overwritten:
+  a one-time hidden input still works, and saving says why it can't.
 
 Licensed under Apache-2.0.
 

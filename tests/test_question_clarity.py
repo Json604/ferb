@@ -396,3 +396,86 @@ def test_ask_secret_refuses_a_whole_browser_before_any_question(daemon: Any, han
     with pytest.raises(Refused, match='whole web browser'):
         daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), 'app:com.google.Chrome', handle=handle, remember='visa'))
     assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
+
+
+# ---------- the account the hidden input is for (L36 §5) ----------
+
+@pytest.mark.parametrize('username, shown', [('Asha Rao', 'Asha Rao'), ('Asha\n\x1b[31m  Rao\t', 'Asha [31m Rao')])
+def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, username: str, shown: str) -> None:
+    """L36 §5 ("Password for Kartikey Attri at usvisascheduling.com", the spec's example), so the owner knows which
+    account. The account comes after FERB's place (re-review R1, ruling C1): the owner's own words, printable and on
+    one line, never before the place."""
+    from ferb.identity.owner_secrets import OwnerSecrets
+    from tests.support.memory_items import run
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(VISA, username, 'memory:x'))
+    for remember, want in (
+            ('US visa scheduling login',
+             f"For atlasauth.b2clogin.com only (account: {shown}): “US visa scheduling login” · saved in your "
+             "Mac's Keychain"),
+            (None, f"For atlasauth.b2clogin.com (account: {shown}): a password or private answer — used once, "
+                   "not saved")):
+        waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember=remember),
+                                                   daemon.loop)
+        ap = _asked(daemon, 'owner_secret')
+        try:
+            assert ap.summary.startswith('For atlasauth.b2clogin.com') and shown in ap.summary
+            assert ap.summary == want and Redactor().text(want) == want
+            assert f'Account: {shown}' in ap.reason
+            assert ap.reason.startswith(f'Destination: {VISA}. Account: {shown}. Type the password')
+        finally:
+            _cancel(daemon, ap, waiting)
+
+
+def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_names_the_account(
+        daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """I14, live 2026-10-24: the visa task named usvisascheduling.com; its sign-in form is on atlasauth.b2clogin.com.
+    The entry saved there lists the task's sites (from its targets, by code), so the username the owner gave for
+    usvisascheduling.com names the form's account; the question's place stays the form's origin (D12)."""
+    from ferb.identity.owner_secrets import OwnerSecrets
+    from ferb.policy.targets import Request, Targets
+    from tests.support.memory_items import run
+    keychain: dict[str, str] = {}
+
+    def helper(body: dict[str, Any], home: Any = None) -> dict[str, Any]:       # never the owner's Keychain
+        assert body['service'] == 'ferb.owner-secrets'
+        if body['operation'] == 'store':
+            keychain[body['account']] = body['value']
+        return {'value': keychain.get(body['account'])}
+    monkeypatch.setattr('ferb.identity.helper.request', helper)
+    run(daemon, lambda: daemon.daemon.state.requests.record(
+        Request('r-visa', 'book my visa slot on usvisascheduling.com', Targets.of(sites=['usvisascheduling.com']))))
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'),
+                                               daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, True, None, 'hidden-canary-1')
+    assert waiting.result(5) == 'hidden-canary-1'
+    store = OwnerSecrets(daemon.daemon.home)
+    assert store.records()[VISA]['sites'] == ['usvisascheduling.com']
+    assert keychain == {f'{VISA} · password': 'hidden-canary-1'} and 'hidden-canary-1' not in store.path.read_text()
+    run(daemon, lambda: store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:x'))
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='food'),
+                                               daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == ("For atlasauth.b2clogin.com only (account: Asha Rao): “food” · saved in your Mac's "
+                              "Keychain")
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: Any) -> None:
+    """m17: the question reads the handle file for the account; one it can't read means no account named, and the
+    one-time hidden input is still asked. A save is refused before the owner types anything, saying why."""
+    from ferb.core.errors import Refused
+    path = daemon.daemon.home / 'owner-secret-handles.json'
+    path.write_text('{not json')
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA), daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == 'For atlasauth.b2clogin.com: a password or private answer — used once, not saved'
+    finally:
+        _cancel(daemon, ap, waiting)
+    with pytest.raises(Refused, match='owner-secret-handles.json'):
+        daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'))
+    assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
+    assert path.read_text() == '{not json'

@@ -1669,8 +1669,10 @@ or one Launch Services lists as opening https links (`apps.opens_web_links`: the
 `HANDLERS_TTL_S`, 60 s, in a worker thread from `mac.secret`'s run; its synchronous precheck uses only a list still
 fresh, `known_opens_web_links`; when Launch Services can't be asked, nothing is kept and FERB's list alone applies).
 A native secret is bound to the app, and a browser app is every site it shows, so a web page's
-secret goes only through `browser.secret` and its origin. Optional owner-confirmed handles
-persist nonsecret target metadata in `owner-secret-handles.json`; values live in Keychain. `OwnerSecrets` neither saves
+secret goes only through `browser.secret` and its origin. Owner-confirmed secrets are one login record per place (an
+HTTPS origin or `app:<bundle id>`, L36) in `owner-secret-handles.json` version 2: a plain username from the owner's
+words, the sites of the tasks its entries were saved in, and named entries whose values live in Keychain; a version-1
+file is read by place, its browser-bound handles listed unusable (§16.12). `OwnerSecrets` neither saves
 nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install
 builds/signs `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships
 the helper in `Contents/Helpers` and setup pins its copy to the exact code hash FERB.app's own signature seals (the
@@ -2914,6 +2916,25 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   30-minute backup check, more with probe trips. They are not deduplicated because nothing can say which exposures are
   still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans that showed its item
   (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be harmed by a dedup).
+- **Login records (§5).** `OwnerSecrets` (`identity/owner_secrets.py`) keeps one record per place (`login_place`: an
+  HTTPS origin, or `app:<bundle id>`): `username`, `username_source`, `sites` and `entries` (name -> Keychain account
+  `"<place> · <name>"`); saving a name again replaces its value. Every change goes through `_edit` (one lock; the file
+  as read; written only when something changed). A version-1 file is read by place without being rewritten until a
+  change (each handle keeps its old account); a handle bound to a whole browser is listed in `unusable`, with "ask the
+  owner again", in every listing; a file that can't be read or has another shape is never overwritten, and every call
+  refuses naming the file. A record serves several sites (I14): when `Gateway.ask_secret` saves an entry it passes the
+  task's target sites at that moment (`state.requests`, the targets a steer updates), and the record lists their hosts.
+  A record is linked to a place when one of its sites covers the place's host (the same host, "www." aside, or a host
+  under it: `confirm._host_had_it`'s rule), or the place's own record lists a site covering the record's host. A
+  place's username is its record's own, else the one its linked records agree on (two that differ name none); it is
+  read through the link, never copied. Entries fill only at their own record's place (`reveal`, D12). The owner-only
+  observation `secrets.list` (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the
+  unusable list and, under `linked`, each linked record by the place its entries fill; never a value or an account.
+  worker.md tells a worker to call it before typing into a login form, so the username comes from the record, not
+  memory's ranking. The hidden-input line names the account after FERB's place (ruling C1, re-review R1): "For
+  atlasauth.b2clogin.com only (account: Asha Rao): …", and the full question "Destination: … Account: …"; the username
+  is printable and on one line. A handle file `ask_secret` can't read names no account and still asks a one-time
+  input; a save is refused before the question (m17).
 
 ### 16.13 FERB's cursor (L33)
 

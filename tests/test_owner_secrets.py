@@ -1,7 +1,11 @@
+import json
 from pathlib import Path
+from typing import Any
+
 import pytest
 from ferb.core.errors import Refused
-from ferb.identity.owner_secrets import OwnerSecrets
+from ferb.core.types import Identity
+from ferb.identity.owner_secrets import WHOLE_BROWSER, OwnerSecrets, login_place
 from tests.support.mac_secret import secret_driver
 
 
@@ -30,7 +34,8 @@ def test_concurrent_prompts_keep_both_handle_bindings(tmp_path: Path) -> None:
         OwnerSecrets(tmp_path, keychain).remember(str(i), 'https://accounts.example', f'secret-{i}')
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(remember, range(2)))
-    assert OwnerSecrets(tmp_path, keychain).handles() == {'0': 'https://accounts.example', '1': 'https://accounts.example'}
+    assert OwnerSecrets(tmp_path, keychain).records()['https://accounts.example']['entries'] == {
+        '0': 'https://accounts.example · 0', '1': 'https://accounts.example · 1'}
 
 
 @pytest.mark.parametrize('changed', [False, True])
@@ -119,7 +124,7 @@ def test_a_handle_bound_to_a_whole_browser_is_never_revealed_or_saved(tmp_path: 
     assert looked == []
     with pytest.raises(Refused, match='browser'):
         store.remember('other', 'app:' + bundle, 'private-value')
-    assert looked == [] and 'other' not in store.handles()
+    assert looked == [] and 'app:' + bundle not in store.records()
     assert store.reveal('notes', 'app:com.apple.Notes') == 'private-value'
 
 
@@ -223,3 +228,161 @@ def test_mac_secret_asks_launch_services_off_the_event_loop() -> None:
     result = asyncio.run(run())
     assert result.is_error and 'browser connection' in result.content['error'] and asked == []
     assert threads and loop_thread[0] not in threads
+
+
+# ---------- one login record per place (L36 §5) ----------
+
+VISA = 'https://www.usvisascheduling.com'
+ATLAS = 'https://atlasauth.b2clogin.com'           # the visa site's single sign-on form (I14)
+
+
+def fake_keychain() -> tuple[dict[str, str], Any]:
+    values: dict[str, str] = {}
+
+    def keychain(account: str, value: str | None = None) -> str | None:
+        if value is not None:
+            values[account] = value
+        return values.get(account)
+    return values, keychain
+
+
+def test_a_login_place_is_an_https_origin_or_an_app() -> None:
+    assert login_place(VISA + '/en-US/niv/login?x=1') == VISA
+    assert login_place('app:com.apple.Notes') == 'app:com.apple.Notes'
+    assert login_place('http://www.usvisascheduling.com') == '' and login_place('usvisascheduling.com') == ''
+    assert login_place('https://x.test:99999/login') == '' and login_place('app:') == ''
+    assert login_place('https://') == ''
+
+
+def test_saving_a_name_again_for_a_place_replaces_it(tmp_path: Path) -> None:
+    values, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.remember('password', VISA, 'first-value')
+    store.remember('password', VISA, 'second-value')
+    assert store.records()[VISA]['entries'] == {'password': f'{VISA} · password'}
+    assert store.reveal('password', VISA) == 'second-value' and len(values) == 1
+
+
+def test_the_listing_names_the_username_and_entries_never_a_value_or_account(tmp_path: Path) -> None:
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.remember('password', VISA, 'first-value')
+    store.remember('What is your favorite food?', VISA, 'second-value')
+    store.set_username(VISA, 'Asha Rao', 'memory:item-1')
+    listing = store.listing(VISA)
+    assert listing == {'place': VISA, 'username': 'Asha Rao', 'entries': ['What is your favorite food?', 'password'],
+                       'unusable': []}
+    text = json.dumps(listing)
+    assert 'first-value' not in text and 'second-value' not in text and ' · ' not in text
+
+
+def test_an_old_handle_file_is_read_by_place_and_a_browser_bound_one_is_unusable(tmp_path: Path) -> None:
+    """Review Focus: the live store's flat handle -> place map keeps working; the app-bound visa password, which
+    `refuse_whole_browser` refuses, is listed as unusable ("ask again")."""
+    values, keychain = fake_keychain()
+    values.update({'US visa password (Chrome)': 'old-chrome', 'US visa password': 'old-web', 'notes': 'old-notes'})
+    store = OwnerSecrets(tmp_path, keychain)
+    old = {'US visa password (Chrome)': 'app:com.google.Chrome', 'US visa password': VISA,
+           'notes': 'app:com.apple.Notes'}
+    store.path.write_text(json.dumps(old))
+    empty = {'username': None, 'username_source': None, 'sites': []}
+    assert store.records() == {VISA: empty | {'entries': {'US visa password': 'US visa password'}},
+                               'app:com.apple.Notes': empty | {'entries': {'notes': 'notes'}}}
+    assert store.listing(VISA)['unusable'] == [{'name': 'US visa password (Chrome)', 'why': WHOLE_BROWSER}]
+    assert 'ask the owner again' in WHOLE_BROWSER
+    assert store.reveal('US visa password', VISA) == 'old-web'
+    with pytest.raises(Refused, match='browser'):
+        store.reveal('US visa password (Chrome)', 'app:com.google.Chrome')
+    store.clear_usernames({'memory:none'})                           # a change that changes nothing writes nothing
+    assert json.loads(store.path.read_text()) == old                 # a read never rewrites the file
+    store.remember('password', VISA, 'new-web')
+    saved = json.loads(store.path.read_text())
+    assert saved['version'] == 2 and saved['unusable'][0]['place'] == 'app:com.google.Chrome'
+    assert store.reveal('US visa password', VISA) == 'old-web'       # its Keychain item is unchanged
+    assert store.listing('app:com.apple.Notes')['unusable'] == [{'name': 'US visa password (Chrome)',
+                                                                 'why': WHOLE_BROWSER}]   # in every answer
+
+
+@pytest.mark.parametrize('content', ['{not json', '["a", "b"]', '{"version": 3, "records": {}}',
+                                     '{"version": 2, "records": {"https://x.test": {"entries": ["password"]}}}'])
+def test_an_unreadable_handle_file_is_never_overwritten(tmp_path: Path, content: str) -> None:
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.path.write_text(content)
+    for attempt in (lambda: store.reveal('password', VISA), lambda: store.remember('password', VISA, 'x'),
+                    lambda: store.listing(VISA), lambda: store.set_username(VISA, 'Asha Rao', 'memory:x'),
+                    lambda: store.clear_usernames({'memory:x'})):
+        with pytest.raises(Refused, match='owner-secret-handles.json'):
+            attempt()
+    assert store.path.read_text() == content
+
+
+def test_secrets_list_is_an_owner_observation_that_normalizes_the_place(daemon: Any) -> None:
+    from tests.mackit import gateway_call as call, grant_task as grant
+    from tests.support.memory_items import run
+    _, keychain = fake_keychain()
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, keychain).remember('password', VISA, 'v'))
+    owner = grant(daemon, 'q', Identity.OWNER, {'task:read'}, None)
+    r = call(daemon, owner, 'secrets.list', place=VISA + '/en-US/niv/login?x=1')
+    assert not r['is_error'] and r['content']['place'] == VISA and r['content']['entries'] == ['password']
+    assert call(daemon, owner, 'secrets.list', place='http://www.usvisascheduling.com')['is_error']
+    ferb = grant(daemon, 'f', Identity.FERB, {'task:read'}, None)
+    assert 'secrets.list' not in {t['name'] for t in daemon.daemon.gateway.tools_for(ferb)}
+    OwnerSecrets(daemon.daemon.home, keychain).path.write_text('{not json')
+    r = call(daemon, owner, 'secrets.list', place=VISA)
+    assert r['is_error'] and 'owner-secret-handles.json' in json.dumps(r['content'])    # the tool says why
+
+
+# ---------- a login record serves the sites of the task it was saved in (I14) ----------
+
+def test_a_record_saved_during_a_task_is_listed_for_the_tasks_sites_but_fills_only_at_its_own_place(
+        tmp_path: Path) -> None:
+    """Live 2026-10-24: the visa site's sign-in form is on atlasauth.b2clogin.com while the owner names
+    usvisascheduling.com. The record of the form's origin lists the task's sites, so a listing for the site finds it;
+    its entries still fill only at the form's own origin (D12)."""
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.remember('password', ATLAS, 'v', sites=['usvisascheduling.com', ATLAS + '/login', 'USVisaScheduling.com.'])
+    assert store.records()[ATLAS]['sites'] == ['usvisascheduling.com']      # hosts; its own host is its place
+    for site in (VISA, 'https://usvisascheduling.com', 'https://ais.usvisascheduling.com'):
+        assert store.listing(site) == {'place': site, 'username': None, 'entries': [], 'unusable': [],
+                                       'linked': [{'place': ATLAS, 'username': None, 'entries': ['password']}]}
+    for other in ('https://evilusvisascheduling.com', 'https://usvisascheduling.com.evil.example', 'https://x.test'):
+        assert 'linked' not in store.listing(other)
+    assert 'linked' not in store.listing(ATLAS)
+    with pytest.raises(Refused, match='exact destination'):
+        store.reveal('password', VISA)
+    store.remember('What is your favorite food?', ATLAS, 'w', sites=['ais.usvisascheduling.com'])
+    assert store.records()[ATLAS]['sites'] == ['ais.usvisascheduling.com', 'usvisascheduling.com']
+
+
+def test_a_username_given_for_the_site_shows_on_the_record_that_serves_it(tmp_path: Path) -> None:
+    """The username the owner gave for usvisascheduling.com (that morning) is the sign-in form's account too: a record
+    shows its own username, else the one its linked records agree on; never one of two that disagree."""
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:1')
+    store.remember('password', ATLAS, 'v', sites=['usvisascheduling.com'])
+    assert store.username(ATLAS) == 'Asha Rao' and store.listing(ATLAS) == {
+        'place': ATLAS, 'username': 'Asha Rao', 'entries': ['password'], 'unusable': [],
+        'linked': [{'place': 'https://usvisascheduling.com', 'username': 'Asha Rao', 'entries': []}]}
+    assert store.username('https://usvisascheduling.com') == 'Asha Rao'
+    assert store.records()[ATLAS]['username'] is None                       # read through the link, never copied
+    store.set_username('https://ais.usvisascheduling.com', 'A. Rao', 'memory:2')
+    store.remember('password', ATLAS, 'v', sites=['ais.usvisascheduling.com'])
+    assert store.username(ATLAS) is None                                    # two accounts: the line names neither
+    store.set_username(ATLAS, 'asha.rao', 'memory:3')
+    assert store.username(ATLAS) == 'asha.rao'                              # its own comes first
+    assert store.clear_usernames({'memory:1', 'memory:3'}) == [ATLAS, 'https://usvisascheduling.com']
+    assert store.username(ATLAS) == 'A. Rao'
+
+
+def test_a_username_is_kept_only_for_a_login_place(tmp_path: Path) -> None:
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    for place in ('http://usvisascheduling.com', 'usvisascheduling.com', VISA + '/login'):
+        with pytest.raises(Refused, match='https'):
+            store.set_username(place, 'Asha Rao', 'memory:1')
+    with pytest.raises(Refused, match='browser'):
+        store.set_username('app:com.google.Chrome', 'Asha Rao', 'memory:1')
+    assert not store.path.exists()

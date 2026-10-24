@@ -1752,13 +1752,19 @@ class Gateway:
             return value
         if ctx.request_id in self.state.approvals.unattended:
             return None
-        question = secret_question(target, remember)
+        try:                                           # L36 §5: which account, shown to the owner, never a secret
+            username = await asyncio.to_thread(store.username, target)
+        except Refused:
+            if remember:                               # the save would fail after the owner typed: say why now
+                raise
+            username = None                            # m17: a one-time input needs no saved names
+        question = secret_question(target, remember, username)
         ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self._one_line(secret_summary(target, remember, shown))
+        ap.summary = self._one_line(secret_summary(target, remember, shown, username))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary})
@@ -1768,8 +1774,9 @@ class Gateway:
             state = await self._wait_answer(grant, ap.id)
             if state != "granted" or not ap.answer:
                 return None
-            if remember:
-                await asyncio.to_thread(store.remember, remember, target, ap.answer)
+            if remember:                               # I14: the record serves the task's sites from now on
+                sites = self.state.requests.get(ctx.request_id).targets.sites
+                await asyncio.to_thread(store.remember, remember, target, ap.answer, sites)
             delivered = True
             return ap.answer
         finally:
@@ -2005,12 +2012,16 @@ class Gateway:
             self.observer.waiting(grant.worker_id, False)
 
 
-def secret_question(target: str, remember: str | None) -> str:
+def secret_question(target: str, remember: str | None, username: str | None = None) -> str:
     """The hidden-input question for an owner secret, its exact destination first: no secret word comes before it, so
     the redactor's label rule ("the secret for <X>: …") never hides the destination the owner is asked about (live
-    2026-10-24: "Enter the secret for app:[redacted]"). The saved name is the worker's: only ever the saved name."""
-    text = (f"Destination: {target}. Type the password or secret for it here (hidden; Enter cancels); FERB fills it "
-            "only at this exact destination.")
+    2026-10-24: "Enter the secret for app:[redacted]"). Then the account, the username saved for that place from the
+    owner's own words (L36 §5). The saved name is the worker's: only ever the saved name."""
+    account = _account(username or "")
+    text = (f"Destination: {target}."
+            + (f" Account: {account}." if account else "")
+            + " Type the password or secret for it here (hidden; Enter cancels); FERB fills it only at this exact "
+            "destination.")
     if remember:
         text += f" Entering it also saves it in your Mac's Keychain as {remember!r}, usable only at this destination."
     return text
@@ -2041,20 +2052,28 @@ def shown_name(remember: str) -> str:
     return name if len(name) <= NAME_SHOWN else name[:NAME_SHOWN - 1].rstrip() + "…"
 
 
-def secret_summary(target: str, remember: str | None, app: str | None = None) -> str:
+def _account(username: str) -> str:
+    """The owner's username as a question shows it: printable, on one line (the owner's own words, not a worker's)."""
+    return " ".join(printable(username).split())
+
+
+def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None) -> str:
     """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
     with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
-    bundle id), so worker text never comes before it (re-review R1); then what the value is for: the worker's proposed
-    name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is kept."""
+    bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
+    place (L36 §5, ruling C1: after the place); then what the value is for: the worker's proposed name, cleaned by
+    `shown_name`, in quotes, only ever as the name it is saved under; and whether it is kept."""
     if target.startswith("app:"):
         place = f"the {app} app" if app else f"the app {target[4:]}"
     else:
         place = _site(target)
+    account = _account(username or "")
+    account = f" (account: {account})" if account else ""
     if remember:
         name = shown_name(remember)
         what = f"“{name}”" if name else "a saved secret"
-        return f"For {place} only: {what} · saved in your Mac's Keychain"
-    return f"For {place}: a password or private answer — used once, not saved"
+        return f"For {place} only{account}: {what} · saved in your Mac's Keychain"
+    return f"For {place}{account}: a password or private answer — used once, not saved"
 
 
 def login_code_summary(origin: str) -> str:
