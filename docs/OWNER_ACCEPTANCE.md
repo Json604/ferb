@@ -1553,6 +1553,12 @@ After the owner's live loop cc5debe4 ("keep this tab running": watching began 96
 paused the reel itself). Not installed or observed yet. Run after `ferb setup --update`; reload the unpacked extension
 so the profile runs 0.15.10 (`ferb doctor` shows it), then reload the Instagram tab.
 
+Offline measure (the brief's "measure after"; checkout harness: real daemon, fake extension through the real native
+host, scripted model calls sleeping cc5debe4's own durations): before the batch, 6 model calls and 98.7–99.1 s from
+the message to an armed probe (live: 96.5 s); with the code changes alone (the planner still making a bind step),
+4 calls and 74.5 s; as intended (the loop alone, a round that only looks), 2 calls and 32.7 s. A round that has to
+play the reel keeps its check (estimated 3 calls, about 51 s). Compare the live run with these.
+
 - "keep this tab playing" on the owner's Instagram reel in Brave, with Brave behind another app: the reel is playing
   within about 25 s of the message and the loop is watching (a `loop.probe_read` baseline in `ferb trace`) within about
   35 s, and nothing pauses it by itself (cc5debe4 paused at 01:28:40 and 01:29:24, 0.3 s after each round let go of

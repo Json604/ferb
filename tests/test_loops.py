@@ -2711,3 +2711,54 @@ def test_between_rounds_the_owners_downloads_and_new_tab_links_in_the_held_tab_a
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def test_a_paused_loops_question_is_not_offered_to_the_planner_as_one_to_answer(daemon):
+    """Review M8: a chat reply to a paused loop steers its task, as before the question card; so the planner's open
+    questions leave the loop's out (an answer routed to it would be refused), while other questions stay."""
+    from ferb.core.types import Identity
+    from ferb.policy.rules import ActionRequest
+    from tests.conftest import chat, install, sup
+    approvals = daemon.daemon.state.approvals
+
+    def ask():
+        loop = approvals.question(ActionRequest('loop.ask', 'owner_question', Identity.OWNER, frozenset(), 't.loop.keep',
+                                                't.loop.keep', 'r-loop', frozenset()),
+                                  'The www.instagram.com tab you asked me to keep going was closed. Stop this task?',
+                                  ['Stop', 'Keep watching'])
+        plan = approvals.question(ActionRequest('plan.ask', 'owner_question', Identity.OWNER, frozenset(), 't.worker',
+                                                't.worker', 'r-plan', frozenset()), 'Question from the task: Which day?',
+                                  ['Monday', 'Tuesday'])
+        return loop.id, plan.id
+    loop_id, plan_id = _on_loop(daemon, ask)
+    script = install(daemon, [sup('reply', 'Hi.')])
+    chat(daemon, 'hello')
+    planner = next(ctx for _, key, ctx, _ in script.contexts if key == 'supervisor')
+    assert plan_id in planner and loop_id not in planner
+
+
+def test_stop_on_a_pause_card_lets_go_of_the_owners_tab_that_is_still_open(bd, monkeypatch):
+    """Review M8: the Stop button ends the task, and the owner's tab the loop held (still open: the pause was for
+    something else) is let go of, never closed."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    which = 'Which Instagram account should I use?'
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, []),
+                           json.dumps({'status': 'needs_user', 'summary': which, 'artifacts': [], 'evidence': [],
+                                       'answer': which, 'loop_action': 'blocked'})], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        ext.audible.discard(OWNER_TAB)                                     # a trip: round 2 needs the owner
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'paused' and _questions(d))
+        [question] = _questions(d)
+        assert which in question.reason and question.options == ('Stop',) and OWNER_TAB in ext.attached
+        _on_loop(d, d.daemon._resolve_approval, question.id, True, 1)       # Stop
+        _wait(d, lambda: tree_id not in sv._tree_of)
+        assert OWNER_TAB in ext.tabs and OWNER_TAB not in ext.attached      # let go of, still open
+    finally:
+        c.close()
