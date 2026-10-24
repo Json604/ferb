@@ -2149,7 +2149,10 @@ security and final verification for plan work. Explicit continuation of the same
 completed notes and unknown-action ledger; reopens only unfinished steps; and preserves the owner's latest request
 in the durable record. A changed plan starts a distinct attempt with the previous evidence. New sends after an ended
 plan re-display the standing scope because its prior grants were revoked. Task rows use an upsert so resumed IDs do
-not delete referenced evidence or creation timestamps.
+not delete referenced evidence or creation timestamps. A plan that FERB's shutdown suspends isn't over: its run records
+no answer, outcome, `task.finished`, outcome event, permanent record or learning capture (its root task row is
+`interrupted`, its root span ends with the shutdown as its error), so nothing reads a false "I couldn't finish that";
+the run resumed after the restart records its own end. A task without a plan still ends at a shutdown as before.
 
 `cli/live_chat.py` maintains input while independent work streams run; planner submissions from a conversation stay
 ordered. It prints the daemon's ack and never answers a question on its own: typed text is always a `chat.send`

@@ -1986,24 +1986,35 @@ class Supervisor(WorkerRuns):
             finally:
                 self._record_planner_reads(tree, root_span.id, request_id)   # a stream closed at the plan line
                 final = self.gateway.redact(self._final(tree))
-                from ferb.orchestrator.language import internal_terms
-                if terms := internal_terms(final['answer']):
-                    self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
+                # FERB's shutdown suspends a plan: it isn't over, and resumes after the restart (resume_plans), so
+                # nothing records an end the planner, chat or learning would later read as how it ended
+                suspended = bool(spec.plan) and self._suspending
                 if spec.plan:
                     self.plans.set_status(tree_id, 'suspended' if self._suspending else final['status'])
-                if not (spec.plan and self._suspending):   # a correction can state a scope for any running tree
+                if not suspended:                           # a correction can state a scope for any running tree
                     self.standing.revoke(tree_id)
                 final["goal"] = spec.goal
-                made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
-                self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
-                                                    "text": final["answer"]}
-                                    | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}), origin=made)
-                self.spans.finish(root_span, output=final)
-                self.tasks.set_status(tree_id, final["status"], final)
-                self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
-                                                     "verified": final["verified"], "verification": final["verification"],
-                                                     "subtasks": final["subtasks"], "resources": tree.resources}, origin=made)
-                self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
+                if suspended:
+                    self.spans.finish(root_span, output={"status": "suspended", "summary": SHUT_DOWN}, error=SHUT_DOWN)
+                    # never left 'running': start-up would offer to pick it up again, though it resumes by itself
+                    self.tasks.set_status(tree_id, "interrupted", {"status": "interrupted", "summary": SHUT_DOWN})
+                else:
+                    from ferb.orchestrator.language import internal_terms
+                    if terms := internal_terms(final['answer']):
+                        self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
+                    made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
+                    self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id,
+                                                        "status": final["status"], "text": final["answer"]}
+                                        | ({"watch_met": final["watch_met"]} if "watch_met" in final else {}),
+                                        origin=made)
+                    self.spans.finish(root_span, output=final)
+                    self.tasks.set_status(tree_id, final["status"], final)
+                    self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"],
+                                                         "summary": final["summary"], "verified": final["verified"],
+                                                         "verification": final["verification"],
+                                                         "subtasks": final["subtasks"], "resources": tree.resources},
+                                        origin=made)
+                    self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
                 self.gateway.forget_tasks(self._tree_task_ids(tree))
                 self.state.forget_request(request_id)
                 for tid in [k for k, v in self._tree_of.items() if v.id == tree.id]:
@@ -2015,10 +2026,13 @@ class Supervisor(WorkerRuns):
                         self.tasks.set_status(row["id"], "cancelled" if tree.stop == STOPPED_BY_YOU else "interrupted",
                                               {"summary": tree.stop or "Task ended before this step completed"})
                 # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
-                # nothing it does can skip the cleanup; it never raises for a failed build or write.
-                episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(tree_id, spec))
-        yield final
+                # nothing it does can skip the cleanup; it never raises for a failed build or write. A suspended plan
+                # gets its record and capture when its resumed run ends.
+                if not suspended:
+                    episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
+                    self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(tree_id, spec))
+        if not suspended:                    # no outcome for a suspended plan: no result, no "while you were away"
+            yield final
 
     def _slot_problem(self, spec: TaskSpec) -> str | None:
         """Why the chosen procedure's slots refuse the planner's values, or None (L29). A check that fails is a reason

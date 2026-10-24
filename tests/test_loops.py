@@ -1084,6 +1084,87 @@ def test_a_shutdown_during_a_round_leaves_that_round_to_run_again_after_the_rest
         c.close()
 
 
+def test_a_shutdown_mid_loop_records_no_final_answer_and_the_resumed_tree_finishes_normally(daemon, monkeypatch):
+    """A plan suspended by FERB's shutdown isn't over: it records no "I couldn't finish that" answer, outcome,
+    task.finished, permanent record or learning capture (the planner reads those later as the task's end). The tree
+    resumed after the restart ends with its own answer."""
+    from ferb.orchestrator.supervisor import SHUT_DOWN, Supervisor
+    from tests.conftest import STALL, done, install, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True, False, True])                  # round 1's baseline, then a trip
+
+    def met(ok):
+        return json.dumps({'results': [{'index': 0, 'met': ok, 'evidence': 'scripted'}]})
+    script = install(daemon, [sup('task', 'Watching the checks.', _loop_plan('Watch PR 12 checks', 'the checks pass'))],
+                     {'loop.keep': [_round(), STALL, _round('finished', probe=False, summary='All checks passed.')],
+                      'loop.keep.verify': [met(True), met(True), met(True)], 'worker': done('All checks passed.')})
+    sv = daemon.daemon.supervisor
+    captured: list[str] = []
+    capture = Supervisor._capture_after_outcome
+    monkeypatch.setattr(Supervisor, '_capture_after_outcome',
+                        lambda self, tree_id, *a: (captured.append(tree_id), capture(self, tree_id, *a))[1])
+    published: list[tuple[str, dict]] = []
+    publish = sv.publish
+    monkeypatch.setattr(sv, 'publish', lambda topic, data: (published.append((topic, data)), publish(topic, data))[1])
+
+    def ended(tree_id):
+        def of(kind):
+            return [e.data for e in daemon.daemon.journal.entries_of(kind) if e.data['task_id'] == tree_id]
+        return _on_loop(daemon, lambda: {
+            'answers': of('task.answer'), 'outcomes': of('task.outcome'),
+            'finished': [d for t, d in published if t == 'task.finished' and d['task_id'] == tree_id],
+            'episodes': daemon.daemon.db.conn.execute('SELECT COUNT(*) FROM episodes WHERE task_id = ?',
+                                                      (tree_id,)).fetchone()[0],
+            'status': daemon.daemon.db.conn.execute('SELECT status FROM tasks WHERE id = ?',
+                                                    (tree_id,)).fetchone()[0]})
+    c, plan = _start_loop(daemon, 'loop until the checks pass')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: _roles(script).count('loop.keep') == 2)      # round 2 is under way
+
+        def shut_down():                                      # the daemon's shutdown, before it cancels the turns
+            sv.suspend_plans()
+            sv.cancel_all()
+        daemon.call_soon(shut_down)
+        _wait(daemon, lambda: tree_id not in sv._tree_of)
+        after = ended(tree_id)
+        assert after == {'answers': [], 'outcomes': [], 'finished': [], 'episodes': 0, 'status': 'interrupted'}
+        assert captured == [] and _on_loop(daemon, lambda: tree_id in sv.plans.pending())
+
+        sv._suspending = False                                # the restart
+        daemon.run(sv.resume_plans(), timeout=30)
+        later = ended(tree_id)
+        assert len(later['answers']) == 1 and later['answers'][0]['status'] in ('done', 'done_unverified')
+        assert SHUT_DOWN not in later['answers'][0]['text']
+        assert len(later['outcomes']) == 1 and len(later['finished']) == 1 and later['episodes'] == 1
+        assert captured == [tree_id]
+    finally:
+        c.close()
+
+
+def test_a_shutdown_still_ends_a_task_that_has_no_plan(daemon, monkeypatch):
+    """Only a suspended plan resumes: a task without one still records its end at a shutdown."""
+    from ferb.orchestrator.supervisor import SHUT_DOWN
+    from tests.conftest import STALL, install, sup, task
+    script = install(daemon, [sup('task', 'Checking.', task('check the weather'))], {'worker': STALL})
+    sv = daemon.daemon.supervisor
+    c, plan = _start_loop(daemon, 'check the weather')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: 'worker' in _roles(script))
+
+        def shut_down():
+            sv.suspend_plans()
+            sv.cancel_all()
+        daemon.call_soon(shut_down)
+        _wait(daemon, lambda: tree_id not in sv._tree_of)
+        answers = [a for a in _journal(daemon, 'task.answer') if a['task_id'] == tree_id]
+        assert len(answers) == 1 and SHUT_DOWN in answers[0]['text']
+        assert [a for a in _journal(daemon, 'task.outcome') if a['task_id'] == tree_id]
+    finally:
+        c.close()
+
+
 def test_a_loop_runs_on_when_a_record_a_status_line_or_a_round_fails(daemon, monkeypatch):
     """The runner has no try/finally: a probe record, a status line or a whole round that fails is journaled and the
     loop goes on (a crashed round counts as a failed one)."""
