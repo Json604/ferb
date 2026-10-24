@@ -25,9 +25,10 @@ SENTENCES = [
     # live 2026-10-24: the owner steered the visa task with "the username is …"; nothing was remembered, and a later task
     # typed the email as the username
     ("supervisor.md",
-     'When the owner tells you a login name or account detail for a site or app ("the username is Asha Rao" while '
-     'working on that site), remember it in the same turn as the task change: kind fact, subject "owner" or the '
-     'project ("project:<slug>"), and a key naming the site ("usvisascheduling-username").'),
+     'When the owner tells you a login name or username for a site or app ("the username is Asha Rao" while working '
+     'on that site), remember it in the same turn as the task change: kind fact, subject "owner" or the project '
+     '("project:<slug>"), and a key naming the site ("usvisascheduling-username"). Passwords and other secrets go '
+     'through the hidden-input path.'),
     # live 2026-10-24 12:34: "pause the visa task for now, I'll say when to continue" stopped the task and left its
     # daily schedule active
     ("supervisor.md",
