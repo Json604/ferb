@@ -31,11 +31,16 @@ _OTHER_EXTENSION_FRAME = r'''
   const chromeWontTouch = url => url.startsWith("chrome-extension://") && new URL(url).host !== OWN;
   const named = [], ranIn = [], typed = [], sent = [];
   chrome.debugger.attach = async () => { if (Object.values(frames).some(chromeWontTouch)) throw new Error(REFUSED); };
-  chrome.debugger.sendCommand = async () => { throw new Error("Debugger is not attached to the tab with id: 5."); };
+  const cdpSent = [], stamped = [];
+  chrome.debugger.sendCommand = async (t, method) => { cdpSent.push(method);
+    throw new Error("Debugger is not attached to the tab with id: 5."); };
   const pageWindow = {__ferb: {
     snapshot: g => ({url: frames[0], title: "Sign in", text: "Sign in", iframes: [], scrollers: [],
                      elements: [{id: 0, role: "textbox", label: "Email Address", rect: [0, 0, 200, 20], in_view: true}]}),
-    act: (g, i, k, t) => { typed.push([g, i, k, t]); return {ok: true, detail: "typed (page events)"}; },
+    act: (g, i, k, t) => { typed.push([g, i, k, t]); return {ok: true, detail: `${k === "type" ? "typed" : k} (page events)`}; },
+    stamp: (g, i, t) => { stamped.push(t); return {ok: true}; },
+    unstamp: t => { stamped.splice(stamped.indexOf(t), 1); return true; },
+    scroller: c => ({px: 10, py: 10, viewport_h: 600}),
   }};
   chrome.scripting = {executeScript: async ({target, func, args}) => {
     if (target.frameIds) named.push(...target.frameIds);
@@ -50,8 +55,9 @@ _OTHER_EXTENSION_FRAME = r'''
     return results;
   }};
   gen = 1; send = async (type, body) => { if (type === "result") sent.push(body); };
-  const act = async (id, extra) => { await onCommand({gen: 1, id, op: "act", args: {tab_id: 5, frame_id: 0, snap: 1,
-    el: 0, kind: "type", text: "owner@example.com", ...extra}}); return sent.find(b => b.id === id); };
+  const run = async (id, op, args) => { await onCommand({gen: 1, id, op, args}); return sent.find(b => b.id === id); };
+  const act = (id, extra) => run(id, "act", {tab_id: 5, frame_id: 0, snap: 1, el: 0, kind: "type",
+                                             text: "owner@example.com", ...extra});
 '''
 
 
@@ -80,6 +86,63 @@ def test_another_extensions_frame_never_fails_input_on_the_pages_own_frames() ->
     assert "different extension" in page["value"]["debugger_refused"]   # says what isn't watched in this tab
     assert result["typed"] == [[1, 0, "type", "owner@example.com"]]      # exactly the snapshot's field, once
     assert 4 not in result["named"] and 4 not in result["ranIn"]
+
+
+def test_a_refused_tab_never_clicks_when_a_dialog_is_expected_and_says_where_downloads_go() -> None:
+    """Owner, 2026-10-24: page-event clicks and presses stay allowed where the browser refused the debugger, with
+    guards. A dialog can't be watched there, so an act that expects one fails before anything is clicked; a click or
+    press says a download it starts is the browser's own, outside FERB's workspace (no downloads permission, D35)."""
+    result = worker('''(async () => {''' + _OTHER_EXTENSION_FRAME + '''
+      const dialog = await act("dialog", {kind: "click", page_mode: true, expect_dialog: "accept"});
+      const clickedForDialog = typed.length;
+      const click = await act("click", {kind: "click", page_mode: true, text: undefined});
+      const press = await act("press", {kind: "press", page_mode: true, text: "Enter"});
+      const type = await act("type", {page_mode: true});
+      return {dialog, clickedForDialog, click, press, type, typed};
+    })()''')
+    dialog = result["dialog"]
+    assert dialog["outcome"] == "failed" and dialog["value"]["reason"] == "debugger_refused", dialog
+    assert "dialog" in dialog["value"]["detail"] and "nothing was clicked" in dialog["value"]["detail"]
+    assert result["clickedForDialog"] == 0
+    for kind in ("click", "press"):
+        reply = result[kind]
+        assert reply["outcome"] == "done" and reply["value"]["ok"] is True, reply
+        assert "Downloads folder" in reply["value"]["download_note"] and "workspace" in reply["value"]["download_note"]
+    assert "download_note" not in result["type"]["value"]                   # typing starts no download
+    assert [k for _, _, k, _ in result["typed"]] == ["click", "press", "type"]
+
+
+def test_a_refused_tab_advises_page_events_only_where_scripting_reaches() -> None:
+    """The browser refused the debugger and scripting can't reach the frame either (here the tab shows another
+    extension's page): the act says so and doesn't advise page_mode."""
+    result = worker('''(async () => {''' + _OTHER_EXTENSION_FRAME + '''
+      frames[0] = "chrome-extension://" + OTHER + "/options.html"; delete frames[4];
+      return await act("real");
+    })()''')
+    assert result["outcome"] == "failed" and result["value"]["reason"] == "debugger_refused", result
+    assert "page_mode" not in result["value"]["detail"] and "scripting can't reach" in result["value"]["detail"]
+
+
+def test_scroll_upload_and_pointer_in_a_refused_tab_are_known_failures_with_nothing_sent() -> None:
+    """Review minor 2: the wheel, file inputs and visual points need the debugger. Where the browser refused it they
+    fail as known (debugger_refused, nothing reached the page), never "outcome unknown"; scroll points to act's
+    page-event scroll."""
+    result = worker('''(async () => {''' + _OTHER_EXTENSION_FRAME + '''
+      const scroll = await run("scroll", "scroll", {tab_id: 5, frame_id: 0, direction: "down"});
+      const upload = await run("upload", "upload", {tab_id: 5, frame_id: 0, snap: 1, el: 0, paths: ["/tmp/a.pdf"]});
+      const pointer = await run("pointer", "pointer", {tab_id: 5, point: "p1", kind: "click"});
+      return {scroll, upload, pointer, cdpSent, stamped, seen: (await session()).seen};
+    })()''')
+    scroll = result["scroll"]
+    assert scroll["status"] == "error" and scroll["outcome"] == "failed", scroll
+    assert scroll["error"].startswith("debugger_refused:") and "action=scroll" in scroll["error"]
+    upload = result["upload"]
+    assert upload["outcome"] == "failed" and upload["value"]["reason"] == "debugger_refused", upload
+    assert upload["value"]["transferred"] is False and result["stamped"] == []    # its stamp taken off again
+    pointer = result["pointer"]
+    assert pointer["outcome"] == "failed" and pointer["value"]["reason"] == "debugger_refused", pointer
+    assert not any(m.startswith("Input.") or m == "DOM.setFileInputFiles" for m in result["cdpSent"])
+    assert result["seen"] == {"scroll": "failed", "upload": "failed", "pointer": "failed"}
 
 
 def test_a_debugger_failure_after_it_attached_is_still_unknown_and_never_page_events() -> None:

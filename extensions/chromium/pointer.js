@@ -65,7 +65,14 @@ async function readyPoint(tabId, point, alive) {
 
 async function exactPointer({tab_id, point, end, kind}, commandId) {
   if (!["click", "dblclick", "rightclick", "hover", "drag"].includes(kind)) throw new Error("unsupported_pointer_action");
-  const st = await attach(tab_id), visual = st.visual;
+  let st;
+  try { st = await attach(tab_id); }
+  catch (e) {                                   // the browser refused the debugger: nothing sent, a known refusal
+    if (!e.debuggerRefused) throw e;
+    return {ok: false, reason: "debugger_refused", detail: `${refusedWhy(e)}, so a screenshot point can't be ` +
+      "clicked; nothing was sent. Try an element of a snapshot with browser.act and page_mode=true"};
+  }
+  const visual = st.visual;
   let start, finish;
   try {
     await checkVisual(tab_id, visual);

@@ -515,14 +515,21 @@ class FakeExtension:
         el = page(self.tabs[a["tab_id"]])["elements"][a["el"]]
         trusted = not a.get("page_mode") and a["kind"] not in ("select", "scroll")
         refused = self.debugger_refused.get(a["tab_id"])
+        why = f"the browser refused FERB's debugger for this tab ({refused})"
+        if refused and a.get("expect_dialog"):                   # dialogs can't be watched: nothing clicked
+            return {"ok": False, "reason": "debugger_refused",
+                    "detail": f"{why}, so this tab's dialogs can't be watched or answered; nothing was clicked or typed"}
         if refused and trusted:                                  # nothing sent: a known failure, never page events
             return {"ok": False, "reason": "debugger_refused",
-                    "detail": f"the browser won't let FERB's debugger attach to this tab ({refused}), so real input "
-                              "can't reach it; nothing was done. page_mode=true sends page events to the page's own frames"}
+                    "detail": f"{why}, so real input can't reach it; nothing was done. page_mode=true sends page "
+                              "events to this frame"}
         if refused:
+            note = {"download_note": "a download this starts is saved by the browser to its Downloads folder, not "
+                                     "FERB's workspace: FERB can't see it or apply its download limits"} \
+                if a["kind"] in ("click", "dblclick", "press") else {}
             return {"ok": True, "detail": a["kind"] + " (page events)",
-                    "debugger_refused": f"the browser won't let FERB's debugger attach to this tab ({refused}): page "
-                                        "events only; this tab's dialogs, file choosers and downloads aren't watched"}
+                    "debugger_refused": f"{why}: page events only; this tab's dialogs, file choosers and downloads "
+                                        "aren't watched", **note}
         if trusted:
             self._attach(a["tab_id"])                           # the debugger: on first use, kept for the tab's life
         if a["kind"] == "click" and el.get("dialog"):          # the click opens a dialog the extension must answer
@@ -547,6 +554,11 @@ class FakeExtension:
         return {"ok":True, **d}
 
     def op_scroll(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        refused = self.debugger_refused.get(a["tab_id"])
+        if refused:                                              # a known failure: nothing reached the page
+            raise RuntimeError(f"debugger_refused: the browser refused FERB's debugger for this tab ({refused}), so "
+                               "its wheel can't scroll it; nothing was scrolled. browser.act with action=scroll on an "
+                               "element of the latest snapshot scrolls that element's area with page events")
         self._attach(a["tab_id"])
         c = a.get("container")
         key = (a["tab_id"], c)

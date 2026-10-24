@@ -266,7 +266,7 @@ async function executeCommand(m) {
     await send('result', {id:m.id, gen:m.gen, status:claimed}); return;
   }
   const handler = OPS.includes(m.op) ? commands[m.op] : null;
-  let body;
+  let body, nothingSent = false;
   try {
     if (!handler) throw new Error(`unknown op ${m.op}`);
     const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
@@ -275,9 +275,12 @@ async function executeCommand(m) {
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
     body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e) };
+    nothingSent = !!(e && e.nothingSent);
   }
-  // A handler error may follow partial input; a timeout does not cancel the renderer operation.
-  const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done") : "unknown";
+  // A handler error may follow partial input; a timeout does not cancel the renderer operation. Only an error raised
+  // before anything reached the page (refusedCommand) is a known failure.
+  const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done")
+    : nothingSent ? "failed" : "unknown";
   body.outcome = outcome;
   await mutateSession(s => {if (Object.hasOwn(s.seen, m.id)) s.seen[m.id] = outcome;});
   if (body.status === "ok" && m.op !== "result_part") {
@@ -421,8 +424,8 @@ async function readyForCapture(tabId) {
   }
 }
 
-async function scriptable(tabId) {
-  try { await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, func: () => true }); return true; }
+async function scriptable(tabId, frameId = 0) {
+  try { await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: () => true }); return true; }
   catch (_) { return false; }
 }
 
@@ -615,16 +618,31 @@ async function arm(tabId) {
   return t;
 }
 
-// The browser itself refused the debugger (chrome.debugger.attach threw): nothing was attached and nothing sent. Chrome
+// The browser refused the debugger (chrome.debugger.attach threw): nothing was attached and nothing sent. Chrome
 // checks every frame in the tab and refuses the whole tab for one it won't let an extension debug, so one frame another
 // extension put into a page of the owner's sites ("Cannot access a chrome-extension:// URL of different extension")
 // keeps FERB's debugger off that tab while it is there; Chrome also detaches a session from such a tab when its page
-// navigates. Scripting still reaches the page's own frames: Chrome skips the other extension's frame there.
+// navigates. The other refusals (chrome://, the Web Store, other extensions' own pages) are flagged the same way.
+// Scripting may still reach the page's own frames: Chrome skips the other extension's frame there.
 function debuggerRefused(e) {
   const refused = new Error(String(e && e.message || e));
   refused.debuggerRefused = true;
   return refused;
 }
+const refusedWhy = e => `the browser refused FERB's debugger for this tab (${e.message})`;
+// A command that needs the debugger, refused before anything reached the page: a known failure (executeCommand), its
+// error led by "debugger_refused:" as a lost session's is by "detached:", so a daemon of any version reads it as one.
+function refusedCommand(detail) {
+  const e = new Error(`debugger_refused: ${detail}`);
+  e.nothingSent = true;
+  return e;
+}
+// Page events where the browser refused the debugger: its Fetch interception, which holds a tab's downloads for FERB
+// (D35), isn't there, and FERB has no downloads permission to see one; a click or press that starts a download leaves it
+// to the browser (owner, 2026-10-24: allowed, with guards).
+const DOWNLOAD_KINDS = new Set(["click", "dblclick", "press"]);
+const UNMANAGED_DOWNLOADS = "a download this starts is saved by the browser to its Downloads folder, not FERB's " +
+  "workspace: FERB can't see it or apply its download limits";
 
 // The page hook (protocol.js PAGE_HOOK) in this session's documents, the current one included; best effort: without it
 // only what it catches (unseen save links, window.open) is left to the browser, reported when seen.
@@ -1346,7 +1364,13 @@ const commands = {
   // Trusted wheel at the scroller's centre: the window, or a container from the latest snapshot.
   async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
     const cid = container || null;
-    await attach(tab_id);
+    try { await attach(tab_id); }
+    catch (e) {
+      if (!e.debuggerRefused) throw e;
+      throw refusedCommand(`${refusedWhy(e)}, so its wheel can't scroll it; nothing was scrolled.` +
+        (await scriptable(tab_id, frame_id) ? " browser.act with action=scroll on an element of the latest snapshot " +
+          "scrolls that element's area with page events" : ""));
+    }
     const target = await inFrame(tab_id, frame_id, c => window.__ferb.scroller(c), [cid]);
     if (target.error) throw Error(target.error === 'stale' ? 'that container is from an older snapshot' : target.error);
     const point = await toTopPoint(tab_id, frame_id, {x:target.px, y:target.py, occluded:target.occluded});
@@ -1427,16 +1451,21 @@ const commands = {
     try { state = await attach(tab_id); }
     catch (e) {
       if (!e.debuggerRefused) throw e;
-      // The browser won't let the debugger attach (debuggerRefused: e.g. another extension's frame in the tab): nothing
-      // was sent. Real input needs the debugger, so a trusted act is a known failure that says so, never page events
-      // by itself. Page events, asked for, go through scripting to the snapshot's frame (Chrome never lists or
-      // scripts another extension's frame for FERB); without the debugger nothing watches this tab's dialogs, file
-      // choosers or downloads, and the reply says so.
-      const why = `the browser won't let FERB's debugger attach to this tab (${e.message})`;
+      // The browser refused the debugger (debuggerRefused: e.g. another extension's frame in the tab): nothing was
+      // sent. Real input needs the debugger, so a trusted act is a known failure that says so, never page events by
+      // itself, and advises page events only where scripting reaches the frame. Page events, asked for, go through
+      // scripting to the snapshot's frame (Chrome never lists or scripts another extension's frame for FERB). Nothing
+      // watches this tab's dialogs, file choosers or downloads (owner, 2026-10-24: allowed, with guards): an act that
+      // expects a dialog fails before anything is sent, and a click or press says where a download it starts goes.
+      const why = refusedWhy(e);
+      if (expect_dialog) return {ok: false, reason: "debugger_refused", detail: `${why}, so this tab's dialogs can't ` +
+        "be watched or answered; nothing was clicked or typed"};
       if (!page) return {ok: false, reason: "debugger_refused", detail: `${why}, so real input can't reach it; ` +
-        "nothing was done. page_mode=true sends page events to the page's own frames"};
-      return {...(await pageAct()), debugger_refused: `${why}: page events only; this tab's dialogs, file choosers ` +
-        "and downloads aren't watched"};
+        "nothing was done. " + (await scriptable(tab_id, frame_id) ? "page_mode=true sends page events to this frame"
+          : "scripting can't reach this frame either, so FERB can't act on it in this tab")};
+      const result = await pageAct();
+      return {...result, debugger_refused: `${why}: page events only; this tab's dialogs, file choosers and downloads ` +
+        "aren't watched", ...(result.ok && DOWNLOAD_KINDS.has(kind) ? {download_note: UNMANAGED_DOWNLOADS} : {})};
     }
     const before = state.fileChoosers.length;
     const result = page ? await pageAct()
@@ -1451,7 +1480,13 @@ const commands = {
     if (!stamped.ok) return {...stamped, reason:"upload_target_unavailable", frame_id, transferred:false};
     const searches = [], targets = [];
     try {
-      const state = await attach(tab_id);
+      let state;
+      try { state = await attach(tab_id); }
+      catch (e) {
+        if (!e.debuggerRefused) throw e;
+        return {ok:false, reason:"debugger_refused", detail:`${refusedWhy(e)}, so a file can't be set on the field; ` +
+          "nothing was uploaded", frame_id, transferred:false};
+      }
       await Promise.all(state.sessions.values());
       for (const sessionId of [undefined, ...state.sessions.keys()]) {
         await cdp(tab_id,"DOM.getDocument",{depth:0},sessionId); // enables this exact target's DOM agent

@@ -152,6 +152,8 @@ class Bridge:
         if r.outcome == "unknown" or r.error == "timeout" or str(r.error or "").startswith("detached:"):
             self.lost.add(cid)
             raise OutcomeUnknown(f"{op}: {r.error}; outcome unknown")
+        if str(r.error or "").startswith("debugger_refused:"):   # the browser refused the debugger: nothing was sent
+            raise DriverError(str(r.error).removeprefix("debugger_refused:").strip(), facts={"reason": "debugger_refused"})
         raise DriverError(r.error or f"{op} failed")
 
     async def _cancel_pointer(self, args: dict[str, Any], cid: str) -> None:
@@ -965,7 +967,8 @@ class _TabDriver:
         t.visual = None
         result = await t.bridge.call("pointer", {"tab_id": t.chrome_id, "point": start, "end": end,
                                                 "kind": action.kind}, timeout=10, cid=intent_id or None)
-        return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
+        return ActionResult(bool(result.get("ok")), str(result.get("detail", "")),
+                            {k: v for k, v in result.items() if k not in {"ok", "detail"}})
 
     @staticmethod
     def _detached_msg(reason: str) -> str:

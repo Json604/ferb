@@ -122,6 +122,9 @@ def test_a_tab_the_browser_wont_debug_fails_real_input_known_and_takes_asked_pag
         return [row[0] for row in d.daemon.db.conn.execute(
             "SELECT state FROM action_ledger WHERE capability = 'browser.act' ORDER BY rowid")]
     assert d.run(states()) == ["failed", "done"]                                # known, never "unknown" (P19)
+    r = call(d, g, "browser.scroll", tab=tab, direction="down")                 # the wheel needs the debugger too
+    assert r["is_error"] and r["content"]["reason"] == "debugger_refused", r
+    assert "outcome unknown" not in json.dumps(r) and "action=scroll" in r["content"]["error"]
 
 
 def test_keepalive_pings_while_a_task_tab_is_open(bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:

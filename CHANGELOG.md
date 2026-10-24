@@ -726,13 +726,17 @@ After the owner's update (2026-10-24):
   17 unchanged). Live 2026-10-24, visa login in your New_Personal Chrome profile: typing your username on the
   Microsoft sign-in page failed twice with "Cannot access a chrome-extension:// URL of different extension; outcome
   unknown", and the task fell back to Accessibility. That message means another extension has a frame in the page
-  (most likely your "Check US Visa Slots" extension, which runs on that sign-in site), and Chrome won't let an
-  extension's debugger attach to a tab when any frame in it belongs to another extension. FERB's real input needs the
-  debugger, and its page-events mode asked for it first too. Now such an act says so as a known failure (nothing was
-  done, so a retry isn't held for you) and names `page_mode=true`; page events then reach the page's own fields
-  through scripting, which never touches the other extension's frame, and the reply says the tab's dialogs, file
-  choosers and downloads aren't watched. New_Personal runs the Web Store copy: it gets 0.15.7 once that is uploaded
-  and published, or by Load unpacked from `~/.ferb/extensions/chromium` after `ferb setup --update`.
+  (most likely your "Check US Visa Slots" extension, which runs on that sign-in site), and Chrome refuses an
+  extension's debugger for a whole tab when any frame in it belongs to another extension. FERB's real input needs the
+  debugger, and its page-events mode asked for it first too. Now, where the browser refused the debugger, such an act
+  says so as a known failure (nothing was done, so a retry isn't held for you) and suggests `page_mode=true` when
+  FERB's scripting can reach the field. Page events then reach the page's own fields through scripting, which never
+  touches the other extension's frame. You chose to allow page-event clicks there, with guards: an act that expects a
+  confirm dialog fails before anything is clicked, since the tab's dialogs can't be watched, and a click or press says
+  that a download it starts goes to your browser's Downloads folder, outside FERB's workspace and limits. Scrolling
+  with the wheel, uploads and clicks on screenshot points fail the same known way there, and scrolling points to the
+  page-event scroll. New_Personal runs the Web Store copy: it gets 0.15.7 once that is uploaded and published, or by
+  Load unpacked from `~/.ferb/extensions/chromium` after `ferb setup --update`.
 
 Licensed under Apache-2.0.
 

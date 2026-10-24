@@ -307,12 +307,19 @@ answer for pages it can't read or attach to, see section 16.4). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
-Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. Chrome refuses
-`chrome.debugger.attach` for a whole tab when any frame in it is another extension's `chrome-extension://` page, and
-detaches a session from such a tab when its page navigates. Then (0.15.7) a trusted act answers `reason:
-debugger_refused` with nothing sent, a known failure rather than a P19 unknown, and a `page_mode` act still runs through
-scripting in the snapshot's frame; Chrome never lists or scripts another extension's frame for FERB. Its reply's
-`debugger_refused` says that the tab's dialogs, file choosers and downloads aren't watched.
+Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. The browser can refuse
+the debugger: Chrome refuses `chrome.debugger.attach` for a whole tab when any frame in it is another extension's
+`chrome-extension://` page, and detaches a session from such a tab when its page navigates (chrome:// pages, the Web
+Store and other extensions' own pages are refused too). In a tab where the browser refused the debugger (0.15.7),
+nothing that needs it reaches the page, and each such command is a known failure with `reason: debugger_refused`,
+never a P19 unknown: a trusted act (advising `page_mode` only when scripting reaches the frame), an act that expects a
+dialog (nothing clicked), `browser.scroll`'s wheel (pointing to act's page-event scroll), an upload and a screenshot
+point. A scroll's refusal travels as an error led by `debugger_refused:`, which the bridge reads as a known failure. A
+`page_mode` act still runs through scripting in the snapshot's frame; Chrome never lists or scripts another
+extension's frame for FERB. Its reply's `debugger_refused` says the tab's dialogs, file choosers and downloads aren't
+watched, and a click or press adds `download_note`: a download it starts is the browser's, in its Downloads folder,
+outside FERB's workspace (owner, 2026-10-24: page events allowed there, with these guards; FERB has no downloads
+permission to see such a download).
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
 path, size, modified time and SHA-256 receipts tie the chosen local bytes to the selected files. Unknown/unsupported
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
