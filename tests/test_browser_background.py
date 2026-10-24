@@ -99,6 +99,31 @@ def test_the_owners_cancel_on_the_debugger_bar_makes_the_act_in_flight_unknown(b
     ext.release_held()                                                           # (so the daemon can close the tab)
 
 
+def test_a_tab_the_browser_wont_debug_fails_real_input_known_and_takes_asked_page_events(bd: Any) -> None:
+    """The owner's US-visa login tab (2026-10-24): another extension's frame in the page makes Chrome refuse FERB's
+    debugger. The extension answers a trusted act with a known failure (nothing done), so the daemon neither calls it
+    "outcome unknown" nor holds the retry; the agent's page_mode retry reaches the page's own field."""
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    tab = call(d, g, "browser.open", url=f"{SHOP}/form")["content"]["tab"]
+    cid = _chrome_id(d, tab)
+    ext.debugger_refused[cid] = "Cannot access a chrome-extension:// URL of different extension"
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    field = snap["elements"][0]["id"]
+    r = call(d, g, "browser.act", tab=tab, element=field, action="type", text="Ada")
+    assert r["is_error"] and r["content"]["reason"] == "debugger_refused", r
+    assert "outcome unknown" not in json.dumps(r) and "page_mode" in r["content"]["detail"]
+    r = call(d, g, "browser.act", tab=tab, element=field, action="type", text="Ada", page_mode=True)
+    assert not r["is_error"] and "(page events)" in r["content"]["detail"], r
+    assert "different extension" in r["content"]["debugger_refused"]
+    assert [a["page_mode"] for a in ext.acts] == [False, True]
+
+    async def states() -> list[str]:
+        return [row[0] for row in d.daemon.db.conn.execute(
+            "SELECT state FROM action_ledger WHERE capability = 'browser.act' ORDER BY rowid")]
+    assert d.run(states()) == ["failed", "done"]                                # known, never "unknown" (P19)
+
+
 def test_keepalive_pings_while_a_task_tab_is_open(bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(eb, "KEEPALIVE_S", 0.1)
     d, launched = bd
@@ -329,7 +354,10 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
     assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and not version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
-    assert json.loads((EXT / "manifest.json").read_text())["version"] == MIN_EXTENSION_VERSION   # bumped together
+    # the bundle FERB ships is never one its daemon refuses; 0.15.7 changes no protocol, so 0.15.6 (the Web Store copy
+    # until the store carries 0.15.7) is still accepted
+    shipped = json.loads((EXT / "manifest.json").read_text())["version"]
+    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.7", "0.15.6")
 
 
 # ---------- the extension's own code, run in node ----------

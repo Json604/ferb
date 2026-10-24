@@ -299,7 +299,7 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.6 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.7 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
@@ -307,6 +307,12 @@ answer for pages it can't read or attach to, see section 16.4). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
+Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. Chrome refuses
+`chrome.debugger.attach` for a whole tab when any frame in it is another extension's `chrome-extension://` page, and
+detaches a session from such a tab when its page navigates. Then (0.15.7) a trusted act answers `reason:
+debugger_refused` with nothing sent, a known failure rather than a P19 unknown, and a `page_mode` act still runs through
+scripting in the snapshot's frame; Chrome never lists or scripts another extension's frame for FERB. Its reply's
+`debugger_refused` says that the tab's dialogs, file choosers and downloads aren't watched.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
 path, size, modified time and SHA-256 receipts tie the chosen local bytes to the selected files. Unknown/unsupported
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs

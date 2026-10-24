@@ -79,9 +79,9 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.6** (protocol 17); the daemon refuses an older protocol with a reload
-notice. `ferb setup` (and `--update`) handles it for every Chromium browser it finds (Chrome and its Beta, Dev and
-Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
+FERB's browser hands are its extension, **0.15.7** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
+refuses an older protocol with a reload notice. `ferb setup` (and `--update`) handles it for every Chromium browser it
+finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
 - it asks each browser to install it from FERB's Chrome Web Store listing (documented for
   Chrome and Chromium; written but unconfirmed for Brave and Edge; not possible for Vivaldi, Arc and Opera). The
@@ -90,8 +90,10 @@ Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
 The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
-this build needs, since 2026-10-22. A profile that already has the unpacked copy is offered the store copy too; setup's
-report and `ferb browsers pair` use the copy that is turned on (the unpacked one when both are), so keep one turned on.
+this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) isn't
+on the listing until it is uploaded; until then a profile gets it only by Load unpacked. A profile that already has
+the unpacked copy is offered the store copy too; setup's report and `ferb browsers pair` use the copy that is turned
+on (the unpacked one when both are), so keep one turned on.
 In browsers without the store request, setup prints the Load-unpacked steps: prepare the managed folder with `ferb browsers extension install` (`ferb browsers
 extension path` prints it), enable Developer mode in the browser's extensions page and Load unpacked from
 `~/.ferb/extensions/chromium`, once per profile. `[browser] store_extension_id = ""` in `~/.ferb/config.toml` turns

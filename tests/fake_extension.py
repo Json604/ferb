@@ -105,6 +105,9 @@ class FakeExtension:
         self.tab_windows: dict[int, int] = {}             # tab id -> window id
         self.tab_active: dict[int, bool] = {}
         self.attached: set[int] = set()                   # tabs with the debugger attached
+        # tab -> the browser's refusal of chrome.debugger.attach (e.g. another extension's frame in the page): no real
+        # input there; page events still reach the page's own frames
+        self.debugger_refused: dict[int, str] = {}
         self.attaches = 0
         self.detached_reason: dict[int, str] = {}
         self.dialogs: list[dict[str, Any]] = []           # every dialog the extension answered
@@ -436,7 +439,8 @@ class FakeExtension:
                          for t, u in self.tabs.items()]}
 
     def op_snapshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
-        self._attach(a["tab_id"])
+        if a["tab_id"] not in self.debugger_refused:             # refused: the DOM snapshot alone, as the extension
+            self._attach(a["tab_id"])
         url = self.tabs[a["tab_id"]]
         p = page(url)
         frames: dict[int, list[dict[str, Any]]] = {}
@@ -510,6 +514,15 @@ class FakeExtension:
         self.acts.append(a)
         el = page(self.tabs[a["tab_id"]])["elements"][a["el"]]
         trusted = not a.get("page_mode") and a["kind"] not in ("select", "scroll")
+        refused = self.debugger_refused.get(a["tab_id"])
+        if refused and trusted:                                  # nothing sent: a known failure, never page events
+            return {"ok": False, "reason": "debugger_refused",
+                    "detail": f"the browser won't let FERB's debugger attach to this tab ({refused}), so real input "
+                              "can't reach it; nothing was done. page_mode=true sends page events to the page's own frames"}
+        if refused:
+            return {"ok": True, "detail": a["kind"] + " (page events)",
+                    "debugger_refused": f"the browser won't let FERB's debugger attach to this tab ({refused}): page "
+                                        "events only; this tab's dialogs, file choosers and downloads aren't watched"}
         if trusted:
             self._attach(a["tab_id"])                           # the debugger: on first use, kept for the tab's life
         if a["kind"] == "click" and el.get("dialog"):          # the click opens a dialog the extension must answer

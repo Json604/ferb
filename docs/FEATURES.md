@@ -384,7 +384,7 @@ All **Shipped** (`ferb --help`):
 ### 3.6 Browser control (Chromium extension)
 
 #### Extension, pairing and profiles
-- What: FERB's MV3 extension (`extensions/chromium`, version 0.15.6, protocol 17) is FERB's hands in Chrome, Brave,
+- What: FERB's MV3 extension (`extensions/chromium`, version 0.15.7, protocol 17) is FERB's hands in Chrome, Brave,
   Edge, Chromium and other Chromium browsers. It talks only to the FERB app through native messaging, only in paired
   profiles. On tabs a FERB task opened or claimed it reads pages (text and accessibility tree), clicks, types,
   scrolls, uploads, downloads, handles dialogs and takes tab screenshots. In paired profiles it also reports every

@@ -722,6 +722,17 @@ After the owner's update (2026-10-24):
   box"). Workers click it once, as you would, by the normal input route, then take a fresh look and wait for the page
   to continue. If a further challenge appears or the check still blocks, they quote the page's message and hand it to
   you as a short step for you to do.
+- Typing and clicking work on a page another browser extension put a frame into (P19, L25; extension 0.15.7, protocol
+  17 unchanged). Live 2026-10-24, visa login in your New_Personal Chrome profile: typing your username on the
+  Microsoft sign-in page failed twice with "Cannot access a chrome-extension:// URL of different extension; outcome
+  unknown", and the task fell back to Accessibility. That message means another extension has a frame in the page
+  (most likely your "Check US Visa Slots" extension, which runs on that sign-in site), and Chrome won't let an
+  extension's debugger attach to a tab when any frame in it belongs to another extension. FERB's real input needs the
+  debugger, and its page-events mode asked for it first too. Now such an act says so as a known failure (nothing was
+  done, so a retry isn't held for you) and names `page_mode=true`; page events then reach the page's own fields
+  through scripting, which never touches the other extension's frame, and the reply says the tab's dialogs, file
+  choosers and downloads aren't watched. New_Personal runs the Web Store copy: it gets 0.15.7 once that is uploaded
+  and published, or by Load unpacked from `~/.ferb/extensions/chromium` after `ferb setup --update`.
 
 Licensed under Apache-2.0.
 

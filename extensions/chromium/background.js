@@ -595,7 +595,8 @@ async function inputSetup(tabId) {
 async function arm(tabId) {
   const t = tabState(tabId);
   if (!t.attached) {
-    await chrome.debugger.attach({ tabId }, "1.3");
+    try { await chrome.debugger.attach({ tabId }, "1.3"); }
+    catch (e) { throw debuggerRefused(e); }
     t.attached = true; t.detached = null; t.ready = false; t.armed = false; t.emulated = false;   // a new session
   }
   if (t.armed) return t;
@@ -612,6 +613,17 @@ async function arm(tabId) {
   t.hookId = await installHook(tabId);
   await armPage(tabId, true);
   return t;
+}
+
+// The browser itself refused the debugger (chrome.debugger.attach threw): nothing was attached and nothing sent. Chrome
+// checks every frame in the tab and refuses the whole tab for one it won't let an extension debug, so one frame another
+// extension put into a page of the owner's sites ("Cannot access a chrome-extension:// URL of different extension")
+// keeps FERB's debugger off that tab while it is there; Chrome also detaches a session from such a tab when its page
+// navigates. Scripting still reaches the page's own frames: Chrome skips the other extension's frame there.
+function debuggerRefused(e) {
+  const refused = new Error(String(e && e.message || e));
+  refused.debuggerRefused = true;
+  return refused;
 }
 
 // The page hook (protocol.js PAGE_HOOK) in this session's documents, the current one included; best effort: without it
@@ -1409,9 +1421,25 @@ const commands = {
   async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
     if (["type","select","press"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
-    const state = await attach(tab_id), before = state.fileChoosers.length;
     const page = page_mode === true || kind === "select" || kind === "scroll";
-    const result = page ? await inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null])
+    const pageAct = () => inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null]);
+    let state;
+    try { state = await attach(tab_id); }
+    catch (e) {
+      if (!e.debuggerRefused) throw e;
+      // The browser won't let the debugger attach (debuggerRefused: e.g. another extension's frame in the tab): nothing
+      // was sent. Real input needs the debugger, so a trusted act is a known failure that says so, never page events
+      // by itself. Page events, asked for, go through scripting to the snapshot's frame (Chrome never lists or
+      // scripts another extension's frame for FERB); without the debugger nothing watches this tab's dialogs, file
+      // choosers or downloads, and the reply says so.
+      const why = `the browser won't let FERB's debugger attach to this tab (${e.message})`;
+      if (!page) return {ok: false, reason: "debugger_refused", detail: `${why}, so real input can't reach it; ` +
+        "nothing was done. page_mode=true sends page events to the page's own frames"};
+      return {...(await pageAct()), debugger_refused: `${why}: page events only; this tab's dialogs, file choosers ` +
+        "and downloads aren't watched"};
+    }
+    const before = state.fileChoosers.length;
+    const result = page ? await pageAct()
       : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
     const choosers = state.fileChoosers.slice(before);
     return choosers.length ? {...result, file_choosers:choosers} : result;

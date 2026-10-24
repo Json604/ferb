@@ -17,6 +17,85 @@ def test_trusted_action_never_silently_becomes_page_events() -> None:
     assert result["ok"] is False and "debugger unavailable" in result["detail"]
 
 
+# The owner's US-visa login tab (2026-10-24): another extension (most likely "Check US Visa Slots") has a frame
+# in the page. Chrome's two rules, as in its source: chrome.debugger.attach({tabId}) checks every frame in the tab and
+# refuses the whole tab for one frame of another extension (ExtensionMayAttachToWebContents ->
+# ExtensionMayAttachToURL -> kCannotAccessExtensionUrl); chrome.scripting.executeScript skips a frame it can't script
+# among several and fails only when that frame is the only one targeted (ScriptingExecuteScriptFunction).
+_OTHER_EXTENSION_FRAME = r'''
+  const OWN = "jaclnphefmmgmpofnabffahdkbjjompm", OTHER = "beepaenfejnphdgnkmccjcfiieihhogl";
+  const REFUSED = "Cannot access a chrome-extension:// URL of different extension";
+  chrome.runtime.id = OWN;
+  const frames = {0: "https://atlasauth.b2clogin.com/t/b2c_1a_atoproduction_atlas_susi/oauth2/v2.0/authorize",
+                  4: "chrome-extension://" + OTHER + "/sidepanel.html"};
+  const chromeWontTouch = url => url.startsWith("chrome-extension://") && new URL(url).host !== OWN;
+  const named = [], ranIn = [], typed = [], sent = [];
+  chrome.debugger.attach = async () => { if (Object.values(frames).some(chromeWontTouch)) throw new Error(REFUSED); };
+  chrome.debugger.sendCommand = async () => { throw new Error("Debugger is not attached to the tab with id: 5."); };
+  const pageWindow = {__ferb: {
+    snapshot: g => ({url: frames[0], title: "Sign in", text: "Sign in", iframes: [], scrollers: [],
+                     elements: [{id: 0, role: "textbox", label: "Email Address", rect: [0, 0, 200, 20], in_view: true}]}),
+    act: (g, i, k, t) => { typed.push([g, i, k, t]); return {ok: true, detail: "typed (page events)"}; },
+  }};
+  chrome.scripting = {executeScript: async ({target, func, args}) => {
+    if (target.frameIds) named.push(...target.frameIds);
+    const ids = target.allFrames ? Object.keys(frames).map(Number) : target.frameIds;
+    const results = [];
+    for (const id of ids) {
+      if (chromeWontTouch(frames[id])) { if (ids.length === 1) throw new Error(REFUSED); continue; }
+      ranIn.push(id);
+      globalThis.window = id === 0 ? pageWindow : {};
+      results.push({frameId: id, result: func ? func(...(args || [])) : undefined});
+    }
+    return results;
+  }};
+  gen = 1; send = async (type, body) => { if (type === "result") sent.push(body); };
+  const act = async (id, extra) => { await onCommand({gen: 1, id, op: "act", args: {tab_id: 5, frame_id: 0, snap: 1,
+    el: 0, kind: "type", text: "owner@example.com", ...extra}}); return sent.find(b => b.id === id); };
+'''
+
+
+def test_another_extensions_frame_never_fails_input_on_the_pages_own_frames() -> None:
+    """Real input needs FERB's debugger, which Chrome won't attach to such a tab: the act says so, as a known failure
+    with nothing done (never "outcome unknown", which holds the retry for the owner), and never turns into page events
+    by itself. Page events, asked for, reach the page's own field through scripting while the other extension's
+    frame is never named or scripted."""
+    result = worker('''(async () => {''' + _OTHER_EXTENSION_FRAME + '''
+      const snap = await commands.snapshot({tab_id: 5, snap: 1});
+      const trusted = await act("real");
+      const typedByRealInput = typed.length;
+      const page = await act("page", {page_mode: true});
+      return {snap, trusted, typedByRealInput, page, typed, named, ranIn};
+    })()''')
+    assert [f["frame_id"] for f in result["snap"]["frames"]] == [0]      # the other extension's frame isn't the page's
+    assert "different extension" in result["snap"]["frames"][0]["text"]
+    trusted = result["trusted"]
+    assert trusted["status"] == "ok" and trusted["outcome"] == "failed", trusted
+    assert trusted["value"]["ok"] is False and trusted["value"]["reason"] == "debugger_refused"
+    assert "different extension" in trusted["value"]["detail"] and "page_mode" in trusted["value"]["detail"]
+    assert result["typedByRealInput"] == 0                               # never silently page events
+    page = result["page"]
+    assert page["status"] == "ok" and page["outcome"] == "done", page
+    assert page["value"]["ok"] is True and page["value"]["detail"] == "typed (page events)"
+    assert "different extension" in page["value"]["debugger_refused"]   # says what isn't watched in this tab
+    assert result["typed"] == [[1, 0, "type", "owner@example.com"]]      # exactly the snapshot's field, once
+    assert 4 not in result["named"] and 4 not in result["ranIn"]
+
+
+def test_a_debugger_failure_after_it_attached_is_still_unknown_and_never_page_events() -> None:
+    """Only the browser's own refusal of chrome.debugger.attach (nothing attached, nothing sent) is a known failure;
+    a failure once the debugger is attached keeps failing the act as before, page events included."""
+    result = worker('''(async () => {''' + _OTHER_EXTENSION_FRAME + '''
+      delete frames[4];                                                  // the debugger attaches...
+      chrome.debugger.detach = async () => {};
+      chrome.debugger.sendCommand = async () => { throw new Error("tab never became ready for input"); };
+      const page = await act("page", {page_mode: true});
+      return {page, typed};
+    })()''')
+    assert result["page"]["status"] == "error" and result["page"]["outcome"] == "unknown", result["page"]
+    assert result["typed"] == []
+
+
 def test_confirmed_tab_close_does_not_detach_an_already_destroyed_target() -> None:
     result = worker('''(async () => {
       let alive = true;
