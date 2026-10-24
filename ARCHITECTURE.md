@@ -985,7 +985,12 @@ judged: `_verifier` keeps it as `checked_report` (reset with each attempt), the 
 report, and `_reconcile_resources`, the review after cleanup ([`resources.md`](ferb/orchestrator/prompts/resources.md)),
 may still lower the status, its own words then saying why, but never writes new done wording; its summary stays in the
 `model.resources` span, which the story shows as an "after cleanup: …" Planner step. In task `79bc5bfa` the
-after-cleanup rewording became the answer and dropped that FERB, not Codex Astra, had made the submission. The story's
+after-cleanup rewording became the answer and dropped that FERB, not Codex Astra, had made the submission. When cleanup
+left nothing to decide (`supervisor._left_as_intended`: a release with no cleanup error, every resource a tab still
+open, kept open as asked or the owner's borrowed tab let go of without closing) no review model runs and a
+`resources.skipped` span lists what was released (owner, 2026-10-25: "Skip when nothing changed"; live a1f16a32 and
+cc5debe4 spent 6–9 s reviewing a tab kept as intended). A closed tab, an ended listen, recording or process, an
+unconfirmed release or anything unrecognised is still reviewed. The story's
 "checked nothing — N conditions unknown" counts the report condition.
 
 **Read-only checker (V3, W4).** The checker's run token is observe-only (`RunGrant.observe_only` in

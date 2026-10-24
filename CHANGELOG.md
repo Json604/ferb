@@ -909,6 +909,11 @@ After the owner's update (2026-10-24):
   the check. It counts as look-only only when every call just read (or borrowed or kept a tab) and its probe reads a
   tab or video the round itself looked at; a round that plays, clicks, reloads or navigates, sends or asks you
   anything, or reports the loop finished, is still checked. `ferb trace` shows `verify.skipped` with why.
+- No resource review when cleanup changed nothing (L31; your decision, 2026-10-25: "Skip when nothing changed"). After
+  a step that borrowed your tab and kept it, a review model ran for 6–9 s (a1f16a32, cc5debe4) although the tab had
+  been kept and let go of as intended. When every tab is still open (kept as asked, or your own tab let go of without
+  closing) and nothing failed, FERB skips it; `ferb trace` shows `resources.skipped`. A closed tab, an ended listen,
+  recording or process, or a release the browser didn't confirm is still reviewed.
 
 Licensed under Apache-2.0.
 

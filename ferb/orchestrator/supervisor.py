@@ -3344,12 +3344,20 @@ class Supervisor(WorkerRuns):
             raise
 
     async def _reconcile_resources(self, tree: _Tree, parent_span: str) -> None:
-        """Judge the requested final state after resource release, when earlier inspections can be stale."""
+        """Judge the requested final state after resource release, when earlier inspections can be stale. When cleanup
+        left nothing to decide (`_left_as_intended`) no model runs (owner, 2026-10-25: "Skip when nothing changed"):
+        a `resources.skipped` span records what was released, and the outcome stands as checked."""
         out = tree.outcome or Outcome(tree.worker.id, 'failed', 'No task report was received.', [], [])
         observations = {'report': {'status': out.status, 'summary': out.summary, 'artifacts': out.artifacts,
                                    'evidence': out.evidence},
                         'inspection_before_cleanup': [r.as_dict() for r in tree.verification],
                         'resources_after_cleanup': tree.resources, 'cleanup_errors': tree.cleanup_errors}
+        if _left_as_intended(tree.resources, tree.cleanup_errors):
+            skipped = self.spans.start('resources.skipped', task_id=tree.worker.id, parent_id=parent_span,
+                                       input={'resources_after_cleanup': tree.resources})
+            self.spans.finish(skipped, output={'review': 'not run: every tab was kept open or let go of without '
+                                                         'closing, with no cleanup error'})
+            return
         ctx = (await self._context(tree)) + [ContextBlock('Final lifecycle observations (data): ' +
                wrap_untrusted(json.dumps(observations)), 'current lifecycle observations', protected=True)]
         system = self._system("resources.md")
@@ -3556,6 +3564,17 @@ REPORT_UNCHECKED = "Whether what I reported matches the records"
 WATCH_FALSE = "What I reported about whether it has happened didn't match the records"
 WATCH_UNKNOWN = "I couldn't confirm whether it has happened"
 WATCH_UNCHECKED = "Whether it has happened"
+
+
+def _left_as_intended(resources: list[dict[str, Any]], errors: list[str]) -> bool:
+    """Cleanup left nothing for the resource review to decide (owner, 2026-10-25: "Skip when nothing changed"; live
+    a1f16a32 and cc5debe4: 6-9 s of review after a step whose tab was kept and let go of as intended): there was a
+    release, no cleanup error, and every released resource is a tab still open, kept open as the worker asked or the
+    owner's borrowed tab let go of without closing. A closed tab, an ended listen or recording or process, a release
+    the browser didn't confirm, or anything unrecognised is still reviewed."""
+    return bool(resources) and not errors and all(
+        isinstance(r, dict) and r.get('released') is True and r.get('closed') is False and not r.get('error')
+        and (r.get('kept_open') is True or r.get('borrowed') is True) for r in resources)
 
 
 def _sentence(text: str) -> str:
