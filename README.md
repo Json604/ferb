@@ -466,7 +466,7 @@ Letters from another alphabet that only look like "FERB" aren't caught in those 
 words: a plain "Yes" or "No" answers one of FERB's checks only when FERB can tell which question it is for; if it could
 answer more than one, FERB asks which. FERB asks only for these (Enter counts as No in the terminal):
 - money: a payment, always;
-- account security: a change to a password, sign-in or recovery setting, always;
+- account security: a change to a password, two-factor or recovery setting, or deleting the account, always;
 - a permanent delete of something you didn't name (a folder shows its count, size and a sample);
 - sending as you to someone new: a message, post or call to someone you didn't name, or to a contact it can't name
   ("Rahul" names "Rahul Verma"; typed in lower case, only the full name counts), unless a standing permission covers it;

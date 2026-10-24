@@ -204,7 +204,8 @@ def _need(rule: str, **values: str) -> Any:
     ([_need('floor:pay', amount='20', site='amazon.com', account='', recipients='')],
      'FERB wants to pay 20 on amazon.com.'),
     ([_need('floor:account_security', site='accounts.google.com', account='me@x.com')],
-     'FERB wants to change a password, sign-in or recovery setting on accounts.google.com for me@x.com.'),
+     'FERB wants to change account security (a password, two-factor or recovery setting, or deleting the account) on '
+     'accounts.google.com for me@x.com.'),
     ([_need('floor:delete_permanent', path='/Users/k/Desktop/old.txt')],
      'FERB wants to permanently delete /Users/k/Desktop/old.txt, skipping the Trash.'),
     ([_need('floor:delete_permanent', path='"Sprint notes"', place='notion.so')],

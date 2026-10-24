@@ -39,6 +39,8 @@ from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
 ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"}
+# What an account-security change is, as FERB's question names it (the worker prompt's and the effect help's words)
+ACCOUNT_SECURITY = "a password, two-factor or recovery setting, or deleting the account"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
 SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one Yes/No covers it, shell and browser
@@ -504,7 +506,7 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
         return (f"this pays {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
                 + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
     if n.rule == "floor:account_security":
-        return ("this changes account security (a password, sign-in or recovery setting)" +
+        return (f"this changes account security ({ACCOUNT_SECURITY})" +
                 (f" on {v['site']}" if v["site"] else "") + (f" for {v['account']}" if v["account"] else ""))
     if n.rule == "floor:delete_permanent" and v.get("place"):
         return f"this permanently deletes {v['path']} on {v['place']} (it can't be undone)"
@@ -562,7 +564,7 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
         return (f"pay {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
                 + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
     if n.rule == "floor:account_security":
-        return ("change a password, sign-in or recovery setting" + (f" on {v['site']}" if v["site"] else "")
+        return (f"change account security ({ACCOUNT_SECURITY})" + (f" on {v['site']}" if v["site"] else "")
                 + (f" for {v['account']}" if v["account"] else ""))
     if n.rule == "floor:delete_permanent" and v.get("place"):
         return f"permanently delete {v['path']} on {v['place']}"

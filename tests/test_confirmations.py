@@ -507,8 +507,8 @@ def test_line_reads_in_the_owners_terms() -> None:
         "FERB: this pays 12.5 to x@y.com on shop.example from visa:1234. The step: probe.pay to=x@y.com. Go ahead?")
     sec = _decide(Kind.ACCOUNT_SECURITY, Target(site="accounts.example"), {})
     assert confirm.line(sec, "s", "the owner asked") == (
-        "FERB: this changes account security (a password, sign-in or recovery setting) on accounts.example. The step: "
-        's. Reason given: "the owner asked". Go ahead?')
+        "FERB: this changes account security (a password, two-factor or recovery setting, or deleting the account) on "
+        'accounts.example. The step: s. Reason given: "the owner asked". Go ahead?')
     both = _decide(Kind.SEND, Target(recipients=("b@x.com",)), {"recipient:0": ["external:email:e1"]})
     assert confirm.line(both, "c", "") == (
         "FERB: this sends to b@x.com, whom you didn't name in this request; the recipient b@x.com came from outside "

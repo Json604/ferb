@@ -1482,7 +1482,8 @@ the owner must answer first (`confirm.decide`):
   kartikey.xyz", "a message, wa:123", "an email", "text you pasted", "something FERB remembered", "pages you
   visited", "content FERB couldn't label"; no internal ids or app ids), three at most and the rest counted:
   - `FERB: this pays <amount> to <recipients> on <app or site> from <account>.`
-  - `FERB: this changes account security (a password, sign-in or recovery setting) on <site>.`
+  - `FERB: this changes account security (a password, two-factor or recovery setting, or deleting the account) on
+    <site>.`
   - `FERB: this permanently deletes <path> (it skips the Trash).`
   - `FERB: this sends to <recipients>, whom you didn't name in this request.` (`this calls …` for a call)
   - `FERB: this sends in <app> to a contact it doesn't name.` (`this starts a call in <app> with …` for a call)
