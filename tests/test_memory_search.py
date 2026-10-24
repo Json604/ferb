@@ -391,5 +391,5 @@ def test_memory_read_query_leaves_out_a_retired_item(daemon: Any) -> None:
     gone = owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
     reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
     assert [i["id"] for i in daemon.run(reader.run(MemoryRead.Input(query="dentist"), None)).content["items"]] == [gone.id]
-    daemon.run(lambda: daemon.daemon.memory.retract(gone.id, "outdated"))
+    run(daemon, lambda: daemon.daemon.memory.retract(gone.id, "outdated"))
     assert daemon.run(reader.run(MemoryRead.Input(query="dentist"), None)).content["items"] == []
