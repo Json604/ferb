@@ -361,7 +361,7 @@ class LoopRunner:
                 continue
             if result['status'] != 'done' and result.get('probe') is None:
                 continue        # a failed round fixed nothing: the armed probe and its stored baseline carry on
-            probe, baseline, reason = await self._arm(result.get('probe'))
+            probe, baseline, reason = await self._arm(result.get('probe'), bool(result.get('unchecked')))
         self._set('stopped')
         return {'status': 'cancelled', 'summary': 'Stopped by you.', 'rounds': self.row['rounds']}
 
@@ -374,13 +374,15 @@ class LoopRunner:
         return f"I've paused keeping this going: {short_label(step.goal)}. {' '.join(str(why).split())} " \
                'Reply to continue, or say stop.'
 
-    async def _arm(self, probe: Probe | None) -> tuple[Probe | None, Any, dict[str, Any] | None]:
+    async def _arm(self, probe: Probe | None, unchecked: bool = False) -> tuple[Probe | None, Any, dict[str, Any] | None]:
         """Code's checks, then one read as the baseline. A probe that is refused, can't read or can't see its field is
         disarmed: the next round is told why and the loop runs on its other wakers and the backup interval. A baseline
         that already trips it (equals/not_equals; `changed` can't) isn't armed either: it is recorded as a trip and
         counted as one (`_count_trip`), and the reason for the next round comes back, so that round starts at once,
         paced like any trip, and is told its probe likely watches another element (live 2026-10-24: media.44 of a feed
-        whose list positions shift)."""
+        whose list positions shift). A round that skipped its model check (`unchecked`, a look-only round) counted on
+        this first read as its check: when its probe isn't armed with a baseline, the next round starts at once the
+        same way, told why, never only the backup interval (review I2)."""
         note, baseline, reason = '', None, None
         if probe is not None:
             note = self.arm(probe) or ''
@@ -406,6 +408,8 @@ class LoopRunner:
                     baseline = value
                     self.record('baseline', probe, value, None, origins, 0)
         armed = probe if probe is not None and not note else None
+        if armed is None and unchecked and reason is None:
+            reason = {'why': 'probe', 'observed': None, 'error': note or 'the probe was not armed'}
         self._save(probe_json=armed.model_dump_json() if armed else None,
                    baseline_json=json.dumps(baseline) if armed else None, reads=0, note=note)
         if reason is not None:

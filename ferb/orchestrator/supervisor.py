@@ -2815,7 +2815,8 @@ class Supervisor(WorkerRuns):
             if unknown and status not in ('needs_user', 'blocked'):
                 status, question = 'blocked', LOOP_UNKNOWN       # the loop waits for the owner
             result = {'status': status, 'summary': member.owner_answer or out.summary, 'evidence': out.evidence,
-                      'loop_action': member.loop_action, 'finished_verified': finished, 'question': question}
+                      'loop_action': member.loop_action, 'finished_verified': finished, 'question': question,
+                      'unchecked': bool(member.unchecked)}
             self.spans.finish(round_span, output=result | {'probe': probe.model_dump() if probe else None})
             self.journal.append('loop.round', {'task_id': tree.id, 'step': step.id, 'number': cause.get('number'),
                                                **result},
@@ -3185,11 +3186,22 @@ class Supervisor(WorkerRuns):
         or a probe on something the round never looked at)."""
         if not tree.calls_since or tree.loop_action != 'continue' or tree.probe is None:
             return ''
+        try:
+            return self._look_only_note(tree)
+        except Exception:                    # whatever can't be worked out keeps the check (fail closed)
+            return ''
+
+    def _look_only_note(self, tree: _Tree) -> str:
+        probe, task = self._resolved_probe(tree.probe), tree.worker
+        if probe is None or resolve_tool(probe.tool, self.gateway.caps)[1] or \
+                refusal(probe, self.gateway.caps.get(probe.tool), task.scopes, task.identity):
+            return ''                        # a probe that won't arm never reads: no first read checks this round (I2)
         rows = self.journal.db.conn.execute("SELECT input_json, output_json FROM spans WHERE task_id = ? AND "
                                             "kind = 'tool.call' AND rowid > ? ORDER BY rowid",
-                                            (tree.worker.id, tree.calls_since))
+                                            (task.id, tree.calls_since))
         calls = [json.loads(row[0]) | {'output': json.loads(row[1]) if row[1] else None} for row in rows]
-        note = look_only_round(calls, self._resolved_probe(tree.probe), self.gateway.caps)
+        held = [str(v) for t in self.task_tabs(task.id) for v in (t.get('tab'), t.get('tab_ref')) if v]
+        note = look_only_round(calls, probe, self.gateway.caps, held)
         return str(self.gateway.redact({'note': note})['note']) if note else ''
 
     async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str) -> DispatchOutcome:

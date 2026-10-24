@@ -213,6 +213,7 @@ import asyncio  # noqa: E402
 import time  # noqa: E402
 
 from ferb.orchestrator.loops import BACKUP_SECONDS, PROBE_SECONDS, LoopRunner, loop_line, round_reason  # noqa: E402
+from ferb.orchestrator.probes import MISSING  # noqa: E402
 from tests.support.loop_fakes import Harness, probe, round_result  # noqa: E402
 
 
@@ -2528,6 +2529,54 @@ def test_a_look_only_round_still_releases_its_check_resources(bd, monkeypatch):
         sv = d.daemon.supervisor
         _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
         assert _span_kinds(d, 'verify.skipped') and f'{tree_id}.loop.keep.verify' in ended
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+@pytest.mark.parametrize('refuse, read', [
+    ('test.state is outside this task', []),                       # refused at arming
+    (None, [(None, 'the tab is gone')]),                           # its first read errors
+    (None, [(MISSING, None)]),                                      # its field isn't in the result
+])
+def test_an_unchecked_round_whose_probe_does_not_arm_starts_the_next_round_at_once(db, refuse, read):
+    """Review I2: a round that skipped its check counts on its probe's first read as the check. When that probe can't
+    be armed with a baseline, nothing checked the round and nothing watches: the next round starts at once (paced like
+    a trip, told why), never the 30-minute backup."""
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()) | {'unchecked': True}, round_result(p=None)], list(read),
+                refuse=refuse)
+    h.run()
+    assert h.round_times[1] - h.round_times[0] < 60                 # not the backup check, 30 minutes on
+    assert h.reasons[1]['why'] == 'probe' and h.reasons[1].get('probe_refused')
+
+
+def test_a_checked_round_whose_probe_is_refused_still_falls_back_to_the_backup_check(db):
+    h = Harness(db, _clock(), KEEP, [round_result(p=probe()), round_result(p=None)], [], refuse='outside this task')
+    h.run()
+    assert h.round_times[1] - h.round_times[0] >= BACKUP_SECONDS
+
+
+def test_a_look_only_round_whose_probe_cannot_be_a_probe_is_checked(bd, monkeypatch):
+    """Review I2: browser.read pages a saved snapshot and is no probe (`probe_safe`): its round is checked, since no
+    first read will ever check it."""
+    from tests.conftest import done, install, sup, tool
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+
+    def act(token):
+        tab = tool(d.sock, token, 'browser.use_tab', tab_ref=OWNER_REF)['content']['tab']
+        assert not tool(d.sock, token, 'browser.snapshot', tab=tab)['is_error']
+        assert not tool(d.sock, token, 'browser.read', tab=tab)['is_error']
+        return json.dumps({'status': 'done', 'summary': 'Playing.', 'artifacts': [], 'evidence': [], 'answer': 'Playing.',
+                           'loop_action': 'continue', 'probe': {'tool': 'browser_read', 'args_json': json.dumps(
+                               {'tab': tab}), 'field': 'text', 'op': 'changed', 'value_json': 'null'}})
+    script = install(d, [sup('task', 'Keeping it playing.', _owner_loop())], {'loop.keep': [act], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 1)
+        assert _checks(script) == 1 and _span_kinds(d, 'verify.skipped') == []
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
