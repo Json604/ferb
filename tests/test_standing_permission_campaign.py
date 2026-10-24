@@ -676,7 +676,7 @@ def test_the_prompts_carry_the_declaration_and_the_campaign_scope() -> None:
     worker = " ".join((prompts / "worker.md").read_text().split())
     supervisor = " ".join((prompts / "supervisor.md").read_text().split())
     for words in ("`send` only when the action delivers the owner's message, post or email to people or a public "
-                  "audience", "`pay` only on the final Pay or confirm control", "`account_security` for a password",
+                  "audience", "`pay` only on the final Pay or confirm control", "`account_security` only for changing a password",
                   "Put what it reaches in `destination`", "never only in `why`",
                   "a declaration never grants permission, so never declare a milder kind"):
         assert words in worker, words

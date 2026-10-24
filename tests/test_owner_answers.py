@@ -376,7 +376,8 @@ def test_workers_declare_the_true_kind_of_consequential_actions() -> None:
     assert "declare the true kind of every consequential browser or app" in interaction
     # Task 18 owns the declaration wording (narrow send, pay on the final control, account_security, destination)
     for kind in ("effect send", "`pay` only on the final Pay or confirm control", "`destroy` for a permanent delete",
-                 "`account_security` for a password", "account-security change", "purpose send or call"):
+                 "`account_security` only for changing a password", "account-security change",
+                 "purpose send or call"):
         assert kind in worker, kind
     assert "never ask the owner to confirm yourself" in worker
 
