@@ -167,7 +167,9 @@ class DisturbanceSentinel:
         if task_id not in self.active:
             return
         await self.sample()
-        observed = self.active.pop(task_id)
+        observed = self.active.pop(task_id, None)
+        if observed is None:                      # finished meanwhile: the tree's own end and shutdown's both ran
+            return
         self.record(task_id, "disturbance.summary", {
             "samples": observed.samples, "changes": observed.changes, "errors": observed.errors,
             "unavailable": observed.unavailable, "sample_interval_s": self.interval_s,

@@ -337,3 +337,16 @@ async def test_a_pause_that_begins_during_a_read_drops_what_was_read():
                                                 "disturbance.baseline", "disturbance.summary"]
     unread = [d for _, kind, d in records if kind != "disturbance.baseline"]
     assert listed == [] and "Google Chrome" not in json.dumps(unread)
+
+
+@pytest.mark.anyio
+async def test_a_task_finished_twice_at_once_is_summarized_once():
+    """A tree's own end and the daemon's shutdown can finish its observation at the same moment; each waits on a
+    sample first. The second finds it already finished (it raised KeyError at shutdown, seen under parallel test load)
+    and the summary is recorded once."""
+    records = []
+    sentinel = DisturbanceSentinel(lambda: {"cursor": [0, 0]}, lambda *r: records.append(r), interval_s=60)
+    await sentinel.start("tree")
+    await asyncio.gather(sentinel.finish("tree"), sentinel.shutdown())
+    assert [kind for _, kind, _ in records].count("disturbance.summary") == 1
+    assert not sentinel.active and sentinel._sampler is None
