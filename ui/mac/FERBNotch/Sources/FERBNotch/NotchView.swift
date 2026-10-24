@@ -49,7 +49,8 @@ struct NotchView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(model.session.phase == .working ? "FERB is working. Open activity." : "Open FERB")
+                .accessibilityLabel(model.session.phase == .working && !model.isStanding(model.session)
+                                    ? "FERB is working. Open activity." : "Open FERB")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

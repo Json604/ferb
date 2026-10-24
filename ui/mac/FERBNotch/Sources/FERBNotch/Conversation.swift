@@ -6,11 +6,20 @@ extension NotchModel {
     /// Typing stays enabled while a question is open; the question is shown inline in the chat (spec §4.7).
     var canCompose: Bool { session.phase != .listening }
     var hasRunningWork: Bool { activeTaskCount > 0 }
-    var displayPhase: SessionPhase { !pendingApprovals.isEmpty ? .attention : (hasRunningWork && session.phase != .attention ? .working : session.phase) }
+    var displayPhase: SessionPhase {
+        if !pendingApprovals.isEmpty { return .attention }
+        if hasRunningWork && session.phase != .attention { return .working }
+        return session.phase == .working && isStanding(session) ? .ready : session.phase
+    }
     var workStatus: String {
-        let active = workSessions.values.filter { $0.activeTaskID != nil }
+        let active = workSessions.values.filter { $0.activeTaskID != nil && !isStanding($0) }
         if active.count > 1 { return "\(active.count) requests running" }
-        return (session.activeTaskID != nil ? session : active.first)?.activity.last?.title ?? "Working…"
+        return (session.activeTaskID != nil && !isStanding(session) ? session : active.first)?.activity.last?.title ?? "Working…"
+    }
+    /// A session whose task is a loop between its rounds (L31): standing work, not running work, until a round acts.
+    func isStanding(_ work: NotchSession) -> Bool {
+        guard let id = work.backendTaskID, let loop = standingWork[id] else { return false }
+        return loop.state != "acting"
     }
     var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
     /// Open questions, shown at the end of today's chat.

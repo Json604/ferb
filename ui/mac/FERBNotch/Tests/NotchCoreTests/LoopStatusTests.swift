@@ -133,6 +133,45 @@ final class LoopStatusTests: XCTestCase {
         XCTAssertEqual(model.activeTaskCount, 1)          // t2 runs on; its loop step stopped
     }
 
+    /// The chat that asked for the loop keeps its session open until the loop's outcome; between rounds it is standing
+    /// work, not "Working" (no amber dot, not in the work status), while an acting round still shows working.
+    func testTheRequestingChatIsReadyBetweenRoundsAndWorkingWhileARoundActs() {
+        let model = makeModel()
+        model.session.draft = "keep this tab playing"
+        let local = model.session.beginWork()!
+        model.session.bindBackendTask("t1", localID: local)
+        model.session.noteBackendActivity("Keeping the tab playing")
+        model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "t1", "goal": "Keep the tab playing"]])
+        model.receiveBusEvent(loopStatus("t1", state: "acting", rounds: 0, lastRoundEnd: NSNull(), gap: 0))
+        XCTAssertEqual(model.displayPhase, .working)
+        XCTAssertEqual(model.workStatus, "Keeping the tab playing")
+        for state in ["watching", "backing_off", "paused"] {
+            model.receiveBusEvent(loopStatus("t1", state: state, rounds: 1, lastRoundEnd: NSNull(), gap: 0))
+            XCTAssertEqual(model.displayPhase, .ready, state)
+            XCTAssertEqual(model.workStatus, "Working…", state)
+        }
+        model.receiveBusEvent(loopStatus("t1", state: "acting", rounds: 1, lastRoundEnd: NSNull(), gap: 0))
+        XCTAssertEqual(model.displayPhase, .working)
+    }
+
+    func testAStandingLoopInABackgroundSessionLeavesOtherWorkShowing() {
+        let model = makeModel()
+        model.session.draft = "keep this tab playing"
+        let loopLocal = model.session.beginWork()!
+        model.session.bindBackendTask("t1", localID: loopLocal)
+        model.workSessions[loopLocal] = model.session
+        model.session = NotchSession()
+        model.session.draft = "book the table"
+        let local = model.session.beginWork()!
+        model.session.bindBackendTask("a", localID: local)
+        model.session.noteBackendActivity("Booking the table")
+        model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "t1", "goal": "Keep the tab playing"]])
+        model.receiveBusEvent(["topic": "task.created", "data": ["task_id": "a", "goal": "Book the table"]])
+        model.receiveBusEvent(loopStatus("t1", state: "watching", rounds: 1, lastRoundEnd: NSNull(), gap: 0))
+        XCTAssertEqual(model.displayPhase, .working)       // the booking runs
+        XCTAssertEqual(model.workStatus, "Booking the table")
+    }
+
     private func makeModel(_ rpc: DaemonRPCTransport = QuietRPC()) -> NotchModel {
         NotchModel(rpc: rpc, preferences: UserDefaults(suiteName: UUID().uuidString)!)
     }
