@@ -761,14 +761,14 @@ def test_a_steer_acknowledgement_is_one_short_line_with_the_full_goal_under_deta
     """Owner, 2026-10-24: "whenever i change something in a task it replies with this big ass message: 'Switched to:
     <the whole rewritten goal>' ... can we fix this somehow???". The short line repeats your correction on one line,
     clipped; the full text (Details in the app, the journal's record) keeps it whole with the updated goal."""
-    from ferb.orchestrator.steering import SHOWN_WORDS, acknowledgement
+    from ferb.orchestrator.steering import SHOWN_CHARS, acknowledgement
     words = 'actually  use the 9:30 slot instead,\nand book it under my work email ' + 'please ' * 40
     goal = 'Book the earliest US visa appointment slot at 9:30 ' + 'with every detail spelled out ' * 20
     text, short = acknowledgement(words, goal, delivered=False, stated=None)
     said = ' '.join(words.split())
     assert short.startswith('Got it: actually use the 9:30 slot instead, and book it under my work email please')
     assert short.endswith("… I'll apply it at my next step.") and '\n' not in short
-    assert len(short) <= len('Got it: ') + SHOWN_WORDS + len(" I'll apply it at my next step.")
+    assert len(short) <= len('Got it: ') + SHOWN_CHARS + len(" I'll apply it at my next step.")
     assert text == f"Got it: {said}\nUpdated task: {goal}\nI'll apply it at my next step."
     assert goal not in short
 
