@@ -300,17 +300,16 @@ async def _resume_cached(runtime: CodexRuntime, run: RunHandle, request: ModelRe
     try:
         path = write_template(codex_home, workdir, thread_id, runtime.model, request.system)
     except OSError as exc:
-        return _cache_fallback(runtime, f'the planner template could not be written ({type(exc).__name__})')
-    try:
-        thread = await _rpc(run, 'thread/resume', _resume_params(runtime, request, workdir, thread_id, path))
-    except (ProtocolError, OSError) as exc:
-        return _cache_fallback(runtime, str(exc) or type(exc).__name__)
-    if not _isolated(thread, runtime) or thread.get('thread', {}).get('id') != thread_id:
-        return _cache_fallback(runtime, "the resumed planner thread did not match FERB's isolation")
-    return thread_id
-
-
-def _cache_fallback(runtime: CodexRuntime, why: str) -> None:
+        why = f'the planner template could not be written ({type(exc).__name__})'
+    else:
+        try:
+            thread = await _rpc(run, 'thread/resume', _resume_params(runtime, request, workdir, thread_id, path))
+        except (ProtocolError, OSError) as exc:
+            why = str(exc) or type(exc).__name__
+        else:
+            if _isolated(thread, runtime) and thread.get('thread', {}).get('id') == thread_id:
+                return thread_id
+            why = "the resumed planner thread did not match FERB's isolation"
     if runtime.on_cache_fallback is not None:
         runtime.on_cache_fallback(why)
     return None
