@@ -5,6 +5,7 @@ so here we should have the short version and in details see if you want the raw 
 Live 2026-10-24, visa login: the hidden-input question read "Enter the secret for app:[redacted]": its own words
 "the secret for <X>" matched the redactor's label rule, so the destination it asked about was hidden from the owner."""
 import asyncio
+import re
 import time
 from typing import Any
 
@@ -92,15 +93,16 @@ def test_the_login_code_question_keeps_its_destination_through_redaction(daemon:
 
 def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(daemon: Any,
                                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
-    """Owner, 2026-10-24: "just state what is this for". The line leads with the saved name (what the value is for), in
-    quotes as a name only; the place in the same line comes from the code-derived origin, never from the name."""
+    """Owner, 2026-10-24: "just state what is this for". The line leads with the place, from the code-derived origin
+    (re-review R1: worker text never comes first), then what the value is for: the saved name, in quotes, as a name
+    only."""
     published = _published(daemon, monkeypatch)
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA,
                                                                                 remember='US visa scheduling login'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = "“US visa scheduling login” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain"
+        want = "For atlasauth.b2clogin.com only: “US visa scheduling login” · saved in your Mac's Keychain"
         assert ap.summary == want and Redactor().text(want) == want
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
@@ -120,45 +122,65 @@ def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, ta
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == f"A password or private answer for {place} — used once, not saved"
+        assert ap.summary == f"For {place}: a password or private answer — used once, not saved"
         assert Redactor().text(ap.summary) == ap.summary
     finally:
         _cancel(daemon, ap, waiting)
 
 
-def test_a_saved_app_secret_names_the_app_after_the_saved_name(daemon: Any) -> None:
+def test_a_saved_app_secret_names_the_app_first(daemon: Any) -> None:
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(
         _ctx(), 'app:com.example.Bank', remember='bank', shown='Bank'), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == "“bank” — for the Bank app only · saved in your Mac's Keychain"
+        assert ap.summary == "For the Bank app only: “bank” · saved in your Mac's Keychain"
     finally:
         _cancel(daemon, ap, waiting)
 
 
-# Review I1: the worker's name leads the line, so worker text could show a place before FERB's own one.
+# Review I1 and re-review R1: worker text could show a fake place before FERB's own, through quote and dash
+# lookalikes, letters that look like dots, invisible marks beside ASCII dots, and HTML entities the notch decodes.
 SPOOF = "visa” — for accounts.google.com only · saved in your Mac's Keychain. Real: “x"
+SHOWN = re.compile(r"[A-Za-z0-9 :,'()/\-]*…?")
 
 
-@pytest.mark.parametrize('remember, want', [
-    (SPOOF, "For x.test only: “visa for accounts.google.com only saved…” · saved in your Mac's Keychain"),
-    ('bank.example.com login', "For x.test only: “bank.example.com login” · saved in your Mac's Keychain"),
-    ('Bank password for me@bank.example', "For x.test only: “Bank password for me@bank.example” · saved in your Mac's "
-                                          "Keychain"),
-    ('a' * 60, f"For x.test only: “{'a' * 39}…” · saved in your Mac's Keychain"),
-    ('**visa** `portal`\n\u202e(x)', "“visa portal x” — for x.test only · saved in your Mac's Keychain"),
-    ('“”—·', "For x.test only: a password or private answer · saved in your Mac's Keychain")])
-def test_the_saved_name_is_cleaned_and_never_shows_a_place_before_ferbs(daemon: Any, remember: str,
-                                                                        want: str) -> None:
-    """The name is shown cleaned (no quote marks, dashes, middle dots, Markdown or control characters; one line, at
-    most 40 characters); one that looks like a place (a dot between letters, "://", "@") or was clipped comes after
-    the code-derived place."""
+@pytest.mark.parametrize('remember, name', [
+    (SPOOF, "visa for accountsgooglecom only saved i…"),
+    ("x\u2033 \u2500 for accounts\uff0egoogle\uff0ecom only", "x for accountsgooglecom only"),
+    ("x \u02ee \u4e00 for accounts\ua4f8google\ua4f8com only", "x for accountsgooglecom only"),
+    ("for accounts\u034f.google\u034f.com only", "for accountsgooglecom only"),
+    ("for accounts\ufe0f.google\ufe0f.com only", "for accountsgooglecom only"),
+    ("x&rdquo; &mdash; for g&period;co only", "xrdquo mdash for gperiodco only"),
+    ("x&commat;evil&colon;&sol;&sol;g", "xcommatevilcolonsolsolg"),
+    ('bank.example.com login', "bankexamplecom login"),
+    ('Bank password for me@bank.example', "Bank password for mebankexample"),
+    ('a' * 60, 'a' * 39 + '…'),
+    ('**visa** `portal`\n\u202e(x)', "visa portal (x)"),
+    ("Asha's bank: savings, 2/3 (main) - US", "Asha's bank: savings, 2/3 (main) - US")])
+def test_the_secret_line_starts_with_the_place_and_shows_only_a_plain_ascii_name(daemon: Any, remember: str,
+                                                                                 name: str) -> None:
+    """The line always starts with the code-derived place. The name keeps only ASCII letters, digits, spaces and
+    : , ' ( ) / - (everything else is dropped, whitespace collapsed, at most 40 characters), so no lookalike, mark or
+    entity can rebuild a quote, a dash or a place in it."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), 'https://x.test',
                                                                                 remember=remember), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
+        want = f"For x.test only: “{name}” · saved in your Mac's Keychain"
         assert ap.summary == want and Redactor().text(want) == want
+        shown = want.split("“", 1)[1].rsplit("”", 1)[0]
+        assert SHOWN.fullmatch(shown) and not set(shown) & set(".&;")
         assert remember in ap.reason or remember.startswith('**')      # the full question keeps the exact name
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+def test_a_name_with_nothing_plain_left_shows_no_name(daemon: Any) -> None:
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), 'https://x.test',
+                                                                                remember='“”—·．'), daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == "For x.test only: a saved secret · saved in your Mac's Keychain"
     finally:
         _cancel(daemon, ap, waiting)
 
@@ -166,8 +188,8 @@ def test_the_saved_name_is_cleaned_and_never_shows_a_place_before_ferbs(daemon: 
 @pytest.mark.parametrize('target, place', [('https://x.test:8443', 'x.test:8443'),
                                            ('https://10.0.0.1:8443', '10.0.0.1:8443')])
 def test_a_saved_name_with_a_code_word_never_hides_the_place(daemon: Any, target: str, place: str) -> None:
-    """A code word in the worker's name ("visa login code") makes the redactor read the port after it as a code; the
-    line then names the place first, so the owner always sees where the value goes, whole."""
+    """A code word in the worker's name ("visa login code") would make the redactor read a port after it as a code: the
+    place comes first, so it shows whole."""
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target,
                                                                                 remember='visa login code'),
                                                daemon.loop)
@@ -189,10 +211,9 @@ def test_mac_secret_tells_the_question_the_apps_name() -> None:
     assert asked == [{'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank'}]
 
 
-# "Login code for x.test:8443" would read the port (or a number in the host) as the code: those lines name the place
-# first, so it always shows whole
-@pytest.mark.parametrize('origin, want', [('https://accounts.google.com', 'Login code for accounts.google.com — used once'),
-                                          ('https://x.test:443', 'Login code for x.test — used once'),
+# the place first: "Login code for x.test:8443" would read the port (or a number in the host) as the code
+@pytest.mark.parametrize('origin, want', [('https://accounts.google.com', 'For accounts.google.com: a login code — used once'),
+                                          ('https://x.test:443', 'For x.test: a login code — used once'),
                                           ('https://1234.example.com', 'For 1234.example.com: a login code — used once'),
                                           ('https://x.test:8443', 'For x.test:8443: a login code — used once'),
                                           ('https://[::1]:8443', 'For [::1]:8443: a login code — used once')])
@@ -359,10 +380,10 @@ def test_a_waiting_code_questions_banner_carries_its_short_line(daemon: Any) -> 
         daemon.daemon._publish('approval.requested', {
             'approval_id': 'ap-banner', 'capability': 'secret.fill', 'kind': 'owner_secret', 'task_id': 't-away',
             'reason': f'Destination: {VISA}. Type the password or secret for it here (hidden; Enter cancels).',
-            'summary': "A password or private answer for atlasauth.b2clogin.com — used once, not saved"})
+            'summary': "For atlasauth.b2clogin.com: a password or private answer — used once, not saved"})
         await asyncio.sleep(0.05)                      # the banner is posted from a task the publish starts
     daemon.run(ask())
-    assert notes == [('FERB needs you', 'FERB needs your OK: A password or private answer for atlasauth.b2clogin.com '
+    assert notes == [('FERB needs you', 'FERB needs your OK: For atlasauth.b2clogin.com: a password or private answer '
                                         '— used once, not saved')]
 
 

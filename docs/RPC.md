@@ -249,8 +249,8 @@ consequential approval prompts keep their concrete full text in `reason`; client
 questions FERB's own code builds also carry `summary`, one plain line that code writes from the facts it checked, never
 from a task's words (P27, owner 2026-10-24): a `ferb.confirm` check ("FERB wants to send to bob@x.com, whom you didn't
 name."), the escape hatch ("FERB wants to read <folder> once, with one command (normally off-limits: …)."),
-`owner_secret` ("“<name>” — for <site or app> only · saved in your Mac's Keychain", or "A password or private answer
-for <site or app> — used once, not saved"), `owner_login_code` ("Login code for <site> — used once") and
+`owner_secret` ("For <site or app> only: “<name>” · saved in your Mac's Keychain", or "For <site or app>: a password
+or private answer — used once, not saved"), `owner_login_code` ("For <site>: a login code — used once") and
 `owner_admin_password`. It is on `approval.requested` and on each `chat.status` approval that has one: show it first,
 with the full `reason` under Details. A question without `summary` shows its `reason` (or an ordinary question's
 `display_text`). Keep full option labels and free-text answers;

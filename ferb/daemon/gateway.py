@@ -42,7 +42,6 @@ import ipaddress
 import json
 import logging
 import re
-import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal
@@ -1116,14 +1115,6 @@ class Gateway:
         control characters (its facts can hold a page's or an app's text)."""
         return " ".join(printable(self.redact({"s": text})["s"]).split())
 
-    def _place_line(self, line: str, place_first: str) -> str:
-        """A hidden input's one-line question (P27): `line` leads with what the value is for; when redaction would change
-        it (a code word before the place reads a port, or a number in the host, as a code: "Login code for
-        x.test:8443"), `place_first`, which names the place before any such word. A host whose own name holds a code
-        label before a code-shaped port (otp.example.com:8443) still loses that port to redaction (review M4)."""
-        shown = self._one_line(line)
-        return shown if shown == " ".join(printable(line).split()) else self._one_line(place_first)
-
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
@@ -1764,7 +1755,7 @@ class Gateway:
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self._place_line(*secret_summary(target, remember, shown))
+        ap.summary = self._one_line(secret_summary(target, remember, shown))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary})
@@ -1801,7 +1792,7 @@ class Gateway:
         question = login_code_question(origin)
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
-        ap.summary = self._place_line(*login_code_summary(origin))
+        ap.summary = self._one_line(login_code_summary(origin))
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id, "summary": ap.summary})
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
@@ -2032,52 +2023,42 @@ def _site(target: str) -> str:
     return host + (f":{parsed.port}" if parsed.port and parsed.port != "443" else "")
 
 
-# How the worker's proposed name for a saved secret is shown (review I1): never quote marks, dashes, middle dots,
-# Markdown or control characters, one line, at most NAME_SHOWN characters. A name that looks like a place, or was
-# clipped, goes after the code-derived place, so worker text never shows a place before FERB's own.
+# How the worker's proposed name for a saved secret is shown (review I1, re-review R1): only ASCII letters, digits,
+# spaces and : , ' ( ) / -, whitespace collapsed, at most NAME_SHOWN characters. An allowlist, so no lookalike
+# punctuation, letter that looks like a dot, invisible mark or HTML entity (the notch renders Markdown) can rebuild a
+# quote, a dash or a place inside it. Formatting, never a judgement of what the name means (R2).
 NAME_SHOWN = 40
-_NAME_DROPPED = re.compile(r"[\"'`“”‘’«»„‟‹›—–―·•*_\[\]()~#>|<!]")
-_NAME_PLACE_LIKE = re.compile(r"\w\.\w|://|@|::")
+_NAME_DROPPED = re.compile(r"[^A-Za-z0-9 :,'()/\-]")
 
 
-def shown_name(remember: str) -> tuple[str, bool]:
-    """The saved name as the one-line question shows it, and whether it must come after the place: it looks like a
-    place (a dot between letters or digits, "://", "@", "::") or was clipped. Formatting, never a judgement of what
-    the name means (R2)."""
-    name = " ".join(_NAME_DROPPED.sub(" ", printable(remember)).split())
-    name = "".join(ch for ch in name if unicodedata.category(ch) not in ("Cf", "Cc"))   # bidi and format marks too
-    name = " ".join(name.split())
-    clipped = len(name) > NAME_SHOWN
-    if clipped:
-        name = name[:NAME_SHOWN - 1].rstrip() + "…"
-    return name, clipped or bool(_NAME_PLACE_LIKE.search(name))
+def shown_name(remember: str) -> str:
+    """The saved name as the one-line question shows it: any whitespace a space, every other character outside the
+    allowlist dropped, whitespace collapsed, clipped with "…" ("" when nothing plain is left)."""
+    name = " ".join(_NAME_DROPPED.sub("", " ".join(remember.split())).split())
+    return name if len(name) <= NAME_SHOWN else name[:NAME_SHOWN - 1].rstrip() + "…"
 
 
-def secret_summary(target: str, remember: str | None, app: str | None = None) -> tuple[str, str]:
-    """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"): what the value is
-    for first (the worker's proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved
-    under), then the place from the code-derived target (an origin's host, or the app: its name as macOS reports it,
-    else its bundle id) and whether it is kept. Returns that line and the same facts with the place first
-    (`Gateway._place_line`); a name that looks like a place or was clipped gets the place-first line only."""
+def secret_summary(target: str, remember: str | None, app: str | None = None) -> str:
+    """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
+    with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
+    bundle id), so worker text never comes before it (re-review R1); then what the value is for: the worker's proposed
+    name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is kept."""
     if target.startswith("app:"):
         place = f"the {app} app" if app else f"the app {target[4:]}"
     else:
         place = _site(target)
     if remember:
-        name, after_place = shown_name(remember)
-        if not name:
-            first = f"For {place} only: a password or private answer · saved in your Mac's Keychain"
-            return first, first
-        first = f"For {place} only: “{name}” · saved in your Mac's Keychain"
-        return (first if after_place else f"“{name}” — for {place} only · saved in your Mac's Keychain"), first
-    return (f"A password or private answer for {place} — used once, not saved",
-            f"For {place}: a password or private answer — used once, not saved")
+        name = shown_name(remember)
+        what = f"“{name}”" if name else "a saved secret"
+        return f"For {place} only: {what} · saved in your Mac's Keychain"
+    return f"For {place}: a password or private answer — used once, not saved"
 
 
-def login_code_summary(origin: str) -> tuple[str, str]:
-    """The login-code question in one line (P27): what it is, then the origin's host; and the same with the place first
-    (`Gateway._place_line`), since "code for" reads a port or a number in the host after it as a code."""
-    return f"Login code for {_site(origin)} — used once", f"For {_site(origin)}: a login code — used once"
+def login_code_summary(origin: str) -> str:
+    """The login-code question in one line (P27): the origin's host first (a code word before it would read its port
+    or a number in it as a code), then what it is. A host whose own name holds a code label before a code-shaped port
+    (otp.example.com:8443) still loses that port to redaction (review M4)."""
+    return f"For {_site(origin)}: a login code — used once"
 
 
 ADMIN_SUMMARY = ("Your Mac password, for the one command you just approved. FERB passes it only to that command and "

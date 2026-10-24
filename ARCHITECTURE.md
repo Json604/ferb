@@ -108,20 +108,20 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   never the step or the task's reason.
 - The escape hatch (D31): "FERB wants to read <folder> once, with one command (normally off-limits: a private store
   FERB's shell never reads)." (`confirm._LIFTED`, by the lifted rule's kind: read, write, admin, the trustd service).
-- An owner secret: "“<name>” — for <site or app> only · saved in your Mac's Keychain", or without saving "A password
-  or private answer for <site or app> — used once, not saved" (`gateway.secret_summary`; owner 2026-10-24: "just
-  state what is this for"): what it is for first (the worker's name, in quotes, only ever as the saved name), then the
-  place from the code-derived target (an origin's host, with its port unless it is 443; an app's name as macOS reports
-  it, passed by `mac.secret`). The name is shown cleaned (`gateway.shown_name`: no quote marks, dashes, middle dots,
-  Markdown or control characters, one line, at most 40 characters); a name that looks like a place (a dot between
-  letters or digits, "://", "@", "::") or was clipped comes after the place ("For x.test only: “…” · saved in your
-  Mac's Keychain"), so worker text never shows a place before FERB's own (review I1). A login code: "Login code for
-  <host[:port]> — used once". When redaction would change
-  the line (a code word before the place reads a port or a number in the host as a code), the same facts come with the
-  place first ("For x.test:8443: a login code — used once"; `Gateway._place_line`), so no word of the line hides the
-  place. A known limit (review M4): a host whose own name holds a code label followed by a code-shaped port
-  (otp.example.com:8443) shows that port as [redacted] wherever FERB shows it, Details included; FERB's redaction has
-  no bypass for code-written text and no layout avoids it, so the host's name shows and the port doesn't.
+- An owner secret: "For <site or app> only: “<name>” · saved in your Mac's Keychain", or without saving "For <site or
+  app>: a password or private answer — used once, not saved" (`gateway.secret_summary`; owner 2026-10-24: "just state
+  what is this for"). The line always starts with the place from the code-derived target (an origin's host, with its
+  port unless it is 443; an app's name as macOS reports it, passed by `mac.secret`), so worker text never comes before
+  it, and no word before the place can make redaction hide part of it. Then what it is for: the worker's name, in
+  quotes, only ever as the saved name, shown through an allowlist (`gateway.shown_name`: ASCII letters, digits, spaces
+  and : , ' ( ) / - only, everything else dropped, whitespace collapsed, at most 40 characters with "…"; nothing left
+  shows "a saved secret"). The allowlist is the rule because a denylist was bypassed (re-review R1): lookalike quotes,
+  dashes and dots, letters shaped like dots, invisible marks beside ASCII dots, and HTML entities the notch's Markdown
+  decodes ("x&rdquo; &mdash; for g&period;co" rendered as a fake quote, dash and linked place). Details keeps the exact
+  name. A login code: "For <host[:port]>: a login code — used once". A known limit (review M4): a host whose own name
+  holds a code label followed by a code-shaped port (otp.example.com:8443) shows that port as [redacted] wherever FERB
+  shows it, Details included; FERB's redaction has no bypass for code-written text and no layout avoids it, so the
+  host's name shows and the port doesn't.
   The admin password: "Your Mac password, for the one command you just approved. …".
 The summary travels on `approval.requested` and in `chat.status`; a banner for a waiting question uses it too.
 Answers saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.

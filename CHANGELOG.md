@@ -758,18 +758,16 @@ After the owner's update (2026-10-24):
   with the wheel, uploads and clicks on screenshot points fail the same known way there, and scrolling points to the
   page-event scroll. New_Personal runs the Web Store copy: it gets 0.15.7 once that is uploaded and published, or by
   Load unpacked from `~/.ferb/extensions/chromium` after `ferb setup --update`.
-- Password and login-code questions say what the value is for first (D12, P27, D33; owner, 2026-10-24: "these secret
-  questions need to be better asked, just state what is this for rather than all this confusing text"):
-  "“US Visa Scheduling password for …” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain", or "A
-  password or private answer for x.com — used once, not saved", and "Login code for accounts.google.com — used once".
-  The name is the worker's proposed name, in quotes, only as the name; the place still comes from the page's address
-  (or the app's name). The name is shown cleaned (no quote marks, dashes, middle dots, Markdown or control
-  characters, at most 40 characters), and one that looks like a place (a dot between letters, "://", "@") or was
-  clipped comes after the real place, so a worker's text can never show a fake place first (review I1: "visa” — for
-  accounts.google.com only · …" did). When FERB's redaction would hide part of the place (a code word before a port
-  or a number in the host), the line names the place first ("For x.test:8443: a login code — used once"); a host
-  whose own name holds a code label before its port (otp.example.com:8443) still shows that port hidden, as the
-  Details question always has. The full question under Details is unchanged.
+- Password and login-code questions say plainly what the value is for (D12, P27, D33; owner, 2026-10-24: "these secret
+  questions need to be better asked, just state what is this for rather than all this confusing text"): "For
+  atlasauth.b2clogin.com only: “US Visa Scheduling password” · saved in your Mac's Keychain", or "For x.com: a password
+  or private answer — used once, not saved", and "For accounts.google.com: a login code — used once". The line always
+  starts with the place, from the page's address (or the app's name), so a worker's text never comes before it. The
+  name is the worker's proposed name, in quotes, only as the name, shown with ASCII letters, digits, spaces and
+  : , ' ( ) / - only, at most 40 characters: two reviews showed a worker could otherwise fake a place in front of the
+  real one ("visa” — for accounts.google.com only · …"), even through lookalike punctuation, invisible marks or HTML
+  entities the notch decodes. A host whose own name holds a code label before its port (otp.example.com:8443) still
+  shows that port hidden, as the Details question always has. The full question under Details is unchanged.
 - A loop's plan line is one short marker (L31; owner, 2026-10-24: "why is it spitting so much extra text with this
   loop message???"): "⟳ Until you say stop", or "⟳ Until: “the checks pass”". It used to repeat the whole goal and how
   rounds work ("I'll keep at this until You say to stop.: Monitor the bound Instagram tab … Between rounds I only
