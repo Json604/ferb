@@ -553,8 +553,8 @@ class MacSecret(_Base):
     on_screen = False
     marks_own_input = True             # the owner's hidden-input wait is not FERB acting in the app; the fill is
     description = ("Fill an exact native AX field using hidden owner input or an owner-saved Keychain handle. "
-                   "No foreground typing fallback. remember asks the owner to save this item for this app. Never a "
-                   "web browser: a web page's secret goes through browser.secret, bound to the page's address.")
+                   "No foreground typing fallback. remember asks the owner to save this item for this app. For a web "
+                   "page, use browser.secret, which ties the secret to that site's address.")
 
     class Input(_App):
         element: str

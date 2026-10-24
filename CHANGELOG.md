@@ -674,11 +674,12 @@ After the owner's update (2026-10-24):
   expose but able to access them whenever it wants?? BUT at places only ive approved. SO THAT IT DOESNT LEAK
   ANYWHERE"). Live 2026-10-24, visa login: when the browser connection failed on the Microsoft sign-in page, the worker
   filled your password through Accessibility (`mac.secret`), which ties a saved password to the app,
-  `app:com.google.Chrome`: every page Chrome shows. `mac.secret` now refuses any web browser (Chrome, Brave, Arc, Edge,
-  Safari, Firefox, Opera, Vivaldi and others) before it asks you anything: "a password for a web page is filled
-  through the browser connection (browser.secret), which ties it to that site's address; FERB won't tie it to all of
-  Google Chrome". A password saved for a whole browser before this change is never filled, and none is saved that way.
-  Native apps work as before.
+  `app:com.google.Chrome`: every page Chrome shows. `mac.secret` now refuses, before it asks you anything, every
+  browser FERB knows (Chrome, Brave, Arc, Edge, Safari, Firefox, Opera, Vivaldi and others, their beta channels and
+  the web apps they make, and any app of a browser-only maker) and any app macOS lists as opening web links: "a
+  password for a web page is filled through the browser connection (browser.secret), which ties it to that site's
+  address; FERB won't tie it to all of Google Chrome". A password saved for a whole browser before this change is never
+  filled, and none is saved that way. Native apps work as before.
 - The password and login-code questions always show where the value goes (D12, P27). Live 2026-10-24, visa login,
   you saw "Enter the secret for app:[redacted] (hidden; Enter cancels)": the question's own words "the secret for X"
   looked like a password label to FERB's redaction, so it hid the place it was asking about. A login code's question
