@@ -55,6 +55,20 @@ should take up work, offer me etc". A read of the code and the live database on 
 - A setting `[attention] jev = "auto" | "off"`, default auto: use Jev when a key exists.
 - `ferb setup --jev` (and later Settings → AI and the setup window's AI step) adds or removes the key. Without one,
   setup and doctor link Typesafe's key page, https://console.typesafe.ai/keys (owner, 2026-10-24).
+- **One click to connect Jev** (owner: "make it one click easy for them — they press on ferb 'yes make jev key — its
+  free'. then we take to the console typesafe, they make and copy it"):
+  - **Where the button shows.** While no key is set, the notch's Noticed list (empty state), Settings → AI and the
+    setup window show **"Get a free Jev key"**.
+  - **What the press does.** It calls `jev.connect`. The daemon opens https://console.typesafe.ai/keys in the default
+    browser (the owner's press is the request), then raises FERB's hidden-input question: "For console.typesafe.ai:
+    paste your new Jev key — saved in your Mac's Keychain".
+  - **Pasting.** The owner creates the key, copies it and pastes it with ⌘V into the hidden field.
+  - **Storing.** The value takes the sealed path (D12): straight to the Keychain item FERB's decider reads (service
+    `ferb`, account `jev/api_key`), never to a model, log, trace or the database. Jev reloads, one test call runs, and
+    the notch says "Jev connected" or the exact reason it isn't.
+  - **No clipboard watching.** FERB never reads the clipboard for the key; the owner pastes it into FERB's own field.
+    Once stored, the key is redacted like any sealed value.
+- **The CLI.** `ferb setup --jev` opens the same page before asking.
 - **Without Jev,** nothing changes in `batches.py`: it keeps returning early, so no activity is considered and no
   activity notices or offers are made. The trail still records activity for memory and the daily summary, as today.
 - `ferb doctor` and the notch status say whether activity notices are on ("Jev key set") or off ("add a Jev key to get
