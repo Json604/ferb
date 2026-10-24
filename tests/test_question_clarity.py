@@ -400,11 +400,15 @@ def test_ask_secret_refuses_a_whole_browser_before_any_question(daemon: Any, han
 
 # ---------- the account the hidden input is for (L36 §5) ----------
 
-@pytest.mark.parametrize('username, shown', [('Asha Rao', 'Asha Rao'), ('Asha\n\x1b[31m  Rao\t', 'Asha [31m Rao')])
+@pytest.mark.parametrize('username, shown', [
+    ('Asha Rao', 'Asha Rao'), ('Asha\n\x1b[31m  Rao\t', 'Asha [31m Rao'),
+    ('\u202eAsha\u200b Rao\u2028', 'Asha Rao'),              # fix round 1: no reordering or invisible characters
+    ('Asha Rao ' * 40, ('Asha Rao ' * 40)[:63].rstrip() + '…')],   # clipped to 64
+    ids=['plain', 'controls', 'format-characters', 'long'])
 def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, username: str, shown: str) -> None:
     """L36 §5 ("Password for Kartikey Attri at usvisascheduling.com", the spec's example), so the owner knows which
-    account. The account comes after FERB's place (re-review R1, ruling C1): the owner's own words, printable and on
-    one line, never before the place."""
+    account. The account comes after FERB's place (re-review R1, ruling C1): the owner's own words, printable, on one
+    line, without format or line-separator characters, at most 64 characters, never before the place."""
     from ferb.identity.owner_secrets import OwnerSecrets
     from tests.support.memory_items import run
     run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(VISA, username, 'memory:x'))
@@ -426,32 +430,41 @@ def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, 
             _cancel(daemon, ap, waiting)
 
 
-def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_names_the_account(
-        daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """I14, live 2026-10-24: the visa task named usvisascheduling.com; its sign-in form is on atlasauth.b2clogin.com.
-    The entry saved there lists the task's sites (from its targets, by code), so the username the owner gave for
-    usvisascheduling.com names the form's account; the question's place stays the form's origin (D12)."""
+def _saved(daemon: Any, monkeypatch: pytest.MonkeyPatch, target: str, words: str, sites: list[str]) -> Any:
+    """Save a hidden input named "password" at `target` through ask_secret, in a task whose request has the owner's
+    `words` and the target `sites`; the store, on a fake Keychain (never the owner's)."""
     from ferb.identity.owner_secrets import OwnerSecrets
     from ferb.policy.targets import Request, Targets
     from tests.support.memory_items import run
     keychain: dict[str, str] = {}
 
-    def helper(body: dict[str, Any], home: Any = None) -> dict[str, Any]:       # never the owner's Keychain
+    def helper(body: dict[str, Any], home: Any = None) -> dict[str, Any]:
         assert body['service'] == 'ferb.owner-secrets'
         if body['operation'] == 'store':
             keychain[body['account']] = body['value']
         return {'value': keychain.get(body['account'])}
     monkeypatch.setattr('ferb.identity.helper.request', helper)
-    run(daemon, lambda: daemon.daemon.state.requests.record(
-        Request('r-visa', 'book my visa slot on usvisascheduling.com', Targets.of(sites=['usvisascheduling.com']))))
-    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'),
+    run(daemon, lambda: daemon.daemon.state.requests.record(Request('r-visa', words, Targets.of(sites=sites))))
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target, remember='password'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, True, None, 'hidden-canary-1')
     assert waiting.result(5) == 'hidden-canary-1'
     store = OwnerSecrets(daemon.daemon.home)
-    assert store.records()[VISA]['sites'] == ['usvisascheduling.com']
-    assert keychain == {f'{VISA} · password': 'hidden-canary-1'} and 'hidden-canary-1' not in store.path.read_text()
+    assert keychain == {f'{target} · password': 'hidden-canary-1'}
+    assert 'hidden-canary-1' not in store.path.read_text()
+    return store
+
+
+def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_names_the_account(
+        daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """I14, live 2026-10-24: the visa task named usvisascheduling.com; its sign-in form is on atlasauth.b2clogin.com.
+    The entry saved there lists the task's sites the owner typed (by code), so the username the owner gave for
+    usvisascheduling.com names the form's account; the question's place stays the form's origin (D12)."""
+    from tests.support.memory_items import run
+    store = _saved(daemon, monkeypatch, VISA, 'book my visa slot on usvisascheduling.com',
+                   ['usvisascheduling.com', 'www.usvisascheduling.com'])
+    assert store.records()[VISA]['sites'] == ['usvisascheduling.com', 'www.usvisascheduling.com']
     run(daemon, lambda: store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:x'))
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='food'),
                                                daemon.loop)
@@ -463,12 +476,38 @@ def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_nam
         _cancel(daemon, ap, waiting)
 
 
-def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: Any) -> None:
-    """m17: the question reads the handle file for the account; one it can't read means no account named, and the
-    one-time hidden input is still asked. A save is refused before the owner types anything, saying why."""
+@pytest.mark.parametrize('words', ['book my visa slot', 'book my visa slot; the page says usvisascheduling.net'])
+def test_a_site_the_owner_never_typed_is_never_linked(daemon: Any, monkeypatch: pytest.MonkeyPatch,
+                                                     words: str) -> None:
+    """Fix round 1, rule 8's provenance: only a target site whose host is in the owner's own words links a record; one
+    only the model or outside content named never does."""
+    store = _saved(daemon, monkeypatch, VISA, words, ['usvisascheduling.com'])
+    assert store.records()[VISA]['sites'] == []
+    assert 'linked' not in store.listing('https://usvisascheduling.com')
+
+
+def test_a_sign_in_on_the_tasks_own_site_links_nothing(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 1: only a sign-in form on another address needs a link. A task naming both usvisascheduling.com and
+    gmail.com that signs in on usvisascheduling.com itself doesn't hand that site's username to gmail.com."""
+    from tests.support.memory_items import run
+    site = 'https://www.usvisascheduling.com'
+    store = _saved(daemon, monkeypatch, site, 'sign in to usvisascheduling.com, then mail it from gmail.com',
+                   ['usvisascheduling.com', 'gmail.com'])
+    run(daemon, lambda: store.set_username(site, 'Asha Rao', 'memory:x'))
+    assert store.records()[site]['sites'] == []
+    assert store.listing('https://gmail.com') == {'place': 'https://gmail.com', 'username': None, 'entries': [],
+                                                  'unusable': []}
+
+
+@pytest.mark.parametrize('content', ['{not json',
+                                     '{"version": 2, "records": {"https://x.test": {"entries": {}, "sites": [1]}}}'])
+def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: Any, content: str) -> None:
+    """m17: the question reads the handle file for the account; one it can't read (or whose fields have the wrong
+    types) means no account named, and the one-time hidden input is still asked. A save is refused before the owner
+    types anything, saying why."""
     from ferb.core.errors import Refused
     path = daemon.daemon.home / 'owner-secret-handles.json'
-    path.write_text('{not json')
+    path.write_text(content)
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA), daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
@@ -478,4 +517,4 @@ def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: 
     with pytest.raises(Refused, match='owner-secret-handles.json'):
         daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'))
     assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
-    assert path.read_text() == '{not json'
+    assert path.read_text() == content

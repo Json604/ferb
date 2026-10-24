@@ -2,16 +2,18 @@
 
 One login record per place (L36 §5): an HTTPS origin, or `app:<bundle id>` for a native app. A record holds the
 username (plain text: owner decision 2026-10-24, "Yes, plain"; set only from the owner's own words, `set_username`, and
-cleared when the memory it came from is forgotten), the sites of the tasks its entries were saved in (`sites`: hosts
-from the task's targets, taken by code; I14) and named sealed entries (the password, each security question's answer
+cleared when the memory it came from is forgotten), the sites the owner named for a task its entries were saved in
+(`sites`: hosts, taken by code; I14) and named sealed entries (the password, each security question's answer
 under that question's text), each a Keychain item under service `ferb.owner-secrets`. Saving a name that exists for
 that place replaces its value, so no duplicates. The place is always code-derived (D12); the worker chooses only the
 entry's name.
 
 A record serves its own place and the sites it lists (I14): the visa site's sign-in form is a single sign-on page on
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
-task's sites, a listing for the site finds it, and a username the owner gave for the site names the form's account
-too. Entries still fill only at their record's own place (`reveal`).
+task's sites the owner typed (the gateway picks them, `Gateway._login_sites`), a listing for the site finds it, and a
+username the owner gave for the site names the form's account too. A site matches a host exactly, a leading "www."
+aside (`same_site`): never a subdomain, since on shared hosting (b2clogin.com, github.io) each tenant has its own.
+Entries still fill only at their record's own place (`reveal`).
 
 `owner-secret-handles.json` (version 2): {"version": 2, "records": {place: {"username", "username_source", "sites":
 [host], "entries": {name: Keychain account}}}, "unusable": [{"name", "place", "why"}]}. A new entry's Keychain account
@@ -68,7 +70,7 @@ def login_place(target: str) -> str:
     return origin if origin.startswith('https://') and origin != 'https://' else ''
 
 
-def _host(place_or_site: str) -> str:
+def site_host(place_or_site: str) -> str:
     """A web place's or a task site's host as a browser reads it (IDNA, lowercase, no trailing dot); "" for an app."""
     from ferb.policy import urls
     text = place_or_site.strip()
@@ -78,12 +80,10 @@ def _host(place_or_site: str) -> str:
     return parsed.host.rstrip('.') if parsed is not None and parsed.host else ''
 
 
-def _covers(site: str, host: str) -> bool:
-    """Whether a listed site serves this host: the same host (a leading "www." aside) or a host under it
-    (`ais.usvisascheduling.com` under `usvisascheduling.com`), never a sibling or a look-alike: the rule
-    `confirm._host_had_it` uses for a value a host already had."""
-    bare = site.removeprefix('www.')
-    return host in (site, bare, 'www.' + bare) or ('.' in site and host.endswith('.' + site))
+def same_site(a: str, b: str) -> bool:
+    """Two hosts are one site when equal, a leading "www." aside; never a subdomain or a sibling (fix round 1: with
+    subdomains, a record listing b2clogin.com would serve evil.b2clogin.com, another tenant's page)."""
+    return bool(a) and a.removeprefix('www.') == b.removeprefix('www.')
 
 
 def _empty() -> dict[str, Any]:
@@ -107,7 +107,8 @@ def _strings(value: Any) -> bool:
 
 
 def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
-    """A version-2 file's data with every record's fields present, or None when its shape is not version 2's."""
+    """A version-2 file's data with every record's fields present, or None when its shape or a field's type is not
+    version 2's (so the file is refused, never overwritten)."""
     records, unusable = data.get('records'), data.get('unusable', [])
     if not isinstance(records, dict) or not isinstance(unusable, list):
         return None
@@ -116,7 +117,9 @@ def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
         if not isinstance(record, dict) or not _strings(record.get('entries')):
             return None
         shaped[place] = _empty() | record
-        if not isinstance(shaped[place]['sites'], list):
+        sites, username, source = shaped[place]['sites'], shaped[place]['username'], shaped[place]['username_source']
+        if (not isinstance(sites, list) or not all(isinstance(site, str) for site in sites)
+                or not isinstance(username, (str, type(None))) or not isinstance(source, (str, type(None)))):
             return None
     if not all(isinstance(u, dict) and _strings(u) and {'name', 'place', 'why'} <= u.keys() for u in unusable):
         return None
@@ -124,17 +127,22 @@ def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _linked(records: dict[str, Any], place: str) -> list[str]:
-    """The other records that serve `place` (I14): one listing a site that covers its host (a sign-on form's record
-    saved during a task on that site), or one at a host that a site of its own record covers (the site that task
-    named)."""
-    host, own_sites = _host(place), records.get(place, {}).get('sites', [])
+    """The other records that serve `place` (I14): one listing its host's site (a sign-on form's record saved during
+    a task on that site), or one at the host of a site its own record lists (the site that task named)."""
+    host, own_sites = site_host(place), records.get(place, {}).get('sites', [])
     found = []
     for other, record in records.items():
-        other_host = _host(other)
-        if other != place and ((host and any(_covers(s, host) for s in record.get('sites', [])))
-                               or (other_host and any(_covers(s, other_host) for s in own_sites))):
+        other_host = site_host(other)
+        if other != place and (any(same_site(s, host) for s in record.get('sites', []))
+                               or any(same_site(s, other_host) for s in own_sites)):
             found.append(other)
     return sorted(found)
+
+
+def _accounts(data: dict[str, Any]) -> set[str]:
+    """Every Keychain account a saved secret uses: each record's entries, and each unusable one's (its old handle)."""
+    return ({a for record in data['records'].values() for a in record['entries'].values()}
+            | {u['name'] for u in data['unusable']})
 
 
 def _username(records: dict[str, Any], place: str) -> str | None:
@@ -214,13 +222,19 @@ class OwnerSecrets:
 
     def remember(self, handle: str, target: str, value: str, sites: Iterable[str] = ()) -> None:
         """Save `value` under the name `handle` for the place `target`, replacing that name's value; `sites`: the
-        task's target sites at that moment, which the record lists from then on (I14)."""
+        sites the record lists from then on (I14; the gateway's `_login_sites`). A new entry's Keychain account is
+        never one another entry already uses (a version-1 handle can be any text)."""
         refuse_whole_browser(target)
-        own = _host(target)
-        hosts = {h for h in map(_host, sites) if h and h != own}
+        own = site_host(target)
+        hosts = {h for h in map(site_host, sites) if h and not same_site(h, own)}
         with self._edit() as data:
             record = data['records'].setdefault(target, _empty())
-            account = record['entries'].get(handle) or f'{target} · {handle}'
+            account = record['entries'].get(handle)
+            if account is None:
+                account = f'{target} · {handle}'
+                if account in _accounts(data):
+                    raise Refused('that name would reuse the Keychain item of another saved secret; save it under '
+                                  'another name')
             self.keychain(account, value)
             record['entries'][handle] = account
             record['sites'] = sorted(set(record['sites']) | hosts)

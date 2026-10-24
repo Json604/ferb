@@ -42,6 +42,7 @@ import ipaddress
 import json
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Literal
@@ -1774,9 +1775,8 @@ class Gateway:
             state = await self._wait_answer(grant, ap.id)
             if state != "granted" or not ap.answer:
                 return None
-            if remember:                               # I14: the record serves the task's sites from now on
-                sites = self.state.requests.get(ctx.request_id).targets.sites
-                await asyncio.to_thread(store.remember, remember, target, ap.answer, sites)
+            if remember:                               # I14: the record serves the sites the owner named
+                await asyncio.to_thread(store.remember, remember, target, ap.answer, self._login_sites(ctx, target))
             delivered = True
             return ap.answer
         finally:
@@ -1784,6 +1784,22 @@ class Gateway:
                 self.redact.release_secret(ap.answer)
             ap.answer = None
             ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
+
+    def _login_sites(self, ctx: ToolContext, target: str) -> list[str]:
+        """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
+        them) whose host the owner typed in this request's words, a leading "www." aside (rule 8's provenance: a site
+        only outside content or the model named never links). None when `target` is an app or itself one of the
+        task's sites: only a sign-in form on another address needs a link, and a sign-in on the visa site itself
+        must not hand its username to the task's other sites."""
+        from ferb.identity.owner_secrets import same_site, site_host
+        request = self.state.requests.get(ctx.request_id)
+        own = site_host(target)
+        hosts = sorted({h for site in request.targets.sites if (h := site_host(site))})
+        if not own or any(same_site(h, own) for h in hosts):
+            return []
+        words = provenance.prepare(request.words)
+        return [h for h in hosts if {h, h.removeprefix("www."), "www." + h.removeprefix("www.")}
+                & (words.tokens | words.hosts)]
 
     def release_secret(self, value: str) -> None:
         from ferb.sanitize.redact import Redactor
@@ -2052,9 +2068,16 @@ def shown_name(remember: str) -> str:
     return name if len(name) <= NAME_SHOWN else name[:NAME_SHOWN - 1].rstrip() + "…"
 
 
+ACCOUNT_SHOWN = 64
+_ACCOUNT_DROPPED = {"Cf", "Cs", "Zl", "Zp"}      # format (bidi overrides, zero-width), surrogates, line separators
+
+
 def _account(username: str) -> str:
-    """The owner's username as a question shows it: printable, on one line (the owner's own words, not a worker's)."""
-    return " ".join(printable(username).split())
+    """The owner's username as a question shows it (the owner's own words, not a worker's): printable, on one line,
+    without invisible or reordering characters, clipped to ACCOUNT_SHOWN characters with "…"."""
+    text = " ".join(printable(username).split())
+    text = " ".join("".join(c for c in text if unicodedata.category(c) not in _ACCOUNT_DROPPED).split())
+    return text if len(text) <= ACCOUNT_SHOWN else text[:ACCOUNT_SHOWN - 1].rstrip() + "…"
 
 
 def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None) -> str:

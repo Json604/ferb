@@ -692,9 +692,9 @@ also sees the whole task's goal. The sites, apps and people a task names also co
 for the planner while it shows that task, so a note about a site isn't buried under long past tasks.
 Passwords and security answers you save stay in your Mac's Keychain, one login per site: on a login page FERB lists
 what's already saved for that site (names only, never values) and asks only for what's missing. A login saved during a
-task also counts for the sites that task names, so a sign-in page on another address (the visa site's
-atlasauth.b2clogin.com) shows the username you gave for the site; the secrets themselves fill only on the page they
-were saved on. The hidden-input question names the account: "For atlasauth.b2clogin.com only (account: Asha Rao): …".
+task on a sign-in page at another address (the visa site's atlasauth.b2clogin.com) also counts for the sites you typed
+for that task (exactly that site, with or without "www.", never other addresses under it), so it shows the username
+you gave for the site; the secrets themselves fill only on the page they were saved on. The hidden-input question names the account: "For atlasauth.b2clogin.com only (account: Asha Rao): …".
 A password saved for a whole browser before 2026-10-24 can't be used and is listed as "ask again".
 "Remember that …" saves as yours the whole sentence you
 typed it in (only a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea"

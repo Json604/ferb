@@ -303,8 +303,13 @@ def test_an_old_handle_file_is_read_by_place_and_a_browser_bound_one_is_unusable
                                                                  'why': WHOLE_BROWSER}]   # in every answer
 
 
-@pytest.mark.parametrize('content', ['{not json', '["a", "b"]', '{"version": 3, "records": {}}',
-                                     '{"version": 2, "records": {"https://x.test": {"entries": ["password"]}}}'])
+UNREADABLE = ['{not json', '["a", "b"]', '{"version": 3, "records": {}}',
+              '{"version": 2, "records": {"https://x.test": {"entries": ["password"]}}}',
+              '{"version": 2, "records": {"https://x.test": {"entries": {}, "sites": [1]}}}',
+              '{"version": 2, "records": {"https://x.test": {"entries": {}, "username": 5}}}']
+
+
+@pytest.mark.parametrize('content', UNREADABLE)
 def test_an_unreadable_handle_file_is_never_overwritten(tmp_path: Path, content: str) -> None:
     _, keychain = fake_keychain()
     store = OwnerSecrets(tmp_path, keychain)
@@ -344,16 +349,43 @@ def test_a_record_saved_during_a_task_is_listed_for_the_tasks_sites_but_fills_on
     store = OwnerSecrets(tmp_path, keychain)
     store.remember('password', ATLAS, 'v', sites=['usvisascheduling.com', ATLAS + '/login', 'USVisaScheduling.com.'])
     assert store.records()[ATLAS]['sites'] == ['usvisascheduling.com']      # hosts; its own host is its place
-    for site in (VISA, 'https://usvisascheduling.com', 'https://ais.usvisascheduling.com'):
+    for site in (VISA, 'https://usvisascheduling.com'):                # the same site, a leading "www." aside
         assert store.listing(site) == {'place': site, 'username': None, 'entries': [], 'unusable': [],
                                        'linked': [{'place': ATLAS, 'username': None, 'entries': ['password']}]}
-    for other in ('https://evilusvisascheduling.com', 'https://usvisascheduling.com.evil.example', 'https://x.test'):
-        assert 'linked' not in store.listing(other)
+    for other in ('https://ais.usvisascheduling.com', 'https://evilusvisascheduling.com',
+                  'https://usvisascheduling.com.evil.example', 'https://x.test'):
+        assert 'linked' not in store.listing(other)                      # never a subdomain, sibling or look-alike
     assert 'linked' not in store.listing(ATLAS)
     with pytest.raises(Refused, match='exact destination'):
         store.reveal('password', VISA)
     store.remember('What is your favorite food?', ATLAS, 'w', sites=['ais.usvisascheduling.com'])
     assert store.records()[ATLAS]['sites'] == ['ais.usvisascheduling.com', 'usvisascheduling.com']
+
+
+def test_a_listed_site_never_serves_another_tenant_of_shared_hosting(tmp_path: Path) -> None:
+    """Fix round 1: with subdomain matching, a record listing b2clogin.com served evil.b2clogin.com, another tenant's
+    page, which got the owner's username and entry names (and the question would name the account beside it)."""
+    _, keychain = fake_keychain()
+    store = OwnerSecrets(tmp_path, keychain)
+    store.remember('password', ATLAS, 'v', sites=['b2clogin.com', 'github.io'])
+    store.set_username(ATLAS, 'Asha Rao', 'memory:1')
+    for tenant in ('https://evil.b2clogin.com', 'https://x.github.io'):
+        assert store.listing(tenant) == {'place': tenant, 'username': None, 'entries': [], 'unusable': []}
+        assert store.username(tenant) is None
+
+
+def test_a_new_entry_never_reuses_another_entrys_keychain_item(tmp_path: Path) -> None:
+    """A version-1 handle can be any text, "<place> · <name>" included: a new entry never takes its Keychain item,
+    whether it is another place's entry or an unusable one."""
+    values, keychain = fake_keychain()
+    taken = f'{VISA} · password'
+    values[taken] = 'old-value'
+    store = OwnerSecrets(tmp_path, keychain)
+    for old in ({taken: 'https://other.example'}, {taken: 'app:com.google.Chrome'}):
+        store.path.write_text(json.dumps(old))
+        with pytest.raises(Refused, match='Keychain item'):
+            store.remember('password', VISA, 'new-value')
+        assert values == {taken: 'old-value'} and json.loads(store.path.read_text()) == old
 
 
 def test_a_username_given_for_the_site_shows_on_the_record_that_serves_it(tmp_path: Path) -> None:

@@ -1671,7 +1671,8 @@ fresh, `known_opens_web_links`; when Launch Services can't be asked, nothing is 
 A native secret is bound to the app, and a browser app is every site it shows, so a web page's
 secret goes only through `browser.secret` and its origin. Owner-confirmed secrets are one login record per place (an
 HTTPS origin or `app:<bundle id>`, L36) in `owner-secret-handles.json` version 2: a plain username from the owner's
-words, the sites of the tasks its entries were saved in, and named entries whose values live in Keychain; a version-1
+words, the sites the owner named for a task its entries were saved in, and named entries whose values live in
+Keychain; a version-1
 file is read by place, its browser-bound handles listed unusable (§16.12). `OwnerSecrets` neither saves
 nor reveals a handle bound to `app:<browser>` (one saved before that rule is never filled). A source install
 builds/signs `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships
@@ -2918,22 +2919,29 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be harmed by a dedup).
 - **Login records (§5).** `OwnerSecrets` (`identity/owner_secrets.py`) keeps one record per place (`login_place`: an
   HTTPS origin, or `app:<bundle id>`): `username`, `username_source`, `sites` and `entries` (name -> Keychain account
-  `"<place> · <name>"`); saving a name again replaces its value. Every change goes through `_edit` (one lock; the file
-  as read; written only when something changed). A version-1 file is read by place without being rewritten until a
-  change (each handle keeps its old account); a handle bound to a whole browser is listed in `unusable`, with "ask the
-  owner again", in every listing; a file that can't be read or has another shape is never overwritten, and every call
-  refuses naming the file. A record serves several sites (I14): when `Gateway.ask_secret` saves an entry it passes the
-  task's target sites at that moment (`state.requests`, the targets a steer updates), and the record lists their hosts.
-  A record is linked to a place when one of its sites covers the place's host (the same host, "www." aside, or a host
-  under it: `confirm._host_had_it`'s rule), or the place's own record lists a site covering the record's host. A
-  place's username is its record's own, else the one its linked records agree on (two that differ name none); it is
-  read through the link, never copied. Entries fill only at their own record's place (`reveal`, D12). The owner-only
+  `"<place> · <name>"`, never one another entry or an unusable handle already uses); saving a name again replaces its
+  value. Every change goes through `_edit` (one lock; the file as read; written only when something changed). A
+  version-1 file is read by place without being rewritten until a change (each handle keeps its old account); a handle
+  bound to a whole browser is listed in `unusable`, with "ask the owner again", in every listing; a file that can't be
+  read, has another shape or a field of the wrong type (`sites` not strings, `username` not a string or null) is never
+  overwritten, and every call refuses naming the file. A record serves several sites (I14): when `Gateway.ask_secret`
+  saves an entry it passes `_login_sites`: the task's target sites (`state.requests`, as a steer left them) whose host
+  the owner typed in the request's words, a leading "www." aside (rule 8's provenance; a site only the model or outside
+  content named never links), and none at all when the fill place is an app or itself one of the task's sites (only a
+  sign-in form on another address needs a link; a sign-in on usvisascheduling.com in a task that also names gmail.com
+  must not hand its username to gmail.com). The record lists those hosts. A site matches a host exactly, "www." aside
+  (`same_site`), never a subdomain: on shared hosting (b2clogin.com, github.io) each tenant has its own, so a record
+  listing b2clogin.com never serves evil.b2clogin.com (fix round 1). A record is linked to a place when one of its
+  sites is the place's host's site, or the place's own record lists the record's host's site. A place's username is
+  its record's own, else the one its linked records agree on (two that differ name none); it is read through the
+  link, never copied. Entries fill only at their own record's place (`reveal`, D12). The owner-only
   observation `secrets.list` (`identity/secret_tools.py`, input `place`) returns a place's username, entry names, the
   unusable list and, under `linked`, each linked record by the place its entries fill; never a value or an account.
   worker.md tells a worker to call it before typing into a login form, so the username comes from the record, not
   memory's ranking. The hidden-input line names the account after FERB's place (ruling C1, re-review R1): "For
   atlasauth.b2clogin.com only (account: Asha Rao): …", and the full question "Destination: … Account: …"; the username
-  is printable and on one line. A handle file `ask_secret` can't read names no account and still asks a one-time
+  is printable, on one line, without format or line-separator characters (Cf, Cs, Zl, Zp: no bidi override), and
+  clipped to 64 characters (`_account`). A handle file `ask_secret` can't read names no account and still asks a one-time
   input; a save is refused before the question (m17).
 
 ### 16.13 FERB's cursor (L33)
