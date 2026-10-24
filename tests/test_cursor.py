@@ -112,13 +112,10 @@ def _mac(monkeypatch, rect=(100, 200, 50, 20), stale=False, on_screen=True, disp
     from ferb.act.mac import tools
     from ferb.core.errors import StaleRef
     from ferb.act.mac.accessibility import AxNode
-    calls = []
-
     class Driver:
         def app(self, name):
             return SimpleNamespace(bundle_id='com.x', pid=1, name='X')
         def node(self, bundle, element):
-            calls.append(asyncio.get_running_loop)   # sync call; thread check below
             if stale:
                 raise StaleRef('old')
             return AxNode(ref=None, role='button', label='', value=None, rect=rect, secret=False, enabled=True)
@@ -168,3 +165,45 @@ def test_the_element_lookup_runs_off_the_event_loop(monkeypatch):
     main = threading.current_thread()
     assert _point(tool, cls, element='s1e2', action='click') is not None
     assert seen and seen[0] is not main
+
+
+def test_window_on_screen_wants_a_normal_window_of_the_pid_holding_the_centre(monkeypatch):
+    from ferb.act.mac import screenshot
+    def win(pid=1, layer=0, alpha=1.0, b=(0, 0, 400, 300)):
+        return {'kCGWindowOwnerPID': pid, 'kCGWindowLayer': layer, 'kCGWindowAlpha': alpha, 'kCGWindowNumber': 9,
+                'kCGWindowBounds': {'X': b[0], 'Y': b[1], 'Width': b[2], 'Height': b[3]}}
+    rect = (100, 100, 20, 20)
+    def on(*ws):
+        monkeypatch.setattr(screenshot, '_info_windows', lambda everywhere=False: list(ws))
+        return screenshot.window_on_screen(1, rect)
+    assert on(win()) is True
+    assert on(win(pid=2)) is False
+    assert on(win(b=(500, 500, 100, 100))) is False
+    assert on(win(alpha=0)) is False
+    assert on(win(layer=25)) is False                  # a menu-bar item or overlay is not an app window
+    assert on(win(layer=25), win()) is True
+
+
+def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
+    from types import SimpleNamespace
+    from ferb.act.mac import tools
+    from ferb.act.mac.driver import MacComputerDriver
+    shot = SimpleNamespace(id='shot1', bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
+    d = MacComputerDriver.__new__(MacComputerDriver)
+    d.app = lambda name: SimpleNamespace(bundle_id='com.x', pid=3, name='X')
+    d._state = {'com.x': SimpleNamespace(shot=shot)}
+    seen = []
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: seen.append((pid, r)) or True)
+    monkeypatch.setattr(tools, 'display_of', lambda r: 2)
+    tool = tools.MacClick(d)
+    got = asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None))
+    assert got == Point('click', (296.0, 96.0, 8.0, 8.0), 2) and seen == [(3, (296.0, 96.0, 8.0, 8.0))]
+    assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='old', x=200, y=100), None)) is None
+    assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=900, y=100), None)) is None
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: False)
+    assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None)) is None
+    monkeypatch.setattr(tools, 'window_on_screen', lambda pid, r: True)
+    monkeypatch.setattr(tools, 'display_of', lambda r: None)
+    assert asyncio.run(tool.point(tools.MacClick.Input(app='x', shot='shot1', x=200, y=100), None)) is None
+    pt = tools.MacPointer(d)
+    assert asyncio.run(pt.point(tools.MacPointer.Input(app='x', shot='shot1', x=1, y=1, action='click'), None)) is None

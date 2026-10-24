@@ -59,7 +59,8 @@ def window_on_screen(pid: int, rect: tuple[float, float, float, float]) -> bool:
     element in a hidden or other-Space window). Synchronous Quartz work: call it off the event loop."""
     cx, cy = rect[0] + rect[2] / 2, rect[1] + rect[3] / 2
     for d in _info_windows():
-        if int(d.get("kCGWindowOwnerPID", -1)) != pid or float(d.get("kCGWindowAlpha", 1)) <= 0:
+        if (int(d.get("kCGWindowOwnerPID", -1)) != pid or int(d.get("kCGWindowLayer", 1)) != 0
+                or float(d.get("kCGWindowAlpha", 1)) <= 0):
             continue
         x, y, w, h = _window(d).bounds
         if x <= cx <= x + w and y <= cy <= y + h:

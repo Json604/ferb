@@ -271,6 +271,12 @@ class _AppState:
     tree_at: float = 0.0
 
 
+def shot_to_screen(shot: Any, x: float, y: float) -> tuple[float, float]:
+    """Screenshot pixels to global screen points: the captured window's bounds scaled by the image size."""
+    bx, by, bw, bh = shot.bounds
+    return bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
+
+
 class MacComputerDriver:
     os: Literal["macos", "windows", "linux"] = "macos"
 
@@ -666,6 +672,16 @@ class MacComputerDriver:
                             {'method': 'window_pointer' if route else 'pid_pointer', 'delivered': True,
                              'observed_change': changed, 'outcome_verified': False, 'replayed': False})
 
+    def shot_point(self, name_or_bundle: str, shot_id: str, x: float, y: float) -> tuple[int, tuple[float, float]] | None:
+        """L33: the app's pid and the global screen point a click at (x, y) of its latest screenshot lands on, or None
+        when that shot is unknown or expired or (x, y) is outside it. Synchronous."""
+        a = self.app(name_or_bundle)
+        st = self._state.get(a.bundle_id)
+        shot = st.shot if st else None
+        if shot is None or shot.id != shot_id or not (0 <= x < shot.size[0] and 0 <= y < shot.size[1]):
+            return None
+        return a.pid, shot_to_screen(shot, x, y)
+
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
                        task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer") -> ActionResult:
         """Use one explicit pointer, AX or foreground method for the exact captured window."""
@@ -679,8 +695,7 @@ class MacComputerDriver:
         now = await asyncio.to_thread(self.shots.window, shot.window)
         if now is None or now.pid != a.pid or not _same(now.bounds, shot.bounds):
             raise StaleRef("the window moved, resized, changed owner or closed since the screenshot; take a new one")
-        bx, by, bw, bh = shot.bounds
-        px, py = bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
+        px, py = shot_to_screen(shot, x, y)
 
         if mechanism == "pointer":
             return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder)

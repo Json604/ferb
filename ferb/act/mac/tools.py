@@ -112,7 +112,7 @@ class _Base:
         acting = getattr(self.driver, "acting", None)
         return contextlib.nullcontext() if acting is None else acting(bundle_id, ctx.task_id)  # type: ignore[no-any-return]
 
-    async def _element_point(self, args: BaseModel, kind: Literal['click', 'type', 'scroll', 'press', 'drag']) -> Point | None:
+    async def _element_point(self, args: BaseModel, kind: Literal['click', 'type', 'scroll']) -> Point | None:
         """L33: the element this call names, as geometry for FERB's cursor; None whenever unsure (no element, stale,
         empty rect, its window off screen, no display). Accessibility and Quartz work runs off the event loop."""
         element = getattr(args, "element", None)
@@ -123,7 +123,7 @@ class _Base:
             try:
                 a = self.driver.app(str(getattr(args, "app")))
                 rect = tuple(float(v) for v in self.driver.node(a.bundle_id, str(element)).rect)
-                if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0 or not window_on_screen(a.pid, rect):  # type: ignore[arg-type]
+                if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0 or not window_on_screen(a.pid, rect):
                     return None
                 shown = display_of(rect)  # type: ignore[arg-type]
                 return None if shown is None else Point(kind, rect, shown)  # type: ignore[arg-type]
@@ -343,8 +343,9 @@ class MacAct(_Base):
 
     async def point(self, args: BaseModel, grant: Any) -> Point | None:
         action = getattr(args, "action")
-        kind = {"type": "type", "key": "type", "set_value": "type", "edit": "type", "scroll": "scroll"}.get(action, "click")
-        return await self._element_point(args, kind)  # type: ignore[arg-type]
+        kinds: dict[str, Literal['click', 'type', 'scroll']] = {
+            "type": "type", "key": "type", "set_value": "type", "edit": "type", "scroll": "scroll"}
+        return await self._element_point(args, kinds.get(action, "click"))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         r = await self.driver.act(str(getattr(args, "app")),
@@ -470,6 +471,22 @@ class MacClick(_Base):
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
 
+    async def point(self, args: BaseModel, grant: Any) -> Point | None:
+        """L33: an 8x8 pt box centred where the click lands, mapped by the driver's own screenshot-to-screen math."""
+        def find() -> Point | None:
+            try:
+                got = self.driver.shot_point(str(getattr(args, "app")), str(getattr(args, "shot")),
+                                             float(getattr(args, "x")), float(getattr(args, "y")))
+                if got is None:
+                    return None
+                pid, (px, py) = got
+                rect = (px - 4.0, py - 4.0, 8.0, 8.0)
+                shown = display_of(rect) if window_on_screen(pid, rect) else None
+                return None if shown is None else Point("click", rect, shown)
+            except (StaleRef, Refused, ValueError, LookupError):
+                return None
+        return await asyncio.to_thread(find)
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app, shot, x, y = (str(getattr(args, "app")), str(getattr(args, "shot")), float(getattr(args, "x")),
                            float(getattr(args, "y")))
@@ -503,6 +520,9 @@ class MacPointer(MacClick):
         end_x: float | None = Field(default=None, ge=0, allow_inf_nan=False)
         end_y: float | None = Field(default=None, ge=0, allow_inf_nan=False)
         allow_foreground: Literal[False] = False
+
+    async def point(self, args: BaseModel, grant: Any) -> Point | None:
+        return None      # L33: no element rect, and a drag's path isn't a single spot
 
     def precheck(self, args: BaseModel) -> str | None:
         if getattr(args, "action") == "drag" and (getattr(args, "end_x") is None or getattr(args, "end_y") is None):
