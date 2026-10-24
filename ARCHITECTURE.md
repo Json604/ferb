@@ -108,11 +108,14 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   never the step or the task's reason.
 - The escape hatch (D31): "FERB wants to read <folder> once, with one command (normally off-limits: a private store
   FERB's shell never reads)." (`confirm._LIFTED`, by the lifted rule's kind: read, write, admin, the trustd service).
-- An owner secret: "<site or app> needs your password or another private answer. FERB saves it in your Mac's
-  Keychain as '<name>' and fills it only there." (`gateway.secret_summary`): the place from the code-derived target
-  (an origin's host, with its port unless it is 443; an app's name as macOS reports it, passed by `mac.secret`), the
-  worker's name only as the saved name. A login code: "<host[:port]> asks for a login code. …"; the admin password:
-  "Your Mac password, for the one command you just approved. …".
+- An owner secret: "“<name>” — for <site or app> only · saved in your Mac's Keychain", or without saving "A password
+  or private answer for <site or app> — used once, not saved" (`gateway.secret_summary`; owner 2026-10-24: "just
+  state what is this for"): what it is for first (the worker's name, in quotes, only ever as the saved name), then the
+  place from the code-derived target (an origin's host, with its port unless it is 443; an app's name as macOS reports
+  it, passed by `mac.secret`). A login code: "Login code for <host[:port]> — used once". When redaction would change
+  the line (a code word before the place reads a port or a number in the host as a code), the same facts come with the
+  place first ("For x.test:8443: a login code — used once"; `Gateway._place_line`), so the place always shows whole.
+  The admin password: "Your Mac password, for the one command you just approved. …".
 The summary travels on `approval.requested` and in `chat.status`; a banner for a waiting question uses it too.
 Answers saved before 2026-10-24 keep their old `display_text`; the app still shows those with Details.
 

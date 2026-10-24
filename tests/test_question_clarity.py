@@ -92,15 +92,15 @@ def test_the_login_code_question_keeps_its_destination_through_redaction(daemon:
 
 def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(daemon: Any,
                                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
-    """The site comes from the code-derived origin; the worker's proposed name appears only as the saved name."""
+    """Owner, 2026-10-24: "just state what is this for". The line leads with the saved name (what the value is for), in
+    quotes as a name only; the place in the same line comes from the code-derived origin, never from the name."""
     published = _published(daemon, monkeypatch)
     saved = 'bank.example.com login'                      # a worker's name that reads like a place: never the place
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember=saved),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        want = ("atlasauth.b2clogin.com needs your password or another private answer. FERB saves it in your Mac's "
-                "Keychain as 'bank.example.com login' and fills it only there.")
+        want = "“bank.example.com login” — for atlasauth.b2clogin.com only · saved in your Mac's Keychain"
         assert ap.summary == want and Redactor().text(want) == want
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
@@ -109,9 +109,10 @@ def test_the_secret_question_says_in_one_line_where_it_goes_and_what_ferb_does(d
         _cancel(daemon, ap, waiting)
 
 
-@pytest.mark.parametrize('target, shown, place', [('app:com.example.Bank', 'Bank', 'The Bank app'),
-                                                  ('app:com.example.Bank', None, 'The app com.example.Bank'),
+@pytest.mark.parametrize('target, shown, place', [('app:com.example.Bank', 'Bank', 'the Bank app'),
+                                                  ('app:com.example.Bank', None, 'the app com.example.Bank'),
                                                   ('https://x.test:8443', None, 'x.test:8443'),
+                                                  ('https://1234.example.com', None, '1234.example.com'),
                                                   ('https://x.test:443', None, 'x.test')])
 def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, target: str, shown: str | None,
                                                                  place: str) -> None:
@@ -119,8 +120,33 @@ def test_the_secret_summary_names_the_app_or_site_without_saving(daemon: Any, ta
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')
     try:
-        assert ap.summary == (f"{place} needs your password or another private answer. FERB fills it only there and "
-                              "doesn't save it.")
+        assert ap.summary == f"A password or private answer for {place} — used once, not saved"
+        assert Redactor().text(ap.summary) == ap.summary
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+def test_a_saved_app_secret_names_the_app_after_the_saved_name(daemon: Any) -> None:
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(
+        _ctx(), 'app:com.example.Bank', remember='bank', shown='Bank'), daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == "“bank” — for the Bank app only · saved in your Mac's Keychain"
+    finally:
+        _cancel(daemon, ap, waiting)
+
+
+@pytest.mark.parametrize('target, place', [('https://x.test:8443', 'x.test:8443'),
+                                           ('https://10.0.0.1:8443', '10.0.0.1:8443')])
+def test_a_saved_name_with_a_code_word_never_hides_the_place(daemon: Any, target: str, place: str) -> None:
+    """A code word in the worker's name ("visa login code") makes the redactor read the port after it as a code; the
+    line then names the place first, so the owner always sees where the value goes, whole."""
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), target,
+                                                                                remember='visa login code'),
+                                               daemon.loop)
+    ap = _asked(daemon, 'owner_secret')
+    try:
+        assert ap.summary == f"For {place} only: “visa login code” · saved in your Mac's Keychain"
         assert Redactor().text(ap.summary) == ap.summary
     finally:
         _cancel(daemon, ap, waiting)
@@ -136,18 +162,19 @@ def test_mac_secret_tells_the_question_the_apps_name() -> None:
     assert asked == [{'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank'}]
 
 
-@pytest.mark.parametrize('origin, host', [('https://accounts.google.com', 'accounts.google.com'),
-                                          ('https://1234.example.com', '1234.example.com'),
-                                          ('https://x.test:8443', 'x.test:8443'),     # a port that isn't 443 shows
-                                          ('https://x.test:443', 'x.test'),
-                                          ('https://[::1]:8443', '[::1]:8443')])
+# "Login code for x.test:8443" would read the port (or a number in the host) as the code: those lines name the place
+# first, so it always shows whole
+@pytest.mark.parametrize('origin, want', [('https://accounts.google.com', 'Login code for accounts.google.com — used once'),
+                                          ('https://x.test:443', 'Login code for x.test — used once'),
+                                          ('https://1234.example.com', 'For 1234.example.com: a login code — used once'),
+                                          ('https://x.test:8443', 'For x.test:8443: a login code — used once'),
+                                          ('https://[::1]:8443', 'For [::1]:8443: a login code — used once')])
 def test_the_login_code_question_says_in_one_line_where_it_goes(daemon: Any, monkeypatch: pytest.MonkeyPatch,
-                                                                origin: str, host: str) -> None:
+                                                                origin: str, want: str) -> None:
     published = _published(daemon, monkeypatch)
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_login_code(_ctx(), origin), daemon.loop)
     ap = _asked(daemon, 'owner_login_code')
     try:
-        want = f"{host} asks for a login code. FERB fills it only there and doesn't save it."
         assert ap.summary == want and Redactor().text(want) == want
         assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
         assert _status_of(daemon, ap.id)['summary'] == want
@@ -293,11 +320,11 @@ def test_a_waiting_code_questions_banner_carries_its_short_line(daemon: Any) -> 
         daemon.daemon._publish('approval.requested', {
             'approval_id': 'ap-banner', 'capability': 'secret.fill', 'kind': 'owner_secret', 'task_id': 't-away',
             'reason': f'Destination: {VISA}. Type the password or secret for it here (hidden; Enter cancels).',
-            'summary': "atlasauth.b2clogin.com needs your password or another private answer."})
+            'summary': "A password or private answer for atlasauth.b2clogin.com — used once, not saved"})
         await asyncio.sleep(0.05)                      # the banner is posted from a task the publish starts
     daemon.run(ask())
-    assert notes == [('FERB needs you',
-                      'FERB needs your OK: atlasauth.b2clogin.com needs your password or another private answer.')]
+    assert notes == [('FERB needs you', 'FERB needs your OK: A password or private answer for atlasauth.b2clogin.com '
+                                        '— used once, not saved')]
 
 
 @pytest.mark.parametrize('handle', [None, 'visa'])

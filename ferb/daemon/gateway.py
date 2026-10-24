@@ -1098,6 +1098,13 @@ class Gateway:
         control characters (its facts can hold a page's or an app's text)."""
         return " ".join(printable(self.redact({"s": text})["s"]).split())
 
+    def _place_line(self, line: str, place_first: str) -> str:
+        """A hidden input's one-line question (P27), whose place must show whole: `line` leads with what the value is
+        for; when redaction would change it (a code word before the place reads a port, or a number in the host, as a
+        code: "Login code for x.test:8443"), `place_first`, which names the place before any such word."""
+        shown = self._one_line(line)
+        return shown if shown == " ".join(printable(line).split()) else self._one_line(place_first)
+
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
@@ -1738,7 +1745,7 @@ class Gateway:
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self._one_line(secret_summary(target, remember, shown))
+        ap.summary = self._place_line(*secret_summary(target, remember, shown))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary})
@@ -1775,8 +1782,7 @@ class Gateway:
         question = login_code_question(origin)
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
-        ap.summary = self._one_line(f"{_site(origin)} asks for a login code. FERB fills it only there and doesn't "
-                                    "save it.")
+        ap.summary = self._place_line(*login_code_summary(origin))
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id, "summary": ap.summary})
         grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
@@ -2007,17 +2013,26 @@ def _site(target: str) -> str:
     return host + (f":{parsed.port}" if parsed.port and parsed.port != "443" else "")
 
 
-def secret_summary(target: str, remember: str | None, app: str | None = None) -> str:
-    """The owner secret question in one line (P27): the place from the code-derived target (an origin's host, or the
-    app: its name as macOS reports it, else its bundle id), first, so no secret word comes before it; the worker's
-    proposed name only as the name it is saved under, never as the place."""
+def secret_summary(target: str, remember: str | None, app: str | None = None) -> tuple[str, str]:
+    """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"): what the value is
+    for first (the worker's proposed name, in quotes, only ever as the name it is saved under), then the place from the
+    code-derived target (an origin's host, or the app: its name as macOS reports it, else its bundle id) and whether
+    it is kept. Returns that line and the same facts with the place first (`Gateway._place_line`)."""
     if target.startswith("app:"):
-        place = f"The {app} app" if app else f"The app {target[4:]}"
+        place = f"the {app} app" if app else f"the app {target[4:]}"
     else:
         place = _site(target)
-    keep = (f"FERB saves it in your Mac's Keychain as {remember!r} and fills it only there." if remember
-            else "FERB fills it only there and doesn't save it.")
-    return f"{place} needs your password or another private answer. {keep}"
+    if remember:
+        return (f"“{remember}” — for {place} only · saved in your Mac's Keychain",
+                f"For {place} only: “{remember}” · saved in your Mac's Keychain")
+    return (f"A password or private answer for {place} — used once, not saved",
+            f"For {place}: a password or private answer — used once, not saved")
+
+
+def login_code_summary(origin: str) -> tuple[str, str]:
+    """The login-code question in one line (P27): what it is, then the origin's host; and the same with the place first
+    (`Gateway._place_line`), since "code for" reads a port or a number in the host after it as a code."""
+    return f"Login code for {_site(origin)} — used once", f"For {_site(origin)}: a login code — used once"
 
 
 ADMIN_SUMMARY = ("Your Mac password, for the one command you just approved. FERB passes it only to that command and "
