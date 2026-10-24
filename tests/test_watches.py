@@ -564,8 +564,8 @@ WATCH_PLANNER = (
     'when the battery is at 10%") is a schedule with repeat "every" whose request names what to check, what to tell'
     ' or alert, and whether it ends once that happens (watch "until_met": "when the download finishes", "once it\'s '
     'back in stock") or keeps watching (watch "standing": "whenever the battery hits 10%"). A watch tells the owner'
-    ' once each time the condition becomes true, not again while it stays true. Never wait for a condition with a '
-    'loop or sleep inside a task: those die when FERB restarts or updates. "Turn on Low Power Mode and alert me at '
+    ' once each time the condition becomes true, not again while it stays true. A watch only tells; work that FERB '
+    'must repeat or keep true is a loop step in a plan, not a watch. "Turn on Low Power Mode and alert me at '
     '10%" is a task for the work now plus the watch in "schedule", in the same turn.')
 WATCH_RUN = (
     'A watch (watch in the schedule facts) checks its condition afresh in every run: use one task, without a plan, '
