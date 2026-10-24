@@ -137,8 +137,11 @@ price and email me"):
 - "email me" / "remind me by email": resolve the address from relevant owner-stated memory. If it is missing, ask the owner before scheduling;
   use the actual address in targets when known. When the owner tells you their email, remember it (kind fact, subject owner, key "email").
 - "schedule_changes": to cancel / pause / resume one of the schedules listed in the facts, by its id, with the
-  owner's quote. Otherwise null / an empty list. FERB states the result of each change (and of each reminder cancel)
-  itself; don't claim it in text.
+  owner's quote. When the owner pauses or resumes a job that also has a schedule in the facts ("pause the visa task
+  for now, I'll say when to continue"), pause or resume that schedule in the same turn, along with the task change;
+  when they end the job for good ("stop checking for visa slots altogether"), cancel it. Otherwise null / an empty
+  list. FERB states the result of each change (and of each reminder cancel) itself, in your reply; don't claim it in
+  text.
 - schedule.standing_sends: for scheduled work that sends as the owner (daily posts, a weekly report email), the exact
   scopes its runs may send within without asking, only sends the owner asked for. FERB records a scope only when its
   site, account and recipients appear in words the owner typed (now, or when stating a remembered item; never a

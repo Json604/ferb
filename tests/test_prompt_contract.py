@@ -28,6 +28,12 @@ SENTENCES = [
      'When the owner tells you a login name or account detail for a site or app ("the username is Asha Rao" while '
      'working on that site), remember it in the same turn as the task change: kind fact, subject "owner" or the '
      'project ("project:<slug>"), and a key naming the site ("usvisascheduling-username").'),
+    # live 2026-10-24 12:34: "pause the visa task for now, I'll say when to continue" stopped the task and left its
+    # daily schedule active
+    ("supervisor.md",
+     'When the owner pauses or resumes a job that also has a schedule in the facts ("pause the visa task for now, '
+     'I\'ll say when to continue"), pause or resume that schedule in the same turn, along with the task change; when '
+     'they end the job for good ("stop checking for visa slots altogether"), cancel it.'),
     # owner 2026-10-24: "until I say stop" became end_when "You say to stop."; the owner's own stop is no end condition
     ("supervisor.md",
      'When the owner\'s only end is their own stop ("until I say stop", "keep it running"), end_when is empty.'),
