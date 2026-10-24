@@ -351,6 +351,9 @@ class MemoryRead(_PagedFacts):
         if args.query:                       # L36 §3: ranked by the one search, never a substring match
             if self.search is None:
                 return ToolResult({"error": "memory search is unavailable"}, is_error=True)
+            from ferb.memory.items import query_terms
+            if not query_terms(args.query):
+                return ToolResult({"error": "memory_read needs words to look for; this query has none"}, is_error=True)
             ranked = [memory.get(item_id) for item_id in await self.search(args.query)]
             items = [asdict(item) for item in ranked if item is not None and not _pending(item)]
         else:

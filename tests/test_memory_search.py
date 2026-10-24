@@ -370,3 +370,26 @@ def test_the_memory_tools_are_registered_on_the_waiting_search(daemon: Any) -> N
     """memory.learned must never search a half-re-indexed store: the daemon registers it on `_search`."""
     tool = daemon.daemon.registry.capabilities["memory.learned"]
     assert tool.search == daemon.daemon._search
+
+
+def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_words(daemon: Any) -> None:
+    from ferb.orchestrator.evidence import MemoryRead
+    for i in range(4):
+        owner_fact(daemon, f"note_{i}", f"the note {i} is for the owner")
+    reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
+    for query in ("???", "  ", "...!"):
+        out = daemon.run(reader.run(MemoryRead.Input(query=query), None))
+        assert out.is_error and "needs words" in out.content["error"]
+    out = daemon.run(reader.run(MemoryRead.Input(query="is the for and owner"), None))
+    assert not out.is_error and out.content["items"] == []
+
+
+def test_memory_read_query_leaves_out_a_retired_item(daemon: Any) -> None:
+    from ferb.orchestrator.evidence import MemoryRead
+    for i in range(4):
+        owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
+    gone = owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
+    reader = MemoryRead(lambda: daemon.daemon.memory, search=daemon.daemon._memory_item_search)
+    assert [i["id"] for i in daemon.run(reader.run(MemoryRead.Input(query="dentist"), None)).content["items"]] == [gone.id]
+    daemon.run(lambda: daemon.daemon.memory.retract(gone.id, "outdated"))
+    assert daemon.run(reader.run(MemoryRead.Input(query="dentist"), None)).content["items"] == []

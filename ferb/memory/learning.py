@@ -1352,7 +1352,8 @@ class Learning:
         weight (`weighted_terms`), the trigram title match and, when the owner adopted one, embedding similarity,
         fused by reciprocal rank (equal scores share a rank: `_tied`), plus a small recency boost; at equal score the
         owner's own statement first. A query whose every word most nodes share finds nothing, by similarity too (m5); a
-        query with no words lists the newest first, with no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
+        query with no words lists the newest first, with
+        no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
         (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
         nodes without their source refs (`get`), for a prompt's lines."""
