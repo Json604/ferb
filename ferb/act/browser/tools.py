@@ -305,9 +305,9 @@ class BrowserTabs(_Base):
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     probe_safe = True  # reads state, moves nothing, returns at once: a loop's probe may use it (L31)
     blurb = ("List the tabs the owner has open in their connected browser profiles: a tab_ref, the site, whether "
-             "it's the active tab, and whether it plays sound (audible) and is muted; `tabs_by_ref` has the same tabs "
-             "keyed by tab_ref. Use it when the owner refers to a tab they already have open (\"my current "
-             "YouTube tab\"), then {p}_use_tab.")
+             "it's the active tab, and whether it plays sound (audible) and is muted. A loop's probe reads one of them "
+             "as tabs_by_ref.<tab_ref>.<field>. Use it when the owner refers to a tab they already have open (\"my "
+             "current YouTube tab\"), then {p}_use_tab.")
     origin = "private"                                 # no tabs listed: the owner's browser state
 
     class Input(BaseModel):
@@ -318,9 +318,10 @@ class BrowserTabs(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         tabs = await self.driver.open_tabs(getattr(args, "profile"), ctx.task_id)   # type: ignore[attr-defined]
-        # L31: one tab by its ref, for a probe's dot path (`tabs_by_ref.<tab_ref>.audible`; a ref has no dots)
-        return ToolResult({"tabs": tabs, "tabs_by_ref": {t["tab_ref"]: t for t in tabs}},
-                          read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
+        # L31: a probe's read also gets one tab by its ref, for its dot path (`tabs_by_ref.<tab_ref>.audible`; a ref
+        # has no dots); a model reads the list (review M5: the map doubled it)
+        by_ref = {"tabs_by_ref": {t["tab_ref"]: t for t in tabs}} if ctx.probe else {}
+        return ToolResult({"tabs": tabs} | by_ref, read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
 
 
 class BrowserUseTab(_Base):
@@ -396,7 +397,7 @@ class BrowserSnapshot(_Base):
             sources += (("owner_account", f"{_host(s.url) or ''}|"),)
         # e.g. a download link clicked before this; a loop's probe read leaves them for the next round (L31)
         news, more = ({}, ()) if ctx.probe else await _news(self.driver, ref)
-        return ToolResult(for_model(s) | news, read_sources=sources + more)
+        return ToolResult(for_model(s, probe=ctx.probe) | news, read_sources=sources + more)
 
 
 class BrowserScreenshot(_Base):
@@ -483,8 +484,7 @@ class BrowserMedia(_Base):
     on_screen = True                                   # the owner may hear what plays (owner accepted, L26)
     blurb = ("Play, pause, mute, unmute or seek one video or audio element in one of this task's tabs ({whose}), by "
              "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one) "
-             "or by its media_id (its key in that snapshot's `media_by_id`, which stays with the element while the "
-             "page lives). "
+             "or by its media_id (that entry's `id`, which stays with the element while the page is open). "
              "Returns that element's state: playing (true only once its time has moved), paused, current_time, "
              "duration, muted, volume. Right after play, `playing` stays false until the media's time moves: check "
              "again with {p}_snapshot. Sound must actually play for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
@@ -495,7 +495,7 @@ class BrowserMedia(_Base):
         action: Literal["play", "pause", "mute", "unmute", "seek"]
         index: int | None = Field(default=None, ge=0, description="the element's index in the latest snapshot's media")
         media_id: str | None = Field(default=None, max_length=32,
-                                     description="or the element's id: its key in the latest snapshot's media_by_id")
+                                     description="or the element's id: its `id` in the latest snapshot's media")
         to: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="seek: the time, in seconds")
 
         @model_validator(mode="after")

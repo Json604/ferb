@@ -3,6 +3,7 @@ unmuting or seeking one element through the content script (no script evaluation
 under node with a fake DOM; the daemon side runs against a fake bridge. No browser is touched."""
 
 import asyncio
+import dataclasses
 import json
 import re
 import subprocess
@@ -239,7 +240,7 @@ def test_the_snapshot_keys_each_frames_media_by_its_own_id_and_a_probe_reads_one
     from ferb.act.browser.snapshot import for_model
     from ferb.orchestrator.probes import MISSING, field_value
     d, bridge, ref = _driver(FRAMES)
-    shown = for_model(asyncio.run(d.snapshot(ref)))
+    shown = for_model(asyncio.run(d.snapshot(ref)), probe=True)
     assert [m["id"] for m in shown["media"]] == ["m7-a1b2c3", "f5:m7-d4e5f6"]
     assert shown["media_by_id"] == {"m7-a1b2c3": shown["media"][0], "f5:m7-d4e5f6": shown["media"][1]}
     assert field_value(shown, "media_by_id.m7-a1b2c3.playing") is False
@@ -247,9 +248,25 @@ def test_the_snapshot_keys_each_frames_media_by_its_own_id_and_a_probe_reads_one
     assert field_value(shown, "media_by_id.m9-a1b2c3.playing") is MISSING      # gone from the page: the probe trips
     # review I2: the tab loads a new page, whose content script numbers from m1 again with its own token
     bridge.frames = [dict(FRAMES[0], media=[dict(FRAMES[0]["media"][0], id="m7-0f0f0f", playing=True)])]
-    again = for_model(asyncio.run(d.snapshot(ref)))
+    again = for_model(asyncio.run(d.snapshot(ref)), probe=True)
     assert field_value(again, "media_by_id.m7-a1b2c3.playing") is MISSING     # the old page's id matches nothing
     assert field_value(again, "media_by_id.m7-0f0f0f.playing") is True
+
+
+def test_the_model_sees_one_media_list_with_ids_and_only_a_probe_read_gets_the_map() -> None:
+    """Review M5: the keyed map doubled the media list in every snapshot a model read (about 8.6 KB more on an
+    Instagram feed of 52 videos). The model reads each entry's id from the list; a probe's read resolves the map."""
+    from ferb.act.browser.snapshot import for_model
+    from ferb.act.browser.tools import OWNER_BROWSER, BrowserSnapshot
+    from ferb.orchestrator.probes import field_value
+    d, _, ref = _driver(FRAMES)
+    snap = asyncio.run(d.snapshot(ref))
+    assert "media_by_id" not in for_model(snap) and "media_by_id" not in json.loads(d._tabs["t1"].snapshot_json)
+    tool = BrowserSnapshot(d, OWNER_BROWSER)
+    seen = asyncio.run(tool.run(tool.Input(tab="t1"), _ctx())).content
+    probed = asyncio.run(tool.run(tool.Input(tab="t1"), dataclasses.replace(_ctx(), probe=True))).content
+    assert "media_by_id" not in seen and [m["id"] for m in seen["media"]] == ["m7-a1b2c3", "f5:m7-d4e5f6"]
+    assert field_value(probed, "media_by_id.f5:m7-d4e5f6.playing") is True
 
 
 def test_an_older_extensions_snapshot_has_no_media_ids() -> None:
@@ -258,7 +275,7 @@ def test_an_older_extensions_snapshot_has_no_media_ids() -> None:
     from ferb.act.browser.snapshot import for_model
     old = [dict(f, media=[{k: v for k, v in m.items() if k != "id"} for m in f["media"]]) for f in FRAMES]
     d, _, ref = _driver(old)
-    shown = for_model(asyncio.run(d.snapshot(ref)))
+    shown = for_model(asyncio.run(d.snapshot(ref)), probe=True)
     assert "media_by_id" not in shown and all("id" not in m for m in shown["media"])
 
 

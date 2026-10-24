@@ -80,8 +80,11 @@ def test_the_tabs_tool_says_which_tab_plays_sound_and_keys_each_tab_by_its_ref()
     br.call = call  # type: ignore[method-assign]
     tool = BrowserTabs(r, OWNER_BROWSER)
     ctx = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"browser:read"}), "device", None, "/tmp", (), ())
-    out = asyncio.run(tool.run(tool.Input(), ctx)).content
+    seen = asyncio.run(tool.run(tool.Input(), ctx)).content
+    assert set(seen) == {"tabs"}                 # review M5: the model reads one list; only a probe's read gets the map
+    out = asyncio.run(tool.run(tool.Input(), replace(ctx, probe=True))).content
     reel, inbox = out["tabs"]
+    assert out["tabs"] == seen["tabs"]
     assert reel["tab_ref"] == "chrome:Profile 1:11" and (reel["audible"], reel["muted"]) == (True, False)
     assert "audible" not in inbox and "muted" not in inbox
     assert out["tabs_by_ref"] == {"chrome:Profile 1:11": reel, "chrome:Profile 1:12": inbox}

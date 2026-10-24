@@ -35,8 +35,9 @@ def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
                        state=tuple(state), level=int(level) if isinstance(level, (int, float)) else None)
 
 
-def for_model(snap: PageSnapshot, *, full: bool = False) -> dict[str, Any]:
-    """What a worker sees. The gateway's redaction pipeline runs over it again (tokens in URLs, known secrets)."""
+def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) -> dict[str, Any]:
+    """What a worker sees. The gateway's redaction pipeline runs over it again (tokens in URLs, known secrets). A loop
+    probe's read (`probe`, L31) also gets the media keyed by id, for its dot path; a model reads the ids in the list."""
     els = []
     for e in snap.elements:
         d: dict[str, Any] = {"id": e.id, "role": e.role, "label": e.label}
@@ -84,7 +85,7 @@ def for_model(snap: PageSnapshot, *, full: bool = False) -> dict[str, Any]:
         out["scrollers"] = snap.scrollers
     if snap.media:                                 # L26: confirm playback before listening or recording
         out["media"] = snap.media
-        by_id = {m["id"]: m for m in snap.media if "id" in m}
+        by_id = {m["id"]: m for m in snap.media if "id" in m} if probe else {}
         if by_id:                                  # L31: one element by its own id, wherever the list moves it
             out["media_by_id"] = by_id
     if snap.truncated or omitted or len(text) < len(snap.text):

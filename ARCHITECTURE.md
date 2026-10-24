@@ -2542,12 +2542,15 @@ protected FERB state (16.9).
   0.15.8 (L31) each element also has its own `id` for the page's life (content.js `mediaId`: a WeakMap, `m<n>` on
   first sight, never given to another element, then the page's own random token, `m12-3fa91c`, so an id from an
   earlier page of the tab matches nothing in a later one (review I2); a child frame's is `f<frame>:m<n>-<token>`), and
-  the snapshot keys the same entries by it in `media_by_id`, so a loop's probe watches one element
-  (`media_by_id.m12-3fa91c.playing`) while list positions shift as a feed loads; `browser.media` takes `media_id` as
-  well as `index`, both from the latest snapshot.
-  `browser.tabs` lists each tab's `audible` and `muted` (chrome.tabs `audible`, `mutedInfo.muted`) and keys the tabs by
-  `tab_ref` in `tabs_by_ref` (`tabs_by_ref.<tab_ref>.audible`; a tab_ref holds colons and spaces, never a dot). An
-  older extension sends none of these: they are absent, never guessed, and a probe on them sees its field missing.
+  a loop probe's read of the snapshot (`ToolContext.probe`) keys the same entries by it in `media_by_id`, so the probe
+  watches one element (`media_by_id.m12-3fa91c.playing`) while list positions shift as a feed loads;
+  `browser.media` takes `media_id` as well as `index`, both from the latest snapshot.
+  `browser.tabs` lists each tab's `audible` and `muted` (chrome.tabs `audible`, `mutedInfo.muted`), and a probe's read
+  also keys the tabs by `tab_ref` in `tabs_by_ref` (`tabs_by_ref.<tab_ref>.audible`; the tab_refs FERB builds hold
+  colons and spaces, and a dot only from a custom profile folder name, which no probe path can then name). A model
+  reads one list with the ids, never the keyed maps (review M5: on a 52-video Instagram snapshot the map added 8.6 KB,
+  29% of what the model read; on 40 tabs it doubled the listing). An older extension sends none of these fields: they
+  are absent, never guessed, and a probe on them sees its field missing.
 - `with_audio` recordings attach a time-aligned transcript and keep no audio track.
 - `ferb setup` asks for Speech Recognition only (`request-speech`); `doctor.check` reports `hearing`; push-to-talk is
   on-device only too, and so is the notch's own dictation (`OnDeviceSpeech` in `Microphone.swift`): without on-device

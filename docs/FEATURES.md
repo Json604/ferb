@@ -375,8 +375,8 @@ All **Shipped** (`ferb --help`):
 - What: `browser.media` plays, pauses, mutes, unmutes or seeks a page's video/audio; snapshots report each media
   element's state (playing, paused, time, duration, muted); "playing" means the media's time is moving, so FERB
   confirms a video is really playing before recording or listening. (In a real task FERB recorded a reel that never
-  played; this fixes that.) Extension 0.15.8 gives each video its own id for as long as the page is open
-  (`media_by_id`) and lists whether each tab plays sound (`audible`, `muted`), so a loop watches one exact video or tab.
+  played; this fixes that.) Extension 0.15.8 gives each video its own id for as long as the page is open and lists
+  whether each tab plays sound (`audible`, `muted`), so a loop watches one exact video or tab.
 - Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.6 / protocol 17.
 
 #### Always-on hearing
