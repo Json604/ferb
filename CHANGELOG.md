@@ -963,8 +963,9 @@ After the owner's update (2026-10-24):
   there did nothing. Extension 0.15.10 has a `rest` command: between rounds the interception is off, and a round turns
   it back on before it acts. The daemon sends it only to 0.15.10 or later; with an older extension the picker stays
   FERB's until the loop ends. A page's alert or confirm between rounds is shown to you, and your answer no longer
-  leaves the next round's snapshot blocked. Residual: a download a round's own action started that arrives after the
-  round ends goes to your Downloads.
+  leaves the next round's snapshot blocked. It fails closed: if you press Cancel on FERB's debugger bar while the tab
+  rests, or a round's "take it back" is lost, the picker is FERB's again before the round acts. Residual: a download a
+  round's own action started that arrives after the round ends goes to your Downloads.
 - The Claude runtime caches the planner's stable prefix (P20, D32; owner, 2026-10-25). The adapter joined FERB's
   instructions and context into one text and ignored which parts repeat, so only Claude Code's own prefix was read from
   the cache (4.8% of a ~101k-token planner turn; every turn wrote ~97k tokens again). FERB's text now goes as separate

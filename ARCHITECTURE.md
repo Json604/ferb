@@ -2883,8 +2883,12 @@ planner's own words say what the loop does.
   and a reconnect's sweep from disarming the tab. For the file picker the supervisor tells the drivers at each round
   boundary (`on_loop_rest` → `_TabDriver.rest`), and an extension of 0.15.10 or later gets the `rest` command: file-
   chooser interception off in the tab and its frames while resting, on again before the round acts (a frame attaching
-  meanwhile follows the tab). An older extension is never sent `rest` (it doesn't know it; no protocol or minimum
-  change), so its held tab keeps the picker intercepted between rounds (residual). A page's alert or confirm between
+  meanwhile follows the tab). It fails closed: a debugger detach forgets the resting flag, `rest` records it even
+  without a session (the next attach follows it), any acting command (act, fill, upload, navigate, media, scroll,
+  pointer) in a resting tab takes the picker back before it runs, and the driver confirms a round's rest(false) from
+  its reply, retries once, and raises for the supervisor's journal when still unconfirmed. An older extension is never
+  sent `rest` (it doesn't know it; no protocol or minimum change), so its held tab keeps the picker intercepted between
+  rounds (residual). A page's alert or confirm between
   rounds is the owner's: Chrome shows it (CDP `hasBrowserHandler`), the extension answers only a dialog FERB expected,
   and the owner's own answer (`Page.javascriptDialogClosed`) clears the pending state, so the next round's snapshot
   isn't blocked. During a round, its check included, any download or link in the held tab is FERB's, the owner's own
