@@ -134,6 +134,23 @@ def test_trim_removes_only_what_ferb_never_runs_and_keeps_one_architecture(tmp_p
         assert archs == [arch]                                    # a universal module keeps only this app's slice
 
 
+def test_arch_check_names_every_file_built_for_another_architecture(tmp_path: Path) -> None:
+    app = tmp_path / "FERB.app"
+    c = app / "Contents"
+    compile_macho(c / "MacOS/FERBNotch", "arm64")
+    compile_macho(c / "Resources/python/lib/libpython3.12.dylib", "arm64")
+    launcher = _sized(c / "Resources/bin/ferb", 10)
+    launcher.chmod(0o755)                                                     # an executable script: not Mach-O
+    assert _parts(f"ferb_check_arch {shlex.quote(str(app))} arm64").returncode == 0
+    compile_macho(c / "Helpers/ferb-secrets", "x86_64")
+    compile_macho(c / "Resources/python/lib/python3.12/site-packages/objc/_objc.cpython-312-darwin.so",
+                  "arm64", "x86_64")
+    done = _parts(f"ferb_check_arch {shlex.quote(str(app))} arm64")
+    assert done.returncode != 0
+    assert "Contents/Helpers/ferb-secrets: x86_64" in done.stderr
+    assert "_objc.cpython-312-darwin.so: " in done.stderr and "MacOS/FERBNotch" not in done.stderr
+
+
 def test_cli_reports_its_version() -> None:
     out = subprocess.run([sys.executable, "-I", "-m", "ferb.cli", "--version"], capture_output=True, text=True,
                          cwd=ROOT)
@@ -307,6 +324,23 @@ def test_developer_id_without_notary_credentials_stops_before_signing(tmp_path: 
     assert not _signed(calls)
 
 
+def test_build_app_refuses_an_unknown_architecture_and_intel_without_rosetta(tmp_path: Path) -> None:
+    env = _stubs(tmp_path)
+    out = tmp_path / "out"
+    bad = subprocess.run([str(BUILD_APP), "--arch", "ppc", str(out)], capture_output=True, text=True, env=env)
+    assert bad.returncode != 0 and "arm64 or x86_64" in bad.stderr
+    alone = subprocess.run([str(BUILD_APP), "--arch"], capture_output=True, text=True, env=env)
+    assert alone.returncode != 0 and "usage" in alone.stderr
+    stubs = tmp_path / "stubs"
+    (stubs / "uname").write_text('#!/bin/zsh\nif [[ "$1" == -m ]]; then print arm64; else /usr/bin/uname "$@"; fi\n')
+    (stubs / "arch").write_text("#!/bin/zsh\nexit 1\n")                       # Rosetta isn't installed
+    for name in ("uname", "arch"):
+        (stubs / name).chmod(0o755)
+    intel = subprocess.run([str(BUILD_APP), "--arch", "x86_64", str(out)], capture_output=True, text=True, env=env)
+    assert intel.returncode != 0 and "Rosetta" in intel.stderr
+    assert not out.exists()                                                   # refused before anything was written
+
+
 def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a_developer_id(tmp_path: Path) -> None:
     app = _fake_app(tmp_path / "out")
     env = _stubs(tmp_path)
@@ -455,6 +489,8 @@ def test_real_bundle_holds_only_what_ferb_runs(real_bundle: Path, tmp_path: Path
     assert seen.returncode == 0 and seen.stdout.strip() == arch, seen.stderr
     size = sum(f.stat().st_size for f in app.rglob("*") if f.is_file() and not f.is_symlink())
     assert size <= MAX_APP_MB[arch] * 1_000_000, f"{size / 1e6:.1f} MB for {arch}"
+    check = _parts(f"ferb_check_arch {shlex.quote(str(app))} {arch}")
+    assert check.returncode == 0, check.stderr
 
 
 # ---------- the agent stub: only FERB's own entry points, only FERB's own home (fix round 2) ----------

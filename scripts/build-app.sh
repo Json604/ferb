@@ -1,7 +1,9 @@
 #!/bin/zsh -f
 # Build the packaged FERB.app (L27) and sign it once (scripts/signing.sh).
 #
-#   scripts/build-app.sh [OUT_DIR]          build OUT_DIR/FERB.app (default build/app), then sign it
+#   scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]
+#                                           build OUT_DIR/FERB.app (default build/app-<arch>) for one architecture
+#                                           (default: this Mac's; an Intel app builds on Apple silicon under Rosetta)
 #   scripts/build-app.sh --sign-only APP    sign an assembled FERB.app again, e.g. with a Developer ID; no rebuild
 #
 # The app holds: the notch UI as its main executable; FERB's own Python (uv's relocatable standalone CPython, pinned
@@ -29,14 +31,23 @@ if [[ "${1:-}" == --sign-only ]]; then
   exit 0
 fi
 
-OUT="${${1:-$ROOT/build/app}:A}"
+ARCH=$(uname -m)                      # FERB.app's one architecture: arm64 (Apple silicon) or x86_64 (Intel)
+if [[ "${1:-}" == --arch ]]; then
+  (( $# >= 2 )) || die "usage: build-app.sh [--arch arm64|x86_64] [OUT_DIR]"
+  ARCH=$2
+  shift 2
+fi
+ferb_arch_names "$ARCH" || die "--arch is arm64 or x86_64, not '$ARCH'"
+if [[ "$ARCH" != "$(uname -m)" ]]; then
+  # The Intel app is built on Apple silicon by running its Intel Python and Codex under Rosetta
+  [[ "$ARCH" == x86_64 ]] || die "an arm64 FERB.app is built on Apple silicon"
+  arch -x86_64 /usr/bin/true 2>/dev/null || die "building the Intel app here needs Rosetta: softwareupdate --install-rosetta"
+fi
+OUT="${${1:-$ROOT/build/app-$ARCH}:A}"
 APP="$OUT/FERB.app"
 WORK="$OUT/.work"                     # build cache (Swift, Python download, npm); `rm -rf` it for a clean build
 ferb_check_notary_credentials
-ARCH=arm64                            # FERB.app's one architecture
-[[ "$(uname -m)" == arm64 ]] || die "FERB.app is built for Apple silicon (arm64)"
-ferb_arch_names "$ARCH"
-for tool in uv swift xcrun npm codesign ditto install_name_tool; do
+for tool in uv swift xcrun npm codesign ditto install_name_tool lipo; do
   command -v $tool >/dev/null || die "needs $tool"
 done
 
@@ -55,12 +66,12 @@ mkdir -p "$WORK" "$APP/Contents/MacOS" "$APP/Contents/Resources/bin" "$APP/Conte
 CONTENTS="$APP/Contents"
 plist() { /usr/libexec/PlistBuddy -c "$1" "$2" }
 
-print "==> Notch UI (main executable)"
+print "==> Notch UI (main executable, $ARCH)"
 NOTCH="$ROOT/ui/mac/FERBNotch"
 # No build-machine paths in what ships: source paths remapped, debug symbols stripped
-swift build --package-path "$NOTCH" -c release --scratch-path "$WORK/swift" -Xswiftc -file-prefix-map -Xswiftc "$ROOT=."
-cp "$(swift build --package-path "$NOTCH" -c release --scratch-path "$WORK/swift" --show-bin-path)/FERBNotch" \
-   "$CONTENTS/MacOS/FERBNotch"
+SWIFT=(swift build --package-path "$NOTCH" -c release --arch "$ARCH" --scratch-path "$WORK/swift")
+"${SWIFT[@]}" -Xswiftc -file-prefix-map -Xswiftc "$ROOT=."
+cp "$("${SWIFT[@]}" --show-bin-path)/FERBNotch" "$CONTENTS/MacOS/FERBNotch"
 strip -S "$CONTENTS/MacOS/FERBNotch"
 cp "$NOTCH/Info.plist" "$CONTENTS/Info.plist"
 plist "Set :CFBundleShortVersionString $SHORT_VERSION" "$CONTENTS/Info.plist"
@@ -70,14 +81,16 @@ plist "Add :FERBSourceRevision string $REVISION" "$CONTENTS/Info.plist"
 cp "$NOTCH/ThirdPartyNotices.txt" "$CONTENTS/Resources/ThirdPartyNotices.txt"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 
-print "==> Python $CPYTHON (uv's standalone CPython; relocatable)"
-uv python install "$CPYTHON" --install-dir "$WORK/python" --no-bin --quiet
-PY_SRC="$WORK/python/cpython-$CPYTHON-macos-aarch64-none"
-[[ -x "$PY_SRC/bin/python$PY_MINOR" ]] || die "uv installed no CPython $CPYTHON under $WORK/python"
+print "==> Python $CPYTHON for $ARCH (uv's standalone CPython; relocatable)"
+PY_KEY="cpython-$CPYTHON-macos-$FERB_UV_ARCH-none"
+uv python install "$PY_KEY" --install-dir "$WORK/python" --no-bin --quiet
+PY_SRC="$WORK/python/$PY_KEY"
+[[ -x "$PY_SRC/bin/python$PY_MINOR" ]] || die "uv installed no CPython $CPYTHON for $ARCH under $WORK/python"
 PYHOME="$CONTENTS/Resources/python"
 PY="$PYHOME/bin/python$PY_MINOR"
 ditto "$PY_SRC" "$PYHOME"
-[[ "$("$PY" -I -c 'import platform; print(platform.python_version())')" == "$CPYTHON" ]] || die "not CPython $CPYTHON"
+[[ "$("$PY" -I -c 'import platform; print(platform.python_version(), platform.machine())')" == "$CPYTHON $ARCH" ]] \
+  || die "not CPython $CPYTHON for $ARCH"
 rm -f "$PYHOME/lib/python$PY_MINOR/EXTERNALLY-MANAGED"     # the app's Python is sealed, not uv-managed
 # uv recorded its install path as libpython's id; the interpreter finds it through @executable_path/../lib
 install_name_tool -id "@rpath/libpython$PY_MINOR.dylib" "$PYHOME/lib/libpython$PY_MINOR.dylib" 2>/dev/null
@@ -114,7 +127,7 @@ mkdir -p "$AGENT/Contents/MacOS"
 cp "$ROOT/ui/mac/FERBAgent/Info.plist" "$AGENT/Contents/Info.plist"
 plist "Set :CFBundleShortVersionString $SHORT_VERSION" "$AGENT/Contents/Info.plist"
 plist "Set :CFBundleVersion $BUILD" "$AGENT/Contents/Info.plist"
-xcrun clang -O2 -arch arm64 -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT=." \
+xcrun clang -O2 -arch "$ARCH" -mmacosx-version-min=14.2 -ffile-prefix-map="$ROOT=." \
   -I"$PY_SRC/include/python$PY_MINOR" "$ROOT/ui/mac/FERBAgent/main.c" "$PYHOME/lib/libpython$PY_MINOR.dylib" \
   -Wl,-rpath,@executable_path/../../../../Resources/python/lib -o "$AGENT/Contents/MacOS/FERB"
 strip -S "$AGENT/Contents/MacOS/FERB"
@@ -127,24 +140,25 @@ exec "${0:A:h:h}/python/bin/python3.12" -I -B -m ferb.cli "$@"
 EOF
 chmod 755 "$CONTENTS/Resources/bin/ferb"
 
-print "==> Codex $CODEX_VERSION (pinned in package-lock.json)"
+print "==> Codex $CODEX_VERSION for $ARCH (pinned in package-lock.json)"
 mkdir -p "$WORK/node"
 cp "$ROOT/package.json" "$ROOT/package-lock.json" "$WORK/node/"
-(cd "$WORK/node" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error)
-CODEX_PKG="$WORK/node/node_modules/@openai/codex-darwin-arm64"
-got=$("$CODEX_PKG/vendor/aarch64-apple-darwin/bin/codex" --version | awk '{ print $NF }')
+(cd "$WORK/node" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error --os=darwin --cpu="$FERB_NPM_CPU")
+CODEX_PKG="$WORK/node/node_modules/@openai/$FERB_CODEX_NPM"
+[[ -d "$CODEX_PKG" ]] || die "npm installed no $FERB_CODEX_NPM"
+got=$("$CODEX_PKG/vendor/$FERB_CODEX_TRIPLE/bin/codex" --version | awk '{ print $NF }')
 [[ "$got" == "$CODEX_VERSION" ]] || die "package-lock.json has Codex $got, ferb pins $CODEX_VERSION"
 mkdir -p "$CONTENTS/Resources/node/node_modules/@openai"
-ditto "$CODEX_PKG" "$CONTENTS/Resources/node/node_modules/@openai/codex-darwin-arm64"
+ditto "$CODEX_PKG" "$CONTENTS/Resources/node/node_modules/@openai/$FERB_CODEX_NPM"
 
 print "==> Secret helper"
-xcrun swiftc -O -target arm64-apple-macos14.2 -file-prefix-map "$ROOT=." -o "$CONTENTS/Helpers/ferb-secrets" \
+xcrun swiftc -O -target "$ARCH-apple-macos14.2" -file-prefix-map "$ROOT=." -o "$CONTENTS/Helpers/ferb-secrets" \
   "$ROOT/ferb/identity/secret_helper.swift" -framework Security -framework CryptoKit
 strip -S "$CONTENTS/Helpers/ferb-secrets"
 
 print "==> Voice helper (macapp/FERB; merges into the main app after Task 20)"
 VOICE="$CONTENTS/Helpers/FERB Voice.app"
-IDENTITY=- "$ROOT/macapp/FERB/build.sh" "$VOICE" >/dev/null
+ARCH="$ARCH" IDENTITY=- "$ROOT/macapp/FERB/build.sh" "$VOICE" >/dev/null
 plist "Set :CFBundleName FERB Voice" "$VOICE/Contents/Info.plist"   # its own name in permission prompts; same id
 plist "Add :CFBundleDisplayName string FERB Voice" "$VOICE/Contents/Info.plist"
 
@@ -157,6 +171,7 @@ CHECK=$(mktemp -d "$WORK/codex-check.XXXXXX")
   && "$PY" -I -c 'import json, sys; assert json.load(open(sys.argv[1]))["models"]' "$CHECK/models.json" \
   || die "Codex doesn't start without its trimmed parts"
 rm -rf "${CHECK:?}"
+ferb_check_arch "$APP" "$ARCH" || die "FERB.app ($ARCH) holds code for another architecture"
 
 print "==> Signing (identity: $SIGN_IDENTITY)"
 ferb_sign_app "$APP" "$WORK/sign"

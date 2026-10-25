@@ -80,3 +80,19 @@ ferb_trim_app() {
     mv "$f.thin" "$f"
   done
 }
+
+# ferb_check_arch APP ARCH: every Mach-O file in FERB.app is ARCH code only; otherwise names each one that isn't
+ferb_check_arch() {
+  local app=${1:A} arch=${2:?} f got
+  local -a files bad
+  files=("${(@f)$(find "$app/Contents" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print)}")
+  for f in $files; do
+    [[ -n $f && "$(file -b "$f")" == Mach-O* ]] || continue
+    got=$(lipo -archs "$f" 2>/dev/null || true)
+    [[ $got == $arch ]] || bad+=("${f#$app/}: ${got:-unreadable}")
+  done
+  (( ${#bad} == 0 )) && return 0
+  print -u2 "Not $arch-only:"
+  print -u2 -l -- "  "${^bad}
+  return 1
+}
