@@ -519,6 +519,9 @@ class Supervisor(WorkerRuns):
         # the browser tabs a task holds now, by tab id, redacted (daemon supplied; L31: a loop's, for each round)
         self.task_tabs: Callable[[str], list[dict[str, Any]]] = lambda task_id: []
         self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
+        # daemon supplied (L31): a loop's round starts (False) or ends (True): the browser drivers give the owner's held
+        # tab's file picker back between rounds and take it again for a round
+        self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = None
         # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
         self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
         self.relevant_source_refs: Callable[[str], list[str]] = lambda words: []
@@ -2719,6 +2722,15 @@ class Supervisor(WorkerRuns):
 
     # ---------- loops (L31) ----------
 
+    async def _loop_rest(self, task_id: str, resting: bool) -> None:
+        """Tell the browser drivers a loop's round starts or ends (`on_loop_rest`); a failure never stops the loop."""
+        if self.on_loop_rest is None:
+            return
+        try:
+            await self.on_loop_rest(task_id, resting)
+        except Exception as exc:
+            self.journal.append('loop.failed', {'task_id': task_id, 'what': 'rest', 'error': f'{type(exc).__name__}: {exc}'})
+
     def loop_resting(self, task_id: str) -> bool:
         """A loop's task between its rounds (L31): the owner's tab it holds is theirs again for downloads and new tabs
         (owner, 2026-10-25: "give them back between rounds"); during a round, its check included, it is FERB's."""
@@ -2802,10 +2814,12 @@ class Supervisor(WorkerRuns):
 
         async def play(cause: dict[str, Any]) -> dict[str, Any]:
             self._resting.discard(child.id)          # the round drives the loop's tabs (D35: what it starts is FERB's)
+            await self._loop_rest(child.id, False)
             try:
                 return await round_play(cause)
             finally:
                 self._resting.add(child.id)          # between rounds the owner's held tab is theirs again
+                await self._loop_rest(child.id, True)
 
         async def round_play(cause: dict[str, Any]) -> dict[str, Any]:
             spec = tree.spec.model_copy(deep=True)

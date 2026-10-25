@@ -381,3 +381,29 @@ def test_keep_open_on_the_owners_tab_confirms_it_is_still_open() -> None:
     br.call = without_12                                                             # type: ignore[method-assign]
     with pytest.raises(DriverError, match="isn't open"):
         asyncio.run(r.keep_open(gone))
+
+
+@pytest.mark.parametrize("version, sent", [("0.15.10", True), ("0.15.12", True), ("0.15.9", False), ("0.15.6", False)])
+def test_a_resting_owner_tab_gives_its_file_picker_back_only_on_an_extension_that_knows_how(version: str,
+                                                                                           sent: bool) -> None:
+    """Re-review N2: `rest` is new in extension 0.15.10. The daemon sends it only to an extension that reports 0.15.10
+    or later (no protocol or minimum change): an older one keeps the held tab's file picker intercepted between rounds
+    (a documented residual) and is never sent a command it doesn't know. Only the owner's borrowed tabs rest."""
+    r, br = router()
+    br.version = version                                                             # type: ignore[attr-defined]
+    owned = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    r._tabs[owned.tab_id].attached = True
+    br.calls.clear()
+    sent_args: list[dict[str, Any]] = []
+    original = br.call
+
+    async def record(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        if op == "rest":
+            sent_args.append(args)
+            return {"tab_id": args["tab_id"], "resting": args["resting"], "file_chooser_intercepted": not args["resting"]}
+        return await original(op, args, timeout, cid)
+    br.call = record                                                                 # type: ignore[method-assign]
+    asyncio.run(r.rest("task-1", True))
+    asyncio.run(r.rest("task-1", False))
+    asyncio.run(r.rest("task-2", True))                                              # another task: nothing of its own
+    assert sent_args == ([{"tab_id": 11, "resting": True}, {"tab_id": 11, "resting": False}] if sent else [])

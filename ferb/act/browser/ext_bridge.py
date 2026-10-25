@@ -697,6 +697,9 @@ class _Tab:
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
 
 
+REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
+
+
 class _TabDriver:
     seal_value = staticmethod(seal)
     """Task-owned tabs with short aliases and generation-scoped element ids, over one or more bridges."""
@@ -809,6 +812,20 @@ class _TabDriver:
         return next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id and t.owner
                      and not t.closed and self.task_running(t.owner)
                      and not (t.attached and self.task_resting(t.owner))), None)
+
+    async def rest(self, owner: str, resting: bool) -> None:
+        """A loop's task ends a round (`resting`) or starts one: the owner's own tabs it holds give their file picker
+        back between rounds, and a round takes the interception again (L31, owner 2026-10-25: "give them back between
+        rounds"; the debugger and focus emulation, which keep the page running, stay). Only an extension that reports
+        REST_VERSION or later knows the command: an older one is never sent it and keeps the picker intercepted in a
+        held tab (a documented residual). Best effort: a lost connection or a refusal changes nothing else."""
+        for t in [t for t in self._tabs.values() if t.owner == owner and t.attached and not t.closed]:
+            if t.bridge.conn is None or not version_ok(getattr(t.bridge, "version", "") or "0", REST_VERSION):
+                continue
+            try:
+                await t.bridge.call("rest", {"tab_id": t.chrome_id, "resting": resting}, timeout=10)
+            except (DriverError, OSError):
+                pass
 
     def holds(self, br: Bridge, chrome_id: int) -> bool:
         """A running task still holds this tab, driven or resting between a loop's rounds: never let go of it from

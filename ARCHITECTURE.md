@@ -2819,15 +2819,21 @@ planner's own words say what the loop does.
   tab only marks it kept (`_TabDriver.keep_open`): the tab stays held, its debugger attached and focus emulation on,
   until its task ends (a loop's: until the loop stops), when `close` lets go of it, open; letting go at `keep_open`
   turned focus emulation off and Instagram paused 0.3 s after each round (live cc5debe4, 2026-10-25). A tab FERB
-  opened is still handed over at once. Between rounds (and while the loop is paused) the owner's held tab is theirs
-  again for everything but the hold (owner, 2026-10-25: "give them back between rounds"): `Supervisor.loop_resting`
-  is true from a round's end (its check included) to the next round's start, and the driver's `_live` then treats
-  that borrowed tab as no task's (`task_resting`), so a download the owner starts there is handed back to the
-  browser (their Downloads) and a new-tab link they open is opened as their own tab (`open_plain`), while the hold
-  that keeps the page running (the debugger, its focus emulation) stays: `Hub.holds` keeps the link's pass-through
-  and a reconnect's sweep from disarming it. The extension is unchanged (its D35 interception and page hook stay on;
-  what they catch goes back to the browser), so every extension version behaves so. During a round, what its
-  actions start is FERB's (D35). `keep_open` on the owner's tab asks the browser's tab list that the tab is still
+  opened is still handed over at once. Between rounds (and while the loop is paused) the owner's held tab gives back
+  its downloads, new-tab links and file picker, and keeps only what keeps the page running: the debugger session and
+  its focus emulation (owner, 2026-10-25: "give them back between rounds"). `Supervisor.loop_resting` is true from a
+  round's end (its check included) to the next round's start, and the driver's `_live` then treats that borrowed tab
+  as no task's (`task_resting`): a download the owner starts there is handed back to the browser (their Downloads)
+  and a new-tab link they open is opened as their own tab (`open_plain`); `Hub.holds` keeps the link's pass-through
+  and a reconnect's sweep from disarming the tab. For the file picker the supervisor tells the drivers at each round
+  boundary (`on_loop_rest` → `_TabDriver.rest`), and an extension of 0.15.10 or later gets the `rest` command: file-
+  chooser interception off in the tab and its frames while resting, on again before the round acts (a frame attaching
+  meanwhile follows the tab). An older extension is never sent `rest` (it doesn't know it; no protocol or minimum
+  change), so its held tab keeps the picker intercepted between rounds (residual). A page's alert or confirm between
+  rounds is the owner's: Chrome shows it (CDP `hasBrowserHandler`), the extension answers only a dialog FERB expected,
+  and the owner's own answer (`Page.javascriptDialogClosed`) clears the pending state, so the next round's snapshot
+  isn't blocked. During a round, its check included, any download or link in the held tab is FERB's, the owner's own
+  included (D35). `keep_open` on the owner's tab asks the browser's tab list that the tab is still
   open. Known residual (review M10): after an extension reconnect a held tab's ref keeps the old connection's
   generation, and `attach` hands later rounds that stale ref ("belongs to an older browser connection"), so the loop
   can't borrow the tab again until it ends; a long-held loop tab makes this likelier. Not fixed in this batch. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:

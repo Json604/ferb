@@ -42,7 +42,12 @@ are instant (`behavior: "instant"`), so a smooth-scrolling page no longer moves 
 fields (an older extension) no browser point is published.
 Extension 0.15.10 (L31) changes no reply's shape and no protocol: a snapshot waits up to 300 ms for media it hasn't
 seen before, unpaused, to move, so its first `playing` already says whether it plays (content.js `firstLook`); an
-older extension reports `playing` false on its first look, as before."""
+older extension reports `playing` false on its first look, as before. It also adds one command, `rest {tab_id,
+resting}` (file-chooser interception off while a loop's held tab rests between rounds, on for a round), which the
+daemon sends only to an extension reporting 0.15.10 or later (`ext_bridge.REST_VERSION`): an older extension is never
+sent it (its held tab keeps the picker intercepted), and an older daemon never sends it, so neither side meets a
+command it doesn't know and the protocol number and minimum stay. A dialog the owner closes in the browser
+(`Page.javascriptDialogClosed`) clears the extension's pending dialog."""
 
 import base64
 import hashlib
@@ -61,7 +66,7 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"]
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:

@@ -785,6 +785,7 @@ class Daemon:
                                      checks=Checks(self._urls_of, self.spans), roots=roots)
         self.supervisor.browser_context = self._browser_context
         self.supervisor.task_tabs = self._task_tabs
+        self.supervisor.on_loop_rest = self._loop_rest
         self.supervisor.skills_catalog = skills.catalog
         self.supervisor.on_resumed_outcome = lambda event: self._task_result(event, shown=False)
         self.supervisor.on_task_start = self.disturbance.start
@@ -3535,6 +3536,13 @@ class Daemon:
             return None
         from ferb.act.mac.tools import app_window
         return await app_window(self.mac, app, scopes)
+
+    async def _loop_rest(self, task_id: str, resting: bool) -> None:
+        """A loop's round starts or ends (L31): each browser driver gives the owner's held tab its file picker back
+        between rounds, or takes it for the round (`_TabDriver.rest`, extension 0.15.10+)."""
+        for drv in (self.router, self.ferb_identity):
+            if drv is not None:
+                await drv.rest(task_id, resting)
 
     def _task_tabs(self, task_id: str) -> list[dict[str, Any]]:
         """The browser tabs a task holds now, by tab id, with the page each held when the task took it over (a checker's

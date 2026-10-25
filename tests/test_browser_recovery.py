@@ -515,6 +515,57 @@ def test_release_keeps_tab_open_detaches_and_survives_extension_session_reset() 
     assert result['closed']['closed'] is False
 
 
+def test_a_held_tab_resting_between_rounds_gives_the_owner_their_file_picker_and_keeps_the_hold() -> None:
+    """L31, re-review N2 (owner, 2026-10-25: "give them back between rounds"): the held tab's file-chooser interception
+    suppressed the owner's own file picker for the loop's whole life. `rest` turns it off in the tab and its frames
+    while the tab rests and on again for a round; the debugger and focus emulation, which keep the page running, are
+    never touched. A frame that attaches while the tab rests leaves the picker to the owner too."""
+    out = worker('''(async () => {
+      const calls = [], events = chrome.debugger.onEvent;
+      chrome.debugger = {sendCommand: async (target, method, params) => { calls.push([method, params, target.sessionId || null]); },
+                         detach: async () => { calls.push(['detach']); }};
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true;
+      st.sessions.set('f1', Promise.resolve());
+      const resting = await commands.rest({tab_id: 22, resting: true});
+      const off = calls.splice(0);
+      events.fire({tabId: 22}, 'Target.attachedToTarget', {sessionId: 'f2', targetInfo: {type: 'iframe'}});
+      await st.sessions.get('f2');
+      const frame = calls.splice(0).filter(c => c[0] === 'Page.setInterceptFileChooserDialog');
+      const round = await commands.rest({tab_id: 22, resting: false});
+      const on = calls.splice(0);
+      const loose = await commands.rest({tab_id: 99, resting: true});            // a tab FERB doesn't hold
+      return {resting, off, frame, round, on, loose, attached: TABS.get(22).attached, left: calls};
+    })()''')
+    picker = lambda cs: [(c[1]["enabled"], c[2]) for c in cs if c[0] == "Page.setInterceptFileChooserDialog"]
+    assert out["resting"] == {"tab_id": 22, "resting": True, "file_chooser_intercepted": False}
+    assert set(picker(out["off"])) == {(False, None), (False, "f1")} and len(picker(out["off"])) == 2
+    assert picker(out["frame"]) == [(False, "f2")]
+    assert out["round"]["file_chooser_intercepted"] is True
+    assert set(picker(out["on"])) == {(True, None), (True, "f1"), (True, "f2")} and len(picker(out["on"])) == 3
+    assert not [c for c in out["off"] + out["on"] if c[0] in ("detach", "Emulation.setFocusEmulationEnabled")]
+    assert out["loose"] == {"tab_id": 99, "resting": False, "held": False} and out["attached"] is True
+
+
+def test_a_pages_dialog_between_rounds_is_the_owners_and_closing_it_clears_the_pending_state() -> None:
+    """L31, re-review N2: a held tab's page may alert or confirm between rounds. Chrome shows it to the owner (CDP's
+    `hasBrowserHandler`), and the extension never answers a dialog FERB didn't expect. When the owner closes it in the
+    browser (Page.javascriptDialogClosed), the pending dialog is cleared, so the next round's snapshot isn't blocked."""
+    out = worker('''(async () => {
+      const calls = [], sent = [], events = chrome.debugger.onEvent;
+      port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
+      chrome.debugger = {sendCommand: async (t, m, p) => { calls.push(m); }, detach: async () => {}};
+      chrome.tabs.get = async id => ({id, url: 'https://www.instagram.com/reels/x/'});
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true;
+      events.fire({tabId: 22}, 'Page.javascriptDialogOpening',
+                                   {type: 'confirm', message: 'Leave this page?', hasBrowserHandler: true});
+      const pending = !!TABS.get(22).pendingDialog, answered = calls.includes('Page.handleJavaScriptDialog');
+      events.fire({tabId: 22}, 'Page.javascriptDialogClosed', {result: true, userInput: ''});
+      return {pending, answered, after: TABS.get(22).pendingDialog || null, events: sent.map(b => b.event)};
+    })()''')
+    assert out["pending"] is True and out["answered"] is False and out["after"] is None
+    assert "dialog" in out["events"]
+
+
 def test_reloading_a_held_tab_keeps_its_debugger_session_and_focus_emulation() -> None:
     """L31 (the owner's question, 2026-10-25): a loop round that reloads the owner's held tab keeps holding it. The
     extension's navigate re-arms nothing on a tab it already holds and never detaches, so focus emulation (off only

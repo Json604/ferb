@@ -137,6 +137,7 @@ class FakeExtension:
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
         self.audible: set[int] = set()                     # tabs making sound (list_tabs `audible`)
+        self.rests: list[tuple[int, bool]] = []            # rest commands (tab, resting) for held tabs (0.15.10)
         self._window()  # Pre-provisioned fixture window; cold creation is tested explicitly.
 
     # ----- transport (the real native host) -----
@@ -432,6 +433,14 @@ class FakeExtension:
         self.attached.discard(tab)
         self.owned = [o for o in self.owned if o['tab_id'] != tab]
         return {'tab_id': tab, 'released': True, 'kept_open': tab in self.kept, 'url': self.tabs[tab]}
+
+    def op_rest(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """Extension 0.15.10 (L31): a held tab resting between a loop's rounds gives the owner their file picker."""
+        tab = a["tab_id"]
+        if tab not in self.attached:
+            return {"tab_id": tab, "resting": False, "held": False}
+        self.rests.append((tab, bool(a["resting"])))
+        return {"tab_id": tab, "resting": bool(a["resting"]), "file_chooser_intercepted": not a["resting"]}
 
     def op_list_tabs(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         # `audible` / `muted`: the browser's own sound facts (extension 0.15.8, L31), for a loop probe on a tab

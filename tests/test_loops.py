@@ -2765,6 +2765,31 @@ def test_stop_on_a_pause_card_lets_go_of_the_owners_tab_that_is_still_open(bd, m
         c.close()
 
 
+def test_each_round_takes_the_held_tab_back_first_and_rests_it_after(daemon, monkeypatch):
+    """Re-review N2: the browser drivers hear when a loop's round starts (the held tab's interception back on before the
+    round acts) and when it ends (resting: the owner's file picker is theirs)."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    _state_cap(daemon, [True, False, True])
+    sv = daemon.daemon.supervisor
+    told: list = []
+
+    async def rest(task_id, resting):
+        told.append((task_id, resting, _roles(script).count('loop.keep')))
+    sv.on_loop_rest = rest
+    script = install(daemon, [sup('task', 'Keeping it playing.', _loop_plan())],
+                     {'loop.keep': [_round(), _round()], 'worker': done()})
+    c, plan = _start_loop(daemon, 'keep this tab playing')
+    try:
+        tree_id = plan['task_id']
+        _wait(daemon, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2 and len(told) >= 4)
+        child = f'{tree_id}.loop.keep'
+        assert told[:4] == [(child, False, 0), (child, True, 1), (child, False, 1), (child, True, 2)]
+        daemon.run(_stop(daemon, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
 def test_a_reconnect_while_the_held_tab_rests_leaves_it_armed(bd, monkeypatch):
     """Re-review N5: after an extension reconnect the daemon disarms every armed tab no live task drives. A loop's
     held tab resting between rounds is no live task's for downloads, but the loop still holds it (`Hub.holds`): it
@@ -2784,6 +2809,40 @@ def test_a_reconnect_while_the_held_tab_rests_leaves_it_armed(bd, monkeypatch):
         ext.hello()                                      # the extension says hello again, listing what it holds
         ext.wait_for(lambda: 555 in ext.disarmed)
         assert OWNER_TAB not in ext.disarmed and OWNER_TAB in ext.attached
+        d.run(_stop(d, tree_id), timeout=20)
+    finally:
+        c.close()
+
+
+@pytest.mark.parametrize('version', ['0.15.10', '0.15.9'])
+def test_the_owners_file_picker_in_the_held_tab_is_theirs_between_rounds(bd, monkeypatch, version):
+    """Re-review N2: between rounds the held tab's file-chooser interception goes off (the owner's file inputs work),
+    and a round turns it back on before it acts. An extension older than 0.15.10 doesn't know the command and is never
+    sent it: its held tab keeps the picker intercepted (a documented residual)."""
+    from tests.conftest import done, install, sup
+    _fast(monkeypatch)
+    d, ext = _owner_tab(bd)
+    if version != ext.version:
+        ext.version = version
+        ext.hello()
+        ext.wait_for(lambda: d.daemon.hub.bridges[('chrome', 'Profile 1')].version == version)
+    install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
+            {'loop.keep': [_tab_round(d, ext, []), _tab_round(d, ext, [])], 'worker': done()})
+    c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
+    try:
+        tree_id = plan['task_id']
+        sv = d.daemon.supervisor
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        ext.audible.discard(OWNER_TAB)                                     # round 2
+        _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
+        ext.audible.add(OWNER_TAB)
+        _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
+        if version == '0.15.10':                 # round 1 found the tab: resting after it; each later round takes it
+            states = [resting for tab, resting in ext.rests if tab == OWNER_TAB]      # back first, then rests it
+            assert states[:3] == [True, False, True] and states[-1] is True
+            assert all(a != b for a, b in zip(states, states[1:]))
+        else:
+            assert ext.rests == [] and not [w for w in ext.wire if '"rest"' in w]
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()

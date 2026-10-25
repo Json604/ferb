@@ -958,6 +958,13 @@ After the owner's update (2026-10-24):
   paused, FERB keeps only what keeps the page running (its debugger hold, with focus emulation): your download goes to
   your Downloads and your link opens as your own tab. During a round, what the round does is FERB's, as before. No
   extension change: it works with every extension version.
+- The file picker in that tab is yours between rounds too (L31; extension 0.15.10, protocol 17 and minimum 0.15.6
+  unchanged). FERB intercepted file choosers in the held tab for the loop's whole life, so a file input you clicked
+  there did nothing. Extension 0.15.10 has a `rest` command: between rounds the interception is off, and a round turns
+  it back on before it acts. The daemon sends it only to 0.15.10 or later; with an older extension the picker stays
+  FERB's until the loop ends. A page's alert or confirm between rounds is shown to you, and your answer no longer
+  leaves the next round's snapshot blocked. Residual: a download a round's own action started that arrives after the
+  round ends goes to your Downloads.
 - The Claude runtime caches the planner's stable prefix (P20, D32; owner, 2026-10-25). The adapter joined FERB's
   instructions and context into one text and ignored which parts repeat, so only Claude Code's own prefix was read from
   the cache (4.8% of a ~101k-token planner turn; every turn wrote ~97k tokens again). FERB's text now goes as separate

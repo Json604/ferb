@@ -96,7 +96,8 @@ const PAGE_HOOK = `(${ferbPageHook.toString()})();`;
 const CDP_ALLOW = {
   // the per-tab session setup, in this order, right after chrome.debugger.attach.
   "Page.enable": (p) => Object.keys(p).length === 0,                      // dialog events
-  "Page.setInterceptFileChooserDialog": (p) => p.enabled === true && Object.keys(p).length === 1,
+  // off only while a held tab rests between a loop's rounds (L31): the owner's file picker is theirs again
+  "Page.setInterceptFileChooserDialog": (p) => typeof p.enabled === "boolean" && Object.keys(p).length === 1,
   "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",   // input lands only with it
   "Target.setAutoAttach": (p) => p.autoAttach === true && p.waitForDebuggerOnStart === false && p.flatten === true
     && Object.keys(p).length === 3,                                         // OOPIFs through the tab session
@@ -300,7 +301,7 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"];
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,

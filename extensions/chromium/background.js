@@ -581,7 +581,7 @@ async function inputSetup(tabId) {
   const t = tabState(tabId);
   // Intercept the browser mechanism, including indirect showPicker()/label/button routes.
   // The event supplies evidence; it never chooses a local/Drive source or opens a native picker.
-  await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
+  await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: !t.resting});   // a resting tab's picker: the owner's
   await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
   const s = await session(), tab = await chrome.tabs.get(tabId);
   if (s.windowId != null && tab.windowId === s.windowId) {     // FERB's own window: layout independent of its size.
@@ -709,7 +709,7 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
           await installHook(src.tabId, sid);
         }
         await cdp(src.tabId, "Page.enable", {}, sid);
-        await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: true}, sid);
+        await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: !t.resting}, sid);
         await cdp(src.tabId, "Target.setAutoAttach", {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid);
       })().catch(e => {
         const error = String(e.message || e); t.axErrors.push(error); t.inputErrors.push(error);
@@ -727,6 +727,11 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
     t.fileChoosers.push(fact);
     t.dialogs.push({type:"file_chooser", message:JSON.stringify(fact), handled:"intercepted"});
     send("event", {event:"file_chooser", tab_id:src.tabId, ...fact});
+    return;
+  }
+  if (method === "Page.javascriptDialogClosed") {             // answered in the browser (the owner) or by FERB
+    const t = TABS.get(src.tabId);
+    if (t && t.pendingDialog) { t.pendingDialog.handled = params.result ? "accepted" : "dismissed"; t.pendingDialog = null; }
     return;
   }
   if (method !== "Page.javascriptDialogOpening") return;
@@ -1345,6 +1350,20 @@ const commands = {
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
     await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
     return { closed: true };
+  },
+  // L31 (0.15.10; owner, 2026-10-25: "give them back between rounds"): a held tab resting between a loop's rounds
+  // keeps only what keeps its page running (the debugger, focus emulation); its file chooser is the owner's again, in
+  // its frames too. A round turns the interception back on. A tab FERB doesn't hold is left alone.
+  async rest({tab_id, resting}) {
+    const t = TABS.get(tab_id);
+    if (!t || !t.attached) return {tab_id, resting: false, held: false};
+    t.resting = resting === true;
+    const enabled = !t.resting;
+    await cdp(tab_id, "Page.setInterceptFileChooserDialog", {enabled});
+    for (const sid of t.sessions.keys()) {
+      try { await cdp(tab_id, "Page.setInterceptFileChooserDialog", {enabled}, sid); } catch (_) { /* that frame is gone */ }
+    }
+    return {tab_id, resting: t.resting, file_chooser_intercepted: enabled};
   },
   async release_tab({tab_id, keep_open = false}) {
     let tab;
