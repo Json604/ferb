@@ -2024,7 +2024,7 @@ class Daemon:
                 self.memory.retract(item_id, "the owner said Drop", never_again=True)
                 return "Dropped. FERB won't suggest it again; your question about forgetting it still waits."
             self.memory.drop(item_id)
-            self.learning.drop_fact_index("memory:" + item_id)        # its index node alone goes with it
+            self.learning.drop_fact_index("memory:" + item_id, self.memory)   # its index node alone goes with it
             return "Dropped. FERB won't suggest it again."
         words = text.strip()
         if action == "edit" and words:
@@ -2039,14 +2039,15 @@ class Daemon:
     def _guess_state(self, item_id: str) -> str:
         """How one of FERB's guesses stands now, for the notch (L36): "waiting" for the owner's answer, "kept",
         "edited" (replaced by the owner's own words), or "dropped" (deleted, or retracted by a Drop while a forget
-        waits; a forget deletes it too). An answer that reached a guess already settled, or one whose reply was lost,
-        shows this rather than the answer the owner gave (live 2026-10-25: a Drop that went through was shown as not
-        recorded)."""
+        waits; a forget deletes it too); "not_a_guess" for a proposed item that isn't one (an observed pattern still
+        gathering days: `_settle_guess` takes only a proposed inferred item, review Q-M2). An answer that reached a
+        guess already settled, or one whose reply was lost, shows this rather than the answer the owner gave (live
+        2026-10-25: a Drop that went through was shown as not recorded)."""
         item = self.memory.get(item_id)
         if item is None:
             return "dropped"
         if item.status == "proposed":
-            return "waiting"
+            return "waiting" if item.origin == "inferred" else "not_a_guess"
         if item.status == "active":
             return "kept"
         return "edited" if self._journal().of_kind("memory.edited", "id", item_id) else "dropped"

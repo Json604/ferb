@@ -518,6 +518,28 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(decision("g-8"), "dropped")
     }
 
+    func testAGuessReplySayingTheGuessStillWaitsIsNotRecorded() async throws {
+        // Review Q-M2 (L36): a success reply whose `state` is "waiting" (or any state that isn't settled) changed
+        // nothing; the notch marked the guess with the answer given.
+        let rpc = StatusRPC()
+        rpc.responses["memory.learning"] = ["backlog": ["id": "b-4", "text": "Review 1 older guess", "proposals": [
+            ["id": "g-5", "text": "You use GitHub"]]]]
+        let model = makeModel(rpc)
+        model.expand()
+        await model.refreshDaemonStatus()
+        let notice = try XCTUnwrap(model.conversation.notices.first { $0.id == "guesses:b-4" })
+        for state in ["waiting", "not_a_guess"] {
+            rpc.opResponses["guess"] = ["line": "That guess isn't waiting any more.", "state": state]
+            var outcomes: [Bool] = []
+            let answered = expectation(description: state)
+            model.decideGuess(noticeID: notice.id, proposalID: "g-5", action: "keep", text: nil) { outcomes.append($0); answered.fulfill() }
+            await fulfillment(of: [answered], timeout: 2)
+            XCTAssertEqual(outcomes, [false])
+            XCTAssertEqual(model.promptError, "That answer about FERB's guess wasn't recorded. Try again.")
+            XCTAssertNil(model.conversation.notices.first { $0.id == notice.id }?.proposals?.first?.decision)
+        }
+    }
+
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
         let rpc = StatusRPC()
         rpc.traces["remembered"] = ["outcome": ["result": ["status": "done", "answer": "Renamed 12 files."]]]

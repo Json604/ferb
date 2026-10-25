@@ -707,9 +707,11 @@ class Learning:
 
     def put(self, kind: str, key: str, body: dict[str, Any], sources: Iterable[str], *,
             origin_label: str = origin.INFERRED, made_by: str, batch: str | None = None,
-            state: str = 'candidate', owner: bool = False, labels: set[str] | None = None) -> dict[str, Any]:
+            state: str = 'candidate', owner: bool = False, labels: set[str] | None = None,
+            supersede: bool = True) -> dict[str, Any]:
         """`labels`: the sources' origins when the caller already read them (`labels`), e.g. on a read connection off
-        the event loop; otherwise they are read here."""
+        the event loop; otherwise they are read here. `supersede` False: the node closes no open node of its key (a
+        waiting guess's fact node: `sync_facts`)."""
         if kind == 'identity' and not owner:
             raise LearningRefused('only the owner can write identity')
         if kind in SUGGESTIONS and not owner and self.db.conn.execute(
@@ -737,7 +739,8 @@ class Learning:
             return old
         now = self.now()
         prev = self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=? AND valid_to IS NULL '
-                                    'ORDER BY recorded_at DESC,rowid DESC LIMIT 1', (kind, key)).fetchone()
+                                    'ORDER BY recorded_at DESC,rowid DESC LIMIT 1', (kind, key)).fetchone() \
+            if supersede else None
         # Never allow a model-written fact to supersede an owner statement.
         if prev and self.get(prev[0])['origin'] == origin.OWNER and not owner:
             prev = None
@@ -1407,22 +1410,39 @@ class Learning:
         self.publish('memory.forgot_derived', {'ids': sorted(doomed)})
         return sorted(doomed)
 
-    def drop_fact_index(self, ref: str) -> list[str]:
+    def drop_fact_index(self, ref: str, memory: Any) -> list[str]:
         """The owner's Drop on one of FERB's guesses (L36 §2): the fact nodes that index that memory item `ref`
         (`sync_facts`, every version) are deleted, and nothing else. Never `forget`: what was built on the guess while
         it existed (the episode cards of tasks whose memory reads returned it, the summaries and intent labels built on
         those cards, an entity summary) stays, and no tombstone is left, so a later capture of such a card counts the
         guess as a missing source, never a forgotten one (`_card_labels`). Live 2026-10-25: one Drop through `forget`
-        deleted 750 learned items, 406 of them episode cards, in 53 s on the event loop."""
-        doomed = sorted(r[0] for r in self.db.conn.execute(
-            "SELECT n.id FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id "
-            "WHERE s.source_ref = ? AND n.kind = 'fact'", (ref,)))
+        deleted 750 learned items, 406 of them episode cards, in 53 s on the event loop.
+        A node a deleted one had closed (`supersedes`: a guess indexed before review Q-I3 closed a kept version of its
+        fact) is reopened while its memory item still holds (`prompt_ready`) and nothing else indexes that item."""
+        from ferb.memory.items import prompt_ready
+        rows = self.db.conn.execute(
+            "SELECT n.id, n.supersedes FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id "
+            "WHERE s.source_ref = ? AND n.kind = 'fact'", (ref,)).fetchall()
+        doomed = sorted(r[0] for r in rows)
         if not doomed:
             return []
+        reopen = []
+        for closed in sorted({r[1] for r in rows if r[1] and r[1] not in doomed}):
+            node = self.get(closed)
+            item_refs = [s for s in (node or {}).get('sources', []) if s.startswith('memory:')]
+            if node is None or node['kind'] != 'fact' or node['valid_to'] is None or len(item_refs) != 1:
+                continue
+            item = memory.get(item_refs[0].removeprefix('memory:'))
+            if item is None or not prompt_ready(item, self.clock.now()) or self.db.conn.execute(
+                    "SELECT 1 FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id WHERE s.source_ref = ? "
+                    "AND n.kind = 'fact' AND n.valid_to IS NULL", (item_refs[0],)).fetchone():
+                continue
+            reopen.append(closed)
         self.generation += 1                          # a card read before now may cite a node that is gone
         self.db.conn.execute('SAVEPOINT learning_drop')
         try:
             self.db.conn.executemany('DELETE FROM learning_nodes WHERE id=?', [(i,) for i in doomed])
+            self.db.conn.executemany('UPDATE learning_nodes SET valid_to=NULL WHERE id=?', [(i,) for i in reopen])
             self.db.conn.execute('RELEASE learning_drop')
         except BaseException:
             self.db.conn.execute('ROLLBACK TO learning_drop')
@@ -1742,9 +1762,16 @@ class Learning:
             body['unconfirmed_hint'] = item.status == 'proposed'
             state = 'proposed' if pending(item) else 'active'
             try:
+                # A waiting guess's node closes nothing (review Q-I3: it hid a kept version of its fact from every
+                # search); the guess replaces a version only once kept, through its item's own versioning
                 node = self.put('fact', f'{item.subject}/{item.key}', body, ['memory:' + item.id],
                                 origin_label=memory_origin(item.origin), made_by='code:fact-index/1',
-                                state=state, owner=item.origin == 'owner_stated')
+                                state=state, owner=item.origin == 'owner_stated', supersede=state != 'proposed')
+                if state == 'proposed':                  # its own older node alone is replaced (more evidence)
+                    self.db.conn.execute(
+                        "UPDATE learning_nodes SET valid_to=? WHERE kind='fact' AND valid_to IS NULL AND id != ? AND "
+                        "id IN (SELECT node_id FROM learning_sources WHERE source_ref=?)",
+                        (self.now(), node['id'], 'memory:' + item.id))
                 # `put` returns a node already there unchanged: one stored 'active' before pending items were indexed
                 # 'proposed' kept reaching every prompt. Its state follows its item (the body fixes which), but an
                 # owner's Retire, a rollback or a closed version is never undone here.

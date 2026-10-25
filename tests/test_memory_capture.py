@@ -11,7 +11,7 @@ import pytest
 from ferb.core.errors import FerbError
 from ferb.memory.items import MemoryRefused, capture
 from ferb.sanitize.untrusted import mark, typed_lines_of
-from tests.conftest import chat, install
+from tests.conftest import chat, install, trail_row
 from tests.support.memory_items import (c_handle, distill_day, distill_item, journal, owner_fact, pending, run,
                                         said)
 from tests.support.schedules import own_daemon
@@ -224,6 +224,92 @@ def test_drop_deletes_the_index_node_alone_never_what_tasks_built_while_the_gues
     assert run(daemon, lambda: [r for r in [guess_ref, index, *built.values()] if d.learning.forgotten(r)]) == []
     _, _, expired, forgotten = run(daemon, lambda: d.learning._card_labels([guess_ref, index]))
     assert (expired, forgotten) == ([index], [])          # a card that cites them is captured again, never forgotten
+
+
+def _dentist(daemon: Any, content: str, keep: bool = False) -> Any:
+    """One of FERB's guesses about the owner's dentist (subject owner, key dentist), kept when `keep`."""
+    d = daemon.daemon
+    jid = said(daemon, "my dentist changed")
+    it = run(daemon, lambda: d.memory.propose("person", "owner", "dentist", content, "inferred", [("journal", jid)], 0.6))
+    if keep:
+        assert run(daemon, lambda: d._settle_guess(it.id, "keep")) == "Kept."
+    return it
+
+
+def _found(daemon: Any, word: str) -> list[str]:
+    """The memory items whose fact node the one search finds for `word`, facts synced first (as every search is)."""
+    d = daemon.daemon
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    return [str(n["body"].get("id")) for n in run(daemon, lambda: d.learning.search(word)) if n["kind"] == "fact"]
+
+
+def _index_node(daemon: Any, item_id: str) -> str:
+    [node] = run(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT node_id FROM learning_sources WHERE source_ref = ?", ("memory:" + item_id,))])
+    return str(node)
+
+
+def test_a_waiting_guess_never_hides_a_kept_version_of_its_fact(daemon: Any) -> None:
+    """Review Q-I3 (older than L36's Drop fix): indexing a waiting guess closed the open fact node of a kept item with
+    the same subject and key (`put` closes the newest open node of a key), so the kept fact left every search while
+    the guess waited, and a Drop never brought it back. A waiting guess's node closes nothing; Keep still replaces the
+    older version, through the memory item's own versioning."""
+    d = daemon.daemon
+    mehta = _dentist(daemon, "Your dentist is Dr. Mehta", keep=True)
+    assert _found(daemon, "Mehta") == [mehta.id]
+    rao = _dentist(daemon, "Your dentist is Dr. Rao")
+    assert _found(daemon, "Mehta") == [mehta.id]
+    daemon.run(d._memory_learning(None, {"op": "guess", "id": rao.id, "action": "drop"}))
+    assert _found(daemon, "Mehta") == [mehta.id]
+    again = _dentist(daemon, "Your dentist is Dr. Rao now")
+    assert _found(daemon, "Mehta") == [mehta.id]
+    assert run(daemon, lambda: d._settle_guess(again.id, "keep")) == "Kept."
+    assert (_found(daemon, "Mehta"), _found(daemon, "Rao")) == ([], [again.id])
+
+
+def test_a_waiting_guess_seen_again_keeps_one_open_index_node(daemon: Any) -> None:
+    """Review Q-I3's fix closes nothing for a waiting guess's node, except an older node of the same guess: more
+    evidence changes the guess's body, and its newer node replaces the older one (the dashboard lists it once)."""
+    d = daemon.daemon
+    first = _dentist(daemon, "Your dentist is Dr. Rao")
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    again = _dentist(daemon, "Your dentist is Dr. Rao")              # the same guess, from another message
+    assert again.id == first.id
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    assert run(daemon, lambda: d.db.conn.execute(
+        "SELECT COUNT(*) FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id WHERE s.source_ref = ? "
+        "AND n.valid_to IS NULL", ("memory:" + first.id,)).fetchone()[0]) == 1
+
+
+def test_dropping_a_guess_reopens_the_kept_fact_its_node_had_closed(daemon: Any) -> None:
+    """Review Q-I3: a guess indexed before the fix had already closed the kept version's node (and named it in
+    `supersedes`). Its Drop reopens that node while its memory item is still active and current."""
+    d = daemon.daemon
+    mehta = _dentist(daemon, "Your dentist is Dr. Mehta", keep=True)
+    rao = _dentist(daemon, "Your dentist is Dr. Rao")
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    kept, guessed = _index_node(daemon, mehta.id), _index_node(daemon, rao.id)
+
+    def as_before_the_fix() -> None:                 # what `put` did to the kept node when the guess was indexed
+        d.db.conn.execute("UPDATE learning_nodes SET valid_to = ? WHERE id = ?", (d.clock.now().isoformat(), kept))
+        d.db.conn.execute("UPDATE learning_nodes SET supersedes = ? WHERE id = ?", (kept, guessed))
+    run(daemon, as_before_the_fix)
+    assert _found(daemon, "Mehta") == []
+    daemon.run(d._memory_learning(None, {"op": "guess", "id": rao.id, "action": "drop"}))
+    assert _found(daemon, "Mehta") == [mehta.id]
+
+
+def test_dropping_a_guess_never_reopens_a_version_that_no_longer_holds(daemon: Any) -> None:
+    d = daemon.daemon
+    mehta = _dentist(daemon, "Your dentist is Dr. Mehta", keep=True)
+    rao = _dentist(daemon, "Your dentist is Dr. Rao")
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    kept, guessed = _index_node(daemon, mehta.id), _index_node(daemon, rao.id)
+    run(daemon, lambda: d.db.conn.execute("UPDATE learning_nodes SET supersedes = ? WHERE id = ?", (kept, guessed)))
+    run(daemon, lambda: d.memory.retract(mehta.id, "the owner said it's wrong"))
+    run(daemon, lambda: d.learning.sync_facts(d.memory))             # closes the retracted item's node
+    daemon.run(d._memory_learning(None, {"op": "guess", "id": rao.id, "action": "drop"}))
+    assert run(daemon, lambda: d.learning.get(kept)["valid_to"]) is not None
 
 
 @pytest.mark.parametrize("answer, state", [("keep", "kept"), ("drop", "dropped"), ("edit", "edited")])
@@ -457,3 +543,20 @@ def test_the_older_guesses_are_offered_once_as_one_list(daemon: Any) -> None:
     edited = daemon.run(daemon.daemon._memory_learning(None, {"op": "guess", "id": old[1].id, "action": "edit",
                                                               "text": "my own words"}))
     assert edited["line"] == "Saved in your words: my own words"
+
+
+def test_a_proposed_item_that_is_no_guess_is_never_reported_as_waiting(daemon: Any) -> None:
+    """Review Q-M2: `_settle_guess` takes only a proposed inferred item (a guess); `_guess_state` called any proposed
+    item "waiting", so a pattern still gathering days answered "isn't waiting any more" with the state "waiting", and
+    the notch marked it with the answer given. Both use the same test now."""
+    d = daemon.daemon
+    seen = trail_row(daemon, "2026-01-01")
+    pattern = run(daemon, lambda: d.memory.propose("preference", "owner", "code_host", "You use GitHub", "observed",
+                                                   [("trail", seen)]))
+    assert pattern.status == "proposed"
+
+    def op(params: dict[str, Any]) -> dict[str, Any]:
+        return dict(daemon.run(d._memory_learning(None, params | {"id": pattern.id})))
+    assert op({"op": "guess_state"})["state"] not in ("waiting", "kept", "dropped", "edited")
+    assert op({"op": "guess", "action": "keep"})["line"] == "That guess isn't waiting any more."
+    assert run(daemon, lambda: d.memory.get(pattern.id)).status == "proposed"

@@ -523,7 +523,13 @@ extension NotchModel {
         Task {
             do {
                 let reply = try await rpc.call("memory.learning", params: params.merging(["id": proposalID]) { $1 })
-                // A guess shows how it stands now: one already settled shows what happened to it, not this answer.
+                // A guess shows how it stands now: one already settled shows what happened to it, not this answer;
+                // one FERB says isn't settled (still waiting) wasn't changed by it (review Q-M2).
+                if guess, reply["state"] != nil, settledGuess(reply) == nil {
+                    promptError = failure
+                    done?(false)
+                    return
+                }
                 conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: settledGuess(reply) ?? decision)
                 saveConversation()
                 done?(true)
