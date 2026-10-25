@@ -332,6 +332,15 @@ def _pending(item: Any) -> bool:
     return bool(item.status == "proposed" and item.origin == "inferred")
 
 
+def _listed_status(item: dict[str, Any], now: Any) -> str:
+    """An item's status as memory.read lists it: "ended" for an active item that no longer holds (superseded, retired
+    or past the end date the owner gave it: those set only `valid_to`; final review M2, the no-query listing showed
+    them as "active"), else its stored status."""
+    end = item["valid_to"]
+    return "ended" if item["status"] == "active" and end is not None and now is not None and end <= now \
+        else str(item["status"])
+
+
 class MemoryRead(_PagedFacts):
     name = "memory.read"
     description = ("Read complete durable memory with provenance, status and dates. A query is ranked by relevance "
@@ -379,8 +388,10 @@ class MemoryRead(_PagedFacts):
             items = [asdict(item) for item in memory.items(status=None, valid_now=False) if not _pending(item)]
         end = args.after + args.limit
         shown = items[args.after:end]
+        now = memory.clock.now() if any(item["valid_to"] for item in shown) else None
         selected = [{"id": item["id"], "kind": item["kind"], "subject": item["subject"],
-                     "key": item["key"], "origin": item["origin"], "status": item["status"],
+                     "key": item["key"], "origin": item["origin"], "status": _listed_status(item, now),
+                     "valid_to": item["valid_to"].isoformat() if item["valid_to"] else None,
                      "preview": item["content"][:500], "preview_truncated": len(item["content"]) > 500,
                      "read_full": {"tool": self.name, "item_id": item["id"]}} for item in shown]
         return ToolResult({"items": selected, "next_after": end if end < len(items) else None,

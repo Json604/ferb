@@ -486,6 +486,28 @@ def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_
     assert not out.is_error and out.content["items"] == []
 
 
+def test_memory_read_without_a_query_shows_an_ended_fact_as_ended(daemon: Any) -> None:
+    """Final review M2: the no-query listing pages every item, history included, and showed a superseded, retired or
+    date-ended item as "active" (those set only `valid_to`): after "book anywhere" replaced "Chennai, notify first" a
+    worker paging memory.read saw both as active. Each listed item now has its real status and `valid_to`."""
+    from datetime import timedelta
+
+    from ferb.orchestrator.evidence import MemoryRead
+    d = daemon.daemon
+    chennai = owner_fact(daemon, "booking", "book in Chennai, notify me first")
+    anywhere = owner_fact(daemon, "booking", "book anywhere")
+    gone = owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
+    run(daemon, lambda: d.memory.retire(gone.id, "the owner said so"))
+    dated = owner_fact(daemon, "trip", "I'm in Pune this week")
+    end = run(daemon, lambda: d.clock.now()) + timedelta(days=3)
+    run(daemon, lambda: d.memory.expire_at(dated.id, end))
+    reader = MemoryRead(lambda: d.memory, search=d._memory_item_search)
+    listed = {i["id"]: (i["status"], i["valid_to"] is not None)
+              for i in daemon.run(reader.run(MemoryRead.Input(), None)).content["items"]}
+    assert listed == {chennai.id: ("ended", True), anywhere.id: ("active", False), gone.id: ("ended", True),
+                      dated.id: ("active", True)}                       # until its end date it still holds
+
+
 def test_memory_read_query_leaves_out_a_retired_item(daemon: Any) -> None:
     from ferb.orchestrator.evidence import MemoryRead
     for i in range(4):

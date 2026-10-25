@@ -3184,7 +3184,9 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   same `search_text`; a node without one has no vector.
 - **The tools (§3).** `memory.read` keeps its arguments; a query is ranked by the one search (`Daemon._memory_item_search`:
   the memory items behind the matching facts, best first), never a substring match, and without the search a query is
-  refused. `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
+  refused. Without a query it pages every item, history included, each with `valid_to` and its real status: an active
+  item that no longer holds (superseded, retired or past its date) lists as `ended` (`evidence._listed_status`; final
+  review M2). `memory.learned` runs through `Daemon._search` (so it waits for the re-index) and its candidates carry `text`
   (`shown_text`) beside their ids.
 - **Workers and plan steps (§4).** `Supervisor._worker_memory` asks the daemon's `memory_push` (the one search,
   `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal
