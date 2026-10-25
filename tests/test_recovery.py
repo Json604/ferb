@@ -279,7 +279,34 @@ def test_a_trash_keeps_the_original_path_durably(daemon: RunningDaemon, trash: P
     assert rec["reason"] == "trash" and out["content"]["recoverable"] == rec["id"]
     restored = _restore(daemon, rec["id"])
     assert restored.resolve() == f.resolve() and f.read_text() == "bye" and not (trash / "old.txt").exists()
-    assert _recovery_rows(daemon) == []                                   # back where it was: nothing left to recover
+    # back where it was: its trash record goes; the backup copy S1 keeps beside it stays its retention days (L39)
+    assert [r["kind"] for r in _recovery_rows(daemon)] == ["clone"]
+
+
+def test_a_trash_keeps_a_backup_copy_too(daemon: RunningDaemon, trash: Path) -> None:
+    """L39, S1 ("Trash plus a backup copy"): live case 39e35d57 left 5 trashed files with a trash record and no copy.
+    A copy (an APFS clone) is kept before the move, so emptying the Trash doesn't lose the file."""
+    f = _ws(daemon) / "Student_Name_ID_HCI_Assignment1.docx"
+    f.write_bytes(b"the original assignment")
+    out = gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    assert not out["is_error"] and not f.exists()
+    rows = {r["kind"]: r for r in _recovery_rows(daemon)}
+    assert set(rows) == {"clone", "trash"}
+    copy = rows["clone"]
+    assert copy["original"] == str(f.resolve()) and copy["reason"] == "trash copy"
+    assert out["content"]["recoverable"] == rows["trash"]["id"] and out["content"]["backup"] == copy["id"]
+    (trash / f.name).unlink()                                              # the owner empties the Trash
+    assert _restore(daemon, copy["id"]).read_bytes() == b"the original assignment"
+
+
+def test_a_trash_that_moved_nothing_keeps_no_copy(daemon: RunningDaemon, trash: Path,
+                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    f = _ws(daemon) / "kept.txt"
+    f.write_text("stays")
+    monkeypatch.setattr(files, "trash_item", lambda *a, **k: files.Trashed(None, error="it is in use"))
+    out = gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    assert out["is_error"] and f.read_text() == "stays"
+    assert _recovery_rows(daemon) == [] and _copies(daemon) == []
 
 
 def test_a_trash_restore_never_replaces_what_is_there_now(daemon: RunningDaemon, trash: Path) -> None:
@@ -352,13 +379,16 @@ def test_ferb_restore_lists_and_restores_in_the_owners_words(daemon: RunningDaem
     grant = _fs_grant(daemon)
     _write(daemon, grant, f, "FERB's version")
     gateway_tool_call(daemon, grant, "fs.trash", path=str(g))
-    clone_id, trash_id = (r["id"] for r in _recovery_rows(daemon))
+    rows = _recovery_rows(daemon)
+    clone_id = next(r["id"] for r in rows if r["reason"] == "overwrite")
+    trash_id = next(r["id"] for r in rows if r["kind"] == "trash")
     c = Client(daemon.sock)
     try:
         out = io.StringIO()
         assert admin.restore(c, None, out) == 0
         listing = out.getvalue()
         assert "overwrote" in listing and "moved to Trash" in listing and clone_id in listing
+        assert "Trash copy" in listing                                    # the copy kept beside the trash (L39)
         assert "notes.txt" in listing and "ferb restore" in listing
         out = io.StringIO()
         assert admin.restore(c, clone_id, out) == 0
@@ -896,7 +926,8 @@ def test_a_trash_record_stays_while_its_item_is_in_the_trash_up_to_ninety_days(d
     async def purge() -> int:
         return recovery.purge_before((now - timedelta(days=7)).isoformat(), daemon.daemon.db, _root(daemon),
                                      trash_backstop_iso=(now - timedelta(days=90)).isoformat())
-    assert daemon.run(purge()) == 2
+    # each trash's copy goes after its retention days (L39); the trash records as before: 3 copies and 2 records
+    assert daemon.run(purge()) == 5
     assert [Path(r["original"]).name for r in _recovery_rows(daemon)] == ["kept.txt"]
     assert (trash / "ancient.txt").exists()                               # the item itself stays in the Trash
 

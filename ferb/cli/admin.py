@@ -496,7 +496,7 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
 # ---------- restore (S1) ----------
 
 REASONS = {"overwrite": "overwrote", "edit": "edited", "trash": "moved to Trash",
-           "trash-unverified": "moved to Trash"}
+           "trash-unverified": "moved to Trash", "trash copy": "Trash copy"}   # L39: the copy kept beside a trash
 
 
 def _shown(path: str) -> str:

@@ -1582,8 +1582,18 @@ class Gateway:
         capability that doesn't say is copied anyway. A new file, or a folder, keeps nothing. A capability that only
         ever creates a new file of its own declares `creates_new_only = True` (the recording tools: an existing path
         is refused) and keeps nothing. Raises when no copy could be made: the call must not run then; refusal is the
-        default for a write tool whose file can't be told and that declares nothing."""
-        if self.recovery is None or spec.kind != Kind.WRITE_FILE or getattr(cap, "creates_new_only", False) is True:
+        default for a write tool whose file can't be told and that declares nothing. A move to the Trash keeps a copy of
+        a file too (L39, S1: "Trash plus a backup copy"), so emptying the Trash loses nothing; a folder keeps the Trash
+        record only."""
+        if self.recovery is None or getattr(cap, "creates_new_only", False) is True:
+            return None
+        if spec.kind == Kind.TRASH:                      # L39, S1: the Trash plus a backup copy of a file
+            if real is None or not real.is_file():
+                return None
+            r = self.recovery
+            return await recovery.preserve_async(real, reason=recovery.TRASH_COPY, task_id=grant.task_id, db=r.db,
+                                                 clock=r.clock, ids=r.ids, root=r.root)
+        if spec.kind != Kind.WRITE_FILE:
             return None
         why = getattr(cap, "recovery_reason", None)
         reason = why(args) if why is not None else name
@@ -1601,11 +1611,18 @@ class Gateway:
         changed); a change records the file as FERB left it (so a restore never overwrites a later change); a trash
         records where the item really was (the tool's resolved path), where it went and the identity the tool verified,
         and, when the call failed but left an item in the Trash, that it needs the owner. What a worker and the trace
-        see: `recoverable` (the record id), or `recovery_error`. Never fails the call: it already ran."""
+        see: `recoverable` (the record id), or `recovery_error`; a trash's `backup`, its copy's record (L39). Never fails
+        the call: it already ran."""
         r = self.recovery
         if r is None:
             return {}
         try:
+            if kept and spec.kind == Kind.TRASH:          # the backup copy: gone only when nothing moved
+                if result.is_error and not result.content.get("trashed_to"):
+                    if real is not None:
+                        await recovery.discard_if_unchanged(kept, real, r.db, r.root)
+                    return {}
+                return {"backup": kept} | await self._after_change(spec, grant, result, None, real)
             if kept and real is not None and result.is_error:
                 dropped = await recovery.discard_if_unchanged(kept, real, r.db, r.root)
                 return {} if dropped else {"recoverable": kept}

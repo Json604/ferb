@@ -34,6 +34,7 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext
 from ferb.policy.rules import Kind
 
 TRASH_UNVERIFIED = "trash-unverified"     # a trash record whose item isn't (or can't be shown to be) what FERB checked
+TRASH_COPY = "trash copy"                 # L39: the copy kept of a file FERB moved to the Trash (S1: Trash plus a copy)
 TRASH_RECORD_MAX_DAYS = 90                # a trash record stays while its item is in the Trash, at most this long
 SNAPSHOT_TIMEOUT_S = 30.0
 SNAPSHOT_DELETE_TIMEOUT_S = 120.0         # measured 15.5 s for one delete (2026-10-09)
