@@ -68,7 +68,15 @@ final class SetupModel: ObservableObject {
 
     // MARK: Steps
 
+    /// The step a Grant left when macOS may restart FERB (Screen Recording's "Quit & Reopen"): reopened at the next launch,
+    /// cleared on leaving that step (owner 2026-10-26: setup didn't come back after the restart).
+    static let resumeKey = "FERBSetupResumeStep"
+    static func pendingResume(_ defaults: UserDefaults) -> SetupStep? {
+        (defaults.object(forKey: resumeKey) as? Int).flatMap(SetupStep.init(rawValue:))
+    }
+
     func go(_ next: SetupStep) {
+        if next != .permissions { UserDefaults.standard.removeObject(forKey: Self.resumeKey) }
         step = next
         message = nil
         Task { await self.enter(next) }
@@ -281,6 +289,7 @@ final class SetupModel: ObservableObject {
     /// for its own), then that pane; Full Disk Access also shows the agent app in Finder to drag into the list.
     func grant(_ row: PermissionRow) async {
         guard row.blocked.isEmpty else { return }
+        UserDefaults.standard.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
         switch row.id {
         case "notifications":
             if row.status == .notDetermined { _ = await app.requestNotifications() }

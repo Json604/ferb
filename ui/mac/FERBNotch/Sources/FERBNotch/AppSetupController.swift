@@ -44,7 +44,8 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         let action = currentAction()
         Task { @MainActor in
             let done = action == .none ? await self.model.setupDone() : false
-            switch AppSetupPlan.atLaunch(action, setupDone: done) {
+            let resume = SetupModel.pendingResume(.standard)
+            switch AppSetupPlan.atLaunch(action, setupDone: done, resume: resume) {
             case .nothing:
                 _ = await self.model.askForNotificationsOnce(defaults: .standard)   // owner decision 6
                 self.onSettled?()

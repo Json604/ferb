@@ -45,6 +45,15 @@ final class AppSetupTests: XCTestCase {
         XCTAssertFalse(AppSetupPlan.needsConfirmation(.none))
     }
 
+    /// Owner 2026-10-26: after Screen Recording's "Quit & Reopen" FERB came back without its setup window (setup counted
+    /// as done from an earlier install). A Grant in progress reopens the window on that step, done or not.
+    func testLaunchReopensTheStepAGrantRestartedFrom() {
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, setupDone: true, resume: .permissions), .window(.permissions))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, setupDone: false, resume: .permissions), .window(.permissions))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, setupDone: true, resume: nil), .nothing)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.update, setupDone: true, resume: .permissions), .quietUpdate)
+    }
+
     func testAgentWithoutProgramIsTreatedAsMissing() {
         XCTAssertEqual(AppSetupPlan.decide(agent: ["Label": "com.ferb.daemon"], agentExecutable: agentExecutable, build: "1"), .install)
     }

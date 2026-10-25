@@ -39,12 +39,15 @@ public enum AppSetupPlan {
     }
 
     /// At launch: the setup window for a new install or another installation (after the owner's yes), a quiet update for
-    /// a replaced build or a stopped service, and otherwise the window only while setup isn't finished.
-    public static func atLaunch(_ action: AppSetupAction, setupDone: Bool) -> SetupLaunch {
+    /// a replaced build or a stopped service, and otherwise the window only while setup isn't finished. `resume`: the
+    /// step a Grant left when macOS restarted FERB (Screen Recording's "Quit & Reopen"), reopened done or not.
+    public static func atLaunch(_ action: AppSetupAction, setupDone: Bool, resume: SetupStep? = nil) -> SetupLaunch {
         switch action {
         case .install, .confirmReplace: return .window(.welcome)
         case .update: return .quietUpdate
-        case .none: return setupDone ? .nothing : .window(.welcome)
+        case .none:
+            if let resume { return .window(resume) }
+            return setupDone ? .nothing : .window(.welcome)
         }
     }
 

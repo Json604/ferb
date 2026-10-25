@@ -110,14 +110,24 @@ struct AIStepView: View {
 
 struct PermissionsStepView: View {
     @ObservedObject var model: SetupModel
+    /// The optional rows wait behind one disclosure: three are needed, the rest can come later (owner 2026-10-26: "why
+    /// there so much to grant... too annoying"; macOS has no single grant for all of them).
+    @State private var showsOptional = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            StepHeader(title: "Let FERB work on your Mac", lines: ["macOS asks you to allow each of these once.",
+            StepHeader(title: "Let FERB work on your Mac", lines: ["macOS asks for these three once each; there's no single switch for all.",
                                                                    "Each row ticks itself when it's on."])
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(model.allRows) { row in PermissionRowView(row: row, model: model) }
-                    if let apps = model.permissions?.automation, !apps.isEmpty {
+                    ForEach(model.allRows.filter(\.required)) { row in PermissionRowView(row: row, model: model) }
+                    DisclosureGroup("More (optional)", isExpanded: $showsOptional) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(model.allRows.filter { !$0.required }) { row in PermissionRowView(row: row, model: model) }
+                        }
+                        .padding(.top, 6)
+                    }
+                    .padding(.top, 6)
+                    if showsOptional, let apps = model.permissions?.automation, !apps.isEmpty {
                         Text("Automation: apps FERB may control").bold().padding(.top, 6)
                         ForEach(apps) { target in
                             HStack {
