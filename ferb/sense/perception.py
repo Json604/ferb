@@ -39,7 +39,8 @@ class Perception:
         excluded = lambda bundle, name: d._exclusions().app(bundle, name)
         return [WorkspaceWatcher(d.redact, excluded), AccessibilityWatcher(d.redact, excluded),
                 ClipboardWatcher(d.redact, excluded, report=self.clipboard_access),
-                TextInputWatcher(d.owner_input, d.redact, excluded),
+                TextInputWatcher(d.owner_input, d.redact, excluded,
+                                 lambda: d.protection.terminal_apps if d.protection is not None else ()),
                 NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification,
                                     floor=self.notification_floor),
                 SoftwareWatcher(self.installed, d.redact)]

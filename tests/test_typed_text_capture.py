@@ -113,3 +113,11 @@ def test_ferb_own_apps_record_nothing_and_are_never_read(monkeypatch, bundle) ->
     screen = Screen(bundle_id=bundle)
     assert capture(monkeypatch, screen, [key_event('hi')]) == []
     assert screen.queried == []
+
+
+def test_an_app_on_the_owners_terminal_list_is_never_read(monkeypatch) -> None:
+    """D31 round 2, N5: the typing floor counts the owner's [protection] terminal_apps; so does capture."""
+    from ferb.sense.watchers import text_input
+    screen = ChainScreen('com.example.myterm', EDITOR)
+    monkeypatch.setattr(text_input, 'owner_terminal_apps', lambda: frozenset({'com.example.myterm'}))
+    assert capture(monkeypatch, screen, [key_event('hunter2')]) == [] and screen.queried == []

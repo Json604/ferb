@@ -3,7 +3,7 @@ field's AX role and password metadata are checked before Unicode is extracted.""
 import asyncio
 import ctypes
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 
 from ferb.policy import terminal as terminals
 from ferb.policy.protection import DEFAULT_TERMINAL_APPS
@@ -19,22 +19,26 @@ from ferb.sense.watchers.base import Emit, Focused, focused_app, poll
 # window; a label naming one counts, errs toward not capturing) is skipped.
 TERMINAL_APPS = frozenset(b.casefold() for b in DEFAULT_TERMINAL_APPS)
 _last: list[tuple[int, Any, bool]] = []      # the last focused field's answer: one CFEqual per keystroke, not a walk
+# The owner's [protection] terminal_apps (D31 round 2, N5: the typing floor counts them, so capture does too); the
+# watcher is handed the daemon's list, this default serves a watcher made without one
+owner_terminal_apps: Callable[[], Collection[str]] = lambda: ()
 
 
-def terminal_app(app: Focused) -> bool:
-    """A terminal by the app alone: its bundle id, its Info.plist's Shell role, or a terminal it can't show."""
+def terminal_app(app: Focused, owner_apps: Collection[str] = ()) -> bool:
+    """A terminal by the app alone: its bundle id (built-in or the owner's list), its Info.plist's Shell role, or a
+    terminal it can't show."""
     from ferb.act.mac import apps
     return app.bundle_id.casefold() in TERMINAL_APPS or \
-        terminals.surface(app.bundle_id, [], shell_app=apps.declares_shell(app.bundle_id)) is not None
+        terminals.surface(app.bundle_id, [], owner_apps, shell_app=apps.declares_shell(app.bundle_id)) is not None
 
 
-def in_terminal(app: Focused, field: Any) -> bool:
+def in_terminal(app: Focused, field: Any, owner_apps: Collection[str] = ()) -> bool:
     """Whether the focused field is inside a terminal by its own and its ancestors' facts (never its value). The answer
     for the same element is reused until the focus moves."""
     from ferb.act.mac import accessibility as ax
     if _last and _last[0][0] == app.pid and _same(_last[0][1], field):
         return _last[0][2]
-    found = terminals.surface(app.bundle_id, ax.surface_facts(field)) is not None
+    found = terminals.surface(app.bundle_id, ax.surface_facts(field), owner_apps) is not None
     _last[:] = [(app.pid, field, found)]
     return found
 
@@ -58,11 +62,13 @@ def secure_input() -> bool:
         return True                         # no primary defense: capture nothing
 
 
-def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
+def focused_field(excluded: Callable[[str, str], bool],
+                  terminal_apps: Callable[[], Collection[str]] | None = None) -> Field | None:
     from ferb.act.mac.accessibility import _attr
     import ApplicationServices as AX
     app = focused_app()
-    if app is None or terminal_app(app) or excluded(app.bundle_id, app.name):
+    owner_apps = (terminal_apps or owner_terminal_apps)()
+    if app is None or terminal_app(app, owner_apps) or excluded(app.bundle_id, app.name):
         return None
     if app.bundle_id.casefold() in FERB_APPS:
         return None                         # rule 17 (owner, 2026-10-25): FERB's own apps are never read per keystroke
@@ -72,7 +78,7 @@ def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
     subrole = str(_attr(field, "AXSubrole") or "") if field is not None else ""
     if role not in TEXT_ROLES or "Secure" in role or "Secure" in subrole or password_element(role, field, _attr):
         return None                         # a shown password is a plain AXTextField: its metadata still says so
-    if in_terminal(app, field):
+    if in_terminal(app, field, owner_apps):
         return None                         # a terminal inside another app (D31's facts): never captured
     value = _attr(field, "AXValue")
     masked = isinstance(value, str) and bool(value) and all(c in "•●*·" for c in value)
@@ -108,8 +114,10 @@ def key_text(event: Any) -> str:
 class TextInputWatcher:
     source = "typed_text"
 
-    def __init__(self, owner_input: Any, redact: Callable[[Any], Any], excluded: Callable[[str, str], bool]) -> None:
+    def __init__(self, owner_input: Any, redact: Callable[[Any], Any], excluded: Callable[[str, str], bool],
+                 terminal_apps: Callable[[], Collection[str]] | None = None) -> None:
         self.owner_input, self.redact, self.excluded = owner_input, redact, excluded
+        self.terminal_apps = terminal_apps          # the owner's [protection] terminal_apps (N5)
 
     async def run(self, emit: Emit, stop: asyncio.Event) -> None:
         if not self.owner_input.running:
@@ -124,7 +132,7 @@ class TextInputWatcher:
             if stop.is_set() or secure_input():
                 fields.clear()
                 return
-            field = focused_field(self.excluded)
+            field = focused_field(self.excluded, self.terminal_apps)
             if field is None or not field.safe:
                 fields.clear()
                 return
@@ -150,7 +158,7 @@ class TextInputWatcher:
             if secure_input():
                 fields.clear()             # do not query AXValue while Secure Input is active
                 return
-            fields.flush(focused_field(self.excluded), secure=secure_input(), now=time.monotonic())
+            fields.flush(focused_field(self.excluded, self.terminal_apps), secure=secure_input(), now=time.monotonic())
 
         self.owner_input.on_text = guarded_key
         try:
