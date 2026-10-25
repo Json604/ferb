@@ -85,6 +85,17 @@ final class NotchModel: ObservableObject {
     let clickThrough: ClickThroughReport
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
+    /// L34 D: the daemon as the menu bar shows it.
+    @Published var daemonLink = DaemonLink()
+    @Published var daemonPaused = false
+    @Published var daemonStopped = false
+    /// L34 D: a question was answered (here or elsewhere), so its banner, if any, is withdrawn.
+    var onApprovalResolved: ((String) -> Void)?
+
+    var menuBarState: MenuBarState {
+        MenuBarState.derive(link: daemonLink.state, paused: daemonPaused, stopped: daemonStopped,
+                            questions: pendingApprovals.count, running: runningTasks.count)
+    }
     @Published var pendingApprovals: [DaemonApproval] = [] {
         didSet { if pendingApprovals != oldValue { taskListCache.invalidate() } }
     }
@@ -550,6 +561,22 @@ final class NotchModel: ObservableObject {
         guard pendingApprovals.contains(where: { $0.id == id }) else { return }
         if !viewingToday { selectDay(Date()) }
         questionFocus = QuestionFocus(id: id)
+    }
+
+    /// A notification was clicked (L34 D): the notch opens at its item — the question's field, the task in Tasks, or
+    /// today's chat for a reminder.
+    func open(_ target: NotificationTarget) {
+        if !viewingToday { selectDay(Date()) }
+        expand()
+        switch target {
+        case .question(let id, _):
+            focusQuestion(id)
+        case .task(let id):
+            showingTasks = taskItems.contains { $0.id == id }
+            onPresentationChange?(true)
+        case .reminder, .notch:
+            break
+        }
     }
 
     func removeAttachment(_ url: URL) {

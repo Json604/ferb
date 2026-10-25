@@ -11,6 +11,7 @@ extension NotchModel {
                 guard let self else { return }
                 do {
                     try await self.attachDaemon()
+                    self.daemonLink.succeeded()
                     self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.refreshDaemonStatus()
                     for try await event in self.rpc.stream("logs.subscribe", params: [:]) {
@@ -20,6 +21,7 @@ extension NotchModel {
                     self.connectionStatus = "Reconnecting to FERB…"
                 } catch {
                     self.connectionStatus = error.localizedDescription
+                    self.daemonLink.failed(unreachable: Self.unreachable(error))
                 }
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
@@ -69,6 +71,9 @@ extension NotchModel {
             // a newer event makes the rest of the snapshot stale, and then acknowledged one by one, so `ferb chat`
             // replays only what this chat didn't show.
             let status = try await rpc.call("chat.status", params: ["peek": true])
+            daemonLink.succeeded()
+            daemonPaused = status["paused"] as? Bool ?? false
+            daemonStopped = status["stopped"] as? Bool ?? false
             let results = status["results"] as? [[String: Any]] ?? []
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             acknowledgeResults(results.compactMap { $0["task_id"] as? String })
@@ -131,7 +136,10 @@ extension NotchModel {
                 }
             }
             if let approval = approvals.first(where: { $0.taskID == session.backendTaskID && $0.taskID != nil }) { session.waitForOwner(approval.reason) }
-        } catch { connectionStatus = error.localizedDescription }
+        } catch {
+            connectionStatus = error.localizedDescription
+            daemonLink.failed(unreachable: Self.unreachable(error))
+        }
     }
 
     /// The daemon's goal is shown as FERB's description of the task, never as the owner's message; empty when unknown.
@@ -563,6 +571,7 @@ extension NotchModel {
 
     /// An answered question no longer holds its task: that task's work resumes, whichever turn is in front.
     func resolveApproval(_ approvalID: String?) {
+        if let approvalID { onApprovalResolved?(approvalID) }
         let resolved = pendingApprovals.first { $0.id == approvalID }
         pendingApprovals.removeAll { $0.id == approvalID }
         if questionFocus?.id == approvalID { questionFocus = nil }
@@ -670,5 +679,11 @@ extension NotchModel {
             sendingAnswer = false
             onBackgroundChange?(true)
         }
+    }
+
+    /// The socket refused or isn't there: FERB's daemon isn't running (or is restarting).
+    static func unreachable(_ error: Error) -> Bool {
+        if case DaemonRPCError.unavailable = error { return true }
+        return false
     }
 }

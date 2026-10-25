@@ -1,4 +1,5 @@
 import AppKit
+import UserNotifications
 
 @main
 @MainActor
@@ -16,8 +17,12 @@ struct FERBNotchApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
+    private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
+    private let clicks = NotificationClicks()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        clicks.poster = poster
+        if AppBundle.isApp { UNUserNotificationCenter.current().delegate = clicks }    // before launching finishes
         let menu = NSMenu()
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
@@ -35,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(editItem)
         NSApp.mainMenu = menu
         coordinator = PanelCoordinator()
+        coordinator?.poster = poster
         if appSetup.isPackaged {
             coordinator?.onSetUp = { [appSetup] in appSetup.runSetupFromMenu() }
         }

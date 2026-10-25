@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import Carbon
 import Quartz
@@ -69,7 +70,7 @@ final class TrackingHostingView<Content: View>: NSHostingView<Content> {
 }
 
 @MainActor
-final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preconcurrency QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     let model = NotchModel()
     private let presentation = NotchPresentation()
     private let shortcuts = NotchShortcutMonitor()
@@ -105,6 +106,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
     var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: run `ferb setup` again
+    var poster: NotificationPoster?              // set by AppDelegate before start() (L34 D)
+    var hasWindow = false                        // Phase E: the FERB window exists ("Open FERB Window")
+    var onOpenWindow: (() -> Void)?              // Phase E
+    private let service = DaemonService()
+    private var statusRefresh: AnyCancellable?
+    private var statusRefreshQueued = false
 
     private let cursor = CursorController()
 
@@ -159,6 +166,10 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     func start() {
         model.connectDaemon()
         configureMenu()
+        poster?.start(rpc: model.rpc, notchShowing: { [weak self] in self?.notchShowing ?? false },
+                      open: { [weak self] target in self?.open(target) })
+        model.onApprovalResolved = { [weak self] id in self?.poster?.withdrawQuestion(id) }
+        statusRefresh = model.objectWillChange.sink { [weak self] _ in self?.queueStatusRefresh() }
         registerShortcut()
         shortcuts.onDoubleTap = { [weak self] in
             guard let self else { return }
@@ -576,26 +587,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
 
     private func configureMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "FERB Notch")
-        item.button?.toolTip = "FERB · Double-tap right Option to open / close · Hold right Command + Option for voice"
         let menu = NSMenu()
-        addItem("Show FERB", action: #selector(showFromMenu), to: menu)
-        addItem("Type a request", action: #selector(typeRequest), to: menu)
-        addItem("Dictate a request", action: #selector(voicePreview), to: menu)
-        addItem("Conversation history", action: #selector(recentExamples), to: menu)
-        addItem("Settings…", action: #selector(showSettings), to: menu, key: ",")
-        if onSetUp != nil { addItem("Set Up FERB…", action: #selector(setUpFromMenu), to: menu) }
-        menu.addItem(.separator())
-        let gestures = NSMenuItem(title: "Double-tap right ⌥ · Hold right ⌘ + ⌥ for voice", action: nil, keyEquivalent: "")
-        gestures.isEnabled = false
-        menu.addItem(gestures)
-        let preview = NSMenuItem(title: "Connected to the local FERB daemon", action: nil, keyEquivalent: "")
-        preview.isEnabled = false
-        menu.addItem(preview)
-        menu.addItem(.separator())
-        addItem("Quit \(AppName.current)", action: #selector(quit), to: menu, key: "q")
+        menu.delegate = self
         item.menu = menu
         statusItem = item
+        updateStatusItem()
+        rebuildMenu(menu)
         if let appMenu = NSApp.mainMenu?.items.first?.submenu {
             let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
             settings.target = self
@@ -604,18 +601,114 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         }
     }
 
-    private func addItem(_ title: String, action: Selector, to menu: NSMenu, key: String = "") {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.target = self
-        menu.addItem(item)
+    /// The notch is in front of the owner: open, not stepped back, and the displays awake.
+    private var notchShowing: Bool { model.bodyVisible && !model.isYielded && !screensAsleep }
+
+    /// A clicked notification: the owner reached for FERB, so it comes forward at that item.
+    func open(_ target: NotificationTarget) {
+        beginInteraction()
+        model.open(target)
+    }
+
+    private func queueStatusRefresh() {
+        guard !statusRefreshQueued else { return }
+        statusRefreshQueued = true
+        DispatchQueue.main.async { [weak self] in        // objectWillChange fires before the change lands
+            guard let self else { return }
+            self.statusRefreshQueued = false
+            self.updateStatusItem()
+        }
+    }
+
+    private func updateStatusItem() {
+        let state = model.menuBarState
+        statusItem?.button?.image = NSImage(systemSymbolName: state.symbol, accessibilityDescription: state.statusLine)
+        statusItem?.button?.toolTip = state.statusLine
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu(menu) }
+
+    private func rebuildMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        for entry in StatusMenu.entries(state: model.menuBarState, paused: model.daemonPaused,
+                                        stopped: model.daemonStopped, appName: AppName.current,
+                                        canSetUp: onSetUp != nil, hasWindow: hasWindow) {
+            switch entry {
+            case .status(let text):
+                let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")
+                line.isEnabled = false
+                menu.addItem(line)
+            case .separator:
+                menu.addItem(.separator())
+            case .item(let title, let action, let key):
+                let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: key)
+                item.target = self
+                item.representedObject = action.rawValue
+                menu.addItem(item)
+            }
+        }
+    }
+
+    @objc private func menuAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let action = MenuAction(rawValue: raw) else { return }
+        perform(action)
+    }
+
+    func perform(_ action: MenuAction) {
+        switch action {
+        case .openFERB: showFromMenu()
+        case .openWindow: onOpenWindow?()
+        case .pause: setPaused(true)
+        case .resume: setPaused(false)
+        case .liftStop: liftStop()
+        case .restart: restartDaemon()
+        case .settings: showSettings()
+        case .setUp: onSetUp?()
+        case .quit: NSApp.terminate(nil)
+        }
+    }
+
+    /// Pause FERB is `ferb pause` (sense.pause): nothing is recorded and no real mouse or keyboard input until Resume.
+    private func setPaused(_ paused: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.model.rpc.call(paused ? "sense.pause" : "sense.resume", params: [:])
+                self.model.daemonPaused = paused
+            } catch { self.model.promptError = error.localizedDescription }
+        }
+    }
+
+    private func liftStop() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.model.rpc.call("stop.lift", params: [:])
+                self.model.daemonStopped = false
+            } catch { self.model.promptError = error.localizedDescription }
+        }
+    }
+
+    /// FERB isn't running — Restart: launchd starts the installed background service again; with none installed, the
+    /// packaged app opens Set Up FERB… and a development build says how.
+    private func restartDaemon() {
+        Task { [weak self] in
+            guard let self else { return }
+            if await self.service.restart() {
+                self.model.daemonLink.restarting()
+            } else if let setUp = self.onSetUp {
+                setUp()
+            } else {
+                let alert = NSAlert()
+                alert.messageText = "FERB's background service isn't installed."
+                alert.informativeText = "From a checkout, run `ferb setup`."
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
     }
 
     @objc func showFromMenu() { beginInteraction(); model.expand() }
-    @objc private func typeRequest() { beginInteraction(); model.edit(keyboard: true) }
-    @objc private func voicePreview() { beginInteraction(); model.startDictation() }
-    @objc private func recentExamples() { beginInteraction(); model.history() }
-    @objc private func quit() { NSApp.terminate(nil) }
-    @objc private func setUpFromMenu() { onSetUp?() }
 
     private func registerShortcut() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -686,6 +779,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     func tearDown() {
+        poster?.stop()
+        statusRefresh = nil
         model.disconnectDaemon()
         shortcuts.stop()
         model.cancelPinnedFold()

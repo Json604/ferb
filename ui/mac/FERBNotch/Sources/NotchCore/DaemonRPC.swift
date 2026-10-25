@@ -74,7 +74,7 @@ public enum DaemonRPCError: LocalizedError {
     case unavailable, disconnected, invalidResponse, pathTooLong, internalFault, remote(String)
     public var errorDescription: String? {
         switch self {
-        case .unavailable: return "FERB is not running. Run ferb setup --update, then reconnect."
+        case .unavailable: return "FERB isn't running. Choose Restart FERB in FERB's menu bar."
         case .disconnected: return "Connection to FERB was interrupted. Tasks already started keep running."
         case .invalidResponse: return "FERB returned an invalid response."
         case .pathTooLong: return "The FERB socket path is too long."
