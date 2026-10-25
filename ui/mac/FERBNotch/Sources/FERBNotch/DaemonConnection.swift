@@ -515,23 +515,41 @@ extension NotchModel {
         if let text { params["text"] = text }
         settleLearning(noticeID: noticeID, proposalID: proposalID, params: params,
                        decision: ["keep": "kept", "drop": "dropped", "edit": "edited"][action] ?? action,
-                       failure: "That answer about FERB's guess wasn't recorded. Try again.", done: done)
+                       failure: "That answer about FERB's guess wasn't recorded. Try again.", guess: true, done: done)
     }
 
     private func settleLearning(noticeID: String, proposalID: String, params: [String: Any], decision: String,
-                                failure: String, done: ((Bool) -> Void)? = nil) {
+                                failure: String, guess: Bool = false, done: ((Bool) -> Void)? = nil) {
         Task {
             do {
-                _ = try await rpc.call("memory.learning", params: params.merging(["id": proposalID]) { $1 })
-                conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: decision)
+                let reply = try await rpc.call("memory.learning", params: params.merging(["id": proposalID]) { $1 })
+                // A guess shows how it stands now: one already settled shows what happened to it, not this answer.
+                conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: settledGuess(reply) ?? decision)
                 saveConversation()
                 done?(true)
             } catch {
-                // FERB's own reason for refusing an answer (L36) is shown; a fault or a lost connection stays generic.
-                if case DaemonRPCError.remote(let reason) = error { promptError = reason } else { promptError = failure }
+                // FERB's own reason for refusing an answer (L36) is shown. A fault or a lost reply may still have
+                // recorded it: a guess FERB says is settled shows that (live 2026-10-25); otherwise the generic line.
+                if case DaemonRPCError.remote(let reason) = error {
+                    promptError = reason
+                } else if guess, let reply = try? await rpc.call("memory.learning", params: ["op": "guess_state", "id": proposalID]),
+                          let state = settledGuess(reply) {
+                    conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: state)
+                    saveConversation()
+                    done?(true)
+                    return
+                } else {
+                    promptError = failure
+                }
                 done?(false)
             }
         }
+    }
+
+    /// How a guess stands by FERB's reply (`state`), when it is no longer waiting for the owner.
+    private func settledGuess(_ reply: [String: Any]) -> String? {
+        guard let state = reply["state"] as? String, ["kept", "dropped", "edited"].contains(state) else { return nil }
+        return state
     }
 
     /// An answered question no longer holds its task: that task's work resumes, whichever turn is in front.

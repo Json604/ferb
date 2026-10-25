@@ -188,6 +188,26 @@ def test_drop_deletes_the_guess_s_index_node(daemon: Any) -> None:
     assert run(daemon, nodes) == []
 
 
+@pytest.mark.parametrize("answer, state", [("keep", "kept"), ("drop", "dropped"), ("edit", "edited")])
+def test_the_notch_is_told_how_a_guess_stands_and_an_answer_to_a_settled_one_changes_nothing(
+        daemon: Any, answer: str, state: str) -> None:
+    """Live 2026-10-25: a Drop that went through was shown as not recorded. The notch op says how the guess stands
+    after each answer, and on its own (`guess_state`, asked after a lost reply); an answer that reaches a guess already
+    settled changes nothing and says how it stands, whatever was asked."""
+    d = daemon.daemon
+    _, it = guess(daemon)
+
+    def op(params: dict[str, Any]) -> dict[str, Any]:
+        return dict(daemon.run(d._memory_learning(None, params | {"id": it.id})))
+    assert op({"op": "guess_state"}) == {"state": "waiting"}
+    assert op({"op": "guess", "action": answer, "text": "My dentist is Dr. Rao"})["state"] == state
+    assert op({"op": "guess_state"}) == {"state": state}
+    before = run(daemon, lambda: [(i.id, i.status) for i in d.memory.items(None, valid_now=False)])
+    again = op({"op": "guess", "action": "keep" if answer != "keep" else "drop"})
+    assert again == {"line": "That guess isn't waiting any more.", "state": state}
+    assert run(daemon, lambda: [(i.id, i.status) for i in d.memory.items(None, valid_now=False)]) == before
+
+
 def test_declining_a_guess_question_drops_it(daemon: Any) -> None:
     q, it = guess(daemon)
     run(daemon, lambda: daemon.daemon._resolve_approval(q.id, False))

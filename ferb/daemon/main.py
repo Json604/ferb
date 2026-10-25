@@ -1992,6 +1992,21 @@ class Daemon:
             return "Saved in your words: " + " ".join(mine.content.split())
         raise FerbError("Pick Keep, Edit or Drop; Edit needs the words to save.")
 
+    def _guess_state(self, item_id: str) -> str:
+        """How one of FERB's guesses stands now, for the notch (L36): "waiting" for the owner's answer, "kept",
+        "edited" (replaced by the owner's own words), or "dropped" (deleted, or retracted by a Drop while a forget
+        waits; a forget deletes it too). An answer that reached a guess already settled, or one whose reply was lost,
+        shows this rather than the answer the owner gave (live 2026-10-25: a Drop that went through was shown as not
+        recorded)."""
+        item = self.memory.get(item_id)
+        if item is None:
+            return "dropped"
+        if item.status == "proposed":
+            return "waiting"
+        if item.status == "active":
+            return "kept"
+        return "edited" if self._journal().of_kind("memory.edited", "id", item_id) else "dropped"
+
     def _guess_backlog(self) -> dict[str, Any] | None:
         """L36 ruling ("The backlog"): FERB's guesses that were waiting before it asked about each at once, offered
         once as one "Review N older guesses" list (each Keep / Edit / Drop, through op "guess"); a guess already asked
@@ -2119,7 +2134,10 @@ class Daemon:
         if op == "backlog":
             return {"backlog": self._guess_backlog()}
         if op == "guess":
-            return {"line": self._settle_guess(ident, str(params.get("action", "")), str(params.get("text") or ""))}
+            line = self._settle_guess(ident, str(params.get("action", "")), str(params.get("text") or ""))
+            return {"line": line, "state": self._guess_state(ident)}
+        if op == "guess_state":
+            return {"state": self._guess_state(ident)}
         if op == "inventory":
             l.sync_facts(self.memory)
             return {"items": [n | {"confirmable": not n["confirmed"] and (

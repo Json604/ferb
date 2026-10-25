@@ -476,6 +476,48 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.promptError, "That answer about FERB's guess wasn't recorded. Try again.")
     }
 
+    func testAGuessAnswerWhoseReplyWasLostOrThatFoundItSettledShowsHowTheGuessStands() async throws {
+        // Live 2026-10-25 (L36): FERB took 53 s to Drop a guess; the notch stopped waiting after 10 s and said the
+        // answer wasn't recorded, though it was. Asked how the guess stands, the notch shows that.
+        let rpc = StatusRPC()
+        rpc.responses["memory.learning"] = ["backlog": ["id": "b-3", "text": "Review 2 older guesses", "proposals": [
+            ["id": "g-7", "text": "You study FMI and Computer Vision"], ["id": "g-8", "text": "You use Brave for work"]]]]
+        let model = makeModel(rpc)
+        model.expand()
+        await model.refreshDaemonStatus()
+        let notice = try XCTUnwrap(model.conversation.notices.first { $0.id == "guesses:b-3" })
+        func decision(_ id: String) -> String? {
+            model.conversation.notices.first { $0.id == notice.id }?.proposals?.first { $0.id == id }?.decision
+        }
+        rpc.opFailures["guess"] = DaemonRPCError.disconnected
+        rpc.opResponses["guess_state"] = ["state": "dropped"]
+        var outcomes: [Bool] = []
+        let lost = expectation(description: "lost reply")
+        model.decideGuess(noticeID: notice.id, proposalID: "g-7", action: "drop", text: nil) { outcomes.append($0); lost.fulfill() }
+        await fulfillment(of: [lost], timeout: 2)
+        XCTAssertEqual(outcomes, [true])
+        XCTAssertNil(model.promptError)
+        XCTAssertEqual(decision("g-7"), "dropped")
+        XCTAssertTrue(rpc.calls.contains { $0.1["op"] as? String == "guess_state" && $0.1["id"] as? String == "g-7" })
+
+        // Still waiting: the answer wasn't recorded, and the notch says so
+        rpc.opResponses["guess_state"] = ["state": "waiting"]
+        let waiting = expectation(description: "still waiting")
+        model.decideGuess(noticeID: notice.id, proposalID: "g-8", action: "keep", text: nil) { outcomes.append($0); waiting.fulfill() }
+        await fulfillment(of: [waiting], timeout: 2)
+        XCTAssertEqual(outcomes, [true, false])
+        XCTAssertEqual(model.promptError, "That answer about FERB's guess wasn't recorded. Try again.")
+        XCTAssertNil(decision("g-8"))
+
+        // An answer that reaches a guess already settled shows what happened to it, not the answer given
+        rpc.opFailures = [:]
+        rpc.opResponses["guess"] = ["line": "That guess isn't waiting any more.", "state": "dropped"]
+        let settled = expectation(description: "already settled")
+        model.decideGuess(noticeID: notice.id, proposalID: "g-8", action: "keep", text: nil) { _ in settled.fulfill() }
+        await fulfillment(of: [settled], timeout: 2)
+        XCTAssertEqual(decision("g-8"), "dropped")
+    }
+
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
         let rpc = StatusRPC()
         rpc.traces["remembered"] = ["outcome": ["result": ["status": "done", "answer": "Renamed 12 files."]]]
@@ -681,11 +723,17 @@ private final class StatusRPC: DaemonRPCTransport {
     var calls: [(String, [String: Any])] { recorded.all }
     var onCall: ((String, [String: Any]) -> Void)?
     var failures: [String: Error] = [:]
+    var opFailures: [String: Error] = [:]              // by `op`, ahead of `opResponses` and `responses`
+    var opResponses: [String: [String: Any]] = [:]
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
         onCall?(method, params)
         if let failure = failures[method], params["op"] as? String != "backlog" { throw failure }
+        if let op = params["op"] as? String {
+            if let failure = opFailures[op] { throw failure }
+            if let response = opResponses[op] { return response }
+        }
         switch method {
         case "chat.attach": return ["session_id": "test", "capabilities": ["input_paths"]]
         case "chat.status": return status
