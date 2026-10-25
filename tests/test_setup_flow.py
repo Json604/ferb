@@ -11,6 +11,7 @@ from ferb.cli import setup as S
 from ferb.config import Config
 from ferb.core.errors import NotRunning
 from ferb.device.install import Installer
+from ferb.runtimes.codex_exec import _NATIVE_BIN
 from tests.conftest import FakeRunner, SteppedTime, make_app
 
 
@@ -575,7 +576,7 @@ def test_setup_from_the_app_refuses_a_voice_helper_its_signature_doesnt_seal(app
 def _signed_out(world: dict[str, Any]) -> Path:
     auth = world["home"] / "codex-home" / "auth.json"
     auth.unlink()
-    binary = world["home"] / "node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
+    binary = world["home"] / "node" / _NATIVE_BIN
     binary.parent.mkdir(parents=True)
     binary.write_text("")
     return auth
@@ -589,8 +590,7 @@ def test_setup_offers_the_codex_sign_in_when_ferbs_codex_home_has_none(world: di
     env.ask = lambda prompt: (asked.append(prompt), plain(prompt))[1]   # type: ignore[method-assign]
     assert S.setup(env) == 0, out.getvalue()
     assert any("Sign in to ChatGPT for FERB now? [Y/n]" in p for p in asked)
-    assert world["run"].ran(str(auth.parent.parent / "node/node_modules/@openai/codex-darwin-arm64/vendor/"
-                                "aarch64-apple-darwin/bin/codex"), "login")
+    assert world["run"].ran(str(auth.parent.parent / "node" / _NATIVE_BIN), "login")
     assert auth.exists() and "Setup complete." in out.getvalue()
 
 

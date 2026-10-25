@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tests.conftest import FakeRunner
 
-CODEX_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
+from ferb.runtimes.codex_exec import _NATIVE_BIN as CODEX_BIN   # this Mac's architecture, as the installer looks
 CDHASH = "8a144e4088377ef93330e517658dfe41eb6f997d"
 PINNED = f'cdhash H"{CDHASH}"'
 AGENT = Path("Contents/Helpers/FERB.app/Contents/MacOS/FERB")

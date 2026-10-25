@@ -501,3 +501,18 @@ def test_the_detector_runs_as_a_ferb_module(tmp_path: Path, monkeypatch: pytest.
     assert started == [[sys.executable, "-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")]]
     import ferb.device.detector as detector
     assert callable(detector.main)
+
+
+def test_codex_binary_is_the_pinned_package_for_each_architecture() -> None:
+    """The daemon starts the Codex binary of its own architecture (an Intel FERB.app's Python reports x86_64, also
+    under Rosetta), and package-lock.json pins that architecture's package at FERB's Codex version."""
+    import json
+    import platform
+    from ferb.runtimes.codex_exec import CODEX_VERSION, _NATIVE_BIN, native_bin
+    assert native_bin("arm64") == Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
+    assert native_bin("x86_64") == Path("node_modules/@openai/codex-darwin-x64/vendor/x86_64-apple-darwin/bin/codex")
+    assert _NATIVE_BIN == native_bin(platform.machine())
+    lock = json.loads((ROOT / "package-lock.json").read_text())["packages"]
+    for cpu in ("arm64", "x64"):
+        entry = lock[f"node_modules/@openai/codex-darwin-{cpu}"]
+        assert entry["version"] == f"{CODEX_VERSION}-darwin-{cpu}" and entry["integrity"].startswith("sha512-")

@@ -23,6 +23,7 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
 import asyncio
 import json
 import os
+import platform
 import secrets
 import tempfile
 from dataclasses import asdict
@@ -49,7 +50,21 @@ INPUT_CHARS_SOURCE = (
     "codex-rs/app-server-protocol/src/protocol/v2/turn.rs:517-527); codex exec's prompt goes through the same "
     "turn/start (codex-rs/exec/src/lib.rs:908, 1152); thread/start's baseInstructions/developerInstructions are not "
     "counted")
-_NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
+# Codex's npm platform package per Mac architecture (package-lock.json pins both): its folder and its binary's target
+# triple. scripts/app-parts.sh ferb_arch_names names the same binary for FERB.app.
+_CODEX_PACKAGES = {"arm64": ("codex-darwin-arm64", "aarch64-apple-darwin"),
+                   "x86_64": ("codex-darwin-x64", "x86_64-apple-darwin")}
+
+
+def native_bin(machine: str | None = None) -> Path:
+    """The native Codex binary inside a node folder, for `machine` or this process's architecture (arm64, or x86_64
+    on an Intel Mac and in an Intel FERB.app under Rosetta). Any other name is no Mac FERB runs on: it gets the arm64
+    path, which is then simply not installed."""
+    package, triple = _CODEX_PACKAGES.get(machine or platform.machine(), _CODEX_PACKAGES["arm64"])
+    return Path(f"node_modules/@openai/{package}/vendor/{triple}/bin/codex")
+
+
+_NATIVE_BIN = native_bin()
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
             "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "sleep_tool",

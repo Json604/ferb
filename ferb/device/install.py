@@ -39,7 +39,7 @@ NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 # The packaged app's layout (scripts/build-app.sh builds it; ui/mac/FERBNotch/Info.plist names it).
 APP_BUNDLE_ID = "com.ferb.FERB"
 BUNDLE_CLI = Path("Contents/Resources/bin/ferb")
-BUNDLE_NODE = Path("Contents/Resources/node")                 # holds node_modules/@openai/codex-darwin-arm64
+BUNDLE_NODE = Path("Contents/Resources/node")                 # node_modules/@openai/codex-darwin-<arm64|x64>
 BUNDLE_SECRET_HELPER = Path("Contents/Helpers/ferb-secrets")
 BUNDLE_VOICE_APP = Path("Contents/Helpers/FERB Voice.app")    # macapp/FERB, nested until it merges into the app
 # The daemon: an app named FERB whose executable embeds the bundled Python, always isolated (no PYTHON* variables,
