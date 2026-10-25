@@ -159,6 +159,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
     sp.add_argument("--voice", action="store_true",
                     help="push-to-talk: build and sign FERB.app, ask for Microphone + Speech Recognition, turn it on")
+    sp.add_argument("--service", action="store_true",
+                    help="FERB.app's setup window: install (with --update, update) the background service with no "
+                         "questions and wait until it answers")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
     wp = sub.add_parser("watch", help="the owner-verified background test: each interaction runs in the background "
                                       "and you say what you saw")
@@ -267,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
                                    cli_dir=Path.home() / ".local" / "bin")       # where FERB.app links `ferb`
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)
         try:
+            if args.cmd == "setup" and args.service:
+                return setup_cmd.service_setup(env, update=args.update)
             if args.cmd == "setup" and args.key:
                 return setup_cmd.key_setup(env, args.key)
             if args.cmd == "setup" and args.jev:

@@ -166,6 +166,43 @@ def _install(env: Env, update: bool) -> None:
     _app_installed(env)
 
 
+def _foreign_daemon(env: Env) -> str | None:
+    """A FERB daemon answering outside launchd (`ferb daemon run` in a terminal) holds the socket, so setup can't start
+    the installed one: says so, else None."""
+    try:
+        c = env.connect()
+        pid = c.call("ping")["pid"]
+        c.close()
+    except NotRunning:
+        return None
+    if pid != env.inst.agent_pid():
+        return (f"A FERB daemon (pid {pid}) is already running outside launchd — probably `ferb daemon run` "
+                "in a terminal. Stop it (Ctrl-C) and run `ferb setup` again.")
+    return None
+
+
+def service_setup(env: Env, update: bool = False) -> int:
+    """FERB.app's setup window (L34 C): install (or, with `update`, update) the background service from this app and
+    wait until it answers, with no questions. Permissions, the AI service, browsers and the profile are the window's own
+    steps, through the daemon's setup RPCs. An InstallError (a disk-image or translocated copy, a damaged app) reaches
+    the caller with its fix."""
+    inst = env.inst
+    if not update and (refusal := _foreign_daemon(env)):
+        env.say(refusal)
+        return 1
+    env.say("Updating FERB's background service…" if update else "Setting up FERB's background service…")
+    env.say(env.tokenizer(inst.home))             # before the daemon starts: it counts tokens with it
+    _install(env, update=update)
+    wait_for_daemon(env).close()
+    if not update:                                # the app list behind the Permissions step's Automation rows
+        ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
+    if inst.bundle is not None or (inst.home / "FERB.app").exists():
+        _voice_helper(env)                        # pins FERB Voice for hearing and push-to-talk; never a prompt
+    extension_setup(env)
+    env.say("FERB's background service is running.")
+    return 0
+
+
 def setup(env: Env, update: bool = False) -> int:
     inst = env.inst
     if update:
@@ -195,16 +232,9 @@ def setup(env: Env, update: bool = False) -> int:
         env.say("Done.")
         return 0
 
-    try:                                   # a foreground dev daemon would hold the socket
-        c = env.connect()
-        pid = c.call("ping")["pid"]
-        c.close()
-        if pid != inst.agent_pid():
-            env.say(f"A FERB daemon (pid {pid}) is already running outside launchd — probably `ferb daemon run` "
-                    "in a terminal. Stop it (Ctrl-C) and run `ferb setup` again.")
-            return 1
-    except NotRunning:
-        pass
+    if refusal := _foreign_daemon(env):           # a foreground dev daemon would hold the socket
+        env.say(refusal)
+        return 1
 
     if inst.bundle:
         env.say(f"1/4  Setting up FERB's background service from {inst.bundle}…")
