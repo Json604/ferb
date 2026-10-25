@@ -2796,9 +2796,13 @@ protected FERB state (16.9).
   `security_digest` accepts the string form of `network`. `_memory_pass`
   runs distill, consolidate and the embedding restore in separate scopes (`memory.distill_failed`,
   `memory.consolidate_failed`, `memory.embedding_restore_failed`).
-- **Typed text (L17).** `key_text` reads the whole string; terminal apps (`TERMINAL_APPS`), secure fields, Secure Input
-  and password fields (shown ones included, `capture.password_element`, `redact.password_field`) are never captured;
-  no digit-shape rule.
+- **Typed text (L17).** `key_text` reads the whole string; terminals, secure fields, Secure Input and password fields
+  (shown ones included, `capture.password_element`, `redact.password_field`) are never captured; no digit-shape rule.
+  A terminal is judged by D31's facts (`policy/terminal.py`, 2026-10-25: a `sudo` password typed into VS Code's
+  terminal was capturable): a terminal app, an Info.plist Shell role or Zed is never even read (`text_input.
+  terminal_app`); elsewhere a focused text field inside a terminal by its and its ancestors' facts (xterm.js classes,
+  a native identifier, else a label naming a terminal, console or shell) is skipped (`text_input.in_terminal`, the
+  answer reused while the focus stays on one element, so a keystroke costs one CFEqual, not a walk).
 - **Choice answers (L18).** Only sealed inputs call `remember_hidden_secret`; a picked option (`Approval.option_for`) is
   never redacted; other words to a code-labelled question are hidden for that answer only (`Redactor.answer`).
 - **Codex account errors (L21).** Any account-check failure becomes `AccountError('account_unavailable')` and a named

@@ -84,3 +84,36 @@ def capture(monkeypatch: pytest.MonkeyPatch, screen: Screen, events: list[Any], 
 
 def texts(observations: list[Any]) -> list[str]:
     return [o.data['text'] for o in observations if o.source == 'typed_text']
+
+
+# What `accessibility.surface_facts` reads, by AX attribute (the facts tests/support/terminal_ax.py writes chains in)
+FACT_ATTRS = {"AXRole": "role", "AXSubrole": "subrole", "AXRoleDescription": "role_description",
+              "AXIdentifier": "identifier", "AXDOMIdentifier": "dom_identifier", "AXDOMClassList": "dom_classes",
+              "AXTitle": "title", "AXDescription": "description"}
+
+
+class ChainScreen(Screen):
+    """A focused element and its ancestors from a chain of facts (tests/support/terminal_ax.py: VS Code's terminal
+    from the live trace, its editor, JetBrains…): what Accessibility would report walking up from the focus."""
+
+    def __init__(self, bundle_id: str, chain: list[dict[str, Any]]) -> None:
+        super().__init__(bundle_id, role=chain[0]["role"],
+                         label=str(chain[0].get("title") or chain[0].get("description") or ""))
+        self.chain = chain
+        self.nodes = [self.element] + [object() for _ in chain[1:]]
+
+    def _fact(self, i: int, name: str) -> Any:
+        if name == "AXParent":
+            return self.nodes[i + 1] if i + 1 < len(self.nodes) else None
+        value = self.chain[i].get(FACT_ATTRS.get(name, ""))
+        return list(value) if isinstance(value, tuple) else value
+
+    def attr(self, element: Any, name: str) -> Any:
+        if element is self.element and (name == "AXParent" or (name in FACT_ATTRS and name not in self.attrs)):
+            self.queried.append(name)
+            return self._fact(0, name)
+        for i, node in enumerate(self.nodes[1:], start=1):
+            if element is node:
+                self.queried.append(name)
+                return self._fact(i, name)
+        return super().attr(element, name)

@@ -1,12 +1,14 @@
 """L17: typed text is captured per field through the native adapter (D7), never from a secure field, while Secure
-Input is on, or in a terminal app. Key events here are synthetic CGEvents handed straight to the watcher's callback:
-no event tap is ever installed against the session."""
+Input is on, or in a terminal (a terminal app, or a terminal inside another app by D31's facts). Key events here are
+synthetic CGEvents handed straight to the watcher's callback: no event tap is ever installed against the session."""
 from typing import Any
 
 import pytest
 
 from ferb.sense.watchers.text_input import key_text
-from tests.support.typed_text import Screen, capture, key_event, texts
+from tests.support.terminal_ax import (CLAUDE_TERMINAL, EDITOR, JETBRAINS_EDITOR, JETBRAINS_TERMINAL, PAGE_SHELL_BOX,
+                                       PAGE_XTERM, TERMINAL, XCODE_CONSOLE)
+from tests.support.typed_text import ChainScreen, Screen, capture, key_event, texts
 
 # The terminal apps the brief names (L17): Terminal, iTerm2, Warp, Ghostty, kitty, Alacritty, WezTerm, Hyper.
 TERMINALS = ['com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'com.mitchellh.ghostty',
@@ -71,3 +73,34 @@ def test_polls_read_no_accessibility_while_nothing_is_typed(monkeypatch) -> None
     screen = Screen()
     assert capture(monkeypatch, screen, []) == []
     assert screen.queried == []
+
+
+# ---------- D28, D31, rule 14: no terminal surface is captured, by FERB's own terminal facts ----------
+
+
+@pytest.mark.parametrize('bundle,chain', [
+    ('com.microsoft.VSCode', TERMINAL), ('com.microsoft.VSCode', CLAUDE_TERMINAL),
+    ('com.todesktop.230313mzl4w4u92', TERMINAL), ('com.google.Chrome', PAGE_XTERM),
+    ('com.jetbrains.pycharm', JETBRAINS_TERMINAL), ('com.apple.dt.Xcode', XCODE_CONSOLE)])
+def test_owner_keystrokes_in_a_terminal_inside_another_app_are_never_captured(monkeypatch, bundle, chain) -> None:
+    """A `sudo` password the owner types into VS Code's terminal (its xterm.js input, as the live trace showed it) has
+    no secure field and Secure Input may be off: like a terminal app's, it is never captured. The same terminal facts
+    FERB's own typing floor uses (policy/terminal.py) decide it, read from the focus and its ancestors."""
+    assert capture(monkeypatch, ChainScreen(bundle, chain), [key_event('hunter2')]) == []
+
+
+@pytest.mark.parametrize('bundle,chain', [('com.microsoft.VSCode', EDITOR), ('com.jetbrains.pycharm', JETBRAINS_EDITOR),
+                                          ('com.google.Chrome', PAGE_SHELL_BOX)])
+def test_an_editor_or_a_page_box_beside_a_terminal_is_still_captured(monkeypatch, bundle, chain) -> None:
+    """VS Code's editor, a JetBrains editor in a window whose title names a terminal file, and a page box whose label
+    says "Shell command" (web content: only a terminal library's classes decide) are ordinary fields."""
+    assert texts(capture(monkeypatch, ChainScreen(bundle, chain), [key_event('print(1)')])) == ['print(1)']
+
+
+@pytest.mark.parametrize('bundle', ['dev.zed.Zed', 'org.tabby', 'com.example.Shelly'])
+def test_an_app_that_is_or_hosts_an_unseen_terminal_is_never_read(monkeypatch, bundle) -> None:
+    """Zed's terminal panel shows Accessibility nothing, Tabby is a terminal app, and an app whose Info.plist declares
+    the Shell role is a terminal: none is captured, and its focused element is never read (a where-boundary)."""
+    monkeypatch.setattr('ferb.act.mac.apps.declares_shell', lambda b: b == 'com.example.Shelly')
+    screen = ChainScreen(bundle, EDITOR)
+    assert capture(monkeypatch, screen, [key_event('hunter2')]) == [] and screen.queried == []

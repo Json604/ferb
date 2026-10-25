@@ -183,8 +183,9 @@ listen.
 F7 development adds passive app/Accessibility events, redacted typed fields and clipboard text (seven-day content
 retention), notification observation under Full Disk Access, and installed-software facts. Typed text is captured per
 field again since the launch week; it is never captured from password fields (shown passwords included), while
-Secure Input is on, or in terminal apps. Notification triage stays in shadow until measured with you; now-playing and
-two-app Accessibility acceptance are still pending. See the
+Secure Input is on, or in a terminal (terminal apps and terminals inside other apps, e.g. VS Code's). Notification
+triage stays in shadow until measured with you; now-playing and two-app Accessibility acceptance are still pending.
+See the
 [F7 checklist](docs/OWNER_ACCEPTANCE.md#027-f7-perception--pending-owner-acceptance) before treating these as live-proven.
 
 ## Everyday use

@@ -1029,6 +1029,12 @@ After the owner's update (2026-10-24):
   values, edits, keys, foreground input, ⌘V and menu pastes, and `browser.act` into a web terminal (extension
   0.15.11). A refusal says to use FERB's shell, and the escape hatch when the sandbox blocks a command you need; the
   worker prompt says the same.
+- What you type into a terminal inside another app is no longer captured (D28, D31, rule 14). Typed-text capture
+  skipped terminal apps by bundle id only, so a `sudo` password typed into VS Code's terminal could reach FERB's
+  record. It now uses the same terminal facts as the typing floor: terminal apps, an app that declares itself a shell
+  and Zed are never read; elsewhere a field inside a terminal (VS Code's, a web terminal, JetBrains' Terminal tool
+  window, or one whose label names a terminal, console or shell) is skipped. Editors and page boxes are captured as
+  before.
 
 Licensed under Apache-2.0.
 

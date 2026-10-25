@@ -1,18 +1,51 @@
-"""Listen-only text capture. Secure Input, terminal apps and the focused field's AX role and password metadata are
-checked before Unicode is extracted."""
+"""Listen-only text capture. Secure Input, terminals (terminal apps and terminals inside other apps) and the focused
+field's AX role and password metadata are checked before Unicode is extracted."""
 import asyncio
 import ctypes
 import time
 from typing import Any, Callable
 
+from ferb.policy import terminal as terminals
 from ferb.policy.protection import DEFAULT_TERMINAL_APPS
 from ferb.sense.capture import Field, TypedFields, TEXT_ROLES, password_element
-from ferb.sense.watchers.base import Emit, focused_app, poll
+from ferb.sense.watchers.base import Emit, Focused, focused_app, poll
 
-# L17: typed text is never captured in a terminal app. A `sudo` password typed there has no secure field and Secure
-# Input may be off, so it would otherwise reach Jev. A where-boundary on the app (bundle ids, any case), never a
-# guess about what is typed; the one list of terminal bundle ids is protection's (also D31's: FERB never types there).
+# L17, D28, rule 14: typed text is never captured in a terminal. A `sudo` password typed there has no secure field and
+# Secure Input may be off, so it would otherwise reach Jev. A where-boundary, never a guess about what is typed, by the
+# same facts as D31's floor before FERB types into a terminal (policy/terminal.py): a terminal app or an app whose
+# Info.plist declares the Shell role or whose terminal Accessibility can't show (Zed) is never even read; in any other
+# app a focused text field inside a terminal (VS Code's xterm.js input, a web terminal, JetBrains' Terminal tool
+# window; a label naming one counts, errs toward not capturing) is skipped.
 TERMINAL_APPS = frozenset(b.casefold() for b in DEFAULT_TERMINAL_APPS)
+_last: list[tuple[int, Any, bool]] = []      # the last focused field's answer: one CFEqual per keystroke, not a walk
+
+
+def terminal_app(app: Focused) -> bool:
+    """A terminal by the app alone: its bundle id, its Info.plist's Shell role, or a terminal it can't show."""
+    from ferb.act.mac import apps
+    return app.bundle_id.casefold() in TERMINAL_APPS or \
+        terminals.surface(app.bundle_id, [], shell_app=apps.declares_shell(app.bundle_id)) is not None
+
+
+def in_terminal(app: Focused, field: Any) -> bool:
+    """Whether the focused field is inside a terminal by its own and its ancestors' facts (never its value). The answer
+    for the same element is reused until the focus moves."""
+    from ferb.act.mac import accessibility as ax
+    if _last and _last[0][0] == app.pid and _same(_last[0][1], field):
+        return _last[0][2]
+    found = terminals.surface(app.bundle_id, ax.surface_facts(field)) is not None
+    _last[:] = [(app.pid, field, found)]
+    return found
+
+
+def _same(a: Any, b: Any) -> bool:
+    if a is b:
+        return True
+    from ferb.act.mac import accessibility as ax
+    try:
+        return ax.same(a, b)
+    except Exception:                        # not an AX element (or CF can't compare them): not the same
+        return False
 
 
 def secure_input() -> bool:
@@ -28,7 +61,7 @@ def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
     from ferb.act.mac.accessibility import _attr
     import ApplicationServices as AX
     app = focused_app()
-    if app is None or app.bundle_id.casefold() in TERMINAL_APPS or excluded(app.bundle_id, app.name):
+    if app is None or terminal_app(app) or excluded(app.bundle_id, app.name):
         return None
     root = AX.AXUIElementCreateApplication(app.pid)
     field = _attr(root, "AXFocusedUIElement")
@@ -36,6 +69,8 @@ def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
     subrole = str(_attr(field, "AXSubrole") or "") if field is not None else ""
     if role not in TEXT_ROLES or "Secure" in role or "Secure" in subrole or password_element(role, field, _attr):
         return None                         # a shown password is a plain AXTextField: its metadata still says so
+    if in_terminal(app, field):
+        return None                         # a terminal inside another app (D31's facts): never captured
     value = _attr(field, "AXValue")
     masked = isinstance(value, str) and bool(value) and all(c in "•●*·" for c in value)
     window = _attr(field, "AXWindow")
