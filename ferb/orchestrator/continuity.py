@@ -118,6 +118,11 @@ class Continuity:
             (conversation,)).fetchall()
         return [dict(row) for row in rows]
 
+    def conversation_of(self, task_id: str) -> str | None:
+        """The chat a registered task belongs to; None when it is unknown."""
+        row = self.db.conn.execute("SELECT conversation_id FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
+        return str(row[0]) if row is not None else None
+
     def task_ids(self, conversation: str) -> set[str]:
         return {row[0] for row in self.db.conn.execute(
             "SELECT task_id FROM task_context WHERE conversation_id = ?", (conversation,))}

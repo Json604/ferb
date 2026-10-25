@@ -3302,9 +3302,10 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   I-1, as Task 6 ruling (b) and rule 8's provenance): a site only the planner or outside content named, a pasted
   email's, never gets the username. An app's username stays ordinary memory. The owner's line gains "Saved as your
   login name for <host>."; a refusal for a site the owner didn't name adds "Not saved as your username for <host>:
-  you didn't name that site." (final review I1); a refusal, whatever its cause (a failed write included, review m-2),
-  is journaled (`memory.login_refused`, with why) and the turn goes on; a span of
-  the owner's words that touches a "[redacted]" marker is never saved (`items.owner_span_at`, review m-1). The
+  you didn't name that site." (final review I1), ending "… in this chat." when they typed it only for the answered
+  task of another chat (`Supervisor._sites_named_elsewhere`); a refusal, whatever its cause (a failed write
+  included, review m-2), is journaled (`memory.login_refused`, with why) and the turn goes on; a span of the owner's
+  words that touches a "[redacted]" marker is never saved (`items.owner_span_at`, review m-1). The
   username is set on the site's record only; a sign-in form on another address shows it through the task's one
   owner-typed site and, once an entry is saved there, through its listed sites (above). A forget of that item, or of
   any version of its key (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`), a retract

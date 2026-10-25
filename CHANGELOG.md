@@ -1049,8 +1049,8 @@ After the owner's update (2026-10-24):
   run, never an earlier run's (an element id like s1e8 means another element in the next run); ids count as ids only
   where FERB's tools put them, so "s1e8" typed as text, a checksum or a path that leaves a temporary folder with `..`
   must match exactly. A procedure you confirmed keeps your confirm when it is revised after more runs of the same
-  steps; a step built on a page's content whose tool or arguments changed (another address typed, another site) is
-  asked about again.
+  steps, a click included, even on another page (a click is compared by kind); a step built on a page's content whose
+  tool or written arguments changed (another address typed, another site's address opened) is asked about again.
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,

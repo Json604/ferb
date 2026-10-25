@@ -453,10 +453,11 @@ def test_a_continue_of_an_ended_task_names_the_site_its_owner_typed(daemon: Any,
 
 
 def _answer_the_tasks_question(daemon: Any, request: str, sites: tuple[str, ...], login_origin: str,
-                               answer: str = "Kartikey Attri") -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """The owner starts a task with `request`; its worker asks "What username?" (owner.ask) and waits; the owner's
-    answer is the planner's `answer_question` turn with a `remember` entry naming `login_origin`. The answer turn's
-    events, and what the worker got."""
+                               answer: str = "Kartikey Attri",
+                               answered_in: str = "visa") -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The owner starts a task with `request` in chat "visa"; its worker asks "What username?" (owner.ask) and waits;
+    the owner's answer, in chat `answered_in`, is the planner's `answer_question` turn with a `remember` entry naming
+    `login_origin`. The answer turn's events, and what the worker got."""
     import time
     got: dict[str, Any] = {}
 
@@ -476,7 +477,7 @@ def _answer_the_tasks_question(daemon: Any, request: str, sites: tuple[str, ...]
                                       "answer_question": {"approval_id": open_[0].id, "answer": answer},
                                       "remember": [USERNAME_ENTRY | {"content": answer, "quote": answer,
                                                                      "login_origin": login_origin}]}))
-        events = chat(daemon, answer, session="visa")
+        events = chat(daemon, answer, session=answered_in)
     finally:
         first.join(10)
     return events, got
@@ -494,6 +495,19 @@ def test_a_username_given_as_the_answer_to_the_tasks_question_is_saved_for_the_s
     said = "\n".join(str(e.get("text", "")) for e in events)
     assert "Remembered: Kartikey Attri\nSaved as your login name for usvisascheduling.com." in said
     assert refusals(daemon) == []
+
+
+def test_an_answer_from_another_chat_says_the_site_wasnt_named_in_this_chat(daemon: Any) -> None:
+    """Scoped re-review nit (probe P2): a question of a task started in chat "visa", which named usvisascheduling.com,
+    answered from chat "other": the username isn't saved (the answered task counts only in its own chat, review m-5),
+    and the line says why accurately: the site was named, but not in this chat."""
+    events, got = _answer_the_tasks_question(daemon, "log in to usvisascheduling.com", ("usvisascheduling.com",), SITE,
+                                             answered_in="other")
+    assert got["answer"] == {"answer": "Kartikey Attri"} and username(daemon, SITE) is None
+    assert refusals(daemon) == ["the site isn't one you named"]
+    said = "\n".join(str(e.get("text", "")) for e in events)
+    assert ("Remembered: Kartikey Attri\nNot saved as your username for usvisascheduling.com: you didn't name that "
+            "site in this chat." in said)
 
 
 def test_an_answer_naming_a_site_only_outside_content_gave_is_refused_and_said(daemon: Any) -> None:

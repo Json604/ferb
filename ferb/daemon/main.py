@@ -2623,7 +2623,8 @@ class Daemon:
             export(self.memory, self.home / "memory")
 
     async def _remember(self, items: list[Any], own_words: str, source_id: str,
-                        sites: frozenset[str] = frozenset()) -> list[dict[str, str]]:
+                        sites: frozenset[str] = frozenset(),
+                        elsewhere: frozenset[str] = frozenset()) -> list[dict[str, str]]:
         """Chat capture (memory review I1, MP2; the check is `items.capture`, shared with distillation's quotes, L36).
         `own_words`: what the owner typed (pasted parts left out). The quote must be whole words of it. Saved as
         owner_stated is only the owner's own text: the whole sentence(s) of their words that hold the planner's content
@@ -2634,7 +2635,8 @@ class Daemon:
         "No hold for my typed words"). Per saved item: its receipt and the line code adds to the reply; per refused
         item: why, in plain words for the owner's line (owner 2026-10-24: the reason, never "a problem on my side").
         An entry with `login_origin` also gives that site's login record its username (`_save_login_name`, in a worker
-        thread; `sites`: the sites the turn's task names, L36 §5)."""
+        thread; `sites`: the sites the turn's task names, L36 §5; `elsewhere`: those the owner typed only for a task of
+        another chat, which a refusal names)."""
         from ferb.memory.items import CAPTURE_TOLD, capture
         saved: list[dict[str, str]] = []
         for it in items:
@@ -2652,7 +2654,7 @@ class Daemon:
                 continue
             text = " ".join(m.content.split())
             ends = (" " + self._until(it.until, m.id, own_words)) if getattr(it, "until", None) is not None else ""
-            told = (await self._save_login_name(it, m.id, own_words, sites, m.origin)
+            told = (await self._save_login_name(it, m.id, own_words, sites, m.origin, elsewhere)
                     if getattr(it, "login_origin", None) else "")
             if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}",
@@ -2684,7 +2686,7 @@ class Daemon:
         return f"(until {(end - timedelta(seconds=1)).astimezone(zone):%a %d %b})"
 
     async def _save_login_name(self, entry: Any, item_id: str, own_words: str, sites: frozenset[str],
-                               origin: str = "owner_stated") -> str:
+                               origin: str = "owner_stated", elsewhere: frozenset[str] = frozenset()) -> str:
         """L36 §5: an owner-stated entry's username for its site's login record. Only when the username is the owner's
         own words (kept in their spelling, `owner_span`; never FERB's wording, which is an inferred item) and the site
         is an https:// origin whose host the owner typed: in this message, or among the sites of the turn's tasks (the
@@ -2699,7 +2701,8 @@ class Daemon:
         A line for the owner, or "" (the refusal, whatever its cause, is journaled, `memory.login_refused`, unless the
         entry's own place was updated as an older version's record, and the turn goes on: review m-2). A site the owner
         didn't name is also said, in code's words ("Not saved as your username for <site>: you didn't name that site",
-        final review I1); the memory itself is saved either way."""
+        final review I1; "… in this chat" when they named it only for a task of another chat, `elsewhere`); the memory
+        itself is saved either way."""
         import re
         from ferb.identity.owner_secrets import OwnerSecrets, login_place, same_site, site_host, typed_site
         from ferb.memory.items import owner_span_at
@@ -2741,7 +2744,8 @@ class Daemon:
         if place not in followed:
             self._journal().append("memory.login_refused", {"item": item_id, "place": place, "why": why})
             if host and not named:                       # the one refusal the owner can act on (final review I1)
-                lines.append(f"Not saved as your username for {host}: you didn't name that site.")
+                here = " in this chat" if any(same_site(site_host(s), host) for s in elsewhere) else ""
+                lines.append(f"Not saved as your username for {host}: you didn't name that site{here}.")
         return " ".join(lines)
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:

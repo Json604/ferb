@@ -617,10 +617,11 @@ class Supervisor(WorkerRuns):
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
         # reason in plain words}; supplied by the daemon (a coroutine function: a login name is written in a worker
-        # thread). `sites`: the sites the turn's task names (L36 §5)
+        # thread). `sites`: the sites the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a
+        # task of another chat (`_sites_named_elsewhere`)
         self.remember: Callable[..., list[dict[str, str]] | Awaitable[list[dict[str, str]]]] = \
-            lambda items, own_words, source, sites=frozenset(): [{"refused": "FERB has no memory store running"}
-                                                                 for _ in items]
+            lambda items, own_words, source, sites=frozenset(), elsewhere=frozenset(): [
+                {"refused": "FERB has no memory store running"} for _ in items]
         # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
         self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
         # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
@@ -1564,6 +1565,25 @@ class Supervisor(WorkerRuns):
         owner = provenance.prepare("\n".join(words))
         return frozenset(h for site in candidates if (h := site_host(site)) and typed_site(h, owner))
 
+    def _sites_named_elsewhere(self, out: SupervisorOutcome, session: ChatSession,
+                               answered: str | None) -> frozenset[str]:
+        """The candidate sites the owner typed only for a task of another chat (`_turn_sites` counts a controlled or
+        answered task only in its own chat, review m-5): an answer from chat B to a question of a task they started in
+        chat A. A login name refused for one of these is told so ("… in this chat", scoped re-review nit)."""
+        from ferb.identity.owner_secrets import site_host, typed_site
+        found: set[str] = set()
+        for tree_id in [t for t in (out.control.task_id if out.control is not None else None, answered) if t]:
+            other = self.continuity.conversation_of(tree_id)
+            saved = self.continuity.load(tree_id, other) if other is not None and other != session.id else None
+            if saved is None:
+                continue
+            live = self._tree_of.get(tree_id)
+            candidates = [*(live.spec if live is not None else saved[0]).targets.sites,
+                          *(str(item.login_origin) for item in out.remember if item.login_origin)]
+            owner = provenance.prepare(saved[1].words)
+            found |= {h for site in candidates if (h := site_host(site)) and typed_site(h, owner)}
+        return frozenset(found)
+
     async def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
                             typed_lines: str, entry_id: str, turn_origins: set[str],
                             named: frozenset[str] = frozenset(), answered: str | None = None) -> _Side:
@@ -1594,8 +1614,9 @@ class Supervisor(WorkerRuns):
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[tuple[str, str]] = []
         sites = self._turn_sites(out, session, typed, named, answered) if out.remember else frozenset()
+        elsewhere = (self._sites_named_elsewhere(out, session, answered) - sites) if out.remember else frozenset()
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
-            answers = await _value(self.remember([item], typed_lines, entry_id, sites))
+            answers = await _value(self.remember([item], typed_lines, entry_id, sites, elsewhere))
             saved_now = [r for r in answers if "receipt" in r]
             receipts += [r["receipt"] for r in saved_now]
             saved += [r["line"] for r in saved_now]
