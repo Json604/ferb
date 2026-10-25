@@ -701,6 +701,12 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
         prompts = c.execute("SELECT COUNT(*) FROM spans WHERE kind='tool.call' AND started_at >= ? "
                             "AND json_extract(input_json, '$.ferb_question') = 1", (since,)).fetchone()[0]
         print(f"Code confirmation prompts: {prompts}", file=out)
+        checks = dict(c.execute("SELECT j.value, COUNT(*) FROM spans, json_each(spans.input_json, '$.point_checks') "
+                                "AS j WHERE spans.kind = 'tool.call' AND spans.started_at >= ? GROUP BY j.value",
+                                (since,)).fetchall())
+        if checks:                                   # which check decided each checked click (D31 fix round 4)
+            from ferb.trace.lines import point_checks
+            print(point_checks(checks), file=out)
         tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if 'confirmations' in tables:
             answers = dict(c.execute("SELECT granted, COUNT(*) FROM confirmations WHERE at >= ? GROUP BY granted", (since,)))

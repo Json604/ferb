@@ -536,9 +536,10 @@ def _terminal(v: dict[str, str]) -> str:
     if v.get("script"):
         said = (f"run the AppleScript {v['script']} in {v['app']} (it runs with that app's own access, outside "
                 f"FERB's sandbox: {v['surface']})")
-        if v.get("files"):
-            said += f"; it names {v['files']}" + ("; FERB can't see any other file it opens" if v.get("opens") else "")
-        elif v.get("opens"):                         # a file named indirectly (round 3, O1)
+        named = "; ".join(f"it names {files}" for files in (v.get("files"), v.get("named")) if files)
+        if named:                                    # each file it names, said plainly (round 4, N7)
+            said += f"; {named}" + ("; FERB can't see any other file it opens" if v.get("opens") else "")
+        elif v.get("opens"):                         # a file named only indirectly (round 3, O1)
             said += "; FERB can't see which file this opens, if it opens one"
         return said
     if v.get("files"):

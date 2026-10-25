@@ -266,6 +266,7 @@ class TerminalInput:
     files: tuple[tuple[str, str, str], ...] = ()
     label: str = ""                          # the terminal element's own label (VS Code: "Terminal 108, zsh …")
     opens: bool = False                      # a script for an app that opens files by their default app (round 3, O1)
+    named: tuple[str, ...] = ()              # files a script names that don't open in a terminal app (round 4, N7)
 
 
 @dataclass(frozen=True)

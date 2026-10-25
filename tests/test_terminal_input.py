@@ -965,6 +965,28 @@ def test_a_finder_script_that_opens_a_file_it_doesnt_name_says_so_and_asks(monke
     assert inp is not None and "can't see" not in confirm.summary([terminal.need(inp)])
 
 
+def test_a_finder_script_naming_a_file_that_doesnt_open_in_a_terminal_says_so_plainly(monkeypatch: Any,
+                                                                                       tmp_path: Any) -> None:
+    """Round 4, N7: a script naming a file that doesn't open in a terminal app says so plainly: no terminal-file part
+    (its text isn't shown or bound) and no "can't see which file". Only a script whose file FERB can't resolve gets
+    that line."""
+    from tests.support.terminal_ax import FINDER
+    notes, cmd = _command_file(tmp_path, "notes.txt", "groceries"), _command_file(tmp_path)
+    apps = TerminalApps(RunningApp(FINDER, "Finder", 300, False))
+    apps.default_app_for = (                                                     # type: ignore[attr-defined]
+        lambda path: "com.apple.Terminal" if path.endswith(".command") else "com.apple.TextEdit")
+    d = terminal_mac(monkeypatch, vscode_ax(), apps)
+    inp = d.script_terminal_input("Finder", f'open POSIX file "{notes}"')
+    assert inp is not None and inp.files == () and inp.named == (notes,)
+    said = confirm.summary([terminal.need(inp)])
+    assert f"it names {terminal.visible(notes)}, which doesn't open in a terminal app" in said, said
+    assert "can't see which file" not in said and "groceries" not in said
+    inp = d.script_terminal_input("Finder", f'open POSIX file "{notes}"\nopen POSIX file "{cmd}"')
+    said = confirm.summary([terminal.need(inp)]) if inp is not None else ""
+    assert "which opens in a terminal app and runs" in said and "which doesn't open in a terminal app" in said
+    assert "can't see which file" not in said
+
+
 # ---------- review round 2, N4: ordinary typing isn't stopped by a focus element change ----------
 
 def test_ordinary_typing_goes_on_when_the_focus_element_changes_but_not_into_a_terminal(monkeypatch: Any) -> None:
@@ -1099,6 +1121,66 @@ def test_the_run_label_rule_holds_in_any_app_whose_window_hosts_a_terminal(monke
     assert d.terminal_input("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "t1") is None
     del ax.chains["term"]
     assert d.terminal_input("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "t1") is None
+
+
+def test_the_run_label_window_walk_past_its_budget_cant_tell_and_asks(monkeypatch: Any) -> None:
+    """Round 4, N6: the Run… label rule walks the element's window for a terminal within 2,000 elements and 200 ms.
+    Past either it can't tell, which counts as hosting one: the press asks, never goes unasked. A walk that ends in
+    time without a terminal asks nothing."""
+    import itertools
+    from types import SimpleNamespace
+
+    import ferb.act.mac.driver as drv
+    btn = [{"role": "AXButton", "title": "Run report"}, {"role": "AXWindow", "title": "Report"},
+           {"role": "AXApplication", "title": "DevTool"}]
+    ax = TerminalAx({"btn": btn}, labels={"btn": "Run report"})
+    d = terminal_mac(monkeypatch, ax, TerminalApps(RunningApp("com.example.devtool", "DevTool", 802, False)))
+    ids = _ids(d, "DevTool")
+    press = ComputerAction("press", ids["Run report"], mechanism="ax")
+    assert d.terminal_input("DevTool", press, "t1") is None                      # a small window, no terminal
+    walked: list[int] = []
+
+    def endless(el: Any) -> Any:
+        for i in itertools.count():
+            walked.append(i)
+            yield {"role": "AXGroup"}
+    ax.window_facts = endless                                                    # type: ignore[method-assign]
+    inp = d.terminal_input("DevTool", press, "t1")
+    assert inp is not None and inp.runs and inp.control == "Run report" and len(walked) <= 2001
+    with pytest.raises(Refused, match=UNASKED):
+        asyncio.run(d.act("DevTool", press, "w1", "t1"))
+    now = [0.0]
+
+    def slow(el: Any) -> Any:
+        for _ in range(5):
+            now[0] += 0.07                                                       # each element takes 70 ms to read
+            yield {"role": "AXGroup"}
+    ax.window_facts = slow                                                       # type: ignore[method-assign]
+    monkeypatch.setattr(drv, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    inp = d.terminal_input("DevTool", press, "t1")
+    assert inp is not None and inp.runs                                          # 350 ms: past the budget
+    now[0] = 0.0
+    monkeypatch.setattr(drv, "WINDOW_WALK_S", 1.0)                               # the same walk inside a budget
+    assert d.terminal_input("DevTool", press, "t1") is None
+
+
+def test_the_window_walk_stops_at_its_element_budget_and_says_it_was_cut(monkeypatch: Any) -> None:
+    """Round 4, N6: `accessibility.window_facts` reads at most 2,000 elements of a window, and ends with None when it
+    stopped with elements left (cut short, so the caller can't tell), never by going quiet."""
+    import ferb.act.mac.accessibility as axm
+
+    def attr(el: Any, name: str) -> Any:
+        if name == "AXWindow":
+            return ("win",)
+        if name == "AXChildren":
+            return [el + (0,), el + (1,)] if len(el) < (40 if el[0] == "win" else 3) else []
+        return "AXGroup" if name == "AXRole" else None
+    monkeypatch.setattr(axm, "_attr", attr)
+    facts = list(axm.window_facts(("btn",)))
+    assert len(facts) == 2001 and facts[-1] is None and all(f is not None for f in facts[:-1])
+    monkeypatch.setattr(axm, "_attr", lambda el, name: ("small",) if name == "AXWindow" else
+                        ([("leaf",)] if el == ("small",) and name == "AXChildren" else None))
+    assert list(axm.window_facts(("btn",))) == [{}, {}]                        # the whole window: no None
 
 
 def test_opening_a_terminal_asks_and_says_its_profile_may_run_a_command(monkeypatch: Any) -> None:

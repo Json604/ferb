@@ -30,7 +30,22 @@ final class NotchPanel: NSPanel {
     }
 }
 
+/// The notch's glow: a click-through window, reported to the daemon as one (ClickThroughReport, D31 fix round 4).
 final class NotchLightPanel: NSPanel {
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType,
+                  defer flag: Bool) {
+        super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
+        // AppKit's own property, so the window server is told; hidden from Accessibility, so the system's
+        // Accessibility hit test passes through too
+        ignoresMouseEvents = true
+        setAccessibilityElement(false)
+        setAccessibilityHidden(true)
+    }
+    /// Always click-through: setting false still sets true, through AppKit's own setter.
+    override var ignoresMouseEvents: Bool {
+        get { super.ignoresMouseEvents }
+        set { super.ignoresMouseEvents = true }
+    }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
@@ -105,6 +120,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         })
         super.init()
         model.cursor = cursor
+        // FERB's click-through windows, told to the daemon so its click check skips exactly them (D31 fix round 4)
+        cursor.onPanelsChange = { [weak self] numbers in self?.model.clickThrough.set("cursor", windows: numbers) }
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
         model.onPresentationChange = { [weak self] animate in self?.present(animate: animate) }
@@ -264,8 +281,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         tracerPanel.hasShadow = false
         tracerPanel.hidesOnDeactivate = false
         tracerPanel.canBecomeVisibleWithoutLogin = false
-        tracerPanel.ignoresMouseEvents = true
-        tracerPanel.isReleasedWhenClosed = false
+        tracerPanel.isReleasedWhenClosed = false         // (click-through by NotchLightPanel itself)
         tracerPanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
         tracerPanel.collectionBehavior = Self.overlayBehavior
         tracerPanel.animationBehavior = .none
@@ -388,6 +404,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     private func updateTracerVisibility() {
+        model.clickThrough.set("tracer", windows: [tracerPanel.windowNumber])
         windowYield.updateTracer(glowing: model.showsTraceGlow, lightShows: model.tracerLightShows)
     }
 

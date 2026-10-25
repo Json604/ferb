@@ -752,15 +752,19 @@ def active_editor(pid: int) -> Any:
     return None
 
 
-WINDOW_WALK_MAX = 4000                     # elements of a window read at most (round 3, N6)
+WINDOW_WALK_MAX = 2000                     # elements of a window read at most (round 3, N6; round 4: 2,000)
 
 
-def window_facts(el: Any) -> Iterator[dict[str, Any]]:
+def window_facts(el: Any) -> Iterator[dict[str, Any] | None]:
     """Each element's own structural facts (`SURFACE_ATTRS`, no ancestors) in the window holding `el`, depth first,
-    at most `WINDOW_WALK_MAX` elements. Read-only; never a value."""
+    at most `WINDOW_WALK_MAX` elements; stopped there with elements left, it yields None last (cut short: the caller
+    can't tell what the rest holds, round 4, N6). Read-only; never a value."""
     stack = [w] if (w := _attr(el, "AXWindow")) is not None else []
     read = 0
-    while stack and read < WINDOW_WALK_MAX:
+    while stack:
+        if read >= WINDOW_WALK_MAX:
+            yield None
+            return
         node = stack.pop()
         read += 1
         facts: dict[str, Any] = {}

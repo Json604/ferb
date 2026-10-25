@@ -56,6 +56,8 @@ def story(ep: dict[str, Any], verdict: dict[str, Any] | None = None) -> list[str
         out.append("Answer: " + " ".join(str(ep["answer"]).split()))
     if ep.get("problems"):
         out.append(" · ".join(ep["problems"]))
+    if ep.get("point_checks"):
+        out.append(lines.point_checks(ep["point_checks"]))
     out.append(_cost(u))
     d = ep.get("desktop") or {}
     near = d.get("near_ferb") or []

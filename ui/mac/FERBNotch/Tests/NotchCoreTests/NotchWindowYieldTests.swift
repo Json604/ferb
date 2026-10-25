@@ -123,7 +123,9 @@ final class NotchWindowYieldTests: XCTestCase {
     }
 
     /// Once `ignoresMouseEvents` is set on a window, even back to false, AppKit stops passing clicks through its
-    /// transparent areas. The only write allowed is the light window's permanent click-through at creation.
+    /// transparent areas. The only writes allowed are FERB's two click-through windows' own, each always true: the
+    /// light (NotchLightPanel) and the pointer overlay (CursorPanel), at creation and in the setter that keeps it on
+    /// (D31 fix round 4). The notch's own panel is never written.
     func testNoCodeMakesTheNotchPanelMouseTransparent() throws {
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/FERBNotch")
@@ -138,7 +140,9 @@ final class NotchWindowYieldTests: XCTestCase {
                 if code.range(of: #"ignoresMouseEvents\s*="#, options: .regularExpression) != nil { writes.append(code) }
             }
         }
-        XCTAssertEqual(writes, ["tracerPanel.ignoresMouseEvents = true"])
+        XCTAssertEqual(writes.sorted(), ["ignoresMouseEvents = true", "ignoresMouseEvents = true",
+                                         "set { super.ignoresMouseEvents = true }",
+                                         "set { super.ignoresMouseEvents = true }"])
     }
 }
 

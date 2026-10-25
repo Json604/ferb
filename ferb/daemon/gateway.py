@@ -58,7 +58,7 @@ from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real
 from ferb.act.locks import ResourceLocks
 from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.clock import context
-from ferb.core import origin
+from ferb.core import call_facts, origin
 from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext, EscapeGrant, TerminalGrant, TerminalInput
@@ -1404,6 +1404,16 @@ class Gateway:
             ap.answer = None
             ap.state = "used" if delivered else _unfilled(ap.state)
 
+    async def _measured(self, cap: Capability, args: Any, ctx: ToolContext, span_id: str) -> Any:
+        """The tool's run, with the facts its code measured meanwhile (`call_facts`: which check decided each click's
+        point, D31 fix round 4) added to its span whatever the outcome, a refusal's or a failure's too."""
+        with call_facts.recording() as measured:
+            try:
+                return await cap.run(args, ctx)
+            finally:
+                if measured:
+                    self.spans.update_input(span_id, measured)
+
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
                        real: Path | None = None, claimed: Claimed | None = None,
@@ -1463,7 +1473,7 @@ class Gateway:
             self._finish_call(span, name, {'error': conversation_refusal}, True, error=conversation_refusal)
             return reply({'error': conversation_refusal}, True, {origin.FERB})
         try:
-            result = await cap.run(args, ctx)
+            result = await self._measured(cap, args, ctx, span.id)
         except asyncio.CancelledError:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])

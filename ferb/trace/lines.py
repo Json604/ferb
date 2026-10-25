@@ -25,6 +25,16 @@ def choices(options: Any) -> str:
     return ", ".join(opts[:-1]) + " or " + opts[-1]
 
 
+# D31 fix round 4: which check decided each click's point, as `MacComputerDriver._own_point` notes it on the call's span
+POINT_CHECKS = (("hit_test", "hit test"), ("window_list", "window list"), ("refused: cant_tell", "refused (can't tell)"))
+
+
+def point_checks(counts: dict[str, int]) -> str:
+    """The deciding checks of the clicks FERB checked, counted (`ferb trace`, `ferb stats`): how often the system hit
+    test answered, the window list decided, or neither could tell."""
+    return "Click point checks: " + ", ".join(f"{label} {counts.get(key, 0)}" for key, label in POINT_CHECKS)
+
+
 def duration(seconds: float | None) -> str:
     if seconds is None:
         return "?s"

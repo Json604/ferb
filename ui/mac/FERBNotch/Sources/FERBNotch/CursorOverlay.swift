@@ -20,9 +20,17 @@ final class CursorPanel: NSPanel {
         hidesOnDeactivate = false
         level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue - 1)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        // AppKit's own property, so the window server is told and a click passes through even on the drawn arrow;
+        // hidden from Accessibility, so the system's Accessibility hit test passes through too (D31 fix round 4, U1)
+        ignoresMouseEvents = true
+        setAccessibilityElement(false)
+        setAccessibilityHidden(true)
     }
-    /// Always click-through: a getter, so no assignment exists to flip it.
-    override var ignoresMouseEvents: Bool { get { true } set {} }
+    /// Always click-through: setting false still sets true, through AppKit's own setter.
+    override var ignoresMouseEvents: Bool {
+        get { super.ignoresMouseEvents }
+        set { super.ignoresMouseEvents = true }
+    }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
@@ -35,6 +43,9 @@ final class CursorController: ObservableObject {
     static let hueOffsets: [Double] = [0, 0.08, -0.08, 0.16, -0.16, 0.24, -0.24]
 
     @Published private(set) var pointers: [String: PointerState] = [:]
+    /// Told the overlay panels' window numbers whenever one is made or they close, so the daemon's click check skips
+    /// exactly them (ClickThroughReport, D31 fix round 4).
+    var onPanelsChange: (([Int]) -> Void)?
     var enabled: Bool {
         didSet { if !enabled { pointers.removeAll(); stopTimer(); closePanels() } }
     }
@@ -114,6 +125,11 @@ final class CursorController: ObservableObject {
     private func closePanels() {
         panels.values.forEach { $0.orderOut(nil) }
         panels.removeAll()
+        panelsChanged()
+    }
+
+    private func panelsChanged() {
+        onPanelsChange?(panels.values.map(\.windowNumber).sorted())
     }
 
     /// Global points are top-left origin (display bounds); the panel takes the screen's AppKit frame and its
@@ -127,8 +143,9 @@ final class CursorController: ObservableObject {
         let origin = CGDisplayBounds(display).origin
         panel.contentView = NSHostingView(rootView: CursorLayerView(controller: self, display: display, origin: origin))
         panel.setFrame(screen.frame, display: false)
-        panel.orderFrontRegardless()
         panels[display] = panel
+        panelsChanged()                                  // reported before it is first on screen
+        panel.orderFrontRegardless()
     }
 }
 
@@ -148,6 +165,8 @@ struct CursorLayerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
         .animation(controller.reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1.0),
                    value: controller.pointers.mapValues { $0.target.x + $0.target.y * 10_000 })
         .animation(.easeOut(duration: controller.reduceMotion ? 0.15 : 0.3), value: controller.pointers.count)

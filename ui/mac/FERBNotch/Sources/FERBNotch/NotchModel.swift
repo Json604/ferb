@@ -81,6 +81,8 @@ final class NotchModel: ObservableObject {
     @Published var voiceFinishing = false
     private var voiceDraft = ""
     let rpc: DaemonRPCTransport
+    /// FERB's click-through windows, told to the daemon (D31 fix round 4)
+    let clickThrough: ClickThroughReport
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
     @Published var pendingApprovals: [DaemonApproval] = [] {
@@ -113,6 +115,7 @@ final class NotchModel: ObservableObject {
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {
         self.microphone = microphone ?? Microphone()
         self.rpc = rpc
+        self.clickThrough = ClickThroughReport(rpc: rpc)
         self.preferences = preferences
         if let data = preferences.data(forKey: "FERBConversationArchive") {
             if let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {

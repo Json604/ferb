@@ -163,7 +163,7 @@ summary = "Task loop: plan step types do / map / reduce / wait / ask / converse"
 
 [D31]
 milestone = "F5"
-tests = ["tests/test_escape_hatch.py", "tests/test_terminal_input.py"]
+tests = ["tests/test_escape_hatch.py", "tests/test_terminal_input.py", "tests/test_own_apps.py"]
 summary = "Escape hatch for boundaries enforced by code only"
 
 [D32]

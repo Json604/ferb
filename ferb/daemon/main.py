@@ -532,6 +532,7 @@ class Daemon:
         self.server.unary['notifications.label'] = self._notification_label
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
+        self.server.unary['ui.click_through'] = self._ui_click_through
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
         self.server.streams['ps.attach'] = self._ps_attach
@@ -3049,6 +3050,19 @@ class Daemon:
             raise ValueError('Notification perception is unavailable')
         self.perception.policy.label(str(params['event_id']), str(params['expected']), str(params['owner_quote']))
         return self.perception.policy.measurements()
+
+    async def _ui_click_through(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ui.click_through {windows}` (D31 fix round 4, H1 and N1): the notch's click-through windows by number (FERB's
+        pointer overlay on each display, its glow), sent whenever they change and on each connection. Recorded only
+        from one of FERB's running apps, the caller known by its socket's pid; the Mac tools' point check then skips
+        exactly those windows of that app while it runs (`MacComputerDriver.report_click_through`)."""
+        windows = params.get("windows")
+        if not isinstance(windows, list) or not all(type(w) is int and w > 0 for w in windows):
+            raise Refused("windows must be a list of window numbers")
+        if self.mac is None or session.pid is None or not await asyncio.to_thread(
+                self.mac.report_click_through, session.pid, windows):
+            raise Refused("only FERB's own app reports its click-through windows")
+        return {"windows": len(windows)}
 
     async def _attention_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """`attention.ack {ids}`: a client showed these notices (they leave `chat.status`). They were told when posted.

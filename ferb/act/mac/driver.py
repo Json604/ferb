@@ -9,6 +9,7 @@ import hashlib
 import math
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, c
                                 normalize, pointer_steps, type_steps, valid_combo, wheel_steps)
 from ferb.act.evidence.mask import PageState, page_masks
 from ferb.act.mac.profile import Profiles
+from ferb.core import call_facts
 from ferb.core.errors import NoTarget, Refused, StaleRef, Withheld
 from ferb.core.types import ActionResult, ComputerAction, TerminalGrant, TerminalInput
 from ferb.policy import terminal as terminals
@@ -34,6 +36,8 @@ OWN_APP = "FERB never operates its own app; questions are answered by the owner"
 # Fix round 3, H1: fail closed when FERB can't tell whose window would take a click
 CANT_CONFIRM = ("FERB can't confirm what is under this point, so it didn't click: one of its own windows could be "
                 "there (rule 8, rule 9)")
+# Fix round 4, N6: the Run… label rule's walk of a window for a terminal; past either, FERB can't tell, and asks
+WINDOW_WALK_NODES, WINDOW_WALK_S = 2000, 0.2
 UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "net.whatsapp.WhatsApp": "message",
                   "com.tinyspeck.slackmacgap": "message", "com.hnc.Discord": "message",
                   "ru.keepcoder.Telegram": "message", "com.microsoft.teams2": "message"}
@@ -355,6 +359,10 @@ class MacComputerDriver:
         self.terminal_apps: Callable[[], Collection[str]] = lambda: ()
         self.clipboard: Callable[[], tuple[int, str | None, bool]] = read_general
         self._armed: dict[int, _Armed] = {}
+        # Fix round 4, H1 and N1: each FERB app's click-through windows (its pid: their window numbers), as it reported
+        # them (`ui.click_through`); the point check skips exactly those while that app runs
+        self._click_through: dict[int, frozenset[int]] = {}
+        self._click_lock = threading.Lock()
 
     def app(self, name_or_bundle: str) -> Any:
         a = self.apps.find(name_or_bundle)
@@ -387,26 +395,101 @@ class MacComputerDriver:
             return True
         return pid in self.apps.pids_of(FERB_APPS)
 
-    def _own_point(self, x: float, y: float, pid: int | None = None) -> str | None:
-        """Blocking: why a click at this screen point is refused, else None. The system's hit test first (it skips
-        click-through windows, like FERB's own cursor overlay): FERB's window there refuses it. When the hit test
-        can't tell, every window at the point on every level, front to back, down to the target process's window: a
-        FERB window above it (the notch's panel, or one FERB can't show is click-through: no window is skipped) or no
-        window list at all refuses it (fail closed, fix round 3, H1)."""
+    def _own_pids(self) -> set[int]:
+        """Blocking: FERB's processes now: every running app of `FERB_APPS` whatever its activation policy, and the
+        daemon (fix round 3, H1)."""
+        from ferb.sense.front_window import FERB_APPS
+        return set(self.apps.pids_of(FERB_APPS)) | {os.getpid()}
+
+    def report_click_through(self, pid: int, windows: Collection[int]) -> bool:
+        """Blocking (fix round 4, H1 and N1): the click-through windows a FERB app reports by number (the notch: FERB's
+        pointer overlay on each display and its glow), replacing its last report, so the point check skips exactly
+        those, only that app's own, while it runs. False, and nothing recorded, unless `pid` is one of FERB's running
+        apps."""
+        from ferb.sense.front_window import FERB_APPS
+        running = set(self.apps.pids_of(FERB_APPS))
+        if pid not in running:
+            return False
+        with self._click_lock:
+            self._click_through = {p: w for p, w in self._click_through.items() if p in running} | {
+                pid: frozenset(windows)}
+        return True
+
+    def click_through(self) -> dict[int, frozenset[int]]:
+        """Each FERB app's reported click-through windows (its pid: their numbers), as last told."""
+        with self._click_lock:
+            return dict(self._click_through)
+
+    def _skipped(self, own: Collection[int]) -> dict[int, frozenset[int]]:
+        """The reported click-through windows whose reporter still runs (`own`: FERB's processes now). A report from a
+        process that ended is dropped, so a later process at that pid starts unreported."""
+        with self._click_lock:
+            if any(p not in own for p in self._click_through):
+                self._click_through = {p: w for p, w in self._click_through.items() if p in own}
+            return dict(self._click_through)
+
+    @staticmethod
+    def _decided(check: str, why: str | None) -> str | None:
+        """A point check's answer, noted for the call's tool span with the check that decided it (round 4)."""
+        call_facts.note("point_checks", check)
+        return why
+
+    def _own_point(self, x: float, y: float, pid: int | None = None, window: int | None = None) -> str | None:
+        """Blocking: why a real click posted at this screen point, which goes to whatever window takes it there (the
+        HID tap: a foreground click, press or scroll), is refused, else None. Input posted to another app's process
+        (CGEventPostToPid) can't reach FERB's windows and isn't checked here (round 4, N1). `pid`: the target app;
+        `window`: the target window's number when the click is aimed at a screenshot's window.
+
+        The system's hit test first: another app's element there allows it, FERB's refuses it, unless every FERB window
+        at the point is one the notch reported click-through (U1: then the window list decides). When the hit test
+        can't tell, the on-screen window list at the point decides (`_list_decides`); no list at all, a NULL one
+        included, refuses: FERB can't tell (fail closed, rounds 3 and 4: H1, N2). Each check notes which check decided
+        ("hit_test", "window_list" or "refused: cant_tell") for the call's span."""
+        own = self._own_pids()
+        skipped = self._skipped(own)
         hit = getattr(self.ax, "hit", None)
         found = hit(x, y) if callable(hit) else None
-        if found is not None:
-            return OWN_APP if self._own_pid(int(found[0])) else None
+        if found is not None and int(found[0]) not in own:
+            return self._decided("hit_test", None)
         layered = getattr(self.shots, "windows_at", None)
         windows = layered(x, y) if callable(layered) else None
+        if found is not None:
+            mine = [w for w in windows or [] if w.pid in own]
+            if not mine or any(w.id not in skipped.get(w.pid, frozenset()) for w in mine):
+                return self._decided("hit_test", OWN_APP)
         if windows is None:
-            return CANT_CONFIRM
+            return self._decided("refused: cant_tell", CANT_CONFIRM)
+        return self._decided("window_list", self._list_decides(windows, pid, window, own, skipped))
+
+    @staticmethod
+    def _list_decides(windows: list[Any], pid: int | None, window: int | None, own: Collection[int],
+                      skipped: dict[int, frozenset[int]]) -> str | None:
+        """The on-screen window list at a point, front to back (round 4, N3): FERB's reported click-through windows and
+        windows with alpha 0 take no click and are skipped, and the first window that takes clicks decides. Any other
+        FERB window refuses: it may take the click (whatever its alpha: only the notch's report makes one of FERB's
+        windows click-through). The target's own window allows: the screenshot's window when the click is aimed at
+        one, else the target's normal (level 0) window. A window whose click handling FERB can't know (another app's,
+        or another of the target's) decides nothing, so a FERB window under it still refuses. No FERB window: None."""
         for w in windows:
-            if pid is not None and w.pid == pid:
-                return None
-            if self._own_pid(int(w.pid)):
+            if w.id in skipped.get(w.pid, frozenset()):
+                continue
+            if w.pid in own:
                 return CANT_CONFIRM
+            if w.alpha <= 0:
+                continue
+            if pid is not None and w.pid == pid and (w.id == window if window is not None else w.layer == 0):
+                return None
         return None
+
+    def _point_checked(self, steps: list[Step], x: float, y: float, pid: int, window: int | None = None) -> list[Step]:
+        """Real input at a screen point, each event checked again right before it goes out (`_own_point`)."""
+        def guarded(step: Step) -> Step:
+            def post() -> None:
+                if why := self._own_point(x, y, pid, window):
+                    raise Refused(why)
+                step.post()
+            return Step(step.what, post)
+        return [guarded(step) for step in steps]
 
     def _own_front(self) -> bool:
         """Blocking: one of FERB's own apps is in front (its window may hold the keyboard): no keyboard input."""
@@ -780,12 +863,12 @@ class MacComputerDriver:
             raise Refused("pointer point outside the screenshot")
         bx, by, bw, bh = shot.bounds
         start, finish = [(bx + px * bw / shot.size[0], by + py * bh / shot.size[1]) for px, py in points]
-        if why := await asyncio.to_thread(lambda: self._own_point(*start, a.pid) or self._own_point(*finish, a.pid)):
-            raise Refused(why)                           # a FERB window takes clicks there (rule 8, rule 9)
+        # Every event goes to this app's process (CGEventPostToPid, or its window through SkyLight), so FERB's own
+        # windows can't take it: no point check (round 4, N1). Input for a FERB process is refused (`app()` first).
+        if await asyncio.to_thread(self._own_pid, a.pid):
+            raise Refused(OWN_APP)
 
         def window_ok() -> None:
-            if why := self._own_point(*start, a.pid) or self._own_point(*finish, a.pid):
-                raise Refused(why)
             w = self.shots.window(shot.window)
             if w is None or w.pid != a.pid or not _same(w.bounds, shot.bounds):
                 raise StaleRef("the window moved or closed; take another screenshot")
@@ -860,10 +943,12 @@ class MacComputerDriver:
         if now is None or now.pid != a.pid or not _same(now.bounds, shot.bounds):
             raise StaleRef("the window moved, resized, changed owner or closed since the screenshot; take a new one")
         px, py = shot_to_screen(shot, x, y)
-        if why := await asyncio.to_thread(self._own_point, px, py, a.pid):
-            raise Refused(why)                           # a FERB window takes clicks there (rule 8, rule 9)
-        if mechanism == "foreground" and await asyncio.to_thread(self._own_front):
-            raise Refused(OWN_APP)                       # input that goes to what is in front (M1)
+        if mechanism == "foreground":                    # a real click: whatever window takes it there gets it
+            if why := await asyncio.to_thread(self._own_point, px, py, a.pid, shot.window):
+                raise Refused(why)                       # a FERB window may take it (rule 8, rule 9)
+            if await asyncio.to_thread(self._own_front):
+                raise Refused(OWN_APP)                   # input that goes to what is in front (M1)
+        # pointer and ax go to this app's own process or element: FERB's windows can't take them (round 4, N1)
 
         if mechanism == "pointer":
             return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder, terminal=terminal,
@@ -891,7 +976,7 @@ class MacComputerDriver:
 
         def guarded(step: Step) -> Step:
             def post() -> None:
-                if why := self._own_point(px, py, a.pid):
+                if why := self._own_point(px, py, a.pid, shot.window):
                     raise Refused(why)
                 w = self.shots.window(shot.window)
                 if w is None or not _same(w.bounds, shot.bounds) or not reaches_the_window():
@@ -914,14 +999,7 @@ class MacComputerDriver:
         x, y = self.ax.center(n)
         if why := await asyncio.to_thread(self._own_point, x, y, a.pid):
             raise Refused(why)
-
-        def guarded(step: Step) -> Step:
-            def post() -> None:
-                if why := self._own_point(x, y, a.pid):
-                    raise Refused(why)
-                step.post()
-            return Step(step.what, post)
-        return [guarded(step) for step in click_steps(x, y)]
+        return self._point_checked(click_steps(x, y), x, y, a.pid)
 
     # ---------- terminals (D31, rule 10) ----------
 
@@ -995,9 +1073,19 @@ class MacComputerDriver:
         return labelled if labelled and self._hosts_terminal(el) else None
 
     def _hosts_terminal(self, el: Any) -> bool:
-        """Blocking: the element's window holds an element that is a terminal by its structure (round 3, N6)."""
+        """Blocking: the element's window holds an element that is a terminal by its structure (round 3, N6). The walk
+        has a budget (round 4, N6: `WINDOW_WALK_NODES` elements and `WINDOW_WALK_S`); past it, or cut short by the
+        reader (None), FERB can't tell, which counts as hosting one: the press asks, it never goes unasked."""
         walk = getattr(self.ax, "window_facts", None)
-        return callable(walk) and any(terminals.structural(f) for f in walk(el))
+        if not callable(walk):
+            return False
+        deadline = time.monotonic() + WINDOW_WALK_S
+        for read, facts in enumerate(walk(el), 1):
+            if facts is None or read > WINDOW_WALK_NODES or time.monotonic() > deadline:
+                return True
+            if terminals.structural(facts):
+                return True
+        return False
 
     @staticmethod
     def _shortcut(parts: list[str]) -> bool:
@@ -1117,9 +1205,14 @@ class MacComputerDriver:
         terminal app (path, hash, text), else None."""
         a = self.app(app)
         why = self._script_why(a)
-        return None if why is None else TerminalInput(a.name, a.bundle_id, why, script=script,
-                                                      files=self._open_files(self._script_paths(script)),
-                                                      opens=a.bundle_id.casefold() in terminals.OPENS_FILES)
+        if why is None:
+            return None
+        paths = self._script_paths(script)
+        files = self._open_files(paths)
+        opened = {p for p, _, _ in files}
+        return TerminalInput(a.name, a.bundle_id, why, script=script, files=files,
+                             named=tuple(p for p in dict.fromkeys(paths) if p not in opened),   # said plainly (N7)
+                             opens=a.bundle_id.casefold() in terminals.OPENS_FILES)
 
     def script_refusal(self, a: Any, script: str, grant: TerminalGrant | None) -> str | None:
         """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it (and to the
@@ -1714,9 +1807,12 @@ class MacComputerDriver:
             if rect is None:
                 return ActionResult(False, "scroll pane has no current bounds", {"performed": False})
             x, y, w, h = rect
-            return await self._real(a, wheel_steps(x + w / 2, y + h / 2,
-                                    -10 if direction in {"down", "right"} else 10,
-                                    horizontal=direction in {"left", "right"}), holder, "scroll", task)
+            cx, cy = x + w / 2, y + h / 2                # a real wheel there: checked like a click (round 4, N4)
+            if why := await asyncio.to_thread(self._own_point, cx, cy, a.pid):
+                raise Refused(why)
+            wheel = wheel_steps(cx, cy, -10 if direction in {"down", "right"} else 10,
+                                horizontal=direction in {"left", "right"})
+            return await self._real(a, self._point_checked(wheel, cx, cy, a.pid), holder, "scroll", task)
         if mechanism not in {"ax", "pid"}:
             raise Refused("scroll supports ax scrollbar, pid text page keys or explicit foreground")
         content = await asyncio.to_thread(self.ax.scroll_content, area)

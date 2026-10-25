@@ -11,6 +11,7 @@ extension NotchModel {
                 guard let self else { return }
                 do {
                     try await self.attachDaemon()
+                    self.clickThrough.reconnected()     // the daemon may have restarted: its click-through windows
                     await self.refreshDaemonStatus()
                     for try await event in self.rpc.stream("logs.subscribe", params: [:]) {
                         guard !Task.isCancelled else { return }
@@ -27,6 +28,7 @@ extension NotchModel {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 await self?.refreshDaemonStatus()
+                self?.clickThrough.retry()              // a click-through report that didn't get through
             }
         }
     }

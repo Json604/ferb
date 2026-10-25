@@ -258,6 +258,7 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
              "billing": sorted({u["billing"] for u in usage_out if u.get("billing")})}
 
     tools_used: dict[str, dict[str, int]] = {}
+    point_checks: dict[str, int] = {}               # which check decided each checked click (D31 fix round 4)
     origins: set[str] = set()
     tool_origins: set[str] = set()                 # the task's own tool results, apart from inherited context
     for n in nodes:
@@ -270,6 +271,8 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             t = tools_used.setdefault(str((n.get("input") or {}).get("tool", "?")), {"calls": 0, "errors": 0})
             t["calls"] += 1
             t["errors"] += 1 if n.get("error") else 0
+            for check in (n.get("input") or {}).get("point_checks") or []:
+                point_checks[str(check)] = point_checks.get(str(check), 0) + 1
 
     conditions = ([{"text": v.get("condition", ""), "met": v.get("met"), "evidence": v.get("evidence", "")}
                    for v in checked] if checked
@@ -281,5 +284,6 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             "status": str(result.get("status") or row.get("status") or "unknown"), "verified": result.get("verified"),
             "started_at": started, "ended_at": ended, "seconds": _secs(started, ended), "answer": answer,
             "conditions": conditions, "steps": steps, "problems": problems, "tools": tools_used,
+            "point_checks": point_checks,
             "origins": sorted(origins), "tool_origins": sorted(tool_origins), "usage": usage,
             "desktop": _desktop(nodes, task_id, ended)}

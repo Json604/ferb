@@ -44,14 +44,20 @@ class Window:
     pid: int
     bounds: tuple[float, float, float, float]      # x, y, w, h in screen points (top-left origin)
     title: str
+    layer: int = 0                                 # its window level (kCGWindowLayer): 0 for an app's normal windows
+    alpha: float = 1.0                             # kCGWindowAlpha: 0 draws nothing and takes no click
 
 
-def _info_windows(everywhere: bool = False) -> list[dict[str, Any]]:
-    """On-screen windows front to back; `everywhere` also lists windows on other Spaces and full-screen apps."""
+def _info_windows(everywhere: bool = False, strict: bool = False) -> list[dict[str, Any]]:
+    """On-screen windows front to back; `everywhere` also lists windows on other Spaces and full-screen apps. Quartz
+    answering NULL reads as no windows, or with `strict` raises LookupError (round 4, N2: can't tell, never empty)."""
     import Quartz
     opts = (Quartz.kCGWindowListOptionAll if everywhere else Quartz.kCGWindowListOptionOnScreenOnly) \
         | Quartz.kCGWindowListExcludeDesktopElements
-    return list(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])
+    listed = Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID)
+    if listed is None and strict:
+        raise LookupError("the window server gave no window list")
+    return list(listed or [])
 
 
 def window_on_screen(pid: int, rect: tuple[float, float, float, float],
@@ -87,7 +93,8 @@ def _window(d: dict[str, Any]) -> Window:
     b = d.get("kCGWindowBounds") or {}
     return Window(int(d["kCGWindowNumber"]), int(d.get("kCGWindowOwnerPID", -1)),
                   (float(b.get("X", 0)), float(b.get("Y", 0)), float(b.get("Width", 0)), float(b.get("Height", 0))),
-                  str(d.get("kCGWindowName") or ""))
+                  str(d.get("kCGWindowName") or ""), int(d.get("kCGWindowLayer", 0)),
+                  float(d.get("kCGWindowAlpha", 1)))
 
 
 def front_window(pid: int, like: tuple[float, float, float, float] | None = None) -> Window | None:
@@ -121,11 +128,11 @@ def window(window_id: int) -> Window | None:
 
 
 def windows_at(x: float, y: float) -> list[Window] | None:
-    """Every visible window at this point, all levels, front to back (fix round 3, H1: the notch's panel sits above
-    layer 0); None when the window list can't be read."""
+    """Every on-screen window at this point, all levels, front to back, with its level and alpha (fix round 3, H1: the
+    notch's panel sits above layer 0); None when the window list can't be read, NULL included (round 4, N2)."""
     try:
         found = []
-        for d in _info_windows():                    # every level; nothing skipped, not even a transparent window
+        for d in _info_windows(strict=True):         # every level; the caller decides what takes clicks
             w = _window(d)
             bx, by, bw, bh = w.bounds
             if bx <= x < bx + bw and by <= y < by + bh:
