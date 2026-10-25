@@ -3515,3 +3515,138 @@ each failure, no per-part review sheet, no screenshots. FERB writes a file and o
   saved. The address only ever comes from the daemon.
 - **Debugging.** `sqlite3 ~/.ferb/ferb.db "select at, data_json from journal where kind = 'report.built'"`; the file
   itself is the record. Tests: `tests/test_failure_report.py`, `FailureReportTests.swift`.
+
+### 16.15 Careful edits (L39)
+
+Owner 2026-10-25: tasks that edit the owner's documents "demand high agency and there should be a good level of
+responsibility in doing them", and slower long tasks are fine. The owner set the goal; the mechanisms are design
+rulings. Live case: task `39e35d57c1d74d8fa571a5e79a955bda` (spans `780bd068`, `5431cacd`, `e90e77e0`, `657909a8`).
+Review 1 (fix round 1) tightened the record's protection (C1), what is shown (I1) and the dispatcher's options (I4);
+the re-review (fix round 2) closed a clone race (R1) and matched history files by identity (I1); fix round 3 widened
+the history files (I1), walked new folders only through checked handles (N1), made the fact limits per check (N7), kept
+a renamed file visible (A1), paired copies under other names (A2) and made every read non-blocking; fix round 4
+kept an edited file's diff when the edit keeps a backup (A1), counted history files reached through a link (I1) and
+listed and read a new file's sibling only through checked fds (P1).
+- **The change record** (`ferb/act/fs/changes.py`, `Changes`, `~/.ferb/changes/<tree>/<task>/`). Before a call whose
+  kind can change files (`gateway.CHANGE_KINDS`: write_file, trash, delete_permanent, run_shell, applescript),
+  `Gateway._watch_changes` names its paths exactly: a file tool's declared written or removed files (`file_paths`),
+  and for a shell command or an AppleScript every path its text writes out (`changes.named`: quoted or bare, absolute,
+  ~ or relative to the folder it runs in, after the text's literal `NAME=value` assignments and `cd`; a glob names its
+  folder). `Changes.before` opens each existing named file with `O_NOFOLLOW|O_NONBLOCK`, `fstat`s it (plain files
+  only), checks the path it really opened (`F_GETPATH`), and clones from that fd (`fclonefileat`; APFS only, its lock
+  flag cleared; where the volume can't clone, the change is reported without a diff), taking its facts from that
+  `fstat`, so a link swapped in between can't redirect the clone (R1: the reviewer's 16 sandboxed racers won in 0.2 s
+  before, 0 of 879 tries after); it lists the file's folder; a named folder is listed (its files are
+  not cloned); a missing named path is remembered and its nearest existing folder listed, so files made under new
+  folders show. A named file FERB can't open (a write-only file) is recorded from `lstat` without a copy, so its check
+  names it as the call's ("FERB can't read it"; B2). One lock per task; `index.json` is written only when the record
+  changed.
+- **Protection (C1).** `Changes.closed` is `Protection.read_denied`, the shell sandbox's own read denial (FERB's state,
+  the never-read stores such as `~/.ssh`, browser profiles, Mail), whatever `fs_reads_never_read` lets FERB's file
+  tools read. A path closed as written or as it resolves is never cloned, listed or read (the call's `change_record`
+  counts it as `protected`). Every current path is `lstat`ed: a link, a folder or a special file in a recorded file's
+  place is a fact ("replaced by a link to …", "now a folder") with no content; current files are opened with
+  `O_NOFOLLOW` and read only when the file really opened (`F_GETPATH`) isn't closed; PDFKit gets FERB's bytes, never
+  a path. Every read opens non-blocking and checks for a plain file before reading, so a FIFO or device in a named
+  file's place is a fact and never holds the check. Folders are listed through an `O_NOFOLLOW|O_DIRECTORY` fd checked
+  the same way (`os.scandir(fd)`), so a folder swapped for a link becomes a fact and its target's names are never
+  listed; a folder made during the step is walked only through fds: `changes` keeps each listed folder's checked fd
+  open for the check, and the new folder and each folder under it are opened relative to their parent's fd (`dir_fd`)
+  and their `F_GETPATH` checked before they are listed, never re-opened by path (N1). FERB's copy is read only
+  while the path it was taken from, as written, isn't closed. The daemon runs unsandboxed, so the record must never become a way around S2 or rule 10.
+- **What the checker gets (I1).** `Changes.changes(task)` compares each recorded file with its clone (content) or, with
+  no clone, size, time and inode. Content (a diff, or a new file's text) only for files a call named exactly; anything
+  else that changed in a listed folder, and any history file, even when named, is a fact: name, size, time, "changed
+  during this step". History files (rule 14, as for typed text) are every file under `~/.zsh_sessions/` (and older
+  bash's `~/.bash_sessions/`), `~/.local/share/fish/fish_history`, and the home folder's dotfiles named `*_history` or
+  `*.history`, `.histfile` and `.lesshst` (zsh, bash, ksh, tcsh, Python, Node, psql, mysql, sqlite, less); their
+  device and inode are enumerated by each `before` and `changes` call, so any case, the Data-volume spelling or a hard
+  link anywhere counts; one of them that is a symlink adds the file it leads to (metadata only, `os.stat` following the
+  link, nothing read), so with `~/.zsh_history -> ~/dotfiles/zsh_history` the target is a history file too (I1); a
+  missing path matches by its canonical folder and a case-insensitive name. A named file now
+  a link, folder, special file, history file or a file FERB can't read is a named fact in the named list ("named by
+  the call; a fact, nothing to read"), needing no look (N2, B2). A named file renamed or moved by the step (the same
+  device and inode under a new name in a listed folder or a folder made there; letter case only included) is
+  "renamed from <old>": a named record diffed against the original's clone, needing a look when its content changed,
+  a fact when it didn't (A1). A named path that holds another file at the check keeps its own record, modified and
+  diffed against its clone (needing a look), wherever the old file went: an in-place edit that keeps a backup
+  (`sed -i.bak`, `perl -pi.bak`, `mv notes.txt notes.txt.orig` and a new `notes.txt`) shows the edit, and the old
+  file's new name is a named fact, "<backup> holds the original of <path>" (`Change.original`), or a renamed record
+  with its own diff when its bytes changed too. The inode match never hides an entry, it only skips a listed file that
+  is a recorded file under another spelling. Facts for files no call named share one page per check: `FOLDER_FACTS` (50) names in
+  all, the rest counted per listed folder by name (a name that appeared or went, which the shell's own listing shows)
+  or, for a file changed in place, after the closed check; FERB looks at no more than `WALK_MAX` (5,000) entries in
+  folders made during the step (each folder counts), or `WALK_DEPTH` (32) folders deep, and a fact on every listed
+  folder whose new entries weren't walked says FERB stopped looking there (N7: 1,000 new
+  folders of 30 files, or 30,000 files in one folder, in well under a second). A named file the walk didn't reach is
+  opened on its own and still carries content. A new named file is compared with the most similar original (I5, N8,
+  A2): at most `PAIR_READS` (3) candidates, chosen before any text is read and within `PAIR_SIZE` of its size: first
+  the step's own clones of the same kind (text, DOCX or PDF) whatever their names (alike names first, then the closest
+  in size), then same-type files beside it with alike names; at least `SIMILAR` 0.5 alike in text. The folder beside
+  it is listed through a checked `O_NOFOLLOW|O_DIRECTORY` fd, never by path, and a sibling is read only through
+  `Changes.text_of` (no link followed, `F_GETPATH` checked), at pairing and again when the record is written; a
+  sibling that can't be read so then is dropped and the new file's whole text is shown (P1). `changes.describe`
+  writes the record (unified diff; DOCX paragraphs, table cells, headers, footers and core
+  properties; a PDF's text layer with annotations added and removed, "text layer unchanged" when only annotations
+  changed). `Supervisor._changed_files` stores each named file's record, redacted, as a `context.source` span on the
+  task (`task.evidence span_id`): the whole diff, paged by `task.evidence` offsets (N6); for a new text file its first
+  `PREVIEW_CHARS` and where it is (`fs.read` reads the rest, M3); for a new DOCX or PDF its whole extracted text, which
+  `fs.read` can't produce;
+  and gives the checker an always-shown list (`CHANGED_FILES`, paths JSON-quoted; M4), one data block per diff above
+  every other optional block, and the facts in one data block (`OTHER_CHANGES`: they may be the owner's or another
+  task's and need no read; verifier.md says such a change is not by itself the worker's).
+- **A pass needs a look** (`Supervisor._unread`, `REFUSED_PASS`, `NO_LOOK`). After a verdict with any `met=true` on a step
+  with named changes, code lists the files the check's own calls didn't read: no successful content read of the file
+  (a tool marked `reads_content`, e.g. `fs.read`; listings and metadata calls don't count; M8) and no `task.evidence`
+  read that returned its record (its result names `span_id`, or each of `records`; `kind=evidence` returns captures,
+  not records, and `span_id` with `span_ids` is refused; N4, M9). If any: a `verify.refused` span, one
+  re-run with the reason (`_check`, same effort), then every `met=true` becomes `met=null` with `NO_LOOK`.
+- **A check that never looks (I4, no cap).** When that was the attempt's only gap, `tree.unlooked` holds the files and
+  `_dispatch` gives the orchestrator FERB's fact (`CHECK_DIDNT_LOOK`: the changes are recorded, re-running the worker
+  can't fix this). The dispatcher's `recheck` action re-runs only the check on the same done report and change records
+  (`verify.recheck` span, no worker run, the same refusal path); dispatch.md says to recheck, finish unconfirmed naming
+  the files, or ask. `retry` stays the dispatcher's choice (rule 6). A recheck when no check judged the attempt gets
+  FERB's `NOTHING_TO_RECHECK` fact and the dispatcher chooses again; a second one stops the task with that reason; a
+  recheck never becomes a worker retry (N5).
+- **Effort.** Such a check asks for effort "high" (`run_worker(..., effort=)`, `make_runtime(..., effort=)`, D32): Codex's
+  turn `effort`, the direct APIs' provider effort, the Claude Agent SDK's `effort`; the worker span records it. Other
+  checks and every supervisor run are unchanged.
+- **Lifetime.** Records go when the tree ends (`forget`); at FERB's start `sweep(keep=)` removes every record except
+  those of trees that will resume (`PlanStore.pending()`), so a resumed check still sees the changes made before the
+  restart (M1); removals that fail are journaled (`changes.cleanup_failed`; M2).
+- **Prompts.** `worker.md`: the one intended occurrence, an honest own check, only what was asked (other issues listed),
+  built-in tools first, PDF text removed never covered. `verifier.md`: read each diff; an unrequested change or a
+  mismatch in the worker's own check output is `met=false` with the line cited; a pass needs a look; facts-only
+  changes may be the owner's.
+- **Apps FERB launches** (`ferb/act/mac/launched.py`). `mac.open` records an app it launched (not running before),
+  stamped with FERB's clock, for the call's task tree (`driver.launched`, set by the daemon), and reports `launched`;
+  launches stay `open -g -j`. The apps are released with the tree's own task (`<tree>.worker`, which `run_tree`
+  releases on every exit before the answer), not at each plan step's end (M7): an app that quit or was relaunched
+  (another pid) is left alone; one the owner used (frontmost now, or `brought_forward`: a `disturbance.change` record
+  of the tree showing it coming forward with no on-screen FERB action in flight or just ended) or one that may hold
+  unsaved changes (`unsaved`: a window with AXEdited, a document window whose edited state Accessibility can't read,
+  or no Accessibility) stays running with `left_running`; any other is asked to quit (`NSRunningApplication
+  .terminate`). `Supervisor._apps_left_running` adds one line per app left running to the answer. The shell can't
+  launch apps (its profile denies lsopen and LaunchServices), so `open -a` in a command has nothing to record.
+- **Trash keeps a copy** (S1). `Gateway._keep_copy` clones a file before `fs.trash` moves it (recovery record, reason
+  `recovery.TRASH_COPY`, "Trash copy" in `ferb restore`); no copy, no move; a trash that moved nothing drops it; the
+  result carries `backup` beside the Trash record's `recoverable`. A folder keeps the Trash record only.
+- **Certificate checks** (rule 8, owner 2026-10-25). `ferb/policy/tls.py` classifies a command's words and environment:
+  wrappers by base name with their valued options skipped (nice -n, sudo -u, env -u/-S, time -o, xargs -n, timeout
+  and its duration, arch, stdbuf, watch, exec -a, caffeinate, chronic, unbuffer), shell `-c` code, `eval`, `env -S`
+  and `osascript -e` scripts read as commands, backquotes split commands, `pip config set *.trusted-host|*.cert`
+  and `npm|pnpm set strict-ssl false` included; `applescript_checks_off` reads an AppleScript's `do shell script`.
+  `confirm.decide` adds `floor:tls_off` for run_shell (shell.run, shell.start, shell.send) and applescript, keyed by the
+  exact text, with the code-written question `confirm.TLS_QUESTION`; a No refuses and carries across retries. The
+  covered switches and the residual are in `docs/0.27_SECURITY_TESTS.md`.
+- **Debugging.** `ferb trace TASK --full`: a write call's `change_record` (copied, folders, protected); the check's
+  `context.source` "Change record N" spans; `verify.refused` and `verify.recheck` spans; the checker's worker span
+  `effort`; `task.cleanup` records with `resource: app` (`closed`, `left_running`); `recovery` rows with reason
+  "trash copy"; an `owner.ask` with rule `floor:tls_off`; journal `changes.cleanup_failed`.
+- **Residuals.** A write to a path no call names exactly (a script file's own paths, a computed name) is a fact at most
+  (when in a listed folder) or unseen; a history file outside the listed locations (a custom `HISTFILE`) is shown like
+  any named file; a count of files beyond the page can include a closed file whose name appeared or went (names the
+  shell's own folder listing shows); a `mv` over another named file shows as that file changed and the source removed; a new file in a listed folder that the step didn't name shows as a fact, never
+  content, even when the step made it; the owner bringing an app forward during a FERB on-screen call reads as FERB's;
+  an app launched inside another app's AppleScript isn't recorded; a follow-up run on the same task keeps the earlier
+  run's copies.

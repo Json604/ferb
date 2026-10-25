@@ -1132,6 +1132,34 @@ After the owner's update (2026-10-24):
   with its task id (a turn that failed after its plan line had been refused, its task still running), and an
   interruption the notch inferred itself offers no button. The reply of a turn that failed after its plan line is
   kept in the conversation record, so the report's reason is what you were told.
+- Careful edits (L39). Live 2026-10-25 (task 39e35d57, three assignments): a shell `perl` replace of every "ID" also
+  turned Table 10's column header into your student id; the worker's own check printed `ID=2` / `ID=1` and it reported
+  "matching identity values"; PDF placeholders were covered by white boxes; the step's checker made no tool call and
+  passed it (9 of 10 checkers did); Pages stayed open after the task and Word came forward over your Brave; trashed
+  files had no backup copy; PyMuPDF was installed with certificate checks off, unasked. Now:
+  - before a call that can change files (file tools, shell, AppleScript), FERB keeps an instant copy of each existing
+    file the call names; the step's checker reads an old-vs-new diff of each named file that changed (text, a DOCX's
+    text and properties, a PDF's text layer with annotations counted, so a box over text shows as "annotations added,
+    text layer unchanged"), as data. Other changes in the same folders are listed as facts only (name, size, time),
+    since they may be yours, at most 50 names per check with the rest counted. A file the step renamed shows as renamed,
+    with its diff; an edit that keeps a backup (`sed -i.bak`, `perl -pi.bak`) still shows the edited file's diff and
+    names the backup as holding the original; a corrected copy saved under another name is compared with its original; a new DOCX or PDF the step
+    made can be read to its last line. Your shell and REPL histories (zsh, bash, fish, ksh, tcsh, Python, Node, psql,
+    mysql, sqlite, less) are never shown, however their names are spelled or linked. Nothing FERB's shell may not read
+    (FERB's own files, `~/.ssh`, browser profiles, Mail) is copied, listed or shown, even through a link or folder
+    swapped in at the last moment, and a special file in a named file's place can't stall the check;
+  - a pass on such a step needs a read of each named changed file or its change record: without one the check runs
+    once more with the reason, then counts as unconfirmed, never a pass; the orchestrator can then re-run only the
+    check instead of the work; such a checker runs at high reasoning effort;
+  - the worker edits the one intended occurrence, explains or fixes a mismatch its own check shows, changes only what
+    you asked (other issues are listed for you), prefers the Mac's own tools, and removes PDF text instead of drawing
+    over it;
+  - an app FERB launched for a task is quit when the task ends (not after each step), unless you used it or it may hold
+    unsaved changes: then it stays open and the answer names it;
+  - a move to the Trash keeps a copy too (`ferb restore` lists it as "Trash copy");
+  - a shell command (or an AppleScript's `do shell script`) that turns off certificate checks asks you first, showing
+    the exact command, including through wrappers like `nice`, `sudo`, `timeout`, `sh -c`, `env` and `osascript -e`
+    (rule 8).
 
 Licensed under Apache-2.0.
 
