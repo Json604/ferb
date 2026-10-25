@@ -11,8 +11,9 @@ item cites only the owner's own trail (E); nothing about the owner or their pref
 (F) or on pasted third-party text (P); a third-party item must cite pasted text. An inferred item may quote the
 owner's words from one of its C handles: when chat capture's check passes on that message's typed lines, the owner's
 sentence is saved as theirs (`owner_said`); every other new inferred item is asked about at once, Keep / Edit / Drop
-(`ask_keep`, L36). A model failure leaves the summary in place and is retried on later hourly runs or an explicit
-retry."""
+(`ask_keep`, L36). An item with "retire" names a current item (kind, subject, key) the owner's words say no longer
+holds: it is retired on a quote that passes the same check, else the owner is asked, Retire / Keep (`ask_retire`, L36
+§6). A model failure leaves the summary in place and is retried on later hourly runs or an explicit retry."""
 
 import hashlib
 import json
@@ -24,7 +25,7 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory import summary
 from ferb.memory.calls import learning_call
-from ferb.memory.items import KINDS, Memory, MemoryRefused, capture
+from ferb.memory.items import KINDS, Memory, MemoryRefused, capture, slug
 from ferb.store.db import Database
 
 # L36 §2: the owner's own words an inferred item rests on. Ruling: the model cites one of the item's C handles (it sees
@@ -39,13 +40,15 @@ DISTILL_SCHEMA: dict[str, Any] = {
         "narrative": {"type": "string"},
         "items": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["kind", "subject", "key", "content", "origin", "confidence", "handles", "quote"],
+            "required": ["kind", "subject", "key", "content", "origin", "confidence", "handles", "quote", "retire"],
             "properties": {
                 "kind": {"type": "string", "enum": list(KINDS)},
                 "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
                 "origin": {"type": "string", "enum": ["observed", "inferred", "third_party"]},
                 "confidence": {"type": "number"},
-                "handles": {"type": "array", "items": {"type": "string"}}, "quote": QUOTE_SCHEMA}}}}}
+                "handles": {"type": "array", "items": {"type": "string"}}, "quote": QUOTE_SCHEMA,
+                # L36 §6: this item says a remembered one (same kind, subject, key) no longer holds
+                "retire": {"type": "boolean"}}}}}}
 
 
 def check(item: dict[str, Any], ev: summary.DayEvidence) -> list[tuple[str, str]]:
@@ -92,6 +95,8 @@ class Distiller:
         self.jev: Any = None                          # memory.worth_keeping: may only drop
         # L36 §2 ("Ask right away"): each new inferred proposal becomes the owner's Keep / Edit / Drop question
         self.ask_keep: Callable[[Any, str], None] = lambda item, reason: None
+        # L36 §6: a current item FERB thinks is out of date, without the owner's words for it: Retire / Keep
+        self.ask_retire: Callable[[Any], None] = lambda item: None
 
     def pending_days(self, today: date | None = None) -> list[str]:
         """Past days with anything to remember that aren't done yet (oldest first). A day whose distillation failed
@@ -139,6 +144,8 @@ class Distiller:
         self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", "")),
                                                     "made_by": str(out.get("made_by", ""))})
         proposed, refused = 0, []
+        retired: list[str] = []         # L36 §6: items retired on the owner's words, and those asked about instead
+        unconfirmed: list[str] = []
         items = out.get("items", [])
         drop: set[int] = set()
         if self.jev is not None and items:
@@ -158,6 +165,18 @@ class Distiller:
                 refused.append("a second check found it not worth keeping")
                 continue
             try:
+                if item.get("retire"):                 # L36 §6: on the owner's own words, else the owner is asked
+                    check(item, ev)
+                    target = self._remembered(item)
+                    if target is None:
+                        raise MemoryRefused("it retires nothing FERB remembers")
+                    if owner_said(item, ev) is not None:
+                        self.memory.retire(target.id, f"the owner's words on {day}")
+                        retired.append(target.id)
+                    else:
+                        self.ask_retire(target)
+                        unconfirmed.append(target.id)
+                    continue
                 srcs = check(item, ev)
                 origin_, content = item["origin"], item["content"]
                 confidence = float(item.get("confidence", 0.6))
@@ -171,8 +190,17 @@ class Distiller:
                     self.ask_keep(m, KEEP_GUESS.format(text=" ".join(m.content.split()), day=day))
             except (MemoryRefused, KeyError, ValueError) as e:
                 refused.append(str(e))
-        self._run(day, "distilled", json.dumps({"proposed": proposed, "refused": refused}))
-        return {"day": day, "status": "distilled", "proposed": proposed, "refused": refused}
+        done: dict[str, Any] = {"proposed": proposed, "refused": refused, "retired": retired,
+                                "retire_unconfirmed": unconfirmed}
+        self._run(day, "distilled", json.dumps(done))
+        return {"day": day, "status": "distilled", **done}
+
+    def _remembered(self, item: dict[str, Any]) -> Any:
+        """The current item a retire names, by kind, subject and key as `Memory.propose` stores them, or None."""
+        subject = self.memory.redact(str(item.get("subject", "")).strip()) or "owner"
+        key = slug(self.memory.redact(str(item.get("key", ""))))
+        return next((i for i in self.memory.items("active", subject=subject)
+                     if i.kind == item.get("kind") and i.key == key), None)
 
     async def catch_up(self) -> list[dict[str, Any]]:
         out = [await self.run_day(d) for d in self.pending_days()]

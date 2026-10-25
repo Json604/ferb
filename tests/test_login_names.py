@@ -25,7 +25,7 @@ EVIL = "https://evil.example"
 ATLAS = "https://atlasauth.b2clogin.com"          # the visa site's single sign-on form (I14)
 
 
-def entry(content: str = "Asha Rao", origin: str = VISA, quote: str = "the username is Asha Rao") -> Remember:
+def entry(content: str = "Asha Rao", origin: str | None = VISA, quote: str = "the username is Asha Rao") -> Remember:
     return Remember(kind="fact", subject="owner", key="usvisascheduling-username", content=content, quote=quote,
                     login_origin=origin)
 
@@ -124,15 +124,82 @@ def test_forgetting_the_memory_clears_the_username(daemon: Any) -> None:
 
 
 def test_forgetting_another_version_of_the_fact_clears_the_username(daemon: Any) -> None:
-    """Review m-4: a forget takes every version of the key; the username from an earlier version goes with it."""
+    """Review m-4: a forget takes every version of the key; the username from another version goes with it."""
     remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+    [first] = run(daemon, lambda: daemon.daemon.memory.items("active"))
     remember(daemon, [entry(content="Asha R Rao", quote="my username is Asha R Rao")], "my username is Asha R Rao",
-             frozenset())                                                 # a new version, no site named: not a login
+             frozenset())                         # a new version: the record takes its spelling (review m-8)
+    daemon.run(daemon.daemon._settle_forgets())
     [later] = run(daemon, lambda: daemon.daemon.memory.items("active"))
-    assert later.content == "my username is Asha R Rao" and username(daemon) == "Asha Rao"
-    run(daemon, lambda: daemon.daemon._forget_memory(later.id))
+    assert later.content == "my username is Asha R Rao" and username(daemon) == "Asha R Rao"
+    run(daemon, lambda: daemon.daemon._forget_memory(first.id))
     daemon.run(daemon.daemon._settle_forgets())
     assert username(daemon) is None
+
+
+def _sources(d: Any) -> dict[str, Any]:
+    return {place: record["username_source"]
+            for place, record in run(d, lambda: OwnerSecrets(d.daemon.home).records()).items()}
+
+
+def test_a_new_version_of_the_username_replaces_its_spelling_on_every_record(daemon: Any) -> None:
+    """Task 7 review m-8: a later statement of the same fact (the planner reuses its key) supersedes the earlier one,
+    and every record whose username came from an earlier version takes the new spelling from the new version, the
+    site's other record ("www." aside) included; no record keeps a spelling the owner replaced."""
+    remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+    lines = remember(daemon, [entry(content="asha.rao", origin=SITE, quote="the username is asha.rao now")],
+                     "the username is asha.rao now", frozenset({"usvisascheduling.com"}))
+    daemon.run(daemon.daemon._settle_forgets())
+    [later] = run(daemon, lambda: daemon.daemon.memory.items("active"))
+    assert lines[0]["line"].endswith("Saved as your login name for usvisascheduling.com.")
+    assert (username(daemon, VISA), username(daemon, SITE)) == ("asha.rao", "asha.rao")
+    assert _sources(daemon) == {VISA: "memory:" + later.id, SITE: "memory:" + later.id}
+    [updated] = run(daemon, lambda: daemon.daemon._journal().of_kind("memory.login_updated"))
+    assert updated.data == {"item": later.id, "places": [VISA]}
+
+
+def test_a_new_version_for_a_site_not_named_now_still_updates_the_record_it_replaces(daemon: Any) -> None:
+    """The record's site was one the owner typed when its username was saved; the new spelling is the owner's own words
+    for the same fact, so it follows even when this message names no site (review m-8)."""
+    remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+    lines = remember(daemon, [entry(content="Asha R Rao", quote="my username is Asha R Rao")],
+                     "my username is Asha R Rao", frozenset())
+    assert lines[0]["line"] == ("Remembered: my username is Asha R Rao\n"
+                                "Updated your login name for www.usvisascheduling.com.")
+    assert username(daemon) == "Asha R Rao"
+    assert refusals(daemon) == []                                         # the entry's own place was written
+
+
+@pytest.mark.parametrize("change", ["no-login-entry", "hidden", "edit"])
+def test_a_new_version_that_names_no_usable_username_clears_it(daemon: Any, change: str) -> None:
+    """Review m-8: a new version of the fact whose username FERB can't take from the owner's words (the planner gave no
+    login entry, redaction hid it, or an edit in the dashboard or `ferb memory edit`, whose words name no username)
+    clears the record's username instead of leaving the replaced spelling."""
+    remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+    [first] = run(daemon, lambda: daemon.daemon.memory.items("active"))
+    if change == "no-login-entry":
+        remember(daemon, [entry(content="I changed the visa username", origin=None,
+                                quote="I changed the visa username")], "I changed the visa username", frozenset())
+    elif change == "hidden":
+        remember(daemon, [entry(content="[redacted]", quote="the username is now")], "the username is now [redacted]",
+                 frozenset({"usvisascheduling.com"}))
+    else:
+        daemon.run(daemon.daemon._memory_edit(None, {"id": first.id, "content": "the username is asha.rao"}))
+    daemon.run(daemon.daemon._settle_forgets())
+    assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
+    assert username(daemon) is None
+    [cleared] = run(daemon, lambda: daemon.daemon._journal().of_kind("memory.login_cleared"))
+    assert cleared.data["places"] == [VISA]
+
+
+def test_retiring_the_memory_clears_the_username(daemon: Any) -> None:
+    """L36 §6 (Task 7 ledger): a retired item no longer holds; its username goes with it."""
+    remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
+    [item] = run(daemon, lambda: daemon.daemon.memory.items("active"))
+    run(daemon, lambda: daemon.daemon.memory.retire(item.id, "the owner said so"))
+    daemon.run(daemon.daemon._settle_forgets())
+    assert username(daemon) is None
+    assert run(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"   # kept as history
 
 
 def test_a_forget_that_cannot_clear_the_username_says_so(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:

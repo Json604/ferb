@@ -44,7 +44,7 @@ def distill_item(handle: str, content: str, quote: str | None = None, **fields: 
     """One distill answer item about the owner's dentist, citing `handle`, with a quote of that message or none."""
     return {"kind": "person", "subject": "owner", "key": "dentist", "content": content, "origin": "inferred",
             "confidence": 0.6, "handles": [handle],
-            "quote": None if quote is None else {"handle": handle, "text": quote}} | fields
+            "quote": None if quote is None else {"handle": handle, "text": quote}, "retire": False} | fields
 
 
 def distill_day(d: Any, *items: dict[str, Any]) -> dict[str, Any]:

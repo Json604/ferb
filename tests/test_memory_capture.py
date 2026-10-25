@@ -51,10 +51,10 @@ def test_the_distiller_is_told_how_to_quote_the_owners_words() -> None:
 
 def test_the_planner_routes_a_guess_questions_own_options() -> None:
     """The planner was told FERB's checks take only a plain Yes or No, so a typed "Keep" would never reach a guess's
-    Keep / Edit / Drop question in chat."""
+    Keep / Edit / Drop question in chat (nor a typed "Retire" an out-of-date item's Retire / Keep, L36 §6)."""
     words = " ".join(PLANNER_PROMPT.read_text().split())
     assert ('A question with ferb_check true is FERB\'s own check: route only a plain answer meant for it, exactly one '
-            'of its options ("Yes" or "No"; "Keep", "Edit" or "Drop").') in words
+            'of its options ("Yes" or "No"; "Keep", "Edit" or "Drop"; "Retire" or "Keep").') in words
 
 
 def test_a_quote_of_the_owners_typed_words_saves_their_own_words(daemon: Any) -> None:

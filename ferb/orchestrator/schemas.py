@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
 
-from ferb.clock.when import WHEN_SCHEMA, When
+from ferb.clock.when import DAY_WORDS, WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
 from ferb.orchestrator.plans import Plan, SendScope
 from ferb.orchestrator.probes import PROBE_SCHEMA, Probe
@@ -79,12 +79,17 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "procedure_slots": {"type": "array", "items": PROCEDURE_SLOT_SCHEMA},
 })
 
+# L36 §6: a remembered item's last day in the owner's own date words; code works out the date
+UNTIL_SCHEMA = _obj({"quote": {"type": "string"},
+                     "day": {"anyOf": [{"type": "string", "enum": list(DAY_WORDS)}, {"type": "null"}]},
+                     "date": _nullable("string"), "in_days": _nullable("integer")})
 REMEMBER_SCHEMA = _obj({
     "kind": {"type": "string", "enum": ["fact", "preference", "person", "project", "env"]},
     "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
     "quote": {"type": "string"},
     # L36 §5: this entry's content is the owner's username for this https:// site; null otherwise
     "login_origin": _nullable("string"),
+    "until": {"anyOf": [{"type": "null"}, UNTIL_SCHEMA]},
 })
 TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote": {"type": "string"}})
 SCHEDULE_SCHEMA = _obj({
@@ -231,6 +236,14 @@ class TaskSpec(BaseModel):
     procedure_slots: list[ProcedureSlot] = []
 
 
+class Until(BaseModel):
+    """A remembered item's last day in the owner's own date words (L36 §6); code works out the date."""
+    quote: str
+    day: str | None = None
+    date: str | None = None
+    in_days: int | None = None
+
+
 class Remember(BaseModel):
     """Something the owner stated about themselves or asked FERB to remember, with the exact words it rests on."""
     kind: Literal["fact", "preference", "person", "project", "env"]
@@ -239,6 +252,7 @@ class Remember(BaseModel):
     content: str
     quote: str
     login_origin: str | None = None   # L36 §5: this entry's content is the username for this https:// site
+    until: Until | None = None        # L36 §6: the item's last day, in the owner's words
 
 
 class ForgetRequest(BaseModel):

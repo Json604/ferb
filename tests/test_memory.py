@@ -368,7 +368,7 @@ def test_distillation_proposals_are_checked_in_code(daemon: RunningDaemon) -> No
 
     def item(origin: str, handles: list[str], kind: str = "preference", subject: str = "owner", key: str = "k") -> dict[str, Any]:
         return {"kind": kind, "subject": subject, "key": key, "content": f"{origin} {key}", "origin": origin,
-                "confidence": 0.6, "handles": handles, "quote": None}
+                "confidence": 0.6, "handles": handles, "quote": None, "retire": False}
     answer = {"narrative": "A day of code.", "items": [
         item("observed", [e], key="github"),                                  # ok (proposed: 1 day)
         item("observed", [f], key="ferb_habit"),                              # FERB's activity: refused

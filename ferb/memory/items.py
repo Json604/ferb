@@ -14,7 +14,9 @@ Origins, enforced in code:
 
 Versions: kind + subject + key name one fact. A newer version closes the old one (`valid_to`) and links to it
 (`supersedes`); nothing is overwritten. An observed / inferred / third-party item never supersedes something the owner
-stated: both stay active and recall flags the conflict (the owner's wins).
+stated: both stay active and recall flags the conflict (the owner's wins). An item also ends at the end of a day the
+owner's words give it (`expire_at`) or when their words say it no longer holds (`retire`); it stays as history, and
+`items` and `prompt_ready` treat it as current until then (L36 §6).
 
 `forget` purges: the item, all its versions, items built on the same sources, the sources themselves (journal
 entries, trail rows) unless the owner keeps them, the search index, the WAL; days whose trail rows went are
@@ -28,7 +30,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Iterable, Literal
 
 from ferb.core.errors import FerbError
@@ -187,11 +189,18 @@ def owner_span_at(text: str, part: str) -> tuple[int, int] | None:
     return _found(text, part)
 
 
-def prompt_ready(item: MemoryItem) -> bool:
-    """Whether an item may shape FERB's prompts: a current active item, or an observed pattern still gathering days
-    (shown as an unconfirmed hint). An inferred item (model wording: a paraphrase of the owner, a distilled guess) waits
-    for the owner's Confirm (I1, MP2)."""
-    return item.valid_to is None and (item.status == "active" or (item.status == "proposed" and item.origin == "observed"))
+def current(item: MemoryItem, now: datetime | None = None) -> bool:
+    """Whether an item still holds: no end, or (with `now`) an end still ahead, as the owner's dated words give one
+    (L36 §6). Without `now`, only an item without an end."""
+    return item.valid_to is None or (now is not None and item.valid_to > now)
+
+
+def prompt_ready(item: MemoryItem, now: datetime | None = None) -> bool:
+    """Whether an item may shape FERB's prompts: a current active item (one with an end date, until then: L36 §6), or
+    an observed pattern still gathering days (shown as an unconfirmed hint). An inferred item (model wording: a
+    paraphrase of the owner, a distilled guess) waits for the owner's Keep (I1, MP2)."""
+    return current(item, now) and (item.status == "active"
+                                   or (item.status == "proposed" and item.origin == "observed"))
 
 
 def fingerprint(kind: str, subject: str, key: str, content: str) -> str:
@@ -261,6 +270,9 @@ class Memory:
         self.on_settled: Callable[[list[str], bool], None] = lambda ids, deleted: None
         # after the echo scrub: the episode cards whose body states the item go, with what is built on them (Q1)
         self.after_forget: Callable[[ForgetPlan], None] = lambda plan: None
+        # told the current items that stopped holding now (L36 §6): superseded by a newer version (its id) or retired
+        # (None); an end date reached is not told
+        self.on_ended: Callable[[list[str], str | None], None] = lambda ids, new: None
 
     # ---------- reads ----------
 
@@ -282,9 +294,11 @@ class Memory:
             q, args = q + " AND status = ?", args + [status]
         if subject:
             q, args = q + " AND subject = ?", args + [subject]
-        if valid_now:
-            q += " AND valid_to IS NULL"
-        return [self._item(r) for r in self.db.conn.execute(q + " ORDER BY subject, kind, key, seq", args)]
+        now = self.clock.now()
+        if valid_now:        # a coarse bound in SQL (stamps' UTC offsets differ by 26 hours at most); exact below
+            q, args = q + " AND (valid_to IS NULL OR valid_to > ?)", args + [(now - timedelta(days=2)).isoformat()]
+        found = [self._item(r) for r in self.db.conn.execute(q + " ORDER BY subject, kind, key, seq", args)]
+        return [it for it in found if not valid_now or current(it, now)]
 
     def history(self, item_id: str) -> list[MemoryItem]:
         """Every version of this fact, oldest first."""
@@ -438,6 +452,8 @@ class Memory:
             self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? "
                                  "WHERE id = ?", (now, closes[-1].id if closes else None, item_id))
             self.publish("memory.committed", {"id": item_id, "reason": reason})
+            if closes:
+                self.on_ended([o.id for o in closes], item_id)
         if settled:
             self.on_settled(settled, False)
         self.on_change()
@@ -474,6 +490,24 @@ class Memory:
         self.db.conn.execute("DELETE FROM memory_items WHERE id = ?", (item_id,))
         self._never_again(it)
         self.on_settled([item_id], True)
+        self.on_change()
+
+    def expire_at(self, item_id: str, at: datetime) -> None:
+        """The owner's words give this item an end (L36 §6): it stops being valid at `at`, kept as history."""
+        stamp = at.astimezone(self.clock.now().tzinfo).isoformat()     # the clock's offset, as other stamps have
+        self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ? AND valid_to IS NULL", (stamp, item_id))
+        self.publish("memory.expires", {"id": item_id, "at": stamp})
+        self.on_change()
+
+    def retire(self, item_id: str, reason: str) -> None:
+        """The owner's words say this current item no longer holds (L36 §6): it stops being valid now, kept as
+        history."""
+        it, now = self.get(item_id), self.clock.now()
+        if it is None or it.status != "active" or not current(it, now):
+            raise MemoryRefused(f"no current item {item_id}")
+        self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now.isoformat(), item_id))
+        self.publish("memory.retired", {"id": item_id, "reason": reason})
+        self.on_ended([item_id], None)
         self.on_change()
 
     def _never_again(self, it: MemoryItem) -> None:

@@ -20,6 +20,7 @@ class EventClass(Enum):
 
 CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "task.steered", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
+            "memory.retired", "memory.expires",   # L36 §6: an item stops holding now, or gets the end its words give
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
             "voice.heard", "voice.said", "browser.debugger_detached",
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",

@@ -1,8 +1,9 @@
 """Explicit owner-requested secrets. Values stay in the login Keychain; metadata binds each to its exact place.
 
 One login record per place (L36 §5): an HTTPS origin, or `app:<bundle id>` for a native app. A record holds the
-username (plain text: owner decision 2026-10-24, "Yes, plain"; set only from the owner's own words, `set_username`, and
-cleared when the memory it came from is forgotten), the sites the owner named for a task its entries were saved in
+username (plain text: owner decision 2026-10-24, "Yes, plain"; set only from the owner's own words, `set_username`;
+a newer version of the memory it came from gives it its spelling or clears it, and a forget, retract or retire of that
+memory clears it: `replace_usernames`), the sites the owner named for a task its entries were saved in
 (`sites`: hosts, taken by code; I14) and named sealed entries (the password, each security question's answer
 under that question's text), each a Keychain item under service `ferb.owner-secrets`. Saving a name that exists for
 that place replaces its value, so no duplicates. The place is always code-derived (D12); the worker chooses only the
@@ -275,14 +276,21 @@ class OwnerSecrets:
             record = data['records'].setdefault(target, _empty())
             record['username'], record['username_source'] = username, source
 
-    def clear_usernames(self, sources: set[str]) -> list[str]:
-        """Clear every username that came from one of `sources` (a forgotten or retracted memory item); the places,
-        sorted."""
+    def replace_usernames(self, sources: set[str], username: str | None = None, source: str | None = None) -> list[str]:
+        """Every username that came from one of `sources` (memory items that stopped holding): `username` from `source`
+        instead (a newer version of the same fact in the owner's spelling, L36 review m-8), or cleared when `username`
+        is None; the places, sorted."""
         with self._edit() as data:
-            cleared = sorted(p for p, record in data['records'].items() if record.get('username_source') in sources)
-            for place in cleared:
-                data['records'][place]['username'] = data['records'][place]['username_source'] = None
-        return cleared
+            changed = sorted(p for p, record in data['records'].items() if record.get('username_source') in sources)
+            for place in changed:
+                record = data['records'][place]
+                record['username'], record['username_source'] = (username, source) if username else (None, None)
+        return changed
+
+    def clear_usernames(self, sources: set[str]) -> list[str]:
+        """Clear every username that came from one of `sources` (a forgotten, retracted, retired or superseded memory
+        item); the places, sorted."""
+        return self.replace_usernames(sources)
 
     def _save(self, data: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

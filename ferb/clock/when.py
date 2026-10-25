@@ -119,6 +119,26 @@ def _day(w: When, today: date) -> date | None:
     raise WhenError(f"unknown day {w.day!r}")
 
 
+def end_of_day(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
+    """The end of the calendar day `w` names, its next local midnight (UTC), strictly after `now` (L36 §6: a remembered
+    item's last day). Only one of day, date or in_days; never a time. A "MM-DD" already behind this year is over, not
+    next year's (`_day` rolls it forward, which suits a reminder; scan m13)."""
+    zone = zone or local_zone()
+    if w.in_minutes is not None or w.time:
+        raise WhenError("an end names a day, not a time")
+    if sum(value is not None for value in (w.day, w.date, w.in_days)) != 1:
+        raise WhenError("give exactly one calendar day source: day, date or in_days")
+    today = now.astimezone(zone).date()
+    d = _day(w, today)
+    assert d is not None
+    if w.date and not re.match(r"\s*\d{4}-", w.date) and d.year > today.year:
+        d = d.replace(year=today.year)                            # the day this year, already behind: over
+    end = _wall(d + timedelta(days=1), time(0, 0), zone)
+    if end <= now:
+        raise WhenError(f"that day is already over ({d:%a %d %b})")
+    return end
+
+
 def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
     """The absolute time (UTC) for `w`, strictly after `now`."""
     zone = zone or local_zone()

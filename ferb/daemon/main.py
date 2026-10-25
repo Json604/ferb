@@ -145,6 +145,9 @@ EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB s
 # An Edit answer that secret redaction hid whole (rule 14): never saved as the owner's words
 EDIT_HIDDEN = ("Those words looked like a secret, so FERB hid them and saved nothing. Type how FERB should remember it, "
                "without the secret.")
+# L36 §6: an item distillation thinks is out of date without the owner's words for it (Retire / Keep)
+RETIRE_QUESTION = "Is this no longer true? “{text}” FERB thinks something you said changed it."
+RETIRE_KEPT = "memory.retire_kept"            # the owner's Keep (or a skip) on that question: not asked again
 
 
 def _all_hidden(text: str) -> bool:
@@ -1378,13 +1381,15 @@ class Daemon:
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
-                                                                                  ("confirm", "edit"))
+                                                                                  ("confirm", "edit", "retire"))
+        self.memory.on_ended = self._memory_ended
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
         self.distiller.ask_keep = self._ask_keep
+        self.distiller.ask_retire = self._ask_retire
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.running_apps = self._running_apps
@@ -1674,11 +1679,22 @@ class Daemon:
         items = list(plan.items)                         # L36 §5: a username goes with the memory it came from,
         self._after_forgets(lambda: self._clear_login_names(items))   # in a worker thread, awaited like the scrub
 
+    def _memory_ended(self, ids: list[str], new: str | None) -> None:
+        """Current memory items that stopped holding now (`Memory.on_ended`, L36 §6): superseded by a newer version
+        (`new`) or retired (None). FERB's "Is this no longer true?" questions about them close, and the login-record
+        usernames the owner's items among them gave are cleared (`_clear_login_names`, queued like a forget's). A
+        newer version whose own login entry names the username in the owner's words, in the same turn, has moved them
+        to its spelling first (`_save_login_name` takes the username lock before the queued clear runs; review m-8)."""
+        self._close_memory_questions(ids, ("retire",))
+        owned = [i for i in ids if (it := self.memory.get(i)) is not None and it.origin == "owner_stated"]
+        if owned:                                        # only the owner's own items ever give a username
+            self._after_forgets(lambda: self._clear_login_names(owned))
+
     async def _clear_login_names(self, item_ids: list[str]) -> None:
-        """Clear every login record's username that came from one of these memory items (forgotten or retracted), in a
-        worker thread: the handle file's lock may be held by a hidden input's Keychain save (coordinator ruling). After
-        any username write already waiting (`_login_names`, review m-3). Whatever stops it is journaled, never
-        swallowed (review I-3)."""
+        """Clear every login record's username that came from one of these memory items (forgotten, retracted, retired
+        or superseded: `_memory_ended`), in a worker thread: the handle file's lock may be held by a hidden input's
+        Keychain save (coordinator ruling). After any username write already waiting (`_login_names`, review m-3).
+        Whatever stops it is journaled, never swallowed (review I-3)."""
         from ferb.identity.owner_secrets import OwnerSecrets
         async with self._login_names:
             try:
@@ -1886,14 +1902,29 @@ class Daemon:
         self._publish("approval.requested", {"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind,
                                              "reason": ap.reason, "task_id": None, "options": list(ap.options)})
 
+    def _ask_once(self, kind: str, item_id: str, reason: str, open_kinds: tuple[str, ...]) -> None:
+        """One of FERB's questions about a memory item (`_ask_owner`), never while a question of `open_kinds` about it
+        waits (scan m6: shared by `_ask_keep` and `_ask_retire`)."""
+        if self.db.conn.execute(f"SELECT 1 FROM memory_questions WHERE target = ? AND kind IN "
+                                f"({','.join('?' * len(open_kinds))})", (item_id, *open_kinds)).fetchone():
+            return
+        self._ask_owner(kind, item_id, reason, f"memory-{kind}-{item_id}")
+
     def _ask_keep(self, item: Any, reason: str) -> None:
         """L36 §2 ("Ask right away"): one of FERB's guesses about the owner, asked at once with Keep / Edit / Drop;
         only while it waits (an inferred item still proposed), and never twice for one item (an open Keep or Edit
         question about it is enough)."""
-        if item.origin != "inferred" or item.status != "proposed" or self.db.conn.execute(
-                "SELECT 1 FROM memory_questions WHERE target = ? AND kind IN ('confirm', 'edit')", (item.id,)).fetchone():
+        if item.origin == "inferred" and item.status == "proposed":
+            self._ask_once("confirm", item.id, reason, ("confirm", "edit"))
+
+    def _ask_retire(self, item: Any) -> None:
+        """L36 §6: a current item distillation thinks is out of date, without the owner's words for it, asked with
+        Retire / Keep: once while it waits, and never again for that item once the owner kept it (`RETIRE_KEPT`;
+        rule 9: the answer carries). Their own words still retire it (`Distiller.run_day`)."""
+        if self.db.conn.execute("SELECT 1 FROM journal WHERE kind = ? AND json_extract(data_json, '$.id') = ?",
+                                (RETIRE_KEPT, item.id)).fetchone():
             return
-        self._ask_owner("confirm", item.id, reason, "memory-confirm-" + item.id)
+        self._ask_once("retire", item.id, RETIRE_QUESTION.format(text=" ".join(item.content.split())), ("retire",))
 
     def _settle_guess(self, item_id: str, action: str, text: str = "") -> str:
         """The owner's answer to one of FERB's guesses (L36 §2). Keep makes it active, owner-confirmed. Edit saves the
@@ -1955,9 +1986,10 @@ class Daemon:
 
     def _close_memory_questions(self, targets: Any, kinds: tuple[str, ...] | None = None) -> None:
         """FERB's questions about memory that stopped waiting (re-review NEW-1): of `kinds` (None: every kind) about
-        `targets`. A memory confirmed or retracted another way closes its "Keep this?" (Keep / Edit / Drop) and Edit
-        questions only; a memory or learned item deleted closes every question about it, the owner's "Forget for
-        good?" too, which nothing else closes (re-review R1). Each is closed (superseded: never a No or a Drop),
+        `targets`. A memory confirmed or retracted another way closes its "Keep this?" (Keep / Edit / Drop), Edit and
+        "Is this no longer true?" (Retire / Keep) questions only, and one superseded or retired the last of these
+        (`_memory_ended`, L36 §6); a memory or learned item deleted closes every question about it, the owner's "Forget
+        for good?" too, which nothing else closes (re-review R1). Each is closed (superseded: never a No or a Drop),
         dropped from what its answer would do, and deleted from `memory_questions`, so no later turn or restart shows
         its words again."""
         gone = set(targets)
@@ -1975,14 +2007,16 @@ class Daemon:
 
     def _restore_memory_questions(self) -> None:
         """At start: FERB's questions about memory that were still waiting (a forget's Yes / No, a guess's Keep / Edit /
-        Drop and its Edit) are asked again, with their ids, words and options; one whose memory has gone or stopped
-        waiting meanwhile is dropped."""
+        Drop and its Edit, an out-of-date item's Retire / Keep) are asked again, with their ids, words and options; one
+        whose memory has gone, stopped waiting or stopped holding meanwhile is dropped."""
+        from ferb.memory.items import current
         for row in self.db.conn.execute("SELECT * FROM memory_questions ORDER BY at").fetchall():
             if row["kind"] == "forget:learning":
                 gone = self.learning is None or self.learning.get(row["target"]) is None
             else:
                 item = self.memory.get(row["target"]) if self.memory is not None else None
-                gone = item is None or (row["kind"] in ("confirm", "edit") and item.status != "proposed")
+                gone = item is None or (row["kind"] in ("confirm", "edit") and item.status != "proposed") or (
+                    row["kind"] == "retire" and (item.status != "active" or not current(item, self.clock.now())))
             if gone:
                 self.db.conn.execute("DELETE FROM memory_questions WHERE approval_id = ?", (row["approval_id"],))
             elif self.state.approvals.get(row["approval_id"]) is None:
@@ -1990,7 +2024,8 @@ class Daemon:
 
     def _question_answered(self, ap: Any) -> str:
         """FERB's own follow-up to an answered question: a chat forget on its Yes (I2); a guess's Keep, Edit (which asks
-        for the owner's words) or Drop (`_settle_guess`, L36). A line for the owner, or ''."""
+        for the owner's words) or Drop (`_settle_guess`, L36); an out-of-date item's Retire, or its Keep (a skip too:
+        nothing changes, and FERB doesn't ask about it again, L36 §6). A line for the owner, or ''."""
         followup = self._owner_followups.pop(ap.id, None)
         if followup is None:
             return ""
@@ -1998,6 +2033,15 @@ class Daemon:
         what, ident = followup
         from ferb.memory.items import MemoryRefused
         yes = ap.state == "granted" and ap.choice == "Yes"
+        if what == "retire":
+            if ap.state == "granted" and ap.choice == "Retire":
+                try:
+                    self.memory.retire(ident, "the owner said so")
+                except MemoryRefused:
+                    return "That memory isn't current any more."
+                return "Retired: FERB won't use it any more."
+            self._journal().append(RETIRE_KEPT, {"id": ident})
+            return "Kept as it is."
         if what == "confirm":
             # Ruling: a declined question is Drop (skipping FERB's own check is a No, L3)
             choice = ap.choice if ap.state == "granted" else "Drop"
@@ -2393,17 +2437,37 @@ class Daemon:
                 saved.append({"refused": reason(e, self.redact)})
                 continue
             text = " ".join(m.content.split())
+            ends = (" " + self._until(it.until, m.id, own_words)) if getattr(it, "until", None) is not None else ""
             told = (await self._save_login_name(it, m.id, own_words, sites, m.origin)
                     if getattr(it, "login_origin", None) else "")
             if m.origin == "owner_stated" or m.status == "active":      # active: FERB's wording the owner kept before
                 saved.append({"receipt": f"remembered ({m.id}): {m.content}",
-                              "line": f"Remembered: {text}" + (f"\n{told}" if told else "")})
+                              "line": f"Remembered: {text}{ends}" + (f"\n{told}" if told else "")})
             else:
                 self._ask_keep(m, KEEP_WORDING.format(text=text))
                 saved.append({"receipt": f"proposed ({m.id}): {m.content} (FERB's wording; waits for the owner's Keep)",
                               "line": "Saved in my words, not yours, so I won't use it until you answer Keep: "
-                                      f"“{text}”."})
+                                      f"“{text}”.{ends}"})
         return saved
+
+    def _until(self, until: Any, item_id: str, own_words: str) -> str:
+        """A remembered item's last day from the owner's own date words (L36 §6): the quote must be whole words of what
+        they typed; code works out the day (`end_of_day`: the model never computes dates, owner 2026-09-30) and the
+        item leaves memory after it, whatever its origin. A day already over, or date words the owner didn't type,
+        save it without an end, said in the line and journaled (`memory.until_refused`). A line for the owner."""
+        from ferb.clock.when import When, WhenError, end_of_day, local_zone
+        from ferb.memory.items import contains_words
+        if not contains_words(own_words, str(until.quote)):
+            self._journal().append("memory.until_refused", {"item": item_id, "why": "date words not typed"})
+            return "(saved without an end date: the date words I quoted aren't in what you typed)"
+        try:
+            zone = local_zone()
+            end = end_of_day(When(day=until.day, date=until.date, in_days=until.in_days), self.clock.now(), zone)
+        except WhenError as e:
+            self._journal().append("memory.until_refused", {"item": item_id, "why": str(e)})
+            return f"(saved without an end date: {e})"
+        self.memory.expire_at(item_id, end)
+        return f"(until {(end - timedelta(seconds=1)).astimezone(zone):%a %d %b})"
 
     async def _save_login_name(self, entry: Any, item_id: str, own_words: str, sites: frozenset[str],
                                origin: str = "owner_stated") -> str:
@@ -2412,10 +2476,13 @@ class Daemon:
         is an https:// origin whose host the owner typed: in this message, or among the turn's task's sites
         (`Supervisor._turn_sites` keeps only those the owner typed for it, review I-1), exactly, a leading "www." aside
         (`same_site`, the rule a record's sites follow: never a subdomain, which on shared hosting is another tenant's).
-        A span of the owner's words that touches a "[redacted]" marker is refused (review m-1). The write runs in a
-        worker thread (the handle file's lock may be held by a hidden input's Keychain save; coordinator ruling), one
-        at a time (`_login_names`, review m-3). A line for the owner, or "" (the refusal, whatever its cause, is
-        journaled, `memory.login_refused`, and the turn goes on: review m-2)."""
+        A span of the owner's words that touches a "[redacted]" marker is refused (review m-1). Every record whose
+        username came from an older version of this fact takes the new spelling too, whether or not this entry's own
+        site passes (that record's site passed when its username was saved; review m-8): `_memory_ended` clears what
+        is left of the replaced versions after this write. The write runs in a worker thread (the handle file's lock
+        may be held by a hidden input's Keychain save; coordinator ruling), one at a time (`_login_names`, review m-3).
+        A line for the owner, or "" (the refusal, whatever its cause, is journaled, `memory.login_refused`, unless the
+        entry's own place was updated as an older version's record, and the turn goes on: review m-2)."""
         import re
         from ferb.identity.owner_secrets import OwnerSecrets, login_place, same_site, site_host, typed_site
         from ferb.memory.items import owner_span_at
@@ -2431,18 +2498,31 @@ class Daemon:
         why = ("the site isn't an https:// address" if not host else "the site isn't one you named" if not named
                else "the username isn't in your words" if span is None
                else "the username was hidden as a secret" if hidden else "")
-        if not why and span is not None:
+        name = own_words[span[0]:span[1]] if span is not None and not hidden else ""
+        older = {"memory:" + v.id for v in self.memory.history(item_id) if v.id != item_id} if name else set()
+        followed: list[str] = []
+        if name and (not why or older):
+            save, source = not why, "memory:" + item_id
+
+            def write() -> list[str]:
+                store = OwnerSecrets(self.home)
+                if save:
+                    store.set_username(place, name, source)
+                return store.replace_usernames(older, name, source)
             async with self._login_names:
                 try:
-                    await asyncio.to_thread(OwnerSecrets(self.home).set_username, place, own_words[span[0]:span[1]],
-                                            "memory:" + item_id)
-                    return f"Saved as your login name for {host}."
+                    followed = await asyncio.to_thread(write)
                 except Refused as e:
                     why = str(e)
                 except Exception as e:                   # a failed write (a full disk): said, and the turn goes on
                     why = f"{type(e).__name__}: {e}"
-        self._journal().append("memory.login_refused", {"item": item_id, "place": place, "why": why})
-        return ""
+        if followed:
+            self._journal().append("memory.login_updated", {"item": item_id, "places": followed})
+        if not why:
+            return f"Saved as your login name for {host}."
+        if place not in followed:
+            self._journal().append("memory.login_refused", {"item": item_id, "place": place, "why": why})
+        return f"Updated your login name for {', '.join(site_host(p) or p for p in followed)}." if followed else ""
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
         return {"id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,

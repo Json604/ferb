@@ -1590,19 +1590,20 @@ class Learning:
         prompt) leaves out but the dashboard lists and confirms. Close the nodes of items that are neither. Only an
         owner_stated preference about the owner becomes identity (whatever was on screen when they typed it: owner
         decision 2026-10-20)."""
-        from ferb.memory.items import prompt_ready
+        from ferb.memory.items import current, prompt_ready
+        now = self.clock.now()                        # an item with an end date holds until then (L36 §6)
 
         def pending(item: Any) -> bool:
-            return item.valid_to is None and item.status == 'proposed' and item.origin == 'inferred'
+            return current(item, now) and item.status == 'proposed' and item.origin == 'inferred'
         for node in self.items('fact') + self.items('identity'):     # only what it syncs: never every label (L29)
             if not any(s.startswith('memory:') for s in node['sources']):
                 continue
             source_id = next(s.removeprefix('memory:') for s in node['sources'] if s.startswith('memory:'))
             source = memory.get(source_id)
-            if source is None or not (prompt_ready(source) or (node['kind'] == 'fact' and pending(source))):
+            if source is None or not (prompt_ready(source, now) or (node['kind'] == 'fact' and pending(source))):
                 self.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=?', (self.now(), node['id']))
         for item in memory.items(status=None, valid_now=False):
-            if not (prompt_ready(item) or pending(item)):
+            if not (prompt_ready(item, now) or pending(item)):
                 continue
             body = asdict(item)
             body['unconfirmed_hint'] = item.status == 'proposed'

@@ -30,7 +30,9 @@ from ferb.voice.speak import Silent
 
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"
 FERB_CHECKS = {"ferb.confirm", "ferb.retry", "conversation.approve", "memory.forget",   # FERB's own Yes/No (L3)
-               "memory.confirm"}
+               "memory.confirm", "memory.retire"}
+# What skipping one of them answers: No, except a guess's Drop (L36 ruling 5) and an out-of-date item's Keep (L36 §6)
+SKIPPED = {"memory.confirm": "Drop", "memory.retire": "Keep"}
 
 def read_message(inp: TextIO) -> str | None:
     """Without a terminal (piped input): one message per line; a bracketed paste may span several lines."""
@@ -153,9 +155,9 @@ def _question(d: dict[str, Any]) -> str:
         return f"   ? {d.get('reason', '')} "
     if d.get("kind") == "owner_question" and d.get("capability") in FERB_CHECKS and d.get("options"):
         # FERB's own check (D33; P19 retry, F9 conversation scope): skipping it is a No; on a guess's Keep / Edit /
-        # Drop it is Drop (L36 ruling 5)
+        # Drop it is Drop (L36 ruling 5); on an out-of-date item's Retire / Keep it is Keep (L36 §6)
         opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
-        skip = "Drop" if d.get("capability") == "memory.confirm" else "No"
+        skip = SKIPPED.get(str(d.get("capability")), "No")
         return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter = {skip}): "
     if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)
         if d.get("options"):
