@@ -1891,7 +1891,7 @@ file is read by place, its browser-bound handles listed unusable (§16.12). `Own
 handle bound to `app:<browser>` (one saved before that rule is never filled). A source install builds/signs
 `ferb-secrets` with the existing local certificate and writes its designated requirement; FERB.app ships the helper in
 `Contents/Helpers` and setup pins its copy to the exact code hash FERB.app's own signature seals (the `cdhash` when
-ad-hoc, the Developer ID team later). Each call verifies that requirement. No unsigned fallback exists. Python
+ad-hoc; the release certificate when release-signed, so the pin survives updates; the Developer ID team later). Each call verifies that requirement. No unsigned fallback exists. Python
 production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain an
 injectable crypto implementation. Developer ID distribution remains later work. Swift type-checking is not a live
 Keychain/signature test.
@@ -2961,21 +2961,28 @@ protected FERB state (16.9).
   libpython. launchd runs it as `-m ferb.daemon`, so macOS names FERB in permission prompts, Privacy & Security and
   Login Items. It accepts only `-m ferb.daemon`, `-I -m ferb.cli.mcp` and `-I -m ferb.memory.card_reader`, and only
   the owner's `~/.ferb` (by inode). It rebuilds a fixed environment with every `PYTHON*` variable removed.
-- **Signing.** `scripts/signing.sh` is the one signing step: ad-hoc by default with the hardened runtime
-  (disable-library-validation only when not Developer ID); `SIGN_IDENTITY` with notary credentials adds timestamps,
-  notarization and stapling; `build-app.sh --sign-only` re-signs without rebuilding.
+- **Signing.** `scripts/signing.sh` is the one signing step, with the hardened runtime always. Ad-hoc is the
+  default (development, tests). `SIGN_IDENTITY=release` signs every published build with FERB's self-made
+  certificate "FERB Release Signing" (owner's login keychain, trusted for code signing for the owner's user; its
+  public SHA-1 in `scripts/release-cert.sha1`, selected by that hash) and gives FERB.app, the agent, FERB Voice, the
+  bundled `python3.12` and `ferb-secrets` the designated requirement `identifier "<id>" and certificate leaf =
+  H"<sha1>"`, so TCC grants and Keychain access should survive updates (the two-build test on a second macOS user is
+  pending, `docs/OWNER_ACCEPTANCE.md`). A failed codesign stops the build. `build-dmg.sh` packs only release-signed
+  or Developer ID apps (`FERB_DEV_DMG=1`: test images). A Developer ID `SIGN_IDENTITY` with notary credentials adds
+  timestamps, notarization and stapling; `build-app.sh --sign-only` re-signs without rebuilding. Release code has no
+  Team ID, so disable-library-validation stays on the daemon and Python.
 - **First launch.** `AppSetupPlan` reads the LaunchAgent and runs `ferb setup` or `--update` in a console window;
   another installation is replaced only after the owner says so.
 - **Install refusals.** Install refuses a translocated app, a read-only volume (the DMG) or a bundle failing
   `codesign --verify --deep --strict`.
-- **Install steps.** Helpers are pinned to the exact code FERB.app's signature seals. `~/.ferb/node` links to the
+- **Install steps.** Helpers are pinned only when they are the exact code FERB.app's signature seals, and then to their code hash (ad-hoc), to the release certificate FERB.app itself carries (`certificate_leaf`), or to its Developer ID team. `~/.ferb/node` links to the
   app's Codex. `ferb` is linked at `~/.local/bin` (no shell-profile edits). A checkout's setup takes launchd back.
 - **Protection.** FERB.app's bundle is protected FERB state (section 12).
 - **Recordings** write only through the output folder they checked and keep open; frames are staged in
   `~/.ferb/run/recordings`, swept at start. A stop cancelled midway still finishes the recording once: the receipt is
   finalized through the held folder, the folder is closed, staging and the sound are deleted, and the task's end finds
   it finished and never encodes again.
-- **Residuals** (owner-accepted or live checks): ad-hoc builds lose macOS grants and may prompt the Keychain on update;
+- **Residuals** (owner-accepted or live checks): ad-hoc (development) builds lose macOS grants on rebuild; the release key in the login keychain can be used by any process running as the owner through codesign;
   whether launchd runs the bundled Python from a quarantined download is untested; the app is about 581 MB (Apple silicon) and 609 MB (Intel);
   `mac.applescript` keeps Apple Events, so a script could ask Finder to move Trash items (not a file rule).
 

@@ -11,6 +11,18 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 `pyproject.toml` and `ferb/__init__.py`.
 
 
+
+## 0.27.0.dev1 FERB for everyone, phase B (L34) — 2026-10-25 — stable signing; two-build TCC test pending
+
+Plan `docs/superpowers/plans/2026-10-25-packaging-b-stable-signing.md`.
+- Published builds are signed with FERB's own long-lived certificate "FERB Release Signing" (`SIGN_IDENTITY=release`,
+  selected by the SHA-1 in `scripts/release-cert.sha1`; created, trusted for code signing and backed up by the owner,
+  the steps at the top of `scripts/signing.sh`). FERB.app, the agent, FERB Voice, the bundled Python and the secret
+  helper pin that certificate in their designated requirement. A failed codesign now stops the build.
+- A disk image holds only a release-signed (or Developer ID) app; `FERB_DEV_DMG=1` makes test images.
+- Setup pins FERB.app's helpers to the certificate the app carries, so an update keeps the pins.
+- Not done (owner only): the real certificate, the real release-signed build and the two-build TCC test.
+
 ## 0.27.0.dev1 FERB for everyone, phase A (L34) — 2026-10-25 — two architectures, smaller app; owner live check pending
 
 Spec `docs/superpowers/specs/2026-10-24-ferb-for-everyone-design.md`; plan

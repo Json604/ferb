@@ -20,7 +20,7 @@ disk image, or from source.
 ### FERB.app (disk image)
 
 1. Open `FERB-AppleSilicon.dmg` (M1 or later) or `FERB-Intel.dmg`; the disk image's first-open note repeats step 2. Drag FERB to Applications. Open it from Applications, not from the disk image.
-2. This build is ad-hoc signed, not yet signed with an Apple Developer ID, so macOS stops it the first time. Once:
+2. FERB is signed with its own certificate, not an Apple Developer ID, so macOS stops it the first time. Once:
    open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the message about
    FERB. The button is there for about an hour after the blocked attempt; if it's gone, open FERB again. macOS asks
    for your login password, then FERB opens and macOS remembers the choice
@@ -42,13 +42,13 @@ push-to-talk, when you turn it on, adds its Microphone.
 
 FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
 before it replaces one, from its menu too. After you replace FERB.app with a newer build, the next launch updates the
-background service in the same window (and so does a launch that finds it not running). Until FERB is Developer ID
-signed, an update needs its macOS permissions granted again (the window says which; Set Up FERB… walks through them),
-and the Keychain may ask once before FERB's secret helper reads an item stored by an earlier build.
+background service in the same window (and so does a launch that finds it not running). Every release is signed with
+the same FERB certificate, so an update keeps FERB's macOS permissions and its secret helper's Keychain access (the
+two-build check on a second macOS user is pending).
 
 The app is the product; the `ferb` command is for development. Setup links it at `~/.local/bin/ferb` and never edits
 your shell profile; to use it, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`. `scripts/build-dmg.sh` builds both apps and both disk images;
-`scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds one app (an Intel app builds on Apple silicon under Rosetta) and prints its size by part; set `SIGN_IDENTITY` to a Developer ID (its name or
+`scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds one app (an Intel app builds on Apple silicon under Rosetta) and prints its size by part; `SIGN_IDENTITY=release` signs with FERB's release certificate (creating and backing it up: the top of `scripts/signing.sh`); a disk image holds only a release-signed or Developer ID app (`FERB_DEV_DMG=1` makes a test image); set `SIGN_IDENTITY` to a Developer ID (its name or
 SHA-1 hash) and the notary credentials described in `scripts/signing.sh` to sign, notarize and staple the same bundle
 (`scripts/build-app.sh --sign-only build/app-arm64/FERB.app` re-signs a built app without rebuilding it).
 
@@ -596,9 +596,9 @@ no automated test proves that the owner experienced no disturbance.
 
 - Nothing from the launch week (L1–L33) is live-tested yet; the pending checks are in
   [owner acceptance](docs/OWNER_ACCEPTANCE.md).
-- FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
-  update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is
-  untested. Developer ID signing and notarization come later. The app is about 581 MB on Apple silicon and 609 MB on Intel (downloads 171 MB and 190 MB). The Intel app is tested on a real Intel Mac by the owner ("Yes, I have one"); that check is pending.
+- FERB.app is signed with FERB's own certificate, not a Developer ID: the first open needs **Open Anyway**, and
+  whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd, and keeps the
+  permissions across two builds, are untested live. Developer ID signing and notarization come later. The app is about 581 MB on Apple silicon and 609 MB on Intel (downloads 171 MB and 190 MB). The Intel app is tested on a real Intel Mac by the owner ("Yes, I have one"); that check is pending.
 - The Chrome Web Store listing isn't live yet; until it is, each profile needs Load unpacked. Brave and Edge may ignore
   the store install request; Vivaldi, Arc and Opera always need Load unpacked.
 - Trust, record, recover: after reading a malicious page, the shell could send one of your files somewhere. It is

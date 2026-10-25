@@ -1744,3 +1744,16 @@ actions and record what the owner saw.
   notch draws at the top of a notchless screen.
 - Afterwards: `~/.local/bin/ferb uninstall` and trash `~/Applications/FERB.app` in the second account; delete
   `~/Desktop/ferb-pkg-test` there.
+
+## FERB for everyone, phase B (L34): create the certificate, then the two-build TCC test — pending (2026-10-25)
+
+Owner-only. Steps and commands: the top of `scripts/signing.sh` (create, trust for code signing, back up, record the
+SHA-1 in `scripts/release-cert.sha1`). Then, on the owner's account:
+
+    SIGN_IDENTITY=release scripts/build-app.sh /private/tmp/ferb-tcc/n
+    sleep 61
+    SIGN_IDENTITY=release scripts/build-app.sh /private/tmp/ferb-tcc/n1
+
+Install N on a second macOS user, grant Accessibility, Screen Recording and Full Disk Access, run
+`~/.local/bin/ferb doctor`, replace it with N1 and run doctor again. Pass: same permission lines, no permission asked
+again, no second FERB entry in System Settings. If anything differs: stop and report (spec stop rule).
