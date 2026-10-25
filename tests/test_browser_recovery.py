@@ -602,6 +602,34 @@ def test_any_acting_command_in_a_resting_tab_takes_the_file_picker_back_first() 
     assert out["order"] == ["Page.setInterceptFileChooserDialog:true", "page"] and out["afterAct"] is False
 
 
+def test_a_failed_take_back_keeps_the_tab_resting_so_the_next_acting_command_tries_again() -> None:
+    """Re-review fix round 4 (fail closed): a take-back that failed cleared `resting` anyway, so the next acting command
+    skipped it and ran with interception off. A failed take-back does nothing, says why in its own words (a known
+    failure, not "debugger_refused"), and the next acting command tries the take-back again before it acts."""
+    out = worker('''(async () => {
+      const results = [], order = [];
+      port = {postMessage() {}}; send = async (type, body) => { if (type === 'result') results.push(body); };
+      let fail = true;
+      chrome.debugger = {sendCommand: async (target, method, params) => {
+                           order.push(method + ':' + params.enabled);
+                           if (fail) throw new Error('target busy'); },
+                         detach: async () => {}};
+      inFrame = async () => { order.push('page'); return {index: 0, playing: true}; };
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true; st.resting = true;
+      await executeCommand({id: 'c-1', gen, op: 'media', args: {tab_id: 22, snap: 1, index: 0, action: 'play'}});
+      const first = order.splice(0), stillResting = TABS.get(22).resting;
+      fail = false;
+      await executeCommand({id: 'c-2', gen, op: 'media', args: {tab_id: 22, snap: 1, index: 0, action: 'play'}});
+      return {first, stillResting, second: order, results, resting: TABS.get(22).resting};
+    })()''')
+    assert out["first"] == ["Page.setInterceptFileChooserDialog:true"] and out["stillResting"] is True   # nothing done
+    failed = out["results"][0]
+    assert failed["status"] == "error" and failed["outcome"] == "failed"
+    assert "file picker" in failed["error"] and "debugger_refused" not in failed["error"]
+    assert out["second"] == ["Page.setInterceptFileChooserDialog:true", "page"] and out["resting"] is False
+    assert out["results"][1]["status"] == "ok"
+
+
 def test_a_pages_dialog_between_rounds_is_the_owners_and_closing_it_clears_the_pending_state() -> None:
     """L31, re-review N2: a held tab's page may alert or confirm between rounds. Chrome shows it to the owner (CDP's
     `hasBrowserHandler`), and the extension never answers a dialog FERB didn't expect. When the owner closes it in the

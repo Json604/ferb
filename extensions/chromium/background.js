@@ -262,10 +262,16 @@ const ACTING = new Set(["act", "fill", "upload", "navigate", "media", "scroll", 
 async function awake(tabId) {
   const t = TABS.get(tabId);
   if (!t || !t.resting) return;
-  t.resting = false;
-  if (!t.attached) return;                 // the next attach intercepts
-  try { await interceptPicker(tabId, true); }
-  catch (e) { throw refusedCommand(`the file picker couldn't be taken back for this round (${e.message || e}); nothing was done`); }
+  if (t.attached) {                        // detached: the next attach intercepts
+    try { await interceptPicker(tabId, true); }
+    catch (e) {                            // still resting: the next acting command tries again
+      const failed = new Error(`picker_not_taken_back: FERB couldn't take this tab's file picker back for the round ` +
+                               `(${e.message || e}), so it did nothing; try the action again`);
+      failed.nothingSent = true;
+      throw failed;
+    }
+  }
+  t.resting = false;                       // only once the picker is FERB's again
 }
 
 async function onCommand(m) {
