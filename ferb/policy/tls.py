@@ -26,11 +26,14 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 _OPERATORS = {";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&"}
-_WRAPPERS = {"env", "sudo", "command", "exec", "time", "nohup", "nice", "caffeinate", "xargs", "builtin", "doas"}
+_WRAPPERS = {"env", "sudo", "command", "exec", "time", "nohup", "nice", "caffeinate", "xargs", "builtin", "doas",
+             "timeout", "gtimeout", "arch", "stdbuf", "watch", "chronic", "unbuffer"}
 # A wrapper's options that take a value (the next word, or the rest of the word): nice -n 10, sudo -u me, env -u NAME,
 # time -o file, xargs -n 1, caffeinate -t 60. env -S's value is a command line of its own (read as one).
 _VALUED = {"nice": set("n"), "sudo": set("ugCDhprtUT"), "doas": set("uC"), "env": set("uSCP"), "time": set("fo"),
-           "xargs": set("nILPsEdJR"), "caffeinate": set("tw")}
+           "xargs": set("nILPsEdJR"), "caffeinate": set("tw"), "timeout": set("sk"), "gtimeout": set("sk"),
+           "arch": set("ed"), "stdbuf": set("ioe"), "watch": set("nq"), "exec": set("a")}
+_LEADING = {"timeout": 1, "gtimeout": 1}       # positionals before the command (timeout's duration)
 _SHELLS = re.compile(r"(ba|z|da|k|fi)?sh")
 _ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
@@ -133,6 +136,12 @@ def certificate_checks_off(command: str, depth: int = 0) -> TlsOff | None:
             elif word in ("export", "declare", "local", "readonly") or base in _WRAPPERS:
                 wrapper, i = base, i + 1
                 while i < len(cmd) and cmd[i].startswith("-") and cmd[i] != "--":   # its options, valued ones too
+                    if wrapper == "arch" and cmd[i] == "-arch":     # arch -arch arm64
+                        i += 2
+                        continue
+                    if cmd[i].startswith("--"):                     # a long option: its value is after "="
+                        i += 1
+                        continue
                     flags = cmd[i][1:]
                     valued = next((k for k, c in enumerate(flags) if c in _VALUED.get(wrapper, set())), None)
                     takes = valued is not None and valued == len(flags) - 1 and i + 1 < len(cmd)
@@ -141,6 +150,9 @@ def certificate_checks_off(command: str, depth: int = 0) -> TlsOff | None:
                     i += 2 if takes else 1
                 if i < len(cmd) and cmd[i] == "--":
                     i += 1
+                i += min(_LEADING.get(wrapper, 0), max(0, len(cmd) - i - 1))
+                if wrapper == "watch" and i == len(cmd) - 1 and " " in cmd[i]:   # watch 'curl -k …': a command line
+                    inner.append(cmd[i])
             else:
                 break
         for name, value in env:
@@ -155,6 +167,11 @@ def certificate_checks_off(command: str, depth: int = 0) -> TlsOff | None:
                         break
             elif program == "eval":
                 inner.append(" ".join(args[1:]))
+            elif program == "osascript":                  # osascript -e '…do shell script "…"…'
+                script = "\n".join(args[k + 1] for k, a in enumerate(args[1:-1], 1) if a == "-e")
+                if script and (found := applescript_checks_off(script)) is not None:
+                    how += found.how
+                    hosts += found.hosts
         for line in inner if depth < 3 else ():
             if (found := certificate_checks_off(line, depth + 1)) is not None:
                 how += found.how
