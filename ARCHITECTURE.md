@@ -382,7 +382,10 @@ change a copy before the browser reads it; the browser-side `bytes_match` report
 section 11).
 
 Downloads (D35) never reach the browser's own download flow in a live task's tab (opened, adopted, or borrowed while the
-task holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
+task holds it; a loop's held owner tab only during a round, its check included, see section 16.11). Residual: a
+download a round's action started whose response arrives after that round (check included) has ended is decided then,
+when the tab rests: it goes through the browser's own flow (the owner's Downloads, or a Save dialog if they ask where
+to save). The action tools' settle waits make it rare, and a round that only looked can't start one. The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
 task's, then navigates; a tab the debugger can't attach to, such as a new-tab or `chrome://` page, steps through
 `about:blank` first, and only then is the URL refused as a structured `download_capture_unavailable` fact). Its debugger
 session pauses document responses at the response stage (`Fetch`, child-frame sessions too) and
@@ -2833,7 +2836,7 @@ planner's own words say what the loop does.
   rounds is the owner's: Chrome shows it (CDP `hasBrowserHandler`), the extension answers only a dialog FERB expected,
   and the owner's own answer (`Page.javascriptDialogClosed`) clears the pending state, so the next round's snapshot
   isn't blocked. During a round, its check included, any download or link in the held tab is FERB's, the owner's own
-  included (D35). `keep_open` on the owner's tab asks the browser's tab list that the tab is still
+  included (D35); a late download from a round's action is the D35 residual in section 7. `keep_open` on the owner's tab asks the browser's tab list that the tab is still
   open. Known residual (review M10): after an extension reconnect a held tab's ref keeps the old connection's
   generation, and `attach` hands later rounds that stale ref ("belongs to an older browser connection"), so the loop
   can't borrow the tab again until it ends; a long-held loop tab makes this likelier. Not fixed in this batch. Each round's `step_context` lists the tabs the loop holds (`held_tabs`:
