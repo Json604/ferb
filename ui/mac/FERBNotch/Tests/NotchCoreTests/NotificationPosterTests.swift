@@ -82,13 +82,15 @@ final class NotificationPosterTests: XCTestCase {
     /// Owner 2026-10-26: one "Allow all" button for the setup rows: the two every task needs, Full Disk Access and
     /// Notifications. Screen Recording goes last: macOS restarts FERB after it, and setup reopens on this page.
     func testSetupAsksForFourAndAllowAllLeavesScreenRecordingLast() {
-        XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access", "notifications"])
+        XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
+                                                 "notifications", "microphone", "hearing", "clipboard"])
         func row(_ id: String, _ status: GrantStatus) -> PermissionRow {
             PermissionRow(id: id, status: status, process: "daemon", required: true, pane: nil, requestable: true)
         }
         let rows = [row("accessibility", .denied), row("screen_recording", .notDetermined),
                     row("full_disk_access", .denied), row("notifications", .notDetermined), row("microphone", .denied)]
-        XCTAssertEqual(SetupModel.allowAllOrder(rows), ["notifications", "accessibility", "full_disk_access", "screen_recording"])
+        XCTAssertEqual(SetupModel.allowAllOrder(rows), ["notifications", "microphone", "accessibility", "full_disk_access",
+                                                        "screen_recording"])
         XCTAssertEqual(SetupModel.allowAllOrder([row("accessibility", .granted), row("screen_recording", .denied)]),
                        ["screen_recording"])
     }

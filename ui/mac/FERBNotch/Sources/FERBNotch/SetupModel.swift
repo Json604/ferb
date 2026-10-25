@@ -47,10 +47,15 @@ final class SetupModel: ObservableObject {
 
     /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
     /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
-    static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "notifications"]
-    /// "Allow all" (owner 2026-10-26): the setup rows not yet on, one-click popups first; Screen Recording last, since
-    /// macOS restarts FERB after it (setup reopens on this page).
-    static let allowAllSequence = ["notifications", "accessibility", "full_disk_access", "screen_recording"]
+    static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "input_monitoring",
+                                            "notifications", "microphone", "hearing", "clipboard"]
+    /// "Allow all" (owner 2026-10-26: "lets just have them all at the start only with the one allow all"): every setup
+    /// row not yet on, one-click popups first; Screen Recording last, since macOS restarts FERB after it (setup reopens
+    /// on this page). Automation can't be granted ahead (macOS asks per app at first use).
+    static let allowAllSequence = ["notifications", "microphone", "hearing", "clipboard", "input_monitoring",
+                                   "accessibility", "full_disk_access", "screen_recording"]
+    /// Answered in macOS's own popup: no wait for a switch afterwards.
+    static let answeredInPopup: Set<String> = ["notifications", "microphone", "hearing", "clipboard"]
     static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
         allowAllSequence.filter { id in rows.contains { $0.id == id && $0.status != .granted && $0.blocked.isEmpty } }
     }
@@ -65,6 +70,7 @@ final class SetupModel: ObservableObject {
         for id in Self.allowAllOrder(setupRows) {
             guard let row = allRows.first(where: { $0.id == id }) else { continue }
             await grant(row)
+            if Self.answeredInPopup.contains(id) { continue }
             for _ in 0..<180 {                       // up to 3 minutes for the owner to flip this one switch
                 await refreshPermissions()
                 if allRows.contains(where: { $0.id == id && $0.status == .granted }) { break }
