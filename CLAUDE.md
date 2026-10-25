@@ -57,8 +57,11 @@ look at a specific experiment only when needed. Historical documentation remains
    the confirmations, only an escape-hatch command (D31) and a retry of a consequential action with an unknown outcome
    (P19) wait for the owner; everything else runs and is logged.
 10. Nothing, the escape hatch included, lets FERB change its own audit records, protection rules, sandbox profile,
-    config or secrets helper, type into terminal apps, or bypass its network proxy (D31). This governs FERB's own
-    shell; a command FERB approves in another agent's prompt runs with that agent's permissions (D36, owner).
+    config or secrets helper, or bypass its network proxy (D31). This governs FERB's own shell; a command FERB approves
+    in another agent's prompt runs with that agent's permissions (D36, owner). Typing into any terminal (terminal apps
+    and terminals inside other apps, e.g. VS Code's) is enforced by code: FERB always asks the owner first, showing the
+    exact command, every time, with no standing permission; a No types nothing (owner, 2026-10-25: "it always has to
+    ask ALWAYS… make it code restricted").
 11. One worker per plan step, with the tools its identity and scopes allow; no reader role in any form (W1).
     Tools report the kind of action (W2); the final checker gets observation tools only (W4).
 12. One access level: full access, including Full Disk Access, made secure by design; no restricted mode (D16, D22).
