@@ -221,11 +221,15 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
     root = Path(temporary.name)
     import fcntl
     lock = os.open(root / RUN_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
-    fcntl.flock(lock, fcntl.LOCK_EX)                 # held while this run lives: a start's sweep leaves its folder
-    isolated = root / 'codex'
-    isolated.mkdir(mode=0o700)
-    workdir = root / 'work'
-    workdir.mkdir(mode=0o700)
+    isolated, workdir = root / 'codex', root / 'work'
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)             # held while this run lives: a start's sweep leaves its folder
+        isolated.mkdir(mode=0o700)
+        workdir.mkdir(mode=0o700)
+    except BaseException:                            # before the run exists, `cancel` can't release them
+        os.close(lock)
+        temporary.cleanup()
+        raise
     state: dict[str, Any] = {'app_server': True, 'temporary': temporary, 'proc': None, 'watcher': None,
         'seen': set(), 'violation': None, 'catalog_checked': asyncio.Event(), 'catalog_observed': False,
         'notifications': asyncio.Queue(), 'waiters': {}, 'reader': None, 'closed': False,

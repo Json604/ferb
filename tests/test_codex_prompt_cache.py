@@ -563,3 +563,31 @@ async def test_a_run_holds_its_folders_lock_until_it_ends(tmp_path: Path, monkey
     folder = lock.parent
     await stream.cancel(run)
     assert not folder.exists()
+
+
+@pytest.mark.anyio
+async def test_a_failed_setup_after_the_lock_closes_it_and_removes_the_folder(tmp_path: Path, monkeypatch) -> None:
+    """Final review: a failed mkdir after the lock is taken must not keep its file descriptor until the daemon exits."""
+    opened: list[int] = []
+    folders: list[Path] = []
+    real_open, real_mkdir = os.open, Path.mkdir
+
+    def tracking_open(path: Any, flags: int, mode: int = 0o777, **kw: Any) -> int:
+        fd = real_open(path, flags, mode, **kw)
+        if Path(path).name == stream.RUN_LOCK:
+            opened.append(fd)
+            folders.append(Path(path).parent)
+        return fd
+
+    def failing_mkdir(self: Path, *args: Any, **kw: Any) -> None:
+        if self.name == "codex" and self.parent.name.startswith(stream.RUN_PREFIX):
+            raise OSError("disk full")
+        real_mkdir(self, *args, **kw)
+    monkeypatch.setattr(stream.os, "open", tracking_open)
+    monkeypatch.setattr(Path, "mkdir", failing_mkdir)
+    with pytest.raises(OSError, match="disk full"):
+        await stream.start(_planner(tmp_path), TASK, PLANNER_REQUEST)
+    [fd] = opened
+    with pytest.raises(OSError):
+        os.fstat(fd)                                         # closed
+    assert not folders[0].exists()
