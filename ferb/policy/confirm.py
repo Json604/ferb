@@ -518,14 +518,23 @@ def _terminal(v: dict[str, str]) -> str:
     where = (f"the terminal {v['label']}" if v.get("label") else "the terminal") + f" in {v['app']}" + \
         (f" (window {v['window']})" if v.get("window") else "")
     if v.get("runs"):
-        facts = ([f"the editor's selection is {v['selection']}"] if v.get("selection") else []) + \
-            ([f"the active file is {v['file']}"] if v.get("file") else [])
-        kind = "menu" if v.get("menu") else "button"
-        return (f"press {v.get('menu') or v.get('control')} in {v['app']} (this {kind} runs things in its terminal"
-                + ("; " + ", ".join(facts) if facts else "") + ")")
+        if v.get("selection"):
+            facts = [f"the editor's selection is {v['selection']}"]
+        else:
+            facts = [f"the selection or current line in {v['file'] or 'the active editor'}, which FERB can't read"]
+        if v.get("file") and v.get("selection"):
+            facts.append(f"the active file is {v['file']}")
+        kind = "menu" if v.get("menu") else "control"
+        where = v.get("runs_where") or v["app"]
+        opens = (", and a terminal it opens may run its profile's startup command"
+                 if where.endswith("terminal") else "")
+        return (f"press {v.get('menu') or v.get('control')} in {v['app']} (this {kind} runs code in {where}{opens}"
+                + "; " + ", ".join(facts) + ")")
     if v.get("script"):
-        return (f"run the AppleScript {v['script']} in {v['app']} (a script there can run commands in a terminal or "
-                "type keys as you)")
+        return (f"run the AppleScript {v['script']} in {v['app']} (it runs with that app's own access, outside "
+                f"FERB's sandbox: {v['surface']})" + (f"; it names {v['files']}" if v.get("files") else ""))
+    if v.get("files"):
+        return f"open {v['files']} (in {v['app']})"
     if v.get("menu"):
         return f"press {v['menu']} in {where} (a terminal app's menu command can type into its terminal)"
     if v.get("secret"):

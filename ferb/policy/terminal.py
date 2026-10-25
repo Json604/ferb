@@ -26,6 +26,7 @@ Limit: a custom terminal panel that exposes none of these facts, in an app not l
 
 import json
 import re
+import unicodedata
 from typing import Any, Collection, Mapping, Sequence
 
 from ferb.core.types import TerminalInput
@@ -40,8 +41,16 @@ UNASKED = ("FERB types into a terminal only after the owner's Yes to that exact 
            "lists what it lifts), which asks the owner once")
 RETURN_KEYS = frozenset({"return", "enter"})        # a key that runs a terminal's command line
 TERMINAL_APPS = frozenset(b.casefold() for b in DEFAULT_TERMINAL_APPS)
-# System Events' keystrokes type into whatever has the keyboard focus, a terminal included: a script for it asks.
+# Apps that run code when a script tells them to (review rounds 1 and 2: System Events, O1, O4): a script for any of
+# them asks, showing the script. Data, one entry per app, by bundle id (casefolded).
 SYSTEM_EVENTS = "com.apple.systemevents"
+CODE_RUNNERS = {SYSTEM_EVENTS: "System Events, whose keystrokes type into whatever has the keyboard focus",
+                "com.apple.finder": ("Finder, which opens files with their default apps (a .command runs in "
+                                     "Terminal) and copies files with its own access, past FERB's protection lists"),
+                "com.apple.scripteditor2": "Script Editor, which runs scripts",
+                "com.apple.automator": "Automator, which runs workflows",
+                "com.apple.shortcuts.events": "Shortcuts Events, which runs shortcuts",
+                "com.apple.shortcuts": "Shortcuts, which runs shortcuts"}
 # Apps with a terminal panel whose focus Accessibility can't show (GPUI exposes no element tree): typing there asks.
 NO_FACTS_HOSTS = {"dev.zed.zed": "Zed", "dev.zed.zed-preview": "Zed Preview"}
 # Review round 1, finding 2: a menu-bar menu that operates an app's terminal or runs its code (the VS Code family's
@@ -53,7 +62,14 @@ RUN_MENUS = re.compile(r"(?i)^\s*(terminal|run|console|shell)\s*$")
 RUN_CLASSES = frozenset({"codicon-play", "codicon-run", "codicon-run-all", "codicon-run-above", "codicon-run-below",
                          "codicon-run-errors", "codicon-debug-start", "codicon-debug-alt", "codicon-debug-alt-small"})
 _RUN_LABEL = re.compile(r"(?i)^\s*(run|debug)(?![a-z])")
-_CONTROLS = frozenset({"AXButton", "AXMenuButton", "AXLink"})
+_CONTROLS = frozenset({"AXButton", "AXMenuButton", "AXLink", "AXMenuItem"})
+# Review round 2, N6: editors, by bundle id (the JetBrains family by its prefix), where a Run… or Debug… label on a
+# button or a context-menu item means running code in the app; elsewhere such a label decides nothing
+EDITOR_APPS = frozenset({"com.microsoft.vscode", "com.microsoft.vscodeinsiders", "com.todesktop.230313mzl4w4u92",
+                         "com.exafunction.windsurf", "com.vscodium", "com.visualstudio.code.oss",
+                         "com.google.android.studio", "com.apple.dt.xcode", "dev.zed.zed", "dev.zed.zed-preview",
+                         "com.panic.nova", "com.sublimetext.4"})
+TERMINAL_MENUS = re.compile(r"(?i)^\s*(terminal|console|shell)\s*$")       # a menu that operates the terminal itself
 # DOM classes a terminal library puts on its own nodes: xterm.js's root and its input textarea. Data, one entry per
 # library; a page's text never reaches this check.
 TERMINAL_CLASSES = frozenset({"xterm", "xterm-helper-textarea"})
@@ -116,29 +132,57 @@ def run_menu(path: Sequence[str]) -> bool:
     return bool(path) and bool(RUN_MENUS.match(path[0]))
 
 
-def run_control(chain: Sequence[Mapping[str, Any]]) -> str | None:
-    """Why a control runs code (its run icon class, or a native label starting with Run or Debug), else None."""
+def editor_app(bundle_id: str) -> bool:
+    """An editor app (N6): the VS Code family, JetBrains IDEs, Xcode, Zed, Nova, Sublime Text."""
+    b = bundle_id.casefold()
+    return b in EDITOR_APPS or b.startswith("com.jetbrains.")
+
+
+def run_control(chain: Sequence[Mapping[str, Any]], editor: bool = False) -> str | None:
+    """Why pressing this control runs code: its run icon class (any app), or, in an editor (`editor_app`), a button
+    without DOM classes or a menu item (a context menu's "Run Python File in Terminal") labelled Run… or Debug….
+    Else None."""
     if not chain or chain[0].get("role") not in _CONTROLS:
         return None
     f = chain[0]
     hit = RUN_CLASSES & {str(c).casefold() for c in f.get("dom_classes") or ()}
     if hit:
-        return f"a button that runs code (class {sorted(hit)[0]})"
-    if not f.get("dom_classes"):
+        return f"a control that runs code (class {sorted(hit)[0]})"
+    if editor and (f.get("role") == "AXMenuItem" or not f.get("dom_classes")):
         for k in _LABELS:
             v = f.get(k)
             if isinstance(v, str) and _RUN_LABEL.match(v):
-                return f"a button labelled {_quote(v)} (a label only: FERB asks rather than guess)"
+                return f"a control labelled {_quote(v)} (a label only: FERB asks rather than guess)"
     return None
 
 
+# Characters that print but draw blank (Hangul fillers, the halfwidth filler, the braille blank): escaped too.
+BLANK_GLYPHS = frozenset("\u3164\u115f\u1160\uffa0\u2800")
+
+
+def _hidden(c: str, before: str) -> bool:
+    """Whether a character would read as nothing (or as something else) in the question: non-printing ones (C0/C1,
+    DEL, line and paragraph separators, format characters, non-ASCII spaces), blank glyphs, and a combining mark
+    with no letter or digit before it (round 2: Unicode facts, never a meaning)."""
+    if not c.isprintable() or c in BLANK_GLYPHS or unicodedata.category(c) == "Cf":
+        return True
+    return unicodedata.category(c) == "Mn" and not (before and unicodedata.category(before)[0] in "LN")
+
+
 def visible(text: str, quote: bool = True) -> str:
-    """Text as the owner must see it to know what goes in (review round 1, finding 5): JSON-quoted (`quote`), and
-    every character that doesn't print (C0/C1 controls, DEL, line and paragraph separators, zero-width, bidi and other
-    format characters, non-ASCII spaces) written as a visible \\uXXXX escape. printable() would drop some silently."""
+    """Text as the owner must see it to know what goes in (review rounds 1 and 2, finding 5): JSON-quoted (`quote`),
+    and every character that would read as nothing written as a visible \\uXXXX escape (`_hidden`). printable()
+    would drop some silently; spaces stay as typed."""
     s = json.dumps(text, ensure_ascii=False) if quote else text
-    return "".join(c if c.isprintable() else (f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}")
-                   for c in s)
+    out, before = [], ""
+    for c in s:
+        if _hidden(c, before):
+            out.append(f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}")
+            before = ""
+        else:
+            out.append(c)
+            before = c
+    return "".join(out)
 
 
 def newline(text: str) -> bool:
@@ -160,10 +204,12 @@ def need(inp: TerminalInput) -> confirm.Need:
               "drag": "yes" if inp.drag else "", "runs": "yes" if inp.runs else "",
               "control": visible(inp.control) if inp.control else "",
               "selection": visible(inp.selection) if inp.selection else "",
-              "file": visible(inp.file) if inp.file else "",
+              "file": visible(inp.file) if inp.file else "", "runs_where": visible(inp.runs_where, False),
+              "files": "; ".join(f"{visible(path)}, which opens in a terminal app and runs {visible(text)}"
+                                 for path, _, text in inp.files),
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
               "enter": "yes" if inp.enter else ""}
     return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,
                                                   inp.secret, inp.script, inp.drag, inp.control, inp.selection,
-                                                  inp.file),
+                                                  inp.file, [(p, h) for p, h, _ in inp.files]),
                         values, always=True)

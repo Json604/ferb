@@ -1070,6 +1070,19 @@ After the owner's update (2026-10-24):
   redacted command (text holding a saved secret is refused), and the notch shows it as plain text. Typing checks the
   focus every 8 characters. The extension minimum is now 0.15.11, so a web terminal is never missed (an older copy
   gets the reload notice until the store copy updates).
+- FERB never operates its own apps (rule 8, rule 9, W2): a worker could press, click or type into the notch and answer
+  FERB's own question for you. Every Mac tool now refuses FERB's apps and the daemon itself; a click where a FERB
+  window would take it, typing while one is in front, and a System Events script naming one are refused.
+- The terminal question, second review (D31): an AppleScript now opens nothing and runs no program (`do shell
+  script` is refused, pointing to shell.run), and a script for Finder, Script Editor, Automator or Shortcuts asks,
+  showing it (Finder could open a `.command` in Terminal or copy FERB's own files with its own access). Opening a file
+  that runs in a terminal (a `.command`: a double-click, a press, ⌘O, File > Open) asks, showing the whole file and
+  binding the Yes to it. A run command asks however it is reached (its shortcut, a context menu, Space on a focused
+  run button), showing the active editor's selection, and the Yes holds only while that selection is unchanged. A
+  drop or a ⌘V into a web terminal asks (the clipboard shown), and a browser password never goes into one. A command
+  holding a saved secret is refused without showing it, spaces show as typed, blank-looking characters are escaped,
+  and the notch shows FERB's questions in a monospaced font. Ordinary typing no longer stops when an autocomplete
+  moves the focus, and typed-text capture skips the apps on your own terminal list too.
 - Send to developer (L35; owner, 2026-10-25: "just add a simple send to developer thing tho, whenever ferb says
   failed", "just send to ktky.attri@gmail.com as of now"). A failed task left its record only on your Mac. Under an
   answer whose task failed or was interrupted, or a turn that couldn't start, the notch now has a **Send to developer**

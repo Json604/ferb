@@ -1647,47 +1647,70 @@ the owner must answer first (`confirm.decide`):
     a pixel click on such an item (a context menu opened over a terminal) pastes the clipboard's text, shown, or
     "marked secret" for a password manager's concealed item; a drop onto a terminal, with the text selected where the
     drag began; a hidden secret filled into a terminal surface (named, never shown); any menu command of a terminal
-    app (the item shown, ⌘V or not); an AppleScript for a terminal app or System Events (whose keystrokes type into
-    whatever has focus: every such script asks, the strictest rule that still lets System Events UI reads run after a
-    Yes; the script shown); and any item of a menu-bar menu titled Terminal, Run, Console or Shell (the VS Code
-    family's Terminal and Run menus, JetBrains' Run: Run Selected Text, Run Active File, Run Task, New Terminal) or a
-    run button (VS Code's `codicon-play`/run/debug-start icon classes; natively a button labelled Run… or Debug…),
-    shown with the editor's selected text and the active file. `Gateway._terminal` asks after the call's span starts
+    app (the item shown, ⌘V or not); an AppleScript for a terminal app or an app that runs code when told to
+    (`terminals.CODE_RUNNERS`: System Events, whose keystrokes type into whatever has focus; Finder, which opens files
+    with their default apps and copies files with its own access, past FERB's protection lists; Script Editor,
+    Automator, Shortcuts): every such script asks, the script shown, the strictest rule that still lets their UI reads
+    run after a Yes; any item of a menu-bar menu titled Terminal, Run, Console or Shell (the VS Code family's Terminal
+    and Run menus, JetBrains' Run: Run Selected Text, Run Active File, Run Task, New Terminal, whose profile may run a
+    startup command) or a run control (VS Code's `codicon-play`/run/debug-start classes; in an editor app,
+    `terminals.editor_app`, a button or a context-menu item labelled Run… or Debug…), however it is reached: a press,
+    a pixel click, Space or Return on it while it has the focus, or a key the app's menus map to it (⇧⌘B is
+    "Terminal > Run Build Task…"), shown with the active editor's selection (its Monaco input inside the group VS
+    Code marks active, `accessibility.active_editor`, not whatever has the focus; "which FERB can't read" when it
+    can't) and its file; and opening a file whose Launch Services default app is a terminal app (a `.command`): a
+    double-click, an AX press on its item, a key or menu command while it is selected, or a Finder script naming
+    it, shown with its path and whole text and bound to its hash (`apps.default_app_for`, `accessibility.file_of`). `Gateway._terminal` asks after the call's span starts
     and before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at once, so the same text
     asks again, a retry included. A No is final for that exact input in the tree until the owner's own follow-up
     reopens it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
-  - *What the owner reads is what goes in* (review round 1). The question names the app, the terminal's own label
-    (clipped) and its window's title, and shows text JSON-quoted with every non-printing character (C0/C1, DEL,
-    line and paragraph separators, zero-width, bidi and other format characters, non-ASCII spaces) as a visible
-    `\uXXXX` (`terminal.visible`). Text a redaction would change is never typed: FERB refuses ("holds a saved
-    secret"; a secret goes in only through mac.secret); a shown paste, selection or script that redaction changes
-    says "(it contains a saved secret where it shows [redacted])". The notch shows FERB's own code-written questions
-    verbatim, never as Markdown (`DaemonApproval.plainText`), so backticks, asterisks and brackets read as typed.
+  - *What the owner reads is what goes in* (review rounds 1 and 2). The question names the app, the terminal's own
+    label (clipped) and its window's title, and shows text JSON-quoted with every character that would read as
+    nothing (C0/C1, DEL, line and paragraph separators, format characters, non-ASCII spaces, blank glyphs such as
+    U+3164 and U+2800, a combining mark with no base) as a visible `\uXXXX` (`terminal.visible`); runs of spaces stay
+    as typed (`Gateway._squash`). Any field (typed or pasted text, a selection, a script, a file) whose raw text a
+    redaction would change is refused before asking, the error naming the field, never the value
+    (`Gateway._secret_field`): a secret goes in only through mac.secret. The notch shows FERB's own code-written
+    questions verbatim and monospaced, never as Markdown (`DaemonApproval.plainText`).
   - *Enforced at delivery.* `MacComputerDriver._terminal_refusal` runs right before any text, value, edit, key or
     paste goes out (pid, ax_keyboard, ax_value, foreground): input that would reach a terminal is delivered only when
     the grant names exactly it, and the destination is the real keyboard focus after focusing (a container whose focus
     lands in a terminal counts); typed text goes in chunks of `TYPE_CHUNK` characters with the focus checked before
-    each, so a focus change mid-text gets none of the rest (an uncertain outcome). A delivered approved text arms one
+    each: approved terminal typing stops when the focus is anywhere else, other typing only when it moved into a
+    terminal (round 2, N4: an autocomplete may move the reported focus), and the rest isn't typed (an uncertain
+    outcome). A delivered approved text arms one
     Return in that element for that task (`_armed`): `terminal_input` reports it `covered_by`, and the gateway honours
-    it only as the task's very next acting call (`Gateway._terminal_arms`: any other acting call, a look aside, clears
-    it; the driver also disarms on any click, press, focus or pointer input). In another terminal, a second time, or
+    it only as the task's very next acting call (`Gateway._terminal_arms`: any other acting call clears it; an
+    observation tool doesn't; the driver also disarms on any click, press, focus or pointer input). In another terminal, a second time, or
     after anything else it asks. A paste's Yes holds while the pasteboard's change count is the one shown; a drop,
     a script, a secret and a menu or run press are delivered only as their Yes names them (`_pointer_refusal`,
     `script_refusal`, `secret_refusal`, `_run_refusal`). The browser driver (`ext_bridge._TabDriver.act`) does the
     same for an element the snapshot marked `terminal` (extension 0.15.11, now the minimum: an older one is refused at
-    hello), its one Return on the same
-    element id. mac.applescript runs under a profile whose Apple Events reach only the app the call names
-    (`(allow appleevent-send (appleevent-destination …))` after a deny: an event to any other app fails before it is
-    sent, -600, measured), so a script for Notes can't tell Terminal or System Events anything. The refusal says "FERB
-    types into a
-    terminal only after the owner's Yes to that exact input, every time (D31) … Run commands with FERB's shell tool;
-    if FERB's sandbox blocks a command you need, request the escape hatch".
+    hello), its one Return on the same element id, a drop onto it before the pointer path, a paste key with the
+    clipboard's text bound to its change count; a browser secret or login code into it is refused. mac.applescript
+    runs under a profile whose Apple Events reach only the app the call names (`(allow appleevent-send
+    (appleevent-destination …))` after a deny: an event to any other app fails before it is sent, -600, measured),
+    and that opens nothing and runs no program but osascript (`sandbox.APPS_LOCKDOWN`: lsopen denied, measured with
+    sandbox_check and no UI; `do shell script` fails, error 100013); a script holding `do shell script` is refused
+    first, naming shell.run. The refusal says "FERB types into a terminal only after the owner's Yes to that exact
+    input, every time (D31) … Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request
+    the escape hatch".
   - *Unchanged.* Clicks and focus into a terminal need nothing. No check uses a bundle list alone: every one goes
     through `terminals.surface` (the built-in list plus the owner's).
-  - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; editor keybindings that
-    run code (F5, ⇧⏎ in a Python editor) and run controls Accessibility doesn't expose; the task picked in Run
-    Task's list after the asked menu press; a pixel click on a run button whose label or class isn't exposed; a drop
-    whose text FERB can't read is asked as "something FERB can't read".
+  - *FERB's own apps* (rule 8, rule 9, W2; 2026-10-25). No Mac tool operates them, so a worker can't answer FERB's
+    own question in the notch: `MacComputerDriver.app()` refuses `front_window.FERB_APPS` and the daemon's process
+    (every tool resolves through it; `mac.open` refuses their bundle ids); a click or drag whose point a FERB window
+    would take is refused (`_own_point`: the system's hit test, which skips click-through overlays like FERB's own
+    cursor, else the topmost normal window), re-checked right before each step; typing or a key while a FERB app is in
+    front is refused; a System Events script naming one is refused, never asked. "FERB never operates its own app;
+    questions are answered by the owner".
+  - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; editor keybindings with
+    no menu key equivalent (⇧⏎ in a Python editor) and run controls Accessibility doesn't expose; the task picked in
+    Run Task's list after the asked menu press; the Command Palette and web IDE menus reached through browser.act; a
+    drop whose text FERB can't read is asked as "something FERB can't read"; a `.command` opened by an app FERB drives
+    in a way Accessibility doesn't show (its own open dialog). Shell startup files are in `never_write` for the shell
+    only (fs tools may change them, with S1 copies); VS Code's settings and tasks files and terminal profiles aren't
+    in any list, so a terminal FERB opens asks rather than trusts its profile.
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
   says `snapshot_error`, and `ferb doctor` shows the last failure in local time, or that snapshots are off (OPEN
   QUESTION 3).

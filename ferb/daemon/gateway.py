@@ -61,7 +61,7 @@ from ferb.clock import context
 from ferb.core import origin
 from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext, EscapeGrant, TerminalGrant
+from ferb.core.types import ToolContext, EscapeGrant, TerminalGrant, TerminalInput
 from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
 from ferb.daemon.server import caller_left
@@ -74,7 +74,7 @@ from ferb.policy.rules import EFFECTS, declare, declared_kinds
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.dictionary import ordinary_word
-from ferb.sanitize.redact import REDACTED, Redactor
+from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore, PayloadOutput
@@ -130,10 +130,8 @@ UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); no
 NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
 # D31, review round 1 finding 5: the question would show it redacted while the real value is typed
-TERMINAL_SECRET = ("this text holds a saved secret (FERB's question would show it as [redacted] while the real "
-                   "value is typed); FERB puts a saved secret into a terminal only through mac.secret, the owner's "
-                   "hidden input, never as typed text")
-SECRET_SPOT = f" (it contains a saved secret where it shows {REDACTED})"
+TERMINAL_SECRET = ("{field} holds a saved secret, so FERB neither shows it in a question nor puts it into a terminal; "
+                   "a saved secret goes in only through mac.secret, the owner's hidden input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 # L39: the kinds of call that can change the owner's files, whose named files the change record copies first
@@ -1145,19 +1143,27 @@ class Gateway:
             return None
         return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
 
-    def _one_line(self, text: str) -> str:
+    @staticmethod
+    def _squash(text: str, keep_spaces: bool = False) -> str:
+        """One line: whitespace runs collapsed to a space; with `keep_spaces` (a terminal question, D31 round 2:
+        `echo 'a    b'` must not read as `echo 'a b'`) only line breaks and other whitespace become a space, and runs
+        of spaces stay as typed (the values' own tabs and newlines are already visible escapes)."""
+        return re.sub(r"[^\S ]", " ", text) if keep_spaces else " ".join(text.split())
+
+    def _one_line(self, text: str, keep_spaces: bool = False) -> str:
         """A short line FERB's code wrote for the owner (an approval's `summary`): redacted, one line, no terminal
         control characters (its facts can hold a page's or an app's text)."""
-        return " ".join(printable(self.redact({"s": text})["s"]).split())
+        return self._squash(printable(self.redact({"s": text})["s"]), keep_spaces)
 
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str, typed: str = "") -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the text a send carries and the reason quoted and
-        clipped, redacted."""
+        clipped, redacted. A terminal question keeps runs of spaces as typed."""
+        keep = any(n.rule == confirm.TERMINAL_INPUT for n in needs)
         text = confirm.line(needs, " ".join(printable(call).split()),
                             quoted(self.redact({"w": why})["w"]) if why.strip() else "",   # redacted, then clipped
                             quoted(self.redact({"t": typed})["t"]) if typed.strip() else "")
-        return " ".join(printable(self.redact({"q": text})["q"]).split())
+        return self._squash(printable(self.redact({"q": text})["q"]), keep)
 
     def _typed_into(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> str:
         """The text this worker last typed into the page a send-declared input acts on (the same tool, the same tab),
@@ -1194,7 +1200,7 @@ class Gateway:
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, [YES, NO], key=text)
         if new:
-            ap.summary = self._one_line(confirm.summary(needs))
+            ap.summary = self._one_line(confirm.summary(needs), any(n.rule == confirm.TERMINAL_INPUT for n in needs))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": [YES, NO],
                                                 "task_id": grant.task_id, "summary": ap.summary})
@@ -1340,13 +1346,9 @@ class Gateway:
         if inp.covered_by is not None:                   # the Return after text the owner just said Yes to
             self.spans.update_input(span.id, {"terminal": {"confirmation": inp.covered_by, "covers": "return"}})
             return TerminalGrant(inp, inp.covered_by), None
-        if inp.text is not None and not inp.paste and self.redact({"t": inp.text})["t"] != inp.text:
-            return None, {"error": TERMINAL_SECRET}
+        if (field := self._secret_field(inp)) is not None:  # round 2, N1: on the raw text, before any escaping
+            return None, {"error": TERMINAL_SECRET.format(field=field)}
         need = terminals.need(inp)
-        # what the owner reads is what goes in: a value redaction would change says so at that spot, never silently
-        shown = {k: self.redact({"v": v})["v"] for k, v in need.values.items()}
-        need = dataclasses.replace(need, values={k: v + SECRET_SPOT if v != need.values[k] else v
-                                                 for k, v in shown.items()})
         root = rec.tree_id or grant.task_id
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
         if self.confirmations is None:                   # never skipped silently: no record, no input
@@ -1362,6 +1364,21 @@ class Gateway:
             self.confirmations.use(answer.ids[0])        # spent now: it never covers another input
         self.spans.update_input(span.id, {"terminal": {"confirmation": answer.ids[0]}})
         return TerminalGrant(inp, answer.ids[0]), None
+
+    def _secret_field(self, inp: TerminalInput) -> str | None:
+        """The first field of a terminal input whose raw text redaction would change (a saved secret, a credential's
+        shape), by its name for the owner, never its value; None when no field holds one (D31 round 2, N1)."""
+        fields = [("the text", inp.text if not inp.paste else None), ("the clipboard's text", inp.text if inp.paste
+                                                                       else None),
+                  ("the editor's selection", inp.selection), ("the active file's name", inp.file),
+                  ("the script", inp.script), ("the keys", inp.keys), ("the window's title", inp.window),
+                  ("the terminal's label", inp.label), ("the menu item", inp.menu), ("the control", inp.control)]
+        fields += [(f"the file {i + 1}", text) for i, (_, _, text) in enumerate(inp.files)]
+        fields += [(f"the path of file {i + 1}", path) for i, (path, _, _) in enumerate(inp.files)]
+        for name, raw in fields:
+            if raw and self.redact({"v": raw})["v"] != raw:
+                return name
+        return None
 
     async def _admin_password(self, grant: RunGrant, rec: Any) -> str | None:
         if not isinstance(self.redact, Redactor) or rec.task.request_id in self.state.approvals.unattended:

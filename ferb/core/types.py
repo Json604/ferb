@@ -261,6 +261,9 @@ class TerminalInput:
     control: str | None = None               # such a control, by its label ("Run Python File")
     selection: str | None = None             # the editor's selected text such a press would run
     file: str | None = None                  # the active file such a press would run
+    runs_where: str = ""                     # where such a press runs code: the app, or its terminal
+    # files the input would open in a terminal app (a .command): (path, sha256 of its contents, its text as shown)
+    files: tuple[tuple[str, str, str], ...] = ()
     label: str = ""                          # the terminal element's own label (VS Code: "Terminal 108, zsh …")
 
 

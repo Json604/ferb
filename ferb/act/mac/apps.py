@@ -124,6 +124,20 @@ def declares_shell(bundle_id: str) -> bool:
     return _shell_apps[key]
 
 
+def default_app_for(path: str) -> str | None:
+    """The bundle id of the app Launch Services would open this file with (a double-click, Finder's open), or None.
+    Read-only; nothing opens (D31 round 2, O1)."""
+    try:
+        from AppKit import NSWorkspace
+        from Foundation import NSBundle, NSURL
+        url = NSWorkspace.sharedWorkspace().URLForApplicationToOpenURL_(NSURL.fileURLWithPath_(path))
+        bundle = NSBundle.bundleWithURL_(url) if url is not None else None
+        ident = bundle.bundleIdentifier() if bundle is not None else None
+        return str(ident) if ident else None
+    except Exception:
+        return None
+
+
 def frontmost() -> RunningApp | None:
     """The app the owner is in. Accessibility's focused application first: NSWorkspace's "active" flag goes stale in
     a long-running daemon, which made FERB "put back" the wrong app and leave the owner on another

@@ -700,7 +700,20 @@ class _Tab:
     armed: tuple[str, str] | None = None
 
 
-REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
+def _read_clipboard() -> tuple[int, str | None, bool]:
+    from ferb.act.mac.clipboard import read_general
+    return read_general()
+
+
+REST_VERSION = "0.15.10"
+SECRET_TERMINAL = ("that's a terminal in the page: FERB puts no password or code into a terminal (D31); it would run "
+                   "as the owner's input there")
+
+
+def _no_secret_into_terminal(info: PageElement) -> None:
+    """D31 round 2, O3: a secret or a login code never goes into a web terminal (mac.secret asks for a native one)."""
+    if info.terminal:
+        raise Refused(SECRET_TERMINAL)   # the first extension with `rest` (L31): an older one is never sent it
 
 
 class _TabDriver:
@@ -725,6 +738,8 @@ class _TabDriver:
         self.task_resting: Callable[[str], bool] = lambda task: False
         self.task_root: Callable[[str], str] = lambda task: task      # daemon supplied: the task tree (tab cap)
         self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
+        # D31 round 2, O2: the Mac clipboard (change count, text, concealed) for a paste key into a web terminal
+        self.clipboard: Callable[[], tuple[int, str | None, bool]] = _read_clipboard
         self.redact_text: Callable[[str], str] = Redactor().text      # daemon supplied: its redactor (rule 14)
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
@@ -1094,6 +1109,10 @@ class _TabDriver:
 
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
+        if action.kind == "drag":                        # a drop onto a web terminal (D31 round 2, finding 4)
+            end = t.elements.get(action.end_element or "")
+            if end is not None and end[3].terminal and (refusal := self._terminal_refusal(t, el.element_id, action)):
+                raise Refused(refusal)
         if el.element_id in t.points or action.kind == "drag":
             return await self._pointer(t, el, action, intent_id)
         t.visual = None
@@ -1647,31 +1666,53 @@ class _TabDriver:
         hit = t.elements.get(element_id) if t else None
         return hit[3] if hit else None
 
-    def terminal_input(self, tab_id: str, element_id: str, kind: str, text: str | None) -> TerminalInput | None:
+    @staticmethod
+    def _pastes(text: str | None) -> bool:
+        """A paste key the extension turns into the page's paste command (⌘V, as Meta+V or cmd+v)."""
+        parts = [p.strip().casefold() for p in (text or "").replace("-", "+").split("+")]
+        return len(parts) > 1 and parts[-1] == "v" and bool({"cmd", "meta", "command"} & set(parts[:-1]))
+
+    def terminal_input(self, tab_id: str, element_id: str, kind: str, text: str | None,
+                       end_element: str | None = None) -> TerminalInput | None:
         """D31: what this act would put into a web terminal (the snapshot marked the element inside xterm.js's own
-        nodes), for the gateway's question, else None. A Return on the element FERB just typed approved text into is
+        nodes), for the gateway's question, else None: typed text, a key, a paste key (the clipboard's text, O2) or
+        a drag dropped onto it (round 2, finding 4). A Return on the element FERB just typed approved text into is
         covered by that Yes (`covered_by`)."""
         t = self._tabs.get(tab_id)
-        info = self.element_info(tab_id, element_id)
-        if t is None or info is None or not info.terminal or kind not in ("type", "press") or text is None:
+        if t is None:
             return None
         host = urlsplit(t.url or "").hostname or ""
         app, bid = (f"the page on {host}" if host else "a web page"), f"web:{host}"
         why = "a terminal in the page (xterm.js)"
+        if kind == "drag":
+            end = self.element_info(tab_id, end_element or "")
+            return TerminalInput(app, bid, why, drag=True) if end is not None and end.terminal else None
+        info = self.element_info(tab_id, element_id)
+        if info is None or not info.terminal or kind not in ("type", "press") or text is None:
+            return None
         if kind == "type":
             return TerminalInput(app, bid, why, text=text, enter=not terminals.newline(text))
+        if self._pastes(text):
+            count, pasted, concealed = self.clipboard()
+            return TerminalInput(app, bid, why, text=pasted, paste=True, concealed=concealed, clipboard=count,
+                                 enter=pasted is not None and not terminals.newline(pasted))
         if text.strip().casefold() in terminals.RETURN_KEYS and t.armed is not None and t.armed[0] == element_id:
             return TerminalInput(app, bid, why, keys="return", covered_by=t.armed[1])
         return TerminalInput(app, bid, why, keys=text)
 
-    @staticmethod
-    def _terminal_refusal(t: _Tab, element_id: str, action: BrowserAction) -> str | None:
+    def _terminal_refusal(self, t: _Tab, element_id: str, action: BrowserAction) -> str | None:
         """Right before input is sent into a web terminal: None when the owner's Yes names exactly this input (a Return
-        only on the element the approved text went into), else the refusal; nothing is sent then."""
+        only on the element the approved text went into, a paste only while the clipboard is the one shown, a drop
+        only with a Yes to it), else the refusal; nothing is sent then."""
         g = action.terminal
+        if g is not None and action.kind == "drag" and g.input.drag:
+            return None
         if g is not None and action.kind == "type" and g.input.text == action.text and not g.input.keys:
             return None
-        if g is not None and action.kind == "press" and action.text is not None:
+        if action.kind == "press" and self._pastes(action.text):
+            if g is not None and g.input.paste and self.clipboard()[0] == g.input.clipboard:
+                return None
+        elif g is not None and action.kind == "press" and action.text is not None:
             if g.input.covered_by is not None:
                 if (action.text.strip().casefold() in terminals.RETURN_KEYS and g.input.covered_by == g.confirmation_id
                         and t.armed == (element_id, g.confirmation_id)):
@@ -1874,6 +1915,7 @@ class Router(_TabDriver):
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         self.owned_by(el.tab.tab_id, ctx.task_id)
+        _no_secret_into_terminal(info)
         if not info.code_fill:      # the extension's own fill rule, known before anyone is asked (rule 9)
             raise Refused("that field takes no login code: select a visible one-time-code field, not a password or "
                           "an ordinary text field")
@@ -1904,6 +1946,7 @@ class Router(_TabDriver):
                            remember: str | None = None, split_elements: list[str] | None = None) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         self.owned_by(el.tab.tab_id, ctx.task_id)
+        _no_secret_into_terminal(info)
         if info.role not in {"textbox", "searchbox", "combobox"} and not info.input_type:
             raise Refused("select an exact text field from a fresh snapshot")
         refs = [el]
@@ -1991,7 +2034,8 @@ class FerbIdentity(_TabDriver):
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
             raise Refused(f"no secret {ref.key} is set up")
-        t, frame, snap, local, _ = self._resolve(el)
+        t, frame, snap, local, info = self._resolve(el)
+        _no_secret_into_terminal(info)
         origin = await self._checked_origin(t, frame, ref)
         try:
             value = await self._store._reveal(ref)
@@ -2017,7 +2061,8 @@ class FerbIdentity(_TabDriver):
                        intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
             raise Refused(f"no account {ref.key} is set up")
-        t, frame, snap, local, _ = self._resolve(el)
+        t, frame, snap, local, info = self._resolve(el)
+        _no_secret_into_terminal(info)
         origin = await self._checked_origin(t, frame, ref)
         mailbox = self._otp_inventory.get((t.owner, ref.key, origin))
         if mailbox is None:

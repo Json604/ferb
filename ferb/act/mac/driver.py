@@ -5,7 +5,10 @@ Agents choose methods and retries; this driver never substitutes targets, replay
 import asyncio
 import contextlib
 import dataclasses
+import hashlib
 import math
+import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -412,6 +415,8 @@ class MacComputerDriver:
         if terminals.run_menu(path):                     # a menu that runs things in its terminal (finding 2)
             if refusal := self._run_refusal(a, terminal, menu=" > ".join(path)):
                 raise Refused(refusal)
+        elif refusal := await asyncio.to_thread(lambda: self._files_refusal(a, self._selected_files(a), terminal)):
+            raise Refused(refusal)                       # a menu command with a .command selected (O1)
         elif await asyncio.to_thread(self._menu_pastes, a, path):        # ⌘V's item pastes into the app's focus (D31)
             focus = await asyncio.to_thread(self._focus, a)
             if refusal := await asyncio.to_thread(self._terminal_refusal, a, focus, terminal, task, None, "cmd+v"):
@@ -905,32 +910,77 @@ class MacComputerDriver:
         return terminals.surface(a.bundle_id, chain, self.terminal_apps(),
                                  bool(shell(a.bundle_id)) if callable(shell) else False)
 
-    def _run_input(self, a: Any, menu: str | None = None, control: str | None = None,
-                   why: str = "") -> TerminalInput:
-        """Blocking (review round 1, finding 2): a press that runs things in the app's terminal, with what it would
-        run: the focused editor's selected text and its window's file."""
-        focus = self._focus(a)
+    def _run_facts(self, a: Any) -> tuple[str | None, str | None]:
+        """Blocking (review round 2, N2): what a run press would run, as the editor holds it now: the active editor's
+        selected text (its text element, not whatever has the focus; VS Code marks its active editor group) and its
+        file. Without an active editor FERB can read, the focused element if it is a text field that isn't a
+        terminal. (None, file) when FERB can't read the selection: the question says so."""
+        active = getattr(self.ax, "active_editor", None)
+        editor = active(a.pid) if callable(active) else None
+        if editor is None:
+            focus = self._focus(a)
+            editor = focus if focus is not None and self._terminal_why(a, focus) is None and \
+                self._role(focus) in ("AXTextArea", "AXTextField") else None
         selected = getattr(self.ax, "selected_text", None)
         document = getattr(self.ax, "document_of", None)
-        return TerminalInput(a.name, a.bundle_id, why or f"a menu or button that runs things in {a.name}'s terminal",
-                             menu=menu, control=control, runs=True,
-                             selection=selected(focus) if callable(selected) and focus is not None else None,
-                             file=document(focus) if callable(document) and focus is not None else None)
+        return (selected(editor) if callable(selected) and editor is not None else None,
+                document(editor) if callable(document) and editor is not None else None)
+
+    def _run_input(self, a: Any, menu: str | None = None, control: str | None = None,
+                   why: str = "") -> TerminalInput:
+        """Blocking (review rounds 1 and 2, finding 2): a press that runs code, with what it would run (`_run_facts`)
+        and where: the app's terminal for its Terminal (or Console, Shell) menu, else the app."""
+        selection, file = self._run_facts(a)
+        where = f"{a.name}'s terminal" if menu and terminals.TERMINAL_MENUS.match(menu.split(" > ")[0]) else a.name
+        return TerminalInput(a.name, a.bundle_id, why or f"a menu or control that runs code in {where}",
+                             menu=menu, control=control, runs=True, selection=selection, file=file,
+                             runs_where=where)
 
     def _run_refusal(self, a: Any, grant: TerminalGrant | None, menu: str | None = None,
                      control: str | None = None) -> str | None:
-        """Blocking, right before a run press: None when the owner's Yes names exactly this menu item or control."""
+        """Blocking, right before a run press: None when the owner's Yes names exactly this menu item or control and
+        the editor still holds what the question showed (N3: the selection and file re-read now)."""
         g = grant.input if grant is not None and grant.input.bundle_id == a.bundle_id else None
         if g is not None and g.runs and ((menu is not None and g.menu == menu) or
                                          (control is not None and g.control == control)):
-            return None
-        return terminals.UNASKED.format(why=f"a menu or button that runs things in its terminal "
-                                            f"({menu or control})", app=a.name)
+            if self._run_facts(a) == (g.selection, g.file):
+                return None
+            return ("what this would run changed since the owner's Yes (the editor's selection or file), so nothing "
+                    "was pressed; call it again and FERB asks with what it would run now (D31)")
+        return terminals.UNASKED.format(why=f"a menu or control that runs code ({menu or control})", app=a.name)
 
-    def _runs(self, el: Any) -> str | None:
-        """Blocking: why pressing this element runs code (policy/terminal.py `run_control`), else None."""
+    def _runs(self, a: Any, el: Any) -> str | None:
+        """Blocking: why pressing this element runs code (policy/terminal.py `run_control`; a label counts only in
+        an editor app, N6), else None."""
         facts = getattr(self.ax, "surface_facts", None)
-        return terminals.run_control(facts(el)) if el is not None and callable(facts) else None
+        return (terminals.run_control(facts(el), terminals.editor_app(a.bundle_id))
+                if el is not None and callable(facts) else None)
+
+    @staticmethod
+    def _shortcut(parts: list[str]) -> bool:
+        """A key an app's menus may carry as a command's key equivalent: one with a modifier, or a function key."""
+        return len(parts) > 1 or bool(re.fullmatch(r"f\d{1,2}", parts[-1] if parts else ""))
+
+    def _shortcut_menu(self, a: Any, parts: list[str]) -> str | None:
+        """Blocking (round 2, 2a): the menu path a key press triggers (the app's own key equivalent), else None."""
+        lookup = getattr(self.ax, "menu_item_for_shortcut", None)
+        if not parts or not self._shortcut(parts) or not callable(lookup):
+            return None
+        found = lookup(a.pid, parts[-1], parts[:-1])
+        return str(found[1]) if found else None
+
+    def _key_run(self, a: Any, combo: str) -> tuple[str | None, str | None]:
+        """Blocking: the run command a key would trigger: (the menu path its key equivalent presses, None), or (None,
+        the focused run control's label) for Space or Return on one (2c); else (None, None)."""
+        parts = normalize(combo)
+        path = self._shortcut_menu(a, parts)
+        if path and terminals.run_menu(path.split(" > ")):
+            return path, None
+        if parts in (["space"], ["return"]):
+            focus = self._focus(a)
+            if focus is not None and self._runs(a, focus):
+                return None, str(getattr(self.ax, "place_of", lambda el: ("", ""))(focus)[1] or "a run control")
+        return None, None
 
     def _terminal_app(self, a: Any) -> bool:
         """Blocking: a terminal by the app alone (its bundle id, its Info.plist, Zed): there every menu command can
@@ -972,7 +1022,9 @@ class MacComputerDriver:
         pastes, item = False, None
         if action.kind in ("press", "click") and action.element:
             n = self.node(a.bundle_id, action.element)
-            if why_run := self._runs(n.ref):              # a run button (review round 1, finding 2)
+            if opened := self._files_input(a, [self._element_file(n.ref)]):   # a .command item (round 2, O1)
+                return opened
+            if why_run := self._runs(a, n.ref):           # a run control (rounds 1 and 2, finding 2)
                 return self._run_input(a, control=n.label, why=why_run)
             pastes = n.ax_role == "AXMenuItem" and self._item_pastes(n.ref)
             item = n.label if n.ax_role == "AXMenuItem" and not pastes and self._terminal_app(a) else None
@@ -980,6 +1032,12 @@ class MacComputerDriver:
                 return None
         elif action.kind != "key" or not action.text or not valid_combo(action.text):
             return None
+        elif opened := self._files_input(a, self._selected_files(a)):        # a key with a .command selected (O1)
+            return opened
+        if action.kind == "key":                           # a key that presses a run command (round 2, 2a, 2c)
+            path, control = self._key_run(a, action.text or "")
+            if path or control:
+                return self._run_input(a, menu=path, control=control)
         focus = self._focus(a)
         why = self._terminal_why(a, focus)
         if why is None:
@@ -996,24 +1054,98 @@ class MacComputerDriver:
         return self._placed(TerminalInput(a.name, a.bundle_id, why, keys="+".join(parts)), focus)
 
     def _script_why(self, a: Any) -> str | None:
-        """Blocking: why a script for this app needs the owner's Yes: a terminal app, or System Events."""
-        if a.bundle_id.casefold() == terminals.SYSTEM_EVENTS:
-            return "System Events, whose keystrokes type into whatever has the keyboard focus"
-        return self._terminal_why(a, None)
+        """Blocking: why a script for this app needs the owner's Yes: a terminal app, or an app that runs code when
+        told to (System Events, Finder, Script Editor, Automator, Shortcuts: policy/terminal.py `CODE_RUNNERS`)."""
+        return terminals.CODE_RUNNERS.get(a.bundle_id.casefold()) or self._terminal_why(a, None)
+
+    @staticmethod
+    def _script_paths(script: str) -> list[str]:
+        """The existing files a script names in quotes (a POSIX path or one under ~): their facts go in its question."""
+        found = []
+        for literal in re.findall(r'"([^"\n]+)"', script):
+            path = os.path.expanduser(literal)
+            if path.startswith("/") and os.path.isfile(path):
+                found.append(path)
+        return found
 
     def script_terminal_input(self, app: str, script: str) -> TerminalInput | None:
-        """Blocking: an AppleScript for a terminal app or System Events (D31 review round 1, finding 1; the sandbox
-        lets a script reach only the app it names): the script, else None."""
+        """Blocking: an AppleScript for a terminal app or an app that runs code (D31 review rounds 1 and 2; the
+        sandbox lets a script reach only the app it names): the script, with each file it names that opens in a
+        terminal app (path, hash, text), else None."""
         a = self.app(app)
         why = self._script_why(a)
-        return None if why is None else TerminalInput(a.name, a.bundle_id, why, script=script)
+        return None if why is None else TerminalInput(a.name, a.bundle_id, why, script=script,
+                                                      files=self._open_files(self._script_paths(script)))
 
     def script_refusal(self, a: Any, script: str, grant: TerminalGrant | None) -> str | None:
-        """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it."""
+        """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it (and to the
+        exact contents of each file it names that opens in a terminal)."""
         why = self._script_why(a)
-        if why is None or (grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.script == script):
+        if why is None:
+            return None
+        if grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.script == script and \
+                self._files_covered(self._script_paths(script), grant):
             return None
         return terminals.UNASKED.format(why=why, app=a.name)
+
+    # ---- files that open in a terminal app (review round 2, O1)
+
+    def _opens_in_terminal(self, path: str) -> bool:
+        """Blocking: Launch Services would open this file with a terminal app (a .command in Terminal)."""
+        default = getattr(self.apps, "default_app_for", None)
+        bundle = default(path) if callable(default) else None
+        if not bundle:
+            return False
+        shell = getattr(self.apps, "declares_shell", None)
+        return terminals.surface(bundle, [], self.terminal_apps(),
+                                 bool(shell(bundle)) if callable(shell) else False) is not None
+
+    @staticmethod
+    def _file_facts(path: str) -> tuple[str, str, str]:
+        """(path, sha256 of its contents, its text as the owner should read it; a binary file says so)."""
+        try:
+            data = open(path, "rb").read()
+        except OSError:
+            return path, "", "(a file FERB can't read)"
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = f"(a binary file of {len(data)} bytes)"
+        return path, hashlib.sha256(data).hexdigest(), text
+
+    def _open_files(self, paths: Collection[str | None]) -> tuple[tuple[str, str, str], ...]:
+        """Blocking: the facts of each file among `paths` that opens in a terminal app."""
+        return tuple(self._file_facts(p) for p in dict.fromkeys(p for p in paths if p) if self._opens_in_terminal(p))
+
+    def _files_covered(self, paths: Collection[str | None], grant: TerminalGrant | None) -> bool:
+        """Blocking: every file among `paths` that opens in a terminal app is in the owner's Yes, with these exact
+        contents (re-hashed now)."""
+        need = self._open_files(paths)
+        approved = {(p, h) for p, h, _ in grant.input.files} if grant is not None else set()
+        return all((p, h) in approved for p, h, _ in need)
+
+    def _element_file(self, el: Any) -> str | None:
+        file_of = getattr(self.ax, "file_of", None)
+        return file_of(el) if callable(file_of) and el is not None else None
+
+    def _selected_files(self, a: Any) -> list[str | None]:
+        """Blocking: the files selected in the app's focused container (Finder's selection), for a key or menu."""
+        items = getattr(self.ax, "selected_items", None)
+        return [self._element_file(el) for el in (items(a.pid) if callable(items) else [])]
+
+    def _files_input(self, a: Any, paths: Collection[str | None]) -> TerminalInput | None:
+        files = self._open_files(paths)
+        return None if not files else TerminalInput(a.name, a.bundle_id, "a file that opens in a terminal app",
+                                                    files=files)
+
+    def _files_refusal(self, a: Any, paths: Collection[str | None], grant: TerminalGrant | None) -> str | None:
+        """Blocking, right before input that can open these files: None unless one opens in a terminal app and the
+        owner's Yes doesn't name it with these exact contents."""
+        if not self._open_files(paths):
+            return None
+        if grant is not None and grant.input.bundle_id == a.bundle_id and self._files_covered(paths, grant):
+            return None
+        return terminals.UNASKED.format(why="a file that opens in a terminal app and runs", app=a.name)
 
     def _hit(self, a: Any, shot_id: str, x: float, y: float) -> Any:
         """Blocking: the element under (x, y) of the app's latest screenshot, or None."""
@@ -1034,9 +1166,11 @@ class MacComputerDriver:
         that pastes (⌘V) while a terminal has the focus (a context menu opened over it), or any menu item of a
         terminal app; a drag whose drop point is a terminal, with the text selected where it begins. Else None."""
         a = self.app(app)
+        if kind == "dblclick" and (opened := self._files_input(a, [self._element_file(self._hit(a, shot_id, x, y))])):
+            return opened                                # a double-click opens the file (round 2, O1)
         if kind in ("click", "dblclick"):
             item = self._hit(a, shot_id, x, y)
-            if item is not None and (why_run := self._runs(item)):          # a run button (finding 2)
+            if item is not None and (why_run := self._runs(a, item)):       # a run control (finding 2)
                 title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
                 return self._run_input(a, control=str(title or "a run button"), why=why_run)
             if item is None or self._role(item) != "AXMenuItem":
@@ -1067,9 +1201,12 @@ class MacComputerDriver:
                          end: tuple[float, float] | None, grant: TerminalGrant | None, task: str | None) -> str | None:
         """Blocking, right before pointer input goes out: None unless it would put something into a terminal that
         the owner's Yes doesn't name (`pointer_terminal_input`'s cases)."""
+        if kind == "dblclick" and (refusal := self._files_refusal(a, [self._element_file(self._hit(a, shot_id, x, y))],
+                                                                  grant)):
+            return refusal                               # a double-click opens the file (round 2, O1)
         if kind in ("click", "dblclick"):
             item = self._hit(a, shot_id, x, y)
-            if item is not None and self._runs(item):
+            if item is not None and self._runs(a, item):
                 title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
                 return self._run_refusal(a, grant, control=str(title or "a run button"))
             if item is None or self._role(item) != "AXMenuItem":
@@ -1112,6 +1249,8 @@ class MacComputerDriver:
         if terminals.run_menu(path):                     # a menu that runs things in its terminal (finding 2)
             return self._run_input(a, menu=" > ".join(path),
                                    why=f"a menu that runs things in {a.name}'s terminal ({path[0]})")
+        if opened := self._files_input(a, self._selected_files(a)):        # a menu command with a .command selected
+            return opened
         pastes = self._menu_pastes(a, path)
         if not pastes and not self._terminal_app(a):
             return None
@@ -1183,6 +1322,12 @@ class MacComputerDriver:
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r}")
+            if refusal := await asyncio.to_thread(lambda: self._files_refusal(a, self._selected_files(a), terminal)):
+                raise Refused(refusal)                   # a key with a .command selected can open it (O1)
+            path, control = await asyncio.to_thread(self._key_run, a, action.text)
+            if (path or control) and (refusal := await asyncio.to_thread(self._run_refusal, a, terminal, path,
+                                                                         control)):
+                raise Refused(refusal)                   # a key that presses a run command (round 2, 2a, 2c)
             focus = await asyncio.to_thread(self._focus, a)              # keys go to the app's focus (D31)
             into = await self._terminal_check(a, focus, terminal, task, keys=action.text)
             r = await self._key(a, action.text, holder, task, mechanism)
@@ -1196,11 +1341,15 @@ class MacComputerDriver:
         n = self.node(a.bundle_id, action.element)
         if action.kind not in ("type", "set_value", "edit"):
             self._armed.pop(a.pid, None)                 # D31: a press, focus or pick ends a covered Return
+        if action.kind in ("press", "click"):            # pressing a .command item can open it (round 2, O1)
+            if refusal := await asyncio.to_thread(lambda: self._files_refusal(a, [self._element_file(n.ref)],
+                                                                              terminal)):
+                raise Refused(refusal)
         if n.secret and action.kind in ("set_value", "type", "edit"):
             raise Refused("that's a password field; FERB never types passwords for the owner")
         if mechanism == "foreground":
             if action.kind in {"press", "click"}:
-                if await asyncio.to_thread(self._runs, n.ref):           # a run button (finding 2)
+                if await asyncio.to_thread(self._runs, a, n.ref):        # a run control (finding 2)
                     if refusal := self._run_refusal(a, terminal, control=n.label):
                         raise Refused(refusal)
                 if n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._item_pastes, n.ref):
@@ -1229,7 +1378,7 @@ class MacComputerDriver:
                 def chunk_check(i: int, step: Step) -> Step:
                     def post() -> None:
                         if i and i % TYPE_CHUNK == 0 and landed:
-                            self._focus_moved(a, landed[0], i, len(steps))
+                            self._focus_moved(a, landed[0], i, len(steps), len(landed) > 1)
                         step.post()
                     return Step(step.what, post)
                 r = await self._real(a, [chunk_check(i, step) for i, step in enumerate(steps)], holder, "typing",
@@ -1241,7 +1390,7 @@ class MacComputerDriver:
         if action.kind in ("press", "click"):
             if mechanism != "ax":
                 raise Refused("press uses AX; use mac.pointer for process/window mouse input")
-            if await asyncio.to_thread(self._runs, n.ref):               # a run button (finding 2)
+            if await asyncio.to_thread(self._runs, a, n.ref):            # a run control (finding 2)
                 if refusal := self._run_refusal(a, terminal, control=n.label):
                     raise Refused(refusal)
             if n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._item_pastes, n.ref):
@@ -1349,20 +1498,24 @@ class MacComputerDriver:
         focus = await asyncio.to_thread(self._focus, a)                  # where the keystrokes land (D31)
         landed = focus if focus is not None else n.ref
         into = await self._terminal_check(a, landed, terminal, task, text=text)
-        r = await self._typed(a, n, text, holder, mechanism, landed if focus is not None else None)
+        r = await self._typed(a, n, text, holder, mechanism, landed if focus is not None else None, into)
         if into:
             self._terminal_typed(a, landed, terminal, task, r.ok)
         return r
 
-    def _focus_moved(self, a: Any, landed: Any, done: int, total: int) -> None:
-        """Blocking, between chunks of typed text (D31): the keyboard focus must still be where typing began, so a
-        focus change mid-text (into a terminal, say) gets none of the rest."""
+    def _focus_moved(self, a: Any, landed: Any, done: int, total: int, strict: bool = False) -> None:
+        """Blocking, between chunks of typed text (D31): approved terminal typing (`strict`) stops when the keyboard
+        focus is anywhere but where it began; other typing (round 2, N4: an autocomplete may move the reported focus)
+        stops only when the focus moved into a terminal. Either way the rest isn't typed."""
         now = self._focus(a)
-        if now is None or not self._same_el(now, landed):
+        if strict and (now is None or not self._same_el(now, landed)):
             raise PointerInterrupted(f"the keyboard focus moved after {done} of {total} characters, so the rest "
                                      "wasn't typed; check the field and the app before trying again")
+        if not strict and now is not None and not self._same_el(now, landed) and self._terminal_why(a, now):
+            raise PointerInterrupted(f"the keyboard focus moved into a terminal after {done} of {total} characters, "
+                                     "so the rest wasn't typed; check the field and the app before trying again")
 
-    def _chunked(self, a: Any, steps: list[Step], landed: Any) -> list[Step]:
+    def _chunked(self, a: Any, steps: list[Step], landed: Any, strict: bool = False) -> list[Step]:
         """Typing steps (one per character) with the focus checked before each chunk after the first."""
         if landed is None:
             return steps
@@ -1370,23 +1523,23 @@ class MacComputerDriver:
         def guarded(i: int, step: Step) -> Step:
             def post() -> None:
                 if i and i % TYPE_CHUNK == 0:
-                    self._focus_moved(a, landed, i, len(steps))
+                    self._focus_moved(a, landed, i, len(steps), strict)
                 step.post()
             return Step(step.what, post)
         return [guarded(i, step) for i, step in enumerate(steps)]
 
     async def _typed(self, a: Any, n: axm.AxNode, text: str, holder: str, mechanism: str,
-                     landed: Any = None) -> ActionResult:
+                     landed: Any = None, strict: bool = False) -> ActionResult:
         before = await asyncio.to_thread(self.ax.value, n.ref)
         sig = await self._signature(a)
         if mechanism == "pid":
-            await self.input.to_process(self._chunked(a, type_steps(text, a.pid), landed), holder)
+            await self.input.to_process(self._chunked(a, type_steps(text, a.pid), landed, strict), holder)
             accepted = True
         else:
             accepted = True
             for i in range(0, len(text), TYPE_CHUNK):
                 if i and landed is not None:
-                    await asyncio.to_thread(self._focus_moved, a, landed, i, len(text))
+                    await asyncio.to_thread(self._focus_moved, a, landed, i, len(text), strict)
                 accepted = await asyncio.to_thread(self.ax.post_text, a.pid, text[i:i + TYPE_CHUNK]) and accepted
         await asyncio.sleep(SETTLE_S)
         after = await asyncio.to_thread(self.ax.value, n.ref)

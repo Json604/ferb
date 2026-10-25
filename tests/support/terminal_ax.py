@@ -304,3 +304,19 @@ def terminal_mac(mp: pytest.MonkeyPatch, ax: TerminalAx, apps: TerminalApps | No
     d.clipboard = lambda: board[0]
     d.board = board                                           # type: ignore[attr-defined]   (a test copies anew)
     return d
+
+
+FINDER = "com.apple.finder"
+
+
+def finder_ax(files: dict[str, str], selected: tuple[str, ...] = ()) -> TerminalAx:
+    """A Finder window: each element is a file item (an AXImage whose AXURL is the file), `selected` the selection."""
+    ax = TerminalAx({el: [{"role": "AXImage", "title": path.rsplit("/", 1)[-1]}, {"role": "AXGroup"},
+                          {"role": "AXWindow", "title": "Desktop"}, {"role": "AXApplication", "title": "Finder"}]
+                     for el, path in files.items()}, focused=None,
+                    labels={el: path.rsplit("/", 1)[-1] for el, path in files.items()})
+    ax.file_paths = dict(files)                                   # type: ignore[attr-defined]
+    ax.selection = list(selected)                                 # type: ignore[attr-defined]
+    ax.file_of = lambda el: ax.file_paths.get(el)                 # type: ignore[attr-defined]
+    ax.selected_items = lambda pid: list(ax.selection)            # type: ignore[attr-defined]
+    return ax

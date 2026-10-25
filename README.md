@@ -523,8 +523,9 @@ JupyterLab, a cloud shell), by the classes xterm.js puts on its own elements; a 
 label names a terminal, console or shell (JetBrains IDEs' Terminal tool window, Xcode's console, Nova); and any
 typing in Zed, whose terminal panel shows Accessibility nothing. The same question comes before a paste or a drop
 into a terminal, a hidden secret into one, a terminal app's menu commands, an editor's Terminal or Run menu items and
-run buttons (with the selection and file they would run), and an AppleScript for a terminal app or System Events. A
-click into a terminal needs no question. Not recognized: a custom terminal panel that exposes none of these facts, and
+run buttons (with the selection and file they would run), an AppleScript for a terminal app or for an app that runs
+code or opens files (System Events, Finder, Script Editor, Automator, Shortcuts), and opening a file that runs in a
+terminal (a `.command`, shown in full). A click into a terminal needs no question. Not recognized: a custom terminal panel that exposes none of these facts, and
 editor keybindings that run code.
 
 For a scheduled campaign (posts at set times), say the exact site and handle when you create the schedule, for

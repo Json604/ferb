@@ -704,6 +704,53 @@ def surface_facts(el: Any) -> list[dict[str, Any]]:
     return chain
 
 
+def file_of(el: Any) -> str | None:
+    """The file an item stands for (Finder's icons and rows carry AXURL, a file reference URL), on the element or its
+    parent, as a path; None when it shows none. Read-only."""
+    for candidate in (el, _attr(el, "AXParent")):
+        url = _attr(candidate, "AXURL")
+        if url is not None:
+            try:
+                path = url.filePathURL().path() if hasattr(url, "filePathURL") else None
+            except Exception:
+                path = None
+            if path:
+                return str(path)
+    return None
+
+
+def selected_items(pid: int) -> list[Any]:
+    """The items selected in the app's focused container (AXSelectedChildren), e.g. Finder's selected files."""
+    import ApplicationServices as AX
+    focus = _attr(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    return list(_attr(focus, "AXSelectedChildren") or []) if focus is not None else []
+
+
+# D31 round 2, N2: the editor text element Monaco (the VS Code family) puts inside its active editor group
+EDITOR_INPUT_CLASSES = frozenset({"inputarea", "native-edit-context"})
+ACTIVE_GROUP_CLASSES = frozenset({"editor-group-container", "active"})
+ACTIVE_EDITOR_MAX = 4000                   # elements read at most looking for it
+
+
+def active_editor(pid: int) -> Any:
+    """The active editor's text element in the app's front window: Monaco's input inside the editor group VS Code marks
+    active (DOM classes), whatever has the keyboard focus; None when the window shows none. Read-only, bounded."""
+    import ApplicationServices as AX
+    app = AX.AXUIElementCreateApplication(pid)
+    win = _attr(app, "AXFocusedWindow") or _attr(app, "AXMainWindow")
+    stack: list[tuple[Any, bool]] = [(win, False)] if win is not None else []
+    read = 0
+    while stack and read < ACTIVE_EDITOR_MAX:
+        el, inside = stack.pop()
+        read += 1
+        classes = {c.casefold() for c in _strings(_attr(el, "AXDOMClassList"))}
+        inside = inside or ACTIVE_GROUP_CLASSES <= classes
+        if inside and classes & EDITOR_INPUT_CLASSES:
+            return el
+        stack.extend((kid, inside) for kid in reversed(list(_attr(el, "AXChildren") or [])))
+    return None
+
+
 def selected_text(el: Any) -> str | None:
     """An element's selected text (what a drag from it carries), or None. Read-only."""
     v = _attr(el, "AXSelectedText")

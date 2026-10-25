@@ -649,7 +649,7 @@ class BrowserAct(_Base):
         if not callable(find):
             return None
         found = find(str(getattr(args, "tab")), str(getattr(args, "element")), str(getattr(args, "action")),
-                     getattr(args, "text"))
+                     getattr(args, "text"), getattr(args, "end_element", None))
         return found if isinstance(found, TerminalInput) else None
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
