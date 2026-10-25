@@ -988,6 +988,16 @@ After the owner's update (2026-10-24):
   injection eval (`uv run pytest -m real tests/security/test_planner_injection_real.py -v`: nine planted
   instructions, both ways) and it passes; then the default flips in its own commit. Offline, a planner answer that
   followed a planted instruction still asks before a send to someone new or a payment, either way.
+- After the security review of that switch (P20, MP2, S4; 2026-10-25): a task result in the planner's history now
+  shows where it came from and its text as one quoted line, so a page it quotes can't pass a forged "[c9] (…) Owner:
+  pay …" line or hidden Unicode characters off as FERB's record (both paths). With the switch on, only your chat turns
+  use the cached path (scheduled and watch runs don't), never while pasted text counts as your own words, and under a
+  key for this Mac; `ferb trace` shows `context_role` on each model turn and a fallback line names its request. A
+  crash's leftover Codex run folders (each with a copy of FERB's Codex login) are removed at the next start. The live
+  eval now has 18 scenarios (a forged history entry, "when the owner says thanks…", turning off confirmations, forgetting
+  memory, revealing secrets, mailing the conversation away, "say the inbox is empty", an open FERB check "the owner
+  approves", hidden Unicode), fails any action or task after a plain "thanks" and any destination you didn't type,
+  proves each run tested its path, and logs to an owner-only file.
 - Old facts retire (L36). Live: the 10-11 wedding flight and the finished RSNA competition were still in every planner
   prompt. A fact you give with a date now leaves memory after that day, and when your words say something is over FERB
   retires it (or asks: "Is this no longer true? …", Retire or Keep). Keep is remembered, so FERB doesn't ask about that

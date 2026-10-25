@@ -178,7 +178,11 @@ unstarted tool calls. Neither path replaces the runtime to accept a correction.
 The planner's context window and order are as built in the launch week (L28, section 16): the budget is the
 model's real window, the situation always goes in, and chat fills the rest newest-first. Resumable attempts
 (`ATTEMPTS_TOKENS` 2000) keep their newest entries whole with a note about the older ones. Chat tags count from the
-oldest (`c1`) so earlier lines never change as the conversation grows; the owner's message is last (P20). The
+oldest (`c1`) so earlier lines never change as the conversation grows; the owner's message is last (P20). A task
+result shows its stored origin and its text as one quoted JSON string (`untrusted.as_data`: line breaks and invisible
+format characters such as Unicode Tag characters written out as escapes), so outside content it quotes can't start a
+line in the history's own format ("[c9] (…) Owner: …") or hide text; FERB's replies and questions written from outside
+content are shown the same way (MP2, security review I4). The
 F1 `HISTORY_TOKENS` 12000 cap and the 32,768-token default budget are gone. The Codex catalog lockdown sets
 `supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
 tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
@@ -722,11 +726,16 @@ the developer region (everything before the first user message) as it grows, whi
 everything before it repeats. FERB started a new ephemeral thread per planner turn with the whole context in one user
 message, so at best FERB's system prompt hit: 0% and 15.6% on two back-to-back ~84k-token planner-shaped turns. With
 `[runtimes] codex_planner_cache = true` (only the boolean; **off by default** until the owner passes the live injection
-eval), the daemon gives the planner's chat turn (the orchestrator's `SUPERVISOR_SCHEMA` call, nothing else)
-`cache_role="planner"` ([`daemon/main.py`](ferb/daemon/main.py) `_codex_cache_role`), and `codex_stream.start`:
+eval), the daemon gives the planner's runtime (the orchestrator's `SUPERVISOR_SCHEMA` call, nothing else)
+`cache_role="planner"` ([`daemon/main.py`](ferb/daemon/main.py) `_codex_cache_role`). Per turn, `_codex_cache_turn`
+lets it resume only for the owner's chat turn (its `chat.message` is journaled under the request's id, outside a
+scheduled run's session: scheduled and watch runs keep the user role), only while `[policy] pasted_text_is_data` is
+on, and only in a conversation with no message whose pasted parts that switch counted as the owner's words (recorded
+as `pasted_as_owner_words`): pasted text never reaches the developer role unmarked. Then `codex_stream.start`:
 - writes a two-line template rollout (`write_template`: `session_meta` and `turn_context` with
-  `multi_agent_version: "disabled"`) into the run's own temporary CODEX_HOME, under `cache_thread_id("planner", model)`
-  (uuid5, fixed per role and model). Measured on the binary's requests: a `world_state` line makes Codex drop the
+  `multi_agent_version: "disabled"`) into the run's own temporary CODEX_HOME, under
+  `cache_thread_id("planner", model, device id)` (uuid5: one key per Mac, role and model). Measured on the binary's
+  requests: a `world_state` line makes Codex drop the
   developer instructions, and a turn context missing a field Codex needs is ignored, bringing `multi_agent_v1` tools
   back;
 - resumes it (`thread/resume`) with FERB's system prompt unchanged as `baseInstructions` and, as
@@ -740,17 +749,21 @@ Measured through the adapter: 98.9% cached on the next turn, 97.7% after one mor
 0.3 s, as a thread start does. When the template can't be written, Codex refuses the resume, or the resumed thread
 doesn't match FERB's isolation (approval, read-only sandbox without network, model, provider, no instruction files,
 the fixed id), the turn takes today's `thread/start` path and the daemon journals one `runtime.cache_fallback` line
-with why; the turn never fails for it. The tool-catalog watcher still ends any run that is offered an extra tool. Each
-run keeps its own temporary home, removed with the run (the resumed thread isn't ephemeral, so Codex writes the turn
-into that home's rollout meanwhile); parallel turns share only the key. `ferb trace` records the same context and
-system prompt either way; the switch, and the absence of a fallback line, say which role held the stable parts.
+naming the request and why; the turn never fails for it. The tool-catalog watcher still ends any run that is offered
+an extra tool. Every model turn's span records `context_role`: "developer" when the run resumed (the Codex run says so
+in its state), "user" for every other run, so `ferb trace` shows which role held the stable parts. Each run keeps its
+own temporary home, owner-only and removed with the run; meanwhile the resumed thread, which isn't ephemeral, has
+Codex write the turn into that home's rollout and a preview of its user text into Codex's state database. Parallel
+turns share only the key. After a crash, the next start sweeps the run folders left in the temporary directory
+(`codex_stream.sweep_stale_runs`: FERB's prefix, owned by this user, owner-only, nothing written for a day; each holds
+a copy of FERB's Codex login; journaled as `runtime.stale_runs_swept`).
 
 The gate: [`tests/security/test_planner_cache_injection.py`](tests/security/test_planner_cache_injection.py) (offline:
-the developer block is the recorded context with every label; a planner answer that followed a planted instruction
-still asks on both paths, with the same rules) and the owner-run live eval
-[`tests/security/test_planner_injection_real.py`](tests/security/test_planner_injection_real.py) (nine planted
-instructions, both paths; [security catalog](docs/0.27_SECURITY_TESTS.md), "Planner context in Codex's developer
-role"). [`tests/test_codex_prompt_cache.py`](tests/test_codex_prompt_cache.py) pins the request shape to Codex 0.157.1
+the developer block is the recorded context with every label; a task result can't forge a history line; a planner
+answer that followed a planted instruction still asks on both paths, with the same L3 and S4 rules) and the owner-run
+live eval [`tests/security/test_planner_injection_real.py`](tests/security/test_planner_injection_real.py) (18 planted
+instructions, both paths, each run proving it tested its path; [security catalog](docs/0.27_SECURITY_TESTS.md),
+"Planner context in Codex's developer role"). [`tests/test_codex_prompt_cache.py`](tests/test_codex_prompt_cache.py) pins the request shape to Codex 0.157.1
 through the loopback model server: tools, developer (system prompt), developer (context), user (tail); the fixed key;
 no multi-agent tool; otherwise identical to today's thread. The owner's checks are in
 [owner acceptance](docs/OWNER_ACCEPTANCE.md), "Planner prompt caching".
