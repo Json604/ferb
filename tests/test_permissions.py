@@ -123,3 +123,109 @@ def test_passive_watcher_skips_pending_permission_without_blocking_or_caching_de
     assert d._automation_granted('com.apple.Safari') is True
     assert d._automation_granted('com.apple.Safari') is True
     assert calls == [('com.apple.Safari', False)]
+
+# ---------- L34 C: the setup window's rows and requests ----------
+
+import os
+from pathlib import Path
+
+from ferb.device.profile import AppInfo
+
+PANE = "x-apple.systempreferences:com.apple.preference.security?"
+
+
+def test_rows_name_whose_grant_and_the_exact_pane() -> None:
+    rows = {r["id"]: r for r in P.rows({"accessibility": "granted", "screen_recording": "denied",
+                                        "full_disk_access": "denied", "input_monitoring": "not_determined"},
+                                       {"profile_ok": True, "shell": True, "proxy": True})}
+    assert list(rows) == ["accessibility", "screen_recording", "full_disk_access", "input_monitoring"]
+    assert {r["process"] for r in rows.values()} == {"daemon"}
+    assert rows["accessibility"]["pane"] == PANE + "Privacy_Accessibility"
+    assert rows["screen_recording"]["pane"] == PANE + "Privacy_ScreenCapture"
+    assert rows["full_disk_access"]["pane"] == PANE + "Privacy_AllFiles"
+    assert rows["input_monitoring"]["pane"] == PANE + "Privacy_ListenEvent"
+    assert [i for i, r in rows.items() if r["required"]] == ["accessibility", "screen_recording", "full_disk_access"]
+    assert [i for i, r in rows.items() if r["requestable"]] == ["accessibility", "screen_recording", "input_monitoring"]
+    assert [i for i, r in rows.items() if r["restart_to_check"]] == ["screen_recording", "full_disk_access"]
+    assert rows["accessibility"]["status"] == "granted" and rows["input_monitoring"]["status"] == "not_determined"
+    assert all(r["blocked"] == "" for r in rows.values())
+    assert P.rows({}, {"profile_ok": True, "shell": True, "proxy": True})[0]["status"] == "unknown"   # not reported
+
+
+def test_full_disk_access_waits_for_containment() -> None:
+    for containment in ({}, {"profile_ok": True, "shell": True},
+                        {"profile_ok": True, "shell": True, "proxy": True, "proxy_alive": False}):
+        fda = next(r for r in P.rows({}, containment) if r["id"] == "full_disk_access")
+        assert fda["blocked"] == P.FDA_WAITS, containment
+    assert P.fda_ready({"profile_ok": True, "shell": True, "proxy": True})
+    assert P.fda_ready({"profile_ok": True, "shell": True, "proxy": True, "proxy_alive": True})
+
+
+def test_hearing_row_is_ferb_voices_and_only_when_probed() -> None:
+    def hearing(**probe: object) -> dict[str, object]:
+        return next(r for r in P.rows({}, {}, dict(probe)) if r["id"] == "hearing")
+    assert hearing(installed=True, signed=True, speech="granted")["status"] == "granted"
+    assert hearing(installed=True, signed=True, speech="restricted")["status"] == "denied"
+    assert hearing(installed=True, signed=True, speech="not_determined")["status"] == "not_determined"
+    unsigned = hearing(installed=True, signed=False)
+    assert unsigned["status"] == "unknown" and "signature" in str(unsigned["blocked"])
+    assert "FERB Voice" in str(hearing(installed=False)["blocked"])
+    row = hearing(installed=True, signed=True, speech="denied")
+    assert row["process"] == "voice" and row["pane"] == PANE + "Privacy_SpeechRecognition"
+    assert row["requestable"] and not row["required"]
+    assert all(r["id"] != "hearing" for r in P.rows({}, {}))
+
+
+def test_clipboard_row_says_whether_macos_lets_ferb_read_what_you_copy() -> None:
+    def row(state: str | None) -> dict[str, object]:
+        return P.clipboard_row(state)
+    assert row("allow")["status"] == row("unrestricted")["status"] == "granted"      # unrestricted: before 15.4
+    assert row("default")["status"] == "not_determined" and row("default")["requestable"]   # macOS hasn't asked yet
+    assert row("ask")["status"] == row("deny")["status"] == "denied"                  # the owner sets Allow in the pane
+    assert not row("ask")["requestable"] and row(None)["status"] == "unknown"
+    assert row("default")["pane"] == PANE + "Privacy_Pasteboard"
+    assert row("default")["process"] == "daemon" and not row("default")["required"] and row("default")["blocked"] == ""
+
+
+def test_app_panes_name_ferb_app_itself() -> None:
+    assert P.app_panes("com.ferb.FERB") == {
+        "notifications": "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.ferb.FERB",
+        "microphone": PANE + "Privacy_Microphone", "speech_recognition": PANE + "Privacy_SpeechRecognition"}
+
+
+def test_request_asks_macos_only_for_the_three_with_an_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[tuple[str, object]] = []
+    monkeypatch.setattr(P, "_ax_trusted", lambda prompt: asked.append(("ax", prompt)) or False)
+    monkeypatch.setattr(P, "_request_screen_capture", lambda: asked.append(("screen", None)))
+    monkeypatch.setattr(P, "_request_listen_event", lambda: asked.append(("hid", None)))
+    monkeypatch.setattr(P, "screen_recording", lambda: P.Status.DENIED)
+    monkeypatch.setattr(P, "input_monitoring", lambda: P.Status.GRANTED)
+    assert P.request("accessibility") is P.Status.DENIED
+    assert asked == [("ax", True), ("ax", False)]                 # the prompt, then a plain read
+    assert P.request("screen_recording") is P.Status.DENIED
+    assert P.request("input_monitoring") is P.Status.GRANTED
+    assert asked[2:] == [("screen", None), ("hid", None)]
+    for other in ("full_disk_access", "automation", "hearing", "clipboard", "nope"):
+        with pytest.raises(ValueError):
+            P.request(other)
+
+
+def test_speech_request_is_ferb_voices_own_and_waits() -> None:
+    app = Path("/Applications/FERB.app/Contents/Helpers/FERB Voice.app")
+    assert P.speech_request_argv(app) == ["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"]
+
+
+def test_automation_candidates_are_the_running_scriptable_apps() -> None:
+    apps = [AppInfo("com.apple.Notes", "Notes", "1", "/A/Notes.app", True),
+            AppInfo("com.apple.Calculator", "Calculator", "1", "/A/Calculator.app", False),
+            AppInfo("com.apple.mail", "Mail", "1", "/A/Mail.app", True)]
+    assert P.automation_candidates(apps, {"com.apple.Notes", "com.apple.Calculator"}) == [("Notes", "com.apple.Notes")]
+
+
+def test_grant_target_is_the_agent_app_or_the_checkout_interpreter(tmp_path: Path) -> None:
+    assert P.grant_target(Path("/Applications/FERB.app"), "/x") == "/Applications/FERB.app/Contents/Helpers/FERB.app"
+    real = tmp_path / "python3.12"
+    real.write_text("")
+    link = tmp_path / "python"
+    link.symlink_to(real)
+    assert P.grant_target(None, str(link)) == os.path.realpath(real)

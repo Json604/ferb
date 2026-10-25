@@ -7,11 +7,13 @@ CLI's process. Automation can be *requested* (prompt) only from the daemon, so t
 
 import asyncio
 import ctypes
+import os
 import subprocess
 import threading
 from concurrent.futures import Future
 from enum import Enum
 from pathlib import Path
+from typing import Any, Iterable
 
 import ApplicationServices as AX
 import Quartz
@@ -25,9 +27,12 @@ class Status(Enum):
     UNKNOWN = "unknown"
 
 
+def _ax_trusted(prompt: bool) -> bool:
+    return bool(AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: prompt}))
+
+
 def accessibility() -> Status:
-    return Status.GRANTED if AX.AXIsProcessTrustedWithOptions({AX.kAXTrustedCheckOptionPrompt: False}) \
-        else Status.DENIED
+    return Status.GRANTED if _ax_trusted(False) else Status.DENIED
 
 
 def screen_recording() -> Status:
@@ -38,6 +43,8 @@ def screen_recording() -> Status:
 _iokit = ctypes.CDLL("/System/Library/Frameworks/IOKit.framework/IOKit")
 _iokit.IOHIDCheckAccess.argtypes = [ctypes.c_uint32]
 _iokit.IOHIDCheckAccess.restype = ctypes.c_uint32
+_iokit.IOHIDRequestAccess.argtypes = [ctypes.c_uint32]
+_iokit.IOHIDRequestAccess.restype = ctypes.c_bool
 _LISTEN_EVENT = 1                                    # kIOHIDRequestTypeListenEvent
 _HID = {0: Status.GRANTED, 1: Status.DENIED, 2: Status.NOT_DETERMINED}
 
@@ -141,15 +148,140 @@ PANES = {
     "input_monitoring": "Privacy_ListenEvent",
     "full_disk_access": "Privacy_AllFiles",
     "automation": "Privacy_Automation",
+    "microphone": "Privacy_Microphone",
+    "speech_recognition": "Privacy_SpeechRecognition",
+    "hearing": "Privacy_SpeechRecognition",          # FERB Voice's Speech Recognition (L26)
+    "clipboard": "Privacy_Pasteboard",               # Paste from Other Apps (macOS 15.4+; I3)
 }
+
+
+def pane_url(permission: str) -> str:
+    """The exact System Settings anchor for one Privacy & Security pane."""
+    return f"x-apple.systempreferences:com.apple.preference.security?{PANES[permission]}"
+
+
+def notifications_pane_url(bundle_id: str) -> str:
+    """System Settings → Notifications → that app."""
+    return f"x-apple.systempreferences:com.apple.Notifications-Settings.extension?id={bundle_id}"
+
+
+def app_panes(bundle_id: str) -> dict[str, str]:
+    """The panes for FERB.app's own rows (L34 C), which FERB.app reads and requests itself."""
+    return {"notifications": notifications_pane_url(bundle_id), "microphone": pane_url("microphone"),
+            "speech_recognition": pane_url("speech_recognition")}
 
 
 def open_pane(permission: str) -> None:
     """Open System Settings on the right Privacy pane (FERB can't grant anything itself)."""
-    subprocess.run(["open", f"x-apple.systempreferences:com.apple.preference.security?{PANES[permission]}"],
-                   check=False)
+    subprocess.run(["open", pane_url(permission)], check=False)
 
 
 def check_all() -> dict[str, str]:
     return {"accessibility": accessibility().value, "screen_recording": screen_recording().value,
             "input_monitoring": input_monitoring().value, "full_disk_access": full_disk_access().value}
+
+
+# ---------- L34 C: the setup window's rows (also `ferb setup`) ----------
+
+REQUIRED = ("accessibility", "screen_recording", "full_disk_access")      # FERB can't act on the Mac without these
+DAEMON_PERMISSIONS = (*REQUIRED, "input_monitoring")
+REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"})
+# a new grant of these reaches a running process only after it restarts (Screen Recording: CGPreflight… stays false;
+# Full Disk Access may need it too), so the window offers "Restart FERB to check" after a Grant
+RESTART_TO_CHECK = frozenset({"screen_recording", "full_disk_access"})
+FDA_WAITS = "FERB's shell sandbox and network proxy must be working first"
+
+
+def fda_ready(containment: dict[str, Any]) -> bool:
+    """CQ5: Full Disk Access only once containment exists: the shell's sandbox profile works, the shell runs inside it,
+    and the egress proxy is there. `proxy_alive` counts when it was probed (`doctor.check`); the daemon's setup rows use
+    the facts it started with, with no probe per poll."""
+    return bool(containment.get("profile_ok") and containment.get("shell") and containment.get("proxy")
+                and containment.get("proxy_alive", True))
+
+
+def hearing_row_status(hearing: dict[str, Any]) -> tuple[str, str]:
+    """(status, blocked) of FERB Voice's Speech Recognition from the daemon's hearing probe (`_hearing_status`)."""
+    if not hearing.get("installed"):
+        return Status.UNKNOWN.value, "FERB Voice isn't in this FERB.app; download FERB again"
+    if not hearing.get("signed"):
+        return Status.UNKNOWN.value, "FERB Voice's signature isn't the one setup recorded; set up FERB again"
+    speech = str(hearing.get("speech") or "")
+    if speech == "granted":
+        return Status.GRANTED.value, ""
+    if speech in ("denied", "restricted"):
+        return Status.DENIED.value, ""
+    if speech == "not_determined":
+        return Status.NOT_DETERMINED.value, ""
+    return Status.UNKNOWN.value, ""
+
+
+def rows(grants: dict[str, str], containment: dict[str, Any],
+         hearing: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """The daemon's own grants as setup rows: `process` "daemon" is FERB's agent app (the daemon's TCC identity);
+    "voice" is FERB Voice, included only when its hearing probe was asked for."""
+    ready = fda_ready(containment)
+    out: list[dict[str, Any]] = [
+        {"id": p, "status": grants.get(p, Status.UNKNOWN.value), "process": "daemon", "required": p in REQUIRED,
+         "pane": pane_url(p), "requestable": p in REQUESTABLE, "restart_to_check": p in RESTART_TO_CHECK,
+         "blocked": "" if p != "full_disk_access" or ready else FDA_WAITS}
+        for p in DAEMON_PERMISSIONS]
+    if hearing is not None:
+        status, blocked = hearing_row_status(hearing)
+        out.append({"id": "hearing", "status": status, "process": "voice", "required": False,
+                    "pane": pane_url("hearing"), "requestable": True, "restart_to_check": False, "blocked": blocked})
+    return out
+
+
+def clipboard_row(state: str | None) -> dict[str, Any]:
+    """I3 as an optional setup row (owner decision 2, 2026-10-25): whether macOS lets the daemon read the clipboard
+    without asking, from the pasteboard's accessBehavior (never its contents). "default": macOS hasn't asked yet, so
+    Grant lets it ask once (`setup.permission_request {permission: "clipboard"}`); "ask" and "deny" need FERB set to
+    Allow in Paste from Other Apps; "unrestricted" is macOS before 15.4."""
+    status = {"allow": Status.GRANTED.value, "unrestricted": Status.GRANTED.value,
+              "default": Status.NOT_DETERMINED.value, "ask": Status.DENIED.value,
+              "deny": Status.DENIED.value}.get(state or "", Status.UNKNOWN.value)
+    return {"id": "clipboard", "status": status, "process": "daemon", "required": False, "pane": pane_url("clipboard"),
+            "requestable": state == "default", "restart_to_check": False, "blocked": ""}
+
+
+def _request_screen_capture() -> None:
+    Quartz.CGRequestScreenCaptureAccess()
+
+
+def _request_listen_event() -> None:
+    _iokit.IOHIDRequestAccess(_LISTEN_EVENT)
+
+
+def request(permission: str) -> Status:
+    """Ask macOS for one grant on the owner's Grant (setup only): macOS shows its own prompt and lists FERB in that
+    pane. Run in the daemon, so the grant attaches to the daemon's process. Full Disk Access has no request API (the
+    owner adds FERB in the pane); Automation is per app (`automation(bundle_id, ask=True)`); hearing is FERB Voice's
+    own request (`speech_request_argv`); the clipboard is one read by the daemon (`clipboard.request_access`)."""
+    if permission == "accessibility":
+        _ax_trusted(True)
+        return accessibility()
+    if permission == "screen_recording":
+        _request_screen_capture()
+        return screen_recording()
+    if permission == "input_monitoring":
+        _request_listen_event()
+        return input_monitoring()
+    raise ValueError(f"{permission!r} has no macOS request; add FERB in its System Settings pane")
+
+
+def speech_request_argv(app: Path) -> list[str]:
+    """FERB Voice asks macOS once for Speech Recognition (L26); `open -W` returns after the owner answered."""
+    return ["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"]
+
+
+def automation_candidates(apps: Iterable[Any], running: set[str]) -> list[tuple[str, str]]:
+    """(name, bundle id) of the scriptable apps running now: macOS can ask about an app only while it runs."""
+    return [(a.name, a.bundle_id) for a in apps if a.scriptable and a.bundle_id in running]
+
+
+def grant_target(bundle: Path | None, executable: str) -> str:
+    """What the owner switches on in Privacy & Security for the daemon's grants: FERB's agent app inside FERB.app,
+    or the real interpreter a checkout's daemon runs on."""
+    from ferb.device.install import BUNDLE_AGENT_APP
+    return str(bundle / BUNDLE_AGENT_APP) if bundle is not None else os.path.realpath(executable)
