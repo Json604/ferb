@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import UserNotifications
 
 @main
@@ -19,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appSetup = AppSetupController()
     private var ferbWindow: FERBWindowController?
     private var loginItems: LoginItemController?
+    private var updates: UpdateCoordinator?
+    private var sparkle: SparkleUpdater?
+    private var updateOffer: AnyCancellable?
     private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
     private let clicks = NotificationClicks()
 
@@ -54,7 +58,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             actions.loginItems = loginItems
             // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
             actions.beforeUninstall = { [loginItems] in loginItems.removeForUninstall() }
-            appSetup.onSettled = { [loginItems] in loginItems.applyDefaultAfterSetup() }
+            appSetup.onSettled = { [loginItems, weak coordinator] in
+                loginItems.applyDefaultAfterSetup()
+                coordinator?.model.noteUpdate()               // "Updated to <version>", once per new build
+            }
+            let updates = UpdateCoordinator(rpc: coordinator.model.rpc)
+            if appSetup.isPackaged, let sparkle = SparkleUpdater(coordinator: updates) {
+                updates.attach(sparkle)
+                sparkle.start()
+                self.sparkle = sparkle
+                actions.updates = updates
+            }
+            self.updates = updates
+            coordinator.onInstallUpdate = { [updates] in updates.checkNow() }
+            updateOffer = updates.$status.sink { [weak coordinator] status in
+                if case .available(let version) = status { coordinator?.updateOffer = version }
+                else { coordinator?.updateOffer = nil }
+            }
             if appSetup.isPackaged {
                 let setup = appSetup.model
                 actions.setup = setup
@@ -75,6 +95,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         coordinator?.showFromMenu()
         return true
+    }
+    /// An update Sparkle will install on quit installs only with nothing running, or after the owner's Quit and
+    /// Install (UpdateCoordinator.beforeQuit).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let updates, updates.installArmed, !updates.prepared else { return .terminateNow }
+        updates.beforeQuit { allow in NSApp.reply(toApplicationShouldTerminate: allow) }
+        return .terminateLater
     }
     func applicationWillTerminate(_ notification: Notification) {
         appSetup.stop()

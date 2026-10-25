@@ -27,6 +27,7 @@ struct FERBAppActions {
     var beforeUninstall: (() -> Void)?
     /// Plan F's: Settings → General → Startup.
     var loginItems: LoginItemController?
+    var updates: UpdateCoordinator?
 }
 
 /// The regular FERB window (L34 Phase E). It opens only when the owner asks (menu bar, ⌘,): their own foreground

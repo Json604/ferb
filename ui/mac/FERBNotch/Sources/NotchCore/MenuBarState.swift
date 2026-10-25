@@ -79,7 +79,7 @@ public enum MenuBarState: Equatable {
 }
 
 public enum MenuAction: String, Equatable {
-    case openFERB, openWindow, pause, resume, liftStop, restart, settings, setUp, quit
+    case openFERB, openWindow, pause, resume, liftStop, restart, settings, setUp, quit, installUpdate
 }
 
 public enum MenuEntry: Equatable {
@@ -92,7 +92,7 @@ public enum StatusMenu {
     /// The menu (spec: Open FERB, Open FERB Window, Pause FERB, Settings…, Quit): the state line first, then what the
     /// state needs. `hasWindow`: Phase E's FERB window exists. `canSetUp`: the packaged FERB.app (Set Up FERB…).
     public static func entries(state: MenuBarState, paused: Bool, stopped: Bool, appName: String, canSetUp: Bool,
-                               hasWindow: Bool) -> [MenuEntry] {
+                               hasWindow: Bool, updateOffer: String? = nil) -> [MenuEntry] {
         var entries: [MenuEntry] = [.status(state.statusLine), .separator, .item("Open FERB", .openFERB, key: "")]
         if hasWindow { entries.append(.item("Open FERB Window", .openWindow, key: "")) }
         if state == .notRunning {
@@ -102,6 +102,9 @@ public enum StatusMenu {
             entries.append(paused ? .item("Resume FERB", .resume, key: "") : .item("Pause FERB", .pause, key: ""))
         }
         entries.append(.item("Settings…", .settings, key: ","))
+        if let updateOffer {                  // automatic updates off: an update waits for the owner's click (L34 G)
+            entries.append(.item("Update available (FERB \(updateOffer)) — Install", .installUpdate, key: ""))
+        }
         if canSetUp { entries.append(.item("Set Up FERB…", .setUp, key: "")) }
         entries += [.separator, .item("Quit \(appName)", .quit, key: "q")]
         return entries

@@ -108,6 +108,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var poster: NotificationPoster?              // set by AppDelegate before start() (L34 D)
     var hasWindow = false                        // Phase E: the FERB window exists ("Open FERB Window")
     var onOpenWindow: (() -> Void)?              // Phase E
+    var updateOffer: String?                     // L34 Phase G: an update waiting for the owner's click
+    var onInstallUpdate: (() -> Void)?
     var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     private let service = DaemonService()
     private var statusRefresh: AnyCancellable?
@@ -632,7 +634,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         menu.removeAllItems()
         for entry in StatusMenu.entries(state: model.menuBarState, paused: model.daemonPaused,
                                         stopped: model.daemonStopped, appName: AppName.current,
-                                        canSetUp: onSetUp != nil, hasWindow: hasWindow) {
+                                        canSetUp: onSetUp != nil, hasWindow: hasWindow, updateOffer: updateOffer) {
             switch entry {
             case .status(let text):
                 let line = NSMenuItem(title: text, action: nil, keyEquivalent: "")
@@ -665,6 +667,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         case .settings: showSettings()
         case .setUp: onSetUp?()
         case .quit: NSApp.terminate(nil)
+        case .installUpdate: onInstallUpdate?()
         }
     }
 

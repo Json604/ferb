@@ -27,7 +27,7 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $selection.settingsTab) {
-            GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems)
+            GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems, updates: actions.updates)
                 .tabItem { Text(SettingsTab.general.title) }.tag(SettingsTab.general)
             AISettingsPage(store: store, actions: actions)
                 .tabItem { Text(SettingsTab.ai.title) }.tag(SettingsTab.ai)
@@ -51,12 +51,16 @@ struct GeneralSettingsPage: View {
     @ObservedObject var feedback: SoundFeedback
     let cursor: CursorController
     var loginItems: LoginItemController? = nil
+    var updates: UpdateCoordinator? = nil
     @AppStorage("cursor.enabled") private var cursorEnabled = true
 
     var body: some View {
         Form {
             if let loginItems {
                 Section("Startup") { LoginItemRow(loginItems: loginItems) }
+            }
+            if let updates {
+                Section("Updates") { UpdatesSection(updates: updates) }
             }
             Section("Notch") {
                 LabeledContent("Open / close FERB", value: "Double-tap right Option, or Control–Option–Space")
