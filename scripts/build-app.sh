@@ -14,6 +14,7 @@
 # ad-hoc) and, for a Developer ID, the notary credentials described in signing.sh.
 set -euo pipefail
 ROOT="${0:A:h:h}"
+source "$ROOT/scripts/swiftpm-anonymous.sh"      # SwiftPM fetches anonymously: never the owner's keychain
 source "$ROOT/scripts/signing.sh"
 source "$ROOT/scripts/app-parts.sh"
 
@@ -80,6 +81,34 @@ plist "Add :FERBVersion string $VERSION" "$CONTENTS/Info.plist"
 plist "Add :FERBSourceRevision string $REVISION" "$CONTENTS/Info.plist"
 cp "$NOTCH/ThirdPartyNotices.txt" "$CONTENTS/Resources/ThirdPartyNotices.txt"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
+
+print "==> Sparkle (automatic updates, L34 Phase G)"
+NOTCH_BIN=$("${SWIFT[@]}" --show-bin-path)           # plan A's swift build for $ARCH
+[[ -d "$NOTCH_BIN/Sparkle.framework" ]] || die "swift build left no Sparkle.framework in $NOTCH_BIN"
+mkdir -p "$CONTENTS/Frameworks"
+ditto "$NOTCH_BIN/Sparkle.framework" "$CONTENTS/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/FERBNotch"
+if [[ "${FERB_UPDATES:-on}" == off ]]; then
+  print "    FERB_UPDATES=off: this build never checks for updates"
+else
+  KEY_FILE="$ROOT/scripts/sparkle-public-key.txt"
+  if [[ ! -s "$KEY_FILE" ]]; then
+    [[ "$SIGN_IDENTITY" != release ]] || die "no $KEY_FILE: the owner runs scripts/sparkle-keys.sh once (or build with FERB_UPDATES=off)"
+    print "    no $KEY_FILE: this non-release build carries no feed and never checks for updates"
+    UPDATES_KEY=""
+  else
+    UPDATES_KEY="$(<"$KEY_FILE")"
+  fi
+  if [[ -n "${UPDATES_KEY:-}" ]]; then
+  # One feed per architecture; only GitHub's public release list is asked; no system profile is sent (L34)
+  plist "Add :SUFeedURL string https://github.com/Json604/ferb/releases/latest/download/appcast-$ARCH.xml" "$CONTENTS/Info.plist"
+  plist "Add :SUPublicEDKey string $UPDATES_KEY" "$CONTENTS/Info.plist"
+  plist "Add :SUEnableAutomaticChecks bool true" "$CONTENTS/Info.plist"
+  plist "Add :SUAutomaticallyUpdate bool true" "$CONTENTS/Info.plist"
+  plist "Add :SUScheduledCheckInterval integer 86400" "$CONTENTS/Info.plist"
+  plist "Add :SUEnableSystemProfiling bool false" "$CONTENTS/Info.plist"
+  fi
+fi
 
 print "==> Python $CPYTHON for $ARCH (uv's standalone CPython; relocatable)"
 PY_KEY="cpython-$CPYTHON-macos-$FERB_UV_ARCH-none"

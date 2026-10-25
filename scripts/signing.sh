@@ -126,8 +126,9 @@ ferb_entitlements() {
     app|voice) keys=(com.apple.security.device.audio-input) ;;       # dictation / push-to-talk microphone
   esac
   # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse every extension module
-  # the interpreter loads. One Developer ID team signs all of them, so validation stays on in that build.
-  if [[ $1 == (daemon|python) ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
+  # the interpreter loads, and the app's Sparkle.framework (L34 Phase G). One Developer ID team signs all of them, so
+  # validation stays on in that build.
+  if [[ $1 == (daemon|python|app) ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
   {
     print '<?xml version="1.0" encoding="UTF-8"?>'
     print '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -177,6 +178,21 @@ ferb_vendor_signed() {
   codesign --verify --strict "$f" 2>/dev/null
 }
 
+# ferb_sign_sparkle APP: Sparkle.framework (L34 Phase G), signed inside out as Sparkle documents for apps signed outside
+# Xcode: its XPC services (the Downloader keeps its entitlements), Autoupdate, Updater.app, then the framework.
+ferb_sign_sparkle() {
+  local fw="$1/Contents/Frameworks/Sparkle.framework"
+  [[ -d "$fw" ]] || return 0
+  local b="$fw/Versions/B"
+  if [[ -d "$b/XPCServices/Installer.xpc" ]]; then ferb_sign "$b/XPCServices/Installer.xpc"; fi
+  if [[ -d "$b/XPCServices/Downloader.xpc" ]]; then
+    ferb_sign "$b/XPCServices/Downloader.xpc" --preserve-metadata=entitlements
+  fi
+  ferb_sign "$b/Autoupdate"
+  ferb_sign "$b/Updater.app"
+  ferb_sign "$fw"
+}
+
 # ferb_sign_app APP WORKDIR: every nested binary first (deepest first), then nested apps, then the app; then verify.
 ferb_sign_app() {
   local app=${1:A} work=$2 f main
@@ -187,7 +203,7 @@ ferb_sign_app() {
   ferb_entitlements voice "$work/voice.entitlements"
   main="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || print FERBNotch)"
   local -a files
-  files=("${(@f)$(find "$app/Contents" -name '*.app' -prune -o -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print \
+  files=("${(@f)$(find "$app/Contents" \( -path "$app/Contents/Frameworks" -o -name '*.app' \) -prune -o -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print \
                   | awk -F/ '{ print NF "\t" $0 }' | sort -rn | cut -f2-)}")
   for f in $files; do
     [[ -z $f || $f == $main ]] && continue
@@ -202,6 +218,7 @@ ferb_sign_app() {
         ferb_sign "$f" ;;
     esac
   done
+  ferb_sign_sparkle "$app"
   local nested id
   for nested in "$app"/Contents/Helpers/*.app(N); do
     id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist" 2>/dev/null || true)

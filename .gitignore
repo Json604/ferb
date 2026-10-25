@@ -44,3 +44,7 @@ tests/.distill_usage.json
 
 # Vercel CLI link for site/
 .vercel/
+
+# FERB's update signing key (L34 Phase G) belongs in the owner's Keychain and an offline backup, never here
+sparkle_private*
+*.sparkle-private*
