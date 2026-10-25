@@ -267,6 +267,28 @@ def test_a_waiting_guess_never_hides_a_kept_version_of_its_fact(daemon: Any) -> 
     assert (_found(daemon, "Mehta"), _found(daemon, "Rao")) == ([], [again.id])
 
 
+@pytest.mark.parametrize("answer", ["keep", "edit"])
+def test_keeping_a_guess_that_updates_what_the_owner_said_ends_their_older_version(daemon: Any, answer: str) -> None:
+    """Final review I2: the owner stated "my dentist is Dr. Mehta"; FERB's guess about the same fact (subject and key)
+    says Dr. Rao. Keep made the guess active but left the owner's version current too, ranked first (only the owner's
+    own statement could supersede theirs). The owner's Keep makes the guess the current version: the older one ends
+    (`valid_to`) and is superseded through the item's versioning, exactly as an Edit's owner-stated version does (§2,
+    §6). Search and the planner's memory show Dr. Rao current, and Dr. Mehta's version has ended."""
+    d = daemon.daemon
+    for i in range(4):                          # so "dentist" carries weight in the planner's search
+        owner_fact(daemon, f"hose_{i}", f"the garden hose note {i}")
+    mehta = owner_fact(daemon, "dentist", "my dentist is Dr. Mehta", kind="person")
+    rao = _dentist(daemon, "Your dentist is Dr. Rao")
+    run(daemon, lambda: d._settle_guess(rao.id, answer, "my dentist is Dr. Rao now"))
+    [now] = [i for i in run(daemon, lambda: d.memory.items("active")) if i.key == "dentist"]
+    assert (now.id == rao.id) == (answer == "keep") and "Dr. Rao" in now.content
+    ended = run(daemon, lambda: d.memory.get(mehta.id))
+    assert ended.valid_to is not None and now.supersedes == mehta.id
+    assert (_found(daemon, "Mehta"), _found(daemon, "Rao")) == ([], [now.id])
+    planner = [b["text"] for b in daemon.run(d._learning_candidates("who is my dentist"))]
+    assert any("Dr. Rao" in t for t in planner) and not any("Dr. Mehta" in t for t in planner)
+
+
 def test_a_waiting_guess_seen_again_keeps_one_open_index_node(daemon: Any) -> None:
     """Review Q-I3's fix closes nothing for a waiting guess's node, except an older node of the same guess: more
     evidence changes the guess's body, and its newer node replaces the older one (the dashboard lists it once)."""

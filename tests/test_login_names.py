@@ -176,11 +176,12 @@ def test_a_new_version_for_a_site_not_named_now_still_updates_the_record_it_repl
     assert refusals(daemon) == []                                         # the entry's own place was written
 
 
-@pytest.mark.parametrize("change", ["no-login-entry", "hidden", "edit"])
+@pytest.mark.parametrize("change", ["no-login-entry", "hidden", "edit", "kept-guess"])
 def test_a_new_version_that_names_no_usable_username_clears_it(daemon: Any, change: str) -> None:
     """Review m-8: a new version of the fact whose username FERB can't take from the owner's words (the planner gave no
-    login entry, redaction hid it, or an edit in the dashboard or `ferb memory edit`, whose words name no username)
-    clears the record's username instead of leaving the replaced spelling."""
+    login entry, redaction hid it, an edit in the dashboard or `ferb memory edit`, whose words name no username, or
+    FERB's guess the owner kept, final review I2: FERB's wording, never their spelling) clears the record's username
+    instead of leaving the replaced spelling."""
     remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
     [first] = run(daemon, lambda: daemon.daemon.memory.items("active"))
     if change == "no-login-entry":
@@ -189,8 +190,14 @@ def test_a_new_version_that_names_no_usable_username_clears_it(daemon: Any, chan
     elif change == "hidden":
         remember(daemon, [entry(content="[redacted]", quote="the username is now")], "the username is now [redacted]",
                  frozenset({"usvisascheduling.com"}))
-    else:
+    elif change == "edit":
         daemon.run(daemon.daemon._memory_edit(None, {"id": first.id, "content": "the username is asha.rao"}))
+    else:
+        src = journal(daemon, "chat.message", {"text": "I changed the visa username", "untrusted_parts": 0})
+        guess = run(daemon, lambda: daemon.daemon.memory.propose(
+            "fact", "owner", "usvisascheduling-username", "The owner's visa username is now asha.rao", "inferred",
+            [("journal", src)], 0.6))
+        assert run(daemon, lambda: daemon.daemon._settle_guess(guess.id, "keep")) == "Kept."
     daemon.run(daemon.daemon._settle_forgets())
     assert run(daemon, lambda: daemon.daemon.memory.get(first.id)).valid_to is not None
     assert username(daemon) is None

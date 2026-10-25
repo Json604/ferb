@@ -264,14 +264,25 @@ def test_updates_keep_history_and_recall_sees_only_what_is_valid(daemon: Running
     assert [i.content for i in run(daemon, lambda: m.history(v2.id))] == ["Dentist is Dr. Rao", "Dentist is Dr. Mehta"]
 
 
-def test_a_non_owner_version_never_overrides_what_the_owner_said(daemon: RunningDaemon) -> None:
+def test_a_non_owner_version_never_overrides_what_the_owner_said_until_they_keep_it(daemon: RunningDaemon) -> None:
+    """Only the owner's own statement, or their Keep, ends a version they stated. A pattern FERB saw on three days
+    becomes active by itself and never overrides it (both hold, flagged as conflicting); the owner's Keep of FERB's
+    guess makes the guess the current version and ends theirs (final review I2: both stayed current, theirs first)."""
     m = mem(daemon)
     s = journal(daemon, "memory.added", {"content": "a"})
-    run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed", "owner_stated", [("journal", s)], 1.0))
+    zed = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed", "owner_stated", [("journal", s)],
+                                        1.0))
+    rows = [trail_row(daemon, f"2026-09-0{i}") for i in (1, 2, 3)]
+    seen = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code daily", "observed",
+                                         [("trail", r) for r in rows]))
+    assert seen.status == "active"
+    hits = run(daemon, lambda: m.recall("editor"))
+    assert [h.item.content for h in hits] == ["Uses Zed", "Uses VS Code daily"] and all(h.conflict for h in hits)
     inf = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred", [("journal", s)]))
     run(daemon, lambda: m.confirm(inf.id))
-    hits = run(daemon, lambda: m.recall("editor"))
-    assert [h.item.content for h in hits] == ["Uses Zed", "Uses VS Code"] and all(h.conflict for h in hits)
+    ended = run(daemon, lambda: [m.get(zed.id).valid_to, m.get(seen.id).valid_to])
+    assert None not in ended
+    assert [h.item.content for h in run(daemon, lambda: m.recall("editor"))] == ["Uses VS Code"]
 
 
 # ---------- forget = purge (safety test 17) ----------

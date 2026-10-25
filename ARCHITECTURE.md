@@ -3099,11 +3099,13 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   sentence(s) as `owner_stated` with the message's journal entry as its source. Only a message journaled with
   `untrusted_parts` counts (`DayEvidence.owner_words`). Every new inferred item, from chat capture or distillation, is
   asked at once (`Daemon._ask_keep`; kind `confirm`, capability `memory.confirm`, options Keep / Edit / Drop, kept in
-  `memory_questions` until answered). Keep confirms. Edit asks a free-text `memory.edit` question and saves the answer
-  as a new owner-stated version, retracting the guess. Drop, and a declined question, delete that guess alone and keep
-  its fingerprint (`Memory.drop`), so it is never proposed again; `forget` is not used, since it purges every version of
-  the key and the owner's messages. Text typed into the Keep / Edit / Drop question that is no option is refused
-  (`steering.OPTION_ONLY`).
+  `memory_questions` until answered). Keep confirms: the guess becomes the current version of its fact, so every
+  current version with its subject and key ends (`valid_to`) and is superseded, the owner's own statement included,
+  as a new owner-stated version would be (`Memory.confirm` → `commit(owner_confirmed=True)`; final review I2). Edit
+  asks a free-text `memory.edit` question and saves the answer as a new owner-stated version, retracting the guess.
+  Drop, and a declined question, delete that guess alone and keep its fingerprint (`Memory.drop`), so it is never
+  proposed again; `forget` is not used, since it purges every version of the key and the owner's messages. Text typed
+  into the Keep / Edit / Drop question that is no option is refused (`steering.OPTION_ONLY`).
   While a waiting "Forget for good?" would delete the guess (about it, or about another version of the same fact, whose
   `plan_forget` lists every version and their sources: `Daemon._forget_would_take`), Drop retracts it instead
   (`_settle_guess`): a deletion would close that question unanswered or cut the guess from the messages it names, and
@@ -3124,11 +3126,11 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
   Drop deletes the guess with its index node alone (`Learning.drop_fact_index`): never what tasks built while it
   existed, and no tombstone (live 2026-10-25: a forget there deleted 750 learned items in 53 s). A waiting guess's
-  fact node closes no other node (`put(supersede=False)` from `sync_facts`); Keep replaces an older version through
-  the item's versioning, and `drop_fact_index` reopens a node a dropped guess's node had closed while its item is
-  prompt-ready. `{op: guess}` returns `state` (waiting, kept, edited, dropped, or `not_a_guess`) and
-  `{op: guess_state}` returns it alone; after a fault or a lost reply the notch asks `guess_state` once and keeps
-  "Try again" only while the guess waits.
+  fact node closes no other node (`put(supersede=False)` from `sync_facts`); Keep ends the older versions of its key,
+  the owner's included, through the item's versioning (`Memory.confirm`), which closes their nodes, and
+  `drop_fact_index` reopens a node a dropped guess's node had closed while its item is prompt-ready. `{op: guess}`
+  returns `state` (waiting, kept, edited, dropped, or `not_a_guess`) and `{op: guess_state}` returns it alone; after a
+  fault or a lost reply the notch asks `guess_state` once and keeps "Try again" only while the guess waits.
   Debugging: journal `daemon.internal_error` (a handler's exception: method, type, message redacted and cut to 300
   characters, innermost 20 frames; recorded before a hidden answer's value is released; only a failed write of the
   reply counts as the client leaving) and `daemon.slow_call` (an owner-side call of 10 s or longer); a repeating

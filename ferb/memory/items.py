@@ -448,9 +448,10 @@ class Memory:
             self.db.conn.execute("INSERT OR IGNORE INTO memory_sources (item_id, kind, source_id, day, actor) "
                                  "VALUES (?, ?, ?, ?, ?)", (item_id, kind, sid, day, actor))
 
-    def commit(self, ids: list[str], reason: str) -> None:
+    def commit(self, ids: list[str], reason: str, *, owner_confirmed: bool = False) -> None:
         """proposed -> active. A newer version of the same fact supersedes the old (history kept), except that only
-        the owner's own statement may supersede one the owner stated."""
+        the owner's own statement, or a version the owner confirmed (`owner_confirmed`: their Keep, final review I2),
+        may supersede one the owner stated."""
         now = self.clock.now().isoformat()
         settled: list[str] = []
         for item_id in ids:
@@ -459,7 +460,8 @@ class Memory:
                 continue
             settled.append(item_id)
             prev = [o for o in self._versions(it.kind, it.subject, it.key) if o.id != it.id]
-            closes = [o for o in prev if it.origin == "owner_stated" or o.origin != "owner_stated"]
+            closes = [o for o in prev
+                      if owner_confirmed or it.origin == "owner_stated" or o.origin != "owner_stated"]
             for o in closes:
                 self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now, o.id))
             self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? "
@@ -472,10 +474,14 @@ class Memory:
         self.on_change()
 
     def confirm(self, item_id: str) -> MemoryItem:
+        """The owner's Keep (or Confirm) of a proposed item: it becomes the current version of its fact, so the versions
+        it updates end and are superseded, the owner's own statement included, exactly as a new owner-stated version
+        would end them (L36 §2, §6; final review I2: a kept guess left the owner's older version current, ranked
+        first)."""
         it = self.get(item_id)
         if it is None or it.status != "proposed":
             raise MemoryRefused(f"no proposed item {item_id}")
-        self.commit([item_id], "confirmed by the owner")
+        self.commit([item_id], "confirmed by the owner", owner_confirmed=True)
         out = self.get(item_id)
         assert out is not None
         return out
