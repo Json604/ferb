@@ -31,8 +31,8 @@ UNAUTHORIZED, TOO_LARGE, UNSUPPORTED, FAILED = -32001, -32002, -32003, -32004
 
 SOL_LOCAL, LOCAL_PEERCRED = 0, 1   # <sys/un.h>
 
-# How long an owner-side client waits for a reply: the notch's socket read timeout (DaemonRPC.swift) and the CLI's
-# default (cli/client.py). A reply later than this reaches nobody: the client has already shown a failure.
+# How long the notch waits for a reply (its socket read timeout, DaemonRPC.swift), and the CLI by default
+# (cli/client.py). A later reply reaches neither, unless the caller chose a longer wait (`ferb chat` waits 30 minutes).
 CLIENT_WAIT_S = 10.0
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
@@ -138,7 +138,7 @@ class Server:
         self._shim_calls: dict[tuple[str, str], list[tuple[asyncio.Event, asyncio.StreamWriter]]] = {}
         # Told what a reply can't carry, for the daemon to record (L36: a notch answer that failed left no trace): a
         # handler's exception that isn't one of FERB's own errors (its method and the exception; the reply names only
-        # its type), and an owner-side call that took longer than its client waits (its method and seconds)
+        # its type), and an owner-side call that took `CLIENT_WAIT_S` or longer (its method and seconds)
         self.on_internal: Callable[[str, BaseException], None] = lambda method, error: None
         self.on_slow: Callable[[str, float], None] = lambda method, seconds: None
 
@@ -281,14 +281,14 @@ class Server:
                         return False
                 else:
                     result = await self.unary[req.method](session, req.params)
-                await self._send(writer, _result(req.id, result))
+                reply = _line(_result(req.id, result))
             except FerbError as e:
                 await self._send(writer, _error(req.id, FAILED, str(e)))
-            except (ConnectionResetError, BrokenPipeError):
-                raise                               # the caller left: the connection ends (`_connection`)
-            except Exception as e:                  # failures are values, never a crashed connection
-                self._tell(self.on_internal, req.method, e)
+            except Exception as e:                  # failures are values, never a crashed connection: a handler's
+                self._tell(self.on_internal, req.method, e)      # own pipe error too (review Q-I1)
                 await self._send(writer, _error(req.id, INTERNAL, f"{type(e).__name__}"))
+            else:                                   # a reply's write failing is the caller leaving (`_connection`)
+                await self._write(writer, reply)
             finally:
                 # an MCP shim waits for its call however long it runs; the notch and the CLI stop waiting
                 if session.role is not Role.MCP_SHIM and (seconds := time.monotonic() - started) >= CLIENT_WAIT_S:
@@ -342,7 +342,10 @@ class Server:
         async def pump() -> None:
             async with contextlib.aclosing(self.streams[req.method](session, req.params)) as stream:
                 async for item in stream:
-                    await self._send(writer, {"jsonrpc": "2.0", "method": f"{req.method}.event", "params": item})
+                    try:
+                        await self._send(writer, {"jsonrpc": "2.0", "method": f"{req.method}.event", "params": item})
+                    except (ConnectionResetError, BrokenPipeError):
+                        raise _ClientLeft() from None     # writing to this client failed: it left (review Q-I1)
 
         task = asyncio.create_task(pump())
         eof = asyncio.create_task(reader.read(1))
@@ -354,8 +357,8 @@ class Server:
             exc = task.exception()
             if exc is None:
                 await self._send(writer, _result(req.id, {"ended": True}))
-            else:
-                if not isinstance(exc, (FerbError, ConnectionResetError, BrokenPipeError)):
+            elif not isinstance(exc, _ClientLeft):
+                if not isinstance(exc, FerbError):
                     self._tell(self.on_internal, req.method, exc)
                 await self._send(writer, _error(req.id, FAILED, f"{type(exc).__name__}: {exc}"))
         else:
@@ -364,8 +367,20 @@ class Server:
                 await task
 
     async def _send(self, writer: asyncio.StreamWriter, msg: dict[str, Any]) -> None:
-        writer.write(json.dumps(msg).encode() + b"\n")
+        await self._write(writer, _line(msg))
+
+    @staticmethod
+    async def _write(writer: asyncio.StreamWriter, line: bytes) -> None:
+        writer.write(line)
         await writer.drain()
+
+
+class _ClientLeft(Exception):
+    """A stream's client closed its connection while an event was being written to it."""
+
+
+def _line(msg: dict[str, Any]) -> bytes:
+    return json.dumps(msg).encode() + b"\n"
 
 
 def _result(id: Any, result: dict[str, Any]) -> dict[str, Any]:

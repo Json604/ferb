@@ -770,25 +770,32 @@ def _procedures(c: Any, out: TextIO) -> None:
 
 def _daemon_problems(c: Any, since: str, out: TextIO) -> None:
     """Requests that failed inside FERB (the server's catch-all: the reply named only the exception's type) and those
-    answered after their client stopped waiting (the notch showed a failure meanwhile), as the daemon journaled them
-    (L36): each failure grouped by method and type, with its latest message and innermost frames."""
+    answered after `CLIENT_WAIT_S` (the notch had shown a failure by then; a CLI call may have chosen a longer wait), as
+    the daemon journaled them (L36): failures grouped by method and type, with the latest message and innermost frames.
+    A row with `repeats` stands for that many more of the same after the first (review Q-I2)."""
     from ferb.daemon.server import CLIENT_WAIT_S, INTERNAL_ERROR, SLOW_CALL
-    failed = [json.loads(r[0]) for r in c.execute("SELECT data_json FROM journal WHERE kind = ? AND at >= ? "
-                                                  "ORDER BY seq", (INTERNAL_ERROR, since))]
-    print(f"Requests that failed inside FERB: {len(failed)}", file=out)
+
+    def rows(kind: str) -> list[dict[str, Any]]:
+        return [json.loads(r[0]) for r in c.execute("SELECT data_json FROM journal WHERE kind = ? AND at >= ? "
+                                                    "ORDER BY seq", (kind, since))]
+
+    def times(d: dict[str, Any]) -> int:                 # a window's row stands for its repeats, any other for one
+        return int(d.get("repeats") or 1)
+    failed = rows(INTERNAL_ERROR)
+    print(f"Requests that failed inside FERB: {sum(map(times, failed))}", file=out)
     groups: dict[tuple[str, str], list[Any]] = {}
     for d in failed:
         seen = groups.setdefault((str(d.get("method")), str(d.get("error"))), [0, d])
-        seen[0], seen[1] = seen[0] + 1, d
+        seen[0], seen[1] = seen[0] + times(d), d
     for (method, error), (n, d) in sorted(groups.items(), key=lambda item: -item[1][0])[:10]:
         print(f"  {n:>4}  {method}: {error}: {str(d.get('message', ''))[:160]}", file=out)
         for frame in list(d.get("frames") or [])[-3:]:
             print(f"          at {frame}", file=out)
-    slow = [json.loads(r[0]) for r in c.execute("SELECT data_json FROM journal WHERE kind = ? AND at >= ? "
-                                                "ORDER BY seq", (SLOW_CALL, since))]
-    print(f"Requests answered after the app stopped waiting ({CLIENT_WAIT_S:.0f} s): {len(slow)}", file=out)
+    slow = rows(SLOW_CALL)
+    print(f"Requests answered after {CLIENT_WAIT_S:g} s: {sum(map(times, slow))}", file=out)
     for d in slow[-10:]:
-        print(f"        {d.get('method')}: {d.get('seconds')} s", file=out)
+        more = f" ({d['repeats']} times in its window; this is the latest)" if d.get("repeats") else ""
+        print(f"        {d.get('method')}: {d.get('seconds')} s{more}", file=out)
 
 
 def shown_bytes(n: float) -> str:

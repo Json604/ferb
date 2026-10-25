@@ -1,7 +1,9 @@
 """Own daemon composition, lifecycle and RPC handlers. Must not interpret requests or select targets."""
 
 import asyncio
+import contextlib
 import json
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
 import os
@@ -160,6 +162,60 @@ def _all_hidden(text: str) -> bool:
 # A request that failed inside FERB (`_record_internal`): its message's first characters and its innermost frames are
 # kept, enough to find the line; a deep recursion's thousand frames are not
 INTERNAL_MESSAGE_CHARS, INTERNAL_FRAMES = 300, 20
+# A problem that keeps happening (`_Repeats`): its first row at once, then one row per this many seconds with the count
+REPEAT_WINDOW_S = 600.0
+
+
+@dataclass
+class _Window:
+    """One repeating problem's open window (`_Repeats`)."""
+    kind: str
+    until: datetime
+    repeats: int = 0
+    latest: dict[str, Any] = field(default_factory=dict)
+
+
+class _Repeats:
+    """The journal rows of a problem that keeps happening, bounded (L36 review Q-I2: a failing `chat.status`, asked
+    every 5 s, wrote a row each time). The first occurrence of a key is written at once. Repeats in the next
+    `REPEAT_WINDOW_S` are counted and written as one row, the latest occurrence's with `repeats: N`, when the window
+    ends (or at shutdown: `flush`). A logging detail: no reply changes and no occurrence goes uncounted."""
+
+    def __init__(self, write: Callable[[str, dict[str, Any]], Any], clock: Clock) -> None:
+        self._write, self._clock = write, clock
+        self._held: dict[tuple[str, ...], _Window] = {}
+        self._timers: set[asyncio.Task[None]] = set()
+
+    def record(self, kind: str, key: tuple[str, ...], data: dict[str, Any]) -> None:
+        held = self._held.get(key)
+        if held is not None and self._clock.now() < held.until:
+            held.repeats, held.latest = held.repeats + 1, data
+            if held.repeats == 1:                    # the window's count is written when it ends
+                timer = asyncio.get_running_loop().create_task(self._at_end(key, held))
+                self._timers.add(timer)
+                timer.add_done_callback(self._timers.discard)
+            return
+        self._end(key)
+        self._write(kind, data)
+        self._held[key] = _Window(kind, self._clock.now() + timedelta(seconds=REPEAT_WINDOW_S))
+
+    async def _at_end(self, key: tuple[str, ...], held: _Window) -> None:
+        await self._clock.sleep_until(held.until)
+        if self._held.get(key) is held:
+            with contextlib.suppress(Exception):     # a recording never raises
+                self._end(key)
+
+    def _end(self, key: tuple[str, ...]) -> None:
+        held = self._held.pop(key, None)
+        if held is not None and held.repeats:
+            self._write(held.kind, held.latest | {"repeats": held.repeats})
+
+    def flush(self) -> None:
+        """At shutdown: every open window's count is written now."""
+        for timer in self._timers:
+            timer.cancel()
+        for key in list(self._held):
+            self._end(key)
 
 
 def _code_path(filename: str) -> str:
@@ -364,6 +420,8 @@ class Daemon:
         # exact entry points, so it takes no arguments (the request goes on stdin; the home comes as FERB_HOME).
         self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
+        # a request that failed inside FERB, or answered late, journaled at most once per window (review Q-I2)
+        self._repeats = _Repeats(lambda kind, data: self._journal().append(kind, data), self.clock)
         self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
         self._login_names = asyncio.Lock()      # L36 §5 review m-3: one username write at a time, in request order
         self._rescrubs: set[_Rescrub] = set()           # forgets waiting for jobs running at them to end (fix wave 6a)
@@ -396,8 +454,8 @@ class Daemon:
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
         self.server.on_internal = self._record_internal
-        self.server.on_slow = lambda method, seconds: self._journal().append(
-            SLOW_CALL, {"method": method, "seconds": round(seconds, 1)})
+        self.server.on_slow = lambda method, seconds: self._repeats.record(
+            SLOW_CALL, (SLOW_CALL, method), {"method": method, "seconds": round(seconds, 1)})
         if self.run_resources:                  # its first window starts here, so start-up's own work is in it
             try:
                 self.resource_log = resource_use.ResourceLog(self.db, self.clock, resource_use.MacReadings(),
@@ -562,6 +620,8 @@ class Daemon:
         if self.resource_log is not None:                    # the minutes since the last sample (L30)
             self._sample_resources()
         if self.journal:
+            with contextlib.suppress(Exception):             # repeats counted in an open window (review Q-I2)
+                self._repeats.flush()
             self.journal.append("daemon.stopped", {"pid": os.getpid()})
         if self.db:
             self.db.close()
@@ -3778,12 +3838,18 @@ class Daemon:
         """A request that failed inside FERB (server.py's catch-all, whose reply names only the exception's type): its
         method, the exception's type, its message redacted (rule 14) and cut short, and where it was raised as
         file:line:function, innermost last, journaled for `ferb stats` (L36: a notch answer that failed left no
-        trace)."""
+        trace), once per window for the same method, type and innermost frame (`_Repeats`). An exception recorded
+        already (while a hidden answer was still redacted by its value: `_resolve_approval`) isn't recorded again."""
         import traceback
+        if getattr(error, "_ferb_recorded", False):
+            return
+        with contextlib.suppress(AttributeError):
+            setattr(error, "_ferb_recorded", True)
         frames = [f"{_code_path(f.filename)}:{f.lineno}:{f.name}" for f in traceback.extract_tb(error.__traceback__)]
-        self._journal().append(INTERNAL_ERROR, {"method": method, "error": type(error).__name__,
-                                                "message": self._redact_text(str(error))[:INTERNAL_MESSAGE_CHARS],
-                                                "frames": frames[-INTERNAL_FRAMES:]})
+        self._repeats.record(INTERNAL_ERROR, (INTERNAL_ERROR, method, type(error).__name__, *frames[-1:]),
+                             {"method": method, "error": type(error).__name__,
+                              "message": self._redact_text(str(error))[:INTERNAL_MESSAGE_CHARS],
+                              "frames": frames[-INTERNAL_FRAMES:]})
 
     def _redact_id(self, text: str) -> str:
         """Text that is one of FERB's own ids (a card's task-id key): redacted by structure (`Redactor.ident`)."""
@@ -4457,8 +4523,11 @@ class Daemon:
                 except Exception:
                     ap.state, ap.choice, ap.answer = 'pending', None, None
                     raise
-        except BaseException:
+        except BaseException as e:
             if retained is not None and isinstance(self.redact, Redactor):
+                if isinstance(e, Exception) and not isinstance(e, FerbError):
+                    # recorded while the hidden answer is still redacted by its value (rule 14, review Q-M3)
+                    self._record_internal("chat.answer", e)
                 self.redact.release_secret(retained)
             raise
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,

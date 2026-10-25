@@ -186,4 +186,101 @@ def test_a_reply_later_than_the_app_waits_is_journaled(daemon: RunningDaemon, mo
     assert row["method"] == "ping" and row["seconds"] >= 0.1
     out = io.StringIO()
     stats(daemon.daemon.home, out, days=36500)
-    assert "Requests answered after the app stopped waiting (0 s): 1" in out.getvalue()
+    assert "Requests answered after 0.05 s: 1" in out.getvalue()      # never "the app stopped waiting" (Q-M1)
+
+
+def test_a_handlers_own_pipe_error_gets_internal_and_a_row(daemon: RunningDaemon) -> None:
+    """Review Q-I1: a `BrokenPipeError` the handler raised about some other peer (an extension's writer, say) was read
+    as the caller leaving: the client was dropped with no reply and no row. Only a failure writing the reply to this
+    client is the client leaving."""
+    async def other_peer_gone(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        raise BrokenPipeError("the extension's pipe closed")
+    daemon.daemon.server.unary["ping"] = other_peer_gone
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(RpcError) as e:
+            c.call("ping")
+        assert (e.value.code, str(e.value)) == (INTERNAL, "BrokenPipeError")
+        assert c.call("chat.status")                     # the same connection still answers
+    finally:
+        c.close()
+    [row] = _journaled(daemon, INTERNAL_ERROR)
+    assert (row["method"], row["error"]) == ("ping", "BrokenPipeError")
+
+
+def test_a_client_that_leaves_before_its_reply_leaves_no_row(daemon: RunningDaemon) -> None:
+    """Review Q-I1: the reply's write failing because the client closed is the client leaving, never a failure inside
+    FERB."""
+    import threading
+    answered = threading.Event()
+
+    async def late_and_large(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        await asyncio.sleep(0.2)
+        answered.set()
+        return {"text": "x" * 8_000_000}                 # more than the socket buffers: the write fails
+    daemon.daemon.server.unary["ping"] = late_and_large
+    s, f = raw(daemon.sock)
+    send(s, {"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "cli"}})
+    f.readline()
+    send(s, {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": {}})
+    s.close()
+    assert answered.wait(5)
+    daemon.run(asyncio.sleep(0.5))
+    assert _journaled(daemon, INTERNAL_ERROR) == []
+    c = Client(daemon.sock)
+    try:
+        assert c.call("ping")["text"]                    # FERB still serves
+    finally:
+        c.close()
+
+
+def test_a_problem_that_keeps_happening_is_written_once_per_window_with_its_count(daemon: RunningDaemon) -> None:
+    """Review Q-I2: one row per failing call meant a bug in `chat.status` (every 5 s) or `chat.attach` (every 2 s)
+    wrote tens of thousands of rows a day. The first occurrence is written at once; repeats in the next 10 minutes
+    are counted and written as one row with `repeats` when the window ends."""
+    d = daemon.daemon
+
+    def fail() -> BaseException:
+        try:
+            raise RuntimeError("status is broken")
+        except RuntimeError as e:
+            return e
+
+    async def thousand() -> None:
+        for _ in range(1000):
+            d._record_internal("chat.status", fail())
+            d.server.on_slow("chat.status", 12.5)
+    daemon.run(thousand())
+    assert [r.get("repeats") for r in _journaled(daemon, INTERNAL_ERROR)] == [None]
+    daemon.call_soon(d.clock.advance, 601)
+    daemon.run(asyncio.sleep(0.2))
+    rows = _journaled(daemon, INTERNAL_ERROR)
+    assert len(rows) == 2 and 1 + rows[1]["repeats"] == 1000
+    slow = _journaled(daemon, SLOW_CALL)
+    assert len(slow) == 2 and 1 + slow[1]["repeats"] == 1000
+    out = io.StringIO()
+    stats(d.home, out, days=36500)
+    text = out.getvalue()
+    assert "Requests that failed inside FERB: 1000" in text and "1000  chat.status: RuntimeError" in text
+    assert "Requests answered after 10 s: 1000" in text
+
+
+def test_a_failure_while_answering_with_a_hidden_secret_journals_it_redacted(daemon: RunningDaemon) -> None:
+    """Review Q-M3 (rule 14): a hidden-secret answer is redacted by its exact value only while it is held; the
+    failure was recorded after it was released, so an error naming the value would be journaled verbatim."""
+    from tests.test_choice_answers_not_secret import ask
+    secret = ask(daemon, "Enter the secret for https://x.test (hidden; Enter cancels).", [], kind="owner_secret")
+
+    def refuse(ap: Any) -> str:
+        raise RuntimeError(f"the vault refused {ap.answer}")
+    daemon.daemon._question_answered = refuse          # type: ignore[method-assign]
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(RpcError) as e:
+            c.call("chat.answer", {"approval_id": secret.id, "text": "zq7wx"})
+    finally:
+        c.close()
+    assert e.value.code == INTERNAL
+    [row] = _journaled(daemon, INTERNAL_ERROR)
+    assert (row["method"], row["error"]) == ("chat.answer", "RuntimeError")
+    assert "the vault refused" in row["message"] and "zq7wx" not in json.dumps(row)
