@@ -20,8 +20,11 @@ target (a file as the file it really writes, as the fs lock and S1 key it), cont
 the agent's notes (why, effect, destination, purpose, contact) or the kind and targets derived from them
 (ferb/policy/rules.py payload_hash, hashed_args, declare).
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
-no copy, no change. A trash keeps where the item came from and went. A local APFS snapshot before a permanent delete
-(and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a call.
+no copy, no change. A trash keeps where the item came from and went, and a copy of a file too (L39). A local APFS
+snapshot before a permanent delete (and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a
+call.
+L39: before a call that can change files (a file tool, a shell command, an AppleScript), the change record copies the
+existing files it names and lists their folders (ferb/act/fs/changes.py), so the step's checker reads what changed.
 Rule 10: a tool that names files declares them (`file_paths(args)`: each path and whether it reads, writes or removes
 it); none of them may be FERB's own state, nor (while protection.fs_reads_never_read is false) inside or holding a
 never-read store (ferb/policy/protection.py). Refused before anything runs, leaving a tool.refused span; the fs tools
@@ -50,7 +53,7 @@ from typing import Any, Awaitable, Callable, Container, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ferb.act import aftercheck
-from ferb.act.fs import recovery
+from ferb.act.fs import changes as file_changes, recovery
 from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.shell.proxy import DEST_REFUSED_NO
@@ -128,6 +131,8 @@ NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
+# L39: the kinds of call that can change the owner's files, whose named files the change record copies first
+CHANGE_KINDS = frozenset({Kind.WRITE_FILE, Kind.TRASH, Kind.DELETE_PERMANENT, Kind.RUN_SHELL, Kind.APPLESCRIPT})
 
 
 def observes(cap: Any) -> bool:
@@ -418,6 +423,7 @@ class Gateway:
         self.looks: dict[asyncio.Task[None], str] = {}     # first looks still being taken, by task (D26)
         self.recovery: recovery.Recovery | None = None      # S1: copies before a change, the Trash record
         self.snapshots: recovery.Snapshots | None = None    # S1: a snapshot before a permanent delete or shell work
+        self.changes: file_changes.Changes | None = None   # L39: copies before a step changes files, for its check
         self.confirmations: Confirmations | None = None     # D33, S4: the owner's answers to FERB's questions
         self.destinations: KnownDestinations | None = None  # SQ6: the destinations FERB knows
         self._confirming: dict[str, asyncio.Lock] = {}      # by task tree: one FERB question at a time
@@ -1393,6 +1399,7 @@ class Gateway:
             if spec.kind in (Kind.DELETE_PERMANENT, Kind.RUN_SHELL):
                 snap = await self._snapshot_before(name, grant, rec, span.id)
             kept = await self._keep_copy(cap, name, args, spec, grant, real)
+            watched = await self._watch_changes(cap, args, spec, grant, rec)   # L39: never raises but a cancel
         except asyncio.CancelledError:                   # nothing ran yet: failed, so a retry isn't blocked
             if intent_id:
                 self.ledger.mark(intent_id, "failed", ["cancelled before it ran"])
@@ -1482,7 +1489,8 @@ class Gateway:
                 self._finish_call(span, name, content, result.is_error, output=content | {"evidence_error": "cancelled"},
                                   error=content.get("error") if result.is_error else None, origins=origins)
                 raise
-        self._finish_call(span, name, content, result.is_error, output=output,
+        self._finish_call(span, name, content, result.is_error,
+                          output=output | ({"change_record": watched} if watched else {}),
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error, origins)
@@ -1623,6 +1631,30 @@ class Gateway:
         except Exception as e:
             return ({"recoverable": kept} if kept else {}) | {"recovery_error": error_name(e)}
         return {}
+
+    async def _watch_changes(self, cap: Any, args: Any, spec: Any, grant: RunGrant, rec: Any) -> dict[str, Any]:
+        """L39: before a call that can change files runs, the change record copies each existing file it names and
+        lists their folders (ferb/act/fs/changes.py): a file tool's declared files (what it writes or removes), and
+        every path a shell command or AppleScript writes out (`changes.named`, from the folder it runs in). The step's
+        checker then reads an old-vs-new diff of what changed. Facts of the call's text, never a judgment of it (rule
+        6). Best effort: a failure is recorded on the call and never stops it. Returns the counts for its record."""
+        if self.changes is None or spec.kind not in CHANGE_KINDS:
+            return {}
+        paths: list[Path] = []
+        try:
+            declared = getattr(cap, "file_paths", None)
+            if declared is not None:
+                paths += [owner_path(p, self.roots.workspace) for p, access in declared(args) if access != "read"]
+            if spec.kind in (Kind.RUN_SHELL, Kind.APPLESCRIPT) and spec.content:
+                here = spec.target.path if spec.kind == Kind.RUN_SHELL and spec.target.path else self.roots.workspace
+                paths += file_changes.named(str(spec.content), owner_path(str(here), self.roots.workspace))
+            if not paths:
+                return {}
+            return await asyncio.to_thread(self.changes.before, grant.task_id, rec.tree_id or grant.task_id, paths)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                            # never stops the call: its check gets no diff for it
+            return {"error": error_name(e)}
 
     async def _snapshot_before(self, name: str, grant: RunGrant, rec: Any, before: str) -> dict[str, Any]:
         """S1: a local APFS snapshot before a permanent delete or a shell command (recovery.Snapshots: at most one per

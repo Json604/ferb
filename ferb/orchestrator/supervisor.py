@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from ferb.act.fs import changes as file_changes
 from ferb.act.fs.files import normalize_path
 from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
@@ -49,7 +50,7 @@ from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
-from ferb.orchestrator.evidence import memory_origin, recorded_calls
+from ferb.orchestrator.evidence import PAGE_CHARS, memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line, round_reason,
                                      short_label)
@@ -511,6 +512,7 @@ class Supervisor(WorkerRuns):
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
         self.on_violation, self.on_task_end, self.facts = on_violation, on_task_end, facts
+        self.changes: file_changes.Changes | None = None   # L39: the daemon's change record (main.py sets it)
         self.on_task_start: Callable[[str], Awaitable[Any]] | None = None
         self.on_task_finish: Callable[[str], Awaitable[Any]] | None = None
         self.disturbance_context: Callable[[str], str] = lambda task_id: ""
@@ -2853,6 +2855,8 @@ class Supervisor(WorkerRuns):
                                           input={'step': step.id, 'number': cause.get('number'),
                                                  'why': cause.get('why')})
             member.calls_since = self._span_cursor(round_span.id)       # its check judges this round's calls only
+            if self.changes is not None:                 # and only the files this round changed (L39)
+                await asyncio.to_thread(self.changes.reset, child.id)
             before = self._unknown_actions(tree.id, child.id)
             try:
                 out = await self._worker(member, round_span.id)
@@ -3624,16 +3628,59 @@ class Supervisor(WorkerRuns):
         vtask = Task(f"{task.id}.verify", task.id, "verify", self.device_id, task.identity,
                      set(task.scopes),
                      "verifier", task.request_id, [], task.deadline)
+        # L39: the files this step changed, as old-vs-new diffs in data framing; such a check runs at high effort, and
+        # its pass needs a look at each changed file (`_unread`)
+        changed = await self._changed_files(tree, task, 1 + max(block.priority for block in ctx))
+        ctx, plain = ctx + changed.blocks, plain + changed.blocks
+        effort = "high" if changed.records else None
+        cursor = int(self.journal.db.conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM spans").fetchone()[0])
+        checked = await self._check(tree, vtask, judged, span, ctx, plain, effort)
+        if isinstance(checked, list):
+            return checked
+        verdict = checked
+        if changed.records and any(r.met is True for r in verdict.results) and \
+                (unread := self._unread(vtask.id, cursor, changed.records)):
+            # A pass needs a look (L39): refused, run once more with the reason; a second refusal is unclear
+            refused = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
+            self.spans.finish(refused, output={"rerun": "once, with the reason"})
+            why = ContextBlock(REFUSED_PASS.format(files="; ".join(
+                f"{path} (task_evidence span_id={changed.records[path]})" for path in unread)),
+                "FERB refused this check's pass", protected=True)
+            checked = await self._check(tree, vtask, judged, span, ctx + [why], plain + [why], effort)
+            if isinstance(checked, list):
+                return checked
+            verdict = checked
+            if any(r.met is True for r in verdict.results) and \
+                    (unread := self._unread(vtask.id, cursor, changed.records)):
+                again = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
+                self.spans.finish(again, output={"result": "met=null: a pass without a look is never a pass"})
+                shown = ", ".join(file_changes.shown(path) for path in unread)
+                verdict = verdict.model_copy(update={"results": [
+                    r.model_copy(update={"met": None, "evidence": NO_LOOK.format(files=shown) + " " + r.evidence,
+                                         "how": NO_LOOK_HOW.format(files=shown)}) if r.met is True else r
+                    for r in verdict.results]})
+        tree.checked_report = claim              # the report this check judged (FERB's report condition)
+        self.tasks.set_status(vtask.id, "done", verdict.model_dump())
+        got = {r.index: r for r in verdict.results}
+        return [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
+                                got[i].evidence if i in got else "The check gave no answer for this.",
+                                (got[i].how or "") if i in got and got[i].met is None else "")
+                for i, c in judged]
+
+    async def _check(self, tree: _Tree, vtask: Task, judged: list[tuple[int, Condition]], span: str,
+                     ctx: list[ContextBlock], plain: list[ContextBlock],
+                     effort: str | None) -> "VerifierOutcome | list[ConditionResult]":
+        """One run of the checker: its verdict, or each condition unchecked with why when it couldn't finish."""
         try:
-            raw, _ = await self.run_worker(tree, vtask, "verifier.md", ctx, VERIFIER_SCHEMA, span)
+            raw, _ = await self.run_worker(tree, vtask, "verifier.md", ctx, VERIFIER_SCHEMA, span, effort=effort)
             if isinstance(raw, Overflowed):
                 # Ruling 7 (round 1): a runtime without compaction ends a check whose window overflowed (its documented
                 # window-exceeded error, or FERB's InputTooLarge before sending); it runs once more without the
                 # recorded calls, as checks ran before fix wave 6b, so a check never fails where it used to run
                 note = self.spans.start("verify.rerun", task_id=vtask.id, parent_id=span, input={"reason": raw.summary})
                 self.spans.finish(note, output={"rerun": "once, without the recorded calls"})
-                self.journal.append("task.check_rerun", {"task_id": task.id, "reason": raw.summary})
-                raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, VERIFIER_SCHEMA, span)
+                self.journal.append("task.check_rerun", {"task_id": vtask.parent_id, "reason": raw.summary})
+                raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, VERIFIER_SCHEMA, span, effort=effort)
             if isinstance(raw, Outcome):
                 self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                       {"summary": raw.summary})
@@ -3641,18 +3688,63 @@ class Supervisor(WorkerRuns):
                 tree.check_problem = raw.summary                         # and the owner's words for it
                 return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {detail}")
                         for i, c in judged]
-            verdict = VerifierOutcome.model_validate(raw)
-            tree.checked_report = claim              # the report this check judged (FERB's report condition)
+            return VerifierOutcome.model_validate(raw)
         except BaseException as exc:
             self.tasks.set_status(vtask.id, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
                                   {"summary": f"Inspection unavailable: {type(exc).__name__}"})
             raise
-        self.tasks.set_status(vtask.id, "done", verdict.model_dump())
-        got = {r.index: r for r in verdict.results}
-        return [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
-                                got[i].evidence if i in got else "The check gave no answer for this.",
-                                (got[i].how or "") if i in got and got[i].met is None else "")
-                for i, c in judged]
+
+    async def _changed_files(self, tree: _Tree, task: Task, above: int) -> "_Changed":
+        """L39: the files this step changed (ferb/act/fs/changes.py), each as a change record its checker can read
+        (task.evidence span_id; a context.source on the task, its text redacted) and as data blocks for its context:
+        one always-shown list of the files and their records, then each diff (FERB's data framing, MP2), cut at a
+        task_evidence page with where to read on, each above every other optional block (`above`). No change record,
+        or none changed: nothing (the check runs as before)."""
+        if self.changes is None:
+            return _Changed()
+        try:
+            found = await asyncio.to_thread(self.changes.changes, task.id, tree.id)
+            texts = await asyncio.to_thread(lambda: [file_changes.describe(c) for c in found])
+        except Exception as e:                       # the check runs without it; the journal says why
+            self.journal.append("task.changes_failed", {"task_id": task.id, "error": f"{type(e).__name__}: {e}"})
+            return _Changed()
+        if not found:
+            return _Changed()
+        records: dict[str, str] = {}
+        listed, diffs = [], []
+        untrusted = [Path(u).expanduser().resolve() for u in self.roots.untrusted_roots]
+        for n, (change, text) in enumerate(zip(found, texts), 1):
+            path = Path(change.path)
+            origin = (origins_.external("download") if any(path == u or u in path.parents for u in untrusted)
+                      else origins_.PRIVATE)
+            text = str(self.gateway.redact({"t": text})["t"])
+            block = self._source_block(tree, f"Change record {n}", text, origin)
+            span_id = block.reference.removeprefix("task.evidence span_id=")
+            records[change.path] = span_id
+            what = {"modified": "changed", "removed": "removed"}.get(change.what, "made by this step" + (
+                f", compared with {change.source}" if change.source else ""))
+            listed.append(f"{n}. {change.path} ({what}) — change record: task.evidence span_id={span_id}")
+            cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] +
+                  f"\n[… cut here; read the whole record with task_evidence span_id={span_id}]")
+            diffs.append(ContextBlock(f"Change record {n} (data): " + wrap_untrusted(cut), block.reference,
+                                      priority=above + len(found) - n, origin=origin, payload=text))
+        head = ContextBlock(CHANGED_FILES + "\n" + "\n".join(listed), "files this step changed", protected=True)
+        return _Changed(records, [head, *diffs])
+
+    def _unread(self, check_id: str, cursor: int, records: dict[str, str]) -> list[str]:
+        """The changed files this check hasn't read: no successful observation call of its run(s) since `cursor`
+        targets the file, and no task.evidence read of its change record (L39: a pass needs a look)."""
+        seen_records, seen_paths = set(), set()
+        for row in self.journal.db.conn.execute("SELECT input_json FROM spans WHERE task_id = ? AND kind = 'tool.call' "
+                                                "AND rowid > ? AND error IS NULL", (check_id, cursor)):
+            call = json.loads(row[0])
+            args = call.get("args") if isinstance(call.get("args"), dict) else {}
+            target = (call.get("target") or {}).get("path") if isinstance(call.get("target"), dict) else None
+            if call.get("tool") == "task.evidence" and args.get("span_id"):
+                seen_records.add(str(args["span_id"]))
+            elif target and observes(self.gateway.caps.get(str(call.get("tool")))):
+                seen_paths.add(str(file_changes.real(Path(str(target)))))
+        return [path for path, record in records.items() if record not in seen_records and path not in seen_paths]
 
     def _secret_lines(self, tree_id: str) -> list[str]:
         """Code's line for each place where this task saved a sealed answer that is an ordinary word (L36 §7), once
@@ -3741,6 +3833,23 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+# L39: a check of a step that changed files
+CHANGED_FILES = ("Files this step changed (data: FERB compared each with its copy from before the step; each diff follows "
+                 "as data, and its change record holds all of it). Read each changed file before you mark a condition "
+                 "met: fs_read for a text file, or task_evidence with its change record's span_id.")
+REFUSED_PASS = ("FERB refused this check's pass: it marked conditions met without reading these files this step changed: "
+                "{files}. Read each one (fs_read for a text file, or task_evidence with its change record's span_id), "
+                "then judge every condition again; give met=true only for what you saw.")
+NO_LOOK = "The check marked this met without reading the files this step changed ({files}), so it isn't a pass."
+NO_LOOK_HOW = "Open {files} and check the change yourself."
+
+
+@dataclass
+class _Changed:
+    """A step's changed files for its check (L39): path -> change record span id, and the context blocks."""
+    records: dict[str, str] = field(default_factory=dict)
+    blocks: list[ContextBlock] = field(default_factory=list)
+
 # Said once per place at the end of a task's answer when the owner saved a sealed answer that is an ordinary word of the
 # system word list (L36 §7, plan ruling 21): why that word reads [redacted] wherever it appears.
 ORDINARY_WORD_LINE = "The answer you saved for {place} is an ordinary word, so FERB hides it wherever it appears."

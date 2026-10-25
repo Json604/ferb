@@ -28,6 +28,7 @@ from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.autoinstall import accepted_extension_ids
 from ferb.act.evidence.store import EvidenceStore
 from ferb.act.fs import recovery
+from ferb.act.fs.changes import Changes
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
@@ -305,6 +306,7 @@ class Daemon:
         self._ptt = False
         self.gui = GuiLock()
         self.mac: MacComputerDriver | None = None
+        self.changes: Changes | None = None             # L39: each step's files as they were before it
         self.shells: ShellManager | None = None
         self.sandbox: Sandbox | None = None                 # the shell's sandbox profile, built at start
         self.containment: tuple[bool, str] = (False, "not checked yet")
@@ -793,6 +795,13 @@ class Daemon:
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots
+        # L39: what each step's files looked like before it changed them, for its checker's diff; never copied from
+        # FERB's own state or a store closed to FERB's tools. What a stopped daemon left goes now, before any task
+        protection = self.protection
+        self.changes = Changes(self.home / "changes",
+                               closed=lambda path: protection.fs_denied(path, "read") is not None)
+        self.changes.sweep()
+        self.gateway.changes = self.changes
         self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids, self.redact)     # D33, S4 (F5a)
         self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids, self.redact)  # SQ6
         if self.shells is not None:                  # a running shell process's task: its destinations are its own
@@ -811,6 +820,7 @@ class Daemon:
         self.supervisor.on_resumed_outcome = lambda event: self._task_result(event, shown=False)
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished
+        self.supervisor.changes = self.changes
         self.supervisor.disturbance_context = self.disturbance.context
         self.supervisor.disturbance = self.disturbance
         self.supervisor.relevant_context = self._relevant_context      # its fourth element: the search's source refs
@@ -879,12 +889,14 @@ class Daemon:
         return resources
 
     async def _tree_finished(self, tree_id: str) -> None:
-        """A task tree ended: the desktop observer's summary, then FERB's upload copies for it go (rule 17), except
-        those a tab that outlives the tree still shows. What couldn't be removed is journaled; the next start-up
-        sweeps it."""
+        """A task tree ended: the desktop observer's summary, then its change record's copies (L39) and FERB's upload
+        copies for it go (rule 17), except those a tab that outlives the tree still shows. What couldn't be removed is
+        journaled; the next start-up sweeps it."""
         try:
             await self.disturbance.finish(tree_id)
         finally:
+            if self.changes is not None:                  # L39: the tree's copies from before its changes
+                await asyncio.to_thread(self.changes.forget, tree_id)
             if self.uploads is not None:
                 await self._clean_uploads(self.uploads.forget_tree, tree_id, about={"task_id": tree_id})
 
