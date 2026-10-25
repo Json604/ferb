@@ -219,9 +219,10 @@ class Changes:
 
     # before a call
     def before(self, task_id: str, tree_id: str, paths: Iterable[Path]) -> dict[str, int]:
-        """Before a call that may change these paths: each existing file not yet recorded for the task is copied, each
-        missing one noted as missing; each named folder is listed and its own files copied; each file's folder listed.
-        Returns counts for the call's record. Never raises for one path: a path FERB can't look at is skipped."""
+        """Before a call that may change these paths: each existing file not yet recorded for the task is copied and its
+        folder listed; a missing one has its folder listed (a file made there shows as new); each named folder is
+        listed and its own files copied. Returns counts for the call's record. Never raises for one path: a path FERB
+        can't look at is skipped."""
         with self._lock:
             rec = self._record(task_id, tree_id)
             assert rec is not None
@@ -237,10 +238,9 @@ class Changes:
                     continue
                 try:
                     st = path.lstat()
-                except FileNotFoundError:
+                except FileNotFoundError:               # a file it may make: its folder's listing shows it
                     if path.parent.is_dir() and os.access(path.parent, os.W_OK):
                         self._list(rec, path.parent, counts)
-                        rec.files.setdefault(str(path), _File(False))
                     continue
                 except OSError:
                     continue
