@@ -1649,3 +1649,11 @@ Checkout validation is in the changelog entry; nothing here is installed or obse
   the planner's turn and most input cached, and `sqlite3 ~/.ferb/ferb.db "select at, data_json from journal where kind
   = 'runtime.cache_fallback'"` is empty (a row names the request and says why that turn took today's path instead; the
   turn itself still answers).
+
+## Notch lag (UI, 27b2567) — owner verdict: pass (2026-10-25)
+- Owner, 10:3x: "im noticing ferb notch lag a bit now... while typing, opening, closing"; "my laptop is not lagging a
+  bit. its just the notch". A `sample` of the running notch showed `NotchModel.taskItems` (all 254 turns, 105 tasks,
+  rebuilt and sorted twice per read) on every pointer move, animation frame and keystroke.
+- 27b2567 builds the list once per change (1000 `panelSize` reads: 4.98 s -> 0.10 s, debug build). The notch was
+  restarted on that build at about 11:10.
+- Owner, after the restart: "yep its fast now".
