@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from ferb.act.fs import changes as file_changes
 from ferb.act.fs.files import normalize_path
+from ferb.act.mac.launched import left_running
 from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
@@ -3746,6 +3747,15 @@ class Supervisor(WorkerRuns):
                 seen_paths.add(str(file_changes.real(Path(str(target)))))
         return [path for path, record in records.items() if record not in seen_records and path not in seen_paths]
 
+    def _apps_left_running(self, tree_id: str) -> list[str]:
+        """Code's line for each app a task of this tree launched and left running at its release (L39: the owner used
+        it, it may hold unsaved changes, or FERB couldn't tell), from the tree's cleanup records, once each."""
+        rows = self.journal.db.conn.execute("SELECT output_json FROM spans WHERE kind = 'task.cleanup' AND "
+                                            "(task_id = ? OR substr(task_id, 1, ?) = ?) ORDER BY rowid",
+                                            (tree_id, len(tree_id) + 1, tree_id + "."))
+        records = [r for row in rows for r in (json.loads(row[0] or "{}") or {}).get("resources") or []]
+        return list(dict.fromkeys(left_running(records)))
+
     def _secret_lines(self, tree_id: str) -> list[str]:
         """Code's line for each place where this task saved a sealed answer that is an ordinary word (L36 §7), once
         each, from FERB's journal (`secret.ordinary_word`, which never holds the word)."""
@@ -3824,6 +3834,8 @@ class Supervisor(WorkerRuns):
         if sites := sites_contacted(self.spans, tree.id):
             answer += "\n\nSites contacted: " + ", ".join(sites)
         for line in self._secret_lines(tree.id):          # then any saved answer FERB hides as a word (L36 §7)
+            answer += "\n\n" + line
+        for line in self._apps_left_running(tree.id):     # and each app FERB opened and left running (L39)
             answer += "\n\n" + line
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],

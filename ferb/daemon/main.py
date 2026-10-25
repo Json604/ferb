@@ -33,6 +33,7 @@ from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.driver import MacComputerDriver, WebSecrets, profiles_dir, same_title
+from ferb.act.mac.launched import LaunchedApps, brought_forward
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ProcInfo, ShellManager
@@ -873,6 +874,11 @@ class Daemon:
     async def _task_end(self, task_id: str) -> list[dict[str, Any]]:
         resources = await self.hearing.end_task(task_id)          # L26: listening ends with the task
         resources.extend(await self.recordings.end_task(task_id))
+        if (launched := getattr(getattr(self, "mac", None), "launched", None)) is not None:
+            try:                                                  # L39: apps this task launched
+                resources.extend(await launched.release(task_id))
+            except Exception as exc:
+                resources.append({'resource': 'app', 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
         for name, drv in (("ferb_browser", self.identity_browser), ("browser", self.router)):
             if drv is not None:
                 try:
@@ -899,6 +905,13 @@ class Daemon:
                 await asyncio.to_thread(self.changes.forget, tree_id)
             if self.uploads is not None:
                 await self._clean_uploads(self.uploads.forget_tree, tree_id, about={"task_id": tree_id})
+
+    def _owner_used_app(self, task_id: str, app: Any) -> bool:
+        """L39: the desktop observer recorded the app coming forward in the task's tree after FERB launched it, with
+        no FERB on-screen call near (launched.brought_forward)."""
+        rec = self.tasks.get(task_id) if self.tasks is not None else None
+        tree = rec.tree_id if rec is not None and rec.tree_id else task_id.split(".", 1)[0]
+        return brought_forward(self.db, tree, app.pid, app.at)
 
     def _running_processes(self) -> list[dict[str, Any]]:
         """FERB-started processes running now (the `ferb ps` data), commands redacted (rule 14): a front-app or Space
@@ -1121,6 +1134,11 @@ class Daemon:
                                      excluded=self.config.exclude_apps, web_secrets=self._web_secrets,
                                      profiles=Profiles(profiles_dir(self.home)))   # what landed per app, learned
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
+        mac = self.mac
+        # L39: apps a task's calls launch are its resources, quit at its release unless the owner used them
+        self.mac.launched = LaunchedApps(  # type: ignore[attr-defined]
+            lambda: list(mac.apps.running()),
+            lambda task, app: self._owner_used_app(task, app))
         # FERB's shell and AppleScript run only inside its sandbox, built from the protection lists (S2, D27, rule
         # 10): when sandbox-exec can't run, their tools are left out and `ferb doctor` says why, never uncontained (Q7)
         assert self.protection is not None

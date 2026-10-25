@@ -194,7 +194,8 @@ class MacOpen(_Base):
     on_screen = True
     description = ("Request a background launch of an installed app. Does not choose a menu item to reopen a window. "
                    "FERB never restores an earlier foreground app over the owner's current choice. Reading "
-                   "an app that isn't running? Open it first.")
+                   "an app that isn't running? Open it first. An app this call launches belongs to the task: FERB "
+                   "quits it when the task ends, unless the owner used it or it may hold unsaved changes.")
     scopes = {"mac:read"}             # opening an app to look at it is part of reading (owner decision 2026-10-01)
 
     class Input(BaseModel):
@@ -207,10 +208,17 @@ class MacOpen(_Base):
         bid = str(getattr(args, "bundle_id"))
         if bid.lower() in {e.lower() for e in self.driver.excluded()}:
             return _err(f"{bid} is on the owner's exclusion list")
+        running = self.driver.apps.find(bid) is not None
         if not self.driver.apps.launch(bid):
             return _err(f"no installed app {bid}")
+        # L39: an app this call launched (it wasn't running) is the task's resource, quit at its release
+        launched = not running and (app := self.driver.apps.find(bid)) is not None
+        if launched and (record := getattr(self.driver, "launched", None)) is not None:
+            from datetime import datetime
+            from ferb.act.mac.launched import Launched
+            record.add(ctx.task_id, Launched(app.bundle_id, app.name, app.pid, datetime.now().astimezone().isoformat()))
         window = await self.driver.ensure_window(bid)
-        return ToolResult({"opened": bid, "window": window,
+        return ToolResult({"opened": bid, "launched": launched, "window": window,
                            "next": "mac_snapshot reads it where it is" if window else
                                    "it's running but shows no window; mac_snapshot may still read its menus"})
 
