@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -24,6 +25,7 @@ NOTCH_PLIST = ROOT / "ui" / "mac" / "FERBNotch" / "Info.plist"
 BUILD_APP = ROOT / "scripts" / "build-app.sh"
 BUILD_DMG = ROOT / "scripts" / "build-dmg.sh"
 APP_PARTS = ROOT / "scripts" / "app-parts.sh"
+LOCK = ROOT / "uv.lock"
 DEV_ID = "Developer ID Application: Test Owner (TEAM123456)"
 
 
@@ -598,3 +600,72 @@ def test_codex_binary_is_the_pinned_package_for_each_architecture() -> None:
     for cpu in ("arm64", "x64"):
         entry = lock[f"node_modules/@openai/codex-darwin-{cpu}"]
         assert entry["version"] == f"{CODEX_VERSION}-darwin-{cpu}" and entry["integrity"].startswith("sha512-")
+
+
+# ---------- locked dependencies install on both architectures (L34) ----------
+
+
+def _wheel_fits(filename: str, arch: str) -> bool:
+    """A wheel that CPython 3.12 on macOS `arch` (arm64 or x86_64) can install."""
+    python, abi, platform = filename[: -len(".whl")].split("-")[-3:]
+    if platform == "any":
+        return True
+    mac = any(tag.startswith("macosx_") and tag.endswith((f"_{arch}", "_universal2")) for tag in platform.split("."))
+    cpython = any(tag in ("py3", "cp312") or (abi == "abi3" and tag.startswith("cp3") and int(tag[3:]) <= 12)
+                  for tag in python.split("."))
+    return mac and cpython
+
+
+def _runtime_packages(arch: str) -> list[dict[str, Any]]:
+    """Every package uv.lock installs into FERB.app's Python on macOS `arch`: ferb's dependencies and theirs, with the
+    extras they ask for, markers evaluated for that Mac (no dev group, no optional memory extra)."""
+    import tomllib
+
+    from packaging.markers import Marker
+    env = {"sys_platform": "darwin", "platform_system": "Darwin", "platform_machine": arch, "os_name": "posix",
+           "python_version": "3.12", "python_full_version": "3.12.13", "implementation_name": "cpython",
+           "platform_python_implementation": "CPython", "extra": ""}
+
+    def applies(marker: str | None) -> bool:
+        return marker is None or Marker(marker).evaluate(env)
+
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for p in tomllib.loads(LOCK.read_text())["package"]:
+        by_name.setdefault(p["name"], []).append(p)
+
+    def pick(dep: dict[str, Any]) -> dict[str, Any]:
+        found = [p for p in by_name[dep["name"]] if dep.get("version", p["version"]) == p["version"]
+                 and any(applies(m) for m in p.get("resolution-markers", [None]))]
+        assert len(found) == 1, (arch, dep, [p["version"] for p in found])
+        return found[0]
+
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    walked: set[tuple[str, str, tuple[str, ...]]] = set()
+    todo: list[tuple[dict[str, Any], tuple[str, ...]]] = [(by_name["ferb"][0], ())]
+    while todo:
+        pkg, extras = todo.pop()
+        deps = list(pkg.get("dependencies", []))
+        for extra in extras:
+            deps += pkg.get("optional-dependencies", {}).get(extra, [])
+        for dep in deps:
+            if not applies(dep.get("marker")):
+                continue
+            p = pick(dep)
+            key = (p["name"], p["version"], tuple(dep.get("extra", [])))
+            if key in walked:
+                continue
+            walked.add(key)
+            seen[(p["name"], p["version"])] = p
+            todo.append((p, key[2]))
+    return list(seen.values())
+
+
+def test_every_locked_runtime_package_installs_on_both_architectures() -> None:
+    """FERB.app ships for Apple silicon and Intel (L34), so each package its Python loads needs a wheel for both; a
+    source-only package would need a compiler toolchain at release time (cryptography 49 dropped Intel Mac wheels)."""
+    for arch in ("arm64", "x86_64"):
+        packages = _runtime_packages(arch)
+        assert len(packages) > 40, arch                                       # the walk found the whole tree
+        missing = sorted(f'{p["name"]} {p["version"]}' for p in packages
+                         if not any(_wheel_fits(w["url"].rsplit("/", 1)[1], arch) for w in p.get("wheels", [])))
+        assert missing == [], (arch, missing)

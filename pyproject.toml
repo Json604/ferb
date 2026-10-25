@@ -7,7 +7,8 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 dependencies = [
     "claude-agent-sdk==0.2.160",
-    "cryptography==50.0.1",
+    "cryptography==50.0.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "cryptography==48.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",   # last with Intel Mac wheels
     "httpx==0.28.1",
     "idna==3.20",
     "mcp==2.2.0",
