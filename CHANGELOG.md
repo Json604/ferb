@@ -875,7 +875,8 @@ After the owner's update (2026-10-24):
   tools now use the same ranked search as the planner, and `memory.learned` returns what each item says, not only its
   key. A search with no words lists the newest first, with no recency or owner boost. `memory.read` without a query
   lists a fact that was replaced, retired or is past its date as "ended", with its end, never as "active" (final
-  review M2).
+  review M2). `memory.learned` reads in a background thread, so a broad lookup never holds up the notch's other
+  requests (final review M3).
 - Workers and plan steps get memory (L36). Live 2026-10-24: the visa task's research step got no memory and only its
   own step goal, so it typed your email as the username even though you had given the username that morning. Every
   worker and plan step now gets the 20 memories most relevant to your request and the task, and a plan step sees its

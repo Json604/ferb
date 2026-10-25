@@ -1497,7 +1497,7 @@ class Daemon:
             capture=lambda task_id: self._capture_card(task_id, None),
             cards_refreshed=self._replay_deferred_receipts, spans=self.spans,
             forget=lambda ids: self._forget_nodes(ids, named=False))
-        self.registry.add(LearningRead(lambda: self.learning, self._search))
+        self.registry.add(LearningRead(lambda: self.learning, self._learned_search))
         self.memory.on_forget = self._forget_learning_sources
         self.memory.after_forget = self._forget_stating_cards
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
@@ -1767,6 +1767,37 @@ class Daemon:
         vector, embed = await self._query_vector(query)
         return list(self.learning.search(query, query_vector=vector, embed=embed, limit=limit, leave_out=leave_out,
                                          sources=sources, focus=focus, **filters))
+
+    async def _learned_search(self, query: str, **filters: Any) -> list[dict[str, Any]]:
+        """memory.learned's search (L36 §3): the one search, with its SQLite reads in a worker thread on a connection
+        of its own, as the re-index's are (`_reindex_search`; final review M3). A broad or empty query reads every
+        matched node with all its source refs (a day's or week's rollup cites tens of thousands), so on the event loop
+        it could hold every other call. It waits for the re-index, and facts are synced on the loop first (a write, on
+        the daemon's connection); the query's embedding is computed off the loop (`_query_vector`). What the thread's
+        store reports (an embedding failure) is published after it, on the loop."""
+        from ferb.memory.learning import Learning
+        if not self.learning:
+            return []
+        assert self.db is not None
+        await self._search_ready()
+        self.learning.sync_facts(self.memory)
+        vector, embed = await self._query_vector(query)
+        learning, path = self.learning, self.db.path
+        told: list[tuple[str, dict[str, Any]]] = []
+
+        def work() -> list[dict[str, Any]]:
+            db = Database(path)
+            try:
+                reader = Learning(db, learning.clock, lambda topic, data: told.append((topic, data)), learning.redact,
+                                  redact_id=learning.redact_id)
+                reader.embedder, reader.home = learning.embedder, learning.home
+                return list(reader.search(query, query_vector=vector, embed=embed, **filters))
+            finally:
+                db.close()
+        found = await asyncio.to_thread(work)
+        for topic, data in told:
+            self._publish(topic, data)
+        return found
 
     async def _memory_item_search(self, query: str) -> list[str]:
         """memory.read's query, ranked by the one search (L36 §3): the memory items behind the matching facts."""

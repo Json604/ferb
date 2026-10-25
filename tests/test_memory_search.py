@@ -469,9 +469,54 @@ def test_memory_learned_returns_content_with_ids(daemon: Any) -> None:
 
 
 def test_the_memory_tools_are_registered_on_the_waiting_search(daemon: Any) -> None:
-    """memory.learned must never search a half-re-indexed store: the daemon registers it on `_search`."""
+    """memory.learned must never search a half-re-indexed store: the daemon registers it on `_learned_search`, which
+    waits for the re-index as `_search` does."""
+    import asyncio
     tool = daemon.daemon.registry.capabilities["memory.learned"]
-    assert tool.search == daemon.daemon._search
+    assert tool.search == daemon.daemon._learned_search
+    before = daemon.daemon._reindex_task
+
+    async def reindexing() -> None:                                  # a re-index still running
+        daemon.daemon._reindex_task = asyncio.ensure_future(asyncio.sleep(0.5))
+    daemon.run(reindexing())
+    try:
+        searching = asyncio.run_coroutine_threadsafe(tool.run(tool.Input(query="dentist"), None), daemon.loop)
+        with pytest.raises(TimeoutError):
+            searching.result(0.2)                                    # it waits for the re-index
+        searching.result(5)
+    finally:
+        daemon.daemon._reindex_task = before
+
+
+def test_memory_learned_reads_off_the_event_loop(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Final review M3: a broad or empty memory.learned query reads every matched node with all its source refs (a
+    week's rollup cites tens of thousands), which on the owner's 3 GB store could approach the notch's 10 s, on the
+    event loop. Its search runs in a worker thread on a connection of its own; the loop keeps answering meanwhile."""
+    import asyncio
+    import json
+
+    from ferb.memory.learning import Learning
+    owner_fact(daemon, "dentist", "my dentist is Dr. Rao")
+    real, entered, gate = Learning.search, threading.Event(), threading.Event()
+
+    def held(self: Any, *args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        gate.wait(10)
+        return real(self, *args, **kwargs)
+    monkeypatch.setattr(Learning, "search", held)
+    tool = daemon.daemon.registry.capabilities["memory.learned"]
+    try:
+        reading = asyncio.run_coroutine_threadsafe(tool.run(tool.Input(query=""), None), daemon.loop)
+        assert entered.wait(5)
+
+        async def pong() -> str:
+            return "pong"
+        assert daemon.run(pong(), timeout=2) == "pong"                 # the loop answers while the search reads
+        assert not reading.done()
+    finally:
+        gate.set()
+    candidates = json.loads(reading.result(5).content["text"])["candidates"]
+    assert [c["text"] for c in candidates if c["kind"] == "fact"] == ["owner/dentist — my dentist is Dr. Rao"]
 
 
 def test_memory_read_refuses_a_query_with_no_words_and_finds_nothing_for_common_words(daemon: Any) -> None:
