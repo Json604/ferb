@@ -14,6 +14,12 @@ def _words(name: str) -> str:
 
 
 SENTENCES = [
+    # live 2026-10-25 06:50: "whos this actor?" got a confident wrong name from the same frame twice; the owner: "just
+    # add its probably X ... it should've just checked the cast"
+    ("supervisor.md",
+     'Naming a person from a face or picture is a likely match, never a fact: say "It\'s probably …" and what it is '
+     'based on (the show, scene, caption). When the screen names the show, episode or event and you aren\'t sure, '
+     'start a short task that checks its cast or credits and answer from that.'),
     ("supervisor.md",
      'Work FERB must repeat or keep true while the owner\'s request runs ("keep this tab playing", "loop until the '
      'checks pass", "every time a reply comes, answer it") is a plan with a loop step: goal is what to keep true or '
