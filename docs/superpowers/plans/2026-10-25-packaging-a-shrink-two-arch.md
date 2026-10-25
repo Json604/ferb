@@ -1295,3 +1295,12 @@ git push origin main
 - [ ] **Step 7: Owner live check and verdict**
 
 Hand the owner the phase A section of `docs/OWNER_ACCEPTANCE.md`. Report three things separately: checkout validation (test summary), installation status (nothing installed on the owner's account) and the owner's live results. Record what the owner saw under that section, with `ferb verdict TASK pass|fail` for the live task run in the second account.
+
+## Owner answers (Task 1)
+
+Answered by the owner on 2026-10-25.
+
+- **A1 (Claude Code inside FERB.app):** "Keep it". Later reaffirmed: "Keep both in the download". The bundled, pinned Claude Code CLI stays.
+- **A2 (size target):** "Yes, those targets": arm64 ≤ 600 MB, Intel ≤ 630 MB.
+- **A3 (cryptography on Intel):** the controller's ruling, option (a): the Intel app uses cryptography 48.0.1; Apple silicon keeps 50.0.1.
+- **A4 (testing Intel):** "Yes, I have one". There is a real Intel Mac on macOS 14.2 or later for testing.
