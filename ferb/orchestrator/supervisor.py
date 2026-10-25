@@ -3737,9 +3737,10 @@ class Supervisor(WorkerRuns):
 
     async def _changed_files(self, tree: _Tree, task: Task, above: int) -> "_Changed":
         """L39: the files that changed during this step (ferb/act/fs/changes.py). Each file a call of the step named
-        exactly is a change record its checker can read (task.evidence span_id; a context.source on the task holding
-        the redacted diff as the checker sees it, cut at `PAGE_CHARS`, never the whole file) and a data block (FERB's
-        data framing, MP2), above every other optional block (`above`); the always-shown list names them, the paths
+        exactly is a change record its checker can read (task.evidence span_id, paged; a context.source on the task
+        holding the whole redacted diff as the checker sees it: for a new text file its first part and where it is,
+        for a new DOCX or PDF its whole text) and a data block holding the record's first page (FERB's data framing,
+        MP2), above every other optional block (`above`); the always-shown list names them, the paths
         JSON-quoted (outside content can choose a file name, rule 16). Anything else that changed in a folder the step
         listed is a fact only (name, size, time) in one data block: it may be the owner's or another task's, and needs
         no look. No change record, or nothing changed: nothing (the check runs as before)."""
@@ -3771,15 +3772,17 @@ class Supervisor(WorkerRuns):
             path = Path(change.path)
             origin = (origins_.external("download") if any(path == u or u in path.parents for u in untrusted)
                       else origins_.PRIVATE)
-            # N6: the record holds the whole diff (a new file: its first part and where it is), paged by task.evidence;
-            # the checker's context gets the first page
+            # N6: the record holds the whole diff (a new text file: its first part and where it is; a new DOCX or PDF:
+            # its whole text), paged by task.evidence; the checker's context gets the first page
             block = self._source_block(tree, f"Change record {n}", text, origin)
             span_id = block.reference.removeprefix("task.evidence span_id=")
             records[change.path] = span_id
             cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] + "\n[… the record holds the rest: "
                                                          f"task_evidence span_id={span_id}, following next_offset]")
             source = f", compared with {json.dumps(change.source, ensure_ascii=False)}" if change.source else ""
-            what = {"modified": "changed", "removed": "removed"}.get(change.what, "new" + source)
+            what = {"modified": "changed", "removed": "removed",
+                    "renamed": f"renamed from {json.dumps(change.source, ensure_ascii=False)}"}.get(change.what,
+                                                                                                 "new" + source)
             listed.append(f"{n}. {json.dumps(change.path, ensure_ascii=False)} ({what}) — change record: "
                           f"task.evidence span_id={span_id}")
             diffs.append(ContextBlock(f"Change record {n} (data): " + wrap_untrusted(cut), block.reference,

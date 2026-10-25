@@ -359,3 +359,30 @@ def test_nothing_in_a_named_files_diff_is_unreadable(daemon: Any, tmp_path: Path
     script, _ = install(daemon, {"worker": worker, "worker.verify": pages})
     assert outcome(chat(daemon, "replace ID in long.txt"))["verified"]
     assert "+line 2999: 2024eb02238" in seen[0].replace("\\n", "\n")
+
+
+def test_a_renamed_named_file_is_listed_as_renamed_with_a_change_record(daemon: Any, tmp_path: Path) -> None:
+    """A1 (round 3): `mv notes.txt notes-final.txt` and an edit in place: the new name is listed as renamed from the
+    old one, with a change record holding the diff against FERB's copy from before the step."""
+    folder = tmp_path / "w"
+    folder.mkdir()
+    (folder / "notes.txt").write_text("Student ID: ID\nline two\n")
+    command = (f"cd '{folder}' && mv notes.txt notes-final.txt && "
+               "printf 'Student ID: 2024eb02238\\nline two\\n' > notes-final.txt")
+
+    def worker(token: str) -> str:
+        r = tool(daemon.sock, token, "shell.run", command=command, effect="edit")
+        assert not r["is_error"], r
+        return done("Renamed the notes and set the id.")
+
+    def checker(token: str) -> str:
+        [record] = RECORD.findall(checker_context(script))
+        seen.append(tool(daemon.sock, token, "task.evidence", span_id=record)["content"]["text"])
+        return verdict(True, "notes-final.txt reads 'Student ID: 2024eb02238'.")
+    seen: list[str] = []
+    script, _ = install(daemon, {"worker": worker, "worker.verify": checker})
+    out = outcome(chat(daemon, "rename notes.txt to notes-final.txt and put 2024eb02238 in it"))
+    old, new = folder.resolve() / "notes.txt", folder.resolve() / "notes-final.txt"
+    assert f"{json.dumps(str(new))} (renamed from {json.dumps(str(old))}) — change record" in checks(script)[0]
+    assert "-Student ID: ID\n+Student ID: 2024eb02238" in seen[0].replace("\\n", "\n")
+    assert out["verified"]
