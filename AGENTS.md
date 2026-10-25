@@ -66,6 +66,66 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
   `review-package PLAN BASE HEAD` writes the commit list, stat and diff for a reviewer.
 - **Live results and pending checks:** `docs/OWNER_ACCEPTANCE.md`.
 
+## Where things stand on 2026-10-26 (handoff: UI/UX polish with the owner and Codex)
+
+**Built, reviewed and pushed (2026-10-24 to 26):**
+- memory and learning L36 (spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`);
+- careful edits L39 (the change record, a pass needs a look, the certificate-check floor);
+- the terminal floor D31: typing into any terminal always asks; FERB's Mac tools never operate FERB's own apps;
+- the guess Drop fix; Send to developer (L35, simple);
+- packaging L34 phases A–G: two DMGs, release signing, the native setup window with Sign in with ChatGPT/Claude,
+  notifications and menu bar state, the FERB window and Settings, launch at login, and Sparkle updates;
+- a runaway-test guard (`tests/support/runaway.py`).
+
+Setup lists all eight permissions with one Allow all button (owner, 2026-10-26). Never label any of them optional.
+Automation is asked per app at first use.
+
+**What the owner runs:** release `FERB.app` in `/Applications`. The daemon runs from
+`/Applications/FERB.app/Contents/Helpers/FERB.app`, with data in `~/.ferb` as before. `ferb setup --update` from this
+checkout switches the daemon back to the development venv, so don't run it while testing the release app.
+- **Build and install a release build:**
+  - `source scripts/swiftpm-anonymous.sh; SIGN_IDENTITY=release scripts/build-app.sh --arch arm64 build/app-arm64`
+  - stop the daemon (`launchctl bootout gui/$(id -u)/com.ferb.daemon`) and quit FERB.app;
+  - move the old app to the Trash, `ditto build/app-arm64/FERB.app /Applications/FERB.app`, then open it.
+  - The same certificate keeps every macOS permission (checked on the M4).
+- **Disk images:** `SIGN_IDENTITY=release scripts/build-dmg.sh`.
+- **Notch-only iteration:** `ui/mac/FERBNotch/build.sh` makes a separate development notch. Never run it next to the
+  release app's notch; quit one first.
+- **Signing:**
+  - The "FERB Release Signing" certificate (SHA-1 in `scripts/release-cert.sha1`) and the Sparkle update key live in
+    the owner's login keychain, with offline backups the owner keeps.
+  - Never commit, print or move the private keys. Together they could ship a fake update to every user.
+- **Tests:** run `nice -n 10 uv run pytest -q` (each test is capped at 300 s and 4 GB), never two full suites at once,
+  and `swift test` in `ui/mac/FERBNotch` after sourcing `scripts/swiftpm-anonymous.sh`. SwiftPM must never use the
+  owner's keychain.
+
+**Where the UI lives:**
+- the notch: `NotchView.swift` and related files in `ui/mac/FERBNotch/Sources/FERBNotch`;
+- the setup window: `SetupView.swift` and `SetupModel.swift`;
+- the FERB window and Settings: the phase E files, listed in `docs/superpowers/plans/2026-10-25-packaging-e-window-settings.md`;
+- the disk image's first-open note: `scripts/build-dmg.sh`.
+
+Screens are deliberately plain (owner: "design them bare min. focus on correct working"). Polish the look; keep the
+behavior and the tests passing.
+
+**Still pending:**
+- **Owner live checks** (`docs/OWNER_ACCEPTANCE.md`): memory, careful edits, the terminal question, Send to developer,
+  the packaging phases, and a clean install on the M5 or M1.
+- **The update test:** needs a published test release, and only with the owner's go-ahead. Before beta testers have
+  FERB, test builds are normal releases; after, they're pre-releases.
+- **The Intel DMG:** built but untested (no Intel Mac).
+- **The planner prompt-caching switch:** waits on the owner's `-m real tests/security/test_planner_injection_real.py` run.
+
+**Deferred by the owner (2026-10-25):**
+- proactivity L37;
+- the full failure-report flow L35;
+- insomnia L32;
+- four small fixes (listed in the memory-scope notes);
+- the parallel test runner (17 commits in a stale worktree).
+
+**Ledgers** (git-ignored): `.superpowers/sdd/packaging/` (ledger, final report), `careful-edits/`, `terminal-floor/`,
+`guess-debug/`, `send-to-developer/`, `2026-10-24-memory-that-works/`.
+
 ## Where things stood on 2026-10-14 (launch week)
 
 **Done and signed off:** F0–F4 (owner sign-off in `docs/OWNER_ACCEPTANCE.md`). F5–F10 were built and installed
