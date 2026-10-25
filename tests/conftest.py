@@ -30,7 +30,8 @@ from tests.support import egress
 from tests.support.confirm import FerbAnswers
 from tests.support.trash import no_real_trash
 
-pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
+pytest_plugins = ["tests.browserkit",           # browser fixtures: local pages, temporary keychain
+                  "tests.support.runaway"]       # a hung or memory-growing test ends the run with tracebacks
 
 
 class RunningDaemon:

@@ -635,6 +635,10 @@ uv run mypy ferb/core
 uv run pytest -m real              # explicit live run; disposable targets, requires observation
 ```
 
+A test that runs past 300 s, or a test process whose memory grows past 4 GB, ends the run with every thread's
+traceback (`tests/support/runaway.py`). `FERB_TEST_TIMEOUT_S` and `FERB_TEST_MAX_RSS_MB` change the limits (0 turns one
+off); a test that really takes longer carries `@pytest.mark.ferb_timeout(seconds)`.
+
 The [owner acceptance record](docs/OWNER_ACCEPTANCE.md) separates observed results from checks still pending.
 Read [CLAUDE.md](CLAUDE.md) before making changes. Folder ownership, execution flow and troubleshooting are in
 [ARCHITECTURE.md](ARCHITECTURE.md). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) preserves required attribution.
