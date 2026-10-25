@@ -554,6 +554,8 @@ class Daemon:
         self.server.streams['notifications.subscribe'] = self._notifications_subscribe
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
+        self.server.unary['settings.get'] = self._settings_get        # the FERB window's Settings (L34 Phase E)
+        self.server.unary['settings.set'] = self._settings_set
         self.server.unary['runtimes.status'] = self._runtimes_status
         self.server.unary['runtimes.use'] = self._runtimes_use
         self.server.unary['runtimes.sign_in'] = self._runtimes_sign_in
@@ -4896,6 +4898,22 @@ class Daemon:
         if self.journal is None:
             raise FerbError("daemon not started")
         return self.journal
+
+    # ---------- the FERB window and Settings (L34 Phase E) ----------
+
+    async def _settings_get(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Settings: the values the app may change through settings.set (settings.SETTINGS)."""
+        from ferb.daemon import settings
+        return {"values": settings.read(self.config)}
+
+    async def _settings_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Settings: one checked value written to config.toml (rule 10: the owner's own connection only, auth.py);
+        the daemon reads it from its next use, as it does every config value."""
+        from ferb.daemon import settings
+        name = str(params.get("key") or "")
+        stored = settings.write(self.config, name, params.get("value"))
+        self._journal().append("settings.changed", {"key": name, "value": stored}, origin="owner")
+        return {"key": name, "value": stored}
 
     # ---------- methods ----------
 
