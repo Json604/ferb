@@ -1,8 +1,9 @@
 # FERB for everyone: the Mac app, setup, updates and packaging — design (2026-10-24)
 
-Status: direction approved by the owner on 2026-10-24 ("ok skip the $99 for now, do the free ones"; answers below);
-this written design awaits the owner's review before implementation plans. Decision id: L34. Built after loops (L31),
-the 2026-10-24 clarity fixes and FERB's cursor (L33). One implementation plan per phase.
+Status: approved by the owner on 2026-10-25 for the launch: "all 7 parts in full, just design them bare min. focus on
+correct working" (direction approved 2026-10-24: "ok skip the $99 for now, do the free ones"; answers below). Every
+screen is a bare-minimum working design; the owner polishes the look later with Codex. Decision id: L34. One
+implementation plan per phase, built after the 2026-10-25 work in flight.
 
 ## Why
 
