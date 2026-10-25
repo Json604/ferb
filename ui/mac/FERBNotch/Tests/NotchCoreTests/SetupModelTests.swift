@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import FERBNotch
 @testable import NotchCore
@@ -301,5 +303,17 @@ final class SetupModelTests: XCTestCase {
         let none = await decided.model().askForNotificationsOnce(defaults: fresh)
         XCTAssertFalse(none)
         XCTAssertTrue(decided.app.requests.isEmpty)
+    }
+
+    func testEveryStepDrawsWithoutTheDaemon() {
+        let rig = SetupRig()
+        let model = rig.model(.install)
+        for step in SetupStep.allCases {
+            model.step = step
+            let view = NSHostingView(rootView: SetupView(model: model))
+            view.frame = NSRect(x: 0, y: 0, width: 560, height: 500)
+            view.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(view.fittingSize.height, 0, "\(step)")
+        }
     }
 }

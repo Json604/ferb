@@ -105,7 +105,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
     var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: run `ferb setup` again
-    var onCodexLogin: (() -> Void)?              // set by the packaged FERB.app: `ferb setup --codex-login` (C2)
 
     private let cursor = CursorController()
 
@@ -586,7 +585,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         addItem("Conversation history", action: #selector(recentExamples), to: menu)
         addItem("Settings…", action: #selector(showSettings), to: menu, key: ",")
         if onSetUp != nil { addItem("Set Up FERB…", action: #selector(setUpFromMenu), to: menu) }
-        if onCodexLogin != nil { addItem("Sign in to Codex…", action: #selector(codexLoginFromMenu), to: menu) }
         menu.addItem(.separator())
         let gestures = NSMenuItem(title: "Double-tap right ⌥ · Hold right ⌘ + ⌥ for voice", action: nil, keyEquivalent: "")
         gestures.isEnabled = false
@@ -618,7 +616,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     @objc private func recentExamples() { beginInteraction(); model.history() }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func setUpFromMenu() { onSetUp?() }
-    @objc private func codexLoginFromMenu() { onCodexLogin?() }
 
     private func registerShortcut() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
