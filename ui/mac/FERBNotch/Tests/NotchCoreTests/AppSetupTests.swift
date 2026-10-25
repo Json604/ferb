@@ -13,26 +13,36 @@ final class AppSetupTests: XCTestCase {
 
     func testNoInstalledAgentRunsSetup() {
         XCTAssertEqual(AppSetupPlan.decide(agent: nil, agentExecutable: agentExecutable, build: "202610140201"), .install)
-        XCTAssertEqual(AppSetupPlan.arguments(for: .install), ["setup"])
+        XCTAssertEqual(AppSetupPlan.serviceArguments(for: .install), ["setup", "--service"])
     }
 
     func testAgentFromThisAppAndBuildNeedsNothing() {
         let installed = agent(agentExecutable, build: "202610140201")
         XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201"), .none)
-        XCTAssertNil(AppSetupPlan.arguments(for: .none))
+        XCTAssertNil(AppSetupPlan.serviceArguments(for: .none))
     }
 
     func testReplacedAppUpdatesWithoutAsking() {
         let installed = agent(agentExecutable, build: "202610140201")
         XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610150900"), .update)
-        XCTAssertEqual(AppSetupPlan.arguments(for: .update), ["setup", "--update"])
+        XCTAssertEqual(AppSetupPlan.serviceArguments(for: .update), ["setup", "--service", "--update"])
     }
 
     func testAnotherInstallationIsReplacedOnlyAfterTheOwnerSaysSo() {
         let source = agent("/Users/o/.ferb/venv/bin/python", build: nil)
         let action = AppSetupPlan.decide(agent: source, agentExecutable: agentExecutable, build: "202610140201")
         XCTAssertEqual(action, .confirmReplace(current: "/Users/o/.ferb/venv/bin/python"))
-        XCTAssertEqual(AppSetupPlan.arguments(for: action), ["setup"])
+        XCTAssertEqual(AppSetupPlan.serviceArguments(for: action), ["setup", "--service"])
+        XCTAssertTrue(AppSetupPlan.needsConfirmation(action))
+    }
+
+    func testLaunchOpensTheWindowOnlyWhenSomethingIsLeft() {
+        XCTAssertEqual(AppSetupPlan.atLaunch(.install, setupDone: false), .window(.welcome))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.confirmReplace(current: "/x"), setupDone: true), .window(.welcome))
+        XCTAssertEqual(AppSetupPlan.atLaunch(.update, setupDone: true), .quietUpdate)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, setupDone: true), .nothing)
+        XCTAssertEqual(AppSetupPlan.atLaunch(.none, setupDone: false), .window(.welcome))
+        XCTAssertFalse(AppSetupPlan.needsConfirmation(.none))
     }
 
     func testAgentWithoutProgramIsTreatedAsMissing() {
@@ -44,18 +54,6 @@ final class AppSetupTests: XCTestCase {
         let installed = agent(agentExecutable, build: "202610140201")
         XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201",
                                            daemonRunning: false), .update)
-    }
-
-    func testMenuRunsFullSetupOnlyForThisAppAndAsksBeforeReplacingAnother() {
-        let installed = agent(agentExecutable, build: "202610140201")
-        let same = AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201")
-        XCTAssertEqual(AppSetupPlan.arguments(for: same, fromMenu: true), ["setup"])      // permissions again, etc.
-        let replaced = AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610150900")
-        XCTAssertEqual(AppSetupPlan.arguments(for: replaced, fromMenu: true), ["setup", "--update"])
-        let other = AppSetupPlan.decide(agent: agent("/Users/o/.ferb/venv/bin/python", build: nil),
-                                        agentExecutable: agentExecutable, build: "202610140201")
-        XCTAssertTrue(AppSetupPlan.needsConfirmation(other))
-        XCTAssertFalse(AppSetupPlan.needsConfirmation(same))
     }
 
     func testSignInToCodexRunsFERBsOwnCodexLogin() {

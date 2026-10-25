@@ -1,13 +1,20 @@
 import Foundation
 
-/// What the packaged FERB.app runs at launch or from its menu (L27). `ferb setup` does the work and enforces where FERB
-/// may be installed from; this only reads the installed LaunchAgent (~/Library/LaunchAgents/com.ferb.daemon.plist)
-/// and whether launchd has it running.
+/// What the packaged FERB.app does at launch or from its menu (L27, L34 C). `ferb setup --service` does the work and
+/// enforces where FERB may be installed from; this only reads the installed LaunchAgent
+/// (~/Library/LaunchAgents/com.ferb.daemon.plist) and whether launchd has it running.
 public enum AppSetupAction: Equatable {
     case none                               // the agent runs this app's own build
     case install                            // nothing installed yet: `ferb setup`
     case update                             // this app, replaced by another build or not running: `ferb setup --update`
     case confirmReplace(current: String)    // another installation (a checkout, or a FERB.app elsewhere): ask first
+}
+
+/// What launch shows (L34 C).
+public enum SetupLaunch: Equatable {
+    case nothing                 // this app's build runs and setup is finished
+    case window(SetupStep)       // the setup window at that step
+    case quietUpdate             // `ferb setup --service --update`, no window unless it fails or a grant is missing
 }
 
 public enum AppSetupPlan {
@@ -21,17 +28,28 @@ public enum AppSetupPlan {
         return environment["FERB_APP_BUILD"] == build && daemonRunning ? .none : .update
     }
 
-    /// At launch nothing runs for `.none`; from the menu (Set Up FERB…) it is the full setup again.
-    public static func arguments(for action: AppSetupAction, fromMenu: Bool = false) -> [String]? {
+    /// The bundled command that installs or updates the background service with no questions; nil when this app's own
+    /// build already runs it.
+    public static func serviceArguments(for action: AppSetupAction) -> [String]? {
         switch action {
-        case .none: return fromMenu ? ["setup"] : nil
-        case .install, .confirmReplace: return ["setup"]
-        case .update: return ["setup", "--update"]
+        case .none: return nil
+        case .install, .confirmReplace: return ["setup", "--service"]
+        case .update: return ["setup", "--service", "--update"]
         }
     }
 
-    /// Sign in to Codex… (C2): FERB's own Codex sign-in, in the same console. FERB never uses the owner's personal
-    /// Codex login, so a DMG install can't answer until this ran (`ferb setup` offers it too).
+    /// At launch: the setup window for a new install or another installation (after the owner's yes), a quiet update for
+    /// a replaced build or a stopped service, and otherwise the window only while setup isn't finished.
+    public static func atLaunch(_ action: AppSetupAction, setupDone: Bool) -> SetupLaunch {
+        switch action {
+        case .install, .confirmReplace: return .window(.welcome)
+        case .update: return .quietUpdate
+        case .none: return setupDone ? .nothing : .window(.welcome)
+        }
+    }
+
+    /// FERB's own Codex sign-in (C2): Choose your AI's Sign in with ChatGPT runs it.
+    /// FERB never uses the owner's personal Codex login.
     public static let codexLoginArguments = ["setup", "--codex-login"]
 
     public static func needsConfirmation(_ action: AppSetupAction) -> Bool {

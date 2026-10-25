@@ -55,7 +55,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
         let action = AppSetupPlan.decide(agent: agent, agentExecutable: agentExecutable.path, build: build,
                                          daemonRunning: daemonRunning())
-        guard let arguments = AppSetupPlan.arguments(for: action, fromMenu: fromMenu) else { return }
+        guard let arguments = Self.consoleArguments(for: action, fromMenu: fromMenu) else { return }
         if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
         run(arguments)
     }
@@ -210,5 +210,13 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)               // the owner opened FERB; setup is what they see first
         window?.makeKeyAndOrderFront(nil)
         if answers != nil { window?.makeFirstResponder(answer) }
+    }
+
+    private static func consoleArguments(for action: AppSetupAction, fromMenu: Bool) -> [String]? {
+        switch action {
+        case .none: return fromMenu ? ["setup"] : nil
+        case .install, .confirmReplace: return ["setup"]
+        case .update: return ["setup", "--update"]
+        }
     }
 }
