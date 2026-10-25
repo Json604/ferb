@@ -74,7 +74,7 @@ from ferb.policy.rules import EFFECTS, declare, declared_kinds
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.dictionary import ordinary_word
-from ferb.sanitize.redact import Redactor
+from ferb.sanitize.redact import REDACTED, Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore, PayloadOutput
@@ -129,6 +129,11 @@ SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still 
 UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); not done."
 NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
+# D31, review round 1 finding 5: the question would show it redacted while the real value is typed
+TERMINAL_SECRET = ("this text holds a saved secret (FERB's question would show it as [redacted] while the real "
+                   "value is typed); FERB puts a saved secret into a terminal only through mac.secret, the owner's "
+                   "hidden input, never as typed text")
+SECRET_SPOT = f" (it contains a saved secret where it shows {REDACTED})"
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 # L39: the kinds of call that can change the owner's files, whose named files the change record copies first
@@ -427,6 +432,9 @@ class Gateway:
         self.confirmations: Confirmations | None = None     # D33, S4: the owner's answers to FERB's questions
         self.destinations: KnownDestinations | None = None  # SQ6: the destinations FERB knows
         self._confirming: dict[str, asyncio.Lock] = {}      # by task tree: one FERB question at a time
+        # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
+        # acting call (review round 1, finding 3): any other acting call clears it
+        self._terminal_arms: dict[str, str] = {}
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -598,6 +606,8 @@ class Gateway:
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
+        for armed in [k for k in self._terminal_arms if k.split(".", 1)[0] in task_ids]:
+            del self._terminal_arms[armed]
         for kept in [k for k in self._undelivered if k[0] in task_ids]:
             del self._undelivered[kept]
         for key in [k for k in self._looked if k[0] in task_ids]:
@@ -721,6 +731,7 @@ class Gateway:
         if grant.identity not in cap.identities:
             self._refused(grant, rec, name, "tool is outside this task's identity")
             return reply({"error": "this tool is not available to this task's identity"}, True, {origin.FERB})
+        armed = None if observes(cap) else self._terminal_arms.pop(grant.task_id, None)   # D31: next action only
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
         effect = str(arguments.pop("effect", "") or "").strip().lower()   # the agent's note; a declaration only adds
@@ -832,13 +843,16 @@ class Gateway:
                     return reply({"error": str(error)}, True, {origin.FERB})
             terminal = None
             if hasattr(cap, "terminal_input"):           # D31, rule 10: every input into a terminal asks first
-                terminal, refused = await self._terminal(cap, name, args, grant, rec, span, arguments, why)
+                terminal, refused = await self._terminal(cap, name, args, grant, rec, span, arguments, why, armed)
                 if refused is not None:                  # the owner said no, or wasn't there: nothing was typed
                     self.spans.update_input(span.id, {"boundary_refused": True})
                     self._finish_call(span, name, refused, True, error=str(refused["error"]))
                     return reply(refused, True, {origin.FERB})
-            return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments,
-                                    escape, terminal)
+            result = await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
+                                      arguments, escape, terminal)
+            if terminal is not None and terminal.input.enter and not result.get("is_error"):
+                self._terminal_arms[grant.task_id] = terminal.confirmation_id   # its one Return, next action only
+            return result
         finally:
             if escape is not None and escape.secret and isinstance(self.redact, Redactor):
                 self.redact.release_secret(escape.secret)
@@ -1307,21 +1321,32 @@ class Gateway:
         return EscapeGrant(rule, confirmation_id, command, str(cwd), secret)
 
     async def _terminal(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any, span: Any,
-                        arguments: dict[str, Any], why: str) -> tuple[TerminalGrant | None, dict[str, Any] | None]:
+                        arguments: dict[str, Any], why: str,
+                        armed: str | None = None) -> tuple[TerminalGrant | None, dict[str, Any] | None]:
         """D31, CLAUDE.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
         Code's) is enforced by code: FERB always asks the owner first, showing the exact command, every time, with no
         standing permission; a No types nothing. The capability says what would go in, from the driver's facts now
         (`terminal_input`); FERB asks while nothing is held. A Yes covers that one input (and the one Return after its
         text) and is spent at once, so the next input asks again, the same text and a retry included. A No is final
         for that exact input in this task tree until the owner's own follow-up reopens it. The driver delivers only
-        the input the Yes names. (the grant, None) to run; (None, the refusal) when nothing may be typed."""
+        the input the Yes names. A Return is covered only as the task's very next acting call (`armed`, the Yes its
+        approved text left); otherwise it is asked like any key. (the grant, None) to run; (None, the refusal) when
+        nothing may be typed."""
         inp = await cap.terminal_input(args, grant.task_id)
         if inp is None:
             return None, None
+        if inp.covered_by is not None and inp.covered_by != armed:   # another action came between: ask for it
+            inp = dataclasses.replace(inp, covered_by=None)
         if inp.covered_by is not None:                   # the Return after text the owner just said Yes to
             self.spans.update_input(span.id, {"terminal": {"confirmation": inp.covered_by, "covers": "return"}})
             return TerminalGrant(inp, inp.covered_by), None
+        if inp.text is not None and not inp.paste and self.redact({"t": inp.text})["t"] != inp.text:
+            return None, {"error": TERMINAL_SECRET}
         need = terminals.need(inp)
+        # what the owner reads is what goes in: a value redaction would change says so at that spot, never silently
+        shown = {k: self.redact({"v": v})["v"] for k, v in need.values.items()}
+        need = dataclasses.replace(need, values={k: v + SECRET_SPOT if v != need.values[k] else v
+                                                 for k, v in shown.items()})
         root = rec.tree_id or grant.task_id
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
         if self.confirmations is None:                   # never skipped silently: no record, no input

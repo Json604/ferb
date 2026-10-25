@@ -87,12 +87,8 @@ class _Base:
         raise NotImplementedError
 
     def precheck(self, args: BaseModel) -> str | None:
-        # D31: a script or a secret never goes into a terminal app; typing into any terminal asks the owner first,
-        # every time (`terminal_input`, the gateway's question, the driver's check)
-        if self.protection is not None and self.name in {"mac.applescript", "mac.secret"}:
-            if self._bundle(args).casefold() in self.protection.terminal_apps:
-                return ("FERB never runs scripts or fills secrets in terminal apps; run commands with FERB's shell "
-                        "tool")
+        # D31: typing, a secret or a script into any terminal asks the owner first, every time (`terminal_input`, the
+        # gateway's question, the driver's check), by policy/terminal.py's facts (the built-in list and the owner's)
         if self.name == "mac.secret" and self._web_browser(self._bundle(args)):
             return whole_browser(self._shown(args))
         return None
@@ -541,12 +537,19 @@ class MacClick(_Base):
                 return None
         return await asyncio.to_thread(find)
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31 (review round 1, finding 4): a click on a Paste item over a terminal, or a terminal app's menu item."""
+        return await _terminal_input(getattr(self.driver, "pointer_terminal_input", None), str(getattr(args, "app")),
+                                     str(getattr(args, "shot")), float(getattr(args, "x")), float(getattr(args, "y")),
+                                     "click")
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app, shot, x, y = (str(getattr(args, "app")), str(getattr(args, "shot")), float(getattr(args, "x")),
                            float(getattr(args, "y")))
+        granted: dict[str, Any] = {"terminal": ctx.terminal} if ctx.terminal is not None else {}   # the Yes (D31)
         r = await self.driver.click_at(app, shot, x, y, holder=ctx.worker_id, task=ctx.task_id,
                                        allow_foreground=bool(getattr(args, "allow_foreground", False)),
-                                       mechanism=getattr(args, "mechanism", "pointer"))
+                                       mechanism=getattr(args, "mechanism", "pointer"), **granted)
         return ToolResult({"ok": r.ok, "detail": r.detail, "facts": r.facts, "next": "take a new screenshot to see the result"},
                           is_error=not r.ok)
 
@@ -578,6 +581,13 @@ class MacPointer(MacClick):
     async def point(self, args: BaseModel, grant: Any) -> Point | None:
         return None      # L33: no element rect, and a drag's path isn't a single spot
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31 (review round 1, finding 4): a click on a Paste item over a terminal, or a drop onto a terminal."""
+        end = (getattr(args, "end_x"), getattr(args, "end_y")) if getattr(args, "action") == "drag" else None
+        return await _terminal_input(getattr(self.driver, "pointer_terminal_input", None), str(getattr(args, "app")),
+                                     str(getattr(args, "shot")), float(getattr(args, "x")), float(getattr(args, "y")),
+                                     str(getattr(args, "action")), end)
+
     def precheck(self, args: BaseModel) -> str | None:
         if getattr(args, "action") == "drag" and (getattr(args, "end_x") is None or getattr(args, "end_y") is None):
             return "drag requires end_x and end_y from the same screenshot"
@@ -593,10 +603,12 @@ class MacPointer(MacClick):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))
         end = (getattr(args, "end_x"), getattr(args, "end_y")) if getattr(args, "action") == "drag" else None
+        granted: dict[str, Any] = ({"terminal": ctx.terminal, "task": ctx.task_id} if ctx.terminal is not None
+                                   else {})                                        # the owner's Yes (D31)
         r = await self.driver.pointer_at(app, getattr(args, "shot"), getattr(args, "x"), getattr(args, "y"),
                                          getattr(args, "action"), end, ctx.worker_id,
                                          direction=getattr(args, "direction"), amount=getattr(args, "amount"),
-                                         distance=getattr(args, "distance"))
+                                         distance=getattr(args, "distance"), **granted)
         return ToolResult({"ok": r.ok, "detail": r.detail, "facts": r.facts, "next": "take a fresh screenshot to verify"}, is_error=not r.ok)
 
 
@@ -625,8 +637,18 @@ class MacAppleScript(_Base):
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: a script for a terminal app or System Events asks the owner first, showing it (the sandbox lets a
+        script reach only the app the call names)."""
+        return await _terminal_input(getattr(self.driver, "script_terminal_input", None), str(getattr(args, "app")),
+                                     str(getattr(args, "script")))
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(str(getattr(args, "app")))
+        refusal = getattr(self.driver, "script_refusal", None)
+        if callable(refusal) and (why := await asyncio.to_thread(refusal, a, str(getattr(args, "script")),
+                                                                 ctx.terminal)):
+            raise Refused(why)
         if hasattr(self.driver.apps, "candidates") and len(self.driver.apps.candidates(a.bundle_id)) != 1:
             return ToolResult({"code": "ambiguous_script_target", "performed": False,
                                "detail": "AppleScript bundle addressing cannot select this process uniquely; use PID-directed AX",
@@ -675,11 +697,25 @@ class MacSecret(_Base):
     async def point(self, args: BaseModel, grant: Any) -> Point | None:
         return await self._element_point(args, "type")
 
+    def _named(self, args: BaseModel) -> str:
+        return str(getattr(args, "remember", None) or getattr(args, "secret", None) or "that you enter now")
+
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: a hidden secret filled into a terminal surface (by its facts, any app) asks the owner first."""
+        return await _terminal_input(getattr(self.driver, "secret_terminal_input", None), str(getattr(args, "app")),
+                                     str(getattr(args, "element")), self._named(args))
+
+    async def _terminal_refused(self, a: Any, node: Any, ctx: ToolContext) -> None:
+        refusal = getattr(self.driver, "secret_refusal", None)
+        if callable(refusal) and (why := await asyncio.to_thread(refusal, a, node.ref, ctx.terminal)):
+            raise Refused(why)
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a = self.driver.app(args.app)
         if await self._opens_web(a.bundle_id):           # the resolved app, whatever the call named
             raise Refused(whole_browser(str(getattr(a, "name", "") or a.bundle_id)))
         node = self.driver.node(a.bundle_id, args.element)
+        await self._terminal_refused(a, node, ctx)       # D31: before the owner is asked for the secret
         ask = getattr(self.driver, "ask_secret", None)
         if ask is None:
             raise Refused("hidden secret input is unavailable")
@@ -692,6 +728,7 @@ class MacSecret(_Base):
             current = self.driver.app(args.app)
             if current.pid != a.pid or self.driver.node(a.bundle_id, args.element) is not node:
                 raise StaleRef("the native secret destination changed while waiting")
+            await self._terminal_refused(a, node, ctx)   # and again right before the fill
             with self._acting(a.bundle_id, ctx):
                 accepted = await asyncio.to_thread(self.driver.ax.set_value, node.ref, value)
             return ToolResult({"ok": bool(accepted), "detail": "AX secret fill accepted" if accepted else "AX secret fill refused",

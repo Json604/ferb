@@ -704,6 +704,29 @@ def surface_facts(el: Any) -> list[dict[str, Any]]:
     return chain
 
 
+def selected_text(el: Any) -> str | None:
+    """An element's selected text (what a drag from it carries), or None. Read-only."""
+    v = _attr(el, "AXSelectedText")
+    return str(v) if isinstance(v, str) and v else None
+
+
+def document_of(el: Any) -> str | None:
+    """The file an element's window shows (AXDocument, a file URL, as a path), or None. Read-only."""
+    from urllib.parse import unquote, urlsplit
+    doc = _attr(_attr(el, "AXWindow"), "AXDocument")
+    if not isinstance(doc, str) or not doc:
+        return None
+    parts = urlsplit(doc)
+    return unquote(parts.path) if parts.scheme == "file" else doc
+
+
+def place_of(el: Any) -> tuple[str, str]:
+    """Where an element is, for the owner's question (D31): its window's title and its own label. Read-only."""
+    window = _attr(el, "AXWindow")
+    label = _attr(el, "AXTitle") or _attr(el, "AXDescription") or ""
+    return window_title(window), str(label)
+
+
 def menu_item_shortcut(pid: int, path: list[str]) -> tuple[str, int] | None:
     """The key equivalent of the menu item at `path` ("Edit", "Paste"), as (AXMenuItemCmdChar, AXMenuItemCmdModifiers),
     found as `press_menu` finds the item. Read-only; None when the item has none or isn't uniquely there."""

@@ -1044,6 +1044,15 @@ After the owner's update (2026-10-24):
   (development build) and 0.05 s instead of 1.2 s (release). A loop's "last N min ago" still follows the clock.
 - FERB's own notch is never read by its own typing and accessibility watchers (L17, rule 17, owner, 2026-10-25): each
   key typed there cost about 20 Accessibility reads on the notch's main thread. Both skip `FERB_APPS`.
+- The terminal question, after its security review (D31): an AppleScript reaches only the app it names (the sandbox
+  refuses events to any other), and a script for a terminal app or System Events asks, showing it; a menu item under
+  an editor's Terminal or Run menu (Run Selected Text, Run Active File, Run Task, New Terminal) and its run buttons
+  ask, showing the editor's selection and file; any menu command of a terminal app, a pixel click on a Paste item
+  over a terminal, a drop onto one, and a hidden secret into one ask too. The covered Return is only the very next
+  action. The question names the terminal and its window, shows every invisible character as `\uXXXX`, never shows a
+  redacted command (text holding a saved secret is refused), and the notch shows it as plain text. Typing checks the
+  focus every 8 characters. The extension minimum is now 0.15.11, so a web terminal is never missed (an older copy
+  gets the reload notice until the store copy updates).
 
 Licensed under Apache-2.0.
 

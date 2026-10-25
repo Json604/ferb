@@ -252,6 +252,16 @@ class TerminalInput:
     clipboard: int | None = None             # paste: the pasteboard's change count when asked (a new copy asks again)
     enter: bool = False                      # the owner's Yes also covers one Return after this text
     covered_by: str | None = None            # a Return covered by the Yes to the text FERB just typed there
+    window: str = ""                         # the title of the window it is in
+    menu: str | None = None                  # a menu command of a terminal app, by its path or title
+    secret: str | None = None                # a hidden secret filled in (mac.secret): its name, never its value
+    script: str | None = None                # an AppleScript for a terminal app or System Events (mac.applescript)
+    drag: bool = False                       # dragged onto it (`text`: what was selected where the drag began)
+    runs: bool = False                       # a menu item or a control that runs things in the app's terminal
+    control: str | None = None               # such a control, by its label ("Run Python File")
+    selection: str | None = None             # the editor's selected text such a press would run
+    file: str | None = None                  # the active file such a press would run
+    label: str = ""                          # the terminal element's own label (VS Code: "Terminal 108, zsh …")
 
 
 @dataclass(frozen=True)

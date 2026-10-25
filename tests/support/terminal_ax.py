@@ -95,6 +95,40 @@ class TerminalAx:
     values: dict[str, str] = field(default_factory=dict)
     landed: list[tuple[str | None, str]] = field(default_factory=list)       # (element, what) for every input
     menus_pressed: list[str] = field(default_factory=list)
+    windows: dict[str, str] = field(default_factory=dict)        # element -> its window's title (default "FERB")
+    on_char: Any = None                                          # called after each typed character (a test's hook)
+
+    def typed(self, ch: str) -> None:
+        """One typed character lands where the focus is; consecutive ones into one element read as one "type"."""
+        if self.landed and self.landed[-1][0] == self.focused and self.landed[-1][1].startswith("type ") and \
+                getattr(self, "_typing", False):
+            self.landed[-1] = (self.focused, self.landed[-1][1] + ch)
+        else:
+            self.landed.append((self.focused, "type " + ch))
+        self._typing = True
+        if self.on_char is not None:
+            self.on_char(self)
+
+    hits: dict[tuple[int, int], str] = field(default_factory=dict)     # screen point -> the element under it
+    selections: dict[str, str] = field(default_factory=dict)          # element -> its selected text
+
+    def hit_element(self, pid: int, x: float, y: float) -> Any:
+        return self.hits.get((int(x), int(y)))
+
+    def role_of(self, el: Any) -> str:
+        return str(self.chains.get(el, [{}])[0].get("role", ""))
+
+    def selected_text(self, el: Any) -> str | None:
+        return self.selections.get(el)
+
+    documents: dict[str, str] = field(default_factory=dict)           # element -> its window's document (a path)
+
+    def document_of(self, el: Any) -> str | None:
+        return self.documents.get(el)
+
+    def place_of(self, el: Any) -> tuple[str, str]:
+        chain = self.chains.get(el, [{}])
+        return self.windows.get(el, "FERB"), self.labels.get(el, str(chain[0].get("description") or ""))
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
         nodes = [AxNode(el, "menuitem" if chain[0]["role"] == "AXMenuItem" else "textbox",
@@ -203,6 +237,12 @@ class TerminalAx:
         return True
 
 
+RUN_BUTTON = [{"role": "AXButton", "description": "Run Python File",
+               "dom_classes": ("action-label", "codicon", "codicon-play")}] + WORKBENCH
+EXPLORER_BUTTON = [{"role": "AXButton", "description": "Explorer (⇧⌘E)",
+                    "dom_classes": ("action-label", "codicon", "codicon-explorer-view-icon")}] + WORKBENCH
+
+
 def vscode_ax(focus: str | None = "term57") -> TerminalAx:
     """VS Code with its editor, the owner's Claude terminal (57) and FERB's new terminal (108); Edit > Paste is ⌘V and
     the terminal's context menu offers Paste."""
@@ -249,7 +289,8 @@ def terminal_mac(mp: pytest.MonkeyPatch, ax: TerminalAx, apps: TerminalApps | No
         return None
 
     def typed(text: str, pid: int | None = None) -> list[Step]:
-        return [Step("type", lambda: ax.landed.append((ax.focused, f"type {text}")))]
+        ax._typing = False                                    # type: ignore[attr-defined]   (a new run of typing)
+        return [Step(f"type {i + 1}/{len(text)}", lambda ch=ch: ax.typed(ch)) for i, ch in enumerate(text)]
 
     def keyed(combo: str, pid: int | None = None) -> list[Step]:
         return [Step(combo, lambda: ax.landed.append((ax.focused, f"key {combo}")))]

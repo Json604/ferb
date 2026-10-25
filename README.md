@@ -512,8 +512,11 @@ WezTerm, Hyper, Tabby, Termius, Rio, Contour, any you add to `[protection] termi
 Info.plist declares itself a shell); an xterm.js terminal inside an app or a page (VS Code, Cursor, Windsurf,
 JupyterLab, a cloud shell), by the classes xterm.js puts on its own elements; a native text area whose identifier or
 label names a terminal, console or shell (JetBrains IDEs' Terminal tool window, Xcode's console, Nova); and any
-typing in Zed, whose terminal panel shows Accessibility nothing. A click into a terminal, or opening one, needs no
-question. Not recognized: a custom terminal panel that exposes none of these facts.
+typing in Zed, whose terminal panel shows Accessibility nothing. The same question comes before a paste or a drop
+into a terminal, a hidden secret into one, a terminal app's menu commands, an editor's Terminal or Run menu items and
+run buttons (with the selection and file they would run), and an AppleScript for a terminal app or System Events. A
+click into a terminal needs no question. Not recognized: a custom terminal panel that exposes none of these facts, and
+editor keybindings that run code.
 
 For a scheduled campaign (posts at set times), say the exact site and handle when you create the schedule, for
 example "every day at 9, post the next launch update on x.com from @handle": FERB records a schedule's standing

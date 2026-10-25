@@ -4,6 +4,7 @@ Agents choose methods and retries; this driver never substitutes targets, replay
 
 import asyncio
 import contextlib
+import dataclasses
 import math
 import time
 from dataclasses import dataclass, field
@@ -244,6 +245,7 @@ async def painted(jpeg: bytes, masks: list[Rect], bounds: Rect, size: tuple[int,
 
 
 SETTLE_S = 0.4                # after background events, before reading what changed (one read, from the walker)
+TYPE_CHUNK = 8                # D31: typed text goes in chunks this long, the keyboard focus checked before each
 FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was "
                    "typed; take a new snapshot")
 
@@ -371,9 +373,18 @@ class MacComputerDriver:
     async def press_menu(self, name_or_bundle: str, path: list[str], terminal: TerminalGrant | None = None,
                          task: str | None = None) -> bool:
         a = self.app(name_or_bundle)
-        if await asyncio.to_thread(self._menu_pastes, a, path):        # ⌘V's item pastes into the app's focus (D31)
+        self._armed.pop(a.pid, None)                     # D31: any other input ends a covered Return
+        if terminals.run_menu(path):                     # a menu that runs things in its terminal (finding 2)
+            if refusal := self._run_refusal(a, terminal, menu=" > ".join(path)):
+                raise Refused(refusal)
+        elif await asyncio.to_thread(self._menu_pastes, a, path):        # ⌘V's item pastes into the app's focus (D31)
             focus = await asyncio.to_thread(self._focus, a)
             if refusal := await asyncio.to_thread(self._terminal_refusal, a, focus, terminal, task, None, "cmd+v"):
+                raise Refused(refusal)
+        elif await asyncio.to_thread(self._terminal_app, a):          # any command of a terminal app (finding 10)
+            focus = await asyncio.to_thread(self._focus, a)
+            if refusal := await asyncio.to_thread(self._terminal_refusal, a, focus, terminal, task, None, None,
+                                                  " > ".join(path)):
                 raise Refused(refusal)
         ok = bool(await asyncio.to_thread(self.ax.press_menu, a.pid, path))
         self.profiles.record(a.bundle_id, "menu_press", ok)
@@ -687,10 +698,15 @@ class MacComputerDriver:
 
     async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,
                          end: tuple[float, float] | None = None, holder: str = "", *,
-                         direction: str = "down", amount: int = 1, distance: float = 0.8) -> ActionResult:
+                         direction: str = "down", amount: int = 1, distance: float = 0.8,
+                         terminal: TerminalGrant | None = None, task: str | None = None) -> ActionResult:
         """Exact visual input to an app process. Never activate or take over the global mouse."""
         import math
         a = self.app(name)
+        if kind != "hover":
+            self._armed.pop(a.pid, None)                 # D31: any other input ends a covered Return
+        if refusal := await asyncio.to_thread(self._pointer_refusal, a, shot_id, x, y, kind, end, terminal, task):
+            raise Refused(refusal)                       # D31: a paste or a drop into a terminal, unasked
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
         if shot is None or shot.id != shot_id or time.monotonic() - shot.at > 30:
@@ -768,9 +784,13 @@ class MacComputerDriver:
         return a.pid, shot.window, shot_to_screen(shot, x, y)
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
-                       task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer") -> ActionResult:
+                       task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer",
+                       terminal: TerminalGrant | None = None) -> ActionResult:
         """Use one explicit pointer, AX or foreground method for the exact captured window."""
         a = self.app(name_or_bundle)
+        self._armed.pop(a.pid, None)                     # D31: any other input ends a covered Return
+        if refusal := await asyncio.to_thread(self._pointer_refusal, a, shot_id, x, y, "click", None, terminal, task):
+            raise Refused(refusal)                       # D31: a paste into a terminal, unasked
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
         if shot is None or shot.id != shot_id:
@@ -783,7 +803,8 @@ class MacComputerDriver:
         px, py = shot_to_screen(shot, x, y)
 
         if mechanism == "pointer":
-            return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder)
+            return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder, terminal=terminal,
+                                         task=task)
         if mechanism == "ax":
             el = await asyncio.to_thread(self.ax.hit_element, a.pid, px, py)
             if el is None:
@@ -841,6 +862,38 @@ class MacComputerDriver:
         return terminals.surface(a.bundle_id, chain, self.terminal_apps(),
                                  bool(shell(a.bundle_id)) if callable(shell) else False)
 
+    def _run_input(self, a: Any, menu: str | None = None, control: str | None = None,
+                   why: str = "") -> TerminalInput:
+        """Blocking (review round 1, finding 2): a press that runs things in the app's terminal, with what it would
+        run: the focused editor's selected text and its window's file."""
+        focus = self._focus(a)
+        selected = getattr(self.ax, "selected_text", None)
+        document = getattr(self.ax, "document_of", None)
+        return TerminalInput(a.name, a.bundle_id, why or f"a menu or button that runs things in {a.name}'s terminal",
+                             menu=menu, control=control, runs=True,
+                             selection=selected(focus) if callable(selected) and focus is not None else None,
+                             file=document(focus) if callable(document) and focus is not None else None)
+
+    def _run_refusal(self, a: Any, grant: TerminalGrant | None, menu: str | None = None,
+                     control: str | None = None) -> str | None:
+        """Blocking, right before a run press: None when the owner's Yes names exactly this menu item or control."""
+        g = grant.input if grant is not None and grant.input.bundle_id == a.bundle_id else None
+        if g is not None and g.runs and ((menu is not None and g.menu == menu) or
+                                         (control is not None and g.control == control)):
+            return None
+        return terminals.UNASKED.format(why=f"a menu or button that runs things in its terminal "
+                                            f"({menu or control})", app=a.name)
+
+    def _runs(self, el: Any) -> str | None:
+        """Blocking: why pressing this element runs code (policy/terminal.py `run_control`), else None."""
+        facts = getattr(self.ax, "surface_facts", None)
+        return terminals.run_control(facts(el)) if el is not None and callable(facts) else None
+
+    def _terminal_app(self, a: Any) -> bool:
+        """Blocking: a terminal by the app alone (its bundle id, its Info.plist, Zed): there every menu command can
+        reach its terminal (review round 1, finding 10)."""
+        return self._terminal_why(a, None) is not None
+
     def _menu_pastes(self, a: Any, path: list[str]) -> bool:
         shortcut = getattr(self.ax, "menu_item_shortcut", None)
         return _pastes_item(shortcut(a.pid, path)) if callable(shortcut) else False
@@ -854,6 +907,14 @@ class MacComputerDriver:
         return TerminalInput(a.name, a.bundle_id, why, text=text, paste=True, concealed=concealed, clipboard=count,
                              enter=text is not None and not terminals.newline(text))
 
+    def _placed(self, inp: TerminalInput | None, el: Any) -> TerminalInput | None:
+        """The input with where it goes, for the owner's question: the element's window title and its own label."""
+        place = getattr(self.ax, "place_of", None)
+        if inp is None or el is None or not callable(place):
+            return inp
+        window, label = place(el)
+        return dataclasses.replace(inp, window=str(window or ""), label=str(label or ""))
+
     def terminal_input(self, app: str, action: ComputerAction, task: str | None = None) -> TerminalInput | None:
         """Blocking (the gateway runs it in a thread, before it asks the owner): the input this action would put into
         a terminal, by code's facts now, else None. Typing, a value or an edit: the element it names; a key: the app's
@@ -861,14 +922,18 @@ class MacComputerDriver:
         A Return into the terminal element FERB just typed approved text into is covered by that Yes (`covered_by`)."""
         a = self.app(app)
         if action.kind in ("type", "set_value", "edit") and action.text is not None and action.element:
-            why = self._terminal_why(a, self.node(a.bundle_id, action.element).ref)
-            return None if why is None else TerminalInput(a.name, a.bundle_id, why, text=action.text,
-                                                          enter=not terminals.newline(action.text))
-        pastes = False
+            ref = self.node(a.bundle_id, action.element).ref
+            why = self._terminal_why(a, ref)
+            return None if why is None else self._placed(TerminalInput(
+                a.name, a.bundle_id, why, text=action.text, enter=not terminals.newline(action.text)), ref)
+        pastes, item = False, None
         if action.kind in ("press", "click") and action.element:
             n = self.node(a.bundle_id, action.element)
+            if why_run := self._runs(n.ref):              # a run button (review round 1, finding 2)
+                return self._run_input(a, control=n.label, why=why_run)
             pastes = n.ax_role == "AXMenuItem" and self._item_pastes(n.ref)
-            if not pastes:
+            item = n.label if n.ax_role == "AXMenuItem" and not pastes and self._terminal_app(a) else None
+            if not pastes and item is None:
                 return None
         elif action.kind != "key" or not action.text or not valid_combo(action.text):
             return None
@@ -876,25 +941,147 @@ class MacComputerDriver:
         why = self._terminal_why(a, focus)
         if why is None:
             return None
+        if item is not None:
+            return self._placed(TerminalInput(a.name, a.bundle_id, why, menu=item), focus)
         parts = normalize(action.text or "")
         if pastes or _pastes(parts):
-            return self._paste_input(a, why)
+            return self._placed(self._paste_input(a, why), focus)
         armed = self._armed.get(a.pid)
         if parts == ["return"] and armed is not None and armed.task == task and self._same_el(armed.el, focus):
-            return TerminalInput(a.name, a.bundle_id, why, keys="return", covered_by=armed.confirmation_id)
-        return TerminalInput(a.name, a.bundle_id, why, keys="+".join(parts))
+            return self._placed(TerminalInput(a.name, a.bundle_id, why, keys="return",
+                                              covered_by=armed.confirmation_id), focus)
+        return self._placed(TerminalInput(a.name, a.bundle_id, why, keys="+".join(parts)), focus)
+
+    def _script_why(self, a: Any) -> str | None:
+        """Blocking: why a script for this app needs the owner's Yes: a terminal app, or System Events."""
+        if a.bundle_id.casefold() == terminals.SYSTEM_EVENTS:
+            return "System Events, whose keystrokes type into whatever has the keyboard focus"
+        return self._terminal_why(a, None)
+
+    def script_terminal_input(self, app: str, script: str) -> TerminalInput | None:
+        """Blocking: an AppleScript for a terminal app or System Events (D31 review round 1, finding 1; the sandbox
+        lets a script reach only the app it names): the script, else None."""
+        a = self.app(app)
+        why = self._script_why(a)
+        return None if why is None else TerminalInput(a.name, a.bundle_id, why, script=script)
+
+    def script_refusal(self, a: Any, script: str, grant: TerminalGrant | None) -> str | None:
+        """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it."""
+        why = self._script_why(a)
+        if why is None or (grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.script == script):
+            return None
+        return terminals.UNASKED.format(why=why, app=a.name)
+
+    def _hit(self, a: Any, shot_id: str, x: float, y: float) -> Any:
+        """Blocking: the element under (x, y) of the app's latest screenshot, or None."""
+        st = self._state.get(a.bundle_id)
+        shot = st.shot if st else None
+        hit = getattr(self.ax, "hit_element", None)
+        if shot is None or shot.id != shot_id or not callable(hit):
+            return None
+        return hit(a.pid, *shot_to_screen(shot, x, y))
+
+    def _role(self, el: Any) -> str:
+        role = getattr(self.ax, "role_of", None)
+        return str(role(el)) if el is not None and callable(role) else ""
+
+    def pointer_terminal_input(self, app: str, shot_id: str, x: float, y: float, kind: str,
+                               end: tuple[float, float] | None = None) -> TerminalInput | None:
+        """Blocking (review round 1, finding 4): what pointer input would put into a terminal: a click on a menu item
+        that pastes (⌘V) while a terminal has the focus (a context menu opened over it), or any menu item of a
+        terminal app; a drag whose drop point is a terminal, with the text selected where it begins. Else None."""
+        a = self.app(app)
+        if kind in ("click", "dblclick"):
+            item = self._hit(a, shot_id, x, y)
+            if item is not None and (why_run := self._runs(item)):          # a run button (finding 2)
+                title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
+                return self._run_input(a, control=str(title or "a run button"), why=why_run)
+            if item is None or self._role(item) != "AXMenuItem":
+                return None
+            pastes = self._item_pastes(item)
+            if not pastes and not self._terminal_app(a):
+                return None
+            focus = self._focus(a)
+            why = self._terminal_why(a, focus)
+            if why is None:
+                return None
+            if pastes:
+                return self._placed(self._paste_input(a, why), focus)
+            title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
+            return self._placed(TerminalInput(a.name, a.bundle_id, why, menu=str(title or "a menu item")), focus)
+        if kind == "drag" and end is not None:
+            target = self._hit(a, shot_id, *end)
+            why = self._terminal_why(a, target)
+            if why is None:
+                return None
+            selected = getattr(self.ax, "selected_text", None)
+            source = self._hit(a, shot_id, x, y)
+            text = selected(source) if callable(selected) and source is not None else None
+            return self._placed(TerminalInput(a.name, a.bundle_id, why, text=text, drag=True), target)
+        return None
+
+    def _pointer_refusal(self, a: Any, shot_id: str, x: float, y: float, kind: str,
+                         end: tuple[float, float] | None, grant: TerminalGrant | None, task: str | None) -> str | None:
+        """Blocking, right before pointer input goes out: None unless it would put something into a terminal that
+        the owner's Yes doesn't name (`pointer_terminal_input`'s cases)."""
+        if kind in ("click", "dblclick"):
+            item = self._hit(a, shot_id, x, y)
+            if item is not None and self._runs(item):
+                title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
+                return self._run_refusal(a, grant, control=str(title or "a run button"))
+            if item is None or self._role(item) != "AXMenuItem":
+                return None
+            focus = self._focus(a)
+            if self._item_pastes(item):
+                return self._terminal_refusal(a, focus, grant, task, keys="cmd+v")
+            if self._terminal_app(a):
+                title = getattr(self.ax, "place_of", lambda el: ("", ""))(item)[1]
+                return self._terminal_refusal(a, focus, grant, task, menu=str(title or "a menu item"))
+            return None
+        if kind == "drag" and end is not None:
+            target = self._hit(a, shot_id, *end)
+            why = self._terminal_why(a, target)
+            if why is None or (grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.drag):
+                return None
+            return terminals.UNASKED.format(why=why, app=a.name)
+        return None
+
+    def secret_terminal_input(self, app: str, element: str, name: str) -> TerminalInput | None:
+        """Blocking: filling a hidden secret into this element puts it into a terminal (D31, review round 1 finding
+        7: by the element's own facts, not the app's bundle id alone): the fill, named, else None."""
+        a = self.app(app)
+        ref = self.node(a.bundle_id, element).ref
+        why = self._terminal_why(a, ref)
+        return None if why is None else self._placed(TerminalInput(a.name, a.bundle_id, why, secret=name), ref)
+
+    def secret_refusal(self, a: Any, el: Any, grant: TerminalGrant | None) -> str | None:
+        """Blocking, before and again right before a secret fill: None unless the element is a terminal the owner's
+        Yes to this fill doesn't cover."""
+        why = self._terminal_why(a, el)
+        if why is None or (grant is not None and grant.input.bundle_id == a.bundle_id and grant.input.secret):
+            return None
+        return terminals.UNASKED.format(why=why, app=a.name)
 
     def menu_terminal_input(self, app: str, path: list[str]) -> TerminalInput | None:
         """Blocking: pressing this menu item pastes into a terminal (its key equivalent is ⌘V and the app's keyboard
         focus is a terminal): the paste, else None."""
         a = self.app(app)
-        if not self._menu_pastes(a, path):
+        if terminals.run_menu(path):                     # a menu that runs things in its terminal (finding 2)
+            return self._run_input(a, menu=" > ".join(path),
+                                   why=f"a menu that runs things in {a.name}'s terminal ({path[0]})")
+        pastes = self._menu_pastes(a, path)
+        if not pastes and not self._terminal_app(a):
             return None
-        why = self._terminal_why(a, self._focus(a))
-        return None if why is None else self._paste_input(a, why)
+        focus = self._focus(a)
+        why = self._terminal_why(a, focus)
+        if why is None:
+            return None
+        if pastes:
+            return self._placed(self._paste_input(a, why), focus)
+        return self._placed(TerminalInput(a.name, a.bundle_id, why, menu=" > ".join(path)), focus)
 
     def _terminal_refusal(self, a: Any, el: Any, grant: TerminalGrant | None, task: str | None,
-                          text: str | None = None, keys: str | None = None) -> str | None:
+                          text: str | None = None, keys: str | None = None, menu: str | None = None) -> str | None:
         """Blocking, right before input is delivered: None when it may go to `el` (no terminal there, or the owner's
         Yes names exactly this input), else the refusal. A Return is covered only in the element the approved text
         went into, by the same task; a paste only while the clipboard holds what the owner was shown."""
@@ -903,7 +1090,10 @@ class MacComputerDriver:
             return None
         if grant is not None and grant.input.bundle_id == a.bundle_id:
             g, parts = grant.input, normalize(keys) if keys else []
-            if parts and _pastes(parts):
+            if menu is not None:
+                if g.menu == menu:
+                    return None
+            elif parts and _pastes(parts):
                 if g.paste and self.clipboard()[0] == g.clipboard:
                     return None
             elif parts == ["return"] and g.covered_by:
@@ -926,9 +1116,9 @@ class MacComputerDriver:
             self._armed[a.pid] = _Armed(el, grant.confirmation_id, task)
 
     async def _terminal_check(self, a: Any, el: Any, terminal: TerminalGrant | None, task: str | None,
-                              text: str | None = None, keys: str | None = None) -> bool:
+                              text: str | None = None, keys: str | None = None, menu: str | None = None) -> bool:
         """Refuses input that would reach a terminal without the owner's Yes to it; True when `el` is a terminal."""
-        refusal = await asyncio.to_thread(self._terminal_refusal, a, el, terminal, task, text, keys)
+        refusal = await asyncio.to_thread(self._terminal_refusal, a, el, terminal, task, text, keys, menu)
         if refusal is not None:
             raise Refused(refusal)
         return terminal is not None and await asyncio.to_thread(self._terminal_why, a, el) is not None
@@ -959,10 +1149,24 @@ class MacComputerDriver:
         if action.element is None:
             raise Refused("this action needs an element id from a snapshot")
         n = self.node(a.bundle_id, action.element)
+        if action.kind not in ("type", "set_value", "edit"):
+            self._armed.pop(a.pid, None)                 # D31: a press, focus or pick ends a covered Return
         if n.secret and action.kind in ("set_value", "type", "edit"):
             raise Refused("that's a password field; FERB never types passwords for the owner")
         if mechanism == "foreground":
             if action.kind in {"press", "click"}:
+                if await asyncio.to_thread(self._runs, n.ref):           # a run button (finding 2)
+                    if refusal := self._run_refusal(a, terminal, control=n.label):
+                        raise Refused(refusal)
+                if n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._item_pastes, n.ref):
+                    focus = await asyncio.to_thread(self._focus, a)      # ⌘V's item pastes into the focus (D31)
+                    if await self._terminal_check(a, focus, terminal, task, keys="cmd+v"):
+                        r = await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
+                        self._terminal_typed(a, focus, terminal, task, r.ok)
+                        return r
+                elif n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._terminal_app, a):
+                    focus = await asyncio.to_thread(self._focus, a)      # a terminal app's command (finding 10)
+                    await self._terminal_check(a, focus, terminal, task, menu=n.label)
                 return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
             if action.kind == "type":
                 landed: list[Any] = []
@@ -975,7 +1179,16 @@ class MacComputerDriver:
                     landed.append(focus if focus is not None else n.ref)
                     if await self._terminal_check(a, landed[0], terminal, task, text=action.text):
                         landed.append(True)
-                r = await self._real(a, type_steps(action.text), holder, "typing", task, focus_it)
+                steps = type_steps(action.text)
+
+                def chunk_check(i: int, step: Step) -> Step:
+                    def post() -> None:
+                        if i and i % TYPE_CHUNK == 0 and landed:
+                            self._focus_moved(a, landed[0], i, len(steps))
+                        step.post()
+                    return Step(step.what, post)
+                r = await self._real(a, [chunk_check(i, step) for i, step in enumerate(steps)], holder, "typing",
+                                     task, focus_it)
                 if len(landed) > 1:
                     self._terminal_typed(a, landed[0], terminal, task, r.ok)
                 return r
@@ -983,12 +1196,18 @@ class MacComputerDriver:
         if action.kind in ("press", "click"):
             if mechanism != "ax":
                 raise Refused("press uses AX; use mac.pointer for process/window mouse input")
+            if await asyncio.to_thread(self._runs, n.ref):               # a run button (finding 2)
+                if refusal := self._run_refusal(a, terminal, control=n.label):
+                    raise Refused(refusal)
             if n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._item_pastes, n.ref):
                 focus = await asyncio.to_thread(self._focus, a)          # ⌘V's item pastes into the focus (D31)
                 if await self._terminal_check(a, focus, terminal, task, keys="cmd+v"):
                     r = await self._press(a, n, holder, task, False)
                     self._terminal_typed(a, focus, terminal, task, r.ok)
                     return r
+            elif n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._terminal_app, a):
+                focus = await asyncio.to_thread(self._focus, a)          # a terminal app's command (finding 10)
+                await self._terminal_check(a, focus, terminal, task, menu=n.label)
             return await self._press(a, n, holder, task, False)
         if action.kind == "cancel":
             if mechanism != "ax":
@@ -1085,19 +1304,45 @@ class MacComputerDriver:
         focus = await asyncio.to_thread(self._focus, a)                  # where the keystrokes land (D31)
         landed = focus if focus is not None else n.ref
         into = await self._terminal_check(a, landed, terminal, task, text=text)
-        r = await self._typed(a, n, text, holder, mechanism)
+        r = await self._typed(a, n, text, holder, mechanism, landed if focus is not None else None)
         if into:
             self._terminal_typed(a, landed, terminal, task, r.ok)
         return r
 
-    async def _typed(self, a: Any, n: axm.AxNode, text: str, holder: str, mechanism: str) -> ActionResult:
+    def _focus_moved(self, a: Any, landed: Any, done: int, total: int) -> None:
+        """Blocking, between chunks of typed text (D31): the keyboard focus must still be where typing began, so a
+        focus change mid-text (into a terminal, say) gets none of the rest."""
+        now = self._focus(a)
+        if now is None or not self._same_el(now, landed):
+            raise PointerInterrupted(f"the keyboard focus moved after {done} of {total} characters, so the rest "
+                                     "wasn't typed; check the field and the app before trying again")
+
+    def _chunked(self, a: Any, steps: list[Step], landed: Any) -> list[Step]:
+        """Typing steps (one per character) with the focus checked before each chunk after the first."""
+        if landed is None:
+            return steps
+
+        def guarded(i: int, step: Step) -> Step:
+            def post() -> None:
+                if i and i % TYPE_CHUNK == 0:
+                    self._focus_moved(a, landed, i, len(steps))
+                step.post()
+            return Step(step.what, post)
+        return [guarded(i, step) for i, step in enumerate(steps)]
+
+    async def _typed(self, a: Any, n: axm.AxNode, text: str, holder: str, mechanism: str,
+                     landed: Any = None) -> ActionResult:
         before = await asyncio.to_thread(self.ax.value, n.ref)
         sig = await self._signature(a)
         if mechanism == "pid":
-            await self.input.to_process(type_steps(text, a.pid), holder)
+            await self.input.to_process(self._chunked(a, type_steps(text, a.pid), landed), holder)
             accepted = True
         else:
-            accepted = await asyncio.to_thread(self.ax.post_text, a.pid, text)
+            accepted = True
+            for i in range(0, len(text), TYPE_CHUNK):
+                if i and landed is not None:
+                    await asyncio.to_thread(self._focus_moved, a, landed, i, len(text))
+                accepted = await asyncio.to_thread(self.ax.post_text, a.pid, text[i:i + TYPE_CHUNK]) and accepted
         await asyncio.sleep(SETTLE_S)
         after = await asyncio.to_thread(self.ax.value, n.ref)
         changed = after != before if before is not None else await self._signature(a) != sig

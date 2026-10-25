@@ -40,8 +40,20 @@ UNASKED = ("FERB types into a terminal only after the owner's Yes to that exact 
            "lists what it lifts), which asks the owner once")
 RETURN_KEYS = frozenset({"return", "enter"})        # a key that runs a terminal's command line
 TERMINAL_APPS = frozenset(b.casefold() for b in DEFAULT_TERMINAL_APPS)
+# System Events' keystrokes type into whatever has the keyboard focus, a terminal included: a script for it asks.
+SYSTEM_EVENTS = "com.apple.systemevents"
 # Apps with a terminal panel whose focus Accessibility can't show (GPUI exposes no element tree): typing there asks.
 NO_FACTS_HOSTS = {"dev.zed.zed": "Zed", "dev.zed.zed-preview": "Zed Preview"}
+# Review round 1, finding 2: a menu-bar menu that operates an app's terminal or runs its code (the VS Code family's
+# Terminal and Run menus, JetBrains' Run), by the menu's own title as Accessibility shows it (Electron and Swing menus
+# carry no identifier): pressing any of its items asks, as typing does.
+RUN_MENUS = re.compile(r"(?i)^\s*(terminal|run|console|shell)\s*$")
+# A control that runs code: an editor's own run or debug-start icon class on its button (VS Code's codicons), or, in
+# native content, a button whose label starts with Run or Debug (a label rule: errs toward asking).
+RUN_CLASSES = frozenset({"codicon-play", "codicon-run", "codicon-run-all", "codicon-run-above", "codicon-run-below",
+                         "codicon-run-errors", "codicon-debug-start", "codicon-debug-alt", "codicon-debug-alt-small"})
+_RUN_LABEL = re.compile(r"(?i)^\s*(run|debug)(?![a-z])")
+_CONTROLS = frozenset({"AXButton", "AXMenuButton", "AXLink"})
 # DOM classes a terminal library puts on its own nodes: xterm.js's root and its input textarea. Data, one entry per
 # library; a page's text never reaches this check.
 TERMINAL_CLASSES = frozenset({"xterm", "xterm-helper-textarea"})
@@ -51,6 +63,7 @@ _LABELS = ("title", "description")
 _KINDS = ("role", "subrole", "role_description")
 _NOT_READ = {"AXWindow", "AXApplication"}           # a window's title is a document's name, not the element's
 SHOWN = 60                                          # display only: a label quoted in the trace's reason
+LABEL_SHOWN = 30                                    # display only: the terminal's own label in the question
 
 
 def _quote(v: str) -> str:
@@ -98,6 +111,36 @@ def surface(bundle_id: str, chain: Sequence[Mapping[str, Any]], owner_apps: Coll
     return None
 
 
+def run_menu(path: Sequence[str]) -> bool:
+    """Whether a menu path is under a menu-bar menu that operates the app's terminal or runs its code."""
+    return bool(path) and bool(RUN_MENUS.match(path[0]))
+
+
+def run_control(chain: Sequence[Mapping[str, Any]]) -> str | None:
+    """Why a control runs code (its run icon class, or a native label starting with Run or Debug), else None."""
+    if not chain or chain[0].get("role") not in _CONTROLS:
+        return None
+    f = chain[0]
+    hit = RUN_CLASSES & {str(c).casefold() for c in f.get("dom_classes") or ()}
+    if hit:
+        return f"a button that runs code (class {sorted(hit)[0]})"
+    if not f.get("dom_classes"):
+        for k in _LABELS:
+            v = f.get(k)
+            if isinstance(v, str) and _RUN_LABEL.match(v):
+                return f"a button labelled {_quote(v)} (a label only: FERB asks rather than guess)"
+    return None
+
+
+def visible(text: str, quote: bool = True) -> str:
+    """Text as the owner must see it to know what goes in (review round 1, finding 5): JSON-quoted (`quote`), and
+    every character that doesn't print (C0/C1 controls, DEL, line and paragraph separators, zero-width, bidi and other
+    format characters, non-ASCII spaces) written as a visible \\uXXXX escape. printable() would drop some silently."""
+    s = json.dumps(text, ensure_ascii=False) if quote else text
+    return "".join(c if c.isprintable() else (f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}")
+                   for c in s)
+
+
 def newline(text: str) -> bool:
     """Whether typed text holds its own Return (it runs as it is typed)."""
     return "\n" in text or "\r" in text
@@ -107,9 +150,20 @@ def need(inp: TerminalInput) -> confirm.Need:
     """The owner's question for one terminal input: always asked (a Yes covers this one run, `always`). The key names
     the exact input, so a No is final for it in this task tree (until the owner's own follow-up reopens it); a Yes is
     spent by the call it covers and never covers another."""
-    shown = json.dumps(inp.text, ensure_ascii=False) if inp.text is not None else ""
-    values = {"app": inp.app, "surface": inp.surface, "text": shown, "keys": inp.keys or "",
+    shown = visible(inp.text) if inp.text is not None else ""
+    label = " ".join(inp.label.split())
+    label = label if len(label) <= LABEL_SHOWN else label[:LABEL_SHOWN - 1].rstrip() + "…"
+    values = {"app": visible(inp.app, False), "surface": visible(inp.surface, False), "text": shown,
+              "keys": visible(inp.keys or "", False), "window": visible(inp.window) if inp.window else "",
+              "label": visible(label) if label else "", "menu": visible(inp.menu) if inp.menu else "",
+              "secret": visible(inp.secret) if inp.secret else "", "script": visible(inp.script) if inp.script else "",
+              "drag": "yes" if inp.drag else "", "runs": "yes" if inp.runs else "",
+              "control": visible(inp.control) if inp.control else "",
+              "selection": visible(inp.selection) if inp.selection else "",
+              "file": visible(inp.file) if inp.file else "",
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
               "enter": "yes" if inp.enter else ""}
-    return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste),
+    return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,
+                                                  inp.secret, inp.script, inp.drag, inp.control, inp.selection,
+                                                  inp.file),
                         values, always=True)

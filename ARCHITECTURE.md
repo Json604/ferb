@@ -1641,30 +1641,53 @@ the owner must answer first (`confirm.decide`):
     naming one (JetBrains IDEs' Terminal tool window, Xcode's console, Nova). Web content is judged by the library's
     classes only; a label errs toward asking. Zed's terminal panel exposes no facts, so any typing in Zed asks.
     `accessibility.surface_facts` reads the element and its ancestors (structure and label, never a value).
-  - *Asking.* `mac.act`, `mac.menu` and `browser.act` have `terminal_input(args, task)`: from the driver's facts now,
-    the input that would reach a terminal (typed, set or edited text into the element named; a key into the app's
-    keyboard focus; ⌘V, or a menu item whose key equivalent is ⌘V, pastes the clipboard's text, shown, or "marked
-    secret" for a password manager's concealed item). `Gateway._terminal` asks after the call's span starts and
-    before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at once, so the same text asks
-    again, a retry included. A No is final for that exact input in the tree until the owner's own follow-up reopens
-    it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
+  - *Asking.* `mac.act`, `mac.menu`, `mac.click`, `mac.pointer`, `mac.secret`, `mac.applescript` and `browser.act`
+    have `terminal_input(args, task)`: from the driver's facts now, what would reach a terminal: typed, set or edited
+    text into the element named; a key into the app's keyboard focus; ⌘V, a menu item whose key equivalent is ⌘V, or
+    a pixel click on such an item (a context menu opened over a terminal) pastes the clipboard's text, shown, or
+    "marked secret" for a password manager's concealed item; a drop onto a terminal, with the text selected where the
+    drag began; a hidden secret filled into a terminal surface (named, never shown); any menu command of a terminal
+    app (the item shown, ⌘V or not); an AppleScript for a terminal app or System Events (whose keystrokes type into
+    whatever has focus: every such script asks, the strictest rule that still lets System Events UI reads run after a
+    Yes; the script shown); and any item of a menu-bar menu titled Terminal, Run, Console or Shell (the VS Code
+    family's Terminal and Run menus, JetBrains' Run: Run Selected Text, Run Active File, Run Task, New Terminal) or a
+    run button (VS Code's `codicon-play`/run/debug-start icon classes; natively a button labelled Run… or Debug…),
+    shown with the editor's selected text and the active file. `Gateway._terminal` asks after the call's span starts
+    and before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at once, so the same text
+    asks again, a retry included. A No is final for that exact input in the tree until the owner's own follow-up
+    reopens it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
+  - *What the owner reads is what goes in* (review round 1). The question names the app, the terminal's own label
+    (clipped) and its window's title, and shows text JSON-quoted with every non-printing character (C0/C1, DEL,
+    line and paragraph separators, zero-width, bidi and other format characters, non-ASCII spaces) as a visible
+    `\uXXXX` (`terminal.visible`). Text a redaction would change is never typed: FERB refuses ("holds a saved
+    secret"; a secret goes in only through mac.secret); a shown paste, selection or script that redaction changes
+    says "(it contains a saved secret where it shows [redacted])". The notch shows FERB's own code-written questions
+    verbatim, never as Markdown (`DaemonApproval.plainText`), so backticks, asterisks and brackets read as typed.
   - *Enforced at delivery.* `MacComputerDriver._terminal_refusal` runs right before any text, value, edit, key or
     paste goes out (pid, ax_keyboard, ax_value, foreground): input that would reach a terminal is delivered only when
     the grant names exactly it, and the destination is the real keyboard focus after focusing (a container whose focus
-    lands in a terminal counts). A delivered approved text arms one Return in that element for that task (`_armed`):
-    `terminal_input` reports it `covered_by`, so the Return after the text isn't asked again; in another terminal, a
-    second time, or after any other key it asks. A paste's Yes holds while the pasteboard's change count is the one
-    shown. The browser driver (`ext_bridge._TabDriver.act`) does the same for an element the snapshot marked
-    `terminal` (extension 0.15.11), its one Return on the same element id. The refusal says "FERB types into a
+    lands in a terminal counts); typed text goes in chunks of `TYPE_CHUNK` characters with the focus checked before
+    each, so a focus change mid-text gets none of the rest (an uncertain outcome). A delivered approved text arms one
+    Return in that element for that task (`_armed`): `terminal_input` reports it `covered_by`, and the gateway honours
+    it only as the task's very next acting call (`Gateway._terminal_arms`: any other acting call, a look aside, clears
+    it; the driver also disarms on any click, press, focus or pointer input). In another terminal, a second time, or
+    after anything else it asks. A paste's Yes holds while the pasteboard's change count is the one shown; a drop,
+    a script, a secret and a menu or run press are delivered only as their Yes names them (`_pointer_refusal`,
+    `script_refusal`, `secret_refusal`, `_run_refusal`). The browser driver (`ext_bridge._TabDriver.act`) does the
+    same for an element the snapshot marked `terminal` (extension 0.15.11, now the minimum: an older one is refused at
+    hello), its one Return on the same
+    element id. mac.applescript runs under a profile whose Apple Events reach only the app the call names
+    (`(allow appleevent-send (appleevent-destination …))` after a deny: an event to any other app fails before it is
+    sent, -600, measured), so a script for Notes can't tell Terminal or System Events anything. The refusal says "FERB
+    types into a
     terminal only after the owner's Yes to that exact input, every time (D31) … Run commands with FERB's shell tool;
     if FERB's sandbox blocks a command you need, request the escape hatch".
-  - *Unchanged.* Clicks and focus into a terminal, and opening one ("Terminal > New Terminal"), need nothing.
-    `mac.applescript` and `mac.secret` never run in a terminal app (`precheck`).
-  - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; a menu command that runs
-    an editor's own text in its terminal ("Run Selected Text", tasks) is the app's feature, not FERB's typing; a
-    pixel click on a context menu's Paste (`mac.pointer`) and a drag of text onto a terminal aren't checked; a web
-    terminal reached through browser tools before the extension updates to 0.15.11 isn't marked (through `mac.act`
-    it is, by Accessibility's DOM classes).
+  - *Unchanged.* Clicks and focus into a terminal need nothing. No check uses a bundle list alone: every one goes
+    through `terminals.surface` (the built-in list plus the owner's).
+  - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; editor keybindings that
+    run code (F5, ⇧⏎ in a Python editor) and run controls Accessibility doesn't expose; the task picked in Run
+    Task's list after the asked menu press; a pixel click on a run button whose label or class isn't exposed; a drop
+    whose text FERB can't read is asked as "something FERB can't read".
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
   says `snapshot_error`, and `ferb doctor` shows the last failure in local time, or that snapshots are off (OPEN
   QUESTION 3).
