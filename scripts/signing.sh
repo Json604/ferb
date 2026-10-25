@@ -25,7 +25,9 @@
 #   /usr/bin/openssl pkcs12 -export -inkey key.pem -passin env:P -in cert.pem -name "FERB Release Signing" \
 #     -out "FERB Release Signing.p12" -passout env:P
 #   security import "FERB Release Signing.p12" -k "$HOME/Library/Keychains/login.keychain-db" -T /usr/bin/codesign
-# macOS asks for the .p12's passphrase. The .p12 is the backup: keep it in two places you control (for example your
+#   security add-trusted-cert -p codeSign -k "$HOME/Library/Keychains/login.keychain-db" cert.pem
+# (the last line trusts the certificate for code signing, for your user only: codesign refuses an untrusted
+# self-signed identity with "no identity found"; macOS asks for your login password.) macOS asks for the .p12's passphrase. The .p12 is the backup: keep it in two places you control (for example your
 # password manager, next to the passphrase, and an offline USB drive). Then `cd ~; rm -rf "$D"; unset P`. Record the
 # public SHA-1 (one line):
 #   security find-identity -p codesigning | sed -n 's/.*) \([0-9A-F]\{40\}\) "FERB Release Signing".*/\1/p' \
@@ -37,7 +39,8 @@
 FERB_RELEASE_NAME="FERB Release Signing"
 
 # The release certificate's SHA-1 from scripts/release-cert.sha1, in lowercase; nothing when missing or malformed.
-# FERB_TEST_RELEASE_SHA1, when set (even empty), replaces the file: tests only.
+# FERB_TEST_RELEASE_SHA1, when set (even empty), replaces the file: tests only. FERB_SIGN_KEYCHAIN, when set, is the one
+# keychain that is searched and signed from (tests with a throwaway certificate; never the owner's login keychain).
 ferb_release_sha1() {
   local h=""
   if (( ${+FERB_TEST_RELEASE_SHA1} )); then
@@ -68,7 +71,7 @@ ferb_resolve_identity() {
       return 1
     fi
     # Every code-signing identity, valid or not: macOS never trusts a self-made certificate; codesign signs with it
-    line=$(security find-identity -p codesigning 2>/dev/null | grep -i -F -- "$FERB_RELEASE_SHA1" | head -1 || true)
+    line=$(security find-identity -p codesigning ${FERB_SIGN_KEYCHAIN:+"$FERB_SIGN_KEYCHAIN"} 2>/dev/null | grep -i -F -- "$FERB_RELEASE_SHA1" | head -1 || true)
     if [[ "$line" != *"\"$FERB_RELEASE_NAME\""* ]]; then
       print -u2 "signing.sh: no \"$FERB_RELEASE_NAME\" with SHA-1 $FERB_RELEASE_SHA1 in your keychains (restoring the backup: the top of scripts/signing.sh)"
       return 1
@@ -142,7 +145,8 @@ ferb_sign() {
   local target=$1; shift
   local stamp=--timestamp=none
   ferb_developer_id && stamp=--timestamp
-  local -a req
+  local -a req kc
+  [[ -n "${FERB_SIGN_KEYCHAIN:-}" ]] && kc=(--keychain "$FERB_SIGN_KEYCHAIN")
   if ferb_release; then
     local id="" i
     for (( i = 1; i < $#; i++ )); do
@@ -153,8 +157,10 @@ ferb_sign() {
     fi
     if [[ -n $id ]]; then req=(--requirements "=designated => $(ferb_requirement "$id")"); fi
   fi
-  codesign --force --sign "$FERB_SIGN_ID" --options runtime $stamp $req "$@" "$target" 2>&1 \
-    | { grep -v ': replacing existing signature$' || true } >&2
+  local log rc=0
+  log=$(codesign --force --sign "$FERB_SIGN_ID" --options runtime $stamp $req $kc "$@" "$target" 2>&1) || rc=$?
+  print -r -- "$log" | { grep -v ': replacing existing signature$' || true } >&2
+  if (( rc != 0 )); then print -u2 "signing.sh: codesign failed for $target"; return $rc; fi
 }
 
 ferb_is_macho() { [[ "$(file -b "$1")" == Mach-O* ]] }

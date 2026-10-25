@@ -463,6 +463,16 @@ def test_a_disk_image_holds_only_a_release_signed_app(tmp_path: Path) -> None:
     assert not dmg.exists()
 
 
+def test_the_release_certificates_sha1_is_recorded() -> None:
+    """scripts/release-cert.sha1 names FERB's one release certificate (L34): public, 40 lowercase hex digits. It exists
+    once the owner has created the certificate (phase B task 4); until then the test says so."""
+    path = ROOT / "scripts" / "release-cert.sha1"
+    if not path.exists():
+        pytest.skip("the owner hasn't created FERB Release Signing yet (steps at the top of scripts/signing.sh)")
+    text = path.read_text()
+    assert len(text) == 41 and text.endswith("\n") and all(ch in "0123456789abcdef" for ch in text[:40])
+
+
 # ---------- a real bundle ----------
 
 def _real_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -800,3 +810,22 @@ def test_every_locked_runtime_package_installs_on_both_architectures() -> None:
         missing = sorted(f'{p["name"]} {p["version"]}' for p in packages
                          if not any(_wheel_fits(w["url"].rsplit("/", 1)[1], arch) for w in p.get("wheels", [])))
         assert missing == [], (arch, missing)
+
+
+def test_real_release_bundle_pins_ferbs_certificate_in_every_piece_macos_grants_to(real_bundle: Path,
+                                                                                  tmp_path: Path) -> None:
+    if os.environ.get("FERB_RELEASE_BUNDLE") != "1":
+        pytest.skip("set FERB_RELEASE_BUNDLE=1 with FERB_APP_BUNDLE pointing at a SIGN_IDENTITY=release build")
+    from ferb.device.install import Installer, certificate_leaf, designated_requirement
+    sha = os.environ.get("FERB_TEST_RELEASE_SHA1") or (ROOT / "scripts" / "release-cert.sha1").read_text().strip()
+    for rel, ident in RELEASE_PIECES:
+        piece = real_bundle / rel if rel else real_bundle
+        shown = subprocess.run(["codesign", "-d", "-r-", str(piece)], capture_output=True, text=True)
+        requirement = designated_requirement(shown.stdout + shown.stderr)
+        assert requirement.startswith(f'identifier "{ident}" ') and certificate_leaf(requirement) == sha, requirement
+        details = subprocess.run(["codesign", "-dv", "--verbose=2", str(piece)], capture_output=True, text=True).stderr
+        assert "Authority=FERB Release Signing" in details and "TeamIdentifier=not set" in details, details
+    copy = tmp_path / "ferb-secrets"
+    shutil.copyfile(real_bundle / "Contents/Helpers/ferb-secrets", copy)       # what setup copies into ~/.ferb/bin
+    pinned = Installer(tmp_path / ".ferb", bundle=real_bundle).sealed_requirement(copy, "Helpers/ferb-secrets")
+    assert certificate_leaf(pinned) == sha
