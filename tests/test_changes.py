@@ -60,7 +60,7 @@ def test_a_shell_perl_replace_that_hits_a_table_header_shows_in_the_diff(tmp_pat
     changes = store.changes("t.step.one")
     assert [(c.path, c.what) for c in changes] == [(str(doc.resolve()), "modified")]
     text = describe(changes[0])
-    assert "changed by this step" in text
+    assert "changed, named by this step" in text
     assert "-ID\n+2024eb02238" in text                     # the cover's value cell
     assert "+2024eb02238\n Requirement" in text           # and Table 10's column header: both visible to the checker
 
@@ -70,8 +70,9 @@ def test_a_corrected_copy_beside_its_original_shows_as_its_changes_from_it(tmp_p
     folder.mkdir()
     original = _assignment(folder)
     store = _store(tmp_path)
-    store.before("t.step.one", "t", [folder])
-    docx(folder / "Kartikey_2024eb02238_HCI_Assignment1.docx",
+    made = folder / "Kartikey_2024eb02238_HCI_Assignment1.docx"
+    store.before("t.step.one", "t", [folder, original, made])      # the live command named both (src=, out=)
+    docx(made,
          ["Human Computer Interaction", [["Student Name", "Kartikey"], ["Student ID", "2024eb02238"]],
           "Table 10. Requirements", [["2024eb02238", "Requirement", "Priority"], TABLE_10[1]]], creator="Kartikey")
     store.before("t.step.one", "t", [original])          # fs.trash names it: already copied, nothing new
@@ -83,7 +84,7 @@ def test_a_corrected_copy_beside_its_original_shows_as_its_changes_from_it(tmp_p
     assert f"compared with {original.resolve()}" in text
     assert "-ID\n+2024eb02238\n Requirement" in text
     assert "-[document property] creator: Student Name\n+[document property] creator: Kartikey" in text
-    assert changes[original.name].what == "removed"
+    assert changes[original.name].what == "removed" and changes[original.name].content
 
 
 def test_a_pdf_covered_by_boxes_shows_annotations_added_and_its_text_layer_unchanged(tmp_path: Path) -> None:
@@ -119,7 +120,10 @@ def test_plain_text_edit_and_a_new_file_in_a_listed_folder(tmp_path: Path) -> No
     (tmp_path / "out.log").write_text("built\n")
     changes = {Path(c.path).name: c for c in store.changes("t")}
     assert "-int fuction(void);\n+int function(void);" in describe(changes["http_client.c"])
-    assert changes["out.log"].what == "created" and "built" in describe(changes["out.log"])
+    # a file the step didn't name, beside one it did: a fact (name, size, time), never its text (L39 I1)
+    assert changes["out.log"].what == "created" and not changes["out.log"].content
+    line = describe(changes["out.log"])
+    assert "new during this step, 6 bytes" in line and "built" not in line
 
 
 def test_nothing_is_copied_from_a_closed_store_or_a_trash(tmp_path: Path) -> None:
@@ -130,7 +134,8 @@ def test_nothing_is_copied_from_a_closed_store_or_a_trash(tmp_path: Path) -> Non
     trash.parent.mkdir()
     trash.write_text("o")
     store = Changes(tmp_path / "changes", closed=lambda p: "secrets" in p.parts)
-    assert store.before("t", "t", [secret, trash, secret.parent]) == {"copied": 0, "not_copied": 0, "folders": 0}
+    assert store.before("t", "t", [secret, trash, secret.parent]) == {"copied": 0, "not_copied": 0, "folders": 0,
+                                                                       "protected": 3}
 
 
 def test_a_record_survives_a_restart_and_goes_with_its_tree(tmp_path: Path) -> None:
