@@ -25,10 +25,13 @@ if [[ -n "$OUT" ]]; then
   print "Private key written to $OUT. Keep it offline: it signs every FERB update."
   exit 0
 fi
+# generate_keys -p prints its "No existing signing key found" error on stdout, so only a base64 key counts as one.
+is_key() { [[ "$1" =~ '^[A-Za-z0-9+/]{40,}={0,2}$' ]] }
 PUBLIC=$("$TOOL" -p 2>/dev/null || true)
-if [[ -z "$PUBLIC" ]]; then
+if ! is_key "$PUBLIC"; then
   "$TOOL" >/dev/null
-  PUBLIC=$("$TOOL" -p)
+  PUBLIC=$("$TOOL" -p 2>/dev/null || true)
 fi
+is_key "$PUBLIC" || die "Sparkle's generate_keys printed no public key: $PUBLIC"
 print -r -- "$PUBLIC" > "$ROOT/scripts/sparkle-public-key.txt"
 print "Public key: $PUBLIC (in scripts/sparkle-public-key.txt; commit it). Back up the private key with --export."
