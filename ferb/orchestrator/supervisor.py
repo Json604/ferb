@@ -67,7 +67,7 @@ from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
 from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
 from ferb.policy.targets import Request, Targets
-from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, mark, wrap_untrusted
+from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, as_data, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
@@ -1812,8 +1812,15 @@ class Supervisor(WorkerRuns):
                     continue
             who = "Owner" if entry.kind == "chat.message" else "FERB"
             said = str(data.get("text", ""))
+            held = origins_.split(entry.origin)
             if entry.kind == "task.answer":
-                who += " (task result, " + str(data.get("status")) + ")"
+                # a model-written report that can quote what the task read: shown with its origin and as one quoted
+                # string, so its text can't start a line in this history's own format (review I4, MP2)
+                who += f" (task result, {data.get('status')}; origin {entry.origin})"
+                said = as_data(said)
+            elif entry.kind in ("chat.reply", "chat.clarify") and any(origins_.is_external(o) for o in held):
+                who += f" (origin {entry.origin})"                  # FERB's words written from outside content
+                said = as_data(said)
             refs: tuple[str, ...] = ()
             if entry.kind == "chat.notice":                    # L10: what FERB noticed, quotes with their own origin
                 who += f" (noticed; origin {entry.origin})"

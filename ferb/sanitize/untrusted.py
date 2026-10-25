@@ -4,8 +4,10 @@ Pasted/quoted = terminal bracketed paste (ESC[200~ ... ESC[201~), fenced code bl
 Each is wrapped in <untrusted-data id="..."> tags with a random id (so pasted text can't forge a closing tag), and
 the owner's own words are returned separately for the orchestrator to interpret intent."""
 
+import json
 import re
 import secrets
+import unicodedata
 from dataclasses import dataclass
 
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
@@ -132,6 +134,21 @@ def earlier_questions(payload: str) -> list[str]:
     """FERB's own earlier question(s) a payload carries as data (an answer continues the request it asked about)."""
     return [p.group(2) for m in _EARLIER.finditer(payload or "") for p in _PARTS.finditer(m.group(0))
             if p.group(2).strip()]
+
+
+def as_data(text: str) -> str:
+    """Text shown as one quoted JSON string: its line breaks escaped, so it can't start a line of its own (a history
+    line in FERB's format, say), and invisible format characters (Unicode Tag characters, zero-width marks: category
+    Cf, and private-use) written out as escapes, so nothing in it is hidden from the reader. Deterministic, unlike
+    `wrap_untrusted`, so a recorded line stays the same across turns and its prompt prefix stays cacheable (P20)."""
+    return "".join(_shown(c) for c in json.dumps(text, ensure_ascii=False))
+
+
+def _shown(c: str) -> str:
+    """A character as written in `as_data`: itself, or an escape when it is invisible."""
+    if unicodedata.category(c) not in ("Cf", "Co"):
+        return c
+    return f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}"
 
 
 def wrap_untrusted(text: str) -> str:
