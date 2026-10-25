@@ -12,7 +12,7 @@ non-interactively: Welcome runs the bundled `ferb setup --service`, which runs t
 (signature and location checks, `~/.ferb`, `~/Library/LaunchAgents/com.ferb.daemon.plist`, `launchctl bootstrap`) and
 exits 0 once the daemon answers on `~/.ferb/run/ferb.sock`. Every later step reads and acts through new CLI-role RPCs
 (`setup.permissions`, `setup.permission_request`, `setup.finish`, `runtimes.status`, `runtimes.use`,
-`setup.browsers`, `setup.browser_open`) plus existing ones (`automation.request`, `setup.persona`, `chat.approve`,
+`runtimes.sign_in`, `setup.browsers`, `setup.browser_open`) plus existing ones (`automation.request`, `setup.persona`, `chat.approve`,
 `chat.answer`, `runtimes.check`). The RPC bodies call functions added next to the CLI's logic
 (`ferb/device/permissions.py`, `ferb/device/extensions.py` with `ferb/act/browser/autoinstall.py`,
 `ferb/cli/runtimes.py`), and `ferb setup` keeps working on those same functions. FERB.app's own permissions
@@ -38,7 +38,10 @@ full, just design them bare min. focus on correct working"). Read "What a new us
   click. A quiet update (new build, stopped service) shows nothing when it succeeds and every required grant holds.
 - Secrets (rule 14): an API key typed in the window goes from the `SecureField` straight to `/usr/bin/security -i` on
   its stdin; never an argument, never to the daemon, a log, `NSLog`, `UserDefaults`, a `@Published` property or the
-  conversation archive. Only its presence is checked afterwards. `runtimes.check`'s `detail` is redacted.
+  conversation archive. Only its presence is checked afterwards. `runtimes.check`'s `detail` is redacted. FERB's
+  Claude sign-in (Task 10) never handles the credential at all: the pinned Claude Code writes it to the login Keychain
+  itself; the one-time code the owner may paste from the sign-in page reaches only Claude Code's stdin, is added to
+  the daemon's redactor, and is never journaled, traced or stored.
 - Whose grant each row is, and where Grant goes (the exact anchors):
 
   | Row | Whose grant (TCC identity) | Read by | Grant button |
@@ -47,6 +50,7 @@ full, just design them bare min. focus on correct working"). Read "What a new us
   | Screen Recording | agent app | daemon: `CGPreflightScreenCaptureAccess` | `CGRequestScreenCaptureAccess`; `…?Privacy_ScreenCapture`; then "Restart FERB to check" (macOS applies it after a restart) |
   | Full Disk Access | agent app | daemon: TCC.db read probe | reveals the agent app in Finder (drag it into the list) and opens `…?Privacy_AllFiles`; blocked until containment works (CQ5, rule 12) |
   | Input Monitoring (optional) | agent app | daemon: `IOHIDCheckAccess` | `IOHIDRequestAccess`; `…?Privacy_ListenEvent` |
+  | Paste from Other Apps (optional; clipboard, I3) | agent app | daemon: the pasteboard's `accessBehavior` (never the contents) | `setup.permission_request {permission: "clipboard"}` reads it once so macOS asks (only while it hasn't asked yet); then `…?Privacy_Pasteboard`, where the owner sets FERB to Allow (anchor present in this Mac's System Settings) |
   | Automation | agent app, per target app | daemon: `AEDeterminePermissionToAutomateTarget(ask: false)` | existing `automation.request` (macOS prompt); `…?Privacy_Automation` when off |
   | Notifications (optional) | FERB.app (`com.ferb.FERB`) | FERB.app: `UNUserNotificationCenter` settings | `requestAuthorization`; when off `x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.ferb.FERB` |
   | Microphone (optional) | FERB.app (dictation: Microphone + Speech Recognition) | FERB.app: `AVCaptureDevice`, `SFSpeechRecognizer` | `requestAccess` / `requestAuthorization`; when off `…?Privacy_Microphone` or `…?Privacy_SpeechRecognition` |
@@ -62,6 +66,28 @@ full, just design them bare min. focus on correct working"). Read "What a new us
   owner's live check on a second macOS user account (rule 20); offline tests never prove it.
 - Each task: failing test first, then the focused tests. Before the plan's final commit: `nice -n 10 uv run pytest -q`,
   `uv run mypy ferb/core`, `git diff --check`, and `cd ui/mac/FERBNotch && swift test`.
+
+## Owner decisions (2026-10-25)
+
+The planner's six questions, answered. Only item 4 is the owner's own choice; the rest are the controller's rulings.
+
+1. Keep the optional Input Monitoring and Speech Recognition (hearing app sound) rows (controller). Built in Tasks 1, 2, 7.
+2. Add Clipboard (Paste from Other Apps) as an optional row (controller). Built in Task 1 (`clipboard_row`), Task 2
+   (the row and its request in `setup.permissions` / `setup.permission_request`), Task 6 (its words).
+3. "Task finished" is posted when an answer arrives while the notch is closed, with no time threshold (controller;
+   Phase D builds it).
+4. Owner: "Build a Claude sign-in like Codex's." Built in Task 10.
+5. The menu bar menu is exactly as the spec says (controller; Phase D builds it).
+6. Existing installs (set up before this window existed): FERB.app asks once at launch for Notifications while macOS
+   hasn't asked yet (controller). Built in Task 7 (`askForNotificationsOnce`) and Task 8 (launch).
+
+Planner's ruling, not the owner's (Task 10): the Claude credential is never routed through FERB's sealed secret path,
+because FERB never holds it. The pinned Claude Code writes it into the login Keychain itself (`security -i` on stdin,
+item `Claude Code-credentials-<first 8 hex of sha256(~/.ferb/claude-home)>`) and reads it back for every run started
+with the same `CLAUDE_CONFIG_DIR`, exactly as `codex login` writes FERB's `~/.ferb/codex-home/auth.json`. Copying it into
+a FERB-owned item would add a second copy without adding protection. If the owner wants FERB to own the item, the
+alternative is `claude setup-token` (a 1-year token passed to runs on `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`), but in
+Claude Code 2.1.283 that command is an interactive terminal screen, so FERB couldn't run it without a terminal.
 
 ## Review Focus
 
@@ -93,17 +119,19 @@ Phase E (Settings → AI, Permissions, Browsers) consumes these unchanged. All a
 
 | Method | Params | Reply |
 |---|---|---|
-| `setup.permissions` | `{hearing?: bool}` | `{rows: [{id, status, process, required, pane, requestable, restart_to_check, blocked}], automation: [{name, bundle_id, status}], automation_pane: str, grant_target: str, app_panes: {notifications, microphone, speech_recognition}, setup_done: bool}`. `rows` ids: `accessibility`, `screen_recording`, `full_disk_access`, `input_monitoring` (process `"daemon"`), and `hearing` (process `"voice"`) only with `hearing: true`. `status` ∈ `granted`, `denied`, `not_determined`, `target_not_running`, `unknown`. `blocked` is `""` or why it can't be granted yet. Never prompts. |
-| `setup.permission_request` | `{permission: "accessibility" \| "screen_recording" \| "input_monitoring" \| "hearing"}` | `{permission, status}`; shows macOS's prompt; journaled `setup.permission_requested`; any other permission is a `-32004` refusal. Call with a long wait (`wait: 120`): `hearing` waits for the owner's answer. |
+| `setup.permissions` | `{hearing?: bool}` | `{rows: [{id, status, process, required, pane, requestable, restart_to_check, blocked}], automation: [{name, bundle_id, status}], automation_pane: str, grant_target: str, app_panes: {notifications, microphone, speech_recognition}, setup_done: bool}`. `rows` ids: `accessibility`, `screen_recording`, `full_disk_access`, `input_monitoring`, `clipboard` (process `"daemon"`), and `hearing` (process `"voice"`) only with `hearing: true`. `status` ∈ `granted`, `denied`, `not_determined`, `target_not_running`, `unknown`. `blocked` is `""` or why it can't be granted yet. Never prompts. |
+| `setup.permission_request` | `{permission: "accessibility" \| "screen_recording" \| "input_monitoring" \| "clipboard" \| "hearing"}` | `{permission, status}`; shows macOS's prompt (`clipboard`: one read so macOS shows its paste alert, journaled `clipboard.access`); journaled `setup.permission_requested`; any other permission is a `-32004` refusal. Call with a long wait (`wait: 120`): `hearing` waits for the owner's answer. |
 | `setup.finish` | `{}` | `{setup_done: true}`; sets `[setup] permissions_version = max(27, current)`; journaled `setup.finished`. |
-| `runtimes.status` | `{}` | `{roles: {orchestrator, worker, checker}, runtimes: [{name, usable, fix, model}]}`; names: `codex`, `claude`, `anthropic`, `openai`, `google`. |
+| `runtimes.status` | `{}` | `{roles: {orchestrator, worker, checker}, runtimes: [{name, usable, fix, model, signed_in}]}`; names: `codex`, `claude`, `anthropic`, `openai`, `google`; `signed_in` (Task 10): FERB's own Codex or Claude sign-in finished, or the provider's key is in the Keychain; the `claude` row also has `sign_in: {state: "idle" \| "waiting" \| "signed_in" \| "failed", url, why}`. |
+| `runtimes.sign_in` (Task 10) | `{runtime: "claude", code?: str, cancel?: true}` | `{state, url, why}`: starts FERB's own Claude sign-in (or reports the one waiting); `code` passes the code the sign-in page shows to the waiting sign-in; `cancel` stops it. Journaled `runtimes.sign_in` and `runtimes.sign_in_finished {runtime, signed_in}`, never the code or anything Claude Code printed. Any other runtime is refused. |
 | `runtimes.use` | `{runtime, roles?: [str]}` | `{roles: {orchestrator, worker, checker}, usable, fix}`; default all three roles; journaled `runtimes.changed`. |
 | `setup.browsers` | `{}` | `{store_url: str \| null, extension_dir: str, browsers: [{browser, label, requested, manual, unconfirmed, profiles: [{folder, name, state, ferb_identity, connected}]}]}`; `state` ∈ `not_installed`, `removed`, `installed`, `on`, `paired`. Read only. |
 | `setup.browser_open` | `{browser, folder}` | `{opened: url}`; opens FERB's Web Store page (or `chrome://extensions`) in that discovered profile, in front; journaled `setup.browser_opened`. |
 
 Swift pieces Phase E can reuse: `SetupModel` (FERBNotch; `refreshAI()`, `refreshPermissions(probeHearing:)`,
 `refreshBrowsers()`, `grant(_:)`, `allowAutomation(_:)`, `restartService()`, `addExtension(_:)`, `signInWithChatGPT()`,
-`useClaude()`, `saveAPIKey(_:key:)`, `startPolling()`/`stopPolling()`), the views `AIStepView`, `PermissionsStepView`,
+`signInWithClaude()`, `sendClaudeCode(_:)`, `cancelClaudeSignIn()`, `useClaude()`, `saveAPIKey(_:key:)`,
+`askForNotificationsOnce(defaults:)`, `startPolling()`/`stopPolling()`), the views `AIStepView`, `PermissionsStepView`,
 `BrowsersStepView` (each takes `@ObservedObject var model: SetupModel`), and in NotchCore `PermissionSnapshot`,
 `BrowserSnapshot`, `AISnapshot`, `PermissionCopy`, `LaunchctlPlan`. `DaemonService.restart()` (FERBNotch) restarts the
 background service (kickstart, else bootstrap); a restart stops running tasks, so a Settings page should say so.
@@ -123,7 +151,8 @@ an update: non-interactive, exit 0 once the daemon answers, `ferb: <reason>` on 
 - Produces (all in `ferb.device.permissions`):
   - `REQUIRED: tuple[str, ...] = ("accessibility", "screen_recording", "full_disk_access")`
   - `DAEMON_PERMISSIONS: tuple[str, ...] = (*REQUIRED, "input_monitoring")`
-  - `REQUESTABLE: frozenset[str] = {"accessibility", "screen_recording", "input_monitoring", "hearing"}`
+  - `REQUESTABLE: frozenset[str] = {"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"}`
+  - `clipboard_row(state: str | None) -> dict[str, Any]` (owner decision 2: Paste from Other Apps, optional)
   - `RESTART_TO_CHECK: frozenset[str] = {"screen_recording", "full_disk_access"}`
   - `FDA_WAITS: str` (the blocked text)
   - `pane_url(permission: str) -> str`, `notifications_pane_url(bundle_id: str) -> str`,
@@ -193,6 +222,17 @@ def test_hearing_row_is_ferb_voices_and_only_when_probed() -> None:
     assert all(r["id"] != "hearing" for r in P.rows({}, {}))
 
 
+def test_clipboard_row_says_whether_macos_lets_ferb_read_what_you_copy() -> None:
+    def row(state: str | None) -> dict[str, object]:
+        return P.clipboard_row(state)
+    assert row("allow")["status"] == row("unrestricted")["status"] == "granted"      # unrestricted: before 15.4
+    assert row("default")["status"] == "not_determined" and row("default")["requestable"]   # macOS hasn't asked yet
+    assert row("ask")["status"] == row("deny")["status"] == "denied"                  # the owner sets Allow in the pane
+    assert not row("ask")["requestable"] and row(None)["status"] == "unknown"
+    assert row("default")["pane"] == PANE + "Privacy_Pasteboard"
+    assert row("default")["process"] == "daemon" and not row("default")["required"] and row("default")["blocked"] == ""
+
+
 def test_app_panes_name_ferb_app_itself() -> None:
     assert P.app_panes("com.ferb.FERB") == {
         "notifications": "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.ferb.FERB",
@@ -211,7 +251,7 @@ def test_request_asks_macos_only_for_the_three_with_an_api(monkeypatch: pytest.M
     assert P.request("screen_recording") is P.Status.DENIED
     assert P.request("input_monitoring") is P.Status.GRANTED
     assert asked[2:] == [("screen", None), ("hid", None)]
-    for other in ("full_disk_access", "automation", "hearing", "nope"):
+    for other in ("full_disk_access", "automation", "hearing", "clipboard", "nope"):
         with pytest.raises(ValueError):
             P.request(other)
 
@@ -291,6 +331,7 @@ PANES = {
     "microphone": "Privacy_Microphone",
     "speech_recognition": "Privacy_SpeechRecognition",
     "hearing": "Privacy_SpeechRecognition",          # FERB Voice's Speech Recognition (L26)
+    "clipboard": "Privacy_Pasteboard",               # Paste from Other Apps (macOS 15.4+; I3)
 }
 
 
@@ -322,7 +363,7 @@ Append at the end of the module:
 
 REQUIRED = ("accessibility", "screen_recording", "full_disk_access")      # FERB can't act on the Mac without these
 DAEMON_PERMISSIONS = (*REQUIRED, "input_monitoring")
-REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "hearing"})
+REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"})
 # a new grant of these reaches a running process only after it restarts (Screen Recording: CGPreflight… stays false;
 # Full Disk Access may need it too), so the window offers "Restart FERB to check" after a Grant
 RESTART_TO_CHECK = frozenset({"screen_recording", "full_disk_access"})
@@ -370,6 +411,18 @@ def rows(grants: dict[str, str], containment: dict[str, Any],
     return out
 
 
+def clipboard_row(state: str | None) -> dict[str, Any]:
+    """I3 as an optional setup row (owner decision 2, 2026-10-25): whether macOS lets the daemon read the clipboard
+    without asking, from the pasteboard's accessBehavior (never its contents). "default": macOS hasn't asked yet, so
+    Grant lets it ask once (`setup.permission_request {permission: "clipboard"}`); "ask" and "deny" need FERB set to
+    Allow in Paste from Other Apps; "unrestricted" is macOS before 15.4."""
+    status = {"allow": Status.GRANTED.value, "unrestricted": Status.GRANTED.value,
+              "default": Status.NOT_DETERMINED.value, "ask": Status.DENIED.value,
+              "deny": Status.DENIED.value}.get(state or "", Status.UNKNOWN.value)
+    return {"id": "clipboard", "status": status, "process": "daemon", "required": False, "pane": pane_url("clipboard"),
+            "requestable": state == "default", "restart_to_check": False, "blocked": ""}
+
+
 def _request_screen_capture() -> None:
     Quartz.CGRequestScreenCaptureAccess()
 
@@ -382,7 +435,7 @@ def request(permission: str) -> Status:
     """Ask macOS for one grant on the owner's Grant (setup only): macOS shows its own prompt and lists FERB in that
     pane. Run in the daemon, so the grant attaches to the daemon's process. Full Disk Access has no request API (the
     owner adds FERB in the pane); Automation is per app (`automation(bundle_id, ask=True)`); hearing is FERB Voice's
-    own request (`speech_request_argv`)."""
+    own request (`speech_request_argv`); the clipboard is one read by the daemon (`clipboard.request_access`)."""
     if permission == "accessibility":
         _ax_trusted(True)
         return accessibility()
@@ -448,7 +501,8 @@ git commit -m "feat(L34): permission rows, macOS requests and shared setup facts
   - Daemon seams tests replace: `Daemon.permission_check: Callable[[], dict[str, str]]`,
     `Daemon.permission_request: Callable[[str], permissions.Status]`,
     `Daemon.automation_check: Callable[[str], Awaitable[permissions.Status]]`,
-    `Daemon.speech_request: Callable[[Path], Any]`, `Daemon._setup_containment() -> dict[str, Any]`.
+    `Daemon.speech_request: Callable[[Path], Any]`, `Daemon.clipboard_request: Callable[[], str | None]`,
+    `Daemon._setup_containment() -> dict[str, Any]` (tests also replace the existing `Daemon._clipboard_access`).
   - Journal kinds `setup.permission_requested {permission, status}` and `setup.finished {by: "app"}`.
 
 - [ ] **Step 1: Write the failing daemon tests** (`tests/test_setup_rpcs.py`)
@@ -496,6 +550,7 @@ def grants(daemon: RunningDaemon) -> dict[str, str]:
     d.permission_request = requested                           # type: ignore[method-assign]
     d._setup_containment = lambda: {"profile_ok": True, "shell": True, "proxy": True}   # type: ignore[method-assign]
     d._device_profile = lambda: None                           # type: ignore[method-assign]
+    d._clipboard_access = lambda: "default"                    # type: ignore[method-assign]   # macOS hasn't asked
     return state
 
 
@@ -509,8 +564,9 @@ def notes_profile() -> DeviceProfile:
 def test_permission_rows_are_the_daemons_own_with_their_panes(daemon: RunningDaemon, grants: dict[str, str]) -> None:
     reply = call(daemon, "setup.permissions")
     rows = {r["id"]: r for r in reply["rows"]}
-    assert list(rows) == ["accessibility", "screen_recording", "full_disk_access", "input_monitoring"]
+    assert list(rows) == ["accessibility", "screen_recording", "full_disk_access", "input_monitoring", "clipboard"]
     assert rows["accessibility"]["status"] == "denied" and rows["screen_recording"]["status"] == "granted"
+    assert rows["clipboard"]["status"] == "not_determined" and rows["clipboard"]["pane"].endswith("?Privacy_Pasteboard")
     assert rows["accessibility"]["pane"].endswith("?Privacy_Accessibility")
     assert reply["app_panes"]["notifications"].endswith("?id=com.ferb.FERB")
     assert reply["automation_pane"].endswith("?Privacy_Automation")
@@ -565,6 +621,15 @@ def test_grant_asks_macos_in_the_daemon_and_journals_it(daemon: RunningDaemon, g
     for refused in ("full_disk_access", "automation", "microphone", ""):
         with pytest.raises(RpcError):
             call(daemon, "setup.permission_request", {"permission": refused})
+
+
+def test_clipboard_grant_lets_macos_ask_once_and_journals_what_it_answered(daemon: RunningDaemon,
+                                                                          grants: dict[str, str]) -> None:
+    daemon.daemon.clipboard_request = lambda: "ask"            # type: ignore[method-assign]   # macOS: ask each time
+    assert call(daemon, "setup.permission_request", {"permission": "clipboard"}) == {
+        "permission": "clipboard", "status": "denied"}         # the owner still has to set Allow in the pane
+    access = on_loop(daemon, lambda: daemon.daemon._journal().of_kind("clipboard.access"))
+    assert [e.data for e in access] == [{"access": "ask", "requested": True}]
 
 
 def test_hearing_grant_runs_ferb_voices_own_request(daemon: RunningDaemon, grants: dict[str, str]) -> None:
@@ -649,6 +714,11 @@ In `ferb/daemon/main.py`, at the end of `Daemon.__init__` (right after the `self
             lambda bundle: _permissions.automation_async(bundle, ask=False))
         self.speech_request: Callable[[Path], Any] = (
             lambda app: subprocess.run(_permissions.speech_request_argv(app), check=False))
+
+        def _clipboard_request() -> Any:          # one read, so macOS shows its paste alert (I3); nothing kept
+            from ferb.sense.watchers.clipboard import request_access
+            return request_access()
+        self.clipboard_request: Callable[[], Any] = _clipboard_request
 ```
 
 In the RPC registration block, after `self.server.unary['reports.build'] = self._reports_build` add:
@@ -687,7 +757,8 @@ Add these methods right after `_automation_request`:
             except TimeoutError:
                 return permissions.Status.UNKNOWN.value
         statuses = await asyncio.gather(*(automation(bundle) for _, bundle in apps))
-        return {"rows": permissions.rows(grants, self._setup_containment(), hearing),
+        clipboard = permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))   # owner decision 2
+        return {"rows": permissions.rows(grants, self._setup_containment(), hearing) + [clipboard],
                 "automation": [{"name": name, "bundle_id": bundle, "status": status}
                                for (name, bundle), status in zip(apps, statuses)],
                 "automation_pane": permissions.pane_url("automation"),
@@ -706,6 +777,10 @@ Add these methods right after `_automation_request`:
         if permission == "hearing":
             await asyncio.to_thread(self.speech_request, self.voice_bundle)
             status, _ = permissions.hearing_row_status(await self._hearing_status(True))
+        elif permission == "clipboard":           # as `clipboard.request`: one read, journaled; nothing read is kept
+            access = await asyncio.to_thread(self.clipboard_request)
+            self._journal().append("clipboard.access", {"access": access, "requested": True})
+            status = str(permissions.clipboard_row(access)["status"])
         else:
             status = str((await asyncio.to_thread(self.permission_request, permission)).value)
         self._journal().append("setup.permission_requested", {"permission": permission, "status": status})
@@ -791,8 +866,8 @@ None of them prompts unless its row says so.
 
 | Method | Parameters | Result / behavior |
 |---|---|---|
-| `setup.permissions` | `{hearing?: bool}` | `{rows, automation, automation_pane, grant_target, app_panes, setup_done}`. Each row: `{id, status, process, required, pane, requestable, restart_to_check, blocked}` for `accessibility`, `screen_recording`, `full_disk_access`, `input_monitoring` (process `daemon`: FERB's agent app, the daemon's own TCC identity), plus `hearing` (process `voice`: FERB Voice's Speech Recognition) only with `hearing: true`, which starts FERB Voice in the background to ask it. `status`: `granted`, `denied`, `not_determined`, `target_not_running` or `unknown`; `blocked`: why a row can't be granted yet (Full Disk Access until containment works, CQ5). `automation`: `[{name, bundle_id, status}]` for the running scriptable apps (each check waits at most 2 s, then `unknown`). `grant_target`: the path macOS lists as FERB for the daemon's grants. `app_panes`: System Settings URLs for FERB.app's own rows (`notifications`, `microphone`, `speech_recognition`). `setup_done`: `[setup] permissions_version` ≥ 27. Never a prompt |
-| `setup.permission_request` | `{permission: "accessibility"\|"screen_recording"\|"input_monitoring"\|"hearing"}` | `{permission, status}`: macOS's own prompt, made by the daemon so the grant attaches to it (it also lists FERB in that pane); `hearing` runs FERB Voice's one Speech Recognition request and returns after the owner answered. Journaled `setup.permission_requested`. Any other permission is refused (Full Disk Access has no request; Automation is `automation.request`) |
+| `setup.permissions` | `{hearing?: bool}` | `{rows, automation, automation_pane, grant_target, app_panes, setup_done}`. Each row: `{id, status, process, required, pane, requestable, restart_to_check, blocked}` for `accessibility`, `screen_recording`, `full_disk_access`, `input_monitoring`, `clipboard` (Paste from Other Apps, from the pasteboard's accessBehavior; process `daemon`: FERB's agent app, the daemon's own TCC identity), plus `hearing` (process `voice`: FERB Voice's Speech Recognition) only with `hearing: true`, which starts FERB Voice in the background to ask it. `status`: `granted`, `denied`, `not_determined`, `target_not_running` or `unknown`; `blocked`: why a row can't be granted yet (Full Disk Access until containment works, CQ5). `automation`: `[{name, bundle_id, status}]` for the running scriptable apps (each check waits at most 2 s, then `unknown`). `grant_target`: the path macOS lists as FERB for the daemon's grants. `app_panes`: System Settings URLs for FERB.app's own rows (`notifications`, `microphone`, `speech_recognition`). `setup_done`: `[setup] permissions_version` ≥ 27. Never a prompt |
+| `setup.permission_request` | `{permission: "accessibility"\|"screen_recording"\|"input_monitoring"\|"clipboard"\|"hearing"}` | `{permission, status}`: macOS's own prompt, made by the daemon so the grant attaches to it (it also lists FERB in that pane); `clipboard` reads the clipboard once so macOS shows its paste alert (journaled `clipboard.access`, nothing read is kept); `hearing` runs FERB Voice's one Speech Recognition request and returns after the owner answered. Journaled `setup.permission_requested`. Any other permission is refused (Full Disk Access has no request; Automation is `automation.request`) |
 | `setup.finish` | `{}` | `{setup_done: true}`; records `[setup] permissions_version = max(27, current)`; journaled `setup.finished` |
 ```
 
@@ -1593,8 +1668,8 @@ final class SetupModelsTests: XCTestCase {
     }
 
     func testEveryRowHasWordsForTheOwner() {
-        for id in ["accessibility", "screen_recording", "full_disk_access", "input_monitoring", "notifications",
-                   "microphone", "hearing"] {
+        for id in ["accessibility", "screen_recording", "full_disk_access", "input_monitoring", "clipboard",
+                   "notifications", "microphone", "hearing"] {
             XCTAssertNotEqual(PermissionCopy.label(id), id)
             XCTAssertFalse(PermissionCopy.reason(id).isEmpty)
         }
@@ -1910,8 +1985,8 @@ public enum PersonaState: Equatable {
 public enum PermissionCopy {
     public static func label(_ id: String) -> String {
         ["accessibility": "Accessibility", "screen_recording": "Screen Recording", "full_disk_access": "Full Disk Access",
-         "input_monitoring": "Input Monitoring", "notifications": "Notifications", "microphone": "Microphone",
-         "hearing": "Hearing app sound"][id] ?? id
+         "input_monitoring": "Input Monitoring", "clipboard": "Paste from Other Apps",
+         "notifications": "Notifications", "microphone": "Microphone", "hearing": "Hearing app sound"][id] ?? id
     }
 
     public static func reason(_ id: String) -> String {
@@ -1919,6 +1994,7 @@ public enum PermissionCopy {
          "screen_recording": "FERB sees the screen to check its work.",
          "full_disk_access": "FERB reads and tidies your files.",
          "input_monitoring": "FERB notices when you're typing, so it stays out of your way.",
+         "clipboard": "FERB keeps what you copy on this Mac for 7 days. After macOS asks, set FERB to Allow.",
          "notifications": "FERB tells you when it needs you or finishes.",
          "microphone": "Dictate requests by voice (Microphone and Speech Recognition).",
          "hearing": "FERB turns an app's sound into text during a task, on this Mac only (FERB Voice)."][id] ?? ""
@@ -2065,8 +2141,9 @@ git commit -m "feat(L34): NotchCore setup facts: replies, persona, API key line,
   - `@MainActor protocol DaemonServicing: AnyObject { func restart() async -> Bool }`
   - Real: `SetupCommand(launcher:)`, `SystemAppPermissions`, `SystemOpener`, `KeychainAPIKeyStore`, `DaemonService`,
     `enum AppBundle { static var isApp: Bool }`.
-  - `@MainActor final class SetupModel: ObservableObject` with the members listed in "Interfaces for other phases",
-    plus `step`, `serviceAction`, `serviceRunning`, `serviceLine`, `serviceError`, `ai`, `aiMessage`, `signingIn`,
+  - `@MainActor final class SetupModel: ObservableObject` with the members listed in "Interfaces for other phases"
+    (the Claude sign-in's `signInWithClaude()`, `sendClaudeCode(_:)`, `cancelClaudeSignIn()` come in Task 10),
+    `askForNotificationsOnce(defaults: UserDefaults) async -> Bool` (owner decision 6), plus `step`, `serviceAction`, `serviceRunning`, `serviceLine`, `serviceError`, `ai`, `aiMessage`, `signingIn`,
     `permissions`, `hearingRow`, `appRows`, `allRows`, `askedRestart`, `restarting`, `offersRestart`,
     `showsFullDiskHint`, `browsers`, `persona`, `personaMessage`, `message`, `primaryTitle`, `primaryDisabled`,
     `onFinish`, `go(_:)`, `enter(_:)`, `primary()`, `continueFromWelcome()`, `runService(completion:)`,
@@ -2544,6 +2621,26 @@ final class SetupModelTests: XCTestCase {
                                                                         fdaBlocked: "not yet")
         let blocked = await model.needsPermissions()
         XCTAssertFalse(blocked)                                   // a blocked row can't be granted yet
+    }
+
+    func testAnExistingInstallIsAskedForNotificationsOnceWhileMacOSHasntAsked() async {
+        // owner decision 6: set up before this window existed, so its Permissions step never offered Notifications
+        let rig = SetupRig()
+        let model = rig.model()
+        let defaults = UserDefaults(suiteName: "SetupModelTests-" + UUID().uuidString)!
+        let asked = await model.askForNotificationsOnce(defaults: defaults)
+        XCTAssertTrue(asked)
+        XCTAssertEqual(rig.app.requests, ["notifications"])
+        rig.app.notificationStatus = .notDetermined               // still undecided (dismissed): never asked again
+        let again = await model.askForNotificationsOnce(defaults: defaults)
+        XCTAssertFalse(again)
+        XCTAssertEqual(rig.app.requests, ["notifications"])
+        let decided = SetupRig()
+        decided.app.notificationStatus = .denied                  // the owner already answered macOS: no question
+        let fresh = UserDefaults(suiteName: "SetupModelTests-" + UUID().uuidString)!
+        let none = await decided.model().askForNotificationsOnce(defaults: fresh)
+        XCTAssertFalse(none)
+        XCTAssertTrue(decided.app.requests.isEmpty)
     }
 }
 ```
@@ -3129,6 +3226,19 @@ final class SetupModel: ObservableObject {
         return true                 // FERB isn't answering: never nag at launch; its menu says it isn't running
     }
 
+    /// Owner decision 6 (2026-10-25): a launch that shows no setup window (an install set up before this window existed)
+    /// asks macOS once for FERB.app's Notifications while macOS hasn't asked; macOS shows its own Allow prompt, which
+    /// takes no focus. Remembered in FERB.app's defaults (`FERBAskedNotifications`), so it is asked once. True when it
+    /// asked.
+    func askForNotificationsOnce(defaults: UserDefaults) async -> Bool {
+        guard !defaults.bool(forKey: "FERBAskedNotifications"), await app.notifications() == .notDetermined else {
+            return false
+        }
+        defaults.set(true, forKey: "FERBAskedNotifications")
+        _ = await app.requestNotifications()
+        return true
+    }
+
     // MARK: Browsers
 
     func refreshBrowsers() async {
@@ -3554,7 +3664,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         Task { @MainActor in
             let done = action == .none ? await self.model.setupDone() : false
             switch AppSetupPlan.atLaunch(action, setupDone: done) {
-            case .nothing: return
+            case .nothing: _ = await self.model.askForNotificationsOnce(defaults: .standard)   // owner decision 6
             case .quietUpdate: self.quietUpdate()
             case .window(let step):
                 if case .confirmReplace(let current) = action, !self.confirmReplacing(current) { return }
@@ -3588,6 +3698,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             guard ok else { self.show(.welcome, action: .update); return }
             Task { @MainActor in
                 if await self.model.needsPermissions() { self.show(.permissions, action: .none) }
+                else { _ = await self.model.askForNotificationsOnce(defaults: .standard) }     // owner decision 6
             }
         }
     }
@@ -3694,10 +3805,12 @@ git commit -m "feat(L34): the native setup window replaces the setup console; Ch
    ChatGPT, which opens your browser and keeps the login in FERB's own Codex home `~/.ferb/codex-home`; Use Claude,
    your Claude subscription signed in to Claude Code on this Mac; or an API key, which goes straight into your
    Keychain), **Permissions** (each row's **Grant** opens the right System Settings pane and ticks itself when it's
-   on; Full Disk Access shows FERB in Finder to drag into the list), **Browsers** (**Add to Chrome** opens FERB's Web
-   Store page in that profile; FERB pairs a profile by itself when you're in it), **Getting to know you** (save, edit
-   or skip what FERB found about the apps you use) and **Done**, which opens the notch.
-4. Closing the window doesn't stop a service install; **Set Up FERB…** in FERB's menu bar shows the window again.
+   on; Full Disk Access shows FERB in Finder to drag into the list; optional rows: Input Monitoring, Paste from Other
+   Apps for what you copy, Notifications, Microphone, Hearing app sound), **Browsers** (**Add to Chrome** opens FERB's
+   Web Store page in that profile; FERB pairs a profile by itself when you're in it), **Getting to know you** (save,
+   edit or skip what FERB found about the apps you use) and **Done**, which opens the notch.
+4. Closing the window doesn't stop a service install; **Set Up FERB…** in FERB's menu bar shows the window again. An
+   installation set up before this window existed is asked once, at launch, whether FERB may send notifications.
 ```
 
 Replace the sentence beginning "After you replace FERB.app with a newer build, the next launch updates the background
@@ -3779,7 +3892,11 @@ supervised actions and record what the owner saw.
   it; `ps -ax | grep security` during the save never shows the key; no file named like a history file appears in `~`.
 - Permissions: each **Grant** opens the named pane; Accessibility, Screen Recording and Input Monitoring already list
   FERB; Full Disk Access shows FERB in Finder to drag in; after Screen Recording, **Restart FERB to check** ticks it.
-  Notifications and Microphone show macOS's prompts for FERB.app itself. Record anything that took focus unasked.
+  Notifications and Microphone show macOS's prompts for FERB.app itself. Paste from Other Apps: **Grant** shows macOS's
+  paste alert once and opens Paste from Other Apps, where setting FERB to Allow ticks the row. Record anything that took
+  focus unasked.
+- On the owner's own Mac (already set up with `ferb setup`): the first launch of this build shows no setup window and
+  macOS asks once whether FERB may send notifications; the next launch doesn't ask again.
 - Browsers: **Add to Google Chrome** opens FERB's Web Store page in that profile; after adding and turning it on, the row
   reads On, then Paired once you're in that profile's window.
 - Getting to know you: Save, Edit and Skip each close the question (the notch shows it answered too). Done opens the
@@ -3797,4 +3914,946 @@ owner's live results (pending) separately.
 ```bash
 git add README.md ARCHITECTURE.md CHANGELOG.md docs/0.27_DECISIONS.toml docs/OWNER_ACCEPTANCE.md
 git commit -m "docs(L34): Phase C native setup in README, ARCHITECTURE, CHANGELOG, the decision record and pending live checks"
+```
+
+---
+
+### Task 10: Sign in with Claude, like Sign in with ChatGPT (owner decision 4)
+
+Owner, 2026-10-25: "Build a Claude sign-in like Codex's." Today FERB signs in to Codex with `codex_login`
+(`ferb/cli/setup.py`): the pinned Codex runs its own `codex login` with `CODEX_HOME=~/.ferb/codex-home`, opens the
+browser itself and writes `auth.json` there; FERB never handles the token, and FERB's runs use that home only. This task
+does the same for Claude.
+
+**What the pinned CLI supports** (checked 2026-10-25 on the Claude Code that claude-agent-sdk 0.2.160 bundles,
+`claude_agent_sdk/_bundled/claude`, version 2.1.283, run with a throwaway `HOME` and `CLAUDE_CONFIG_DIR`):
+- `claude auth login [--claudeai|--console] [--email E] [--sso]` is not a terminal screen. It prints `Opening browser to
+  sign in… If the browser didn't open, visit: <URL>`, then `Paste code here if prompted > `. It finishes on its own
+  localhost callback, or on a code pasted on stdin when the page shows one. It writes the credential into the login
+  Keychain itself, through `security -i` on stdin (`add-generic-password -U -a $USER -s "Claude Code-credentials-<first
+  8 hex of sha256(CLAUDE_CONFIG_DIR)>" -X <hex>`), and runs read it with `security find-generic-password`.
+- `claude auth status --json` prints `{"loggedIn": bool, "authMethod": "none"|…, "apiProvider": "firstParty", …}`.
+- `claude setup-token` renders an interactive terminal screen (Ink), so FERB can't run it without a terminal, and it
+  isn't used.
+
+So FERB runs `auth login --claudeai` as its own child process, with `CLAUDE_CONFIG_DIR=~/.ferb/claude-home`. The owner
+does the clicks in the browser, and FERB never types into a terminal (rule 10, D31). Claude runs then get the same
+`CLAUDE_CONFIG_DIR` once that sign-in finished; until then they use Claude Code's default login, as today. When signing in
+fails, or a future pin drops `auth login`, `why` gives the exact command for the owner to run in Terminal themselves
+(`"<FERB.app>/Contents/Resources/bin/ferb" setup --claude-login`, or `ferb setup --claude-login` from a checkout).
+
+**Files:**
+- Create: `ferb/runtimes/claude_login.py`
+- Modify: `ferb/runtimes/claude_sdk.py` (`_options`: `CLAUDE_CONFIG_DIR`)
+- Modify: `ferb/cli/runtimes.py` (`status`: `signed_in`)
+- Modify: `ferb/cli/setup.py` (`claude_login`), `ferb/cli/__init__.py` (`--claude-login`)
+- Modify: `ferb/daemon/main.py` (`claude_sign_in` in `__init__`; `_runtimes_sign_in`; `_runtimes_status`;
+  `_claude_signed_in`; `shutdown`)
+- Modify: `ferb/daemon/auth.py`
+- Create: `tests/support/fake_claude.py`, `tests/test_claude_login.py`
+- Modify: `ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift` (`SignInStatus`, `RuntimeRow`, `AISnapshot`)
+- Modify: `ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift`, `ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift`
+- Modify: `ui/mac/FERBNotch/Tests/NotchCoreTests/SetupModelsTests.swift`,
+  `ui/mac/FERBNotch/Tests/NotchCoreTests/SetupModelTests.swift`
+- Modify: `docs/RPC.md`, `README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `docs/0.27_DECISIONS.toml`,
+  `docs/OWNER_ACCEPTANCE.md`
+
+**Interfaces:**
+- Consumes: Task 3's `runtimes.status`, `runtimes.use`, `runtimes.check`, `ferb.cli.runtimes.status`; Task 7's
+  `SetupModel.use(_:check:)` and `refreshAI()`; Task 8's `AIStepView`.
+- Produces:
+  - `ferb.runtimes.claude_login`: `SIGNED_IN`, `cli_binary() -> Path` (raises `Unsupported`), `home_dir(ferb_home)`,
+    `claude_home(ferb_home) -> Path | None`, `prepare(ferb_home) -> Path`, `env(ferb_home, base=None) -> dict[str, str]`,
+    `login_argv(cli)`, `status_argv(cli)`, `signed_in(status_output: str) -> bool`, `mark(ferb_home)`,
+    `ferb_command() -> str`, `by_hand() -> str`, `sign_in_url(line) -> str | None`, `class ClaudeSignIn(ferb_home, cli,
+    add_secret, done)` with `status()`, `async start()`, `async send_code(code)`, `async cancel()`, `async close()`.
+  - `ferb.cli.setup.claude_login(env, run=subprocess.run) -> int`; `ferb setup --claude-login`.
+  - RPC `runtimes.sign_in {runtime: "claude", code?, cancel?}` → `{state, url, why}`; `runtimes.status` rows gain
+    `signed_in`, and the `claude` row gains `sign_in: {state, url, why}`; journal kinds `runtimes.sign_in {runtime,
+    state}`, `runtimes.sign_in_finished {runtime, signed_in}`.
+  - Swift: `SignInStatus` (`state`, `url`, `why`, `waiting`), `RuntimeRow.signedIn`/`.signIn`,
+    `AISnapshot.signedIn(_:)`/`.signIn(_:)`; `SetupModel.claudeSigningIn`, `.claudeSignIn`, `signInWithClaude()`,
+    `sendClaudeCode(_:)`, `cancelClaudeSignIn()`, `openClaudeSignInPage()`; view `ClaudeSignInRow(model:)`.
+
+- [ ] **Step 1: Write the fake Claude Code** (`tests/support/fake_claude.py`)
+
+```python
+"""A stand-in for the pinned Claude Code's `auth login` and `auth status` (L34 C). It prints the sign-in page's address
+the way Claude Code 2.1.283 does, takes a pasted code on stdin, "saves" a credential in its config dir as Claude Code
+saves one in the Keychain, and even echoes it, so tests can check that FERB keeps none of it."""
+import sys
+from pathlib import Path
+
+CREDENTIAL = "sk-ant-oat01-FAKE-CREDENTIAL-0123456789"
+GOOD_CODE = "fake-auth-code-0123456789"
+PAGE = "https://claude.ai/oauth/authorize?code=true&client_id=fake&state=fake-state"
+
+SCRIPT = '''#!{python}
+import json, os, pathlib, sys
+home = pathlib.Path(os.environ["CLAUDE_CONFIG_DIR"])
+saved = home / "fake-keychain-item"
+args = sys.argv[1:]
+if args[:2] == ["auth", "status"]:
+    print(json.dumps({{"loggedIn": saved.exists(), "authMethod": "claude.ai" if saved.exists() else "none",
+                      "apiProvider": "firstParty"}}))
+    sys.exit(0)
+if args == ["auth", "login", "--claudeai"]:
+    if os.environ.get("ANTHROPIC_API_KEY") != "" or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") != "":
+        print("a key or token from the environment would take over the login", flush=True)
+        sys.exit(3)
+    print("Opening browser to sign in... If the browser didn't open, visit: {page}", flush=True)
+    sys.stdout.write("Paste code here if prompted > ")
+    sys.stdout.flush()
+    code = sys.stdin.readline().strip()
+    if code != "{code}":
+        print("Invalid code. Please make sure the full code was copied", flush=True)
+        sys.exit(1)
+    saved.write_text("{credential}")
+    print("Login successful. Credential {credential}", flush=True)
+    sys.exit(0)
+print("unknown command", args, flush=True)
+sys.exit(2)
+'''
+
+
+def fake_claude(folder: Path) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "claude"
+    path.write_text(SCRIPT.format(python=sys.executable, page=PAGE, code=GOOD_CODE, credential=CREDENTIAL))
+    path.chmod(0o755)
+    return path
+```
+
+- [ ] **Step 2: Write the failing Python tests** (`tests/test_claude_login.py`)
+
+```python
+"""L34 C (owner 2026-10-25: "Build a Claude sign-in like Codex's"): FERB's own Claude sign-in. The pinned Claude Code
+signs in with FERB's Claude home and keeps the credential itself; FERB records only that it finished. A fake Claude Code
+stands in for the real one: nothing here opens a browser or touches the Keychain."""
+import asyncio
+import io
+import json
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+import pytest
+
+from ferb.cli import runtimes as runtimes_cli
+from ferb.cli import setup as S
+from ferb.cli.client import Client, RpcError
+from ferb.core.errors import FerbError, Unsupported
+from ferb.device.install import Installer
+from ferb.runtimes import claude_login as CL
+from ferb.runtimes.claude_sdk import ClaudeRuntime
+from tests.conftest import RunningDaemon
+from tests.support.fake_claude import CREDENTIAL, GOOD_CODE, PAGE, fake_claude
+
+
+async def until_async(check: Callable[[], bool]) -> None:
+    while not check():
+        await asyncio.sleep(0.01)
+
+
+def until(check: Callable[[], bool], seconds: float = 10) -> None:
+    end = time.monotonic() + seconds
+    while not check():
+        if time.monotonic() > end:
+            raise AssertionError("never happened")
+        time.sleep(0.05)
+
+
+def on_loop(daemon: RunningDaemon, fn: Callable[[], Any]) -> Any:
+    async def go() -> Any:
+        return fn()
+    return daemon.run(go())
+
+
+# ---------- the sign-in itself ----------
+
+def test_a_pasted_code_finishes_the_sign_in_and_only_a_marker_is_left(tmp_path: Path) -> None:
+    cli = fake_claude(tmp_path / "bin")
+    secrets: list[str] = []
+    finished: list[bool] = []
+
+    async def run() -> dict[str, str]:
+        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, secrets.append, finished.append)
+        assert (await sign_in.start())["state"] == "waiting"
+        await until_async(lambda: bool(sign_in.url))
+        assert sign_in.url == PAGE
+        await sign_in.send_code(f"  {GOOD_CODE} ")
+        await until_async(lambda: sign_in.state != "waiting")
+        return sign_in.status()
+    assert asyncio.run(asyncio.wait_for(run(), 10)) == {"state": "signed_in", "url": "", "why": ""}
+    assert finished == [True] and secrets == [GOOD_CODE]           # the code joined the redactor first
+    home = tmp_path / "home" / "claude-home"
+    assert CL.claude_home(tmp_path / "home") == home
+    marker = (home / CL.SIGNED_IN).read_text()
+    assert CREDENTIAL not in marker and GOOD_CODE not in marker
+    assert home.stat().st_mode & 0o777 == 0o700
+
+
+def test_a_wrong_code_fails_with_the_steps_to_sign_in_by_hand(tmp_path: Path) -> None:
+    cli = fake_claude(tmp_path / "bin")
+    finished: list[bool] = []
+
+    async def run() -> dict[str, str]:
+        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, finished.append)
+        await sign_in.start()
+        await until_async(lambda: bool(sign_in.url))
+        await sign_in.send_code("wrong-code")
+        await until_async(lambda: sign_in.state != "waiting")
+        return sign_in.status()
+    status = asyncio.run(asyncio.wait_for(run(), 10))
+    assert status["state"] == "failed" and "setup --claude-login" in status["why"]
+    assert finished == [False] and CL.claude_home(tmp_path / "home") is None
+
+
+def test_cancel_stops_the_waiting_sign_in(tmp_path: Path) -> None:
+    cli = fake_claude(tmp_path / "bin")
+    finished: list[bool] = []
+
+    async def run() -> dict[str, str]:
+        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, finished.append)
+        await sign_in.start()
+        await until_async(lambda: bool(sign_in.url))
+        status = await sign_in.cancel()
+        assert sign_in._proc is None
+        return status
+    assert asyncio.run(asyncio.wait_for(run(), 10)) == {"state": "idle", "url": "", "why": ""}
+    assert finished == [] and CL.claude_home(tmp_path / "home") is None
+
+
+def test_a_code_needs_a_waiting_sign_in_and_is_one_word(tmp_path: Path) -> None:
+    cli = fake_claude(tmp_path / "bin")
+
+    async def run() -> None:
+        sign_in = CL.ClaudeSignIn(tmp_path / "home", lambda: cli, lambda code: None, lambda ok: None)
+        with pytest.raises(FerbError, match="waiting"):
+            await sign_in.send_code(GOOD_CODE)
+        await sign_in.start()
+        with pytest.raises(FerbError, match="Paste the code"):
+            await sign_in.send_code("two words")
+        await sign_in.cancel()
+    asyncio.run(asyncio.wait_for(run(), 10))
+
+
+def test_a_missing_bundled_claude_code_says_how_to_sign_in_by_hand(tmp_path: Path) -> None:
+    def missing() -> Path:
+        raise Unsupported("the Claude Agent SDK's bundled Claude Code is missing")
+    status = asyncio.run(CL.ClaudeSignIn(tmp_path, missing, lambda code: None, lambda ok: None).start())
+    assert status["state"] == "failed" and "setup --claude-login" in status["why"]
+
+
+def test_only_a_saved_subscription_login_counts_and_no_key_takes_over(tmp_path: Path) -> None:
+    assert CL.signed_in('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty"}')
+    assert not CL.signed_in('{"loggedIn": false, "authMethod": "none"}')
+    assert not CL.signed_in('{"loggedIn": true, "authMethod": "api_key"}')
+    assert not CL.signed_in('{"loggedIn": true, "apiProvider": "bedrock"}')
+    assert not CL.signed_in("Not logged in. Run claude auth login to authenticate.")
+    env = CL.env(tmp_path, {"ANTHROPIC_API_KEY": "sk-x", "CLAUDE_CODE_OAUTH_TOKEN": "t", "PATH": "/usr/bin"})
+    assert env["ANTHROPIC_API_KEY"] == env["CLAUDE_CODE_OAUTH_TOKEN"] == "" and env["PATH"] == "/usr/bin"
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "claude-home")
+    assert CL.login_argv(Path("/c")) == ["/c", "auth", "login", "--claudeai"]
+    assert CL.status_argv(Path("/c")) == ["/c", "auth", "status", "--json"]
+    assert CL.sign_in_url(f"If the browser didn't open, visit: {PAGE}") == PAGE
+
+
+# ---------- runs, status and the terminal ----------
+
+def test_runs_use_ferbs_own_claude_home_once_signed_in(tmp_path: Path) -> None:
+    proxy = type("P", (), {"base_url": lambda self, run_id: "http://unused"})()
+    rt = ClaudeRuntime("supervisor", proxy, str(tmp_path))                          # type: ignore[arg-type]
+    assert "CLAUDE_CONFIG_DIR" not in rt._options("run", "").env      # no FERB sign-in yet: Claude Code's default
+    CL.mark(tmp_path)
+    assert rt._options("run", "").env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "claude-home")
+
+
+def test_status_says_which_runtimes_ferb_is_signed_in_to(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: provider == "openai")
+    monkeypatch.setattr("ferb.runtimes.codex_exec.codex_binary", lambda *a, **k: Path("/x/codex"))
+    rows = {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}
+    assert (rows["claude"]["signed_in"], rows["codex"]["signed_in"], rows["openai"]["signed_in"]) == (False, False, True)
+    CL.mark(tmp_path)
+    assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["claude"]["signed_in"] is True
+
+
+def test_ferb_setup_claude_login_signs_in_from_a_terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(CL, "cli_binary", lambda: Path("/fake/claude"))
+    ran: list[tuple[list[str], str]] = []
+    answer = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}
+
+    def run(argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        ran.append((argv, kw["env"]["CLAUDE_CONFIG_DIR"]))
+        out = json.dumps(answer) if argv[1:3] == ["auth", "status"] else ""
+        return subprocess.CompletedProcess(argv, 0, out, "")
+    out = io.StringIO()
+    env = S.Env(Installer(tmp_path / "home"), lambda: None, input, out)   # type: ignore[arg-type]
+    assert S.claude_login(env, run=run) == 0, out.getvalue()
+    home = str(tmp_path / "home" / "claude-home")
+    assert ran == [(["/fake/claude", "auth", "login", "--claudeai"], home),
+                   (["/fake/claude", "auth", "status", "--json"], home)]
+    assert CL.claude_home(tmp_path / "home") is not None and "Done" in out.getvalue()
+    answer["loggedIn"] = False
+    (tmp_path / "home" / "claude-home" / CL.SIGNED_IN).unlink()
+    assert S.claude_login(env, run=run) == 1 and CL.claude_home(tmp_path / "home") is None
+
+
+# ---------- through the daemon ----------
+
+def test_claude_signs_in_through_the_daemon_and_nothing_secret_is_recorded(daemon: RunningDaemon, tmp_path: Path,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    cli = fake_claude(tmp_path / "bin")
+    monkeypatch.setattr(CL, "cli_binary", lambda: cli)
+    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: False)
+    d = daemon.daemon
+    client = Client(daemon.sock)
+
+    def claude_row() -> dict[str, Any]:
+        return next(r for r in client.call("runtimes.status")["runtimes"] if r["name"] == "claude")
+    try:
+        assert client.call("runtimes.sign_in", {"runtime": "claude"})["state"] == "waiting"
+        until(lambda: claude_row()["sign_in"]["url"] == PAGE)
+        client.call("runtimes.sign_in", {"runtime": "claude", "code": GOOD_CODE})
+        until(lambda: claude_row()["signed_in"] is True)
+        assert claude_row()["sign_in"]["state"] == "signed_in"
+        with pytest.raises(RpcError, match="Only Claude"):
+            client.call("runtimes.sign_in", {"runtime": "codex"})
+        with pytest.raises(RpcError, match="waiting"):
+            client.call("runtimes.sign_in", {"runtime": "claude", "code": GOOD_CODE})   # nothing waits any more
+    finally:
+        client.close()
+    recorded = on_loop(daemon, lambda: json.dumps(
+        [dict(r) for r in d.db.conn.execute("SELECT * FROM journal")] +       # type: ignore[union-attr]
+        [dict(r) for r in d.db.conn.execute("SELECT * FROM spans")], default=str))   # type: ignore[union-attr]
+    assert CREDENTIAL not in recorded and GOOD_CODE not in recorded and PAGE not in recorded
+    kinds = on_loop(daemon, lambda: [e.kind for e in d._journal().entries()])
+    assert "runtimes.sign_in" in kinds and "runtimes.sign_in_finished" in kinds
+    assert GOOD_CODE not in d._redact_text(f"the code was {GOOD_CODE}")       # the code joined the redactor
+```
+
+- [ ] **Step 3: Run them to verify they fail**
+
+Run: `nice -n 10 uv run pytest -q tests/test_claude_login.py`
+Expected: FAIL — `ImportError: cannot import name 'claude_login' from 'ferb.runtimes'`.
+
+- [ ] **Step 4: Implement `ferb/runtimes/claude_login.py`**
+
+```python
+"""Owns FERB's own Claude sign-in (L34 C; owner 2026-10-25: "Build a Claude sign-in like Codex's"). Must not read,
+keep, log or forward the credential, and never types into a terminal (rule 10, D31).
+
+Like FERB's Codex sign-in (`codex login` with CODEX_HOME=~/.ferb/codex-home), the pinned Claude Code that the Claude
+Agent SDK bundles runs its own non-interactive `auth login --claudeai` with CLAUDE_CONFIG_DIR=~/.ferb/claude-home, so
+FERB's runs never load the owner's personal Claude Code settings. Claude Code opens the sign-in page in the browser,
+gets the result on its localhost callback (or a code the owner pastes from the page), and writes the credential into
+the login Keychain itself (`security -i` on stdin; item `Claude Code-credentials-<first 8 hex of sha256(config dir)>`).
+FERB never sees it: runs started with the same CLAUDE_CONFIG_DIR read that saved login. FERB records only that a
+sign-in finished (SIGNED_IN, a marker that holds no secret), after `auth status --json` said so. Checked on Claude Code
+2.1.283 (claude-agent-sdk 0.2.160); its `setup-token` is an interactive terminal screen and isn't used."""
+
+import asyncio
+import json
+import os
+import re
+from contextlib import suppress
+from pathlib import Path
+from typing import Callable
+
+from ferb.core.errors import FerbError, Unsupported
+
+SIGNED_IN = ".ferb-signed-in"
+_URL = re.compile(r"https://\S+")
+
+
+def cli_binary() -> Path:
+    """The pinned Claude Code the SDK bundles (claude_agent_sdk/_bundled/claude)."""
+    import claude_agent_sdk
+    path = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    if not path.is_file():
+        raise Unsupported("the Claude Agent SDK's bundled Claude Code is missing")
+    return path
+
+
+def home_dir(ferb_home: Path) -> Path:
+    return ferb_home / "claude-home"
+
+
+def claude_home(ferb_home: Path) -> Path | None:
+    """FERB's own Claude home once a sign-in there finished; None: runs use Claude Code's default login, as before."""
+    home = home_dir(ferb_home)
+    return home if (home / SIGNED_IN).is_file() else None
+
+
+def prepare(ferb_home: Path) -> Path:
+    home = home_dir(ferb_home)
+    home.mkdir(parents=True, exist_ok=True)
+    os.chmod(home, 0o700)
+    return home
+
+
+def env(ferb_home: Path, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Claude Code's environment for signing in: FERB's Claude home; no key or token in this environment can take over
+    the login; telemetry and error reports off, as for runs."""
+    out = dict(os.environ if base is None else base)
+    out.update({"CLAUDE_CONFIG_DIR": str(home_dir(ferb_home)), "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "",
+                "CLAUDE_CODE_OAUTH_TOKEN": "", "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1"})
+    return out
+
+
+def login_argv(cli: Path) -> list[str]:
+    return [str(cli), "auth", "login", "--claudeai"]
+
+
+def status_argv(cli: Path) -> list[str]:
+    return [str(cli), "auth", "status", "--json"]
+
+
+def signed_in(status_output: str) -> bool:
+    """`auth status --json` says a Claude subscription login is saved there (an API key doesn't count: FERB's Claude
+    runs refuse one)."""
+    try:
+        status = json.loads(status_output)
+    except ValueError:
+        return False
+    return (isinstance(status, dict) and status.get("loggedIn") is True
+            and status.get("apiProvider", "firstParty") == "firstParty"
+            and "api" not in str(status.get("authMethod", "")).lower())
+
+
+def mark(ferb_home: Path) -> None:
+    (prepare(ferb_home) / SIGNED_IN).write_text(
+        "FERB's own Claude sign-in finished; Claude Code keeps the credential in the login Keychain.\n")
+
+
+def ferb_command() -> str:
+    """The `ferb` command the owner can run: FERB.app's own launcher, or `ferb` from a checkout."""
+    from ferb.device.install import BUNDLE_CLI
+    from ferb.paths import app_bundle
+    bundle = app_bundle()
+    return f'"{bundle / BUNDLE_CLI}"' if bundle is not None else "ferb"
+
+
+def by_hand() -> str:
+    """The exact steps to sign in without FERB.app. The owner runs them; FERB never types into a terminal (rule 10)."""
+    return f"To sign in by hand, run this in Terminal yourself: {ferb_command()} setup --claude-login"
+
+
+def sign_in_url(line: str) -> str | None:
+    found = _URL.search(line)
+    return found.group(0).rstrip(".,)") if found else None
+
+
+class ClaudeSignIn:
+    """One sign-in at a time, run by the daemon for FERB.app (`runtimes.sign_in`): its state, the page to open when the
+    browser didn't, and the owner's pasted code. Claude Code's output is read only for that page's address; nothing it
+    prints is kept, logged or journaled. `done(signed_in)` is told when a sign-in ends (not when it is cancelled)."""
+
+    def __init__(self, ferb_home: Path, cli: Callable[[], Path], add_secret: Callable[[str], None],
+                 done: Callable[[bool], None]) -> None:
+        self.ferb_home, self.cli, self.add_secret, self.done = ferb_home, cli, add_secret, done
+        self.state, self.url, self.why = "idle", "", ""
+        self._proc: asyncio.subprocess.Process | None = None
+        self._follow_task: asyncio.Task[None] | None = None
+        self._cancelled = False
+
+    def status(self) -> dict[str, str]:
+        return {"state": self.state, "url": self.url, "why": self.why}
+
+    async def start(self) -> dict[str, str]:
+        if self.state == "waiting":
+            return self.status()
+        try:
+            cli = self.cli()
+        except Unsupported as e:
+            self.state, self.url, self.why = "failed", "", f"FERB can't sign in to Claude here ({e}). {by_hand()}"
+            return self.status()
+        prepare(self.ferb_home)
+        self.state, self.url, self.why, self._cancelled = "waiting", "", "", False
+        self._proc = await asyncio.create_subprocess_exec(
+            *login_argv(cli), env=env(self.ferb_home), stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, start_new_session=True)
+        self._follow_task = asyncio.create_task(self._follow(cli, self._proc))
+        return self.status()
+
+    async def _follow(self, cli: Path, proc: asyncio.subprocess.Process) -> None:
+        assert proc.stdout is not None
+        async for raw in proc.stdout:                  # read for the page's address only; nothing else is kept
+            url = sign_in_url(raw.decode("utf-8", "replace"))
+            if url and not self.url:
+                self.url = url
+        code = await proc.wait()
+        self._proc = None
+        if self._cancelled:
+            return
+        ok = code == 0 and await self._confirmed(cli)
+        if ok:
+            mark(self.ferb_home)
+        self.state, self.url = ("signed_in" if ok else "failed"), ""
+        self.why = "" if ok else f"Claude didn't confirm the sign-in. Try again. {by_hand()}"
+        self.done(ok)
+
+    async def _confirmed(self, cli: Path) -> bool:
+        proc = await asyncio.create_subprocess_exec(
+            *status_argv(cli), env=env(self.ferb_home), stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await proc.communicate()
+        return signed_in(out.decode("utf-8", "replace"))
+
+    async def send_code(self, code: str) -> dict[str, str]:
+        """The code the sign-in page shows when its own redirect couldn't finish: to Claude Code's stdin only."""
+        code = code.strip()
+        proc = self._proc
+        if self.state != "waiting" or proc is None or proc.stdin is None:
+            raise FerbError("No Claude sign-in is waiting for a code; start it again")
+        if not code or any(c.isspace() for c in code):
+            raise FerbError("Paste the code the sign-in page shows")
+        self.add_secret(code)                          # rule 14: redacted wherever anything echoes it
+        proc.stdin.write(code.encode() + b"\n")
+        await proc.stdin.drain()
+        return self.status()
+
+    async def cancel(self) -> dict[str, str]:
+        self._cancelled = True
+        proc = self._proc
+        if proc is not None and proc.returncode is None:
+            proc.terminate()
+        if self._follow_task is not None:
+            with suppress(Exception):
+                await self._follow_task
+        self.state, self.url, self.why = "idle", "", ""
+        return self.status()
+
+    async def close(self) -> None:
+        """Daemon shutdown: a sign-in still waiting stops."""
+        if self.state == "waiting":
+            await self.cancel()
+```
+
+- [ ] **Step 5: Runs, status and the terminal command**
+
+`ferb/runtimes/claude_sdk.py`: add `from pathlib import Path` to the imports. In `_options`, after the `env = {…}` dict:
+
+```python
+        from ferb.runtimes.claude_login import claude_home
+        own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
+        if own is not None:
+            env["CLAUDE_CONFIG_DIR"] = str(own)
+```
+
+`ferb/cli/runtimes.py`: add above `status`:
+
+```python
+def _signed_in(name: str, home: Path, usable: bool) -> bool:
+    """FERB's own Codex or Claude sign-in finished, or (a direct API) the provider's key is in the Keychain."""
+    if name == "codex":
+        from ferb.runtimes.codex_exec import codex_home
+        return codex_home(home) is not None
+    if name == "claude":
+        from ferb.runtimes.claude_login import claude_home
+        return claude_home(home) is not None
+    return usable
+```
+
+and in `status`, the row becomes:
+
+```python
+        rows.append({"name": name, "usable": ok, "fix": fix, "signed_in": _signed_in(name, home, ok),
+                     "model": str(cfg.get("models", name) or info.default_model or "")})
+```
+
+`ferb/cli/setup.py`, after `codex_login`:
+
+```python
+def claude_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """FERB's own Claude sign-in from a terminal (owner 2026-10-25: "Build a Claude sign-in like Codex's"): the pinned
+    Claude Code the SDK bundles runs `auth login` with FERB's Claude home (~/.ferb/claude-home). Its browser page and any
+    pasted code go to Claude Code directly (this terminal), which keeps the credential in the login Keychain; FERB records
+    only that it finished."""
+    from ferb.runtimes import claude_login as cl
+    try:
+        cli = cl.cli_binary()
+    except Exception as e:
+        env.say(f"FERB's pinned Claude Code isn't installed: {e}")
+        return 1
+    cl.prepare(env.inst.home)
+    env.say("Signing in FERB's own Claude (a browser window opens)…")
+    run(cl.login_argv(cli), env=cl.env(env.inst.home))
+    status = run(cl.status_argv(cli), env=cl.env(env.inst.home), capture_output=True, text=True)
+    if not cl.signed_in(status.stdout or ""):
+        env.say("Not signed in; nothing changed.")
+        return 1
+    cl.mark(env.inst.home)
+    env.say("Done: FERB now uses its own Claude sign-in.")
+    return 0
+```
+
+`ferb/cli/__init__.py`, after the `--codex-login` argument:
+
+```python
+    sp.add_argument("--claude-login", action="store_true",
+                    help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
+```
+
+and in the setup dispatch, after the `codex_login` line:
+
+```python
+            if args.cmd == "setup" and args.claude_login:
+                return setup_cmd.claude_login(env)
+```
+
+- [ ] **Step 6: The daemon side**
+
+`ferb/daemon/auth.py`: add `"runtimes.sign_in",` to the `Role.CLI` set.
+
+`ferb/daemon/main.py`, at the end of `__init__` (after Task 2's seams):
+
+```python
+        # L34 C (owner 2026-10-25): FERB's own Claude sign-in for FERB.app; `cli_binary` is looked up when it starts
+        from ferb.runtimes import claude_login as _claude_login
+        self.claude_sign_in = _claude_login.ClaudeSignIn(
+            self.home, lambda: _claude_login.cli_binary(), self._add_secret_value, self._claude_signed_in)
+```
+
+Registration (after Task 3's lines): `self.server.unary['runtimes.sign_in'] = self._runtimes_sign_in`.
+
+In `shutdown()`, after `await self.persona.close()`'s `if` block: `await self.claude_sign_in.close()`.
+
+Replace Task 3's `_runtimes_status` body with:
+
+```python
+        from ferb.cli import runtimes as runtimes_cli
+        out = await asyncio.to_thread(runtimes_cli.status, self.home)
+        for row in out["runtimes"]:
+            if row["name"] == "claude":
+                row["sign_in"] = self.claude_sign_in.status()      # L34 C: a sign-in under way, or how it ended
+        return out
+```
+
+Add next to it:
+
+```python
+    async def _runtimes_sign_in(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C (owner 2026-10-25: "Build a Claude sign-in like Codex's"): FERB's own Claude sign-in for FERB.app.
+        `{runtime: "claude"}` starts it (or reports the one waiting); `code` passes the code the sign-in page shows to
+        the waiting sign-in; `cancel: true` stops it. Journaled without the code or anything Claude Code printed."""
+        if params.get("runtime") != "claude":
+            raise FerbError("Only Claude signs in here; ChatGPT signs in with Sign in with ChatGPT "
+                            "(`ferb setup --codex-login`)")
+        if params.get("cancel") is True:
+            return await self.claude_sign_in.cancel()
+        if "code" in params:
+            return await self.claude_sign_in.send_code(str(params["code"]))
+        status = await self.claude_sign_in.start()
+        self._journal().append("runtimes.sign_in", {"runtime": "claude", "state": status["state"]})
+        return status
+
+    def _claude_signed_in(self, ok: bool) -> None:
+        """FERB's own Claude sign-in ended: journaled, never with the credential or the code."""
+        self._available_cache.pop("claude", None)
+        self._journal().append("runtimes.sign_in_finished", {"runtime": "claude", "signed_in": ok})
+```
+
+- [ ] **Step 7: Run the Python tests**
+
+Run: `nice -n 10 uv run pytest -q tests/test_claude_login.py tests/test_runtime_selection.py tests/test_claude_prompt_cache.py tests/test_checker_effort.py tests/test_claude_steering.py tests/test_auth.py tests/test_setup_flow.py`
+Expected: PASS.
+
+- [ ] **Step 8: Write the failing Swift tests**
+
+Append to `SetupModelsTests` (NotchCore):
+
+```swift
+    func testAIReplyCarriesEachSignIn() {
+        let snapshot = AISnapshot(reply: [
+            "roles": ["orchestrator": "claude", "worker": "claude", "checker": "claude"],
+            "runtimes": [["name": "claude", "usable": true, "fix": "", "model": "", "signed_in": false,
+                          "sign_in": ["state": "waiting", "url": "https://claude.ai/oauth/authorize?x=1", "why": ""]],
+                         ["name": "codex", "usable": true, "fix": "", "model": "", "signed_in": true]]])!
+        XCTAssertEqual(snapshot.signIn("claude")?.state, "waiting")
+        XCTAssertEqual(snapshot.signIn("claude")?.url?.host, "claude.ai")
+        XCTAssertTrue(snapshot.signIn("claude")!.waiting)
+        XCTAssertNil(snapshot.signIn("codex"))
+        XCTAssertTrue(snapshot.signedIn("codex"))
+        XCTAssertFalse(snapshot.signedIn("claude"))
+        XCTAssertNil(SignInStatus(["state": "idle", "url": "", "why": ""])?.url)
+        XCTAssertNil(SignInStatus(nil))
+    }
+```
+
+Append inside `SetupModelTests` (FERBNotch), before its closing brace:
+
+```swift
+    private func aiReply(claude signIn: [String: Any], signedIn: Bool) -> [String: Any] {
+        ["roles": ["orchestrator": "codex", "worker": "codex", "checker": "codex"],
+         "runtimes": [["name": "codex", "usable": true, "fix": "", "model": "gpt-5.6-sol", "signed_in": true],
+                      ["name": "claude", "usable": true, "fix": "", "model": "", "signed_in": signedIn,
+                       "sign_in": signIn]]]
+    }
+
+    func testSignInWithClaudeRunsTheDaemonsSignInThenChoosesClaude() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "waiting",
+                                                              "url": "https://claude.ai/oauth/authorize?x=1", "why": ""],
+                                                     signedIn: false)
+        rig.rpc.replies["runtimes.check"] = ["ok": true, "detail": "answered"]
+        let model = rig.model()
+        await model.signInWithClaude()
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").first?["runtime"] as? String, "claude")
+        XCTAssertTrue(model.claudeSigningIn)
+        model.openClaudeSignInPage()
+        XCTAssertEqual(rig.opener.opened.last?.host, "claude.ai")
+        await model.sendClaudeCode("  fake-auth-code-0123456789 \n")
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").last?["code"] as? String, "fake-auth-code-0123456789")
+        let state = Mirror(reflecting: model).children.map { String(describing: $0.value) }.joined()
+        XCTAssertFalse(state.contains("fake-auth-code-0123456789"))          // the code isn't kept in the window
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "signed_in", "url": "", "why": ""], signedIn: true)
+        await model.refreshAI()
+        XCTAssertFalse(model.claudeSigningIn)
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.use").last?["runtime"] as? String, "claude")
+        XCTAssertEqual(model.aiMessage, "Claude answered. FERB uses it now.")
+    }
+
+    func testAFailedClaudeSignInShowsTheStepsToDoItByHand() async {
+        let rig = SetupRig()
+        let why = "Claude didn't confirm the sign-in. Try again. To sign in by hand, run this in Terminal yourself: " +
+            "\"/Applications/FERB.app/Contents/Resources/bin/ferb\" setup --claude-login"
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        let model = rig.model()
+        await model.signInWithClaude()
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "failed", "url": "", "why": why], signedIn: false)
+        await model.refreshAI()
+        XCTAssertFalse(model.claudeSigningIn)
+        XCTAssertEqual(model.aiMessage, why)
+        XCTAssertTrue(rig.rpc.params(of: "runtimes.use").isEmpty)
+    }
+
+    func testCancelStopsTheClaudeSignIn() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        let model = rig.model()
+        await model.signInWithClaude()
+        await model.cancelClaudeSignIn()
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").last?["cancel"] as? Bool, true)
+        XCTAssertFalse(model.claudeSigningIn)
+    }
+```
+
+- [ ] **Step 9: Run them to verify they fail**
+
+Run: `cd ui/mac/FERBNotch && swift test --filter "SetupModelsTests|SetupModelTests"`
+Expected: FAIL to compile — `cannot find 'SignInStatus' in scope`, `value of type 'SetupModel' has no member
+'signInWithClaude'`.
+
+- [ ] **Step 10: Implement the Swift side**
+
+`SetupModels.swift`: replace `RuntimeRow` with:
+
+```swift
+/// A sign-in the daemon runs for a runtime (`runtimes.sign_in`): idle, waiting (for the browser or a pasted code),
+/// signed_in, or failed (`why` gives the exact steps to sign in by hand).
+public struct SignInStatus: Equatable {
+    public let state: String
+    public let url: URL?
+    public let why: String
+
+    public init?(_ value: Any?) {
+        guard let row = value as? [String: Any], let state = row["state"] as? String else { return nil }
+        self.state = state
+        url = (row["url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
+        why = row["why"] as? String ?? ""
+    }
+
+    public var waiting: Bool { state == "waiting" }
+}
+
+public struct RuntimeRow: Equatable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let usable: Bool
+    public let fix: String
+    public let model: String
+    public let signedIn: Bool
+    public let signIn: SignInStatus?
+}
+```
+
+In `AISnapshot.init?(reply:)`, the row closure returns:
+
+```swift
+            return RuntimeRow(name: name, usable: row["usable"] as? Bool ?? false, fix: row["fix"] as? String ?? "",
+                              model: row["model"] as? String ?? "", signedIn: row["signed_in"] as? Bool ?? false,
+                              signIn: SignInStatus(row["sign_in"]))
+```
+
+and add to `AISnapshot`:
+
+```swift
+    public func signedIn(_ name: String) -> Bool { runtimes.first { $0.name == name }?.signedIn ?? false }
+    public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
+```
+
+`SetupModel.swift`: add next to `signingIn`:
+
+```swift
+    @Published private(set) var claudeSigningIn = false
+```
+
+replace `refreshAI()` with:
+
+```swift
+    func refreshAI() async {
+        do {
+            ai = AISnapshot(reply: try await rpc.call("runtimes.status", params: [:]))
+            clearNotAnswering()
+        } catch {
+            message = Self.notAnswering
+            return
+        }
+        guard claudeSigningIn, let status = claudeSignIn, !status.waiting else { return }
+        claudeSigningIn = false                        // the daemon's Claude sign-in ended
+        if status.state == "signed_in" { await use("claude", check: true) }
+        else { aiMessage = status.why.isEmpty ? "Not signed in to Claude." : status.why }
+    }
+```
+
+and add after `useClaude()`:
+
+```swift
+    var claudeSignIn: SignInStatus? { ai?.signIn("claude") }
+
+    /// Sign in with Claude (owner 2026-10-25): the daemon runs the pinned Claude Code's own sign-in in the browser; the
+    /// credential stays with Claude Code in the Keychain. Polling (`refreshAI`) sees it end, then FERB uses Claude.
+    func signInWithClaude() async {
+        do {
+            let status = SignInStatus(try await rpc.call("runtimes.sign_in", params: ["runtime": "claude"]))
+            claudeSigningIn = status?.waiting == true
+            aiMessage = claudeSigningIn ? "Finish signing in to Claude in the browser window that opened."
+                : (status?.why ?? "FERB couldn't start the Claude sign-in.")
+        } catch { aiMessage = error.localizedDescription }
+        await refreshAI()
+    }
+
+    /// The code the sign-in page shows when its own redirect couldn't finish; it goes to the daemon's waiting sign-in
+    /// and is never kept here.
+    func sendClaudeCode(_ code: String) async {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do { _ = try await rpc.call("runtimes.sign_in", params: ["runtime": "claude", "code": trimmed]) }
+        catch { aiMessage = error.localizedDescription }
+    }
+
+    func cancelClaudeSignIn() async {
+        _ = try? await rpc.call("runtimes.sign_in", params: ["runtime": "claude", "cancel": true])
+        claudeSigningIn = false
+        aiMessage = nil
+        await refreshAI()
+    }
+
+    /// The owner's click when the browser didn't open by itself.
+    func openClaudeSignInPage() {
+        if let url = claudeSignIn?.url { system.open(url) }
+    }
+```
+
+`SetupView.swift`: in `AIStepView`, replace the `HStack` that holds **Use Claude** with `ClaudeSignInRow(model: model)`,
+and add:
+
+```swift
+struct ClaudeSignInRow: View {
+    @ObservedObject var model: SetupModel
+    @State private var code = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Button(model.claudeSigningIn ? "Waiting for your browser…" : "Sign in with Claude") {
+                    Task { await model.signInWithClaude() }
+                }
+                .disabled(model.claudeSigningIn)
+                if model.claudeSigningIn { Button("Cancel") { Task { await model.cancelClaudeSignIn() } } }
+                if model.ai?.signedIn("claude") == true && !model.claudeSigningIn {
+                    Text("Signed in").foregroundStyle(.secondary)
+                    if model.ai?.current != "claude" { Button("Use Claude") { Task { await model.useClaude() } } }
+                }
+            }
+            if model.claudeSigningIn {
+                if model.claudeSignIn?.url != nil {
+                    Button("Open the sign-in page") { model.openClaudeSignInPage() }
+                }
+                HStack {
+                    SecureField("Code from the page (only if it shows one)", text: $code)
+                    Button("Send") {
+                        let entered = code
+                        code = ""                              // the field never keeps it
+                        Task { await model.sendClaudeCode(entered) }
+                    }
+                    .disabled(code.isEmpty)
+                }
+            }
+        }
+    }
+}
+```
+
+- [ ] **Step 11: Run the Swift tests and build**
+
+Run: `cd ui/mac/FERBNotch && swift test && ./build.sh`
+Expected: all PASS (including `testEveryStepDrawsWithoutTheDaemon`); `Built: …`.
+
+- [ ] **Step 12: Docs**
+
+`docs/RPC.md`, L34 table: change the `runtimes.status` row's result to `{roles: {orchestrator, worker, checker},
+runtimes: [{name, usable, fix, model, signed_in}]}`, with the `claude` row also carrying `sign_in: {state, url, why}`, and
+add:
+
+```markdown
+| `runtimes.sign_in` | `{runtime: "claude", code?: str, cancel?: true}` | `{state: "idle"\|"waiting"\|"signed_in"\|"failed", url, why}`. Starts FERB's own Claude sign-in (or reports the one waiting): the pinned Claude Code runs `auth login --claudeai` with `CLAUDE_CONFIG_DIR=~/.ferb/claude-home`, opens the sign-in page itself and keeps the credential in the login Keychain itself, so FERB never holds it. `url` is the page to open when the browser didn't. `code` passes the code the page shows to the waiting sign-in; it is added to the redactor and never journaled. `cancel` stops it. A failure's `why` names the exact command to run by hand (`ferb setup --claude-login`). Journaled `runtimes.sign_in` and `runtimes.sign_in_finished {runtime, signed_in}`. Any other runtime is refused |
+```
+
+`README.md`, in the setup step written in Task 9, replace "Use Claude, your Claude subscription signed in to Claude Code
+on this Mac" with "Sign in with Claude, which opens your browser and keeps the login in FERB's own Claude home
+`~/.ferb/claude-home` (Claude Code keeps the credential in your Keychain)". Add after the `ferb setup --codex-login`
+mention in the source-install section (or with the other `ferb setup` flags): "`ferb setup --claude-login` signs in
+FERB's own Claude from a terminal."
+
+`ARCHITECTURE.md`, Phase C subsection, append: "Sign in with Claude (owner 2026-10-25): `runtimes.sign_in` runs
+`ClaudeSignIn` (`ferb/runtimes/claude_login.py`), the pinned Claude Code's own `auth login --claudeai` with
+`CLAUDE_CONFIG_DIR=~/.ferb/claude-home`; Claude Code writes the credential to the login Keychain itself; after `auth status
+--json` confirms it, FERB writes the marker `.ferb-signed-in`, and Claude runs (`ClaudeRuntime._options`) then get that
+`CLAUDE_CONFIG_DIR`. `ferb setup --claude-login` is the same from a terminal. Journal: `runtimes.sign_in`,
+`runtimes.sign_in_finished`."
+
+`CHANGELOG.md`, Phase C entry, add: "- Sign in with Claude, like Sign in with ChatGPT (owner, 2026-10-25): the pinned
+Claude Code's own `auth login` with FERB's Claude home; the credential stays with Claude Code in the Keychain.
+`runtimes.sign_in`, `runtimes.status` `signed_in`, `ferb setup --claude-login`. Tests: tests/test_claude_login.py."
+
+`docs/0.27_DECISIONS.toml`: add `"tests/test_claude_login.py"` to `[L34]`'s `tests`.
+
+`docs/OWNER_ACCEPTANCE.md`, the Phase C section, add:
+
+```markdown
+- Sign in with Claude (needs a Claude subscription): the browser opens Claude's sign-in page; after approving, the row
+  says Signed in, "FERB uses: Claude" and the check answers. `security find-generic-password -s "Claude
+  Code-credentials-$(printf %s ~/.ferb/claude-home | shasum -a 256 | cut -c1-8)"` finds the item (no `-w`: the value
+  stays unread); `grep -r "sk-ant" ~/.ferb/logs` finds nothing. Cancel during a second sign-in stops it.
+```
+
+- [ ] **Step 13: Full verification**
+
+Run: `nice -n 10 uv run pytest -q && uv run mypy ferb/core && git diff --check && (cd ui/mac/FERBNotch && swift test)`
+Expected: all PASS.
+
+- [ ] **Step 14: Commit**
+
+```bash
+git add ferb/runtimes/claude_login.py ferb/runtimes/claude_sdk.py ferb/cli/runtimes.py ferb/cli/setup.py \
+  ferb/cli/__init__.py ferb/daemon/main.py ferb/daemon/auth.py tests/support/fake_claude.py tests/test_claude_login.py \
+  ui/mac/FERBNotch/Sources/NotchCore/SetupModels.swift ui/mac/FERBNotch/Sources/FERBNotch/SetupModel.swift \
+  ui/mac/FERBNotch/Sources/FERBNotch/SetupView.swift ui/mac/FERBNotch/Tests/NotchCoreTests/SetupModelsTests.swift \
+  ui/mac/FERBNotch/Tests/NotchCoreTests/SetupModelTests.swift docs/RPC.md README.md ARCHITECTURE.md CHANGELOG.md \
+  docs/0.27_DECISIONS.toml docs/OWNER_ACCEPTANCE.md
+git commit -m "feat(L34): Sign in with Claude like Sign in with ChatGPT: the pinned Claude Code's own login in FERB's Claude home (rule 14)"
 ```
