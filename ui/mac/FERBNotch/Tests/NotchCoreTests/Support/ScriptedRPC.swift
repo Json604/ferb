@@ -9,9 +9,25 @@ final class ScriptedRPC: DaemonRPCTransport, @unchecked Sendable {
     var replies: [String: [String: Any]] = [:]
     var failures: [String: Error] = [:]
     var events: [String: [[String: Any]]] = [:]
+    /// Replies given in order before `replies` answers (L34 E: a page, then the next; a preview, then the delete).
+    var queued: [String: [[String: Any]]] = [:]
+    /// The wait each caller asked for, by method (`call(_:params:wait:)`).
+    private(set) var waits: [String: Int] = [:]
+
+    func queue(_ method: String, _ items: [[String: Any]]) { queued[method, default: []] += items }
+
+    func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any] {
+        waits[method] = seconds
+        return try await call(method, params: params)
+    }
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         recorded.append(method, params)
+        if var next = queued[method], !next.isEmpty {
+            let reply = next.removeFirst()
+            queued[method] = next
+            return reply
+        }
         if let failure = failures[method] { throw failure }
         return replies[method] ?? ["ok": true]
     }

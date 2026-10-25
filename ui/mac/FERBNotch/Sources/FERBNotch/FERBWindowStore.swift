@@ -1,0 +1,262 @@
+import AppKit
+import SwiftUI
+import NotchCore
+
+/// The FERB window's sections (L34 Phase E). The notch stays the quick interface; this window holds the detail.
+enum FERBSection: Hashable, CaseIterable, Identifiable {
+    case tasks, schedules, noticed, memory, settings
+
+    var id: FERBSection { self }
+
+    var title: String {
+        switch self {
+        case .tasks: return "Tasks"
+        case .schedules: return "Schedules & Reminders"
+        case .noticed: return "Noticed"
+        case .memory: return "Memory"
+        case .settings: return "Settings"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .tasks: return "checklist"
+        case .schedules: return "calendar"
+        case .noticed: return "eye"
+        case .memory: return "brain"
+        case .settings: return "gearshape"
+        }
+    }
+}
+
+/// The FERB window's data (L34 Phase E): each page reads the daemon when it opens, and each button is one RPC. Nothing
+/// here decides anything; a refusal is shown as FERB's own words.
+@MainActor
+final class FERBWindowStore: ObservableObject {
+    /// Seconds the app waits: a runtime's tiny check call, a diagnostic file's health check, the full self-test.
+    static let runtimeWait = 60
+    static let diagnosticWait = 60
+    static let healthWait = 120
+
+    let rpc: DaemonRPCTransport
+    let records = TaskRecordFiles()
+    /// Opens a file the owner asked to see (Inspect); tests replace it.
+    var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    @Published var tasks: [TaskHistoryRow] = []
+    @Published var moreTasks = false
+    @Published var schedules: [ScheduleRow] = []
+    @Published var reminders: [ReminderRow] = []
+    @Published var notices: [NoticeRow] = []
+    @Published var proposedMemory: [MemoryRow] = []
+    @Published var activeMemory: [MemoryRow] = []
+    @Published var settings = SettingsSnapshot()
+    @Published var banners: [String: Bool] = [:]
+    @Published var health: [HealthLine] = []
+    @Published var stopped = false
+    @Published var recordingPaused = false
+    @Published var watchers: [String] = []
+    /// Why the last request failed, in FERB's words (or the connection's); nil after a request that worked.
+    @Published var problem: String?
+    /// The result of the last action, one line ("Paused: …", "codex answered.").
+    @Published var note: String?
+
+    init(rpc: DaemonRPCTransport) { self.rpc = rpc }
+
+    /// One RPC. A failure becomes the problem line and nil; never a crash or an empty list that reads as "nothing".
+    @discardableResult
+    func ask(_ method: String, _ params: [String: Any] = [:], wait: Int? = nil) async -> [String: Any]? {
+        do {
+            let reply: [String: Any]
+            if let wait { reply = try await rpc.call(method, params: params, wait: wait) }
+            else { reply = try await rpc.call(method, params: params) }
+            problem = nil
+            return reply
+        } catch {
+            problem = error.localizedDescription
+            return nil
+        }
+    }
+
+    func refresh(_ section: FERBSection) async {
+        note = nil
+        switch section {
+        case .tasks: await loadTasks(); await loadStopState()
+        case .schedules: await loadSchedules()
+        case .noticed: await loadNotices()
+        case .memory: await loadMemory()
+        case .settings: await loadSettings()
+        }
+    }
+
+    // MARK: Tasks
+
+    func loadTasks(more: Bool = false) async {
+        var params: [String: Any] = [:]
+        if more, let last = tasks.last, !last.createdAtText.isEmpty { params["before"] = last.createdAtText }
+        guard let reply = await ask("tasks.list", params) else { return }
+        let rows = (reply["tasks"] as? [[String: Any]] ?? []).compactMap(TaskHistoryRow.init)
+        tasks = more ? tasks + rows : rows
+        moreTasks = reply["more"] as? Bool ?? false
+    }
+
+    func loadStopState() async {
+        guard let reply = await ask("ping") else { return }
+        stopped = reply["stopped"] as? Bool ?? false
+    }
+
+    func setVerdict(_ row: TaskHistoryRow, _ verdict: String) async {
+        guard await ask("verdict.set", ["task_id": row.id, "verdict": verdict]) != nil else { return }
+        await loadTasks()
+    }
+
+    /// Exactly this task: `task.stop` with no ids stops every running task.
+    func stop(_ row: TaskHistoryRow) async {
+        guard row.isRunning else { return }
+        guard await ask("task.stop", ["task_ids": [row.id]]) != nil else { return }
+        await loadTasks()
+    }
+
+    func stopEverything() async {
+        guard await ask("stop.engage") != nil else { return }
+        stopped = true
+    }
+
+    func resumeEverything() async {
+        guard await ask("stop.lift") != nil else { return }
+        stopped = false
+    }
+
+    func inspect(_ row: TaskHistoryRow) async {
+        guard let trace = await ask("trace.get", ["task_id": row.id]) else { return }
+        do { open(try await records.write(trace)) } catch { problem = error.localizedDescription }
+    }
+
+    // MARK: Schedules & Reminders
+
+    func loadSchedules() async {
+        if let reply = await ask("schedules.list") {
+            schedules = (reply["schedules"] as? [[String: Any]] ?? []).compactMap(ScheduleRow.init)
+        }
+        if let reply = await ask("reminders.list") {
+            reminders = (reply["pending"] as? [[String: Any]] ?? []).compactMap(ReminderRow.init)
+        }
+    }
+
+    func change(_ schedule: ScheduleRow, _ action: String) async {
+        guard let reply = await ask("schedules.change", ["id": schedule.id, "action": action]) else { return }
+        await loadSchedules()
+        note = reply["text"] as? String
+    }
+
+    func cancel(_ reminder: ReminderRow) async {
+        guard await ask("reminders.cancel", ["id": reminder.id]) != nil else { return }
+        await loadSchedules()
+    }
+
+    // MARK: Noticed
+
+    func loadNotices() async {
+        guard let reply = await ask("notices.list") else { return }
+        notices = (reply["notices"] as? [[String: Any]] ?? []).compactMap(NoticeRow.init)
+    }
+
+    // MARK: Memory
+
+    func loadMemory() async {
+        if let reply = await ask("memory.list", ["status": "proposed"]) {
+            proposedMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
+        }
+        if let reply = await ask("memory.list", ["status": "active"]) {
+            activeMemory = (reply["items"] as? [[String: Any]] ?? []).compactMap(MemoryRow.init)
+        }
+    }
+
+    func confirm(_ item: MemoryRow) async {
+        guard await ask("memory.confirm", ["id": item.id]) != nil else { return }
+        await loadMemory()
+    }
+
+    func retract(_ item: MemoryRow) async {
+        guard await ask("memory.retract", ["id": item.id, "reason": "the owner, in FERB's window"]) != nil else { return }
+        await loadMemory()
+    }
+
+    /// Forget is permanent: first the daemon's own list of what would go, for the owner to read.
+    func forgetPreview(_ item: MemoryRow) async -> [String]? {
+        guard let reply = await ask("memory.forget", ["id": item.id]) else { return nil }
+        return reply["will_delete"] as? [String] ?? []
+    }
+
+    /// Only after the owner's Forget on that list.
+    func forget(_ item: MemoryRow) async {
+        guard await ask("memory.forget", ["id": item.id, "confirm": true]) != nil else { return }
+        await loadMemory()
+    }
+
+    // MARK: Settings (AI, Permissions and Browsers are plan C's SetupModel)
+
+    func loadSettings() async {
+        if let reply = await ask("settings.get") { settings = SettingsSnapshot(reply) }
+        await loadBanners()
+        if let reply = await ask("sense.status") {
+            recordingPaused = reply["paused"] as? Bool ?? false
+            watchers = reply["watchers"] as? [String] ?? []
+        }
+    }
+
+    /// Shown at once; put back if FERB refuses, and then shows what FERB stored (it may normalize it).
+    func set(_ key: String, _ value: SettingValue) async {
+        let before = settings.values[key]
+        settings.values[key] = value
+        guard let reply = await ask("settings.set", ["key": key, "value": value.json]) else {
+            settings.values[key] = before
+            return
+        }
+        if let stored = reply["value"].flatMap(SettingValue.init) { settings.values[key] = stored }
+    }
+
+    func toggle(_ key: String) -> Binding<Bool> {
+        Binding(get: { self.settings.bool(key) }, set: { on in Task { await self.set(key, .bool(on)) } })
+    }
+
+    /// Plan D's banner switches (config `[banners]`, through `notifications.categories`).
+    func loadBanners() async {
+        guard let reply = await ask("notifications.categories") else { return }
+        banners = reply["categories"] as? [String: Bool] ?? [:]
+    }
+
+    func setBanner(_ category: BannerCategory, _ on: Bool) async {
+        guard let reply = await ask("notifications.categories", ["set": [category.rawValue: on]]) else { return }
+        banners = reply["categories"] as? [String: Bool] ?? banners
+    }
+
+    func banner(_ category: BannerCategory) -> Binding<Bool> {
+        Binding(get: { self.banners[category.rawValue] ?? true },
+                set: { on in Task { await self.setBanner(category, on) } })
+    }
+
+    func checkRuntime(_ name: String) async {
+        guard let reply = await ask("runtimes.check", ["runtime": name], wait: Self.runtimeWait) else { return }
+        let ok = reply["ok"] as? Bool ?? false
+        note = ok ? "\(name) answered." : "\(name) didn't answer: \(reply["detail"] as? String ?? "no answer")"
+    }
+
+    func pauseRecording(_ paused: Bool) async {
+        guard let reply = await ask(paused ? "sense.pause" : "sense.resume") else { return }
+        recordingPaused = reply["paused"] as? Bool ?? paused
+    }
+
+    func checkHealth() async {
+        guard let reply = await ask("doctor.check", ["selftest": true], wait: Self.healthWait) else { return }
+        health = HealthLine.lines(reply)
+    }
+
+    func exportDiagnostic(appVersion: String?) async -> URL? {
+        var params: [String: Any] = [:]
+        if let appVersion { params["app_version"] = appVersion }
+        guard let reply = await ask("reports.diagnostic", params, wait: Self.diagnosticWait),
+              let path = reply["path"] as? String else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+}
