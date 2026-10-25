@@ -523,3 +523,43 @@ def test_the_daemon_sweeps_at_start_and_journals_the_count(daemon: RunningDaemon
         await daemon.daemon._sweep_stale_runs()
         return [e.data for e in daemon.daemon.supervisor.journal.of_kind("runtime.stale_runs_swept")]
     assert daemon.run(sweep()) == [{"count": 1}] and not (tmp_path / "ferb-codex-run-crashed").exists()
+
+
+def test_a_folder_whose_run_still_holds_its_lock_is_never_swept(tmp_path: Path) -> None:
+    """Re-review deviation 2: age isn't proof a run ended (a worker can wait a day on an owner question). A live run
+    holds an flock on its folder's lock file; the sweep skips any folder whose lock it can't take."""
+    import fcntl
+    idle = _run_folder(tmp_path, "ferb-codex-run-waiting", stream.STALE_RUN_S + 60)
+    lock = idle / stream.RUN_LOCK
+    lock.write_text("")
+    old = time.time() - stream.STALE_RUN_S - 60
+    for path in (lock, idle):
+        os.utime(path, (old, old))
+    held = os.open(lock, os.O_RDWR)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert stream.sweep_stale_runs(tmp_path, time.time()) == [] and idle.exists()
+    finally:
+        os.close(held)                                       # the run ends (or crashes): the lock goes with it
+    assert stream.sweep_stale_runs(tmp_path, time.time()) == ["ferb-codex-run-waiting"] and not idle.exists()
+
+
+@pytest.mark.anyio
+async def test_a_run_holds_its_folders_lock_until_it_ends(tmp_path: Path, monkeypatch) -> None:
+    import fcntl
+    proc = Process()
+
+    async def spawn(*cmd: Any, **kw: Any) -> Process:
+        return proc
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    run = await stream.start(_planner(tmp_path), TASK, PLANNER_REQUEST)
+    lock = Path(run.state["temporary"].name) / stream.RUN_LOCK
+    probe = os.open(lock, os.O_RDWR)
+    try:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(probe)
+    folder = lock.parent
+    await stream.cancel(run)
+    assert not folder.exists()

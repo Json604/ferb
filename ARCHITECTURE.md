@@ -755,8 +755,11 @@ in its state), "user" for every other run, so `ferb trace` shows which role held
 own temporary home, owner-only and removed with the run; meanwhile the resumed thread, which isn't ephemeral, has
 Codex write the turn into that home's rollout and a preview of its user text into Codex's state database. Parallel
 turns share only the key. After a crash, the next start sweeps the run folders left in the temporary directory
-(`codex_stream.sweep_stale_runs`: FERB's prefix, owned by this user, owner-only, nothing written for a day; each holds
-a copy of FERB's Codex login; journaled as `runtime.stale_runs_swept`).
+(`codex_stream.sweep_stale_runs`: FERB's prefix, owned by this user, owner-only, nothing written for a day, and its
+`run.lock` free: each run holds an flock on it while it lives, so a run of another FERB process waiting a day on an owner
+question is never removed; each folder holds a copy of FERB's Codex login; journaled as `runtime.stale_runs_swept`).
+`untrusted.as_data` escapes every invisible or line-breaking character (format, private-use, control, U+2028/U+2029,
+lone surrogates), so a task result is always one line.
 
 The gate: [`tests/security/test_planner_cache_injection.py`](tests/security/test_planner_cache_injection.py) (offline:
 the developer block is the recorded context with every label; a task result can't forge a history line; a planner

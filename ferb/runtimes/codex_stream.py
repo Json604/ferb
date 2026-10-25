@@ -127,29 +127,40 @@ def codex_error(prefix: str, error: Any, redact: Callable[[Any], Any]) -> str:
 
 # Review M1: a run's temporary home (its copied login, a cached turn's rollout, Codex's state preview) is removed with
 # the run, except after a crash. At start the daemon sweeps such leftovers: FERB's prefix, owner-only, nothing in them
-# written for a day. No run of a starting daemon is alive, and a day without a single write is far past any run of
-# another FERB process (a test, a checkout's daemon) that still uses its folder.
+# written for a day, and no live run holding the folder's lock. Each run holds an flock on RUN_LOCK while it lives (a
+# worker waiting a day on an owner question in another FERB process included); the lock goes with the process, so a
+# crash leaves it free.
 RUN_PREFIX = 'ferb-codex-run-'
+RUN_LOCK = 'run.lock'
 STALE_RUN_S = 24 * 3600
 
 
 def sweep_stale_runs(root: Path, now: float) -> list[str]:
     """Remove the stale run folders directly in `root` (the temporary directory); their names. Never follows a link,
-    and leaves anything not owned by this user, not owner-only, or written to within STALE_RUN_S."""
+    and leaves anything not owned by this user, not owner-only, written to within STALE_RUN_S, or whose RUN_LOCK a live
+    run still holds."""
+    import fcntl
     import shutil
     import stat
     swept = []
     for folder in sorted(root.glob(RUN_PREFIX + '*')):
+        held = None
         try:
             info = folder.lstat()
             if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
                 continue
+            if (folder / RUN_LOCK).exists():         # a run from before the lock has none: the age rule alone
+                held = os.open(folder / RUN_LOCK, os.O_RDWR | os.O_NOFOLLOW)
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)     # BlockingIOError: its run is alive
             newest = max([info.st_mtime, *(p.lstat().st_mtime for p in folder.rglob('*'))])
             if now - newest < STALE_RUN_S:
                 continue
             shutil.rmtree(folder)
         except OSError:
-            continue                                 # one that can't be read or removed stays; the rest go on
+            continue                                 # alive, unreadable or not removable: it stays; the rest go on
+        finally:
+            if held is not None:
+                os.close(held)
         swept.append(folder.name)
     return swept
 
@@ -208,6 +219,9 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         raise AccountError('auth_required')
     temporary = tempfile.TemporaryDirectory(prefix=RUN_PREFIX)
     root = Path(temporary.name)
+    import fcntl
+    lock = os.open(root / RUN_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX)                 # held while this run lives: a start's sweep leaves its folder
     isolated = root / 'codex'
     isolated.mkdir(mode=0o700)
     workdir = root / 'work'
@@ -216,7 +230,8 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'seen': set(), 'violation': None, 'catalog_checked': asyncio.Event(), 'catalog_observed': False,
         'notifications': asyncio.Queue(), 'waiters': {}, 'reader': None, 'closed': False,
         'turn_completed': False, 'request_id': 0, 'auth_source': home / 'auth.json',
-        'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False, 'redact': runtime.redact}
+        'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False, 'redact': runtime.redact,
+        'lock': lock}
     run = RunHandle('run-' + secrets.token_hex(6), runtime.name, task.id, state)
     checking_account = False
     try:
@@ -641,3 +656,5 @@ async def cancel(run: RunHandle) -> None:
     if temporary := state.pop('temporary', None):
         _save_refresh(state)
         temporary.cleanup()
+    if (lock := state.pop('lock', None)) is not None:
+        os.close(lock)                               # the folder is gone; the lock goes with it

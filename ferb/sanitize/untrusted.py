@@ -138,15 +138,20 @@ def earlier_questions(payload: str) -> list[str]:
 
 def as_data(text: str) -> str:
     """Text shown as one quoted JSON string: its line breaks escaped, so it can't start a line of its own (a history
-    line in FERB's format, say), and invisible format characters (Unicode Tag characters, zero-width marks: category
-    Cf, and private-use) written out as escapes, so nothing in it is hidden from the reader. Deterministic, unlike
-    `wrap_untrusted`, so a recorded line stays the same across turns and its prompt prefix stays cacheable (P20)."""
+    line in FERB's format, say), and every character that is invisible or breaks a line written out as an escape:
+    format characters (Unicode Tag characters, zero-width marks), private-use, controls (DEL, NEL), the line and
+    paragraph separators U+2028/U+2029, and lone surrogates (which Codex's JSON reader refuses). So nothing in it is
+    hidden from the reader, and it is always one line. Deterministic, unlike `wrap_untrusted`, so a recorded line stays
+    the same across turns and its prompt prefix stays cacheable (P20)."""
     return "".join(_shown(c) for c in json.dumps(text, ensure_ascii=False))
 
 
+_ESCAPED = ("Cf", "Co", "Cc", "Zl", "Zp", "Cs")
+
+
 def _shown(c: str) -> str:
-    """A character as written in `as_data`: itself, or an escape when it is invisible."""
-    if unicodedata.category(c) not in ("Cf", "Co"):
+    """A character as written in `as_data`: itself, or an escape when it is invisible or breaks a line."""
+    if unicodedata.category(c) not in _ESCAPED:
         return c
     return f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}"
 

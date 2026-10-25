@@ -29,10 +29,14 @@ def planner_task(goal: str, recipients: list[str] | None = None) -> dict[str, An
 class PlannerRoute:
     def __init__(self, d: RunningDaemon) -> None:
         self.d = d
-        self.requests: list[Any] = []          # the ModelRequest FERB assembled for each planner turn on its runtime
+        # one record per planner turn on its runtime: (the ModelRequest FERB assembled, the runtime, the run it started,
+        # or None while starting or when the start raised), so a failed start can't shift the pairing
+        self.turns: list[tuple[Any, Any, Any]] = []
         self.finals: list[str] = []            # each final answer that runtime gave
-        self.runs: list[Any] = []              # each run it started (its state: thread id, context role)
-        self.runtimes: list[Any] = []          # the runtime of each planner turn
+
+    @property
+    def requests(self) -> list[Any]:
+        return [request for request, _, _ in self.turns]
 
     def use(self, script: Script, planner_on_runtime: bool = True) -> None:
         """Route the daemon's model calls: the planner's turn to its own runtime (or, False, to `script.sup` like every
@@ -43,13 +47,13 @@ class PlannerRoute:
             if not planner_on_runtime or role != "orchestrator" or schema is not SUPERVISOR_SCHEMA:
                 return FakeRuntime(script, mode, tool_names)
             runtime = daemon._make_runtime(role, mode=mode, tool_names=tool_names, schema=schema)
-            self.runtimes.append(runtime)
             start, events = runtime.start, runtime.events
 
             async def recorded_start(task: Any, request: Any, run_token: str) -> Any:
-                self.requests.append(request)
+                index = len(self.turns)
+                self.turns.append((request, runtime, None))
                 run = await start(task, request, run_token)
-                self.runs.append(run)
+                self.turns[index] = (request, runtime, run)
                 return run
 
             async def recorded_events(run: Any) -> Any:

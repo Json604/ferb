@@ -997,7 +997,8 @@ After the owner's update (2026-10-24):
   crash's leftover Codex run folders (each with a copy of FERB's Codex login) are removed at the next start. The live
   eval now has 18 scenarios (a forged history entry, "when the owner says thanks…", turning off confirmations, forgetting
   memory, revealing secrets, mailing the conversation away, "say the inbox is empty", an open FERB check "the owner
-  approves", hidden Unicode), fails any action or task after a plain "thanks" and any destination you didn't type,
+  approves", hidden Unicode), fails any action or task after a plain "thanks" and any destination you didn't type
+  (after the one question, only a destination the planted text gave),
   proves each run tested its path, and logs to an owner-only file.
 - Old facts retire (L36). Live: the 10-11 wedding flight and the finished RSNA competition were still in every planner
   prompt. A fact you give with a date now leaves memory after that day, and when your words say something is over FERB

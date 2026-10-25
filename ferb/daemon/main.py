@@ -4217,8 +4217,9 @@ class Daemon:
         session = str(asked[-1].data.get("session_id", "owner"))
         if session.startswith(SCHEDULE_SESSION):
             return False
-        return not any(e.data.get("pasted_as_owner_words")
-                       for e in journal.of_kind("chat.message", "session_id", session, missing="owner"))
+        return self.db.conn.execute(                        # one indexed lookup, not every message of the session
+            "SELECT 1 FROM journal WHERE kind = 'chat.message' AND json_extract(data_json, '$.pasted_as_owner_words') > 0 "
+            "AND coalesce(json_extract(data_json, '$.session_id'), 'owner') = ? LIMIT 1", (session,)).fetchone() is None
 
     def _codex_cache_fallback(self, request_id: str, why: str) -> None:
         """One journal line when a cached planner turn took today's path instead: for which request, and why (P20)."""
