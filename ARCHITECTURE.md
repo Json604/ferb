@@ -1654,8 +1654,9 @@ the owner must answer first (`confirm.decide`):
     run after a Yes; any item of a menu-bar menu titled Terminal, Run, Console or Shell (the VS Code family's Terminal
     and Run menus, JetBrains' Run: Run Selected Text, Run Active File, Run Task, New Terminal, whose profile may run a
     startup command) or a run control (VS Code's `codicon-play`/run/debug-start classes; in an editor app,
-    `terminals.editor_app`, or in a window that hosts a terminal by structure, `terminals.structural` over a bounded
-    `accessibility.window_facts` walk (round 3, N6), a button or a context-menu item labelled Run… or Debug…),
+    `terminals.editor_app`, or in a window that hosts a terminal by structure, `terminals.structural` over an
+    `accessibility.window_facts` walk of at most 2,000 elements and 200 ms, past which FERB can't tell and asks
+    (rounds 3 and 4, N6), a button or a context-menu item labelled Run… or Debug…),
     however it is reached: a press, a pixel click, Space or Return on it while it has the focus, or a key the app's
     menus map to it (⇧⌘B is "Terminal > Run Build Task…"; the question names the key and the Yes covers that key
     press, even with the terminal focused: round 3, L1), shown with the active editor's selection (its Monaco input
@@ -1665,7 +1666,9 @@ the owner must answer first (`confirm.decide`):
     (a `.command`): a double-click, an AX press on its item, a key or menu command while it is selected, or a Finder
     script naming it, shown with its path and whole text and bound to its hash (`apps.default_app_for`,
     `accessibility.file_of`). A Finder or System Events script that names no file by path says "FERB can't see which
-    file this opens, if it opens one" (`terminals.OPENS_FILES`; round 3, O1). `Gateway._terminal` asks after the
+    file this opens, if it opens one" (`terminals.OPENS_FILES`; round 3, O1); a file it names that doesn't open in a
+    terminal app is said plainly, "which doesn't open in a terminal app" (`TerminalInput.named`, round 4, N7).
+    `Gateway._terminal` asks after the
     call's span starts and before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at
     once, so the same text asks again, a retry included. A No is final for that exact input in the tree until the
     owner's own follow-up reopens it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
@@ -1704,18 +1707,35 @@ the owner must answer first (`confirm.decide`):
     the escape hatch".
   - *Unchanged.* Clicks and focus into a terminal need nothing. No check uses a bundle list alone: every one goes
     through `terminals.surface` (the built-in list plus the owner's).
-  - *FERB's own apps* (rule 8, rule 9, W2; 2026-10-25, fix round 3). No Mac tool operates them, so a worker can't answer
+  - *FERB's own apps* (rule 8, rule 9, W2; 2026-10-25, fix rounds 3 and 4). No Mac tool operates them, so a worker can't answer
     FERB's own question in the notch: `MacComputerDriver.app()` refuses `front_window.FERB_APPS` and the daemon's
     process (every tool resolves through it; `mac.open` refuses their bundle ids). FERB's processes are found among
     every running app whatever its activation policy (`apps.pids_of`, NSWorkspace's whole list: the notch is an
-    accessory app, absent from the Regular-only `apps.running()`), plus the daemon. A click or drag whose point a FERB
-    window would take is refused (`_own_point`): the system's hit test first (it skips click-through windows like FERB's
-    own cursor overlay); when it can't tell, the on-screen window list on every level, front to back, down to the
-    target's window (`screenshot.windows_at`), skipping nothing: a FERB window above it, or no window list, refuses with
-    "FERB can't confirm what is under this point" (fail closed). The check runs before and again right before each
-    event, for `mac.pointer`, `mac.click` and a `mac.act` press or click with `mechanism=foreground` (a real click at
-    the element's centre, `_foreground_click`). Input that goes to what is in front (any foreground keyboard, pointer or
-    scroll route) is refused while a FERB app is frontmost or key; process-directed `pid` and `ax_keyboard` input to
+    accessory app, absent from the Regular-only `apps.running()`), plus the daemon. A real click or wheel posted
+    globally (the HID tap: `mac.click` foreground, a `mac.act` press, click or scroll with `mechanism=foreground`, at
+    the element's or pane's centre) whose point a FERB window would take is refused (`_own_point`, before and again
+    right before each event): the system's hit test first (another app's element allows it; FERB's refuses it, unless
+    every FERB window at the point is one the notch reported click-through, when the window list decides); when it
+    can't tell, the on-screen window list at the point, every level, front to back, each window with its level and
+    alpha (`screenshot.windows_at`): FERB's reported click-through windows and alpha-0 windows are skipped and the
+    first window that takes clicks decides: any other FERB window refuses ("FERB can't confirm what is under this
+    point"), the target's screenshot window (without one, its normal window) allows, and a window whose click
+    handling FERB can't know (another app's, another of the target's) decides nothing, so a FERB window under it
+    still refuses (round 4, N3). No window list, a NULL one included, refuses the same way (fail closed, round 4, N2).
+    Input posted to another app's process (`CGEventPostToPid` or SkyLight's per-window route: `mac.pointer`,
+    `mac.click` pointer or ax) can't reach FERB's windows and isn't point-checked; input for a FERB process is refused
+    (round 4, N1). FERB's click-through windows are facts the notch reports: FERB's pointer overlay on each display
+    and the notch's glow set AppKit's own `ignoresMouseEvents`, so the window server is told (with the old getter-only
+    override, NSWindow's own getter read false in a unit test: AppKit was never told) and are hidden from
+    Accessibility, and the notch sends their window numbers (`ClickThroughReport`, `ui.click_through`, a cli-role
+    method) whenever they change and after each reconnection (a send that didn't get through goes again on the
+    notch's 5-second reconciliation pass); the daemon keeps them only from one of FERB's running apps, by the socket's
+    pid
+    (`MacComputerDriver.report_click_through`), and skips only that app's own windows while it runs. Each check notes
+    which check decided ("hit_test", "window_list" or "refused: cant_tell") as `point_checks` on the call's span
+    (`core.call_facts`, kept by `Gateway._measured`): `ferb trace` and `ferb stats` count them ("Click point checks").
+    Input that goes to what is in front (any foreground keyboard, pointer or scroll route) is refused while a FERB
+    app is frontmost or key; process-directed `pid` and `ax_keyboard` input to
     another app goes on (round 3, M1: the notch becomes key on hover). A System Events script naming one literally is
     refused, never asked. "FERB never operates its own app; questions are answered by the owner".
   - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; editor keybindings with
@@ -1727,7 +1747,11 @@ the owner must answer first (`confirm.decide`):
     gets the ordinary System Events question with the script shown (round 3, M2, accepted); a `do shell script` built
     as a string at run time passes the early refusal and fails at the sandbox; the instant between a `.command` file's
     re-hash and its open; a FERB notch started without a bundle (`swift run`) carries no bundle id, so it isn't in
-    `FERB_APPS`. Shell startup files are in `never_write` for the shell
+    `FERB_APPS`; the instant between a point check and its event (about 0.3 ms after the hit test answers, about 3 ms
+    on the window-list path, measured, plus the window server's routing): a FERB window that first covers the point
+    inside it, opaque at that pixel, could take the event (round 4, N5); a window number the notch closed and the
+    window server gave again to a new window of the notch before the notch's next report reaches the daemon.
+    Shell startup files are in `never_write` for the shell
     only (fs tools may change them, with S1 copies); VS Code's settings and tasks files and terminal profiles aren't
     in any list, so a terminal FERB opens asks rather than trusts its profile.
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
@@ -3456,8 +3480,10 @@ Geometry only: nothing about what the action does or says leaves the tool.
 - **Overlay (`ui/mac/FERBNotch`).** `DaemonConnection` parses `cursor.point`; `CursorController` keeps one pointer per
   root task, ended by its `task.result`, with a shade the task keeps across idle gaps until then (a new task takes a
   shade no running task holds), and aims a typing pointer at the field's leading edge, never past its middle.
-  `CursorPanel` is a borderless, click-through window per display (`ignoresMouseEvents`, `hidesOnDeactivate =
-  false`, `.ignoresSafeArea()` so the notch inset doesn't shift it). The pointer springs to each point, fades after 1.5 s
+  `CursorPanel` is a borderless, click-through window per display (AppKit's own `ignoresMouseEvents`, which a false
+  assignment can't turn off, hidden from Accessibility, `hidesOnDeactivate = false`, `.ignoresSafeArea()` so the
+  notch inset doesn't shift it); its window numbers go to the daemon as they come and go (`onPanelsChange`,
+  `ClickThroughReport`), so the click check skips it (D31 fix round 4). The pointer springs to each point, fades after 1.5 s
   idle and fades in place under Reduce Motion. Panels close on screen changes. No ripple, shimmer or drift: the owner left
   decoration to a later polish. The switch "Show FERB's pointer" (`cursor.enabled`, default on) is in the settings.
 - **What it is not.** The pointer shows where FERB aims from its last look. A page controls its own layout, so it can

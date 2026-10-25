@@ -1111,6 +1111,18 @@ After the owner's update (2026-10-24):
   continuations, `«event sysoexec»`); a Finder or System Events script that opens a file it doesn't name says "FERB
   can't see which file this opens"; a Run… button asks in any app whose window holds a terminal; every split-code
   field is checked for a web terminal; and the run question shows the selection's size as FERB read it.
+- FERB's own clicks are no longer refused for its own pointer, and one blind spot is closed (D31, rule 8, rule 9;
+  fourth review). FERB's pointer overlay was never really click-through for the system (only its getter said so),
+  and when the system's hit test couldn't answer, any FERB window counted, so the overlay refused every checked
+  click on its display. The overlay and the notch's glow are now click-through by AppKit's own setting and hidden
+  from Accessibility, the notch tells the daemon their window numbers (`ui.click_through`), and the click check skips
+  exactly those while the notch runs. The check now applies only to clicks posted to the whole screen (a foreground
+  click, press or scroll, which now includes a foreground scroll); input posted to another app's own process can't
+  reach the notch and goes on. An unreadable window list counts as "can't tell" and refuses (it read as empty), the
+  window list is walked to the first window that takes clicks (an invisible window of the target no longer stops
+  it), and each checked click records which check decided (`ferb trace` and `ferb stats`: "Click point checks").
+  The Run… label check of a window stops at 2,000 elements or 200 ms and then asks, and a Finder script naming a
+  file that doesn't open in a terminal says so plainly.
 - Send to developer (L35; owner, 2026-10-25: "just add a simple send to developer thing tho, whenever ferb says
   failed", "just send to ktky.attri@gmail.com as of now"). A failed task left its record only on your Mac. Under an
   answer whose task failed or was interrupted, or whose turn failed, the notch now has a **Send to developer** button:

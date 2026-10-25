@@ -1696,9 +1696,9 @@ owner saw.
 
 ## Terminal input and FERB's own apps (D31, rule 10) — pending live checks (2026-10-25)
 
-Checkout validation is in the changelog entries (three security reviews); nothing here is installed or observed yet.
+Checkout validation is in the changelog entries (four security reviews); nothing here is installed or observed yet.
 Run after `ferb setup --update`, with the owner watching, in disposable windows and files only; pause between
-supervised actions and record what the owner saw. Two facts the reviews couldn't check without real apps:
+supervised actions and record what the owner saw. Facts the reviews couldn't check without real apps:
 
 - **Finder rows carry the file (AXURL).** Make `~/Desktop/ferb-terminal-check/x.command` holding `echo ferb-check`
   (`chmod +x`). Open that folder in a Finder window in list view, then in icon view. Ask FERB: "in Finder, open
@@ -1712,6 +1712,19 @@ supervised actions and record what the owner saw. Two facts the reviews couldn't
   the counts it shows: fewer than 400 lines means VS Code gave FERB a shortened copy (the owner then sees the
   difference before answering). Answer No: nothing runs in the terminal.
 - **The notch can't be answered by FERB.** With a question open in the notch, look in `ferb trace TASK --full` for any
-  `mac.*` call that names FERB, dev.ferb.notch or a point inside the notch: each must be refused ("FERB never operates
-  its own app" or "FERB can't confirm what is under this point"). While hovering the notch (it takes the keyboard),
-  background work typing into another app keeps going.
+  `mac.*` call that names FERB or dev.ferb.notch, or a foreground click, press or scroll at a point inside the notch:
+  each must be refused ("FERB never operates its own app" or "FERB can't confirm what is under this point"). A
+  `mac.pointer` call at such a point goes to the app it names (its pid), never the notch. While hovering the notch (it
+  takes the keyboard), background work typing into another app keeps going.
+- **(a) FERB's ordinary clicks work with its pointer overlay on screen (round 4, U1).** After FERB has pointed at
+  something (its pointer overlay now covers the display), ask FERB to click a button in a disposable TextEdit or
+  Finder window far from the notch, with `mechanism=foreground` allowed for the task. **Expected:** the click lands;
+  no "FERB never operates its own app" or "FERB can't confirm" refusal. **Detect:** the call's span in
+  `ferb trace TASK --full` shows `point_checks` with "hit_test" or "window_list", never "refused: cant_tell".
+- **(b) A context-menu "Run…" item asks (round 4, U2).** In a disposable VS Code window with a scratch `.py` file,
+  ask FERB to right-click the editor and choose "Run Python File in Terminal". **Expected:** a question naming the
+  item before anything runs; No runs nothing. Record whether it asked: if it didn't, the item carries no window
+  Accessibility shows, and the label rule needs another fact.
+- **(c) The hit test's real decision counts (round 4, U3).** After a day of ordinary use, run `ferb stats` and, for a
+  task that clicked, `ferb trace TASK`. **Expected:** a "Click point checks: hit test N, window list M, refused
+  (can't tell) K" line. Record the three numbers: they are how often the system hit test answers on this Mac.
