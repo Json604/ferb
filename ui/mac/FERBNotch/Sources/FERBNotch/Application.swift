@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
     private var ferbWindow: FERBWindowController?
+    private var loginItems: LoginItemController?
     private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
     private let clicks = NotificationClicks()
 
@@ -48,6 +49,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
         if let coordinator {
             var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
+            let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
+            self.loginItems = loginItems
+            actions.loginItems = loginItems
+            // Uninstall unregisters macOS's login item first; `ferb uninstall` then removes the fallback file
+            actions.beforeUninstall = { [loginItems] in loginItems.removeForUninstall() }
+            appSetup.onSettled = { [loginItems] in loginItems.applyDefaultAfterSetup() }
             if appSetup.isPackaged {
                 let setup = appSetup.model
                 actions.setup = setup

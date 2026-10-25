@@ -25,6 +25,8 @@ struct FERBAppActions {
                    _ done: @escaping (Int32) -> Void) -> Bool)?
     /// Runs before `ferb uninstall` (plan F removes FERB.app's login item here).
     var beforeUninstall: (() -> Void)?
+    /// Plan F's: Settings → General → Startup.
+    var loginItems: LoginItemController?
 }
 
 /// The regular FERB window (L34 Phase E). It opens only when the owner asks (menu bar, ⌘,): their own foreground

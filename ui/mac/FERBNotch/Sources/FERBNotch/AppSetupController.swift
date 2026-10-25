@@ -18,6 +18,10 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
     private var window: NSWindow?
     var onFinished: (() -> Void)?
+    /// Setup has nothing left to do (L34 Phase F): at launch when this build is set up, after a quiet update that
+    /// needs no permission, or at the setup window's Done. The app applies the login-item default here (plan G adds
+    /// "Updated to …").
+    var onSettled: (() -> Void)?
 
     private var python: URL { bundle.appendingPathComponent("Contents/Resources/python/bin/python3.12") }
     private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
@@ -41,7 +45,9 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         Task { @MainActor in
             let done = action == .none ? await self.model.setupDone() : false
             switch AppSetupPlan.atLaunch(action, setupDone: done) {
-            case .nothing: _ = await self.model.askForNotificationsOnce(defaults: .standard)   // owner decision 6
+            case .nothing:
+                _ = await self.model.askForNotificationsOnce(defaults: .standard)   // owner decision 6
+                self.onSettled?()
             case .quietUpdate: self.quietUpdate()
             case .window(let step):
                 if case .confirmReplace(let current) = action, !self.confirmReplacing(current) { return }
@@ -75,7 +81,10 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             guard ok else { self.show(.welcome, action: .update); return }
             Task { @MainActor in
                 if await self.model.needsPermissions() { self.show(.permissions, action: .none) }
-                else { _ = await self.model.askForNotificationsOnce(defaults: .standard) }     // owner decision 6
+                else {
+                    _ = await self.model.askForNotificationsOnce(defaults: .standard)     // owner decision 6
+                    self.onSettled?()
+                }
             }
         }
     }
@@ -119,6 +128,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             model.onFinish = { [weak self] in
                 self?.window?.close()
                 self?.onFinished?()
+                self?.onSettled?()
             }
         }
         model.go(step)
