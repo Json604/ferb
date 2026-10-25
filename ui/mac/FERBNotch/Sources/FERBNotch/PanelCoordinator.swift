@@ -92,7 +92,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var eventMonitors: [Any] = []
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
-    private var settingsWindow: NSWindow?
     private var previewURL: URL?
     private let yieldController: NotchYieldController
     private let windowYield: NotchWindowYield
@@ -109,11 +108,12 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     var poster: NotificationPoster?              // set by AppDelegate before start() (L34 D)
     var hasWindow = false                        // Phase E: the FERB window exists ("Open FERB Window")
     var onOpenWindow: (() -> Void)?              // Phase E
+    var onOpenSettings: (() -> Void)?            // the FERB window at Settings (L34 Phase E): ⌘, and Settings…
     private let service = DaemonService()
     private var statusRefresh: AnyCancellable?
     private var statusRefreshQueued = false
 
-    private let cursor = CursorController()
+    let cursor = CursorController()
 
     override init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -735,18 +735,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc private func showSettings() {
         if !model.isPinned { model.collapse() }
-        if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 410, height: 350),
-                                  styleMask: [.titled, .closable],
-                                  backing: .buffered, defer: false)
-            window.title = "FERB Settings"
-            window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: FeedbackSettingsView(feedback: model.feedback, cursor: cursor))
-            window.center()
-            settingsWindow = window
-        }
-        settingsWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        onOpenSettings?()
     }
 
     private func quickLook(_ url: URL) {

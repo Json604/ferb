@@ -17,6 +17,7 @@ struct FERBNotchApp {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
     private let appSetup = AppSetupController()
+    private var ferbWindow: FERBWindowController?
     private let poster = NotificationPoster(center: AppBundle.isApp ? UserNotificationCenter() as NotificationCenterPosting : nil)
     private let clicks = NotificationClicks()
 
@@ -45,6 +46,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator?.onSetUp = { [appSetup] in appSetup.runSetupFromMenu() }
         }
         appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
+        if let coordinator {
+            var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
+            if appSetup.isPackaged {
+                let setup = appSetup.model
+                actions.setup = setup
+                actions.openSetup = { [appSetup] in appSetup.runSetupFromMenu() }
+                actions.runFerb = { [setup] arguments, line, done in setup.runner.run(arguments, line: line, done: done) }
+            }
+            let window = FERBWindowController(store: FERBWindowStore(rpc: coordinator.model.rpc), actions: actions)
+            coordinator.hasWindow = true                      // plan D's menu shows Open FERB Window
+            coordinator.onOpenWindow = { [window] in window.show(.tasks) }
+            coordinator.onOpenSettings = { [window] in window.show(.settings) }
+            ferbWindow = window
+        }
         coordinator?.start()
         appSetup.startAtLaunch()                 // packaged FERB.app only: the setup window or a quiet update
     }

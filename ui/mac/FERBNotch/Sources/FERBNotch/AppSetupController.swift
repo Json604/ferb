@@ -26,7 +26,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/com.ferb.daemon.plist")
     }
 
-    private lazy var model = SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
+    lazy var model = SetupModel(rpc: DaemonRPC(), runner: SetupCommand(launcher: launcher),
                                         app: SystemAppPermissions(), system: SystemOpener(),
                                         keys: KeychainAPIKeyStore(), service: DaemonService())
 
