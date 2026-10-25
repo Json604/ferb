@@ -1131,9 +1131,9 @@ class Learning:
         its examples were labelled with, L29) when given, else by the proposal's intent. A step without `optional`
         is stored as required (false). A step citing an action built on outside content quarantines it, unless it
         revises a confirmed version and every such step was already one of the version the owner confirmed by hand
-        (`_hand_confirmed`): the same tool and template arguments (equal beyond handle kinds), citing no outside-built
-        action that step didn't cite (final review M4: its origin unchanged). The confirm then carries over, marked as
-        carried (L29 final review I1, final fix 2 F1; a code rule, never a model's judgement). A revision of a confirmed
+        (`_hand_confirmed`): the same tool and template arguments, apart from handle kinds and slot values, whatever
+        runs it cites (coordinator ruling on the L36 final fix). The confirm then carries over, marked as carried (L29
+        final review I1, final fix 2 F1; a code rule, never a model's judgement). A revision of a confirmed
         version that adds such a step, or whose hand-confirmed version was rolled back or is gone, is quarantined again:
         noted (`memory.procedure_requarantined`) and returned with `requarantined` (the reason). A proposal whose
         content matches an existing node changes nothing and is returned with `unchanged` (F3)."""
@@ -1209,19 +1209,12 @@ class Learning:
             hand = self._hand_confirmed(before['id'])
             if hand is not None:
                 # compared as stored (both redacted alike) with the steps the owner read when they confirmed by hand:
-                # the same tool and arguments, equal beyond handle kinds, and an unchanged origin: each outside-built
-                # action the step cites is one that step cited (final review M4: every click {tab: <tab>, element:
-                # <element>} is equal, so the kinds alone let a click built on another run's page carry the confirm)
-                read = [((s.get('tool'), encoded(s.get('args') or {})), set(s.get('evidence') or []))
-                        for s in hand['body'].get('steps') or []]
-
-                def seen(step: dict[str, Any]) -> bool:
-                    shape = (step.get('tool'), encoded(step.get('args') or {}))
-                    # its cited actions as stored; one the examples don't hold counts as outside (fail closed)
-                    built = {ref for ref in step.get('evidence') or []
-                             if actions.get(ref, {}).get('outside_action', True)}
-                    return any(shape == was and built <= cited for was, cited in read)
-                if all(seen(s) for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
+                # the same tool and arguments, apart from handle kinds and slot values (stored as kinds and
+                # templates). New cited actions from later runs are fine: the confirmed step is the same step
+                # (coordinator ruling on the final fix, replacing final review M4's cited-actions condition)
+                read = {(s.get('tool'), encoded(s.get('args') or {})) for s in hand['body'].get('steps') or []}
+                if all((s.get('tool'), encoded(s.get('args') or {})) in read
+                       for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
                     self._mark_confirmed(result['id'], carried=True)
                 else:
                     requarantined = 'a step built on outside content that the version the owner confirmed did not have'

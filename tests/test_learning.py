@@ -1237,9 +1237,8 @@ def test_a_revision_adding_a_step_not_built_on_outside_content_keeps_the_confirm
 def test_a_carried_confirm_never_counts_as_the_owners_own(tmp_path):
     """F1 (MP2, the reviewer's probe 7): the owner confirmed A; B added a step not built on outside content, so
     the confirm carried; C cites the same step now built on outside content. It is compared with A, the version the
-    owner confirmed by hand, so C is quarantined again. Once the owner confirms B (they have read it), C is compared
-    with B, and still asked again: the step B's owner read was FERB's own, and C's is built on other runs' page (final
-    review M4: its origin changed). Once they confirm C, a revision citing C's actions carries."""
+    owner confirmed by hand, so C is quarantined again. Once the owner confirms B (they have read it), C carries: its
+    steps are B's, whatever runs they cite (coordinator ruling on the L36 final fix)."""
     db, store, _, noted = _revision_store(tmp_path)
     try:
         cards = _named_runs(store, 'r')
@@ -1261,63 +1260,62 @@ def test_a_carried_confirm_never_counts_as_the_owners_own(tmp_path):
         b = _named(store, cards, 'nav', 'type', 'fill')
         store.confirm(b['id'])                                                 # the owner read B
         assert _raw_confirmed(store, b['id']) == 1
-        shown = _named_runs(store, 's', fill_outside=True)
-        c = _named(store, shown, 'nav', 'type', 'fill')
-        assert (c['state'], c['confirmed']) == ('quarantined', False) and c['requarantined']
-        assert [data['confirmed_id'] for _, data in noted] == [b['id']]      # compared with B, confirmed by hand
-        store.confirm(c['id'])                                                 # the owner read C
-        d = _named(store, shown, 'nav', 'type', 'fill', ui='d')               # C's actions: the confirm carries
-        assert (d['state'], d['confirmed']) == ('learned', True) and len(noted) == 1
+        c = _named(store, _named_runs(store, 's', fill_outside=True), 'nav', 'type', 'fill')
+        assert (c['state'], c['confirmed']) == ('learned', True) and noted == []
     finally:
         db.close()
 
 
-def _click_runs(store, prefix):
-    """Three verified runs, each typing its dish (FERB's own step) and clicking a send button only the page showed
-    (built on outside content), with that run's own tab and element ids."""
+ORDERS, BILLING = 'orders@shop.example', 'billing@shop.example'
+
+
+def _send_runs(store, prefix, address=ORDERS, dishes=REVISION_DISHES):
+    """Verified runs, each typing its dish (FERB's own step), then the address only the page showed and a click on its
+    send button (both built on outside content), with that run's own tab and element ids."""
     return [store.put('episode', f'{prefix}{n}', {
         'task_id': f'{prefix}{n}', 'verified': True, 'request': f'order {dish}', 'apps': {}, 'slots': {},
         'status': 'done', 'actions': [
             {'id': f'{prefix}{n}-type', 'tool': 'browser.type', 'args': {'text': dish}, 'outside_action': False},
+            {'id': f'{prefix}{n}-to', 'tool': 'browser.type', 'outside_action': True,
+             'args': {'tab': f't{n + 3}', 'element': f's{n + 1}e2', 'text': address}},
             {'id': f'{prefix}{n}-click', 'tool': 'browser.act', 'outside_action': True,
              'args': {'tab': f't{n + 3}', 'element': f's{n + 1}e5', 'action': 'click'}}]},
-        [], origin_label='ferb', made_by=CARD_MAKER, state='active') for n, dish in enumerate(REVISION_DISHES)]
+        [], origin_label='ferb', made_by=CARD_MAKER, state='active') for n, dish in enumerate(dishes)]
 
 
-def _click_procedure(store, cards, *, ui=''):
-    steps = [{'tool': 'browser.type', 'args': {'text': '{dish}'}, 'expect': 'typed', 'optional': False,
-              'evidence': [f"{c['body']['task_id']}-type" for c in cards]},
-             {'tool': 'browser.act', 'args': {'tab': 't1', 'element': 's1e1', 'action': 'click'}, 'expect': 'sent',
-              'optional': False, 'evidence': [f"{c['body']['task_id']}-click" for c in cards]}]
+def _send_procedure(store, cards, address=ORDERS):
+    def step(tool, args, name):
+        return {'tool': tool, 'args': args, 'expect': 'ok', 'optional': False,
+                'evidence': [f"{c['body']['task_id']}-{name}" for c in cards]}
+    steps = [step('browser.type', {'text': '{dish}'}, 'type'),
+             step('browser.type', {'tab': 't1', 'element': 's1e1', 'text': address}, 'to'),
+             step('browser.act', {'tab': 't1', 'element': 's1e1', 'action': 'click'}, 'click')]
     return store.propose_procedure({'intent': 'order food', 'slots': {'dish': 'string'}, 'preconditions': {'apps': {}},
-                                    'ui_hints': ui, 'steps': steps,
+                                    'ui_hints': '', 'steps': steps,
                                     'examples': [{'episode': c['id'], 'slots': {'dish': c['body']['request'][6:]}}
                                                  for c in cards]},
-                                   'b-' + ui + '-'.join(c['body']['task_id'] for c in cards), 'model:test',
+                                   'b-' + '-'.join(c['body']['task_id'] for c in cards), 'model:test',
                                    intent_id='i-order')
 
 
-@pytest.mark.parametrize('runs', ['other', 'added'])
-def test_a_confirmed_outside_click_carries_only_to_a_step_citing_the_same_actions(tmp_path, runs):
-    """Final review M4: steps store handle kinds, so every click {tab: <tab>, element: <element>} looked equal, and the
-    owner's confirm of one outside-built click carried to a revision's click built on other runs (another site's form
-    declared to send). The confirm carries only when the step's origin is unchanged (each outside-built action it
-    cites is one the confirmed step cited; FERB's own steps need no confirm) and its arguments are equal beyond handle
-    kinds; otherwise it is asked again (quarantined, said). `runs`: the revision learns from other runs alone, or from
-    the confirmed runs plus new ones."""
+def test_a_confirm_carries_to_more_runs_of_the_same_steps_and_never_to_a_changed_step(tmp_path):
+    """Coordinator ruling on the final fix (concern 1), replacing final review M4's cited-actions condition, which
+    quarantined a confirmed procedure again after every run (each revision cites the new run's actions): the confirm
+    carries when each outside-built step has a confirmed step with the same tool and the same arguments, apart from
+    handle kinds and slot values. One more run of the same steps keeps it (its own tab and element ids, its own dish);
+    a step whose text changed (the page gave another address) asks again, quarantined and said."""
     db, store, _, noted = _revision_store(tmp_path)
     try:
-        first = _click_runs(store, 'a')
-        confirmed = _click_procedure(store, first)
+        first = _send_runs(store, 'a')
+        confirmed = _send_procedure(store, first)
         assert confirmed['state'] == 'quarantined'
         store.confirm(confirmed['id'])
-        reworded = _click_procedure(store, first, ui='the send button is at the bottom')     # the same actions
-        assert (reworded['state'], reworded['confirmed'], noted) == ('learned', True, [])
-        others = _click_runs(store, 'z') if runs == 'other' else first + _click_runs(store, 'y')
-        revised = _click_procedure(store, others)
-        assert (revised['state'], revised['confirmed']) == ('quarantined', False) and revised['requarantined']
+        more = _send_procedure(store, first + _send_runs(store, 'b', dishes=('biryani',)))
+        assert (more['state'], more['confirmed'], _raw_confirmed(store, more['id']), noted) == ('learned', True, 2, [])
+        changed = _send_procedure(store, _send_runs(store, 'c', address=BILLING), address=BILLING)
+        assert (changed['state'], changed['confirmed']) == ('quarantined', False) and changed['requarantined']
         assert noted == [('memory.procedure_requarantined', {
-            'procedure_id': revised['id'], 'revises': reworded['id'], 'confirmed_id': confirmed['id'],
+            'procedure_id': changed['id'], 'revises': more['id'], 'confirmed_id': confirmed['id'],
             'reason': 'a step built on outside content that the version the owner confirmed did not have'})]
     finally:
         db.close()

@@ -2022,10 +2022,10 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   current version too. Receipts are read across versions rather than copied forward on `put`: one record per run, and
   rollback and forget apply at read time. `propose_procedure` carries a confirm to a revision of a confirmed version
   whose steps built on outside content (a step citing an outside action, "Outside actions" above) were all steps of the
-  version the owner confirmed by hand: the same tool and template arguments as stored (equal beyond handle kinds) and
-  an unchanged origin, each outside-built action the step cites being one that step cited (final review M4: every
-  click `{tab: <tab>, element: <element>}` is equal by kinds, so a click built on another run's page carried the
-  confirm; a revision that learns from new runs therefore asks again for its outside steps) (`_hand_confirmed`: walking
+  version the owner confirmed by hand: the same tool and template arguments as stored, apart from handle kinds and
+  slot values, whatever runs it cites (coordinator ruling on the L36 final fix: a revision learning from one more run
+  of the same steps keeps the confirm; final review M4's condition on the cited actions quarantined a confirmed
+  procedure again after every run; the residual: by kind, any click equals any click) (`_hand_confirmed`: walking
   `supersedes` back through carried confirms to the nearest one the owner gave; none when it was rolled back or is
   gone). A carried confirm is stored as `confirmed` 2 (`get` reports a bool, so search, the dashboard and `confirmable`
   see True), so it never counts as the owner's own; the owner's `confirm` stores 1, also over a carried one
