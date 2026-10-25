@@ -102,6 +102,13 @@ def trusted_requirement(requirement: str, *, pinned_ok: bool) -> bool:
     return pinned_ok and re.fullmatch(r'cdhash H"[0-9a-f]{40}"', requirement) is not None
 
 
+def certificate_leaf(requirement: str) -> str | None:
+    """The certificate a requirement of exactly FERB's release form pins (scripts/signing.sh: `identifier "…" and
+    certificate leaf = H"<SHA-1>"`), as a lowercase SHA-1; None for any other requirement."""
+    m = re.fullmatch(r'identifier "[^"]+" and certificate leaf = H"([0-9a-fA-F]{40})"', requirement.strip())
+    return m.group(1).lower() if m else None
+
+
 def read_only_volume(path: Path) -> bool:
     return bool(os.statvfs(path).f_flag & os.ST_RDONLY)
 
@@ -419,8 +426,9 @@ class Installer:
     def sealed_requirement(self, code: Path, nested: str) -> str:
         """The requirement to pin for `code`, a copy of FERB.app's nested `nested` (check_bundle verified the app's own
         signature first): only if it is exactly the code that signature seals (the same code hash), and then its
-        code hash (ad-hoc) or a Developer ID requirement naming FERB.app's own team. A merely valid signature, or
-        another team's, is refused."""
+        code hash (ad-hoc), FERB's release requirement naming the very certificate FERB.app carries (L34), or a
+        Developer ID requirement naming FERB.app's own team. A merely valid signature, another certificate or
+        another team is refused."""
         assert self.bundle is not None
         sealed = sealed_cdhash(self.bundle, nested)
         shown = self.run(['/usr/bin/codesign', '-dv', '--verbose=4', str(code)])
@@ -432,10 +440,15 @@ class Installer:
         team = codesign_field((app.stdout or '') + (app.stderr or ''), 'TeamIdentifier')
         if requirement == f'cdhash H"{sealed}"':
             return requirement
+        own = self.run(['/usr/bin/codesign', '-d', '-r-', str(self.bundle)])
+        leaf = certificate_leaf(designated_requirement((own.stdout or '') + (own.stderr or '')))
+        if leaf is not None and certificate_leaf(requirement) == leaf:
+            return requirement
         if (team and team != 'not set' and 'anchor apple generic' in requirement
                 and re.search(rf'certificate leaf\[subject\.OU\] = "?{re.escape(team)}"?(\s|\)|$)', requirement)):
             return requirement
-        raise InstallError(f"{code.name} is pinned by neither its exact code hash nor FERB.app's Developer ID team")
+        raise InstallError(f"{code.name} is pinned by neither its exact code hash nor FERB.app's own certificate "
+                           "or Developer ID team")
 
     def _record_requirement(self, binary: Path, requirement: str) -> None:
         binary.chmod(0o700)

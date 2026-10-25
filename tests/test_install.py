@@ -328,6 +328,50 @@ def test_bundle_secret_helper_with_a_developer_id_must_carry_the_apps_own_team(t
         inst.install_secret_helper()
 
 
+LEAF = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _release(identifier: str, leaf: str = LEAF) -> str:
+    """The designated requirement scripts/signing.sh gives a release-signed piece (L34)."""
+    return f'identifier "{identifier}" and certificate leaf = H"{leaf}"'
+
+
+def test_bundle_secret_helper_signed_with_ferb_apps_own_certificate_is_pinned_to_that_certificate(
+        tmp_path: Path) -> None:
+    """FERB's release signing (L34): the helper's requirement names FERB.app's own certificate, so the next version,
+    signed with the same certificate, still meets it."""
+    inst = bundled(tmp_path, requirement=_release("com.ferb.secrets"),
+                   app_requirement=_release("com.ferb.FERB", LEAF.upper()))          # case doesn't matter
+    inst.install_secret_helper()
+    assert (inst.home / "bin" / "ferb-secrets.requirement").read_text().strip() == _release("com.ferb.secrets")
+    refused = (_release("com.ferb.secrets", "f" * 40),                              # another certificate
+               _release("com.ferb.secrets") + " or anchor apple",                   # anything added to the form
+               f'certificate leaf = H"{LEAF}"')                                      # no identifier
+    for i, requirement in enumerate(refused):
+        inst = bundled(tmp_path / str(i), requirement=requirement, app_requirement=_release("com.ferb.FERB"))
+        with pytest.raises(InstallError, match="neither"):
+            inst.install_secret_helper()
+    inst = bundled(tmp_path / "adhoc", requirement=_release("com.ferb.secrets"), app_requirement=PINNED)
+    with pytest.raises(InstallError, match="neither"):                              # the app carries no certificate
+        inst.install_secret_helper()
+
+
+def test_an_update_signed_with_the_same_certificate_keeps_the_pinned_requirements(tmp_path: Path) -> None:
+    """Build N+1 replaces build N in place: other code hashes, the same certificate. The recorded requirement is
+    unchanged, so the secret helper's check (ferb/identity/helper.py) and its Keychain access carry over."""
+    import shutil
+    inst = bundled(tmp_path, requirement=_release("com.ferb.secrets"), app_requirement=_release("com.ferb.FERB"))
+    inst.install()
+    pinned = (inst.home / "bin" / "ferb-secrets.requirement").read_text()
+    assert inst.bundle is not None
+    shutil.rmtree(inst.bundle)                                                       # the owner replaced FERB.app
+    newer = "9" * 40
+    make_ferb_app(inst.bundle.parent, build="202610260900", sealed=newer)
+    inst.run.cdhash = newer  # type: ignore[attr-defined]
+    inst.install(update_only=True)
+    assert (inst.home / "bin" / "ferb-secrets.requirement").read_text() == pinned
+
+
 def test_cli_link_never_replaces_a_ferb_that_ferb_app_did_not_make(tmp_path: Path) -> None:
     inst = bundled(tmp_path)
     (tmp_path / "bin").mkdir()

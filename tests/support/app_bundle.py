@@ -37,21 +37,25 @@ def make_ferb_app(root: Path, build: str = "202610140201", bundle_id: str = "com
 
 class BundleRunner(FakeRunner):
     """FakeRunner, plus codesign answers for FERB.app's code and copies of it: code hash `cdhash` and designated
-    requirement `requirement` (ad-hoc by default), the app's Team ID `team` (None: ad-hoc); `bad_signature` makes
-    `codesign --verify` fail; the linked Codex reports `codex_version`."""
+    requirement `requirement` (ad-hoc by default), the app bundle's own requirement `app_requirement` (None: the same
+    `requirement`), the app's Team ID `team` (None: ad-hoc); `bad_signature` makes `codesign --verify` fail; the
+    linked Codex reports `codex_version`."""
 
     def __init__(self, home: Path, bad_signature: bool = False, codex_version: str = "", cdhash: str = CDHASH,
-                 requirement: str = PINNED, team: str | None = None) -> None:
+                 requirement: str = PINNED, team: str | None = None, app_requirement: str | None = None) -> None:
         super().__init__(home)
         self.bad_signature, self.codex_version = bad_signature, codex_version
         self.cdhash, self.requirement, self.team = cdhash, requirement, team
+        self.app_requirement = app_requirement
 
     def __call__(self, cmd: list[str]) -> "subprocess.CompletedProcess[str]":
         if cmd[0].endswith("codesign") and "-r-" in cmd:
             self.cmds.append(cmd)
-            prefix = "# " if self.requirement.startswith("cdhash") else ""
+            is_app = Path(cmd[-1]).name == "FERB.app" and "/Contents/" not in cmd[-1]   # not the nested agent
+            requirement = self.app_requirement if is_app and self.app_requirement is not None else self.requirement
+            prefix = "# " if requirement.startswith("cdhash") else ""
             return subprocess.CompletedProcess(cmd, 0, "", f"Executable={cmd[-1]}\n{prefix}designated => "
-                                                           f"{self.requirement}\n")
+                                                           f"{requirement}\n")
         if cmd[0].endswith("codesign") and "-dv" in cmd:
             self.cmds.append(cmd)
             signer = f"Authority=Developer ID Application: Owner ({self.team})\n" if self.team else "Signature=adhoc\n"
