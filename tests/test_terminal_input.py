@@ -1127,7 +1127,6 @@ def test_the_run_label_window_walk_past_its_budget_cant_tell_and_asks(monkeypatc
     """Round 4, N6: the Run… label rule walks the element's window for a terminal within 2,000 elements and 200 ms.
     Past either it can't tell, which counts as hosting one: the press asks, never goes unasked. A walk that ends in
     time without a terminal asks nothing."""
-    import itertools
     from types import SimpleNamespace
 
     import ferb.act.mac.driver as drv
@@ -1140,11 +1139,13 @@ def test_the_run_label_window_walk_past_its_budget_cant_tell_and_asks(monkeypatc
     assert d.terminal_input("DevTool", press, "t1") is None                      # a small window, no terminal
     walked: list[int] = []
 
-    def endless(el: Any) -> Any:
-        for i in itertools.count():
+    def oversized(el: Any) -> Any:
+        # Far past the budget but finite: a walk that lost its budget fails here, never runs on. An endless window
+        # here ran a whole suite out of memory on 2026-10-25 (about 110 GB) against the walk before its budget.
+        for i in range(20 * drv.WINDOW_WALK_NODES):
             walked.append(i)
             yield {"role": "AXGroup"}
-    ax.window_facts = endless                                                    # type: ignore[method-assign]
+    ax.window_facts = oversized                                                  # type: ignore[method-assign]
     inp = d.terminal_input("DevTool", press, "t1")
     assert inp is not None and inp.runs and inp.control == "Run report" and len(walked) <= 2001
     with pytest.raises(Refused, match=UNASKED):

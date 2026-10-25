@@ -355,9 +355,17 @@ def done(summary: str = "ok") -> str:
     return json.dumps({"status": "done", "summary": summary, "artifacts": [], "evidence": []})
 
 
+# The supervisor's attempt loop runs while the next-attempt choice says retry or recheck (no retry cap: the
+# orchestrator decides). A scripted choice given as one answer, not a list, is served at most this often per key, so a
+# script that goes off its path ends with a failed choice instead of retrying forever (2026-10-25: a constant "retry"
+# looped test_supervisor and grew a 1.7 GB test database).
+SCRIPTED_DISPATCH_REPEATS = 20
+
+
 class Script:
     def __init__(self, supervisor: list[Any], workers: dict[str, Any]) -> None:
         self.sup, self.workers = supervisor, workers
+        self.served: dict[str, int] = {}      # key -> times a single (non-list) scripted choice was given
         self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
         self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
@@ -392,7 +400,14 @@ class Script:
                 return look
             return final
         w = self.workers[key]
-        return w.pop(0) if isinstance(w, list) else w
+        if isinstance(w, list):
+            return w.pop(0)
+        if key.endswith('.dispatch'):
+            self.served[key] = self.served.get(key, 0) + 1
+            if self.served[key] > SCRIPTED_DISPATCH_REPEATS:
+                raise AssertionError(f"the scripted choice for {key} was asked more than {SCRIPTED_DISPATCH_REPEATS} "
+                                     "times: the test's script would answer forever (give a list of choices)")
+        return w
 
 
 # WARNING: every scripted .verify step gets met=True for FERB's report condition unless the test sets

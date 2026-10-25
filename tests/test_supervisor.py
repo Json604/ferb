@@ -191,7 +191,7 @@ def test_a_worker_that_didnt_load_its_tools_gets_one_more_run(daemon: RunningDae
     def second(token: str) -> str:
         seen.append("second run")
         return writes(daemon.sock, "x.md", "ok")(token)
-    script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))], {"worker": [gave_up, second], "worker.dispatch": json.dumps({"action":"retry", "worker_type":"default", "instructions":"Load tools with tool_search before continuing.", "question":""})})
+    script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))], {"worker": [gave_up, second], "worker.dispatch": [json.dumps({"action":"retry", "worker_type":"default", "instructions":"Load tools with tool_search before continuing.", "question":""})]})
     chat(daemon, "write x.md in your workspace")
     assert seen == ["second run"] and (daemon.daemon.home / "workspace" / "x.md").read_text() == "ok"
     worker_ctx = [c[2] for c in script.contexts if c[1] == "worker"]
