@@ -164,7 +164,7 @@ extension NotchModel {
                 workSessions = workSessions.filter { $0.value.backendTaskID != taskID }
                 for turn in conversation.turns where turn.backendTaskID == taskID && ["working", "needs_user"].contains(turn.status) {
                     conversation.finish(id: turn.id, answer: turn.answer, status: "interrupted", artifacts: turn.artifacts,
-                        displayText: turn.displayText, verified: turn.isVerified)
+                        displayText: turn.displayText, verified: turn.isVerified, inferred: true)
                 }
                 saveConversation()
             }

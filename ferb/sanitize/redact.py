@@ -2,6 +2,8 @@
 
 import bisect
 import codecs
+import functools
+import json
 import re
 import unicodedata
 from typing import Any, Callable, Iterable, Iterator
@@ -85,6 +87,22 @@ def sealed(value: str) -> str:
     if isinstance(value, SealedWord) or _spaceless(value) or not ordinary_word(value):
         return value
     return SealedWord(value)
+
+
+@functools.lru_cache(maxsize=1024)
+def _escaped(value: str, word: bool) -> tuple[str, ...]:
+    forms = dict.fromkeys((json.dumps(value, ensure_ascii=False)[1:-1], json.dumps(value)[1:-1],
+                           value.encode("unicode_escape").decode()))
+    forms.pop(value, None)
+    return tuple(SealedWord(f) if word else f for f in forms)
+
+
+def escaped_forms(value: str) -> tuple[str, ...]:
+    """How a sealed value reads once escaped, when that differs from the value (L35 review 1, I1): inside JSON (a
+    `"`, `\\` or control character escaped; `ensure_ascii` too), and in a repr (`unicode_escape`). A `SealedWord`'s
+    forms are `SealedWord`s, so each keeps its whole-word rule (L36 §7). A value of plain ASCII without those
+    characters has none."""
+    return _escaped(str(value), isinstance(value, SealedWord))
 
 
 def id_bodies(s: str, *, keyed: bool = False) -> list[tuple[int, int]]:
@@ -892,8 +910,10 @@ class Redactor:
             self._temporary[value] = count - 1
 
     def secret_values(self) -> set[str]:
-        """Every registered value as it is kept: a `SealedWord` for an ordinary word, else the plain value."""
-        return self._values | self._temporary.keys()
+        """Every registered value as it is kept (a `SealedWord` for an ordinary word, else the plain value), and each
+        one's escaped forms (`escaped_forms`), so a value rendered inside JSON or a repr is matched too."""
+        held = self._values | self._temporary.keys()
+        return held | {form for value in held for form in escaped_forms(value)}
 
     def configure(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
         """Change the exclusions in place: the journal, spans and gateway hold this instance, so it must stay one."""

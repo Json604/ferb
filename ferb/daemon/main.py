@@ -4606,15 +4606,20 @@ class Daemon:
                         self._attached_trees.discard(ev["task_id"])
                     await queue.put(ev)
             except FerbError as e:
+                # the turn ended failed, recorded as every turn failure is, so Send to developer works on it (L35)
+                self._journal().append("chat.failed", {"request_id": request_id, "why": self._redact_text(str(e))})
                 await queue.put(stamped({"type": "error", "text": str(e)}))
             except Exception as e:      # logged whole; the owner reads its reason (owner 2026-10-24), never "Sorry"
                 self._journal().append("chat.failed", {"request_id": request_id,
                                                        "why": f"{type(e).__name__}: {self.redact(str(e))}"})
                 # no task of this turn had started (none named in its events: a task's plan line comes before its
                 # work), or one may have been under way
-                said = couldnt("finish that" if my_tasks else "start that", e, self.redact)
-                # the turn ended failed: the notch offers Send to developer on it (L35)
-                await queue.put(stamped({"type": "reply", "text": self.redact(said), "status": "failed"}))
+                said = self.redact(couldnt("finish that" if my_tasks else "start that", e, self.redact))
+                # in the conversation record too, as `_failure_reply` keeps its own (L21); the turn ended failed: the
+                # notch offers Send to developer on it (L35)
+                self._journal().append("chat.reply", {"session_id": session_id, "request_id": request_id,
+                                                      "text": said})
+                await queue.put(stamped({"type": "reply", "text": said, "status": "failed"}))
             finally:
                 if screen is not None and not screen.done():   # the turn ended before routing used it
                     screen.cancel()
@@ -4750,18 +4755,20 @@ class Daemon:
         return {"task_id": task_id, "verdict": verdict}
 
     async def _reports_build(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Send to developer (L35): the report file of a task that ended failed or interrupted, or of a turn a planning
-        failure ended, with the feedback address and subject for a new email in the owner's own Mail app. FERB sends
-        nothing. `app_version`: the notch's version, when it passes one."""
+        """Send to developer (L35): the report file of a turn FERB recorded as ending badly (`reports.failure`), with
+        the feedback address and subject for a new email in the owner's own Mail app. FERB sends nothing. Params: the
+        turn's `task_id` and `request_id`, whichever the notch holds, and `app_version`, the notch's version."""
         from ferb.daemon import reports
         from ferb.runtimes.catalog import CATALOG, ROLES
-        if self.db is None or self.spans is None:
+        if self.db is None:
             raise FerbError("daemon not started")
         address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
         if not address:
             raise FerbError("No feedback address set")
-        found = reports.failure(self.db, self._resolve_root_task(str(params.get("task_id") or "")))
-        trace = {"task_id": found.task_id, "spans": self.spans.tree_json(found.task_id)}
+        text = getattr(self.redact, "text", None)
+        if not callable(text):                # never written unredacted (review 1, M4)
+            raise FerbError("FERB couldn't redact the report, so it wrote none")
+        task_id = self._resolve_root_task(str(params.get("task_id") or ""))
         runtimes = []
         for role in ROLES:
             name = self._runtime_for(role)
@@ -4770,8 +4777,10 @@ class Daemon:
         bridges = self.hub.bridges.items() if self.hub is not None else []
         facts = {"runtimes": runtimes,
                  "extensions": [f"{browser} {folder}: {br.version}" for (browser, folder), br in bridges if br.version]}
-        built = await asyncio.to_thread(reports.build, found, trace, facts, home=self.home, now=self.clock.now(),
-                                        redact=self._redact_text, app_version=str(params.get("app_version") or ""))
+        found, built = await asyncio.to_thread(
+            reports.report, self.db.path, task_id, str(params.get("request_id") or ""), facts, home=self.home,
+            now=self.clock.now(), clock=self.clock, ids=self.ids, walk=self.redact, text=text,
+            app_version=str(params.get("app_version") or ""))
         self._journal().append("report.built", {"task_id": found.task_id, "file": built["path"]})
         return {**built, "address": address}
 

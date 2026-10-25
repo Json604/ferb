@@ -56,6 +56,37 @@ final class FailureReportTests: XCTestCase {
         XCTAssertFalse(answered.offersReport)
     }
 
+    /// Review 1, I2(c): an `interrupted` the notch inferred itself (the task is no longer running and FERB has no
+    /// confirmed final response) is no record that the turn ended badly, so it offers no button; the daemon's own
+    /// `interrupted` (a restart) still does, and a confirmed answer later clears the inference.
+    func testAnInterruptionTheNotchInferredOffersNoButton() async throws {
+        let rpc = ReportRPC()
+        rpc.responses["chat.status"] = ["running": [[String: Any]](), "approvals": [[String: Any]](),
+                                        "results": [[String: Any]]()]
+        rpc.responses["trace.get"] = ["outcome": [String: Any]()]
+        let model = makeModel(rpc)
+        let id = begin("Rename the invoices", in: model)
+        model.receiveChatEvent(["type": "ack", "request_id": "req-9", "text": "On it.", "at": at], localID: id)
+        model.receiveChatEvent(["type": "plan", "request_id": "req-9", "task_id": "task-9", "text": "Renaming.",
+                                "goal": "Rename", "at": at], localID: id)
+        model.finishSubmission(localID: id)
+        await model.refreshDaemonStatus()
+        let inferred = try XCTUnwrap(model.conversation.turns.first { $0.id == id })
+        XCTAssertEqual(inferred.status, "interrupted")
+        XCTAssertEqual(inferred.statusInferred, true)
+        XCTAssertFalse(inferred.offersReport)
+        // The inference is saved with the turn, so a restart doesn't turn it into FERB's record.
+        let saved = try JSONDecoder().decode(ConversationArchive.self,
+                                             from: JSONEncoder().encode(model.conversation.forStorage()))
+        XCTAssertFalse(try XCTUnwrap(saved.turns.first { $0.id == id }).offersReport)
+        // FERB's own word on it replaces the inference.
+        model.receiveOutcome(["task_id": "task-9", "request_id": "req-9", "status": "interrupted",
+                              "answer": "This was interrupted when FERB restarted."], announce: false)
+        let recorded = try XCTUnwrap(model.conversation.turns.first { $0.id == id })
+        XCTAssertNil(recorded.statusInferred)
+        XCTAssertTrue(recorded.offersReport)
+    }
+
     func testTaskOutcomesOfferTheButtonOnlyWhenFailedOrInterrupted() {
         for (status, offered) in [("failed", true), ("interrupted", true), ("done", false), ("cancelled", false),
                                   ("done_unverified", false), ("needs_user", false)] {
@@ -78,6 +109,7 @@ final class FailureReportTests: XCTestCase {
 
         let call = try XCTUnwrap(rpc.calls.first { $0.0 == "reports.build" })
         XCTAssertEqual(call.1["task_id"] as? String, "task-1")
+        XCTAssertEqual(call.1["request_id"] as? String, "req-1")
         XCTAssertEqual(rpc.waits["reports.build"], NotchModel.reportWait)
         let mail = try XCTUnwrap(mailer.composed.first)
         XCTAssertEqual(mail.recipients, ["reports@example.org"])
@@ -167,10 +199,15 @@ final class FailureReportTests: XCTestCase {
         return id
     }
 
+    /// A turn as the notch holds it after its task failed: bound to its request at `ack` and to its task at `plan`.
     private func failedTurn(in model: NotchModel) -> ConversationTurn {
-        model.receiveOutcome(["task_id": "task-1", "status": "failed", "goal": "Rename the invoices",
-                              "answer": "I couldn't finish that: the folder was protected."], announce: false)
-        return model.conversation.turns[0]
+        let id = begin("Rename the invoices", in: model)
+        model.receiveChatEvent(["type": "ack", "request_id": "req-1", "text": "On it.", "at": at], localID: id)
+        model.receiveChatEvent(["type": "plan", "request_id": "req-1", "task_id": "task-1", "text": "Renaming.",
+                                "goal": "Rename", "at": at], localID: id)
+        model.receiveChatEvent(["type": "outcome", "request_id": "req-1", "task_id": "task-1", "status": "failed",
+                                "answer": "I couldn't finish that: the folder was protected.", "at": at], localID: id)
+        return model.conversation.turns.first { $0.id == id }!
     }
 
     private func settle() async {

@@ -30,6 +30,9 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var liveLine: LiveProgress? = nil
     /// The question FERB asked (a `needs_user` answer), kept where it was shown once the final answer arrives.
     public var question: String?
+    /// The notch inferred this turn's status itself (`interrupted`: its stream ended or its task stopped running with
+    /// no confirmed answer from FERB); nil once FERB's own answer arrives. Saved, so a restart keeps it an inference.
+    public var statusInferred: Bool?
     /// The daemon's goal for a task this chat didn't send (reconnected, recovered or started elsewhere); empty when
     /// unknown. Such a turn has no owner message: the goal is FERB's description, never words the owner typed.
     public var taskGoal: String?
@@ -39,11 +42,12 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     /// What a report about this answer names (L35): its task, or its request when a planning failure ended the turn
     /// before any task existed.
     public var reportID: String? { backendTaskID ?? requestID }
-    /// Whether the answer offers Send to developer (L35): its task ended failed or interrupted, or a planning failure
-    /// ended the turn (the daemon's reply says `failed`). A draft the notch cut off before FERB confirmed it
-    /// (`interrupted` with no task) is the notch's own interruption, no task's.
+    /// Whether the answer offers Send to developer (L35), by the rule the daemon's `reports.failure` applies: FERB
+    /// recorded that the turn ended badly (its task ended failed or interrupted, or its turn failed: the reply or
+    /// error says so). A status the notch inferred itself (`statusInferred`; a draft cut off before FERB confirmed it,
+    /// `interrupted` with no task, saved before that flag existed) is no such record.
     public var offersReport: Bool {
-        guard reportID != nil else { return false }
+        guard reportID != nil, statusInferred != true else { return false }
         return status == "failed" || (status == "interrupted" && backendTaskID != nil)
     }
     /// FERB's lines above the answer, in the order shown: the acknowledgement, then the plan line.
@@ -53,7 +57,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
-        case requestID, ack, plan, verified, question, taskGoal
+        case requestID, ack, plan, verified, question, taskGoal, statusInferred
     }
 }
 
@@ -353,6 +357,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].answer = ""
         turns[index].responseNotice = nil
         turns[index].status = "working"
+        turns[index].statusInferred = nil
     }
 
     public mutating func abortReply(id: UUID, reason: String) {
@@ -360,6 +365,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].answer = ""
         turns[index].responseNotice = reason.isEmpty ? "The draft was interrupted. Waiting for FERB’s final response." : reason
         turns[index].status = "interrupted"
+        turns[index].statusInferred = true
         turns[index].liveLine = nil
     }
 
@@ -372,9 +378,9 @@ public struct ConversationArchive: Codable, Equatable {
     /// Records a turn's answer and removes its live line. A turn's first answer that arrives after later entries
     /// is shown at the bottom as a reply quoting the question (L6); the turn itself then reads "answered below".
     /// The final answer to a question FERB asked (`needs_user`) is placed the same way, and the question stays where
-    /// it was shown.
+    /// it was shown. `inferred`: the notch inferred `status` itself, with no answer from FERB (`statusInferred`).
     public mutating func finish(id: UUID, answer: String, status: String, artifacts: [URL], displayText: String? = nil,
-                                verified: Bool = false, at date: Date = Date()) {
+                                verified: Bool = false, inferred: Bool = false, at date: Date = Date()) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
         let before = turns[index].status
         let firstAnswer = Self.awaitingAnswer.contains(before) && !Self.awaitingAnswer.contains(status)
@@ -386,6 +392,7 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].artifacts = artifacts
         turns[index].responseNotice = nil
         turns[index].verified = verified
+        turns[index].statusInferred = inferred ? true : nil
         turns[index].liveLine = nil
         guard firstAnswer || afterQuestion, let newest = turns.last else { return }
         if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }

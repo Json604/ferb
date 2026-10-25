@@ -3409,33 +3409,50 @@ Geometry only: nothing about what the action does or says leaves the tool.
 
 The owner's cut of `docs/superpowers/specs/2026-10-24-failure-reports-design.md` (2026-10-25): no notification after
 each failure, no per-part review sheet, no screenshots. FERB writes a file and opens a new email; the owner sends it.
-- **Which answers.** `ConversationTurn.offersReport` (NotchCore): status `failed`, or `interrupted` with a task. A
-  turn a planning failure ended has no task: the supervisor's `_failure_reply`, and the daemon's own catch-all in
-  `chat.send`, now carry `status: "failed"` on their `reply` event, so the notch records the turn failed (with the
-  attention sound) and names the report by its request id (`reportID`: task id, else request id). A draft the notch
-  cut off itself (`interrupted`, no task) offers none.
-- **The RPC.** `reports.build {task_id, app_version?}` (Role.CLI, `Daemon._reports_build`): `[feedback] address`
-  (default `reports.FEEDBACK_ADDRESS`, `ktky.attri@gmail.com`; empty refuses "No feedback address set"); then
-  `reports.failure` reads FERB's records: a root task whose status is `failed` or `interrupted` (its outcome's summary
-  is the reason, its answer or `task_results` answer is FERB's answer), or a request with a `chat.failed` journal row
-  (status "planning failed", its `chat.reply` the answer); anything else is refused with the reason. The trace is
-  `SpanStore.tree_json(id)` on the loop (`_task_rows` now also takes an id that is no task's as a request id, so a
-  failed request's planner turns are found); the rest runs in a thread: `reports.build` renders the file with
-  `ferb.cli.admin.render_trace(trace, full=True)` (the `ferb trace TASK --full` renderer), redacts the whole text with
-  the daemon's `Redactor.text` (sealed values included), deletes FERB's own reports older than 30 days (by name and
-  mtime), and writes `~/.ferb/reports/FERB-report-<local date>-<id>.txt` (folder 0700, file 0600, temp file then
+- **One rule (review 1, I2).** An answer offers Send to developer exactly when FERB recorded that its turn ended
+  badly: its root task's row is `failed` or `interrupted`, or its request has a `chat.failed` journal row. The daemon
+  journals `chat.failed` on every turn failure: the supervisor's planning failures, `chat.send`'s FerbError branch
+  (the `error` event) and its catch-all (which also journals its reply as `chat.reply`, as `_failure_reply` does). A
+  failed turn's `reply` event carries `status: "failed"`, so the notch records it failed (with the attention sound).
+  `ConversationTurn.offersReport` (NotchCore): status `failed`, or `interrupted` with a task, unless the notch inferred
+  the status itself (`statusInferred`, saved with the turn: `reconcileMissingTask`'s "no confirmed final response",
+  a draft cut off by `abortReply`); FERB's own answer clears it.
+- **The RPC.** `reports.build {task_id?, request_id?, app_version?}` (Role.CLI, `Daemon._reports_build`). The notch
+  sends both ids the turn holds (an earlier notch sent the task alone, or the request as the task). It refuses with
+  "No feedback address set" when `[feedback] address` (default `reports.FEEDBACK_ADDRESS`, `ktky.attri@gmail.com`) is
+  empty, and writes nothing unless the daemon's redactor has a text path (review 1, M4). The whole build runs in a
+  thread on a database connection of its own (`reports.report`, review 1, M1). `reports.failure` applies the rule:
+  a qualifying root task (its outcome's summary is the reason, its answer or `task_results` answer is FERB's answer),
+  else the request's `chat.failed` row (the given request, or the task row's own request; status "turn failed", the
+  task's status beside it when the turn had one, its `chat.reply` or `task_results` answer the answer and reason, else
+  the row's `why`); anything else is refused with the reason. The trace is `SpanStore.tree_json(id)` (`_task_rows`
+  takes an id that is no task's as a request id, so a failed request's planner turns are found). `reports.build`
+  passes each span's recorded content (`input`, `output`, `error`, `summary`) through the daemon's structural
+  redaction (`Redactor.__call__`, which sees every value unescaped, as at capture), renders it with
+  `ferb.cli.admin.render_trace(trace, full=True)` (the `ferb trace TASK --full` renderer), then redacts each span's
+  block and each section as text (`Redactor.text`). Small pieces keep the loop's share of the interpreter: a 30 MB
+  trace stalled the loop 0.03 s at most (2.5 s as one pass). It deletes FERB's own reports older than 30 days (by name
+  and mtime) and writes `~/.ferb/reports/FERB-report-<local date>-<id>.txt` (folder 0700, file 0600, temp file then
   rename). It returns `{path, subject: "FERB report: <first line of the reason, 80 chars>", summary, address}` and
   journals `report.built` (`task_id`, `file`). Sections, in order: Summary (FERB, macOS, notch and connected extension
-  versions, each role's runtime and model, status, reason, started, ended, duration), Request (the `chat.message` text,
-  else the goal; FERB's answer), Steps, Recent FERB errors (`logs/daemon.err.log`, last 200 lines, read from its end).
-- **Waiting.** Redaction costs about 0.4 s per MB (a 12.6 MB trace: 5 s; the owner's largest failed task holds 41.6 MB
-  of span records), so the notch calls it with `DaemonRPCTransport.call(_:params:wait:)` (120 s,
-  `NotchModel.reportWait`) and the server's slow-call record uses `LONG_WAITS` for it.
+  versions, each role's runtime and model, status, reason, started, ended, duration), Request (the `chat.message`
+  text, else the goal; FERB's answer), Steps, FERB's recorded problems (`daemon.internal_error` and
+  `daemon.slow_call` rows from the task's time and the latest `PROBLEMS_LAST`, 20, each through the structural and
+  text passes). `logs/daemon.err.log` is launchd's raw stderr, never redacted at capture: it never goes in (review 1,
+  I3 ruling).
+- **Escaped sealed values (review 1, I1).** `Redactor.secret_values()` also yields each held value's escaped forms
+  (`redact.escaped_forms`: `json.dumps` with and without `ensure_ascii`, and `unicode_escape`, which a repr shows),
+  when they differ; a `SealedWord`'s forms are `SealedWord`s, so the whole-word rule holds for each. Every consumer
+  (`_registered`, `ident`, the shell output stream, the proxy's page guard, learning's checks) matches them.
+- **Waiting.** Redaction costs about 0.4 s per MB a pass (the owner's largest failed task holds 41.6 MB of span
+  records), so the notch calls it with `DaemonRPCTransport.call(_:params:wait:)` (120 s, `NotchModel.reportWait`) and
+  the server's slow-call record uses `LONG_WAITS` for it.
 - **The notch.** `ReportRow` under the answer's status line (`FailureReport.swift`): Send to developer, then
   `NotchModel.sendReport` calls the RPC and `SystemReportMailer.compose`: `NSSharingService(named: .composeEmail)` with
   `recipients`, `subject` and items [summary + the fixed note, the file URL]. If `canPerform` is false, or the service
-  reports a failure, `activateFileViewerSelecting` reveals the file and the row reads "Send this file to <address>"
-  (selectable, with Copy address). An RPC error shows its reason in the row. `reports` (by turn id) is live state, never
+  reports a failure other than the owner cancelling (handled on the main actor, review 1, M3),
+  `activateFileViewerSelecting` reveals the file and the row reads "Send this file to <address>" (selectable, with
+  Copy address). An RPC error shows its reason in the row. `reports` (by turn id) is live state, never
   saved. The address only ever comes from the daemon.
 - **Debugging.** `sqlite3 ~/.ferb/ferb.db "select at, data_json from journal where kind = 'report.built'"`; the file
   itself is the record. Tests: `tests/test_failure_report.py`, `FailureReportTests.swift`.

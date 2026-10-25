@@ -1085,14 +1085,26 @@ After the owner's update (2026-10-24):
   moves the focus, and typed-text capture skips the apps on your own terminal list too.
 - Send to developer (L35; owner, 2026-10-25: "just add a simple send to developer thing tho, whenever ferb says
   failed", "just send to ktky.attri@gmail.com as of now"). A failed task left its record only on your Mac. Under an
-  answer whose task failed or was interrupted, or a turn that couldn't start, the notch now has a **Send to developer**
-  button: FERB writes one text file in `~/.ferb/reports` (owner-only, kept 30 days) with a summary, your request and
-  FERB's answer, the full trace (`ferb trace TASK --full`'s text) and the last 200 lines of its error log, redacted
-  again as a whole, then opens a new email in your own Mail app to `[feedback] address` (default
-  ktky.attri@gmail.com) with the file attached. You press Send; FERB sends nothing. Without a Mail account the file is
-  shown in Finder with the address. A turn that failed before any task started now says so (its reply carries
-  `status: failed`, with the attention sound), and `ferb trace <request id>` shows that request's planner turns. Left
-  out for now: the notification after each failure, the per-part review sheet and screenshots.
+  answer whose task failed or was interrupted, or whose turn failed, the notch now has a **Send to developer** button:
+  FERB writes one text file in `~/.ferb/reports` (owner-only, kept 30 days) with a summary, your request and FERB's
+  answer, the full trace (`ferb trace TASK --full`'s text) and FERB's recorded problems (its own rows of requests that
+  failed inside it or answered slowly, during the task and the latest 20; never the raw error log), every part
+  redacted, then opens a new email in your own Mail app to `[feedback] address` (default ktky.attri@gmail.com) with
+  the file attached. You press Send; FERB sends nothing. Without a Mail account the file is shown in Finder with the
+  address. A turn that failed before any task started now says so (its reply carries `status: failed`, with the
+  attention sound), and `ferb trace <request id>` shows that request's planner turns. Left out for now: the
+  notification after each failure, the per-part review sheet and screenshots.
+- Send to developer, after its review (L35, review 1): a saved secret holding a quote, a backslash or a control
+  character reached the report escaped (`\"`, `\\`, `\t` in the trace's JSON, or a repr), because the redactor
+  matched saved values only as typed. It now also matches each saved value's escaped forms (JSON, with and without
+  ASCII escapes, and a repr), everywhere FERB redacts; a dictionary word keeps its whole-word rule. The report redacts
+  each span's records value by value before rendering them, then each block as text, in a thread on its own database
+  connection: a 30 MB trace's build stalled the daemon up to 2.5 s and now 0.03 s. The button and the daemon follow
+  one rule: FERB recorded that the turn ended badly (its task failed or was interrupted, or its request has a
+  `chat.failed` row). A turn that ended on an error now records `chat.failed`, the notch sends the turn's request id
+  with its task id (a turn that failed after its plan line had been refused, its task still running), and an
+  interruption the notch inferred itself offers no button. The reply of a turn that failed after its plan line is
+  kept in the conversation record, so the report's reason is what you were told.
 
 Licensed under Apache-2.0.
 

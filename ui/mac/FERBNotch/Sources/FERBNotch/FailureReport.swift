@@ -75,12 +75,13 @@ final class SystemReportMailer: NSObject, ReportMailing, NSSharingServiceDelegat
         sharing.removeValue(forKey: ObjectIdentifier(sharingService))
     }
 
-    /// AppKit calls its sharing delegate on the main thread. The owner closing the email is no failure: nothing more
-    /// opens then.
+    /// The owner closing the email is no failure: nothing more opens then. The fallback runs on the main actor
+    /// whichever thread AppKit calls this on (review 1, M3).
     func sharingService(_ sharingService: NSSharingService, didFailToShareItems items: [Any], error: Error) {
         guard let failed = sharing.removeValue(forKey: ObjectIdentifier(sharingService))?.failed else { return }
-        let cancelled = (error as NSError).domain == NSCocoaErrorDomain && (error as NSError).code == NSUserCancelledError
-        if !cancelled { MainActor.assumeIsolated { failed() } }
+        let reason = error as NSError
+        let cancelled = reason.domain == NSCocoaErrorDomain && reason.code == NSUserCancelledError
+        if !cancelled { Task { @MainActor in failed() } }
     }
 }
 
@@ -99,10 +100,13 @@ extension NotchModel {
     /// The owner's click on Send to developer: FERB writes the report, then a new email opens in their Mail app with
     /// the file attached (their own foreground action, rule 17). Without Mail, the file is shown in Finder.
     func sendReport(for turn: ConversationTurn) {
-        guard turn.offersReport, let id = turn.reportID, reports[turn.id] != .preparing else { return }
+        guard turn.offersReport, reports[turn.id] != .preparing else { return }
         let turnID = turn.id
         reports[turnID] = .preparing
-        var params: [String: Any] = ["task_id": id]
+        // Both ids the turn holds: the daemon applies the same rule to whichever recorded the failure (L35).
+        var params: [String: Any] = [:]
+        if let task = turn.backendTaskID { params["task_id"] = task }
+        if let request = turn.requestID { params["request_id"] = request }
         if let version = Self.appVersion { params["app_version"] = version }
         Task {
             do {

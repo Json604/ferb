@@ -1684,11 +1684,12 @@ owner saw.
 
 - Force a failure on a disposable target (for example "rename every file in ~/Desktop/ferb-no-such-folder by date",
   a folder that doesn't exist): the answer reads "Failed" and shows **Send to developer**. A done or stopped answer
-  shows no button.
+  shows no button. A turn that fails before any task starts now plays the attention sound, as a failed task does
+  (expected; it used to play the completed sound).
 - Click it: Mail comes forward with a new email to ktky.attri@gmail.com, subject "FERB report: <the failure's first
   line>", the short summary and the note about the attachment, and `FERB-report-<date>-<task>.txt` attached. Record
   whether anything else on screen moved.
 - Open the attached file from the email before sending: Summary, Request, Steps (the same text as `ferb trace TASK
-  --full`) and Recent FERB errors; no password, code or key in it. Then press Send and confirm it arrived at
-  ktky.attri@gmail.com with the file.
+  --full`) and FERB's recorded problems; no password, code or key in it, and none of `~/.ferb/logs/daemon.err.log`'s
+  raw lines. Then press Send and confirm it arrived at ktky.attri@gmail.com with the file.
 - `ls -l ~/.ferb/reports`: the folder is `drwx------`, the file `-rw-------`.
