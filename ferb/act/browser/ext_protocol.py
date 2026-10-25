@@ -46,8 +46,10 @@ older extension reports `playing` false on its first look, as before. It also ad
 resting}` (file-chooser interception off while a loop's held tab rests between rounds, on for a round), which the
 daemon sends only to an extension reporting 0.15.10 or later (`ext_bridge.REST_VERSION`): an older extension is never
 sent it (its held tab keeps the picker intercepted), and an older daemon never sends it, so neither side meets a
-command it doesn't know and the protocol number and minimum stay. A dialog the owner closes in the browser
-(`Page.javascriptDialogClosed`) clears the extension's pending dialog."""
+command it doesn't know and the protocol number and minimum stay. It fails closed: a detach forgets `resting`, `rest`
+records it even without a session, and any acting command (act, fill, upload, navigate, media, scroll, pointer) in a
+resting tab takes the picker back before it runs; the daemon retries an unconfirmed rest(false) once. A dialog the
+owner closes in the browser (`Page.javascriptDialogClosed`) clears the extension's pending dialog."""
 
 import base64
 import hashlib

@@ -578,6 +578,30 @@ def test_a_held_tab_whose_debugger_detaches_while_resting_takes_its_file_picker_
     assert out["reattached"] == [True] and out["missed"] == [True]
 
 
+def test_any_acting_command_in_a_resting_tab_takes_the_file_picker_back_first() -> None:
+    """Re-review fix round 3: an acting command means a round is running, so a missed or failed rest(false) still fails
+    closed: before act, fill, upload, navigate, media, scroll or a pointer gesture runs in a resting tab, interception
+    is back on. A read (a probe's snapshot or find) leaves the tab resting."""
+    out = worker('''(async () => {
+      const calls = [];
+      port = {postMessage() {}}; send = async () => {};
+      chrome.debugger = {sendCommand: async (target, method, params) => { calls.push(method + ':' + JSON.stringify(params)); },
+                         detach: async () => {}};
+      const order = [];
+      inFrame = async () => { order.push('page'); return {index: 0, playing: true}; };
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true;
+      await commands.rest({tab_id: 22, resting: true});
+      calls.splice(0);
+      await executeCommand({id: 'c-find', gen, op: 'find', args: {tab_id: 22, text: 'x'}});
+      const afterRead = TABS.get(22).resting;
+      chrome.debugger.sendCommand = async (target, method, params) => { order.push(method + ':' + params.enabled); };
+      await executeCommand({id: 'c-media', gen, op: 'media', args: {tab_id: 22, snap: 1, index: 0, action: 'play'}});
+      return {afterRead, order, afterAct: TABS.get(22).resting};
+    })()''')
+    assert out["afterRead"] is True
+    assert out["order"] == ["Page.setInterceptFileChooserDialog:true", "page"] and out["afterAct"] is False
+
+
 def test_a_pages_dialog_between_rounds_is_the_owners_and_closing_it_clears_the_pending_state() -> None:
     """L31, re-review N2: a held tab's page may alert or confirm between rounds. Chrome shows it to the owner (CDP's
     `hasBrowserHandler`), and the extension never answers a dialog FERB didn't expect. When the owner closes it in the

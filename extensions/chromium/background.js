@@ -248,6 +248,26 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
 
 // ---------- commands ----------
 
+// L31: file-chooser interception for a held tab and its frame sessions (off only while it rests between a loop's rounds).
+async function interceptPicker(tabId, enabled) {
+  const t = TABS.get(tabId);
+  await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled});
+  for (const sid of (t ? t.sessions.keys() : [])) {
+    try { await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled}, sid); } catch (_) { /* that frame is gone */ }
+  }
+}
+// An acting command means a loop's round is running: a resting tab takes its file picker back first, so a rest(false)
+// that was missed or failed still fails closed (L31). Reads (a probe's snapshot or find) leave it resting.
+const ACTING = new Set(["act", "fill", "upload", "navigate", "media", "scroll", "pointer"]);
+async function awake(tabId) {
+  const t = TABS.get(tabId);
+  if (!t || !t.resting) return;
+  t.resting = false;
+  if (!t.attached) return;                 // the next attach intercepts
+  try { await interceptPicker(tabId, true); }
+  catch (e) { throw refusedCommand(`the file picker couldn't be taken back for this round (${e.message || e}); nothing was done`); }
+}
+
 async function onCommand(m) {
   activeCommands++;
   try { await executeCommand(m); }
@@ -269,6 +289,7 @@ async function executeCommand(m) {
   let body, nothingSent = false;
   try {
     if (!handler) throw new Error(`unknown op ${m.op}`);
+    if (ACTING.has(m.op) && m.args && Number.isInteger(m.args.tab_id)) await awake(m.args.tab_id);
     const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
                                     m.timeout_ms || 30000);
     body = { id: m.id, gen: m.gen, status: "ok", value };
@@ -1359,12 +1380,8 @@ const commands = {
     const t = TABS.get(tab_id);
     if (t) t.resting = resting === true;     // recorded even without a session: the next attach follows it
     if (!t || !t.attached) return {tab_id, resting: false, held: false};
-    const enabled = !t.resting;
-    await cdp(tab_id, "Page.setInterceptFileChooserDialog", {enabled});
-    for (const sid of t.sessions.keys()) {
-      try { await cdp(tab_id, "Page.setInterceptFileChooserDialog", {enabled}, sid); } catch (_) { /* that frame is gone */ }
-    }
-    return {tab_id, resting: t.resting, file_chooser_intercepted: enabled};
+    await interceptPicker(tab_id, !t.resting);
+    return {tab_id, resting: t.resting, file_chooser_intercepted: !t.resting};
   },
   async release_tab({tab_id, keep_open = false}) {
     let tab;

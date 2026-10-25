@@ -407,3 +407,37 @@ def test_a_resting_owner_tab_gives_its_file_picker_back_only_on_an_extension_tha
     asyncio.run(r.rest("task-1", False))
     asyncio.run(r.rest("task-2", True))                                              # another task: nothing of its own
     assert sent_args == ([{"tab_id": 11, "resting": True}, {"tab_id": 11, "resting": False}] if sent else [])
+
+
+@pytest.mark.parametrize("replies, raised, calls", [
+    ([{"tab_id": 11, "resting": False, "file_chooser_intercepted": True}], False, 1),
+    ([TimeoutError, {"tab_id": 11, "resting": False, "file_chooser_intercepted": True}], False, 2),    # retried once
+    ([{"tab_id": 11, "resting": True}, {"tab_id": 11, "resting": False, "held": False}], False, 2),   # no session: ok
+    ([TimeoutError, {"tab_id": 11, "resting": True, "file_chooser_intercepted": False}], True, 2),    # not confirmed
+])
+def test_taking_the_held_tab_back_for_a_round_is_confirmed_or_retried_once(replies: list[Any], raised: bool,
+                                                                           calls: int) -> None:
+    """Re-review fix round 3: a round's rest(false) that failed (a timeout under load) or whose reply didn't confirm
+    the interception was swallowed. It is retried once and its reply checked; still unconfirmed, it says so (the
+    supervisor journals it, and the extension also takes the picker back on the round's first acting command)."""
+    from ferb.core.errors import DriverError
+    r, br = router()
+    br.version = "0.15.10"                                                           # type: ignore[attr-defined]
+    asyncio.run(r.attach("brave:Default:11", "task-1"))
+    sent: list[dict[str, Any]] = []
+    queue = list(replies)
+
+    async def answer(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        assert op == "rest"
+        sent.append(args)
+        reply = queue.pop(0)
+        if reply is TimeoutError:
+            raise DriverError("rest timed out")
+        return reply
+    br.call = answer                                                                 # type: ignore[method-assign]
+    if raised:
+        with pytest.raises(DriverError, match="file picker"):
+            asyncio.run(r.rest("task-1", False))
+    else:
+        asyncio.run(r.rest("task-1", False))
+    assert len(sent) == calls and all(a == {"tab_id": 11, "resting": False} for a in sent)
