@@ -4,6 +4,7 @@ notarization later, no rebuild) driven against stub signing tools, and a smoke t
 The real-bundle test checks a built app: `FERB_APP_BUNDLE=/path/FERB.app`, or `FERB_BUILD_APP=1` to build one into a
 temp dir first (minutes, ~700 MB; needs swift, uv, npm and their caches or network). Otherwise it skips, saying so."""
 
+import json
 import os
 import plistlib
 import shlex
@@ -91,6 +92,44 @@ def test_size_report_lists_ferb_apps_parts_largest_first(tmp_path: Path) -> None
                      "Notch app (MacOS)": round(notch / 1e6, 1), "Everything else": 0.0}
     sizes = [float(mb) for mb, _ in rows]
     assert sizes == sorted(sizes, reverse=True)
+
+
+def test_the_build_and_the_daemon_name_the_same_codex_binary_for_each_architecture() -> None:
+    from ferb.runtimes.codex_exec import native_bin
+    for arch in ("arm64", "x86_64"):
+        done = _parts(f"ferb_arch_names {arch} && print -r -- $FERB_CODEX_BIN")
+        assert done.stdout.strip() == f"Resources/node/{native_bin(arch)}", done.stderr
+    assert _parts("ferb_arch_names ppc").returncode != 0
+
+
+def test_trim_removes_only_what_ferb_never_runs_and_keeps_one_architecture(tmp_path: Path) -> None:
+    from ferb.runtimes.codex_exec import native_bin
+    for arch in ("arm64", "x86_64"):
+        app = tmp_path / arch / "FERB.app"
+        c = app / "Contents"
+        codex = c / "Resources/node" / native_bin(arch)
+        vendor = codex.parent.parent
+        std = c / "Resources/python/lib/python3.12"
+        site = std / "site-packages"
+        gone = [vendor / "bin/codex-code-mode-host", vendor / "codex-resources/voice/bin/codex-voice-host",
+                vendor / "codex-resources/voice/lib/libglib-2.0.0.dylib", vendor / "codex-resources/zsh/bin/zsh",
+                std / "lib2to3/__init__.py", std / "pydoc_data/topics.py", std / "config-3.12-darwin/python.o",
+                std / "turtle.py", std / "__pycache__/turtle.cpython-312.pyc", site / "regex/tests/test_regex.py",
+                site / "jsonschema/benchmarks/issue232.py", site / "claude_agent_sdk/testing/__init__.py",
+                site / "objc/_objc.cpython-312-darwin.so.dSYM/Contents/Info.plist"]
+        kept = [codex, vendor / "codex-path/rg", vendor / "codex-package.json", std / "json/__init__.py",
+                std / "unittest/__init__.py", site / "regex/__init__.py", site / "claude_agent_sdk/_bundled/claude",
+                site / "PyObjCTools/TestSupport.py", site / "cryptography-50.0.1.dist-info/licenses/LICENSE",
+                site / "jsonschema/protocols.py"]
+        for f in gone + kept:
+            _sized(f, 10)
+        fat = compile_macho(site / "objc/_objc.cpython-312-darwin.so", "arm64", "x86_64")
+        done = _parts(f"ferb_trim_app {shlex.quote(str(app))} {arch}")
+        assert done.returncode == 0, done.stderr
+        assert [str(f.relative_to(app)) for f in gone if f.exists()] == [], arch
+        assert [str(f.relative_to(app)) for f in kept if not f.exists()] == [], arch
+        archs = subprocess.run(["lipo", "-archs", str(fat)], capture_output=True, text=True).stdout.split()
+        assert archs == [arch]                                    # a universal module keeps only this app's slice
 
 
 def test_cli_reports_its_version() -> None:
@@ -310,16 +349,27 @@ def _real_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return out / "FERB.app"
 
 
-def test_real_bundle_structure_signature_and_embedded_cli(tmp_path_factory: pytest.TempPathFactory,
-                                                          tmp_path: Path) -> None:
-    app = _real_bundle(tmp_path_factory)
+@pytest.fixture(scope="module")
+def real_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One built FERB.app for every real-bundle test (FERB_APP_BUNDLE, or FERB_BUILD_APP=1 builds it once)."""
+    return _real_bundle(tmp_path_factory)
+
+
+def _bundle_arch(app: Path) -> str:
+    return subprocess.run(["lipo", "-archs", str(app / "Contents/MacOS/FERBNotch")], capture_output=True,
+                          text=True).stdout.strip()
+
+
+def test_real_bundle_structure_signature_and_embedded_cli(real_bundle: Path, tmp_path: Path) -> None:
+    from ferb.runtimes.codex_exec import native_bin
+    app = real_bundle
     c = app / "Contents"
     info = plistlib.loads((c / "Info.plist").read_bytes())
     assert info["CFBundleIdentifier"] == APP_BUNDLE_ID and info["CFBundleShortVersionString"]
     assert info["CFBundleVersion"].isdigit()
     for rel in ("MacOS/FERBNotch", "Resources/python/bin/python3.12", "Resources/bin/ferb", "Helpers/ferb-secrets",
                 "Helpers/FERB Voice.app/Contents/MacOS/FERB", "Helpers/FERB.app/Contents/MacOS/FERB",
-                "Resources/node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"):
+                "Resources/node/" + str(native_bin(_bundle_arch(app)))):
         assert (c / rel).is_file(), rel
     voice = plistlib.loads((c / "Helpers/FERB Voice.app/Contents/Info.plist").read_bytes())
     assert voice["CFBundleIdentifier"] == "com.ferb.app" and voice["NSSpeechRecognitionUsageDescription"]
@@ -371,6 +421,38 @@ def test_real_bundle_structure_signature_and_embedded_cli(tmp_path_factory: pyte
     assert leaks == [], leaks
     again = subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], capture_output=True, text=True)
     assert again.returncode == 0, "running FERB changed its own bundle: " + again.stderr
+
+
+# The owner's size target (L34, packaging plan A, Task 1 answer A2), in MB of 10^6 bytes
+MAX_APP_MB = {"arm64": 600, "x86_64": 630}
+
+
+def test_real_bundle_holds_only_what_ferb_runs(real_bundle: Path, tmp_path: Path) -> None:
+    from ferb.runtimes.codex_exec import native_bin
+    app = real_bundle
+    c = app / "Contents"
+    arch = _bundle_arch(app)
+    assert arch in MAX_APP_MB, arch                                          # one architecture per app
+    codex = c / "Resources/node" / native_bin(arch)
+    vendor = codex.parent.parent
+    for rel in ("bin/codex-code-mode-host", "codex-resources/voice", "codex-resources/zsh"):
+        assert not (vendor / rel).exists(), rel
+    std = c / "Resources/python/lib/python3.12"
+    for rel in ("lib2to3", "pydoc_data", "config-3.12-darwin", "turtle.py", "site-packages/claude_agent_sdk/testing",
+                "site-packages/jsonschema/benchmarks"):
+        assert not (std / rel).exists(), rel
+    assert not list(std.glob("site-packages/**/*.dSYM")) and not list(std.glob("site-packages/*/tests"))
+    assert (std / "site-packages/claude_agent_sdk/_bundled/claude").is_file()   # Claude Code stays (owner, A1)
+    env = {"HOME": str(tmp_path), "CODEX_HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    models = subprocess.run([str(codex), "debug", "models", "--bundled"], capture_output=True, text=True, env=env,
+                            cwd=tmp_path)
+    assert models.returncode == 0 and json.loads(models.stdout)["models"], models.stderr
+    probe = "import platform, claude_agent_sdk, cryptography, jsonschema, regex, referencing; print(platform.machine())"
+    seen = subprocess.run([str(c / "Resources/python/bin/python3.12"), "-I", "-B", "-c", probe], capture_output=True,
+                          text=True, env={**env, "FERB_HOME": str(tmp_path / ".ferb")})
+    assert seen.returncode == 0 and seen.stdout.strip() == arch, seen.stderr
+    size = sum(f.stat().st_size for f in app.rglob("*") if f.is_file() and not f.is_symlink())
+    assert size <= MAX_APP_MB[arch] * 1_000_000, f"{size / 1e6:.1f} MB for {arch}"
 
 
 # ---------- the agent stub: only FERB's own entry points, only FERB's own home (fix round 2) ----------

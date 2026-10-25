@@ -38,3 +38,45 @@ ferb_size_report() {
     printf '%8.1f MB  %s\n' $(( bytes / 1e6 )) "$name"
   done
 }
+
+# ferb_arch_names ARCH: the names one architecture goes by (ARCH: arm64 or x86_64; anything else returns 1).
+# FERB_UV_ARCH: uv's standalone CPython builds. FERB_NPM_CPU, FERB_CODEX_NPM: Codex's npm platform package.
+# FERB_CODEX_TRIPLE: its binary's folder. FERB_CODEX_BIN: that binary in FERB.app, relative to Contents
+# (ferb/runtimes/codex_exec.py native_bin names the same file).
+ferb_arch_names() {
+  case ${1:-} in
+    arm64)  FERB_UV_ARCH=aarch64; FERB_NPM_CPU=arm64; FERB_CODEX_TRIPLE=aarch64-apple-darwin ;;
+    x86_64) FERB_UV_ARCH=x86_64;  FERB_NPM_CPU=x64;   FERB_CODEX_TRIPLE=x86_64-apple-darwin ;;
+    *) return 1 ;;
+  esac
+  FERB_CODEX_NPM="codex-darwin-$FERB_NPM_CPU"
+  FERB_CODEX_BIN="Resources/node/node_modules/@openai/$FERB_CODEX_NPM/vendor/$FERB_CODEX_TRIPLE/bin/codex"
+}
+
+# ferb_trim_app APP ARCH: remove what FERB never runs, and keep one architecture in every universal Mach-O file.
+# Run before signing (scripts/signing.sh signs what is left).
+ferb_trim_app() {
+  local app=${1:?} arch=${2:?}
+  ferb_arch_names "$arch" || return 1
+  local c="$app/Contents"
+  local vendor="$c/Resources/node/node_modules/@openai/$FERB_CODEX_NPM/vendor/$FERB_CODEX_TRIPLE"
+  local std="$c/Resources/python/lib/python3.12"
+  local site="$std/site-packages"
+  # Codex parts FERB turns off on every start (codex_exec.py DISABLED: code_mode_host and the shell tools) or never
+  # starts (voice; its dylibs are re-signed by signing.sh, so OpenAI's library-validated voice host couldn't load them)
+  rm -rf "${vendor:?}/bin/codex-code-mode-host" "${vendor:?}/codex-resources/voice" "${vendor:?}/codex-resources/zsh"
+  # Python parts nothing imports: 2to3, pydoc's topic texts, the build configuration (python.o, Makefile), turtle,
+  # test suites and benchmarks, the SDK's test helpers, and debug symbols
+  rm -rf "${std:?}"/{lib2to3,pydoc_data,config-3.12-darwin,turtle.py} "${std:?}"/__pycache__/turtle.*(N) \
+         "${site:?}/jsonschema/benchmarks" "${site:?}/claude_agent_sdk/testing"
+  find "$site" \( -name '*.dSYM' -o \( -type d -name tests \) \) -prune -exec rm -rf {} +
+  # One architecture per app
+  local f
+  local -a files
+  files=("${(@f)$(find "$c" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print)}")
+  for f in $files; do
+    [[ -n $f && "$(file -b "$f")" == "Mach-O universal"* ]] || continue
+    lipo "$f" -thin "$arch" -output "$f.thin" || { print -u2 "$f has no $arch code"; return 1 }
+    mv "$f.thin" "$f"
+  done
+}

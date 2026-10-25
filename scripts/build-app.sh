@@ -33,7 +33,9 @@ OUT="${${1:-$ROOT/build/app}:A}"
 APP="$OUT/FERB.app"
 WORK="$OUT/.work"                     # build cache (Swift, Python download, npm); `rm -rf` it for a clean build
 ferb_check_notary_credentials
+ARCH=arm64                            # FERB.app's one architecture
 [[ "$(uname -m)" == arm64 ]] || die "FERB.app is built for Apple silicon (arm64)"
+ferb_arch_names "$ARCH"
 for tool in uv swift xcrun npm codesign ditto install_name_tool; do
   command -v $tool >/dev/null || die "needs $tool"
 done
@@ -145,6 +147,16 @@ VOICE="$CONTENTS/Helpers/FERB Voice.app"
 IDENTITY=- "$ROOT/macapp/FERB/build.sh" "$VOICE" >/dev/null
 plist "Set :CFBundleName FERB Voice" "$VOICE/Contents/Info.plist"   # its own name in permission prompts; same id
 plist "Add :CFBundleDisplayName string FERB Voice" "$VOICE/Contents/Info.plist"
+
+print "==> Trimming what FERB never runs ($ARCH only)"
+ferb_trim_app "$APP" "$ARCH"
+# The trimmed Codex must still start: it prints its own model catalog offline, from an empty home (codex_exec.py
+# bundled_catalog does the same at the daemon's start)
+CHECK=$(mktemp -d "$WORK/codex-check.XXXXXX")
+(cd "$CHECK" && HOME="$CHECK" CODEX_HOME="$CHECK" "$CONTENTS/$FERB_CODEX_BIN" debug models --bundled > models.json) \
+  && "$PY" -I -c 'import json, sys; assert json.load(open(sys.argv[1]))["models"]' "$CHECK/models.json" \
+  || die "Codex doesn't start without its trimmed parts"
+rm -rf "${CHECK:?}"
 
 print "==> Signing (identity: $SIGN_IDENTITY)"
 ferb_sign_app "$APP" "$WORK/sign"
