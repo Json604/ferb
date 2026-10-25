@@ -15,6 +15,17 @@ def roles(cfg: Config) -> dict[str, str]:
             "checker": str(cfg.get("runtimes", "checker", worker))}
 
 
+def _signed_in(name: str, home: Path, usable: bool) -> bool:
+    """FERB's own Codex or Claude sign-in finished, or (a direct API) the provider's key is in the Keychain."""
+    if name == "codex":
+        from ferb.runtimes.codex_exec import codex_home
+        return codex_home(home) is not None
+    if name == "claude":
+        from ferb.runtimes.claude_login import claude_home
+        return claude_home(home) is not None
+    return usable
+
+
 def status(home: Path) -> dict[str, Any]:
     """Each runtime with whether it can run on this Mac (and the fix when not), and what each role uses: the setup
     window's Choose your AI (L34 C) and `ferb runtimes`. Presence checks only: no key is read."""
@@ -22,7 +33,7 @@ def status(home: Path) -> dict[str, Any]:
     rows = []
     for name, info in CATALOG.items():
         ok, fix = info.available(home)
-        rows.append({"name": name, "usable": ok, "fix": fix,
+        rows.append({"name": name, "usable": ok, "fix": fix, "signed_in": _signed_in(name, home, ok),
                      "model": str(cfg.get("models", name) or info.default_model or "")})
     return {"roles": roles(cfg), "runtimes": rows}
 

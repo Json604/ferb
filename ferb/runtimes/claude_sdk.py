@@ -12,6 +12,7 @@ import asyncio
 import secrets
 import uuid
 from dataclasses import asdict
+from pathlib import Path
 from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
@@ -103,6 +104,10 @@ class ClaudeRuntime:
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_ERROR_REPORTING": "1",
                "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
                **CACHE_TTL_ENV}
+        from ferb.runtimes.claude_login import claude_home
+        own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
+        if own is not None:
+            env["CLAUDE_CONFIG_DIR"] = str(own)
         mcp: dict[str, Any] = {}
         if self.mode == "worker":
             if not self.shim_cmd:

@@ -562,6 +562,29 @@ def _offer_codex_login(env: Env) -> bool:
     return False
 
 
+def claude_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """FERB's own Claude sign-in from a terminal (owner 2026-10-25: "Build a Claude sign-in like Codex's"): the pinned
+    Claude Code the SDK bundles runs `auth login` with FERB's Claude home (~/.ferb/claude-home). Its browser page and any
+    pasted code go to Claude Code directly (this terminal), which keeps the credential in the login Keychain; FERB records
+    only that it finished."""
+    from ferb.runtimes import claude_login as cl
+    try:
+        cli = cl.cli_binary()
+    except Exception as e:
+        env.say(f"FERB's pinned Claude Code isn't installed: {e}")
+        return 1
+    cl.prepare(env.inst.home)
+    env.say("Signing in FERB's own Claude (a browser window opens)…")
+    run(cl.login_argv(cli), env=cl.env(env.inst.home))
+    status = run(cl.status_argv(cli), env=cl.env(env.inst.home), capture_output=True, text=True)
+    if not cl.signed_in(status.stdout or ""):
+        env.say("Not signed in; nothing changed.")
+        return 1
+    cl.mark(env.inst.home)
+    env.say("Done: FERB now uses its own Claude sign-in.")
+    return 0
+
+
 def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     """Sign in FERB's own Codex home (owner decision, 2026-10-01): the pinned Codex, with CODEX_HOME set to
     ~/.ferb/codex-home, so FERB's runs never load the owner's personal Codex settings or skills."""

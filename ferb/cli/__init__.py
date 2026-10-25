@@ -157,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sp.add_argument("--codex-login", action="store_true",
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
+    sp.add_argument("--claude-login", action="store_true",
+                    help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
     sp.add_argument("--voice", action="store_true",
                     help="push-to-talk: build and sign FERB.app, ask for Microphone + Speech Recognition, turn it on")
     sp.add_argument("--service", action="store_true",
@@ -280,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.voice_setup(env)
             if args.cmd == "setup" and args.codex_login:
                 return setup_cmd.codex_login(env)
+            if args.cmd == "setup" and args.claude_login:
+                return setup_cmd.claude_login(env)
             if args.cmd == "setup" and args.identity:
                 return setup_cmd.identity_setup(env, args.profile)
             if args.cmd == "setup" and args.persona:

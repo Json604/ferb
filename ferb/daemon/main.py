@@ -448,6 +448,10 @@ class Daemon:
             from ferb.sense.watchers.clipboard import request_access
             return request_access()
         self.clipboard_request: Callable[[], Any] = _clipboard_request
+        # L34 C (owner 2026-10-25): FERB's own Claude sign-in for FERB.app; `cli_binary` is looked up when it starts
+        from ferb.runtimes import claude_login as _claude_login
+        self.claude_sign_in = _claude_login.ClaudeSignIn(
+            self.home, lambda: _claude_login.cli_binary(), self._add_secret_value, self._claude_signed_in)
 
     @property
     def stop_marker(self) -> Path:
@@ -547,6 +551,7 @@ class Daemon:
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['runtimes.status'] = self._runtimes_status
         self.server.unary['runtimes.use'] = self._runtimes_use
+        self.server.unary['runtimes.sign_in'] = self._runtimes_sign_in
         self.server.unary['setup.browsers'] = self._setup_browsers
         self.server.unary['setup.browser_open'] = self._setup_browser_open
         self.server.unary['setup.permissions'] = self._setup_permissions
@@ -590,6 +595,7 @@ class Daemon:
             await asyncio.wait({self._reindex_task})
         if self.persona is not None:
             await self.persona.close()
+        await self.claude_sign_in.close()
         current = asyncio.current_task()
 
         async def drain(jobs: set[asyncio.Task[Any]], family: str) -> None:
@@ -4544,7 +4550,31 @@ class Daemon:
     async def _runtimes_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: Choose your AI's live status (and Settings → AI): each runtime's availability, each role's runtime."""
         from ferb.cli import runtimes as runtimes_cli
-        return await asyncio.to_thread(runtimes_cli.status, self.home)
+        out = await asyncio.to_thread(runtimes_cli.status, self.home)
+        for row in out["runtimes"]:
+            if row["name"] == "claude":
+                row["sign_in"] = self.claude_sign_in.status()      # L34 C: a sign-in under way, or how it ended
+        return out
+
+    async def _runtimes_sign_in(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C (owner 2026-10-25: "Build a Claude sign-in like Codex's"): FERB's own Claude sign-in for FERB.app.
+        `{runtime: "claude"}` starts it (or reports the one waiting); `code` passes the code the sign-in page shows to
+        the waiting sign-in; `cancel: true` stops it. Journaled without the code or anything Claude Code printed."""
+        if params.get("runtime") != "claude":
+            raise FerbError("Only Claude signs in here; ChatGPT signs in with Sign in with ChatGPT "
+                            "(`ferb setup --codex-login`)")
+        if params.get("cancel") is True:
+            return await self.claude_sign_in.cancel()
+        if "code" in params:
+            return await self.claude_sign_in.send_code(str(params["code"]))
+        status = await self.claude_sign_in.start()
+        self._journal().append("runtimes.sign_in", {"runtime": "claude", "state": status["state"]})
+        return status
+
+    def _claude_signed_in(self, ok: bool) -> None:
+        """FERB's own Claude sign-in ended: journaled, never with the credential or the code."""
+        self._available_cache.pop("claude", None)
+        self._journal().append("runtimes.sign_in_finished", {"runtime": "claude", "signed_in": ok})
 
     async def _runtimes_use(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """L34 C: the owner's choice of AI service for the roles named (all three by default), from its next call;
