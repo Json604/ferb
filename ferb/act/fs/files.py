@@ -200,7 +200,21 @@ def _source(p: Path, ctx: ToolContext) -> tuple[str, str]:
     return ("file", str(p))
 
 
+def _full_disk_access() -> object:
+    from ferb.device.permissions import full_disk_access
+    return full_disk_access()
+
+
 def _err(msg: str) -> ToolResult:
+    """A file tool's error. macOS refusing a protected folder while FERB lacks Full Disk Access says so, so the worker
+    asks the owner to turn it on (owner 2026-10-26: ask when first needed, like Claude and ChatGPT)."""
+    if "Operation not permitted" in msg:
+        from ferb.device.permissions import Status
+        if _full_disk_access() is not Status.GRANTED:
+            return ToolResult({"code": "needs_permission", "permission": "Full Disk Access", "error": msg,
+                               "detail": "macOS blocks this folder until FERB has Full Disk Access: ask the owner to turn "
+                                         "it on in System Settings → Privacy & Security → Full Disk Access (add FERB), "
+                                         "then try again"}, is_error=True)
     return ToolResult({"error": msg}, is_error=True)
 
 

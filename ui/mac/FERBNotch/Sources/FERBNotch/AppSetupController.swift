@@ -47,7 +47,6 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             let resume = SetupModel.pendingResume(.standard)
             switch AppSetupPlan.atLaunch(action, setupDone: done, resume: resume) {
             case .nothing:
-                _ = await self.model.askForNotificationsOnce(defaults: .standard)   // owner decision 6
                 self.onSettled?()
             case .quietUpdate: self.quietUpdate()
             case .window(let step):
@@ -83,7 +82,6 @@ final class AppSetupController: NSObject, NSWindowDelegate {
             Task { @MainActor in
                 if await self.model.needsPermissions() { self.show(.permissions, action: .none) }
                 else {
-                    _ = await self.model.askForNotificationsOnce(defaults: .standard)     // owner decision 6
                     self.onSettled?()
                 }
             }

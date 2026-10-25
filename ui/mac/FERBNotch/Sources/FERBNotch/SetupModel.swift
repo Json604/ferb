@@ -45,6 +45,11 @@ final class SetupModel: ObservableObject {
         self.service = service
     }
 
+    /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
+    /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
+    static let askedAtSetup: Set<String> = ["accessibility", "screen_recording"]
+    var setupRows: [PermissionRow] { allRows.filter { Self.askedAtSetup.contains($0.id) } }
+
     var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows + (hearingRow.map { [$0] } ?? []) }
 
     var offersRestart: Bool { allRows.contains { askedRestart.contains($0.id) && $0.status != .granted } }
@@ -340,7 +345,7 @@ final class SetupModel: ObservableObject {
     /// After a quiet update: whether a required grant that can be granted now is missing.
     func needsPermissions() async -> Bool {
         await refreshPermissions()
-        return permissions?.rows.contains { $0.required && $0.status != .granted && $0.blocked.isEmpty } ?? false
+        return permissions?.rows.contains { Self.askedAtSetup.contains($0.id) && $0.status != .granted && $0.blocked.isEmpty } ?? false
     }
 
     /// Whether setup was finished (by this window or `ferb setup`), asked of the daemon at launch.

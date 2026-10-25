@@ -444,6 +444,7 @@ class Daemon:
         from ferb.device import permissions as _permissions
         self.permission_check: Callable[[], dict[str, str]] = _permissions.check_all
         self.permission_request: Callable[[str], Any] = _permissions.request
+        self._input_monitoring_asked = False                  # asked with the owner's first request
         self.automation_check: Callable[[str], Awaitable[Any]] = (
             lambda bundle: _permissions.automation_async(bundle, ask=False))
         self.speech_request: Callable[[Path], Any] = (
@@ -4822,6 +4823,16 @@ class Daemon:
         return {"type": "ack", "request_id": request_id, "text": text, "message": message.strip(),
                 "at": entry.at.isoformat()}
 
+    def _ask_input_monitoring(self) -> None:
+        """Input Monitoring is asked with the owner's first request, not in setup (owner 2026-10-26: "ask when first
+        needed, like Claude and ChatGPT"): macOS's own prompt, once, off the loop, journaled."""
+        from ferb.device import permissions as P
+        if self._input_monitoring_asked or P.input_monitoring() is not P.Status.NOT_DETERMINED:
+            return
+        self._input_monitoring_asked = True
+        self._journal().append("permission.asked", {"permission": "input_monitoring", "when": "first request"})
+        asyncio.get_running_loop().run_in_executor(None, self.permission_request, "input_monitoring")
+
     async def _chat_send(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         """One chat turn: an acknowledgement on receipt, then the supervisor's events, merged with bus events about
         the tasks this turn started (tool calls, owner questions and action observations) so `ferb chat` can show
@@ -4831,6 +4842,7 @@ class Daemon:
             raise FerbError("daemon is shutting down; no new chat task was started")
         if self.supervisor is None:
             raise FerbError("daemon not started")
+        self._ask_input_monitoring()
         paths = params.get('input_paths', [])
         if not isinstance(paths, list) or not all(isinstance(p, str) and p.strip() and '\x00' not in p for p in paths):
             raise FerbError('input_paths must be a list of nonempty filesystem paths')

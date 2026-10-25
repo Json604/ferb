@@ -48,6 +48,41 @@ final class NotificationPosterTests: XCTestCase {
         XCTAssertTrue(rpc.calls.isEmpty)
     }
 
+    /// Owner 2026-10-26: "ask when first needed, like Claude and ChatGPT": the first banner brings macOS's prompt.
+    func testTheFirstBannerAsksMacOSAndPostsOnAYes() async {
+        let center = FakeNotificationCenter()
+        center.allowed = false
+        center.undecidedState = true
+        let rpc = ScriptedRPC()
+        rpc.events["notifications.subscribe"] = [question, reminder]
+        let poster = NotificationPoster(center: center)
+        poster.configure(notchShowing: { false }, open: { _ in })
+        let subscribed = await poster.subscribeOnce(rpc: rpc)
+        XCTAssertTrue(subscribed)
+        XCTAssertEqual(center.requests, 1)
+        XCTAssertEqual(center.posted.map(\.id), ["question:a1", "reminder:r1"])
+    }
+
+    func testANoToTheFirstBannerPostsNothingAndHandsBackPosting() async {
+        let center = FakeNotificationCenter()
+        center.allowed = false
+        center.undecidedState = true
+        center.answer = false
+        let rpc = ScriptedRPC()
+        rpc.events["notifications.subscribe"] = [question, reminder]
+        let poster = NotificationPoster(center: center)
+        poster.configure(notchShowing: { false }, open: { _ in })
+        _ = await poster.subscribeOnce(rpc: rpc)
+        XCTAssertEqual(center.requests, 1)
+        XCTAssertTrue(center.posted.isEmpty)
+        let again = await poster.subscribeOnce(rpc: rpc)            // denied now: never subscribes again
+        XCTAssertFalse(again)
+    }
+
+    func testSetupAsksOnlyForWhatEveryTaskNeeds() {
+        XCTAssertEqual(SetupModel.askedAtSetup, ["accessibility", "screen_recording"])
+    }
+
     func testWithoutANotificationCenterThePosterNeverSubscribes() async {
         let rpc = ScriptedRPC()
         let poster = NotificationPoster(center: nil)

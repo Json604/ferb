@@ -112,25 +112,11 @@ struct PermissionsStepView: View {
     @ObservedObject var model: SetupModel
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            StepHeader(title: "Let FERB work on your Mac", lines: ["macOS asks for each of these once; there's no single switch for all.",
-                                                                   "Each row ticks itself when it's on."])
+            StepHeader(title: "Let FERB work on your Mac", lines: ["FERB needs these two to see and use your Mac.",
+                                                                   "It asks for anything else the first time it needs it."])
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    // Every row shows: FERB needs them all (owner 2026-10-26: "those are essential for ferb too")
-                    ForEach(model.allRows) { row in PermissionRowView(row: row, model: model) }
-                    if let apps = model.permissions?.automation, !apps.isEmpty {
-                        Text("Automation: apps FERB may control").bold().padding(.top, 6)
-                        ForEach(apps) { target in
-                            HStack {
-                                Text(target.name)
-                                Spacer()
-                                Text(PermissionCopy.status(target.status)).foregroundStyle(.secondary)
-                                if target.status != .granted {
-                                    Button("Allow") { Task { await model.allowAutomation(target) } }
-                                }
-                            }
-                        }
-                    }
+                    ForEach(model.setupRows) { row in PermissionRowView(row: row, model: model) }
                 }
             }
             if model.offersRestart {

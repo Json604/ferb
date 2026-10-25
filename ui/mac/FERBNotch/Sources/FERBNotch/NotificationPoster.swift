@@ -6,6 +6,10 @@ import UserNotifications
 @MainActor
 protocol NotificationCenterPosting: AnyObject {
     func authorized() async -> Bool
+    /// macOS hasn't asked the owner yet.
+    func undecided() async -> Bool
+    /// macOS's own prompt; true when the owner allowed it.
+    func request() async -> Bool
     func post(id: String, title: String, body: String, userInfo: [String: String], thread: String)
     func withdraw(ids: [String])
 }
@@ -20,6 +24,10 @@ final class UserNotificationCenter: NotificationCenterPosting {
         let status = await center.notificationSettings().authorizationStatus
         return status == .authorized || status == .provisional
     }
+
+    func undecided() async -> Bool { await center.notificationSettings().authorizationStatus == .notDetermined }
+
+    func request() async -> Bool { (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false }
 
     func post(id: String, title: String, body: String, userInfo: [String: String], thread: String) {
         let content = UNMutableNotificationContent()
@@ -85,9 +93,20 @@ final class NotificationPoster {
     /// (or there is no center): then FERB.app doesn't claim the poster role and osascript keeps posting.
     @discardableResult
     func subscribeOnce(rpc: DaemonRPCTransport) async -> Bool {
-        guard let center, await center.authorized() else { return false }
+        guard let center else { return false }
+        let allowed = await center.authorized()
+        if !allowed, !(await center.undecided()) { return false }
+        // Asked when first needed (owner 2026-10-26: "ask when first needed, like Claude and ChatGPT"): while macOS
+        // hasn't asked yet, the first banner brings macOS's prompt; a No hands posting back to osascript.
+        var asked = allowed
         do {
-            for try await event in rpc.stream("notifications.subscribe", params: ["authorized": true]) { receive(event) }
+            for try await event in rpc.stream("notifications.subscribe", params: ["authorized": true]) {
+                if !asked {
+                    asked = true
+                    if !(await center.request()) { break }
+                }
+                receive(event)
+            }
         } catch {}
         return true
     }

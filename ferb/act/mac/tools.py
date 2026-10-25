@@ -690,6 +690,9 @@ class MacAppleScript(_Base):
         try:
             grant = await asyncio.wait_for(automation_async(a.bundle_id, ask=False),
                                            timeout=float(getattr(args, "timeout_s")))
+            if grant is Status.NOT_DETERMINED:     # asked when first needed: macOS's own one-click prompt (owner 2026-10-26)
+                grant = await asyncio.wait_for(automation_async(a.bundle_id, ask=True),
+                                               timeout=max(0.1, deadline - asyncio.get_running_loop().time()))
         except asyncio.TimeoutError:
             return ToolResult({"code": "permission_check_timeout", "permission": "Automation", "status": "unknown",
                                "bundle_id": a.bundle_id, "performed": False,
@@ -698,7 +701,8 @@ class MacAppleScript(_Base):
         if grant is not Status.GRANTED:
             return ToolResult({"code": "needs_permission", "permission": "Automation", "status": grant.value,
                                "bundle_id": a.bundle_id, "performed": False,
-                               "detail": "No permission prompt was opened; an explicit setup permission step is required"}, is_error=True)
+                               "detail": "macOS doesn't let FERB control this app: ask the owner to allow it in System "
+                                         "Settings → Privacy & Security → Automation, then try again"}, is_error=True)
         if self.sandbox is None:
             return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (ferb doctor says why)")
         ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")),
