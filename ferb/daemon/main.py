@@ -143,6 +143,7 @@ def _named_node(node: dict[str, Any]) -> str:
 
 # L36 §2: FERB's questions about one of its guesses (a chat paraphrase; distillation asks with distill.KEEP_GUESS)
 BACKLOG_OFFERED = "memory.backlog_offered"     # L36: the older guesses are offered once, as one list
+GUESS_REPLACED = "memory.guess_replaced"       # a waiting guess the owner's own statement of its fact settled
 KEEP_WORDING = "Keep this, in FERB's words (you didn't say it this way)? “{text}”"
 EDIT_QUESTION = ("How should FERB remember it? Type it in your own words; FERB saves exactly what you type. "
                  "(Its guess: “{text}”)")
@@ -1502,6 +1503,8 @@ class Daemon:
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
                                                                                   ("confirm", "edit", "retire"))
         self.memory.on_ended = self._memory_ended
+        self.memory.on_guess_replaced = lambda guess, by: self._journal().append(GUESS_REPLACED,
+                                                                                {"id": guess, "by": by})
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -2148,7 +2151,8 @@ class Daemon:
 
     def _guess_state(self, item_id: str) -> str:
         """How one of FERB's guesses stands now, for the notch (L36): "waiting" for the owner's answer, "kept",
-        "edited" (replaced by the owner's own words), or "dropped" (deleted, or retracted by a Drop while a forget
+        "edited" (replaced by the owner's own words: their Edit, or their own statement of the same fact while it
+        waited, journaled `memory.guess_replaced`), or "dropped" (deleted, or retracted by a Drop while a forget
         waits; a forget deletes it too); "not_a_guess" for a proposed item that isn't one (an observed pattern still
         gathering days: `_settle_guess` takes only a proposed inferred item, review Q-M2). An answer that reached a
         guess already settled, or one whose reply was lost, shows this rather than the answer the owner gave (live
@@ -2160,7 +2164,9 @@ class Daemon:
             return "waiting" if item.origin == "inferred" else "not_a_guess"
         if item.status == "active":
             return "kept"
-        return "edited" if self._journal().of_kind("memory.edited", "id", item_id) else "dropped"
+        journal = self._journal()
+        return "edited" if (journal.of_kind("memory.edited", "id", item_id)
+                            or journal.of_kind(GUESS_REPLACED, "id", item_id)) else "dropped"
 
     def _guess_backlog(self) -> dict[str, Any] | None:
         """L36 ruling ("The backlog"): FERB's guesses that were waiting before it asked about each at once, offered

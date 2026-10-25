@@ -273,6 +273,9 @@ class Memory:
         # told the current items that stopped holding now (L36 §6): superseded by a newer version (its id) or retired
         # (None); an end date reached is not told
         self.on_ended: Callable[[list[str], str | None], None] = lambda ids, new: None
+        # told a waiting guess the owner's own statement of the same subject and key replaced (the guess, their item),
+        # just before it is retracted (`_settle_waiting_guesses`)
+        self.on_guess_replaced: Callable[[str, str], None] = lambda guess, by: None
 
     # ---------- reads ----------
 
@@ -451,7 +454,9 @@ class Memory:
     def commit(self, ids: list[str], reason: str, *, owner_confirmed: bool = False) -> None:
         """proposed -> active. A newer version of the same fact supersedes the old (history kept), except that only
         the owner's own statement, or a version the owner confirmed (`owner_confirmed`: their Keep, final review I2),
-        may supersede one the owner stated."""
+        may supersede one the owner stated; and a version the owner confirmed never ends one made after it was proposed
+        (a stale Keep, coordinator ruling on the final fix). The owner's own statement also settles FERB's guesses
+        still waiting about the same subject and key (`_settle_waiting_guesses`)."""
         now = self.clock.now().isoformat()
         settled: list[str] = []
         for item_id in ids:
@@ -462,6 +467,9 @@ class Memory:
             prev = [o for o in self._versions(it.kind, it.subject, it.key) if o.id != it.id]
             closes = [o for o in prev
                       if owner_confirmed or it.origin == "owner_stated" or o.origin != "owner_stated"]
+            if owner_confirmed and it.origin != "owner_stated":
+                newer = self._made_after(it.id, [o.id for o in closes])
+                closes = [o for o in closes if o.id not in newer]
             for o in closes:
                 self.db.conn.execute("UPDATE memory_items SET valid_to = ? WHERE id = ?", (now, o.id))
             self.db.conn.execute("UPDATE memory_items SET status = 'active', valid_from = ?, supersedes = ? "
@@ -469,9 +477,32 @@ class Memory:
             self.publish("memory.committed", {"id": item_id, "reason": reason})
             if closes:
                 self.on_ended([o.id for o in closes], item_id)
+            if it.origin == "owner_stated":
+                self._settle_waiting_guesses(it)
         if settled:
             self.on_settled(settled, False)
         self.on_change()
+
+    def _made_after(self, item_id: str, others: list[str]) -> set[str]:
+        """Those of `others` recorded after `item_id` (by the store's insertion order)."""
+        if not others:
+            return set()
+        return {r[0] for r in self.db.conn.execute(
+            f"SELECT id FROM memory_items WHERE id IN ({','.join('?' * len(others))}) AND seq > "
+            "(SELECT seq FROM memory_items WHERE id = ?)", [*others, item_id])}
+
+    def _settle_waiting_guesses(self, stated: MemoryItem) -> None:
+        """The owner stated a fact in their own words: FERB's guesses still waiting about the same subject and key are
+        settled, so a late Keep can never end the owner's newer words (coordinator ruling on the final fix, concern 2).
+        Each is told first (`on_guess_replaced`: the daemon journals it, and the notch reads it as replaced by the
+        owner's words), then retracted with its fingerprint kept, as an Edit's replaced guess is, which closes its
+        question (`on_settled`)."""
+        waiting = [r[0] for r in self.db.conn.execute(
+            "SELECT id FROM memory_items WHERE subject = ? AND key = ? AND status = 'proposed' AND origin = 'inferred' "
+            "AND id != ? ORDER BY seq", (stated.subject, stated.key, stated.id))]
+        for guess in waiting:
+            self.on_guess_replaced(guess, stated.id)
+            self.retract(guess, "the owner stated it in their own words", never_again=True)
 
     def confirm(self, item_id: str) -> MemoryItem:
         """The owner's Keep (or Confirm) of a proposed item: it becomes the current version of its fact, so the versions

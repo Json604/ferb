@@ -723,8 +723,9 @@ In chat or the notch, "forget my …" asks a Yes/No question naming each item th
 When FERB guesses something about you that you didn't say in those words (from chat, or from its nightly look at your
 day), it asks at once: "Keep this? …" with Keep, Edit and Drop. Keep makes it what FERB remembers, so an older version
 of the same fact ends, even one you said yourself; Edit asks for your own words and saves them as yours, ending it
-the same way; Drop deletes the guess (your messages stay) and FERB never suggests it again. The nightly look saves what you said in so
-many words as your own, after checking the words against what you typed (never pasted text).
+the same way; Drop deletes the guess (your messages stay) and FERB never suggests it again. If you say the fact
+yourself while the guess waits, the question closes and FERB keeps your words. The nightly look saves what you said in
+so many words as your own, after checking the words against what you typed (never pasted text).
 The guesses FERB made before it started asking appear once in the notch as one list, "Review N older guesses", each
 with Keep, Drop or a field for your own words.
 

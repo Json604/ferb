@@ -285,6 +285,25 @@ def test_a_non_owner_version_never_overrides_what_the_owner_said_until_they_keep
     assert [h.item.content for h in run(daemon, lambda: m.recall("editor"))] == ["Uses VS Code"]
 
 
+def test_keep_never_ends_a_version_made_after_the_guess(daemon: RunningDaemon) -> None:
+    """Coordinator ruling (final fix, concern 2), defense in depth: the owner's Keep ends the versions the guess
+    updates (final review I2), never one made after the guess was proposed (here a pattern FERB saw on three days
+    since); the owner's own older statement still ends."""
+    m = mem(daemon)
+    s = journal(daemon, "memory.added", {"content": "a"})
+    older = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Sublime", "owner_stated",
+                                          [("journal", s)], 1.0))
+    guessed = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred",
+                                            [("journal", s)]))
+    rows = [trail_row(daemon, f"2026-09-0{i}") for i in (1, 2, 3)]
+    newer = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed daily", "observed",
+                                          [("trail", r) for r in rows]))
+    assert newer.status == "active"
+    run(daemon, lambda: m.confirm(guessed.id))
+    assert run(daemon, lambda: [m.get(i).valid_to is None for i in (older.id, guessed.id, newer.id)]) == \
+        [False, True, True]
+
+
 # ---------- forget = purge (safety test 17) ----------
 
 def test_forget_purges_everything_and_nothing_comes_back(daemon: RunningDaemon) -> None:

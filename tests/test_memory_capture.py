@@ -289,6 +289,31 @@ def test_keeping_a_guess_that_updates_what_the_owner_said_ends_their_older_versi
     assert any("Dr. Rao" in t for t in planner) and not any("Dr. Mehta" in t for t in planner)
 
 
+def test_the_owners_own_words_for_a_waiting_guesss_fact_settle_the_guess(daemon: Any) -> None:
+    """Coordinator ruling (final fix, concern 2): a stale Keep must never end the owner's newer words. FERB's guess "Dr.
+    Rao" waits; the owner then says "my dentist is Dr. Mehta" (same subject and key). The guess's question closes, the
+    guess is retracted with its fingerprint kept (as an Edit's replaced guess), the notch reads it as settled ("edited":
+    "Saved in your words"), a late Keep is refused, and Dr. Mehta stays current."""
+    d = daemon.daemon
+    q, rao = guess(daemon)
+    install(daemon, [json.dumps({"kind": "reply", "text": "Noted.", "remember": [{
+        "kind": "person", "subject": "owner", "key": "dentist", "content": "my dentist is Dr. Mehta",
+        "quote": "my dentist is Dr. Mehta"}]})])
+    chat(daemon, "my dentist is Dr. Mehta")
+    assert q.state == "superseded" and pending(daemon) == []
+    assert run(daemon, lambda: d.db.conn.execute("SELECT COUNT(*) FROM memory_questions WHERE target = ?",
+                                                 (rao.id,)).fetchone()[0]) == 0
+    assert run(daemon, lambda: d.memory.get(rao.id)).status == "retracted"
+    late = daemon.run(d._memory_learning(None, {"op": "guess", "id": rao.id, "action": "keep"}))
+    assert late == {"line": "That guess isn't waiting any more.", "state": "edited"}
+    [now] = [i for i in run(daemon, lambda: d.memory.items("active")) if i.key == "dentist"]
+    assert now.content == "my dentist is Dr. Mehta" and now.origin == "owner_stated"
+    src = said(daemon, "my dentist is Dr. Rao")
+    with pytest.raises(MemoryRefused, match="forget"):                                   # never suggested again
+        run(daemon, lambda: d.memory.propose("person", "owner", "dentist", rao.content, "inferred",
+                                             [("journal", src)], 0.6))
+
+
 def test_a_waiting_guess_seen_again_keeps_one_open_index_node(daemon: Any) -> None:
     """Review Q-I3's fix closes nothing for a waiting guess's node, except an older node of the same guess: more
     evidence changes the guess's body, and its newer node replaces the older one (the dashboard lists it once)."""
