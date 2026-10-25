@@ -18,6 +18,9 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   owner's ~/.Trash, iCloud Drive's ~/Library/Mobile Documents/.Trash, a File Provider's or a volume's .Trashes), the
   same rule fs.trash uses for a folder it moves into (files.in_trash). Only fs.trash and `ferb restore` move items in
   or out (rule 10).
+- FERB.app's preference domains (APP_PREFERENCE_DOMAINS: Sparkle's update switches and the app's own) can't be written,
+  through cfprefsd (`user-preference-write`) or their plist files (rule 10, L34 Phase G; measured by
+  tests/test_app_preferences_sandbox.py on a throwaway domain).
 - The Keychain's service (com.apple.SecurityServer) is unreachable, so `security` fails at once and no Keychain prompt
   can appear (E4). Trust evaluation through trustd is also denied (owner, 2026-10-10); one approved command can lift
   only that rule. Go TLS may need the lift. Programs that
@@ -101,6 +104,9 @@ APP_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb",
 # can't run (measured 2026-10-25: lsopen denied by sandbox_check, `do shell script` fails with error 100013)
 OSASCRIPT = "/usr/bin/osascript"
 APPS_LOCKDOWN = ("(deny lsopen)", "(deny process-exec)", f'(allow process-exec (literal "{OSASCRIPT}"))')
+# FERB.app's own preferences (rule 10, L34 Phase G): Sparkle keeps FERB's update switches there, and the app its own.
+# The shell and AppleScript never write these domains, through cfprefsd or the plist files.
+APP_PREFERENCE_DOMAINS = ("com.ferb.FERB", "com.ferb.app", "com.ferb.daemon", "dev.ferb.notch")
 
 
 def _q(path: Path | str) -> str:
@@ -127,7 +133,9 @@ def _trash_forms(home: Path) -> list[Path]:
 class Sandbox:
     def __init__(self, protection: Protection, profiles_dir: Path,
                  proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None,
-                 listeners: Callable[[], set[int] | None] | None = None) -> None:
+                 listeners: Callable[[], set[int] | None] | None = None,
+                 app_domains: tuple[str, ...] = APP_PREFERENCE_DOMAINS) -> None:
+        self.app_domains = app_domains
         self.protection, self.profiles_dir, self.proxy_port, self.socket = protection, profiles_dir, proxy_port, socket
         # Ports other programs listen on, read when each command starts (None: unknown, so every local server is out)
         self.listeners = listeners or (lambda: outside_ports(protection.ferb_home, protection.workspace))
@@ -177,6 +185,10 @@ class Sandbox:
                   for f in _forms(root)]
         # FERB.app (L27): the daemon's code; after every lift, so an approved escape never reopens it
         lines += [f"(deny file-write* (subpath {_q(f)}))" for app in p.app_entries() for f in _forms(app)]
+        # FERB.app's preferences (rule 10, L34 Phase G): after every lift, never lifted
+        lines += [f"(deny user-preference-write (preference-domain {_q(d)}))" for d in self.app_domains]
+        lines += [f"(deny file-write* (literal {_q(f)}))" for d in self.app_domains
+                  for f in _forms(p.home / "Library" / "Preferences" / f"{d}.plist")]
         # The Trash (rule 10): only fs.trash and `ferb restore` move items in or out, through folders they hold open;
         # a shell that could write a Trash could swap what FERB just moved there. After every lift, never lifted
         lines += [f"(deny file-write* (subpath {_q(f)}))" for f in _trash_forms(p.home)]
