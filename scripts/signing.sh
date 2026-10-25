@@ -1,28 +1,110 @@
-# FERB.app's one signing step (L27), sourced by build-app.sh and build-dmg.sh (zsh).
+# FERB.app's one signing step (L27, L34), sourced by build-app.sh and build-dmg.sh (zsh). Callers set ROOT (the
+# checkout) before sourcing it.
 #
-# SIGN_IDENTITY is "-" (ad-hoc, the default) or a codesign identity: a certificate's name or its SHA-1 hash, as
-# `security find-identity -v -p codesigning` lists them. A Developer ID Application certificate also gets a secure
-# timestamp, notarization and a stapled ticket: the same bundle is signed again, never rebuilt
-# (`build-app.sh --sign-only APP`). Notary credentials come only from the environment, are passed to notarytool
-# and are never written to a file or printed:
-#   NOTARY_KEYCHAIN_PROFILE                      a profile saved with `xcrun notarytool store-credentials`, or
-#   NOTARY_KEY, NOTARY_KEY_ID [, NOTARY_ISSUER]   an App Store Connect API key file, its ID (and a team key's issuer).
+# SIGN_IDENTITY is one of:
+#   -        ad-hoc (the default): development builds and tests. macOS permissions don't carry over to a rebuild.
+#   release  FERB's release certificate, for every published build: the code-signing identity whose SHA-1 is in
+#            scripts/release-cert.sha1, named "FERB Release Signing", in the owner's login keychain. Each piece macOS
+#            grants permissions to gets the designated requirement
+#              identifier "<its id>" and certificate leaf = H"<that SHA-1>"
+#            so the next version, signed with the same certificate, keeps users' permissions (TCC) and Keychain
+#            access and passes the updater's same-certificate check.
+#   other    a certificate's name or SHA-1 hash, as `security find-identity -v -p codesigning` lists them. A Developer
+#            ID Application certificate also gets a secure timestamp, notarization and a stapled ticket: the same
+#            bundle is signed again, never rebuilt (`build-app.sh --sign-only APP`). Notary credentials come only from
+#            the environment, are passed to notarytool and are never written to a file or printed:
+#              NOTARY_KEYCHAIN_PROFILE                     a profile saved with `xcrun notarytool store-credentials`, or
+#              NOTARY_KEY, NOTARY_KEY_ID [, NOTARY_ISSUER]  an App Store Connect API key file, its ID (and issuer).
+#
+# The release certificate, created once by the owner (the private key never enters the repo):
+#   umask 077; D=$(mktemp -d "$HOME/.ferb-release-cert.XXXXXX"); cd "$D"
+#   read -rs "P?Passphrase: "; print; export P
+#   /usr/bin/openssl req -x509 -newkey rsa:3072 -sha256 -days 7305 -subj "/CN=FERB Release Signing" \
+#     -keyout key.pem -passout env:P -out cert.pem -addext "basicConstraints=critical,CA:false" \
+#     -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning"
+#   /usr/bin/openssl pkcs12 -export -inkey key.pem -passin env:P -in cert.pem -name "FERB Release Signing" \
+#     -out "FERB Release Signing.p12" -passout env:P
+#   security import "FERB Release Signing.p12" -k "$HOME/Library/Keychains/login.keychain-db" -T /usr/bin/codesign
+# macOS asks for the .p12's passphrase. The .p12 is the backup: keep it in two places you control (for example your
+# password manager, next to the passphrase, and an offline USB drive). Then `cd ~; rm -rf "$D"; unset P`. Record the
+# public SHA-1 (one line):
+#   security find-identity -p codesigning | sed -n 's/.*) \([0-9A-F]\{40\}\) "FERB Release Signing".*/\1/p' \
+#     | sort -u | tr 'A-F' 'a-f' > scripts/release-cert.sha1
+# On another Mac, restore with the same `security import` of the backup. If it's lost, users grant permissions
+# again after the next update, and automatic updates refuse a build signed with another certificate.
 
 : ${SIGN_IDENTITY:=-}
+FERB_RELEASE_NAME="FERB Release Signing"
 
-# The certificate SIGN_IDENTITY names, by its common name, looked up once when this file is sourced (a hash or a
-# partial name both work, as with codesign). Ad-hoc is "-"; an identity the keychain doesn't list stays as given.
+# The release certificate's SHA-1 from scripts/release-cert.sha1, in lowercase; nothing when missing or malformed.
+# FERB_TEST_RELEASE_SHA1, when set (even empty), replaces the file: tests only.
+ferb_release_sha1() {
+  local h=""
+  if (( ${+FERB_TEST_RELEASE_SHA1} )); then
+    h=$FERB_TEST_RELEASE_SHA1
+  elif [[ -f "$ROOT/scripts/release-cert.sha1" ]]; then
+    h=$(<"$ROOT/scripts/release-cert.sha1")
+  fi
+  h=${(L)h//[[:space:]]/}
+  if [[ ${#h} == 40 && $h != *[^0-9a-f]* ]]; then print -r -- "$h"; fi
+}
+
+# SIGN_IDENTITY resolved once, when this file is sourced, into FERB_SIGN_ID (what codesign gets) and
+# FERB_IDENTITY_NAME. Release: exactly the identity with the recorded SHA-1, selected by that hash (never by name, so
+# a second certificate with the same name can't sign); SIGN_IDENTITY itself stays "release", so a build script this
+# one starts (build-dmg.sh -> build-app.sh) signs the same way. Otherwise the certificate it names, by its common name
+# (a hash or a partial name both work, as with codesign); ad-hoc is "-"; an identity the keychain doesn't list stays
+# as given.
 ferb_resolve_identity() {
+  FERB_SIGN_ID="$SIGN_IDENTITY"
   FERB_IDENTITY_NAME="$SIGN_IDENTITY"
+  FERB_RELEASE_SHA1=""
   [[ "$SIGN_IDENTITY" == "-" ]] && return 0
   local line
+  if [[ "$SIGN_IDENTITY" == release ]]; then
+    FERB_RELEASE_SHA1=$(ferb_release_sha1)
+    if [[ -z "$FERB_RELEASE_SHA1" ]]; then
+      print -u2 "signing.sh: scripts/release-cert.sha1 holds no SHA-1 of \"$FERB_RELEASE_NAME\" (creating it: the top of scripts/signing.sh)"
+      return 1
+    fi
+    # Every code-signing identity, valid or not: macOS never trusts a self-made certificate; codesign signs with it
+    line=$(security find-identity -p codesigning 2>/dev/null | grep -i -F -- "$FERB_RELEASE_SHA1" | head -1 || true)
+    if [[ "$line" != *"\"$FERB_RELEASE_NAME\""* ]]; then
+      print -u2 "signing.sh: no \"$FERB_RELEASE_NAME\" with SHA-1 $FERB_RELEASE_SHA1 in your keychains (restoring the backup: the top of scripts/signing.sh)"
+      return 1
+    fi
+    FERB_SIGN_ID=${(U)FERB_RELEASE_SHA1}
+    FERB_IDENTITY_NAME=$FERB_RELEASE_NAME
+    return 0
+  fi
   line=$(security find-identity -v -p codesigning 2>/dev/null | grep -F -i -- "$SIGN_IDENTITY" | head -1 || true)
   if [[ "$line" == *'"'*'"'* ]]; then FERB_IDENTITY_NAME="${${line#*\"}%\"*}"; fi
   return 0
 }
-ferb_resolve_identity
+ferb_resolve_identity || return 1
 
 ferb_developer_id() { [[ "$FERB_IDENTITY_NAME" == "Developer ID Application:"* ]] }
+ferb_release() { [[ -n "${FERB_RELEASE_SHA1:-}" ]] }
+
+# ferb_requirement ID: what a release-signed piece with identifier ID meets, and pins as its designated requirement
+ferb_requirement() { print -r -- "identifier \"$1\" and certificate leaf = H\"$FERB_RELEASE_SHA1\"" }
+
+# ferb_check_release_app [APP]: a disk image is what people download, so it holds only an app signed with FERB's
+# release certificate; then the next version keeps their permissions and passes the updater's same-certificate check.
+# A Developer ID build is notarized instead. FERB_DEV_DMG=1 lets any app in, for test images only. Without APP only
+# the identity is checked (before a build).
+ferb_check_release_app() {
+  [[ "${FERB_DEV_DMG:-}" == 1 ]] && return 0
+  ferb_developer_id && return 0
+  if ! ferb_release; then
+    print -u2 "A disk image holds only a release-signed FERB.app: set SIGN_IDENTITY=release (FERB_DEV_DMG=1 makes a test image)."
+    return 1
+  fi
+  [[ -z "${1:-}" ]] && return 0
+  codesign --verify --strict -R="$(ferb_requirement com.ferb.FERB)" "$1" 2>/dev/null && return 0
+  print -u2 "$1 isn't signed with FERB's release certificate ($FERB_RELEASE_SHA1): build it with SIGN_IDENTITY=release."
+  return 1
+}
 
 ferb_check_notary_credentials() {
   ferb_developer_id || return 0
@@ -54,12 +136,24 @@ ferb_entitlements() {
 }
 
 # ferb_sign PATH [codesign options…]: hardened runtime always (notarization requires it); a secure timestamp only for
-# a Developer ID (it needs Apple's timestamp server).
+# a Developer ID (it needs Apple's timestamp server). Release: an item with an identifier (`--identifier ID`, or a
+# bundle's CFBundleIdentifier) gets FERB's release requirement as its designated requirement.
 ferb_sign() {
   local target=$1; shift
   local stamp=--timestamp=none
   ferb_developer_id && stamp=--timestamp
-  codesign --force --sign "$SIGN_IDENTITY" --options runtime $stamp "$@" "$target" 2>&1 \
+  local -a req
+  if ferb_release; then
+    local id="" i
+    for (( i = 1; i < $#; i++ )); do
+      if [[ "${@[i]}" == --identifier ]]; then id=${@[i+1]}; fi
+    done
+    if [[ -z $id && -f "$target/Contents/Info.plist" ]]; then
+      id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$target/Contents/Info.plist" 2>/dev/null || true)
+    fi
+    if [[ -n $id ]]; then req=(--requirements "=designated => $(ferb_requirement "$id")"); fi
+  fi
+  codesign --force --sign "$FERB_SIGN_ID" --options runtime $stamp $req "$@" "$target" 2>&1 \
     | { grep -v ': replacing existing signature$' || true } >&2
 }
 
@@ -113,6 +207,17 @@ ferb_sign_app() {
   done
   ferb_sign "$app" --entitlements "$work/app.entitlements"
   codesign --verify --deep --strict --verbose=2 "$app"
+  if ferb_release; then             # each piece macOS grants permissions to meets FERB's release requirement
+    local piece ident
+    for piece ident in "$app" com.ferb.FERB "$app/Contents/Helpers/FERB.app" com.ferb.daemon \
+        "$app/Contents/Helpers/FERB Voice.app" com.ferb.app \
+        "$app/Contents/Resources/python/bin/python3.12" com.ferb.python \
+        "$app/Contents/Helpers/ferb-secrets" com.ferb.secrets; do
+      [[ -e $piece ]] || continue
+      codesign --verify --strict -R="$(ferb_requirement $ident)" "$piece" \
+        || { print -u2 "signing.sh: $piece doesn't meet FERB's release requirement"; return 1 }
+    done
+  fi
 }
 
 # ferb_notarize FILE STAPLE_TARGET: submit (zip or dmg), wait, require "Accepted", staple the ticket and check it.

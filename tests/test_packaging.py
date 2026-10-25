@@ -324,6 +324,58 @@ def test_developer_id_without_notary_credentials_stops_before_signing(tmp_path: 
     assert not _signed(calls)
 
 
+SHA = "0123456789abcdef0123456789abcdef01234567"
+RELEASE_LISTED = f'  1) {SHA.upper()} "FERB Release Signing" (CSSMERR_TP_NOT_TRUSTED)'
+RELEASE_PIECES = (("", "com.ferb.FERB"), ("Contents/Helpers/FERB.app", "com.ferb.daemon"),
+                  ("Contents/Helpers/FERB Voice.app", "com.ferb.app"),
+                  ("Contents/Resources/python/bin/python3.12", "com.ferb.python"),
+                  ("Contents/Helpers/ferb-secrets", "com.ferb.secrets"))
+
+
+def _release_env() -> dict[str, str]:
+    """SIGN_IDENTITY=release with the stub keychain listing FERB's release certificate (self-made: never trusted)."""
+    return {"SIGN_IDENTITY": "release", "FERB_TEST_RELEASE_SHA1": SHA, "STUB_IDENTITIES": RELEASE_LISTED}
+
+
+def test_release_signing_uses_only_the_pinned_certificate_and_pins_it_in_each_requirement(tmp_path: Path) -> None:
+    app, calls, done = _sign_only(tmp_path, **_release_env())
+    assert done.returncode == 0, done.stderr + done.stdout
+    sign_calls = [c for c in calls if "|--sign|" in c and "--verify" not in c]
+    assert sign_calls and all(f"|--sign|{SHA.upper()}|" in c and "|--timestamp=none|" in c for c in sign_calls)
+    for rel, ident in RELEASE_PIECES:
+        piece = app / rel if rel else app
+        call = next(c for c in sign_calls if c.endswith(f"|{piece}"))
+        assert f'|--requirements|=designated => identifier "{ident}" and certificate leaf = H"{SHA}"|' in call, call
+        assert f'codesign|--verify|--strict|-R=identifier "{ident}" and certificate leaf = H"{SHA}"|{piece}' in calls
+    lib = next(c for c in sign_calls if c.endswith("libpython3.12.dylib"))
+    assert "--requirements" not in lib                                  # libraries keep codesign's own requirement
+    assert not any("vendor-tool" in c for c in sign_calls)              # another team's signature is kept
+    assert "com.apple.security.cs.disable-library-validation" in _ent(tmp_path, app / "Contents/Helpers/FERB.app")
+    assert not any(c.startswith("xcrun") for c in calls)                # a self-made certificate is never notarized
+
+
+def test_release_signing_refuses_a_missing_or_other_certificate_before_signing_anything(tmp_path: Path) -> None:
+    cases = ({**_release_env(), "STUB_IDENTITIES": ""},                                        # not in the keychain
+             {**_release_env(), "STUB_IDENTITIES": f'  1) {"F" * 40} "FERB Release Signing"'},  # same name, other one
+             {**_release_env(), "FERB_TEST_RELEASE_SHA1": ""},                                  # no recorded SHA-1
+             {**_release_env(), "FERB_TEST_RELEASE_SHA1": "not-a-sha1"})
+    for i, env in enumerate(cases):
+        (tmp_path / str(i)).mkdir()
+        _, calls, done = _sign_only(tmp_path / str(i), **env)
+        assert done.returncode != 0 and "FERB Release Signing" in done.stderr, (i, done.stderr)
+        assert not _signed(calls), i
+
+
+def test_release_mode_stays_release_for_the_build_scripts_it_starts(tmp_path: Path) -> None:
+    """build-dmg.sh starts build-app.sh: SIGN_IDENTITY must still say `release` there, not a bare hash that would skip
+    the pinned requirements; codesign gets the hash through FERB_SIGN_ID."""
+    env = {**_stubs(tmp_path), **_release_env(), "ROOT": str(ROOT)}
+    done = subprocess.run(["/bin/zsh", "-f", "-c",
+                           'source "$ROOT/scripts/signing.sh" && print -r -- "$SIGN_IDENTITY $FERB_SIGN_ID"'],
+                          capture_output=True, text=True, env=env)
+    assert done.stdout.strip() == f"release {SHA.upper()}", done.stderr
+
+
 def test_build_app_refuses_an_unknown_architecture_and_intel_without_rosetta(tmp_path: Path) -> None:
     env = _stubs(tmp_path)
     out = tmp_path / "out"
