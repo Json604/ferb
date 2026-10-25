@@ -1133,10 +1133,10 @@ class Learning:
         revises a confirmed version and every such step was already one of the version the owner confirmed by hand
         (`_hand_confirmed`): the same tool and template arguments (equal beyond handle kinds), citing no outside-built
         action that step didn't cite (final review M4: its origin unchanged). The confirm then carries over, marked as
-        carried (L29 final review I1, final fix 2 F1; a code rule, never a model's judgement). A revision of a confirmed version that
-        adds such a step, or whose hand-confirmed version was rolled back or is gone, is quarantined again: noted
-        (`memory.procedure_requarantined`) and returned with `requarantined` (the reason). A proposal whose content
-        matches an existing node changes nothing and is returned with `unchanged` (F3)."""
+        carried (L29 final review I1, final fix 2 F1; a code rule, never a model's judgement). A revision of a confirmed
+        version that adds such a step, or whose hand-confirmed version was rolled back or is gone, is quarantined again:
+        noted (`memory.procedure_requarantined`) and returned with `requarantined` (the reason). A proposal whose
+        content matches an existing node changes nothing and is returned with `unchanged` (F3)."""
         examples = proposal.get('examples') or []
         steps = proposal.get('steps') or []
         if not examples or not steps or not proposal.get('intent'):
@@ -1217,7 +1217,9 @@ class Learning:
 
                 def seen(step: dict[str, Any]) -> bool:
                     shape = (step.get('tool'), encoded(step.get('args') or {}))
-                    built = {ref for ref in step.get('evidence') or [] if actions[ref].get('outside_action', True)}
+                    # its cited actions as stored; one the examples don't hold counts as outside (fail closed)
+                    built = {ref for ref in step.get('evidence') or []
+                             if actions.get(ref, {}).get('outside_action', True)}
                     return any(shape == was and built <= cited for was, cited in read)
                 if all(seen(s) for s, outside in zip(result['body'].get('steps') or [], outside_steps) if outside):
                     self._mark_confirmed(result['id'], carried=True)

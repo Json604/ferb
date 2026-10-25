@@ -1313,7 +1313,8 @@ def test_a_confirmed_outside_click_carries_only_to_a_step_citing_the_same_action
         store.confirm(confirmed['id'])
         reworded = _click_procedure(store, first, ui='the send button is at the bottom')     # the same actions
         assert (reworded['state'], reworded['confirmed'], noted) == ('learned', True, [])
-        revised = _click_procedure(store, _click_runs(store, 'z') if runs == 'other' else first + _click_runs(store, 'y'))
+        others = _click_runs(store, 'z') if runs == 'other' else first + _click_runs(store, 'y')
+        revised = _click_procedure(store, others)
         assert (revised['state'], revised['confirmed']) == ('quarantined', False) and revised['requarantined']
         assert noted == [('memory.procedure_requarantined', {
             'procedure_id': revised['id'], 'revises': reworded['id'], 'confirmed_id': confirmed['id'],
