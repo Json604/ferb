@@ -139,19 +139,19 @@ def certificate_checks_off(command: str) -> TlsOff | None:
             code = rest[rest.index("-c") + 1] if program != "node" and "-c" in rest[:-1] else \
                 next((rest[k + 1] for k, a in enumerate(rest[:-1]) if a in ("-e", "--eval", "-p")), "")
             pattern = _NODE_CODE if program == "node" else _PYTHON_CODE
-            if code and (found := pattern.search(code)):
-                how.append(f"{program} code: {found.group(0)}")
+            if code and (match := pattern.search(code)):
+                how.append(f"{program} code: {match.group(0)}")
         if _PIP.fullmatch(program) or (_PYTHON.fullmatch(program) and rest[:2] == ["-m", "pip"]):
             for k, a in enumerate(rest):
-                value = a.split("=", 1)[1] if a.startswith("--cert=") else (
+                cert = a.split("=", 1)[1] if a.startswith("--cert=") else (
                     rest[k + 1] if a == "--cert" and k + 1 < len(rest) else None)
-                if value is not None and value.strip() in _NOTHING:
-                    how.append(f"--cert {value or chr(34) * 2}")
+                if cert is not None and cert.strip() in _NOTHING:
+                    how.append(f"--cert {cert or chr(34) * 2}")
         hosts += [h for a in rest if "://" in a and (h := _host(a))]
     for line, body in bodies:                             # a heredoc fed to python or node: its code
-        program = re.search(r"(?:^|[\s/;&|(])(python(?:\d+(?:\.\d+)?)?|node)(?=[\s<]|$)", line)
-        if program and (found := (_NODE_CODE if program.group(1) == "node" else _PYTHON_CODE).search(body)):
-            how.append(f"{program.group(1)} code: {found.group(0)}")
+        feeds = re.search(r"(?:^|[\s/;&|(])(python(?:\d+(?:\.\d+)?)?|node)(?=[\s<]|$)", line)
+        if feeds and (said := (_NODE_CODE if feeds.group(1) == "node" else _PYTHON_CODE).search(body)):
+            how.append(f"{feeds.group(1)} code: {said.group(0)}")
     if not how:
         return None
     return TlsOff(tuple(dict.fromkeys(how)), tuple(dict.fromkeys(hosts)))

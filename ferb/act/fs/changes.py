@@ -457,8 +457,8 @@ def _docx(path: Path) -> str | None:
                 lines += _paragraphs(ET.fromstring(z.read(name)))
             if "docProps/core.xml" in names and z.getinfo("docProps/core.xml").file_size <= XML_MAX:
                 for node in ET.fromstring(z.read("docProps/core.xml")):
-                    if node.tag in _PROPS and (node.text or "").strip():
-                        lines.append(f"[document property] {_PROPS[node.tag]}: {node.text.strip()}")
+                    if node.tag in _PROPS and (value := (node.text or "").strip()):
+                        lines.append(f"[document property] {_PROPS[node.tag]}: {value}")
             return "\n".join(lines)
     except (OSError, zipfile.BadZipFile, ET.ParseError, KeyError, ValueError):
         return None
