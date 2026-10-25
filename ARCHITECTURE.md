@@ -2782,8 +2782,8 @@ protected FERB state (16.9).
   `doctor.check.tokenizer` reports the method.
 - **Ids.** FERB's ids are protected by key (`Redactor.ident` for `task_id`, `span_id`, `session_id`, `run_token_id`,
   `request_id`, `covered`, `source_refs`, `procedure_id`, `approval_id`, `timer_id`): only a value strictly inside a
-  generated hex body is spared exact-value replacement (in all text since L36 §7, `sealed_spans`, §16.12), and secret
-  patterns still run over the whole value. `Redactor.id_ref` is gone.
+  generated hex body is spared exact-value replacement (in all text since L36 §7, `sealed_spans`, §16.12; in free text
+  only a body with an a-f letter), and secret patterns still run over the whole value. `Redactor.id_ref` is gone.
 - **Usage.** `model.turn` spans record `cached_input_tokens`.
 - **Measured** on replays of real turns (provider time excluded): message → plan line 11.4–17.0 s → 0.9–2.0 s;
   reusable prefix about 8k → 54k tokens.
@@ -3215,23 +3215,38 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   Supersession by a reused key works on every turn path (1c22dcb); the spec's steer case (item 54's Chennai
   preference) is a test. A username fact given with an end date keeps its name in the login record after that day,
   but it is no longer offered (`_held`, above).
-- **Sealed values (§7).** `redact.sealed_spans` decides where a registered value is replaced: never strictly inside
-  one of FERB's generated id bodies (`ID_BODY`; scan ruling I8: a value equal to a whole 12-, 32- or 64-hex token, or
-  reaching past one, is still the secret, so a hex token echoed alone or as an `m-` id's whole body is hidden, the
-  residual redact.py's id-key note already accepted); a word-like value (letters, marks, spaces) only as whole words,
-  a boundary needed only where the value's own edge is a letter ("pen" in "a pen", not in "open" or "pen2"); any other
-  value (a password, a PIN) wherever else it appears, so `?p=hunter2!x` and `userhunter2!` still hide it (plan ruling
-  20, rule 14). `Redactor._registered`, `Redactor.ident` and `redacted_json`'s final check (`holds_sealed`) use it;
-  `_registered` reads every value from the text as given, finds the ids once per call (`id_bodies`) and each hit's id
-  by bisection, and masks overlapping hits as one. `redact.FERB_ID` is an id as text shows it (an optional lowercase
-  prefix and its body), for comparing ids. `redact.word_char` is the one word-character rule that `memory/items.py`
-  shares. When a saved sealed answer is an ordinary word of `/usr/share/dict/words` (`sanitize/dictionary.py`,
-  `ordinary_word`: one word, case aside, read line by line at save time and never kept in the daemon), the gateway
-  journals `secret.ordinary_word` {task_id (the tree), place (`secret_place`, the question's own place)}
+- **Sealed values (§7).** Each registered value is classified once, when it is registered (`redact.sealed`, every
+  path: `remember_hidden_secret`, `add_secret_value`, `retain_secret`; review ruling 4): a value the system word list
+  holds (`ordinary_word`, `/usr/share/dict/words`) and with no letter of a script written without spaces between words
+  (Han, Hiragana, Katakana, Thai, Lao, Khmer, Myanmar, and Hangul, whose particles attach to words, read from the
+  script each letter's Unicode name carries; review 1) is kept as a `SealedWord`; every other value stays a plain
+  string. `redact.sealed_spans` decides where a value is replaced: never strictly inside one of FERB's generated id
+  bodies (`ID_BODY`; scan ruling I8: a value equal to a whole 12-, 32- or 64-hex token, or reaching past one, is still
+  the secret, so a hex token echoed alone or as an `m-` id's whole body is hidden, the residual redact.py's id-key note
+  already accepted; in free text only a body with an a-f letter counts, so a 12-digit phone, UPI or Aadhaar number is
+  no id, while under FERB's id keys any body does and generated ids keep their form: `id_bodies(keyed=)`, ruling 6); a
+  `SealedWord` only as a whole word and in any case (ruling 5: sites take security answers in any case, and the line
+  below says "wherever it appears"), a boundary needed only where its own edge is a letter: only a letter or a mark
+  continues it (review 3: "pen2", "2pen", "pen_x" hide it), and a JSON or string escape (`\n \t \r \b \f`,
+  `\uXXXX`) or a URL escape (`%XX`) right before it ends the word before (review 2: `\npen`, `%0Apen`), in free text,
+  in shell output read in pieces and in JSON-encoded text alike; so "pen" is hidden in "a pen" but not in "open"; any
+  other value (a password, a PIN, a word the list lacks, a word in a spaceless script) exactly, wherever else it
+  appears, so `?p=hunter2!x` and `userhunter2!` still hide it (plan ruling 20, rule 14). `Redactor._registered`,
+  `Redactor.ident` and `redacted_json`'s final check (`holds_sealed`, given `Redactor.secret_values`, so a word stays a
+  word) use it; `_registered` reads every value from the text as given, finds the ids once per call (`id_bodies`) and
+  each hit's id by bisection, and masks overlapping hits as one. `redact.FERB_ID` is an id as text shows it (an
+  optional lowercase prefix and its body), for comparing ids. `redact.word_char` is the word-character rule that
+  `memory/items.py` shares (the FTS rule; a sealed word's boundary uses letters and marks only). When a saved sealed
+  answer is an ordinary word (`ordinary_word`: one word, case aside, read line by line, never kept in the daemon), the
+  gateway journals `secret.ordinary_word` {task_id (the tree), place (`secret_place`, the question's own place)}
   (`Gateway._note_ordinary_word`; a failure to make the note is logged by type and never costs the fill) and the task's
   answer ends, after "Sites contacted", with one line per place (`Supervisor._secret_lines`, `ORDINARY_WORD_LINE`):
-  "The answer you saved for <place> is an ordinary word, so FERB hides it wherever it appears." Residual: matching is
-  exact, case included, as before ("Pizza" is not hidden for a saved "pizza").
+  "The answer you saved for <place> is an ordinary word, so FERB hides it wherever it appears." Classifying reads the
+  word list only for an alphabetic value (about 20 ms, on the registering thread). Residuals: a dictionary-word secret
+  glued to other letters is not hidden there ("abcsunshine", "/reset/sunshineToken" for a saved "sunshine"); a value
+  strictly inside a free-text hex run that has an a-f letter and is 12, 32 or 64 long counts as inside an id ("cafe1234"
+  in "cafe1234abcd"); text in another Unicode normalization (macOS file names are NFD, a value typed NFC: "Zürich") or
+  in full-width letters ("ｐｉｚｚａ") is not matched, as before.
 
 ### 16.13 FERB's cursor (L33)
 

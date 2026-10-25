@@ -1011,10 +1011,12 @@ After the owner's update (2026-10-24):
   longer offered.
 - Saved answers no longer damage other text (L36, rule 14). Live: a saved security answer that is an ordinary word
   showed as [redacted] inside FERB's notes about you, the visa task's record was refused twice, and on 10-14 48 records
-  failed because a short saved value matched inside FERB's ids. A word-like answer is now hidden only as a whole word,
-  nothing is hidden inside FERB's ids (a saved value that is itself a whole id-shaped token still is), a password is
-  still hidden wherever it appears, and saving an answer that is an ordinary word adds one line to the task's answer
-  saying FERB hides that word everywhere.
+  failed because a short saved value matched inside FERB's ids. An answer that is an ordinary dictionary word is now
+  hidden only as a whole word, in any case (a digit, an underscore or an escape such as `\n` or `%20` next to it still
+  counts as the word's edge); nothing is hidden inside FERB's ids (a saved value that is itself a whole id-shaped token
+  still is, and twelve digits in text are never taken for an id); a password, a word the dictionary lacks and a word in
+  a script written without spaces (Chinese, Japanese, Korean, Thai) are still hidden wherever they appear; and saving
+  an answer that is an ordinary word adds one line to the task's answer saying FERB hides that word everywhere.
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,

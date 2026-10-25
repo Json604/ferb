@@ -7,6 +7,8 @@ import unicodedata
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from ferb.sanitize.dictionary import ordinary_word
+
 REDACTED = "[redacted]"
 EXCLUDED = "[excluded]"
 
@@ -20,7 +22,8 @@ SECRET_KEYS = {"apikey", "accesstoken", "refreshtoken", "idtoken", "clientsecret
 # where it lies strictly inside one generated id body (ID_BODY): a short registered value can occur inside an id by
 # chance, and an altered id breaks lineage. A hit equal to a body or reaching past one is redacted, and the secret
 # patterns run over the whole value. Accepted residual: a registered value that is a strict substring of a longer
-# generated body is not replaced there.
+# generated body is not replaced there. Under these keys any body counts; in free text only one with an a-f letter
+# (`id_bodies`, L36 §7 ruling 6), since twelve digits there are a phone, UPI or Aadhaar number.
 # approval_id and timer_id (owner questions and reminders) are FERB ids that clients answer by and code reads back.
 INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id", "request_id", "covered", "source_refs",
                     "procedure_id", "approval_id", "timer_id"}
@@ -40,46 +43,113 @@ def word_char(ch: str) -> bool:
     return cat[0] in "LNM" or cat == "Co"
 
 
-def _word_like(value: str) -> bool:
-    """A sealed value made only of letters, marks and spaces: a word-like answer (a city, a food)."""
-    return any(not c.isspace() for c in value) and all(c.isspace() or unicodedata.category(c)[0] in "LM"
-                                                       for c in value)
+# Scripts written without spaces between words, by the script Unicode names each letter with (L36 §7 review 1): Han,
+# Hiragana, Katakana, Thai, Lao, Khmer, Myanmar, and Hangul, whose particles attach to the word before them.
+_SPACELESS_SCRIPTS = ("CJK ", "HIRAGANA ", "KATAKANA ", "KATAKANA-HIRAGANA ", "HALFWIDTH KATAKANA ", "HANGUL ",
+                      "HALFWIDTH HANGUL ", "THAI ", "LAO ", "KHMER ", "MYANMAR ")
+# A JSON or string escape (\n \t \r \b \f, \uXXXX) or a URL escape (%XX) just before a word (review 2): its last
+# character can be a letter ("\n", "%0A", "\u200b"), yet the word starts after it.
+_ESCAPE_BEFORE = re.compile(r"(?:\\[ntrbf]|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2})\Z")
+_HEX_LETTER = re.compile(r"[a-f]")
 
 
-def id_bodies(s: str) -> list[tuple[int, int]]:
-    """Where FERB's generated id bodies (`ID_BODY`) lie in `s`, in order and never overlapping."""
-    return [m.span(1) for m in ID_BODY.finditer(s)]
+def _spaceless(value: str) -> bool:
+    """Whether `value` has a character of a script written without spaces between words (`_SPACELESS_SCRIPTS`)."""
+    return any(unicodedata.name(c, "").startswith(_SPACELESS_SCRIPTS) for c in value if not c.isascii())
+
+
+def _continues(ch: str) -> bool:
+    """Whether `ch` continues a word answer: a letter or a mark only (review 3); a digit or "_" ends it."""
+    return unicodedata.category(ch)[0] in "LM"
+
+
+class SealedWord(str):
+    """A sealed value that is an ordinary word (`sealed`): replaced only as a whole word, case aside (L36 §7 rulings 4
+    and 5: a site takes a security answer in any case, and FERB tells the owner it hides that word wherever it
+    appears). Every other sealed value is a plain str, replaced exactly wherever it appears. `found` tells whether it
+    occurs at all; `starts` finds every place it starts, overlapping ones too (" a " twice in " a a ")."""
+    found: re.Pattern[str]
+    starts: re.Pattern[str]
+
+    def __new__(cls, value: str) -> "SealedWord":
+        word = super().__new__(cls, value)
+        word.found = re.compile(re.escape(value), re.IGNORECASE)
+        word.starts = re.compile(f"(?=({re.escape(value)}))", re.IGNORECASE)
+        return word
+
+
+def sealed(value: str) -> str:
+    """How the redactor keeps a sealed value, decided once, when it is registered (L36 §7 ruling 4): a `SealedWord`
+    when the system word list holds it (`ordinary_word`) and it has no letter of a script written without spaces, else
+    the value itself. Only an alphabetic value reads the list (about 20 ms)."""
+    if isinstance(value, SealedWord) or _spaceless(value) or not ordinary_word(value):
+        return value
+    return SealedWord(value)
+
+
+def id_bodies(s: str, *, keyed: bool = False) -> list[tuple[int, int]]:
+    """Where FERB's generated id bodies (`ID_BODY`) lie in `s`, in order and never overlapping. In free text a body has
+    at least one a-f letter (L36 §7 ruling 6: twelve digits are a phone, UPI or Aadhaar number, never spared); under
+    FERB's own id keys (`keyed`, `Redactor.ident`) any body counts, so generated ids keep their form."""
+    return [m.span(1) for m in ID_BODY.finditer(s) if keyed or _HEX_LETTER.search(m.group(1))]
+
+
+def _starts_word(s: str, start: int, value: str) -> bool:
+    if start == 0 or not _continues(value[0]) or not _continues(s[start - 1]):
+        return True
+    return _ESCAPE_BEFORE.search(s, max(0, start - 6), start) is not None
+
+
+def _ends_word(s: str, end: int, value: str) -> bool:
+    return end == len(s) or not _continues(value[-1]) or not _continues(s[end])
 
 
 def sealed_spans(s: str, value: str, bodies: list[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
     """Where a sealed value stands in `s` (L36 §7): never strictly inside one of FERB's generated id bodies (scan
     ruling I8: a value equal to a whole body, or reaching past one, is the secret itself, as the INTERNAL_ID_KEYS note
-    above accepts only that residual); a word-like value only as whole words (a boundary needed only where the value's
-    own edge is a letter), so "pen" is hidden in "a pen" but not in "open"; any other value (a password, a PIN)
-    wherever else it appears, since glued to other text it is still the secret (rule 14). `bodies`: `id_bodies(s)`,
-    when the caller already has them (one reading of the ids for every sealed value, scan ruling m8)."""
+    above accepts only that residual); a `SealedWord` only as a whole word, case aside, a boundary needed only where
+    its own edge is a letter: only a letter or a mark continues it, and an escape before it (`_ESCAPE_BEFORE`) ends the
+    word before, so "pen" is hidden in "a pen", "pen2" and "%0Apen" but not in "open"; any other value (a password, a
+    PIN, a word the list lacks) exactly, wherever else it appears, since glued to other text it is still the secret
+    (rule 14). `bodies`: `id_bodies(s)` (free text), or the caller's own reading of the ids (one reading for every
+    sealed value, scan ruling m8)."""
     if not value:
         return []
     if bodies is None:
         bodies = id_bodies(s)
-    whole = _word_like(value)
-    out, start = [], s.find(value)
-    while start != -1:
+    word = isinstance(value, SealedWord)
+    starts = (m.start(1) for m in value.starts.finditer(s)) if isinstance(value, SealedWord) else _occurrences(s, value)
+    out = []
+    for start in starts:
         end = start + len(value)
         i = bisect.bisect_right(bodies, (start, len(s) + 1)) - 1
-        inside = i >= 0 and end <= bodies[i][1] and (start, end) != bodies[i]
-        left = start == 0 or not word_char(value[0]) or not word_char(s[start - 1])
-        right = end == len(s) or not word_char(value[-1]) or not word_char(s[end])
-        if not inside and (not whole or (left and right)):
+        if i >= 0 and end <= bodies[i][1] and (start, end) != bodies[i]:
+            continue                                    # strictly inside an id body
+        if not word or (_starts_word(s, start, value) and _ends_word(s, end, value)):
             out.append((start, end))
-        start = s.find(value, start + 1)
     return out
 
 
+def _occurrences(s: str, value: str) -> Iterator[int]:
+    start = s.find(value)
+    while start != -1:
+        yield start
+        start = s.find(value, start + 1)
+
+
+def _occurs(s: str, value: str) -> bool:
+    """Whether a sealed value occurs in `s` at all, as `sealed_spans` looks for it (a quick test before reading ids)."""
+    return bool(value) and (value.found.search(s) is not None if isinstance(value, SealedWord) else value in s)
+
+
 def holds_sealed(s: str, values: Iterable[str]) -> bool:
-    """Whether `s` still shows one of the sealed `values` where the redactor would replace it (`sealed_spans`)."""
+    """Whether `s` still shows one of the sealed `values` where the redactor would replace it (`sealed_spans`, ids read
+    as free text): the values as the redactor keeps them (`Redactor.secret_values`), so a word stays a word."""
+    present = [v for v in values if _occurs(s, v)]
+    if not present:
+        return False
     bodies = id_bodies(s)
-    return any(sealed_spans(s, v, bodies) for v in values)
+    return any(sealed_spans(s, v, bodies) for v in present)
 
 
 # In-line whitespace, as a character class's body: every whitespace character but a line break. A no-break space (a
@@ -797,16 +867,22 @@ class Redactor:
         self._values: set[str] = set()      # exact secret values; memory only, never persisted
         self._temporary: dict[str, int] = {}  # short/space-sensitive hidden inputs, reference-counted leases
 
+    def _sealed(self, value: str) -> str:
+        """`value` classified once, when first registered (`sealed`, L36 §7 ruling 4): the copy held, if any."""
+        held = next((v for v in (*self._values, *self._temporary) if v == value), None)
+        return held if held is not None else sealed(value)
+
     def retain_secret(self, value: str) -> None:
         if value:
-            self._temporary[value] = self._temporary.get(value, 0) + 1
+            key = self._sealed(value)
+            self._temporary[key] = self._temporary.get(key, 0) + 1
 
     def remember_hidden_secret(self, value: str) -> None:
         """A sealed secret (entered through the hidden secret input, or a stored one revealed for a sealed fill) is
         a secret even when shorter than pattern-derived credentials. Only those call this (L18): a typed or picked
         answer to an ordinary question never does, so a "1" can't turn every later 1 into [redacted]."""
         if value:
-            self._values.add(value)
+            self._values.add(self._sealed(value))
 
     def release_secret(self, value: str) -> None:
         count = self._temporary.get(value, 0)
@@ -816,6 +892,7 @@ class Redactor:
             self._temporary[value] = count - 1
 
     def secret_values(self) -> set[str]:
+        """Every registered value as it is kept: a `SealedWord` for an ordinary word, else the plain value."""
         return self._values | self._temporary.keys()
 
     def configure(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
@@ -826,7 +903,7 @@ class Redactor:
     def add_secret_value(self, value: str) -> None:
         """E.g. a password fill_secret just typed: scrub it if a page or error echoes it back."""
         if len(value) >= 4:
-            self._values.add(value)
+            self._values.add(self._sealed(value))
 
     def forget_secret_value(self, value: str) -> None:
         self._values.discard(value)
@@ -842,8 +919,8 @@ class Redactor:
         """A value under one of FERB's own id keys (INTERNAL_ID_KEYS). An excluded app's name stays excluded."""
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
-        values = [v for v in self.secret_values() if v and v in s]
-        bodies = id_bodies(s) if values else []
+        values = [v for v in self.secret_values() if _occurs(s, v)]
+        bodies = id_bodies(s, keyed=True) if values else []
         hits = [span for value in values for span in sealed_spans(s, value, bodies)]
         out: list[str] = []
         kept = 0
@@ -956,7 +1033,7 @@ class Redactor:
         """Every registered secret value replaced where it stands (`sealed_spans`, L36 §7), all read from `s` as given:
         its ids are found once (scan ruling m8), each value's word boundaries are judged on the text itself, never on a
         mask another value left, and overlapping hits are masked as one."""
-        values = [v for v in self.secret_values() if v and v in s]
+        values = [v for v in self.secret_values() if _occurs(s, v)]
         if not values:
             return s
         bodies = id_bodies(s)

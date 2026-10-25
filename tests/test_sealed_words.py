@@ -1,7 +1,8 @@
-"""L36 §7: sealed values are redacted safely. A word-like answer is hidden as a word, never inside longer words; no
-sealed value is ever replaced strictly inside one of FERB's generated id bodies, while one that is a whole id-shaped
-token is still the secret; a password glued to other text is still hidden; and saving an answer that is an ordinary
-word is said once, at the end of the task's answer.
+"""L36 §7: sealed values are redacted safely. An answer that is an ordinary word of the system word list is hidden as
+a whole word in any case, never inside longer words; every other sealed value (a password, a PIN, a word the list lacks,
+a word in a script written without spaces) exactly, wherever it appears; no sealed value is ever replaced strictly
+inside one of FERB's generated id bodies, while one that is a whole id-shaped token is still the secret; and saving an
+answer that is an ordinary word is said once, at the end of the task's answer.
 
 Live 2026-10-24: one sealed answer is an ordinary word, so that word read [redacted] inside FERB's notes about the
 owner and the visa task's episode was refused twice; on 10-14, 48 captures failed because a short sealed value matched
@@ -14,16 +15,32 @@ from typing import Any
 import pytest
 
 from ferb.core.types import Identity, ToolContext
-from ferb.memory.learning import Learning
+from ferb.memory.learning import Learning, LearningRefused, encoded, redacted_json
 from ferb.orchestrator.supervisor import ORDINARY_WORD_LINE
 from ferb.sanitize.dictionary import ordinary_word
-from ferb.sanitize.redact import Redactor, holds_sealed, sealed_spans
+from ferb.sanitize.redact import REDACTED, Redactor, holds_sealed, sealed_spans
 from tests.conftest import RunningDaemon, chat, install, outcome, sup, task
 from tests.support.hidden_input import asked, keychain_helper
 from tests.support.learning_fixtures import Clock
 from tests.support.memory_items import run
 
 PLACE = "https://accounts.example"
+
+
+@pytest.fixture(autouse=True)
+def system_words(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A stand-in system word list, so which sealed values are ordinary words never depends on the Mac running this."""
+    words = tmp_path / "system-words"
+    words.write_text("open\npen\npizza\nsunshine\n東京\nกรุงเทพ\n서울\n")
+    monkeypatch.setattr("ferb.sanitize.dictionary.SYSTEM_WORDS", words)
+    return words
+
+
+def _redactor(*values: str) -> Redactor:
+    r = Redactor()
+    for value in values:
+        r.remember_hidden_secret(value)
+    return r
 
 
 def test_a_word_like_sealed_value_is_hidden_as_a_word_not_inside_longer_words() -> None:
@@ -64,6 +81,7 @@ def test_a_password_glued_to_other_text_is_still_hidden(text: str, want: str) ->
 
 def test_a_sealed_value_with_spaces_at_its_edges_keeps_matching() -> None:
     assert sealed_spans("prefix a suffix", " a ") == [(6, 9)]
+    assert _redactor(" pen ").text("x pen pen y") == "x[redacted]y"     # a word: every place it starts, overlaps too
 
 
 def test_a_card_whose_ids_hold_a_short_sealed_value_is_stored(tmp_path: Path) -> None:
@@ -165,3 +183,88 @@ def test_a_task_that_saves_an_ordinary_word_answer_ends_its_answer_with_the_line
     line = ORDINARY_WORD_LINE.format(place="accounts.example")
     assert final["answer"] == "Saved your answer.\n\n" + line
     assert "pizza" not in json.dumps(final)
+
+
+@pytest.mark.parametrize("value, text", [("東京", "私は東京に住んでいます"), ("東京", "回答：東京です"),
+                                         ("กรุงเทพ", "ฉันอยู่กรุงเทพมหานคร"), ("서울", "저는서울에 살아요")])
+def test_a_word_in_a_script_written_without_spaces_is_hidden_anywhere(value: str, text: str) -> None:
+    """Review 1: Han, kana, Thai, Lao, Khmer, Myanmar and Hangul text puts no space between words (Hangul attaches its
+    particles), so a whole-word rule would never hide such an answer in running text, even one the word list holds."""
+    out = _redactor(value).text(text)
+    assert value not in out and REDACTED in out
+
+
+@pytest.mark.parametrize("text", ['{"a":"line\\npizza"}', "tab\\tpizza", "x\\rpizza", "x\\bpizza", "x\\fpizza",
+                                  "C:\\\\pizza", '{"a":"\\u200bpizza"}', "food%20pizza", "q=my%0Apizza",
+                                  "?q=my%20pizza", "&nbsp;pizza"])
+def test_an_escape_before_a_word_answer_is_a_word_boundary(text: str) -> None:
+    """Review 2: a JSON or string escape (\\n, \\t, \\r, \\b, \\f, \\\\, \\uXXXX) or a URL escape (%XX) ends the word
+    before it."""
+    assert "pizza" not in _redactor("pizza").text(text)
+
+
+def test_an_escape_before_a_word_answer_is_a_boundary_in_the_stream_and_the_stored_card_check() -> None:
+    """Review 2: shell output read in pieces, and redacted_json's last check, which reads JSON-encoded text."""
+    r = _redactor("pizza")
+    stream = r.stream()
+    out = stream.feed(b"x\\n") + stream.feed(b"pizza\n") + stream.feed(b"", final=True)
+    assert b"pizza" not in out
+    values = r.secret_values()
+    assert holds_sealed('{"a\\npizza":1}', values) and holds_sealed('{"u":"?q=my%0Apizza"}', values)
+    for body in ({"a\npizza": 1}, {"u": "see https://x.io/?q=my%0Apizza"}, {"note": "tab\tpizza"}):
+        try:
+            stored = encoded(redacted_json(r.text, body, values))
+        except LearningRefused:
+            continue
+        assert "pizza" not in stored
+
+
+@pytest.mark.parametrize("value, text", [("pizza", "pizza2"), ("pizza", "2pizza"), ("pizza", "x1pizza"),
+                                         ("pizza", "pizza_old"), ("sunshine", "user1sunshine"),
+                                         ("sunshine", "sunshine2024")])
+def test_only_letters_and_marks_continue_a_word_answer(value: str, text: str) -> None:
+    """Review 3: a digit or an underscore glued to a word answer doesn't make it another word."""
+    assert value not in _redactor(value).text(text)
+
+
+@pytest.mark.parametrize("value, text", [("zorblax", "xzorblaxy"), ("new delhi", "I renew delhis"),
+                                         ("दिल्ली", "नईदिल्ली")])
+def test_a_word_like_value_the_word_list_lacks_is_hidden_anywhere(value: str, text: str) -> None:
+    """Ruling 4: only a value `ordinary_word` accepts is matched as a whole word; any other, letters only or not,
+    wherever it appears, as a password is."""
+    assert value not in _redactor(value).text(text)
+
+
+def test_a_value_is_classified_once_when_it_is_registered(system_words: Path) -> None:
+    """Ruling 4: every way a value is registered classifies it then, and the classification stays with it."""
+    r = Redactor()
+    r.remember_hidden_secret("pizza")
+    r.add_secret_value("sunshine")
+    r.retain_secret("pen")
+    system_words.write_text("")                     # the list changes later: the values keep their kind
+    assert r.text("pizzazz, sunshines, open") == "pizzazz, sunshines, open"
+    assert r.text("pizza2 sunshine2024 pen.") == "[redacted]2 [redacted]2024 [redacted]."
+
+
+def test_a_word_answer_is_hidden_in_any_case_and_other_values_stay_exact() -> None:
+    """Ruling 5: a site takes a security answer in any case, and the line says FERB hides the word wherever it appears;
+    a password, and a word the list lacks, stay exact."""
+    r = _redactor("pizza", "Hunter2!", "Zorblax")
+    assert r.text("PIZZA or Pizza, not pizzazz") == "[redacted] or [redacted], not pizzazz"
+    assert r.text("hunter2! zorblax") == "hunter2! zorblax"
+    assert holds_sealed("I said PIZZA", r.secret_values())
+
+
+@pytest.mark.parametrize("text", ["call 914829137700", "pin=482913482913"])
+def test_a_digit_run_in_free_text_is_no_id(text: str) -> None:
+    """Ruling 6: an id read from free text has an a-f letter; twelve digits are a phone, UPI or Aadhaar number."""
+    r = _redactor("482913")
+    assert "482913" not in r.text(text)
+    assert holds_sealed(text, r.secret_values())
+
+
+def test_an_id_under_an_id_key_keeps_its_form_without_hex_letters() -> None:
+    """Ruling 6: a generated id FERB reads under its own id keys keeps its form, digits only or not."""
+    r = _redactor("4567")
+    assert r.ident("123456789012") == "123456789012"
+    assert r.ident("chat-123456789012") == "chat-123456789012"
