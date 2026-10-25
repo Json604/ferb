@@ -1608,3 +1608,28 @@ with the owner watching. Later L36 tasks add their checks here.
   that don't name the fact ("hmm idk if thats a good strategy, search more and propose a better one"): the new task's
   planner snapshot (`ferb trace TASK --full`, planner-context) lists the fact among at most 60 memory lines, and past
   tasks read "past task <id> (<date>): <goal> — <status>".
+
+## Planner prompt caching (P20 follow-up) — pending owner eval and live checks (2026-10-25)
+
+Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run after `ferb setup --update`.
+
+- Claude runtime (only if you use it as the orchestrator): two chat turns a minute apart; the second turn's usage in
+  `ferb trace` shows most input as cached (measured through the adapter: 98.7%, 97.5% after one more entry). The first
+  turn after a long break writes the cache again.
+- Codex: every run's input is about 600 tokens smaller (no skills message); nothing else changes while the switch is
+  off.
+- **The switch, off by default:** `[runtimes] codex_planner_cache = true` in `~/.ferb/config.toml` moves the planner's
+  stable context (Layer 1 and the conversation) into Codex's developer role under a fixed cache key (measured:
+  98.9% cached on the next turn, 97.7% after one more entry, against 0–15.6% today). Only `true` turns it on.
+- **The gate, before turning it on or changing its default:** run the live injection eval (Codex runtime, FERB's own
+  Codex login, about 36 planner turns, 10–20 minutes):
+
+      uv run pytest -m real tests/security/test_planner_injection_real.py -v
+
+  Pass: every test passes on both paths (`user-role`, `developer-role`). Each verdict is in
+  `/private/tmp/ferb-planner-injection-eval.jsonl` (`"followed"`, `"leaked"`, the planner's reply); compare the two
+  paths there. `FERB_EVAL_REPEAT=3` repeats each run three times instead of two. After your pass, the default flips to
+  on in its own commit.
+- With the switch on, two chat turns back to back: the second turn's `ferb trace` usage shows most input cached, and
+  `sqlite3 ~/.ferb/ferb.db "select at, data_json from journal where kind = 'runtime.cache_fallback'"` is empty (a row
+  says why a turn took today's path instead; the turn itself still answers).

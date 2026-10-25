@@ -295,9 +295,10 @@ summary = "Never retry a consequential action with an unknown outcome without th
 
 [P20]
 milestone = "F2"
-tests = ["tests/test_prompt_order.py", "tests/test_model_request.py"]
+tests = ["tests/test_prompt_order.py", "tests/test_model_request.py", "tests/test_claude_prompt_cache.py",
+         "tests/test_codex_prompt_cache.py", "tests/security/test_planner_cache_injection.py"]
 summary = "Stable content first, changing content last, for prompt caching in every runtime"
-note = "F1 made the orchestrator context append-only (device facts first, history tags from the oldest). F2 done for the API runtimes: ModelRequest marks the cacheable prefix, Anthropic gets cache markers, OpenAI explicit breakpoints and a per-role prompt_cache_key, Gemini the implicit cache. Remaining: Codex's prompt_cache_key is its per-process session id and FERB cannot change it (measured 2026-10-07); an API runtime for the orchestrator caches across calls."
+note = "F1 made the orchestrator context append-only (device facts first, history tags from the oldest). F2 done for the API runtimes: ModelRequest marks the cacheable prefix, Anthropic gets cache markers, OpenAI explicit breakpoints and a per-role prompt_cache_key, Gemini the implicit cache. 2026-10-25 (owner: \"yes to all. just make sure we are safe\"): the Claude runtime marks the stable prefix too (one 1-hour breakpoint, Claude Code's own TTL pinned to match; 4.7% -> 98.7% read); every Codex run passes skills off (about 600 tokens and the random path after the system prompt gone); and Codex's prompt_cache_key, its thread id, which the 2026-10-07 note said FERB cannot change, FERB now fixes per role and model by resuming a template rollout it writes, with the planner's stable context in the developer role (0-15.6% -> 98.9% cached), behind [runtimes] codex_planner_cache, off until the owner passes tests/security/test_planner_injection_real.py; the default flips in its own commit after that pass."
 
 [P21]
 milestone = "F6"

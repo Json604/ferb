@@ -350,7 +350,9 @@ Refreshed credentials are shared after startup checks, before model work begins.
 choice for a runtime that is not usable yet and warns that the role will fail until it is.
 
 The Codex and Claude runtimes use your subscriptions. The Anthropic, OpenAI and Google API runtimes bill per token
-against the key you add; `ferb runtimes` labels each runtime's billing.
+against the key you add; `ferb runtimes` labels each runtime's billing. `[runtimes] codex_planner_cache = true` in
+`config.toml` lets the Codex planner reuse its cached context (off by default until its injection eval passes; see
+[owner acceptance](docs/OWNER_ACCEPTANCE.md), "Planner prompt caching").
 
 Use `ferb COMMAND --help` for options.
 

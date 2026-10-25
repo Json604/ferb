@@ -969,7 +969,7 @@ After the owner's update (2026-10-24):
   instructions and context into one text and ignored which parts repeat, so only Claude Code's own prefix was read from
   the cache (4.8% of a ~101k-token planner turn; every turn wrote ~97k tokens again). FERB's text now goes as separate
   blocks of the same user message with a 1-hour cache marker on the last part that repeats (images after), the
-  Anthropic API runtime's placement; measured 98.6% read on the next turn. Claude Code's own markers are pinned to the
+  Anthropic API runtime's placement; measured 98.7% read on the next turn (97.5% after one more entry). Claude Code's own markers are pinned to the
   same hour (unset, past a subscription's usage limits it picks 5 minutes, and the API would refuse FERB's marker after
   them). Claude Code also adds text FERB didn't write (a reminder with your account email, an environment message);
   `ferb trace` doesn't show it.
@@ -977,6 +977,17 @@ After the owner's update (2026-10-24):
   the run's random temporary folder right after FERB's instructions: about 611 tokens and 1-3 s per run, and it kept
   the rest of the prompt from ever matching the previous run's. FERB loads no Codex skills, so every role now runs with
   `skills.include_instructions=false` and `skills.bundled.enabled=false`.
+- The planner can cache its context on Codex too, behind a switch that is off (P20, D32, MP2; your decision,
+  2026-10-25: "yes to all. just make sure we are safe and after so many security checks we don't end up in prompt
+  injection"). Codex uses its thread id as the cache key and FERB started a new thread every turn, so at best the
+  system prompt was cached (0% and 15.6% on two back-to-back planner turns). With `[runtimes] codex_planner_cache =
+  true`, the planner's turn resumes a thread FERB writes under a key fixed per model, with the stable context (the
+  device facts and the conversation, labels and all, under one line saying quoted content is data) in Codex's
+  developer role and only what changes in your turn: 98.9% cached on the next turn. If that can't be set up, the turn
+  answers the old way and the journal says why (`runtime.cache_fallback`). The switch stays off until you run the live
+  injection eval (`uv run pytest -m real tests/security/test_planner_injection_real.py -v`: nine planted
+  instructions, both ways) and it passes; then the default flips in its own commit. Offline, a planner answer that
+  followed a planted instruction still asks before a send to someone new or a payment, either way.
 - Old facts retire (L36). Live: the 10-11 wedding flight and the finished RSNA competition were still in every planner
   prompt. A fact you give with a date now leaves memory after that day, and when your words say something is over FERB
   retires it (or asks: "Is this no longer true? …", Retire or Keep). Keep is remembered, so FERB doesn't ask about that
