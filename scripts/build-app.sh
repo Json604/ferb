@@ -13,6 +13,7 @@
 set -euo pipefail
 ROOT="${0:A:h:h}"
 source "$ROOT/scripts/signing.sh"
+source "$ROOT/scripts/app-parts.sh"
 
 die() { print -u2 "build-app.sh: $*"; exit 1 }
 
@@ -150,3 +151,4 @@ ferb_sign_app "$APP" "$WORK/sign"
 if ferb_developer_id; then ferb_notarize_app "$APP" "$WORK"; fi
 
 print "Built: $APP ($(du -sh "$APP" | cut -f1); FERB $VERSION, build $BUILD, $REVISION)"
+ferb_size_report "$APP"

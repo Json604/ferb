@@ -6,6 +6,7 @@ temp dir first (minutes, ~700 MB; needs swift, uv, npm and their caches or netwo
 
 import os
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -15,11 +16,13 @@ import pytest
 
 import ferb
 from ferb.device.install import APP_BUNDLE_ID
+from tests.support.macho import compile_macho
 
 ROOT = Path(__file__).resolve().parent.parent
 NOTCH_PLIST = ROOT / "ui" / "mac" / "FERBNotch" / "Info.plist"
 BUILD_APP = ROOT / "scripts" / "build-app.sh"
 BUILD_DMG = ROOT / "scripts" / "build-dmg.sh"
+APP_PARTS = ROOT / "scripts" / "app-parts.sh"
 DEV_ID = "Developer ID Application: Test Owner (TEAM123456)"
 
 
@@ -44,10 +47,50 @@ def test_the_development_build_keeps_its_own_identity() -> None:
 
 
 def test_build_scripts_are_executable_zsh_that_parses() -> None:
-    for script in (BUILD_APP, BUILD_DMG, ROOT / "scripts" / "signing.sh"):
+    for script in (BUILD_APP, BUILD_DMG, ROOT / "scripts" / "signing.sh", APP_PARTS):
         assert script.is_file(), script
         assert subprocess.run(["/bin/zsh", "-n", str(script)], capture_output=True).returncode == 0, script
     assert os.access(BUILD_APP, os.X_OK) and os.access(BUILD_DMG, os.X_OK)
+
+
+def _parts(code: str) -> subprocess.CompletedProcess[str]:
+    """zsh code run after sourcing scripts/app-parts.sh, in a clean zsh with the system PATH."""
+    return subprocess.run(["/bin/zsh", "-f", "-c", f"source {shlex.quote(str(APP_PARTS))}; {code}"],
+                          capture_output=True, text=True, env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
+
+
+def _sized(path: Path, size: int) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\0" * size)
+    return path
+
+
+def test_size_report_lists_ferb_apps_parts_largest_first(tmp_path: Path) -> None:
+    app = tmp_path / "FERB.app"
+    c = app / "Contents"
+    site = c / "Resources/python/lib/python3.12/site-packages"
+    _sized(c / "Resources/node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex", 3_000_000)
+    _sized(site / "claude_agent_sdk/_bundled/claude", 2_000_000)
+    _sized(site / "claude_agent_sdk/__init__.py", 100_000)
+    _sized(site / "regex/_regex.cpython-312-darwin.so", 400_000)
+    _sized(c / "Resources/python/lib/python3.12/json/__init__.py", 300_000)
+    _sized(c / "Resources/python/lib/libpython3.12.dylib", 700_000)
+    _sized(c / "Helpers/ferb-secrets", 100_000)
+    _sized(c / "Info.plist", 1_000)
+    notch = compile_macho(c / "MacOS/FERBNotch", "arm64").stat().st_size
+    done = _parts(f"ferb_size_report {shlex.quote(str(app))}")
+    assert done.returncode == 0, done.stderr
+    lines = done.stdout.splitlines()
+    total = 3_000_000 + 2_000_000 + 100_000 + 400_000 + 300_000 + 700_000 + 100_000 + 1_000 + notch
+    assert lines[0] == f"FERB.app (arm64): {total / 1e6:.1f} MB"
+    rows = [line.split(" MB  ", 1) for line in lines[1:]]
+    named = {name: float(mb) for mb, name in rows}
+    assert named == {"Codex (Resources/node)": 3.0, "Claude Code (claude_agent_sdk/_bundled)": 2.0,
+                     "Python packages (site-packages without Claude Code)": 0.5, "Python standard library": 0.3,
+                     "libpython": 0.7, "Helpers (agent, voice, secrets)": 0.1,
+                     "Notch app (MacOS)": round(notch / 1e6, 1), "Everything else": 0.0}
+    sizes = [float(mb) for mb, _ in rows]
+    assert sizes == sorted(sizes, reverse=True)
 
 
 def test_cli_reports_its_version() -> None:
