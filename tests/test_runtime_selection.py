@@ -97,3 +97,78 @@ def test_live_tests_use_ferbs_own_codex_login() -> None:
     login = real_codex_login()
     assert login is None or login == Path.home() / ".ferb" / "codex-home"
     assert cx.codex_home(Path("/nonexistent-ferb-home")) is None    # offline tests are untouched
+
+# ---------- L34 C: Choose your AI ----------
+
+import pytest
+
+from ferb.cli.client import Client, RpcError
+
+
+def test_status_lists_each_runtime_and_what_each_role_uses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: provider == "openai")
+    monkeypatch.setattr("ferb.runtimes.codex_exec.codex_binary", lambda *a, **k: Path("/x/codex"))
+    out = runtimes_cli.status(tmp_path)
+    rows = {r["name"]: r for r in out["runtimes"]}
+    assert out["roles"] == {"orchestrator": "codex", "worker": "codex", "checker": "codex"}
+    assert set(rows) == set(CATALOG)
+    assert rows["codex"]["usable"] is False and "codex-login" in rows["codex"]["fix"]   # FERB's own Codex not signed in
+    assert rows["openai"]["usable"] is True and rows["anthropic"]["usable"] is False
+    assert rows["claude"]["usable"] is True and rows["codex"]["model"] == CATALOG["codex"].default_model
+    (tmp_path / "codex-home").mkdir()
+    (tmp_path / "codex-home" / "auth.json").write_text("{}")
+    assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["codex"]["usable"] is True
+
+
+def test_assign_points_the_roles_at_one_runtime_or_names_what_is_unknown(tmp_path: Path) -> None:
+    assert runtimes_cli.assign(tmp_path, "claude") == {"orchestrator": "claude", "worker": "claude", "checker": "claude"}
+    assert runtimes_cli.assign(tmp_path, "codex", ["worker"]) == {"orchestrator": "claude", "worker": "codex",
+                                                                   "checker": "claude"}
+    with pytest.raises(ValueError, match="Unknown runtime"):
+        runtimes_cli.assign(tmp_path, "gpt-9")
+    with pytest.raises(ValueError, match="Unknown role"):
+        runtimes_cli.assign(tmp_path, "codex", ["boss"])
+    with pytest.raises(ValueError, match="at least one role"):
+        runtimes_cli.assign(tmp_path, "codex", [])
+
+
+def test_ferb_runtimes_use_still_says_what_it_did(tmp_path: Path) -> None:
+    out = io.StringIO()
+    assert runtimes_cli.use(tmp_path, "worker", "claude", None, out) == 0
+    assert "The worker now uses claude from its next call." in out.getvalue()
+    bad = io.StringIO()
+    assert runtimes_cli.use(tmp_path, "boss", "claude", None, bad) == 1 and "Unknown role 'boss'" in bad.getvalue()
+
+
+def test_choose_your_ai_switches_every_role_and_journals_it(daemon: RunningDaemon,
+                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: False)
+    client = Client(daemon.sock)
+    try:
+        reply = client.call("runtimes.use", {"runtime": "anthropic"})
+        status = client.call("runtimes.status")
+        with pytest.raises(RpcError, match="Unknown runtime"):
+            client.call("runtimes.use", {"runtime": "nope"})
+        with pytest.raises(RpcError, match="roles must be a list"):
+            client.call("runtimes.use", {"runtime": "codex", "roles": "worker"})
+    finally:
+        client.close()
+    assert reply == {"roles": {"orchestrator": "anthropic", "worker": "anthropic", "checker": "anthropic"},
+                     "usable": False, "fix": "run `ferb setup --key anthropic`"}
+    assert status["roles"]["worker"] == "anthropic"
+    assert daemon.daemon._runtime_for("orchestrator") == "anthropic"
+
+
+def test_a_runtime_checks_failure_detail_is_redacted(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+    daemon.call_soon(d._add_secret_value, "sk-proj-secretvalue0123456789")
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("Incorrect API key provided: sk-proj-secretvalue0123456789")
+    d._build_runtime = boom                                    # type: ignore[method-assign]
+    client = Client(daemon.sock)
+    try:
+        reply = client.call("runtimes.check", {"runtime": "openai"})
+    finally:
+        client.close()
+    assert reply["ok"] is False and "sk-proj-secretvalue0123456789" not in reply["detail"]

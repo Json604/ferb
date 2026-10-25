@@ -545,6 +545,8 @@ class Daemon:
         self.server.unary['notifications.label'] = self._notification_label
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
+        self.server.unary['runtimes.status'] = self._runtimes_status
+        self.server.unary['runtimes.use'] = self._runtimes_use
         self.server.unary['setup.permissions'] = self._setup_permissions
         self.server.unary['setup.permission_request'] = self._setup_permission_request
         self.server.unary['setup.finish'] = self._setup_finish
@@ -4505,6 +4507,29 @@ class Daemon:
             self._available_cache[name] = hit
         return hit[1]
 
+    async def _runtimes_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: Choose your AI's live status (and Settings → AI): each runtime's availability, each role's runtime."""
+        from ferb.cli import runtimes as runtimes_cli
+        return await asyncio.to_thread(runtimes_cli.status, self.home)
+
+    async def _runtimes_use(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: the owner's choice of AI service for the roles named (all three by default), from its next call;
+        journaled. One that can't run here yet is set anyway and says so, as `ferb runtimes use` does."""
+        from ferb.cli import runtimes as runtimes_cli
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        runtime = str(params.get("runtime", ""))
+        chosen = params.get("roles", list(ROLES))
+        if not isinstance(chosen, list) or not all(isinstance(role, str) for role in chosen):
+            raise FerbError("roles must be a list of role names")
+        try:
+            assigned = runtimes_cli.assign(self.home, runtime, chosen)
+        except ValueError as e:
+            raise FerbError(str(e)) from None
+        self._available_cache.pop(runtime, None)
+        self._journal().append("runtimes.changed", {"runtime": runtime, "roles": chosen})
+        usable, fix = await asyncio.to_thread(CATALOG[runtime].available, self.home)
+        return {"roles": assigned, "usable": usable, "fix": fix}
+
     async def _runtimes_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """One tiny typed call through a runtime: proves the key, model and network work (costs a fraction of a cent)."""
         from ferb.core.types import ModelRequest, Task
@@ -4518,7 +4543,7 @@ class Daemon:
             task = Task("runtime-check", None, "chat", device, Identity.OWNER, set(), "mixed", "runtime-check", [], None)
             run = await rt.start(task, ModelRequest('Answer {"ok": true}.', ("Check.",), 0), "")
         except Exception as e:
-            return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+            return {"ok": False, "detail": self._redact_text(f"{type(e).__name__}: {e}")}
         detail = ""
         try:
             async for ev in rt.events(run):
@@ -4531,7 +4556,7 @@ class Daemon:
                         return {"ok": False, "detail": 'the answer was not {"ok": ...}'}
                     return {"ok": answer.get("ok") is True, "detail": "answered"}
                 if ev.kind in ("error", "violation"):
-                    detail = str(ev.data)
+                    detail = self._redact_text(str(ev.data))
         finally:
             await rt.cancel(run)
         return {"ok": False, "detail": detail or "no answer"}

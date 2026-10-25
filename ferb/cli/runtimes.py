@@ -2,10 +2,48 @@
 Reads and writes config.toml directly (the daemon reads it on every call); no daemon needed."""
 
 from pathlib import Path
-from typing import TextIO
+from typing import Any, Iterable, TextIO
 
 from ferb.config import Config
 from ferb.runtimes.catalog import CATALOG, ROLES
+
+
+def roles(cfg: Config) -> dict[str, str]:
+    """Which runtime each role uses; the checker follows the worker unless set (D32)."""
+    worker = str(cfg.get("runtimes", "worker", "codex"))
+    return {"orchestrator": str(cfg.get("runtimes", "orchestrator", "codex")), "worker": worker,
+            "checker": str(cfg.get("runtimes", "checker", worker))}
+
+
+def status(home: Path) -> dict[str, Any]:
+    """Each runtime with whether it can run on this Mac (and the fix when not), and what each role uses: the setup
+    window's Choose your AI (L34 C) and `ferb runtimes`. Presence checks only: no key is read."""
+    cfg = Config(home)
+    rows = []
+    for name, info in CATALOG.items():
+        ok, fix = info.available(home)
+        rows.append({"name": name, "usable": ok, "fix": fix,
+                     "model": str(cfg.get("models", name) or info.default_model or "")})
+    return {"roles": roles(cfg), "runtimes": rows}
+
+
+def assign(home: Path, runtime: str, chosen: Iterable[str] = ROLES, model: str | None = None) -> dict[str, str]:
+    """Point the chosen roles at `runtime` (and its model, when given) from their next call. ValueError names an
+    unknown role or runtime; nothing is written then."""
+    chosen = list(chosen)
+    if not chosen:
+        raise ValueError(f"Name at least one role; roles: {', '.join(ROLES)}.")
+    unknown = [role for role in chosen if role not in ROLES]
+    if unknown:
+        raise ValueError(f"Unknown role {unknown[0]!r}; roles: {', '.join(ROLES)}.")
+    if runtime not in CATALOG:
+        raise ValueError(f"Unknown runtime {runtime!r}; runtimes: {', '.join(CATALOG)}.")
+    cfg = Config(home)
+    for role in chosen:
+        cfg.set("runtimes", role, runtime)
+    if model:
+        cfg.set("models", runtime, model)
+    return roles(cfg)
 
 
 def show(home: Path, out: TextIO) -> int:
@@ -19,24 +57,17 @@ def show(home: Path, out: TextIO) -> int:
         print(f"{name:<10}{'yes' if ok else 'no':<8}{model:<20}{c.tools:<9}{c.cache:<9}{'yes' if c.cache_key else 'no':<11}"
               f"{c.structured_output:<8}{'yes' if c.reasoning_effort else 'no':<8}{'yes' if c.image_input else 'no':<8}"
               f"{c.billing}" + (f"   ({fix})" if fix else ""), file=out)
-    worker = str(cfg.get("runtimes", "worker", "codex"))
-    uses = {"orchestrator": str(cfg.get("runtimes", "orchestrator", "codex")), "worker": worker,
-            "checker": str(cfg.get("runtimes", "checker", worker))}
+    uses = roles(cfg)
     print("\n" + "\n".join(f"{role}: {uses[role]}" for role in ROLES), file=out)
     return 0
 
 
 def use(home: Path, role: str, runtime: str, model: str | None, out: TextIO) -> int:
-    if role not in ROLES:
-        print(f"Unknown role {role!r}; roles: {', '.join(ROLES)}.", file=out)
+    try:
+        assign(home, runtime, [role], model)
+    except ValueError as e:
+        print(str(e), file=out)
         return 1
-    if runtime not in CATALOG:
-        print(f"Unknown runtime {runtime!r}; runtimes: {', '.join(CATALOG)}.", file=out)
-        return 1
-    cfg = Config(home)
-    cfg.set("runtimes", role, runtime)
-    if model:
-        cfg.set("models", runtime, model)
     print(f"The {role} now uses {runtime}" + (f" with {model}" if model else "") + " from its next call.", file=out)
     ok, fix = CATALOG[runtime].available(home)
     if not ok:
