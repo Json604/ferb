@@ -1046,7 +1046,9 @@ After the owner's update (2026-10-24):
   them. A learned step names a tab, page element, command or temporary file by kind for the worker to find in its own
   run, never an earlier run's (an element id like s1e8 means another element in the next run); ids count as ids only
   where FERB's tools put them, so "s1e8" typed as text, a checksum or a path that leaves a temporary folder with `..`
-  must match exactly.
+  must match exactly. A procedure step built on a page's content keeps your confirm through a revision only when it
+  cites the same runs' actions you confirmed (with the same arguments); a click learned from other runs is asked
+  about again, since by kind every click looks alike (final review M4).
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,
