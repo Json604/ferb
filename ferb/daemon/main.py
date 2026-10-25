@@ -101,6 +101,7 @@ def _provider(name: str, model: str) -> Any:
 
 ROOTS_PER_PURGE = 200
 RESTORE_LIST = 100                                # `ferb restore` lists the newest this many records
+TASK_PAGE, TASK_PAGE_MAX = 50, 200                 # the FERB window's Tasks page (L34 Phase E): rows per page, most per call
 
 
 def _raise_file_limit() -> None:
@@ -554,6 +555,8 @@ class Daemon:
         self.server.streams['notifications.subscribe'] = self._notifications_subscribe
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
+        self.server.unary['tasks.list'] = self._tasks_list
+        self.server.unary['notices.list'] = self._notices_list
         self.server.unary['settings.get'] = self._settings_get        # the FERB window's Settings (L34 Phase E)
         self.server.unary['settings.set'] = self._settings_set
         self.server.unary['runtimes.status'] = self._runtimes_status
@@ -3650,7 +3653,19 @@ class Daemon:
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
                                "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures,
-                               "watch": s.watch} for s in self._listed_schedules()]}
+                               "watch": s.watch, "last_result": self._schedule_last_result(s.id)}
+                              for s in self._listed_schedules()]}
+
+    def _schedule_last_result(self, sid: str) -> dict[str, Any] | None:
+        """A schedule's latest finished run as the owner was told it (L34 Phase E): the result of the root task a
+        `schedule.run` request made; None before any run finished."""
+        assert self.db is not None
+        row = self.db.conn.execute(
+            "SELECT r.at, r.status, r.answer FROM task_results r JOIN tasks t ON t.id = r.task_id "
+            "WHERE t.parent_id IS NULL AND t.request_id IN (SELECT json_extract(data_json, '$.request_id') FROM journal "
+            "WHERE kind = 'schedule.run' AND json_extract(data_json, '$.schedule_id') = ?) ORDER BY r.at DESC LIMIT 1",
+            (sid,)).fetchone()
+        return {"at": row["at"], "status": row["status"], "answer": self._redact_text(row["answer"])} if row else None
 
     async def _schedules_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"text": self._schedule_change(str(params["id"]), str(params["action"]))}
@@ -4914,6 +4929,39 @@ class Daemon:
         stored = settings.write(self.config, name, params.get("value"))
         self._journal().append("settings.changed", {"key": name, "value": stored}, origin="owner")
         return {"key": name, "value": stored}
+
+    async def _tasks_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Tasks: root tasks newest first, `limit` at a time before `before` (the `created_at` the last page ended at),
+        each with its status, what FERB answered (its result, else its outcome) and the owner's latest verdict."""
+        if self.db is None:
+            raise FerbError("daemon not started")
+        limit = params.get("limit", TASK_PAGE)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= TASK_PAGE_MAX:
+            raise FerbError(f"limit must be a whole number from 1 to {TASK_PAGE_MAX}")
+        before = str(params.get("before") or "9999")           # sorts after every ISO time
+        rows = self.db.conn.execute(
+            "SELECT t.id, t.goal, t.status, t.created_at, t.updated_at, t.outcome_json, r.answer, "
+            "(SELECT v.verdict FROM owner_verdicts v WHERE v.task_id = t.id ORDER BY v.seq DESC LIMIT 1) AS verdict "
+            "FROM tasks t LEFT JOIN task_results r ON r.task_id = t.id "
+            "WHERE t.parent_id IS NULL AND t.created_at < ? ORDER BY t.created_at DESC, t.rowid DESC LIMIT ?",
+            (before, limit + 1)).fetchall()
+        out = []
+        for r in rows[:limit]:
+            outcome = json.loads(r["outcome_json"] or "{}")
+            answer = r["answer"] or outcome.get("answer") or outcome.get("summary") or ""
+            out.append({"task_id": r["id"], "goal": self._redact_text(str(r["goal"])), "status": r["status"],
+                        "created_at": r["created_at"], "updated_at": r["updated_at"],
+                        "answer": self._redact_text(str(answer)), "verdict": r["verdict"]})
+        return {"tasks": out, "more": len(rows) > limit}
+
+    async def _notices_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Noticed: every notice FERB posted, newest first, as clients render them (AttentionNotices.view), and whether
+        a client has shown it. Reading acknowledges nothing, so the notch still shows a new one in chat."""
+        if self.attention_notices is None:
+            return {"notices": []}
+        rows = self.attention_notices.list(pending=True) + self.attention_notices.list(pending=False)
+        rows.sort(key=lambda r: str(r["created_at"]), reverse=True)
+        return {"notices": [self.attention_notices.view(r) | {"shown": r["delivered_at"] is not None} for r in rows]}
 
     # ---------- methods ----------
 
