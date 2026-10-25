@@ -218,6 +218,21 @@ def _profile_line(p: ProfileStatus, store_id: str) -> str:
     return f"    “{p.name}” ({p.folder}): {state}"
 
 
+def read_states(support: Path, store_id: str, ids: tuple[str, ...], paired: set[tuple[str, str]] | None,
+                data_dirs: dict[str, Path] | None = None) -> list[BrowserState]:
+    """Each installed browser's state as `prepare` reports it, read only: nothing is written (L34 C: the setup window
+    polls it). `request` is the install request file when one is already there. `data_dirs` (browser -> user-data
+    folder) replaces discovery under `support` (the daemon's own mapping; tests)."""
+    dirs = data_dirs if data_dirs is not None else {b: profiles.data_dir(b, support) for b in profiles.installed(support)}
+    out = []
+    for browser, data in dirs.items():
+        request = data / "External Extensions" / f"{store_id}.json" if valid_id(store_id) else None
+        out.append(BrowserState(browser, request if request is not None and request.is_file() else None,
+                                tuple(profile_status(p, ids, data, paired, store_id)
+                                      for p in profiles.discover(browser, data))))
+    return out
+
+
 def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
              withdrawn: Iterable[Path] = ()) -> list[str]:
     """What setup tells the owner: per browser what was requested, per profile its state, which browsers to reopen,

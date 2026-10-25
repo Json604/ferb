@@ -5,6 +5,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import ferb
 
@@ -42,3 +43,38 @@ def install_extension(home: Path, source: Path | None = None) -> Path:
             dest.parent.mkdir(parents=True, exist_ok=True)
             (staged / relative).replace(dest)
     return target
+
+
+# ---------- L34 C: the setup window's Browsers step ----------
+
+def store_page(store_id: str) -> str:
+    """FERB's Chrome Web Store page (Add to <browser>), or "" when no valid store id is set."""
+    from ferb.act.browser.autoinstall import valid_id
+    return f"https://chromewebstore.google.com/detail/{store_id}" if valid_id(store_id) else ""
+
+
+def profile_state(p: Any) -> str:
+    """A profile as the setup window shows it: not_installed, removed (the owner removed the store copy, so the browser
+    won't add it again), installed (waiting to be turned on), on, or paired."""
+    if not p.extension_id:
+        return "removed" if p.removed else "not_installed"
+    if not p.enabled:
+        return "installed"
+    return "paired" if p.paired else "on"
+
+
+def browser_rows(states: list[Any], store_id: str, extension_dir: Path, ferb_identity: tuple[str, str] | None,
+                 connected: set[tuple[str, str]]) -> dict[str, Any]:
+    """`setup.browsers`'s reply: per browser whether FERB asked it to install the extension and whether Load unpacked is
+    the way there (as `autoinstall.describe` says it), and per profile its state."""
+    from ferb.act.browser import autoinstall, profiles
+    valid = autoinstall.valid_id(store_id)
+    return {"store_url": store_page(store_id) or None, "extension_dir": str(extension_dir),
+            "browsers": [{"browser": s.browser, "label": profiles.BROWSERS[s.browser].label,
+                          "requested": s.request is not None,
+                          "manual": not valid or s.request is None or s.browser in autoinstall.UNCONFIRMED,
+                          "unconfirmed": autoinstall.UNCONFIRMED.get(s.browser, ""),
+                          "profiles": [{"folder": p.folder, "name": p.name, "state": profile_state(p),
+                                        "ferb_identity": (p.browser, p.folder) == ferb_identity,
+                                        "connected": (p.browser, p.folder) in connected} for p in s.profiles]}
+                         for s in states]}

@@ -476,3 +476,74 @@ def test_pairing_opens_the_copy_turned_on_when_a_profile_has_both(bd: Any) -> No
         c.close()
     assert url.startswith(f"chrome-extension://{STORE}/pair.html")
     assert out.get("paired") is True, out
+
+# ---------- L34 C: the setup window's Browsers step ----------
+
+from ferb.cli.client import Client, RpcError  # noqa: E402
+from ferb.device.extensions import browser_rows  # noqa: E402
+from tests.conftest import RunningDaemon  # noqa: E402
+
+
+def test_read_states_reports_what_prepare_does_and_writes_nothing(world: dict[str, Any]) -> None:
+    before = sorted(world["support"].rglob("*"))
+    states = autoinstall.read_states(world["support"], STORE, (PINNED, STORE), {("brave", "Default")})
+    assert sorted(world["support"].rglob("*")) == before                    # no request file, no folder
+    by = {(s.browser, p.folder): p for s in states for p in s.profiles}
+    assert by[("chrome", "Default")].enabled and by[("brave", "Default")].paired
+    assert all(s.request is None for s in states)                         # nothing requested yet
+    written = autoinstall.prepare(world["support"], STORE, (PINNED, STORE), None)
+    again = autoinstall.read_states(world["support"], STORE, (PINNED, STORE), None)
+    assert {s.browser for s in again if s.request} == {s.browser for s in written if s.request}
+
+
+def test_setup_rows_name_each_profiles_state_and_where_load_unpacked_is_the_way(world: dict[str, Any]) -> None:
+    autoinstall.prepare(world["support"], STORE, (PINNED, STORE), None)
+    states = autoinstall.read_states(world["support"], STORE, (PINNED, STORE), {("brave", "Default")})
+    rows = browser_rows(states, STORE, Path("/x/chromium"), ("chrome", "Profile 1"), {("brave", "Default")})
+    assert rows["store_url"] == f"https://chromewebstore.google.com/detail/{STORE}"
+    assert rows["extension_dir"] == "/x/chromium"
+    by = {(b["browser"], p["folder"]): p for b in rows["browsers"] for p in b["profiles"]}
+    assert by[("chrome", "Default")]["state"] == "on" and by[("chrome", "Default")]["name"] == "Personal"
+    assert by[("chrome", "Profile 1")]["state"] == "installed" and by[("chrome", "Profile 1")]["ferb_identity"]
+    assert by[("brave", "Default")]["state"] == "paired" and by[("brave", "Default")]["connected"]
+    assert by[("edge", "Default")]["state"] == "not_installed"
+    assert by[("edge", "Profile 1")]["state"] == "removed"
+    assert {b["browser"]: b["manual"] for b in rows["browsers"]} == {"chrome": False, "brave": True, "edge": True,
+                                                                     "vivaldi": True}
+    assert {b["browser"]: b["label"] for b in rows["browsers"]}["chrome"] == "Google Chrome"
+    assert browser_rows(states, "", Path("/x"), None, set())["store_url"] is None
+
+
+def _point_daemon_at(daemon: RunningDaemon, world: dict[str, Any]) -> None:
+    d = daemon.daemon
+    d.config.set("browser", "store_extension_id", STORE)
+    d.browser_data_dirs = {b: profiles.data_dir(b, world["support"]) for b in profiles.installed(world["support"])}
+
+
+def test_the_daemon_lists_browsers_for_the_setup_window_without_writing(daemon: RunningDaemon,
+                                                                       world: dict[str, Any]) -> None:
+    _point_daemon_at(daemon, world)
+    before = browser_files(world["support"])
+    client = Client(daemon.sock)
+    try:
+        rows = client.call("setup.browsers")
+    finally:
+        client.close()
+    assert browser_files(world["support"]) == before
+    assert not (world["support"] / "Google" / "Chrome" / "External Extensions").exists()
+    assert {b["browser"] for b in rows["browsers"]} == {"chrome", "brave", "edge", "vivaldi"}
+
+
+def test_add_to_browser_opens_the_store_page_in_that_profile_only(daemon: RunningDaemon, world: dict[str, Any]) -> None:
+    _point_daemon_at(daemon, world)
+    launched: list[list[str]] = []
+    daemon.daemon.browser_launch = launched.append
+    page = f"https://chromewebstore.google.com/detail/{STORE}"
+    client = Client(daemon.sock)
+    try:
+        assert client.call("setup.browser_open", {"browser": "chrome", "folder": "Profile 1"}) == {"opened": page}
+        with pytest.raises(RpcError):
+            client.call("setup.browser_open", {"browser": "chrome", "folder": "Profile 9"})   # not discovered
+    finally:
+        client.close()
+    assert launched == [[profiles.BROWSERS["chrome"].binary, "--profile-directory=Profile 1", page]]

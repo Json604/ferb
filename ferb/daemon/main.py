@@ -547,6 +547,8 @@ class Daemon:
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['runtimes.status'] = self._runtimes_status
         self.server.unary['runtimes.use'] = self._runtimes_use
+        self.server.unary['setup.browsers'] = self._setup_browsers
+        self.server.unary['setup.browser_open'] = self._setup_browser_open
         self.server.unary['setup.permissions'] = self._setup_permissions
         self.server.unary['setup.permission_request'] = self._setup_permission_request
         self.server.unary['setup.finish'] = self._setup_finish
@@ -4315,6 +4317,38 @@ class Daemon:
             raise FerbError(r.message(str(params.get("profile", "")), known))
         p = r.candidates[0]
         return {"unpaired": self.pairings.unpair(p.browser, p.folder)}
+
+    async def _setup_browsers(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: each browser and profile as the setup window shows it, read only (`autoinstall.read_states`): FERB's
+        extension not added, removed, added, on or paired; whether FERB asked the browser to install it; where Load
+        unpacked is the way. Nothing is written and no browser is opened."""
+        from ferb.act.browser import autoinstall
+        from ferb.act.browser.profiles import SUPPORT
+        from ferb.device.extensions import browser_rows, extension_path
+        store = autoinstall.store_extension_id(self.config)
+        ids = autoinstall.accepted_extension_ids(self.config)
+        paired = {(b.browser, b.folder) for b in self.pairings.all()} if self.pairings is not None else None
+        states = await asyncio.to_thread(autoinstall.read_states, SUPPORT, store, ids, paired, self.browser_data_dirs)
+        connected = {key for key, br in self.hub.bridges.items() if br.conn} if self.hub is not None else set()
+        return browser_rows(states, store, extension_path(self.home), self._identity_profile(), connected)
+
+    async def _setup_browser_open(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: the owner's Add to <browser> on one profile: FERB's Web Store page opens in that profile, in front (the
+        owner does the clicks; FERB never adds it for them, L25), or chrome://extensions when no store id is set (Load
+        unpacked). Only a profile discovery returned; journaled."""
+        from ferb.act.browser import autoinstall
+        from ferb.device.extensions import store_page
+        browser, folder = str(params.get("browser", "")), str(params.get("folder", ""))
+        url = store_page(autoinstall.store_extension_id(self.config)) or "chrome://extensions"
+        known = self._profiles()
+        kwargs: dict[str, Any] = {"launch": self.browser_launch} if self.browser_launch else {}
+        try:
+            await asyncio.to_thread(browser_profiles.open_known_profile, browser, folder, url, known,
+                                    background=False, **kwargs)
+        except ValueError as e:
+            raise FerbError(str(e)) from None
+        self._journal().append("setup.browser_opened", {"browser": browser, "folder": folder, "url": url})
+        return {"opened": url}
 
     def _urls_of(self, task_id: str) -> list[str]:
         return [u for drv in (self.router, self.ferb_identity) if drv is not None for u in drv.urls_of(task_id)]
