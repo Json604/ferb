@@ -162,6 +162,7 @@ def test_cli_reports_its_version() -> None:
 STUB_CODESIGN = r"""#!/bin/zsh
 # Logs every call. -dv: a "vendor" path carries another team's Developer ID signature, anything else is ad-hoc.
 print -r -- "codesign|${(j:|:)@}" >> "$STUB_LOG"
+if [[ " $* " == *" --verify "* && -n "${STUB_VERIFY_FAILS:-}" ]]; then exit 1; fi
 if [[ " $* " == *" -dv "* ]]; then
   if [[ "${@[-1]}" == *vendor* ]]; then
     print -u2 "Authority=Developer ID Application: Vendor Inc (VENDOR1)"; print -u2 "TeamIdentifier=VENDOR1"
@@ -203,7 +204,7 @@ def _stubs(tmp_path: Path) -> dict[str, str]:
         (stubs / name).write_text(body)
         (stubs / name).chmod(0o755)
     return {"PATH": f"{stubs}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(tmp_path / "home"),
-            "STUB_LOG": str(tmp_path / "calls.log"), "STUB_DIR": str(tmp_path)}
+            "STUB_LOG": str(tmp_path / "calls.log"), "STUB_DIR": str(tmp_path), "FERB_DEV_DMG": "1"}
 
 
 def _fake_app(root: Path) -> Path:
@@ -437,6 +438,29 @@ def test_dmg_is_named_for_the_apps_architecture_and_says_how_to_open_it_the_firs
     done = subprocess.run([str(BUILD_DMG), str(universal)], capture_output=True, text=True, env=env)
     assert done.returncode != 0 and "one-architecture" in done.stderr
     assert sorted(p.name for p in (tmp_path / "dist").iterdir()) == ["FERB-AppleSilicon.dmg", "FERB-Intel.dmg"]
+
+
+def test_a_disk_image_holds_only_a_release_signed_app(tmp_path: Path) -> None:
+    """What people download carries FERB's release certificate (L34), so their permissions and automatic updates carry
+    over to the next version; an ad-hoc or otherwise signed app is refused unless FERB_DEV_DMG=1 (test images)."""
+    app = _fake_app(tmp_path / "out")
+    compile_macho(app / "Contents/MacOS/FERBNotch", "arm64")
+    dist = tmp_path / "dist"
+    dmg = dist / "FERB-AppleSilicon.dmg"
+    env = {**_stubs(tmp_path), "FERB_DMG_DIR": str(dist)}
+    del env["FERB_DEV_DMG"]
+    adhoc = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+    assert adhoc.returncode != 0 and "SIGN_IDENTITY=release" in adhoc.stderr and not dmg.exists()
+    env.update(_release_env())
+    ok = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+    assert ok.returncode == 0, ok.stderr + ok.stdout
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert f'codesign|--verify|--strict|-R=identifier "com.ferb.FERB" and certificate leaf = H"{SHA}"|{app}' in calls
+    dmg.unlink()
+    env["STUB_VERIFY_FAILS"] = "1"                                          # the app is signed some other way
+    other = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+    assert other.returncode != 0 and "isn't signed with FERB's release certificate" in other.stderr
+    assert not dmg.exists()
 
 
 # ---------- a real bundle ----------

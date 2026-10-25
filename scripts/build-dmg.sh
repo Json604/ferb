@@ -1,6 +1,7 @@
 #!/bin/zsh -f
-# Package FERB.app into disk images with an Applications link (L27, L34): one per architecture. Ad-hoc by default;
-# with a Developer ID SIGN_IDENTITY each image is also signed, notarized and stapled (scripts/signing.sh).
+# Package FERB.app into disk images with an Applications link (L27, L34): one per architecture. An image holds only a
+# release-signed FERB.app (SIGN_IDENTITY=release) or a Developer ID one, which is also signed, notarized and stapled
+# (scripts/signing.sh); FERB_DEV_DMG=1 makes a test image of any app.
 #
 #   scripts/build-dmg.sh             build both apps (scripts/build-app.sh --arch arm64, then x86_64) into
 #                                    $FERB_DMG_DIR/app-<arch>, then FERB-AppleSilicon.dmg and FERB-Intel.dmg there
@@ -27,6 +28,7 @@ dmg_name() {                          # $1: an architecture, as lipo names it
 
 make_dmg() {                          # $1: an assembled FERB.app, $2: the image to write
   local app=${1:A} dmg=${2:A}
+  ferb_check_release_app "$app" || exit 1
   STAGE="${dmg:h}/.dmg-staging"
   rm -rf "${STAGE:?}" "${dmg:?}"
   mkdir -p "$STAGE"
@@ -48,6 +50,7 @@ make_dmg() {                          # $1: an assembled FERB.app, $2: the image
 
 ferb_check_notary_credentials
 if (( $# == 0 )); then
+  ferb_check_release_app || exit 1                # before the builds, not after
   mkdir -p "$DMG_DIR"
   for arch in arm64 x86_64; do
     "$ROOT/scripts/build-app.sh" --arch $arch "$DMG_DIR/app-$arch"
