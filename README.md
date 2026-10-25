@@ -220,6 +220,15 @@ there, the packaged app with `scripts/build-app.sh`). It uses the same local dae
   screenshot or a clipboard app still shows it. Click it, hover the notch or use the shortcut to bring it to the front;
   clicking the other app sends it back again.
 
+FERB.app posts FERB's notifications itself, with FERB's name and icon: a question while the notch is closed, a reminder,
+an alert from something FERB watches, a task's answer that arrives while the notch is closed, and a loop pausing or
+backing off. Clicking one opens the notch at that question or task. Focus modes apply. Each kind can be switched off
+(config.toml `[banners]`, Settings → Notifications). Until you allow notifications for FERB (in Set Up FERB…'s
+Permissions step, or System Settings → Notifications → FERB), and whenever FERB.app isn't running, FERB posts them
+through macOS's script notifications (shown as Script Editor), as before. The menu bar icon shows FERB's state: ready,
+working, needs you, paused, or "FERB isn't running — Restart"; its menu has Open FERB, Pause FERB (nothing is recorded
+until Resume), Settings… and Quit.
+
 FERB's pointer (L33): when FERB is about to act on something in a window you can see, a small arrow glides to the spot
 and fades after about a second and a half. It is only a picture: it is click-through, never takes focus and never moves
 your own mouse. There is none for a window you can't see (minimized, another Space, or behind another window at that

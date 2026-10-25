@@ -3589,6 +3589,23 @@ itself; after `auth status --json` confirms it, FERB writes the marker `.ferb-si
 Debugging: journal kinds `setup.permission_requested`, `setup.browser_opened`, `runtimes.changed`, `setup.finished`,
 `runtimes.sign_in`, `runtimes.sign_in_finished`.
 
+#### Phase D — notifications and menu bar state
+
+The daemon decides what to tell, as before (`_task_result`, `_approval_notice`, `_timer_fired`, `_post_notice`, the idle
+hold), now as a `Banner` (`ferb/daemon/banners.py`) with a category (`question`, `reminder`, `alert`, `task_finished`,
+`loop`), a click target and `when_hidden`. `_notify` drops a category the owner switched off (config `[banners]`,
+`notifications.categories`); `_deliver` hands the banner, title and body redacted, to FERB.app while it holds
+`notifications.subscribe` (`Posters`), else runs osascript (`_notify_safely`, unchanged). With FERB.app as the poster a
+question goes to it even when its chat is attached, and a finished task even when a chat showed it, both `when_hidden`;
+FERB.app (`NotificationPoster`) posts through `UNUserNotificationCenter` unless the notch is showing (open, not stepped
+back, displays awake), withdraws a question's banner when it is answered, and opens the notch at the item on a click
+(`NotchModel.open`). FERB.app subscribes only when macOS lets it notify. Notification Center rows from `com.ferb.FERB` or
+`dev.ferb.notch` are FERB's own (perception `_own_banner`). The menu bar derives `MenuBarState` from `DaemonLink` (two
+refused connections in a row = not running), `chat.status`'s `paused` and `stopped`, the open questions and running
+tasks; `StatusMenu.entries` builds the menu (Pause = `sense.pause`, Restart = `DaemonService.restart`, Lift Emergency
+Stop = `stop.lift`). Debugging: journal `banners.switched`; `ferb logs` shows each `approval.requested`/`task.result`
+that a banner follows.
+
 ### 16.15 Careful edits (L39)
 
 Owner 2026-10-25: tasks that edit the owner's documents "demand high agency and there should be a good level of

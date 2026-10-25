@@ -1783,3 +1783,23 @@ Nothing here is installed or observed yet. Run on a fresh second macOS user acco
   reads On, then Paired once you're in that profile's window.
 - Getting to know you: Save, Edit and Skip each close the question. Done opens the notch. Quit and reopen FERB.app: no
   window. Replace FERB.app with a newer build: launch updates quietly.
+
+## Notifications and menu bar (L34 Phase D) — pending live check (2026-10-25)
+
+Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run on the second macOS user
+account after Phase C's check, the owner watching; pause between supervised actions and record what the owner saw.
+
+- Before allowing notifications: ask "remind me in 1 minute to stretch"; the reminder arrives as Script Editor's banner.
+  Then allow Notifications in Set Up FERB… → Permissions: the next reminder arrives as **FERB** with FERB's icon.
+- Close the notch and ask for a task that needs a question on a disposable target; the question arrives as a FERB
+  banner; clicking it opens the notch at the question's field. Answer it in the notch: the banner leaves Notification
+  Center. With the notch open, a new question shows no banner.
+- Close the notch during a longer disposable task: its answer arrives as "FERB finished"; clicking opens Tasks. Record
+  whether anything took focus when a banner arrived (nothing should).
+- Turn on a Focus mode that silences FERB: no banner shows; turn it off.
+- Switch reminders off (Settings → Notifications once Phase E exists, or `notifications.categories {set: {reminder:
+  false}}`): a reminder posts no banner and is still in the chat; switch it back on.
+- Menu bar: the icon reads ready, then working during a task, needs you while a question waits. Pause FERB → paused
+  (Resume FERB in the menu); `launchctl bootout gui/$(id -u)/com.ferb.daemon` → within a few seconds "FERB isn't running
+  — Restart"; Restart brings it back to ready.
+- Quit FERB.app with the daemon running and trigger a reminder: it arrives through Script Editor (the fallback).

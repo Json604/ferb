@@ -13,6 +13,18 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## L34 FERB for everyone — Phase D: notifications and menu bar — 2026-10-25 — checkout; owner live check pending
+
+- FERB.app posts FERB's banners with UNUserNotificationCenter (FERB's name and icon, Focus respected) while it holds
+  the new `notifications.subscribe`; osascript remains the fallback. Clicking a banner opens the notch at its item; an
+  answered question's banner is withdrawn.
+- Five categories with switches in config.toml `[banners]` (`notifications.categories`): question, reminder, alert,
+  task_finished, loop.
+- `chat.status` adds `paused` and `stopped`. The menu bar icon and menu show ready, working, needs you, paused, stopped
+  or "FERB isn't running — Restart"; Pause FERB, Resume FERB, Lift Emergency Stop and Restart FERB act on it.
+- Tests: tests/test_banners.py, tests/test_app_notifications.py, tests/test_schedules.py, NotificationTests.swift,
+  MenuBarStateTests.swift, NotificationPosterTests.swift, MenuBarModelTests.swift.
+
 ## 0.27.0.dev1 FERB for everyone, phase C (L34) — 2026-10-25 — native setup window; owner live check pending
 
 - FERB.app's setup window replaces the setup console: Welcome, Choose your AI, Permissions, Browsers, Getting to know
