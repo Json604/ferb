@@ -47,7 +47,31 @@ final class SetupModel: ObservableObject {
 
     /// What the setup window asks for: what every task needs. The rest are asked when first needed (owner 2026-10-26:
     /// "ask when first needed, like Claude and ChatGPT"); Settings → Permissions lists them all.
-    static let askedAtSetup: Set<String> = ["accessibility", "screen_recording"]
+    static let askedAtSetup: Set<String> = ["accessibility", "screen_recording", "full_disk_access", "notifications"]
+    /// "Allow all" (owner 2026-10-26): the setup rows not yet on, one-click popups first; Screen Recording last, since
+    /// macOS restarts FERB after it (setup reopens on this page).
+    static let allowAllSequence = ["notifications", "accessibility", "full_disk_access", "screen_recording"]
+    static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
+        allowAllSequence.filter { id in rows.contains { $0.id == id && $0.status != .granted && $0.blocked.isEmpty } }
+    }
+    @Published private(set) var allowingAll = false
+
+    /// Each setup permission in turn: macOS's own request and its pane, then a wait until the row ticks (polled), before
+    /// the next. The owner can stop by closing the pane; a row still off after its wait is left for its own Grant.
+    func allowAll() async {
+        guard !allowingAll else { return }
+        allowingAll = true
+        defer { allowingAll = false }
+        for id in Self.allowAllOrder(setupRows) {
+            guard let row = allRows.first(where: { $0.id == id }) else { continue }
+            await grant(row)
+            for _ in 0..<180 {                       // up to 3 minutes for the owner to flip this one switch
+                await refreshPermissions()
+                if allRows.contains(where: { $0.id == id && $0.status == .granted }) { break }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
     var setupRows: [PermissionRow] { allRows.filter { Self.askedAtSetup.contains($0.id) } }
 
     var allRows: [PermissionRow] { (permissions?.rows ?? []) + appRows + (hearingRow.map { [$0] } ?? []) }

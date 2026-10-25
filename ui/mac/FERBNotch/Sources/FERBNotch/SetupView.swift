@@ -112,8 +112,15 @@ struct PermissionsStepView: View {
     @ObservedObject var model: SetupModel
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            StepHeader(title: "Let FERB work on your Mac", lines: ["FERB needs these two to see and use your Mac.",
-                                                                   "It asks for anything else the first time it needs it."])
+            StepHeader(title: "Let FERB work on your Mac", lines: ["Allow these once; FERB asks for anything else the first time it needs it.",
+                                                                   "Each row ticks itself when it's on."])
+            if !SetupModel.allowAllOrder(model.setupRows).isEmpty {
+                Button(model.allowingAll ? "Allowing… flip each switch as it opens" : "Allow all") {
+                    Task { await model.allowAll() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.allowingAll)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.setupRows) { row in PermissionRowView(row: row, model: model) }
