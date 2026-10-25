@@ -61,4 +61,39 @@ final class FERBWindowViewTests: XCTestCase {
         XCTAssertEqual(controller.selection.section, .tasks)
         XCTAssertEqual(controller.selection.settingsTab, .privacy)        // the tab is kept for next time
     }
+
+    func testEverySettingsPageLaysOutInADevelopmentBuild() {
+        let store = filledStore()
+        lays(AISettingsPage(store: store, actions: actions()))
+        lays(PermissionsSettingsPage(actions: actions()))
+        lays(BrowsersSettingsPage(actions: actions()))
+        lays(NotificationsSettingsPage(store: store))
+        lays(PrivacySettingsPage(store: store))
+        lays(AdvancedSettingsPage(store: store, actions: actions()))
+        for tab in SettingsTab.allCases {
+            let selection = FERBWindowSelection()
+            selection.section = .settings
+            selection.settingsTab = tab
+            lays(SettingsView(store: store, selection: selection, actions: actions()))
+        }
+    }
+
+    func testFERBsOwnCommandsShowTheirOutputAndUninstallRunsItsHookFirst() {
+        var order: [String] = []
+        var packaged = actions()
+        packaged.beforeUninstall = { order.append("login item") }
+        packaged.runFerb = { arguments, line, done in
+            order.append(arguments.joined(separator: " "))
+            line("`ferb` command: /Users/o/.local/bin/ferb")
+            done(0)
+            return true
+        }
+        let output = FerbOutput()
+        output.run(["setup", "--cli"], with: packaged)
+        XCTAssertEqual(output.lines, ["`ferb` command: /Users/o/.local/bin/ferb"])
+        XCTAssertEqual(output.status, 0)
+        output.uninstall(with: packaged)
+        XCTAssertEqual(order, ["setup --cli", "login item", "uninstall"])
+        XCTAssertNil(actions().runFerb)                                    // a development build runs nothing
+    }
 }
