@@ -5,6 +5,7 @@ Drivers retain actual window/element/coordinate validity, background mechanics a
 
 import asyncio
 import contextlib
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, ContextManager, Literal
 
@@ -14,7 +15,7 @@ from ferb.act.browser.profiles import is_web_browser
 from ferb.act.evidence.mask import Box, to_image_boxes
 from ferb.act.mac import applescript
 from ferb.act.mac.ax_browser import is_browser
-from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver, acts_on
+from ferb.act.mac.driver import OWN_APP, UNTRUSTED_APPS, MacComputerDriver, acts_on
 from ferb.act.mac.input import Yielded
 from ferb.act.mac.screenshot import window_on_screen
 from ferb.act.point import Point, display_of
@@ -28,6 +29,11 @@ from ferb.policy.rules import Kind
 
 def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
+
+
+# FERB's own apps as a System Events script would name them: "FERB" (the app and its helpers' process names) or a
+# bundle id from `front_window.FERB_APPS` (rule 8, rule 9)
+OWN_APP_SCRIPT = re.compile(r"(?i)(?<![a-z0-9])ferb(?![a-z0-9])|dev\.ferb\.notch|com\.ferb\.(?:ferb|app|daemon)")
 
 
 def whole_browser(name: str) -> str:
@@ -202,6 +208,8 @@ class MacOpen(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         bid = str(getattr(args, "bundle_id"))
+        if MacComputerDriver._own_app(bid, -1):          # FERB's own app (rule 8, rule 9, D31, W2)
+            return _err(OWN_APP)
         if bid.lower() in {e.lower() for e in self.driver.excluded()}:
             return _err(f"{bid} is on the owner's exclusion list")
         running = self.driver.apps.find(bid) is not None
@@ -631,6 +639,14 @@ class MacAppleScript(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.APPLESCRIPT, Target(site=self._bundle(args)), content=str(getattr(args, "script")))
+
+    def precheck(self, args: BaseModel) -> str | None:
+        """A System Events script that addresses one of FERB's own apps (its process name or bundle id) is refused,
+        never asked (rule 8, rule 9, D31, W2): a script for FERB's app itself is refused by `driver.app`."""
+        if self._bundle(args).casefold() == "com.apple.systemevents" and OWN_APP_SCRIPT.search(
+                str(getattr(args, "script", ""))):
+            return OWN_APP
+        return super().precheck(args)
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
