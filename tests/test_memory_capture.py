@@ -188,6 +188,44 @@ def test_drop_deletes_the_guess_s_index_node(daemon: Any) -> None:
     assert run(daemon, nodes) == []
 
 
+def test_drop_deletes_the_index_node_alone_never_what_tasks_built_while_the_guess_existed(daemon: Any) -> None:
+    """Live 2026-10-25 (L36 backlog): Drop deleted the guess's index node with `Learning.forget`, which deletes
+    everything built on it too. Tasks whose memory reads returned the guess cite it (139 episode cards cited
+    `memory:<id>`, 267 its index node), so one Drop deleted 750 learned items (406 episode cards, the day / week / month
+    summaries and intent labels built on them, the owner's entity summaries) in 53 s on the event loop; the notch
+    stopped waiting after 10 s and said the answer wasn't recorded. Drop is never a forget (L36 ruling): the index node
+    alone goes, leaving no tombstone, so a later capture of those cards keeps them too."""
+    d = daemon.daemon
+    _, it = guess(daemon)
+    run(daemon, lambda: d.learning.sync_facts(d.memory))
+    guess_ref = "memory:" + it.id
+    [index] = run(daemon, lambda: [r[0] for r in d.db.conn.execute(
+        "SELECT node_id FROM learning_sources WHERE source_ref = ?", (guess_ref,))])
+
+    def built_on_it() -> dict[str, str]:
+        def card(task: str, source: str) -> str:
+            return str(d.learning.put("episode", task, {"task_id": task, "request": "what's due this week?"},
+                                      [source], made_by="test", origin_label="ferb", state="active")["id"])
+        read_guess, read_index = card("read-the-guess", guess_ref), card("read-its-index", index)
+        day = d.learning.put("summary", "day:2026-01-01", {"period": "day", "children": [read_guess, read_index]},
+                             [read_guess, read_index], made_by="code:rollup/1", state="active")["id"]
+        return {"card citing the guess": read_guess, "card citing its index node": read_index, "day summary": day,
+                "week summary": d.learning.put("summary", "week:2026-W01", {"period": "week", "children": [day]},
+                                               [day], made_by="code:rollup/1", state="active")["id"],
+                "intent label": d.learning.put("episode_intent", "read-the-guess", {"intent_id": "due-dates"},
+                                               [read_guess], made_by="test", state="active")["id"],
+                "entity summary": d.learning.put("entity", "owner", {"text": it.content}, [index],
+                                                 made_by="code:entity-summary/1", state="active")["id"]}
+    built = run(daemon, built_on_it)
+    reply = daemon.run(d._memory_learning(None, {"op": "guess", "id": it.id, "action": "drop"}))
+    assert reply == {"line": "Dropped. FERB won't suggest it again.", "state": "dropped"}
+    assert run(daemon, lambda: (d.memory.get(it.id), d.learning.get(index))) == (None, None)
+    assert run(daemon, lambda: [name for name, node in built.items() if d.learning.get(node) is None]) == []
+    assert run(daemon, lambda: [r for r in [guess_ref, index, *built.values()] if d.learning.forgotten(r)]) == []
+    _, _, expired, forgotten = run(daemon, lambda: d.learning._card_labels([guess_ref, index]))
+    assert (expired, forgotten) == ([index], [])          # a card that cites them is captured again, never forgotten
+
+
 @pytest.mark.parametrize("answer, state", [("keep", "kept"), ("drop", "dropped"), ("edit", "edited")])
 def test_the_notch_is_told_how_a_guess_stands_and_an_answer_to_a_settled_one_changes_nothing(
         daemon: Any, answer: str, state: str) -> None:

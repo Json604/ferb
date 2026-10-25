@@ -1993,11 +1993,13 @@ class Daemon:
     def _settle_guess(self, item_id: str, action: str, text: str = "") -> str:
         """The owner's answer to one of FERB's guesses (L36 §2). Keep makes it active, owner-confirmed. Edit saves the
         owner's text as their own words (a new owner-stated version of the same fact) and retracts the guess. Drop
-        deletes the guess alone (`Memory.drop`; Ruling: never `forget`, which purges every version and the owner's
-        messages). While a waiting "Forget for good?" would delete the guess (about it, or about another version of the
-        same fact: `_forget_would_take`), Drop retracts it instead (scan ruling I1, re-review R1, fix round 1): a
-        deletion would close a question about it unanswered, or cut it from the messages the question names, and that
-        Yes still purges every copy. A replaced or dropped guess keeps its fingerprint either way. A line for the
+        deletes the guess alone (`Memory.drop`) with its index node (`Learning.drop_fact_index`); Ruling: never
+        `forget`, which purges every version and the owner's messages, and everything built on the guess (live
+        2026-10-25: 750 learned items, among them the episode cards of every task whose memory reads returned it).
+        While a waiting "Forget for good?" would delete the guess (about it, or about another version of the same fact:
+        `_forget_would_take`), Drop retracts it instead (scan ruling I1, re-review R1, fix round 1): a deletion would
+        close a question about it unanswered, or cut it from the messages the question names, and that Yes still purges
+        every copy. A replaced or dropped guess keeps its fingerprint either way. A line for the
         owner; FerbError for an unknown action, an empty edit, or an edit secret redaction hid whole (`EDIT_HIDDEN`)."""
         item = self.memory.get(item_id)
         if item is None or item.status != "proposed" or item.origin != "inferred":
@@ -2010,7 +2012,7 @@ class Daemon:
                 self.memory.retract(item_id, "the owner said Drop", never_again=True)
                 return "Dropped. FERB won't suggest it again; your question about forgetting it still waits."
             self.memory.drop(item_id)
-            self._forget_nodes(["memory:" + item_id], named=False)      # its index node goes with it
+            self.learning.drop_fact_index("memory:" + item_id)        # its index node alone goes with it
             return "Dropped. FERB won't suggest it again."
         words = text.strip()
         if action == "edit" and words:

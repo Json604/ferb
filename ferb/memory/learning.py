@@ -1312,6 +1312,30 @@ class Learning:
         self.publish('memory.forgot_derived', {'ids': sorted(doomed)})
         return sorted(doomed)
 
+    def drop_fact_index(self, ref: str) -> list[str]:
+        """The owner's Drop on one of FERB's guesses (L36 §2): the fact nodes that index that memory item `ref`
+        (`sync_facts`, every version) are deleted, and nothing else. Never `forget`: what was built on the guess while
+        it existed (the episode cards of tasks whose memory reads returned it, the summaries and intent labels built on
+        those cards, an entity summary) stays, and no tombstone is left, so a later capture of such a card counts the
+        guess as a missing source, never a forgotten one (`_card_labels`). Live 2026-10-25: one Drop through `forget`
+        deleted 750 learned items, 406 of them episode cards, in 53 s on the event loop."""
+        doomed = sorted(r[0] for r in self.db.conn.execute(
+            "SELECT n.id FROM learning_nodes n JOIN learning_sources s ON s.node_id = n.id "
+            "WHERE s.source_ref = ? AND n.kind = 'fact'", (ref,)))
+        if not doomed:
+            return []
+        self.generation += 1                          # a card read before now may cite a node that is gone
+        self.db.conn.execute('SAVEPOINT learning_drop')
+        try:
+            self.db.conn.executemany('DELETE FROM learning_nodes WHERE id=?', [(i,) for i in doomed])
+            self.db.conn.execute('RELEASE learning_drop')
+        except BaseException:
+            self.db.conn.execute('ROLLBACK TO learning_drop')
+            self.db.conn.execute('RELEASE learning_drop')
+            raise
+        self.publish('memory.forgot_derived', {'ids': doomed})
+        return doomed
+
     def rollback(self, batch: str) -> list[str]:
         rows = list(self.db.conn.execute('SELECT * FROM learning_changes WHERE batch_id=? AND rolled_back=0 '
                                          'ORDER BY seq DESC', (batch,)))
