@@ -70,3 +70,14 @@ def test_the_real_shell_runs_nothing_after_a_no(daemon: RunningDaemon, tmp_path:
     r = call(daemon, g, "shell.run", command=f"touch '{marker}'; curl -k --version >/dev/null")
     owner.stop()
     assert r["is_error"] and not marker.exists() and len(owner.asked) == 1
+
+
+def test_an_applescript_do_shell_script_that_turns_checks_off_asks_too(daemon: RunningDaemon) -> None:
+    """I3: mac.applescript's `do shell script` runs a shell command; its switches ask like shell.run's."""
+    script = FakeCap("probe.script", "applescript", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("save the page"), [script])
+    owner = Answers(daemon, granted=True, choice=2)
+    r = gateway_tool_call(daemon, grant, "probe.script", text='do shell script "curl -k https://example.com -o /tmp/a"')
+    owner.stop()
+    assert r["is_error"] and script.calls == 0 and len(owner.asked) == 1
+    assert "skips the check that the site is really example.com." in owner.asked[0].summary

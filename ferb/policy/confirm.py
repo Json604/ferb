@@ -20,8 +20,9 @@ anyway (SQ1).
 - The sink rule (c): irreversible bulk work (a send to two or more recipients, a permanent delete of a folder) asks
   once, shown concretely: the count, the total size and a sample. Recipients and paths in the owner's words are
   already authorized and don't count. The sample's size (SHOWN) is display only.
-- The certificate floor (L39; owner, 2026-10-25): a shell command that turns off TLS certificate checks (policy/tls.py
-  reads its words and environment) asks once per task tree for that exact command, showing it.
+- The certificate floor (L39; owner, 2026-10-25): a shell command, or an AppleScript's `do shell script`, that turns off
+  TLS certificate checks (policy/tls.py reads its words and environment) asks once per task tree for that exact text,
+  showing it.
 FERB's question (`line`) comes first and is labelled, in the owner's terms (P27): the concrete action, then the call."""
 
 import base64
@@ -472,8 +473,11 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
             needs.append(Need(BULK, key(BULK, unnamed, content),
                               {"what": "call" if calls else "send", "count": str(len(unnamed)),
                                "bytes": _counted(len((content or "").encode()), "byte"), "sample": sample(unnamed)}))
-    if kind == Kind.RUN_SHELL and content and (off := tls.certificate_checks_off(content)) is not None:
-        # L39: the command's own words turn certificate checks off; one answer covers this exact command in the tree
+    off = (tls.certificate_checks_off(content) if kind == Kind.RUN_SHELL else
+           tls.applescript_checks_off(content) if kind == Kind.APPLESCRIPT else None) if content else None
+    if off is not None:
+        # L39: the command's own words (an AppleScript's `do shell script` too) turn certificate checks off; one answer
+        # covers this exact command or script in the tree
         needs.append(Need(TLS_OFF, key(TLS_OFF, content), {"command": " ".join(content.split()),
                                                           "hosts": " or ".join(off.hosts), "how": ", ".join(off.how)}))
     values = who + ([("amount", str(target.amount))] if target.amount is not None else [])

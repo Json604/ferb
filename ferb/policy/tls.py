@@ -26,7 +26,12 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 _OPERATORS = {";", "&&", "||", "|", "&", "\n", "(", ")", ";;", "|&"}
-_WRAPPERS = {"env", "sudo", "command", "exec", "time", "nohup", "nice", "caffeinate", "xargs"}
+_WRAPPERS = {"env", "sudo", "command", "exec", "time", "nohup", "nice", "caffeinate", "xargs", "builtin", "doas"}
+# A wrapper's options that take a value (the next word, or the rest of the word): nice -n 10, sudo -u me, env -u NAME,
+# time -o file, xargs -n 1, caffeinate -t 60. env -S's value is a command line of its own (read as one).
+_VALUED = {"nice": set("n"), "sudo": set("ugCDhprtUT"), "doas": set("uC"), "env": set("uSCP"), "time": set("fo"),
+           "xargs": set("nILPsEdJR"), "caffeinate": set("tw")}
+_SHELLS = re.compile(r"(ba|z|da|k|fi)?sh")
 _ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.S)
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 _FALSE = {"false", "0", "no", "off"}
@@ -98,29 +103,62 @@ def _host(value: str) -> str | None:
         return None
 
 
-def certificate_checks_off(command: str) -> TlsOff | None:
+_DO_SHELL = re.compile(r'do\s+shell\s+script\s+"((?:[^"\\]|\\.)*)"', re.I)
+
+
+def applescript_checks_off(script: str) -> TlsOff | None:
+    """The same facts for the shell commands an AppleScript runs (`do shell script "…"`, AppleScript's own escapes)."""
+    found = [certificate_checks_off(re.sub(r'\\(.)', r'\1', m.group(1))) for m in _DO_SHELL.finditer(script)]
+    how = tuple(dict.fromkeys(h for f in found if f for h in f.how))
+    return TlsOff(how, tuple(dict.fromkeys(h for f in found if f for h in f.hosts))) if how else None
+
+
+def certificate_checks_off(command: str, depth: int = 0) -> TlsOff | None:
     """The command's switches that turn TLS certificate checks off, as written, and the sites they concern; None when
-    it has none. Reads the text only (rule 5); it never runs or resolves anything."""
+    it has none. Reads the text only (rule 5); it never runs or resolves anything. A shell's -c code, eval's words and
+    env -S's command line are read as commands too (a few levels deep), and backquotes split commands like $( )."""
     text, bodies = _bodies(command)
     how: list[str] = []
     hosts: list[str] = []
-    for cmd in _commands(_words(text)):
+    for cmd in _commands(_words(text.replace("`", "\n"))):
         env: list[tuple[str, str]] = []
+        inner: list[str] = []                             # command lines a wrapper or shell carries (read as commands)
         i = 0
         while i < len(cmd):                               # leading assignments, `export`, and wrappers like env/sudo
-            word = cmd[i]
+            word, base = cmd[i], cmd[i].rpartition("/")[2]
             m = _ASSIGNMENT.fullmatch(word)
             if m and not word.startswith("-"):
                 env.append((m.group(1), m.group(2)))
                 i += 1
-            elif word in ("export", "declare", "local", "readonly") or word in _WRAPPERS or (
-                    word.startswith("-") and i and cmd[i - 1] in _WRAPPERS):
-                i += 1
+            elif word in ("export", "declare", "local", "readonly") or base in _WRAPPERS:
+                wrapper, i = base, i + 1
+                while i < len(cmd) and cmd[i].startswith("-") and cmd[i] != "--":   # its options, valued ones too
+                    flags = cmd[i][1:]
+                    valued = next((k for k, c in enumerate(flags) if c in _VALUED.get(wrapper, set())), None)
+                    takes = valued is not None and valued == len(flags) - 1 and i + 1 < len(cmd)
+                    if valued is not None and wrapper == "env" and flags[valued] == "S":
+                        inner.append(flags[valued + 1:] or (cmd[i + 1] if i + 1 < len(cmd) else ""))
+                    i += 2 if takes else 1
+                if i < len(cmd) and cmd[i] == "--":
+                    i += 1
             else:
                 break
         for name, value in env:
             _environment(name, value, how, hosts)
         args = cmd[i:]
+        if args:
+            program = args[0].rpartition("/")[2]
+            if _SHELLS.fullmatch(program):                # sh -c '…', bash -lc '…': the code is a command line
+                for k, a in enumerate(args[1:-1], 1):
+                    if a.startswith("-") and not a.startswith("--") and "c" in a:
+                        inner.append(args[k + 1])
+                        break
+            elif program == "eval":
+                inner.append(" ".join(args[1:]))
+        for line in inner if depth < 3 else ():
+            if (found := certificate_checks_off(line, depth + 1)) is not None:
+                how += found.how
+                hosts += found.hosts
         if not args:
             continue
         program = args[0].rpartition("/")[2]
@@ -142,6 +180,7 @@ def certificate_checks_off(command: str) -> TlsOff | None:
             if code and (match := pattern.search(code)):
                 how.append(f"{program} code: {match.group(0)}")
         if _PIP.fullmatch(program) or (_PYTHON.fullmatch(program) and rest[:2] == ["-m", "pip"]):
+            _pip_config(rest[2:] if rest[:2] == ["-m", "pip"] else rest, how, hosts)
             for k, a in enumerate(rest):
                 cert = a.split("=", 1)[1] if a.startswith("--cert=") else (
                     rest[k + 1] if a == "--cert" and k + 1 < len(rest) else None)
@@ -216,15 +255,29 @@ def _git(args: list[str], how: list[str]) -> None:
             how.append(f"config {rest[0]} {rest[1]}")
 
 
+def _pip_config(args: list[str], how: list[str], hosts: list[str]) -> None:
+    """`pip config set <scope>.trusted-host <host>` and `pip config set <scope>.cert ''` (a lasting setting)."""
+    words = [a for a in args if not a.startswith("-")]
+    if words[:2] != ["config", "set"] or len(words) < 3:
+        return
+    key, _, value = words[2].partition("=")
+    value = value or (words[3] if len(words) > 3 else "")
+    name = key.rpartition(".")[2].lower()
+    if name == "trusted-host":
+        how.append(f"config set {key} {value}".strip())
+        hosts += [h for v in re.split(r"[\s,]+", value) if (h := _host(v))]
+    elif name == "cert" and value.strip() in _NOTHING:
+        how.append(f"config set {key} {value or chr(34) * 2}")
+
+
 def _npm(args: list[str], how: list[str]) -> None:
     for k, a in enumerate(args):
         if a == "--no-strict-ssl" or (a.startswith("--strict-ssl=") and a.split("=", 1)[1].lower() in _FALSE) or (
                 a == "--strict-ssl" and k + 1 < len(args) and args[k + 1].lower() in _FALSE):
             how.append(a)
-    if "config" in args:
-        rest = args[args.index("config") + 1:]
-        if rest[:1] == ["set"]:
-            key, _, value = rest[1].partition("=") if len(rest) > 1 else ("", "", "")
-            value = value or (rest[2] if len(rest) > 2 else "")
-            if key == "strict-ssl" and value.lower() in _FALSE:
-                how.append(f"config set strict-ssl {value}")
+    rest = args[args.index("config") + 1:] if "config" in args else args     # `npm config set` and `npm set`
+    if rest[:1] == ["set"]:
+        key, _, value = rest[1].partition("=") if len(rest) > 1 else ("", "", "")
+        value = value or (rest[2] if len(rest) > 2 else "")
+        if key == "strict-ssl" and value.lower() in _FALSE:
+            how.append(f"{'config ' if 'config' in args else ''}set strict-ssl {value}")

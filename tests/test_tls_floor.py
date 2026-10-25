@@ -41,6 +41,21 @@ def test_the_live_pip_command_turns_checks_off_for_both_hosts() -> None:
     ("python3 - <<'EOF'\nimport requests\nrequests.get('https://x', verify=False)\nEOF", "python3 code: verify=False"),
     ("kubectl --insecure-skip-tls-verify get pods", "--insecure-skip-tls-verify"),
     ("aws s3 ls --no-verify-ssl", "--no-verify-ssl"),
+    # review-1 risk 4 (I3): each slipped before
+    ('sh -c "pip install --trusted-host files.example x"', "--trusted-host files.example"),
+    ("bash -c 'curl -k https://example.com'", "-k"),
+    ("bash -lc 'curl -sk https://example.com'", "-sk"),
+    ("nice -n 10 curl -k https://example.com", "-k"),
+    ("/usr/bin/env NODE_TLS_REJECT_UNAUTHORIZED=0 node app.js", "NODE_TLS_REJECT_UNAUTHORIZED=0"),
+    ("sudo -u me curl -k https://example.com", "-k"),
+    ("echo `curl -k https://example.com`", "-k"),
+    ("pip config set global.trusted-host pypi.org", "config set global.trusted-host pypi.org"),
+    ("python3 -m pip config set global.cert ''", 'config set global.cert ""'),
+    ("npm set strict-ssl false", "set strict-ssl false"),
+    ("pnpm set strict-ssl false", "set strict-ssl false"),
+    ("eval 'curl -k https://example.com'", "-k"),
+    ("env -S 'curl -k https://example.com'", "-k"),
+    ("time -o t.txt curl -k https://example.com", "-k"),
 ])
 def test_each_switch_is_named_as_written(command: str, switch: str) -> None:
     found = certificate_checks_off(command)
@@ -62,6 +77,20 @@ def test_each_switch_is_named_as_written(command: str, switch: str) -> None:
 ])
 def test_ordinary_commands_turn_nothing_off(command: str) -> None:
     assert certificate_checks_off(command) is None
+
+
+def test_an_applescript_do_shell_script_is_read_too() -> None:
+    from ferb.policy.tls import applescript_checks_off
+    found = applescript_checks_off('do shell script "curl -k https://example.com/a -o \\"/tmp/a b\\""')
+    assert found is not None and found.how == ("-k",) and found.hosts == ("example.com",)
+    assert applescript_checks_off('do shell script "curl -sSL https://example.com"') is None
+    assert applescript_checks_off('tell application "Finder" to get name of every window') is None
+
+
+def test_ordinary_wrapped_commands_still_turn_nothing_off() -> None:
+    for command in ("nice -n 10 pip install x", "sudo -u me curl https://example.com", "sh -c 'sort -k 2 f'",
+                    "bash -c 'echo curl -k is unsafe'", "env -u HOME curl https://example.com"):
+        assert certificate_checks_off(command) is None, command
 
 
 def test_a_url_the_switch_applies_to_names_its_host() -> None:
