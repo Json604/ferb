@@ -409,6 +409,8 @@ class Daemon:
             await asyncio.to_thread(self.recordings.sweep)  # frames a restart cut off belong to no recording now
         except OSError as e:
             self.journal.append("recordings.startup_failed", {"error": f"{type(e).__name__}: {e}"})
+        if self.run_retention:                             # tests leave the real temporary folder alone
+            await self._sweep_stale_runs()
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
@@ -4172,6 +4174,15 @@ class Daemon:
         from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
         planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
         return "planner" if planner and self.config.get("runtimes", "codex_planner_cache", False) is True else None
+
+    async def _sweep_stale_runs(self) -> None:
+        """Review M1: Codex run folders a crash left in the temporary directory (each holds a copy of FERB's Codex
+        login), removed at start (`codex_stream.sweep_stale_runs`); how many, journaled."""
+        import tempfile
+        from ferb.runtimes.codex_stream import sweep_stale_runs
+        swept = await asyncio.to_thread(sweep_stale_runs, Path(tempfile.gettempdir()), time.time())
+        if swept:
+            self._journal().append("runtime.stale_runs_swept", {"count": len(swept)})
 
     def _codex_cache_turn(self, task: Any) -> bool:
         """Whether this planner turn may hold its stable context in the developer role (P20): only the owner's chat turn

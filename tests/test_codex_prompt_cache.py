@@ -481,3 +481,45 @@ def test_pinned_refused_template_leaves_todays_thread_working() -> None:
             loopback.close()
     assert lb.roles(body) == ["additional_tools:developer", "message:developer", "message:user"]
     assert lb.texts(body)[1:] == ["FERB instructions", PLANNER_REQUEST.context]
+
+
+# ---------- a crashed run's temporary home is swept at the next start (review M1) ----------
+
+import os  # noqa: E402
+import time  # noqa: E402
+
+
+def _run_folder(root: Path, name: str, age_s: float, mode: int = 0o700) -> Path:
+    folder = root / name
+    (folder / "codex").mkdir(parents=True)
+    (folder / "codex" / "auth.json").write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
+    old = time.time() - age_s
+    for path in (folder / "codex" / "auth.json", folder / "codex", folder):
+        os.utime(path, (old, old))
+    folder.chmod(mode)
+    return folder
+
+
+def test_only_old_owner_only_run_folders_are_swept(tmp_path: Path) -> None:
+    day = stream.STALE_RUN_S
+    stale = _run_folder(tmp_path, "ferb-codex-run-crashed", day + 60)
+    fresh = _run_folder(tmp_path, "ferb-codex-run-live", 60)
+    shared = _run_folder(tmp_path, "ferb-codex-run-shared", day + 60, mode=0o755)      # not owner-only: left alone
+    other = _run_folder(tmp_path, "someone-elses-run", day + 60)
+    (tmp_path / "ferb-codex-run-link").symlink_to(other)                               # never followed
+    touched = _run_folder(tmp_path, "ferb-codex-run-touched", day + 60)
+    (touched / "codex" / "state.sqlite-wal").write_text("written a minute ago")      # a run still writing
+    swept = stream.sweep_stale_runs(tmp_path, time.time())
+    assert swept == ["ferb-codex-run-crashed"] and not stale.exists()
+    assert fresh.exists() and shared.exists() and other.exists() and touched.exists()
+    assert (tmp_path / "ferb-codex-run-link").is_symlink()
+
+
+def test_the_daemon_sweeps_at_start_and_journals_the_count(daemon: RunningDaemon, monkeypatch, tmp_path) -> None:
+    _run_folder(tmp_path, "ferb-codex-run-crashed", stream.STALE_RUN_S + 60)
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+
+    async def sweep() -> list[Any]:
+        await daemon.daemon._sweep_stale_runs()
+        return [e.data for e in daemon.daemon.supervisor.journal.of_kind("runtime.stale_runs_swept")]
+    assert daemon.run(sweep()) == [{"count": 1}] and not (tmp_path / "ferb-codex-run-crashed").exists()

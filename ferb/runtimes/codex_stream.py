@@ -125,6 +125,35 @@ def codex_error(prefix: str, error: Any, redact: Callable[[Any], Any]) -> str:
     return str(redact(text + (f" ({'; '.join(facts)})" if facts else '')))
 
 
+# Review M1: a run's temporary home (its copied login, a cached turn's rollout, Codex's state preview) is removed with
+# the run, except after a crash. At start the daemon sweeps such leftovers: FERB's prefix, owner-only, nothing in them
+# written for a day. No run of a starting daemon is alive, and a day without a single write is far past any run of
+# another FERB process (a test, a checkout's daemon) that still uses its folder.
+RUN_PREFIX = 'ferb-codex-run-'
+STALE_RUN_S = 24 * 3600
+
+
+def sweep_stale_runs(root: Path, now: float) -> list[str]:
+    """Remove the stale run folders directly in `root` (the temporary directory); their names. Never follows a link,
+    and leaves anything not owned by this user, not owner-only, or written to within STALE_RUN_S."""
+    import shutil
+    import stat
+    swept = []
+    for folder in sorted(root.glob(RUN_PREFIX + '*')):
+        try:
+            info = folder.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077):
+                continue
+            newest = max([info.st_mtime, *(p.lstat().st_mtime for p in folder.rglob('*'))])
+            if now - newest < STALE_RUN_S:
+                continue
+            shutil.rmtree(folder)
+        except OSError:
+            continue                                 # one that can't be read or removed stays; the rest go on
+        swept.append(folder.name)
+    return swept
+
+
 def _private_write(path: Path, data: bytes) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'wb') as file:
@@ -177,7 +206,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
     home = codex_home(runtime.ferb_home)
     if home is None:
         raise AccountError('auth_required')
-    temporary = tempfile.TemporaryDirectory(prefix='ferb-codex-run-')
+    temporary = tempfile.TemporaryDirectory(prefix=RUN_PREFIX)
     root = Path(temporary.name)
     isolated = root / 'codex'
     isolated.mkdir(mode=0o700)
