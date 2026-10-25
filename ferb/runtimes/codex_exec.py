@@ -237,8 +237,11 @@ class CodexRuntime:
                  on_abandoned: Callable[[str, str], None] | None = None,
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
                  cache_scope: str = "", cache_allowed: Callable[[Task], bool] | None = None,
-                 on_cache_fallback: Callable[[str, str], None] | None = None) -> None:
+                 on_cache_fallback: Callable[[str, str], None] | None = None, effort: str | None = None) -> None:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
+        # L39: a worker-mode run's reasoning effort when the caller asks for one (a checker of a step that changed
+        # files: "high"); None keeps the model's default. Supervisor runs stay low (SUPERVISOR_SETTINGS)
+        self.effort = effort
         # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
         # which knows the values the owner stored, else the secret pattern classes
         self.redact = redact or Redactor()

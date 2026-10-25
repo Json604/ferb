@@ -138,8 +138,9 @@ class ApiRuntime:
                  tool_names: list[str] | None, output_schema: dict[str, Any] | None, bridge: Bridge | None,
                  key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
-                 timeout_s: float = 600.0) -> None:
+                 timeout_s: float = 600.0, effort: str | None = None) -> None:
         self.provider, self.name, self.capabilities = provider, provider.name, provider.capabilities
+        self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
         self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
         self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
@@ -166,7 +167,8 @@ class ApiRuntime:
                     t = offered[capability]
                     tools.append(ToolSpec(mcp_name(capability), str(t["description"]), inline_refs(t["input_schema"])))
                     names[mcp_name(capability)] = capability
-        state = self.provider.begin(request, tools, self.output_schema, "low" if self.mode == "supervisor" else None,
+        state = self.provider.begin(request, tools, self.output_schema,
+                                    "low" if self.mode == "supervisor" else self.effort,
                                     f"ferb:{self.role.partition(':')[0]}:{self.mode}")
         client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,

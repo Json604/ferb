@@ -82,9 +82,11 @@ class ClaudeRuntime:
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str | None = None) -> None:
+                 output_schema: dict[str, Any] | None = None, model: str | None = None,
+                 effort: str | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
         self.output_schema, self.model = output_schema, model
+        self.effort = effort             # L39: the SDK's own effort option when asked for ("high"); None: its default
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:
             self.allowed.add(STRUCTURED_OUTPUT)        # the SDK's carrier for typed output (inert)
@@ -111,7 +113,7 @@ class ClaudeRuntime:
             tools=[], allowed_tools=sorted(self.allowed - {STRUCTURED_OUTPUT}), permission_mode="dontAsk",
             setting_sources=[],
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
-            model=self.model,
+            model=self.model, effort=self.effort,   # type: ignore[arg-type]
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)

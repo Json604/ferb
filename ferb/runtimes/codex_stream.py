@@ -338,7 +338,8 @@ def _turn_params(runtime: CodexRuntime, request: ModelRequest, thread_id: str, r
     text = '\n\n'.join(request.parts[request.cacheable:]) if resumed else request.context
     return {'threadId': thread_id, 'input': [{'type': 'text', 'text': text},
                                              *({'type': 'image', 'url': image.data_url()} for image in request.images)],
-            **({'effort': 'low'} if runtime.mode == 'supervisor' else {}),
+            **({'effort': 'low'} if runtime.mode == 'supervisor' else
+               {'effort': runtime.effort} if getattr(runtime, 'effort', None) else {}),
             'outputSchema': runtime.output_schema, 'environments': []}
 
 
