@@ -3654,6 +3654,13 @@ class Supervisor(WorkerRuns):
                                 (got[i].how or "") if i in got and got[i].met is None else "")
                 for i, c in judged]
 
+    def _secret_lines(self, tree_id: str) -> list[str]:
+        """Code's line for each place where this task saved a sealed answer that is an ordinary word (L36 §7), once
+        each, from FERB's journal (`secret.ordinary_word`, which never holds the word)."""
+        places = dict.fromkeys(str(e.data.get("place", ""))
+                               for e in self.journal.of_kind("secret.ordinary_word", "task_id", tree_id))
+        return [ORDINARY_WORD_LINE.format(place=p) for p in places if p]
+
     def _final(self, tree: _Tree) -> dict[str, Any]:
         """The checker's verdict decides the status and the first line (V4, R5Q2):
         - `done` only when the work finished and every condition was verified true;
@@ -3724,6 +3731,8 @@ class Supervisor(WorkerRuns):
         # The sites this task reached, from FERB's own records (L2), at the end of the full answer.
         if sites := sites_contacted(self.spans, tree.id):
             answer += "\n\nSites contacted: " + ", ".join(sites)
+        for line in self._secret_lines(tree.id):          # then any saved answer FERB hides as a word (L36 §7)
+            answer += "\n\n" + line
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
@@ -3732,6 +3741,9 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+# Said once per place at the end of a task's answer when the owner saved a sealed answer that is an ordinary word of the
+# system word list (L36 §7, plan ruling 21): why that word reads [redacted] wherever it appears.
+ORDINARY_WORD_LINE = "The answer you saved for {place} is an ordinary word, so FERB hides it wherever it appears."
 FOUND_BEFORE_STOP = "What I'd found before stopping (not checked):"
 NEEDS_ANSWER = "I need your answer to finish this task."
 NOT_FINISHED = "I couldn't finish this task."

@@ -36,6 +36,7 @@ from typing import Any, Callable, Iterable, Literal
 from ferb.core.errors import FerbError
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import MemoryItem
+from ferb.sanitize.redact import word_char  # one word-character rule with redaction (L36 §7)
 from ferb.store.db import Database
 
 KINDS = ("fact", "preference", "person", "project", "env")
@@ -80,10 +81,6 @@ def _spaced(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
-def _wordlike(ch: str) -> bool:
-    return unicodedata.category(ch)[0] in "LNM" or unicodedata.category(ch) == "Co"
-
-
 def contains_words(text: str, part: str) -> bool:
     """Whether `part` appears in `text` as whole words, word for word (case and spacing aside; the sentence punctuation
     around `part` doesn't count). "the" is in "summarize the email" but "Rao" is not in "Raoul" (I1, MP2)."""
@@ -94,7 +91,7 @@ def contains_words(text: str, part: str) -> bool:
     start = hay.find(needle)
     while start != -1:
         end = start + len(needle)
-        if (start == 0 or not _wordlike(hay[start - 1])) and (end == len(hay) or not _wordlike(hay[end])):
+        if (start == 0 or not word_char(hay[start - 1])) and (end == len(hay) or not word_char(hay[end])):
             return True
         start = hay.find(needle, start + 1)
     return False
@@ -110,8 +107,8 @@ def _found(text: str, part: str) -> tuple[int, int] | None:
     if not words:
         return None
     for m in re.finditer(r"\s+".join(re.escape(w) for w in words), text, re.IGNORECASE):
-        before = m.start() == 0 or not _wordlike(text[m.start() - 1])
-        if before and (m.end() == len(text) or not _wordlike(text[m.end()])):
+        before = m.start() == 0 or not word_char(text[m.start() - 1])
+        if before and (m.end() == len(text) or not word_char(text[m.end()])):
             return m.start(), m.end()
     return None
 
@@ -151,7 +148,7 @@ def whole_clauses(text: str, part: str) -> bool:
     if found is None:
         return False
     left, right = _clause_span(text, *found)
-    return not any(_wordlike(c) for c in text[left:found[0]] + text[found[1]:right])
+    return not any(word_char(c) for c in text[left:found[0]] + text[found[1]:right])
 
 
 @dataclass(frozen=True)

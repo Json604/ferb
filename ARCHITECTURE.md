@@ -2218,8 +2218,9 @@ intent's job. Code rollups cite their child cards.
   ends the previous value: `{"label": "PIN", "value": "4821"}`, `{"a": "UPI PIN", "b": 4821}`); FERB's own ids (an
   action's `id`, a label's `intent_id`, a procedure example's `episode`, step `evidence`, the redactor's internal id
   keys) are never read as a neighbour or masked by it, so a description ending "PIN:" can't move an intent. Text that a second
-  whole redaction would still change, or whose compact form holds one of the owner's registered secret values
-  (`Learning.secret_values`, the daemon's Redactor's, also given to the rollup thread's store), is refused
+  whole redaction would still change, or whose compact form holds one of the owner's registered secret values where
+  the redactor would replace it (`holds_sealed`, L36 §7; `Learning.secret_values`, the daemon's Redactor's, also given
+  to the rollup thread's store), is refused
   (`LearningRefused`: "could not be stored safely: redaction would still change it"), never stored. Slot types (a
   procedure's or an intent label's `slots`) are a closed set (`SLOT_TYPES`): one the redactor masked by its key (a slot
   named `token`, `pin`, `password`) is restored after redaction (`slot_types_restored`), and typing values against a
@@ -2738,9 +2739,9 @@ protected FERB state (16.9).
   there by `ferb setup` via `cli/tokenizer.ensure`), else tiktoken's cache, each checked against the pinned SHA-256;
   `doctor.check.tokenizer` reports the method.
 - **Ids.** FERB's ids are protected by key (`Redactor.ident` for `task_id`, `span_id`, `session_id`, `run_token_id`,
-  `request_id`, `covered`, `source_refs`, `procedure_id`, `approval_id`, `timer_id`): only a generated hex body is
-  spared
-  exact-value replacement, and secret patterns still run over the whole value. `Redactor.id_ref` is gone.
+  `request_id`, `covered`, `source_refs`, `procedure_id`, `approval_id`, `timer_id`): only a value strictly inside a
+  generated hex body is spared exact-value replacement (in all text since L36 §7, `sealed_spans`, §16.12), and secret
+  patterns still run over the whole value. `Redactor.id_ref` is gone.
 - **Usage.** `model.turn` spans record `cached_input_tokens`.
 - **Measured** on replays of real turns (provider time excluded): message → plan line 11.4–17.0 s → 0.9–2.0 s;
   reusable prefix about 8k → 54k tokens.
@@ -2855,6 +2856,8 @@ Login names (L36 §5): `memory.login_refused` (a `login_origin` entry's username
 (any other failure clearing them; `items`, `error` with its type).
 Retirement (L36 §6): `memory.until_refused` (a `remember` entry's end not set; `item`, `why`) and
 `memory.retire_kept` (the owner kept an item FERB thought was out of date, or skipped the question; `id`).
+Sealed values (L36 §7): `secret.ordinary_word` (a saved sealed answer is an ordinary word; `task_id` of the tree,
+`place`; never the word).
 
 ### 16.11 Loops (L31)
 
@@ -3170,6 +3173,23 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   Supersession by a reused key works on every turn path (1c22dcb); the spec's steer case (item 54's Chennai
   preference) is a test. A username fact given with an end date keeps its name in the login record after that day,
   but it is no longer offered (`_held`, above).
+- **Sealed values (§7).** `redact.sealed_spans` decides where a registered value is replaced: never strictly inside
+  one of FERB's generated id bodies (`ID_BODY`; scan ruling I8: a value equal to a whole 12-, 32- or 64-hex token, or
+  reaching past one, is still the secret, so a hex token echoed alone or as an `m-` id's whole body is hidden, the
+  residual redact.py's id-key note already accepted); a word-like value (letters, marks, spaces) only as whole words,
+  a boundary needed only where the value's own edge is a letter ("pen" in "a pen", not in "open" or "pen2"); any other
+  value (a password, a PIN) wherever else it appears, so `?p=hunter2!x` and `userhunter2!` still hide it (plan ruling
+  20, rule 14). `Redactor._registered`, `Redactor.ident` and `redacted_json`'s final check (`holds_sealed`) use it;
+  `_registered` reads every value from the text as given, finds the ids once per call (`id_bodies`) and each hit's id
+  by bisection, and masks overlapping hits as one. `redact.FERB_ID` is an id as text shows it (an optional lowercase
+  prefix and its body), for comparing ids. `redact.word_char` is the one word-character rule that `memory/items.py`
+  shares. When a saved sealed answer is an ordinary word of `/usr/share/dict/words` (`sanitize/dictionary.py`,
+  `ordinary_word`: one word, case aside, read line by line at save time and never kept in the daemon), the gateway
+  journals `secret.ordinary_word` {task_id (the tree), place (`secret_place`, the question's own place)}
+  (`Gateway._note_ordinary_word`; a failure to make the note is logged by type and never costs the fill) and the task's
+  answer ends, after "Sites contacted", with one line per place (`Supervisor._secret_lines`, `ORDINARY_WORD_LINE`):
+  "The answer you saved for <place> is an ordinary word, so FERB hides it wherever it appears." Residual: matching is
+  exact, case included, as before ("Pizza" is not hidden for a saved "pizza").
 
 ### 16.13 FERB's cursor (L33)
 

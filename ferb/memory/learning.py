@@ -20,7 +20,7 @@ from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources
 from ferb.orchestrator import episodes
 from ferb.policy.confirm import site_is_destination
 from ferb.policy.rules import REVERSIBLE, Kind, declared_of
-from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED
+from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed
 
 
 class LearningRefused(FerbError):
@@ -149,8 +149,9 @@ def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[st
     ends a string ("my password is sunshine" followed by another key), and each pair of neighbouring values is read as
     two lines (a code whose label ends the previous value, "PIN" then "4821"). Last, the result is checked: redacted
     once more as a whole it must not change, and the compact text to be stored must hold none of the owner's registered
-    secret `secrets` (one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`, matches only there). Else it is
-    refused, as before this helper existed (L29 re-review N1, R1, Q1)."""
+    secret `secrets` where the redactor would replace one (`holds_sealed`, L36 §7: a word-like value as a whole word,
+    never strictly inside one of FERB's id bodies; one spanning JSON punctuation, e.g. `1234,5678` in `[1234,5678]`,
+    matches only there). Else it is refused, as before this helper existed (L29 re-review N1, R1, Q1)."""
     try:
         out = json.loads(redact(spaced(value)))
     except ValueError:
@@ -165,7 +166,7 @@ def redacted_json(redact: Callable[[str], str], value: Any, secrets: Iterable[st
                 out = seen
     out = _siblings(redact, _strings_alone(redact, out))
     text, stored = spaced(out), encoded(out)
-    if redact(text) != text or any(secret and secret in stored for secret in secrets):
+    if redact(text) != text or holds_sealed(stored, secrets):
         raise LearningRefused('could not be stored safely: redaction would still change it')
     return out
 

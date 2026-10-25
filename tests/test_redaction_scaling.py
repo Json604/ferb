@@ -176,3 +176,20 @@ def test_both_redactors_are_linear_on_pathological_lines(prefix, unit, suffix) -
 
     assert (grew := _superlinear(redactor.text, make, len(unit), TEXT_CHARS)) is None, f"Redactor.text: {grew}"
     assert (grew := _superlinear(read, make, len(unit), READ_CHARS)) is None, f"stream read: {grew}"
+
+
+def test_sealed_values_are_linear_over_many_ids() -> None:
+    """L36 §7, scan ruling m8: sealed values inside every one of many FERB ids and among many words (a long trace)
+    cost time in proportion to the text. The ids are read once per call, not once per value, and each hit finds the id
+    around it by bisection, not by reading every id."""
+    redactor = Redactor()
+    for value in ("8e95", "pizza", "hunter2!"):
+        redactor.remember_hidden_secret(value)
+    unit = "m-" + "8e95" * 16 + " pizza pizzazz hunter2!x "
+
+    def make(n: int) -> str:
+        return unit * n
+
+    assert (grew := _superlinear(redactor.text, make, len(unit), TEXT_CHARS)) is None, f"Redactor.text: {grew}"
+    assert (grew := _superlinear(lambda s: redact.holds_sealed(s, redactor.secret_values()), make, len(unit),
+                                 TEXT_CHARS)) is None, f"holds_sealed: {grew}"

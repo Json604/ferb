@@ -1009,6 +1009,12 @@ After the owner's update (2026-10-24):
   you give again for the same fact replaces the old one on its login record; a new version of the fact that names no
   username (an edit in the dashboard, say) clears it, and so does retiring it; one whose fact is past its date is no
   longer offered.
+- Saved answers no longer damage other text (L36, rule 14). Live: a saved security answer that is an ordinary word
+  showed as [redacted] inside FERB's notes about you, the visa task's record was refused twice, and on 10-14 48 records
+  failed because a short saved value matched inside FERB's ids. A word-like answer is now hidden only as a whole word,
+  nothing is hidden inside FERB's ids (a saved value that is itself a whole id-shaped token still is), a password is
+  still hidden wherever it appears, and saving an answer that is an ordinary word adds one line to the task's answer
+  saying FERB hides that word everywhere.
 
 Licensed under Apache-2.0.
 

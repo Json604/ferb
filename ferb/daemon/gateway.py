@@ -70,6 +70,7 @@ from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
 from ferb.policy.rules import EFFECTS, declare, declared_kinds
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
+from ferb.sanitize.dictionary import ordinary_word
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
@@ -1782,6 +1783,7 @@ class Gateway:
             if remember:                               # I14: the record serves the one site the owner named
                 await asyncio.to_thread(store.remember, remember, target, ap.answer,
                                         self._question_sites(ctx, target))
+                await self._note_ordinary_word(ctx, target, shown, ap.answer)
             delivered = True
             return ap.answer
         finally:
@@ -1789,6 +1791,17 @@ class Gateway:
                 self.redact.release_secret(ap.answer)
             ap.answer = None
             ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
+
+    async def _note_ordinary_word(self, ctx: ToolContext, target: str, shown: str | None, answer: str) -> None:
+        """L36 §7: a saved sealed answer that is an ordinary word (`ordinary_word`) is journaled, the task's tree and the
+        question's place, never the word, so the task's answer says once why FERB hides that word. The note only
+        explains: a failure to make it never costs the owner's fill (as a memory read's record, re-review R4)."""
+        try:
+            if await asyncio.to_thread(ordinary_word, answer):
+                root = (self.tasks.tree_of(ctx.task_id) or ctx.task_id).split(".", 1)[0]
+                self.journal_problem("secret.ordinary_word", {"task_id": root, "place": secret_place(target, shown)})
+        except Exception as e:
+            logging.getLogger(__name__).warning("FERB ordinary-word note not recorded: %s", error_name(e))
 
     def _login_sites(self, ctx: ToolContext, target: str) -> list[str]:
         """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
@@ -2097,6 +2110,14 @@ def _account(username: str) -> str:
     return text if len(text) <= ACCOUNT_SHOWN else text[:ACCOUNT_SHOWN - 1].rstrip() + "…"
 
 
+def secret_place(target: str, app: str | None = None) -> str:
+    """Where a hidden value goes, in the owner's terms, from the code-derived target: an origin's host (`_site`), or
+    the app: its name as macOS reports it, else its bundle id."""
+    if target.startswith("app:"):
+        return f"the {app} app" if app else f"the app {target[4:]}"
+    return _site(target)
+
+
 def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None,
                    username_place: str | None = None) -> str:
     """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
@@ -2106,10 +2127,7 @@ def secret_summary(target: str, remember: str | None, app: str | None = None, us
     (`username_place`, review I-2: "usvisascheduling.com account: …"); then what the value is for: the worker's
     proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is
     kept."""
-    if target.startswith("app:"):
-        place = f"the {app} app" if app else f"the app {target[4:]}"
-    else:
-        place = _site(target)
+    place = secret_place(target, app)
     account = _account(username or "")
     whose = f"{_site(username_place)} " if username_place else ""
     account = f" ({whose}account: {account})" if account else ""

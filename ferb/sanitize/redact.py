@@ -3,7 +3,8 @@
 import bisect
 import codecs
 import re
-from typing import Any, Callable, Iterator
+import unicodedata
+from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REDACTED = "[redacted]"
@@ -14,17 +15,72 @@ SECRET_WORDS = {"password", "passwd", "pwd", "passphrase", "secret", "token", "c
                 "credential", "credentials", "authorization", "auth", "apikey", "bearer"}
 SECRET_KEYS = {"apikey", "accesstoken", "refreshtoken", "idtoken", "clientsecret", "privatekey", "setcookie",
                "onetimecode", "xapikey"}
-# FERB's own id keys: their values are ids FERB built, never token values (owner decision; L16, L28). Under these keys a
-# registered value is replaced wherever it occurs in the whole value, except where it lies strictly inside one generated
-# id body (ID_BODY): a short registered value can occur inside an id by chance, and an altered id breaks lineage. A hit
-# equal to a body or reaching past one is redacted, and the secret patterns run over the whole value. Accepted residual:
-# a registered value that is a strict substring of a longer generated body is not replaced there.
+# FERB's own id keys: their values are ids FERB built, never token values (owner decision; L16, L28). Under these keys,
+# as in all text since L36 §7 (`sealed_spans`), a registered value is replaced where it stands in the whole value, except
+# where it lies strictly inside one generated id body (ID_BODY): a short registered value can occur inside an id by
+# chance, and an altered id breaks lineage. A hit equal to a body or reaching past one is redacted, and the secret
+# patterns run over the whole value. Accepted residual: a registered value that is a strict substring of a longer
+# generated body is not replaced there.
 # approval_id and timer_id (owner questions and reminders) are FERB ids that clients answer by and code reads back.
 INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id", "request_id", "covered", "source_refs",
                     "procedure_id", "approval_id", "timer_id"}
 # The generated part of a FERB id: a uuid4 hex (RandomIds: task, request, journal, trail, memory ids), a sha256 hex
 # (learning nodes, m-/key-) or a 6-byte token hex (chat sessions, chat-).
-ID_BODY = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12})(?![0-9A-Za-z])")
+_ID_HEX = r"[0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12}"
+ID_BODY = re.compile(rf"(?<![0-9A-Za-z])({_ID_HEX})(?![0-9A-Za-z])")
+# One of FERB's own ids as text shows it (L36 §7): an optional lowercase prefix ("m-", "key-", "chat-") and its
+# generated body.
+FERB_ID = re.compile(rf"(?<![0-9A-Za-z])(?:[a-z]+-)?(?:{_ID_HEX})(?![0-9A-Za-z])")
+
+
+def word_char(ch: str) -> bool:
+    """A character that is part of a word: a letter, number or mark, or a private-use character (the FTS tokenizer's
+    word characters, migration 0014)."""
+    cat = unicodedata.category(ch)
+    return cat[0] in "LNM" or cat == "Co"
+
+
+def _word_like(value: str) -> bool:
+    """A sealed value made only of letters, marks and spaces: a word-like answer (a city, a food)."""
+    return any(not c.isspace() for c in value) and all(c.isspace() or unicodedata.category(c)[0] in "LM"
+                                                       for c in value)
+
+
+def id_bodies(s: str) -> list[tuple[int, int]]:
+    """Where FERB's generated id bodies (`ID_BODY`) lie in `s`, in order and never overlapping."""
+    return [m.span(1) for m in ID_BODY.finditer(s)]
+
+
+def sealed_spans(s: str, value: str, bodies: list[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
+    """Where a sealed value stands in `s` (L36 §7): never strictly inside one of FERB's generated id bodies (scan
+    ruling I8: a value equal to a whole body, or reaching past one, is the secret itself, as the INTERNAL_ID_KEYS note
+    above accepts only that residual); a word-like value only as whole words (a boundary needed only where the value's
+    own edge is a letter), so "pen" is hidden in "a pen" but not in "open"; any other value (a password, a PIN)
+    wherever else it appears, since glued to other text it is still the secret (rule 14). `bodies`: `id_bodies(s)`,
+    when the caller already has them (one reading of the ids for every sealed value, scan ruling m8)."""
+    if not value:
+        return []
+    if bodies is None:
+        bodies = id_bodies(s)
+    whole = _word_like(value)
+    out, start = [], s.find(value)
+    while start != -1:
+        end = start + len(value)
+        i = bisect.bisect_right(bodies, (start, len(s) + 1)) - 1
+        inside = i >= 0 and end <= bodies[i][1] and (start, end) != bodies[i]
+        left = start == 0 or not word_char(value[0]) or not word_char(s[start - 1])
+        right = end == len(s) or not word_char(value[-1]) or not word_char(s[end])
+        if not inside and (not whole or (left and right)):
+            out.append((start, end))
+        start = s.find(value, start + 1)
+    return out
+
+
+def holds_sealed(s: str, values: Iterable[str]) -> bool:
+    """Whether `s` still shows one of the sealed `values` where the redactor would replace it (`sealed_spans`)."""
+    bodies = id_bodies(s)
+    return any(sealed_spans(s, v, bodies) for v in values)
+
 
 # In-line whitespace, as a character class's body: every whitespace character but a line break. A no-break space (a
 # page's &nbsp;), an en, em or ideographic space, \x0b or \x0c reads as a space wherever a class pattern takes one
@@ -786,16 +842,11 @@ class Redactor:
         """A value under one of FERB's own id keys (INTERNAL_ID_KEYS). An excluded app's name stays excluded."""
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
-        bodies = [m.span(1) for m in ID_BODY.finditer(s)]
-        hits = []
-        for value in self.secret_values():
-            start = s.find(value)
-            while value and start >= 0:
-                end = start + len(value)
-                if not any(b0 <= start and end <= b1 and (start, end) != (b0, b1) for b0, b1 in bodies):
-                    hits.append((start, end))
-                start = s.find(value, start + 1)
-        out, kept = [], 0
+        values = [v for v in self.secret_values() if v and v in s]
+        bodies = id_bodies(s) if values else []
+        hits = [span for value in values for span in sealed_spans(s, value, bodies)]
+        out: list[str] = []
+        kept = 0
         for start, end in sorted(hits):
             if start > kept or not out:
                 out.append(s[kept:start] + REDACTED)
@@ -902,11 +953,15 @@ class Redactor:
         return self._patterns(self._registered(s))
 
     def _registered(self, s: str) -> str:
-        """Every registered secret value replaced (longest first)."""
-        for v in sorted(self.secret_values(), key=len, reverse=True):
-            if v in s:
-                s = s.replace(v, REDACTED)
-        return s
+        """Every registered secret value replaced where it stands (`sealed_spans`, L36 §7), all read from `s` as given:
+        its ids are found once (scan ruling m8), each value's word boundaries are judged on the text itself, never on a
+        mask another value left, and overlapping hits are masked as one."""
+        values = [v for v in self.secret_values() if v and v in s]
+        if not values:
+            return s
+        bodies = id_bodies(s)
+        spans = [span for v in values for span in sealed_spans(s, v, bodies)]
+        return _mask_spans(s, spans) if spans else s
 
     def _patterns(self, s: str) -> str:
         """The secret classes: key and token patterns, payment cards, one-time codes, URL credentials."""
