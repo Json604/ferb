@@ -546,6 +546,38 @@ def test_a_held_tab_resting_between_rounds_gives_the_owner_their_file_picker_and
     assert out["loose"] == {"tab_id": 99, "resting": False, "held": False} and out["attached"] is True
 
 
+def test_a_held_tab_whose_debugger_detaches_while_resting_takes_its_file_picker_back_when_attached_again() -> None:
+    """Re-review fix round 3 (fail closed): the owner pressed Cancel on the debugger bar (or a navigation detached it)
+    while the tab rested. The round's rest(false) found no session, and the re-attach set up input with interception
+    still off, so a FERB click on a file input would open the native picker on the owner's screen (rule 17). A detach
+    forgets the resting flag, and rest records the flag even without a session: the next attach intercepts."""
+    out = worker('''(async () => {
+      const calls = [], events = chrome.debugger.onDetach;
+      chrome.debugger = {sendCommand: async (target, method, params) => { calls.push([method, params]); },
+                         detach: async () => {}};
+      chrome.tabs.get = async id => ({id, windowId: 5, url: 'https://www.instagram.com/reels/x/'});
+      const picker = () => calls.splice(0).filter(c => c[0] === 'Page.setInterceptFileChooserDialog').map(c => c[1].enabled);
+      const st = tabState(22); st.attached = true; st.armed = true; st.ready = true;
+      await commands.rest({tab_id: 22, resting: true});
+      const rested = picker();
+      events.fire({tabId: 22}, 'canceled_by_user');                 // the owner pressed Cancel
+      const afterDetach = TABS.get(22).resting;
+      const roundStart = await commands.rest({tab_id: 22, resting: false});
+      st.attached = true;                                            // the round's first snapshot attaches again
+      await inputSetup(22);
+      const reattached = picker();
+      // the round's rest(false) never arrived: a detach alone already fails closed
+      await commands.rest({tab_id: 22, resting: true}); picker();
+      events.fire({tabId: 22}, 'canceled_by_user');
+      st.attached = true;
+      await inputSetup(22);
+      return {rested, afterDetach, roundStart, reattached, missed: picker()};
+    })()''')
+    assert out["rested"] == [False] and out["afterDetach"] is False
+    assert out["roundStart"] == {"tab_id": 22, "resting": False, "held": False}
+    assert out["reattached"] == [True] and out["missed"] == [True]
+
+
 def test_a_pages_dialog_between_rounds_is_the_owners_and_closing_it_clears_the_pending_state() -> None:
     """L31, re-review N2: a held tab's page may alert or confirm between rounds. Chrome shows it to the owner (CDP's
     `hasBrowserHandler`), and the extension never answers a dialog FERB didn't expect. When the owner closes it in the

@@ -691,6 +691,7 @@ chrome.debugger.onDetach.addListener((src, reason) => {
   if (!t || !t.attached) return;
   const wasArmed = t.armed;
   t.attached = false; t.armed = false; t.ready = false; t.emulated = false; t.detached = reason || "unknown";
+  t.resting = false;                       // fail closed (L31): the next session intercepts the file picker again
   if (wasArmed) { forgetDownloads(src.tabId); armPage(src.tabId, false); }   // the session (and what it held) is gone
   // Not FERB's own close, and a tab the daemon knows: a popup still being checked was never announced to it.
   if (!t.leaving && !t.claiming) send("event", { event: "detached", tab_id: src.tabId, reason: t.detached });
@@ -1356,8 +1357,8 @@ const commands = {
   // its frames too. A round turns the interception back on. A tab FERB doesn't hold is left alone.
   async rest({tab_id, resting}) {
     const t = TABS.get(tab_id);
+    if (t) t.resting = resting === true;     // recorded even without a session: the next attach follows it
     if (!t || !t.attached) return {tab_id, resting: false, held: false};
-    t.resting = resting === true;
     const enabled = !t.resting;
     await cdp(tab_id, "Page.setInterceptFileChooserDialog", {enabled});
     for (const sid of t.sessions.keys()) {
