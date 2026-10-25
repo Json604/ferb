@@ -188,6 +188,7 @@ def test_ages_are_fresh_and_situation_precedes_owner_message(daemon: RunningDaem
 
 
 def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDaemon) -> None:
+    from ferb.daemon.banners import Banner
     notes: list[tuple[str, str]] = []
 
     async def note(title: str, text: str) -> None:
@@ -198,7 +199,7 @@ def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDa
     d.owner_input.last_owner_wall = time.time() - 3600                             # away for an hour
     daemon.run(d._notify("FERB finished", "done"))
     daemon.run(d._notify("FERB reminder", "call Mom", urgent=True))
-    assert notes == [("FERB reminder", "call Mom")] and d._held == [("FERB finished", "done")]
+    assert notes == [("FERB reminder", "call Mom")] and d._held == [Banner("FERB finished", "done")]
     d.owner_input.last_owner_wall = time.time()                                    # back
     for _ in range(150):
         if len(notes) == 2:

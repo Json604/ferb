@@ -55,7 +55,9 @@ from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, NoTarget, Refused, Withheld
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
-from ferb.daemon import resources as resource_use   # not `resources`: the constructor's flag
+from ferb.daemon import resources as resource_use
+from ferb.daemon import banners
+from ferb.daemon.banners import Banner   # not `resources`: the constructor's flag
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL, Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
@@ -414,7 +416,8 @@ class Daemon:
         self._log_subscriptions: set[Any] = set()             # open `logs.subscribe` streams' bus subscriptions (L9)
         # L10: app -> Jev yes batches waiting for that app's next consideration; an app is a key while one runs
         self._attention_waiting: dict[str, list[dict[str, Any]]] = {}
-        self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
+        self._held: list[Banner] = []                        # banners waiting for the owner to be back (13)
+        self.posters = banners.Posters()                     # FERB.app's notifications.subscribe streams (L34 D)
         self.schedules: Any = None                            # durable schedules
         self._runs: set[asyncio.Task[None]] = set()
         # Episode cards are read off the loop (L28) by exactly this entry point: the packaged app's stub accepts only
@@ -547,6 +550,8 @@ class Daemon:
         self.server.unary['conversations.change'] = self._conversations_change
         self.server.unary['notifications.rules'] = self._notification_rules
         self.server.unary['notifications.label'] = self._notification_label
+        self.server.unary['notifications.categories'] = self._notifications_categories
+        self.server.streams['notifications.subscribe'] = self._notifications_subscribe
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['runtimes.status'] = self._runtimes_status
@@ -2974,20 +2979,56 @@ class Daemon:
         import time as _t
         return _t.time() - last > float(self.config.get("sense", "idle_after_s", 120))
 
-    async def _notify(self, title: str, text: str, urgent: bool = False) -> None:
-        """Time awareness in code (13): while the owner is idle, non-urgent notifications wait until they're back."""
-        if not urgent and self.owner_idle():
-            self._held.append((title, text))
+    async def _notify(self, title: str, text: str, urgent: bool = False, *, category: str = "",
+                      target: dict[str, str] | None = None, when_hidden: bool = False, ident: str = "") -> None:
+        """Time awareness in code (13): while the owner is idle, non-urgent banners wait until they're back. A category
+        the owner switched off in Settings posts nothing (L34 D); chat, logs and the journal still have it."""
+        if not banners.enabled(self.config.get, category):
             return
-        await self._notify_safely(title, text)
+        banner = Banner(title, text, category, dict(target or {}), when_hidden, ident)
+        if not urgent and self.owner_idle():
+            self._held.append(banner)
+            return
+        await self._deliver(banner)
 
     async def _flush_held(self) -> None:
         while True:
             await asyncio.sleep(10)
             if self._held and not self.owner_idle():
                 held, self._held = self._held, []
-                for title, text in held:
-                    await self._notify_safely(title, text)
+                for banner in held:
+                    await self._deliver(banner)
+
+    async def _deliver(self, banner: Banner) -> None:
+        """FERB.app posts it while it is the poster (its name and icon; a click opens the notch at the item), else
+        osascript does. The title and body are redacted here, from the redacted data callers pass (rule 14)."""
+        import uuid
+        if self.posters.connected and self.posters.deliver({
+                "id": banner.ident or f"banner:{uuid.uuid4().hex[:12]}", "category": banner.category,
+                "title": self._redact_text(banner.title), "body": self._redact_text(banner.text),
+                "target": dict(banner.target), "when_hidden": banner.when_hidden}):
+            return
+        await self._notify_safely(banner.title, banner.text)
+
+    async def _notifications_subscribe(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """L34 D: FERB.app, allowed by macOS to post notifications, takes FERB's banners while this stream is open; the
+        daemon posts no osascript banner meanwhile. FERB.app leaving ends it, and osascript is back at once."""
+        if params.get("authorized") is not True:
+            raise FerbError("FERB.app may not post notifications yet; FERB keeps posting them through osascript")
+        queue = self.posters.open()
+        try:
+            while True:
+                yield await queue.get()
+        finally:
+            self.posters.close(queue)
+
+    async def _notifications_categories(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 D: which banner categories post (Settings → Notifications); `set` switches some (config [banners])."""
+        if "set" in params:
+            switched = banners.set_categories(self.config, params["set"])
+            self._journal().append("banners.switched", {"set": params["set"]})
+            return {"categories": switched}
+        return {"categories": banners.categories(self.config.get)}
 
     async def _chat_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """For `ferb chat` when it opens: answers that arrived while it was closed (then marked shown), tasks still
