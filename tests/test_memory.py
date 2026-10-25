@@ -304,6 +304,39 @@ def test_keep_never_ends_a_version_made_after_the_guess(daemon: RunningDaemon) -
         [False, True, True]
 
 
+def test_keep_counts_the_owners_latest_restatement_as_their_versions_time(daemon: RunningDaemon) -> None:
+    """Scoped re-review P7, defense in depth: Keep never ends a version made after the guess, and the owner's words
+    stated again (credited to their existing item, `propose`) date their version from that restatement, by its
+    journal entry's time, not from the item's first insertion."""
+    m, c = mem(daemon), daemon.daemon.clock
+    s1 = journal(daemon, "memory.added", {"content": "a"})
+    mehta = run(daemon, lambda: m.propose("person", "owner", "dentist", "Dentist is Dr. Mehta", "owner_stated",
+                                          [("journal", s1)], 1.0))
+    daemon.call_soon(c.advance, 60)
+    guessed = run(daemon, lambda: m.propose("person", "owner", "dentist", "Dentist is Dr. Rao", "inferred",
+                                            [("journal", s1)]))
+    assert run(daemon, lambda: m._made_after(guessed.id, [mehta.id])) == set()      # stated before the guess
+    daemon.call_soon(c.advance, 60)
+    s2 = journal(daemon, "memory.added", {"content": "b"})
+    again = run(daemon, lambda: m.propose("person", "owner", "dentist", "dentist is Dr. Mehta", "owner_stated",
+                                          [("journal", s2)], 1.0))
+    assert again.id == mehta.id
+    assert run(daemon, lambda: m._made_after(guessed.id, [mehta.id])) == {mehta.id}  # stated again since
+
+
+def test_keep_ends_an_older_version_of_another_kind_with_the_same_subject_and_key(daemon: RunningDaemon) -> None:
+    """Scoped re-review P5: the owner's version is kind person, FERB's guess kind fact, with the same subject and key.
+    Keep ends the older version whatever its kind, as the I2 ruling says ("the same subject and key")."""
+    m = mem(daemon)
+    s = journal(daemon, "memory.added", {"content": "a"})
+    mehta = run(daemon, lambda: m.propose("person", "owner", "dentist", "my dentist is Dr. Mehta", "owner_stated",
+                                          [("journal", s)], 1.0))
+    rao = run(daemon, lambda: m.propose("fact", "owner", "dentist", "Your dentist is Dr. Rao", "inferred",
+                                        [("journal", s)]))
+    run(daemon, lambda: m.confirm(rao.id))
+    assert run(daemon, lambda: (m.get(mehta.id).valid_to is not None, m.get(rao.id).supersedes)) == (True, mehta.id)
+
+
 # ---------- forget = purge (safety test 17) ----------
 
 def test_forget_purges_everything_and_nothing_comes_back(daemon: RunningDaemon) -> None:

@@ -857,7 +857,8 @@ After the owner's update (2026-10-24):
   written once per 10 minutes with its count (eef5c2a, 0772eb8, 679f18d, 273df06, 834bf0d). Keep on a guess that
   updates something you said ("my dentist is Dr. Mehta", then the guess "Dr. Rao") makes the guess the current version
   and ends yours, as Edit does; before, both stayed current and yours came first (final review I2). Saying the fact
-  yourself while a guess about it waits closes its question and keeps your words, so a late Keep can't end them.
+  yourself while a guess about it waits, even in the very words you used before, closes its question and keeps your
+  words, so a late Keep can't end them.
 - Memory is ranked and bounded (L36). Live 2026-10-24: every planner turn got about 207 memory lines (43 KB), 102 of
   them bare task ids, all kept whatever their relevance, because words like "is", "the" and "for" matched the JSON of
   every item. Search now reads only what items say, ignores words most items share, ranks by relevance with a small

@@ -3135,16 +3135,18 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   `untrusted_parts` counts (`DayEvidence.owner_words`). Every new inferred item, from chat capture or distillation, is
   asked at once (`Daemon._ask_keep`; kind `confirm`, capability `memory.confirm`, options Keep / Edit / Drop, kept in
   `memory_questions` until answered). Keep confirms: the guess becomes the current version of its fact, so every
-  current version with its subject and key ends (`valid_to`) and is superseded, the owner's own statement included,
-  as a new owner-stated version would be (`Memory.confirm` → `commit(owner_confirmed=True)`; final review I2), but
-  never a version recorded after the guess (`Memory._made_after`). The owner's own statement of the same subject and
-  key while a guess waits settles that guess (`Memory._settle_waiting_guesses`): journaled `memory.guess_replaced`,
-  retracted with its fingerprint kept, its question closed, `{op: guess_state}` "edited"; so a late Keep is refused
-  and never ends the owner's newer words (coordinator ruling on the final fix). Edit asks a free-text `memory.edit`
-  question and saves the answer as a new owner-stated version, retracting the guess. Drop, and a declined question,
-  delete that guess alone and keep its fingerprint (`Memory.drop`), so it is never proposed again; `forget` is not
-  used, since it purges every version of the key and the owner's messages. Text typed into the Keep / Edit / Drop
-  question that is no option is refused (`steering.OPTION_ONLY`).
+  current version with its subject and key, whatever its kind (`_versions(any_kind=True)`, scoped re-review P5),
+  ends (`valid_to`) and is superseded, the owner's own statement included, as a new owner-stated version would be
+  (`Memory.confirm` → `commit(owner_confirmed=True)`; final review I2), but never a version made after the guess
+  (`Memory._made_after`: recorded after it, or the owner's item stated again since, by its journal source's time).
+  The owner's own statement of the same subject and key while a guess waits, a restatement credited to their
+  existing item included (scoped re-review P7), settles that guess (`Memory._settle_waiting_guesses`): journaled
+  `memory.guess_replaced`, retracted with its fingerprint kept, its question closed, `{op: guess_state}` "edited"; so
+  a late Keep is refused and never ends the owner's newer words (coordinator ruling on the final fix). Edit asks a
+  free-text `memory.edit` question and saves the answer as a new owner-stated version, retracting the guess. Drop, and
+  a declined question, delete that guess alone and keep its fingerprint (`Memory.drop`), so it is never proposed
+  again; `forget` is not used, since it purges every version of the key and the owner's messages. Text typed into the
+  Keep / Edit / Drop question that is no option is refused (`steering.OPTION_ONLY`).
   While a waiting "Forget for good?" would delete the guess (about it, or about another version of the same fact, whose
   `plan_forget` lists every version and their sources: `Daemon._forget_would_take`), Drop retracts it instead
   (`_settle_guess`): a deletion would close that question unanswered or cut the guess from the messages it names, and

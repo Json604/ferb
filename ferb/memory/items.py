@@ -359,11 +359,15 @@ class Memory:
         return {r["id"] for r in self.db.conn.execute(q, args)
                 if not r["valid_to"] or datetime.fromisoformat(r["valid_to"]) > now}
 
-    def _versions(self, kind: str, subject: str, key: str, at: datetime | None = None) -> list[MemoryItem]:
+    def _versions(self, kind: str, subject: str, key: str, at: datetime | None = None, *,
+                  any_kind: bool = False) -> list[MemoryItem]:
+        """The current active versions of a fact: of this kind, subject and key; `any_kind`: of this subject and key,
+        whatever their kind (what the owner's Keep ends, scoped re-review P5)."""
         when = (at or self.clock.now()).isoformat()
         rows = self.db.conn.execute(
-            "SELECT * FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND status = 'active' "
-            "AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)", (kind, subject, key, when, when)).fetchall()
+            "SELECT * FROM memory_items WHERE (? OR kind = ?) AND subject = ? AND key = ? AND status = 'active' "
+            "AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)",
+            (any_kind, kind, subject, key, when, when)).fetchall()
         return [self._item(r) for r in rows]
 
     def evidence_days(self, item_id: str) -> int:
@@ -406,6 +410,10 @@ class Memory:
             self.commit([item_id], "a fact about the world")
         it = self.get(item_id)
         assert it is not None
+        if origin == "owner_stated" and same is not None:
+            # the owner's words again, credited to their item (already active, so `commit` skipped it): they still
+            # settle FERB's guesses waiting on this subject and key (scoped re-review P7)
+            self._settle_waiting_guesses(it)
         return it
 
     def _check(self, kind: str, subject: str, key: str, content: str, origin: str, srcs: list[Source]) -> None:
@@ -454,9 +462,11 @@ class Memory:
     def commit(self, ids: list[str], reason: str, *, owner_confirmed: bool = False) -> None:
         """proposed -> active. A newer version of the same fact supersedes the old (history kept), except that only
         the owner's own statement, or a version the owner confirmed (`owner_confirmed`: their Keep, final review I2),
-        may supersede one the owner stated; and a version the owner confirmed never ends one made after it was proposed
-        (a stale Keep, coordinator ruling on the final fix). The owner's own statement also settles FERB's guesses
-        still waiting about the same subject and key (`_settle_waiting_guesses`)."""
+        may supersede one the owner stated. A version the owner confirmed ends the current versions of its subject and
+        key whatever their kind (scoped re-review P5), never one made after it was proposed (`_made_after`: a stale
+        Keep, coordinator ruling on the final fix). The owner's own statement also settles FERB's guesses still waiting
+        about the same subject and key (`_settle_waiting_guesses`; `propose` too, for words credited to their existing
+        item)."""
         now = self.clock.now().isoformat()
         settled: list[str] = []
         for item_id in ids:
@@ -464,7 +474,7 @@ class Memory:
             if it is None or it.status == "active":
                 continue
             settled.append(item_id)
-            prev = [o for o in self._versions(it.kind, it.subject, it.key) if o.id != it.id]
+            prev = [o for o in self._versions(it.kind, it.subject, it.key, any_kind=owner_confirmed) if o.id != it.id]
             closes = [o for o in prev
                       if owner_confirmed or it.origin == "owner_stated" or o.origin != "owner_stated"]
             if owner_confirmed and it.origin != "owner_stated":
@@ -484,12 +494,21 @@ class Memory:
         self.on_change()
 
     def _made_after(self, item_id: str, others: list[str]) -> set[str]:
-        """Those of `others` recorded after `item_id` (by the store's insertion order)."""
+        """Those of `others` made after `item_id` was proposed: recorded after it (the store's insertion order), or,
+        for the owner's own item, stated again since (a journal source journaled after it was proposed: `propose`
+        credits the owner's identical words to their existing item, scoped re-review P7)."""
         if not others:
             return set()
-        return {r[0] for r in self.db.conn.execute(
-            f"SELECT id FROM memory_items WHERE id IN ({','.join('?' * len(others))}) AND seq > "
-            "(SELECT seq FROM memory_items WHERE id = ?)", [*others, item_id])}
+        marks = ",".join("?" * len(others))
+        row = self.db.conn.execute("SELECT seq, created_at FROM memory_items WHERE id = ?", (item_id,)).fetchone()
+        later = {r[0] for r in self.db.conn.execute(
+            f"SELECT id FROM memory_items WHERE id IN ({marks}) AND seq > ?", [*others, row["seq"]])}
+        proposed = datetime.fromisoformat(row["created_at"])
+        restated = self.db.conn.execute(
+            f"SELECT s.item_id, j.at FROM memory_sources s JOIN memory_items i ON i.id = s.item_id "
+            f"JOIN journal j ON j.id = s.source_id WHERE s.kind = 'journal' AND i.origin = 'owner_stated' "
+            f"AND s.item_id IN ({marks})", others)
+        return later | {r["item_id"] for r in restated if datetime.fromisoformat(r["at"]) > proposed}
 
     def _settle_waiting_guesses(self, stated: MemoryItem) -> None:
         """The owner stated a fact in their own words: FERB's guesses still waiting about the same subject and key are

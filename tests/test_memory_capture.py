@@ -314,6 +314,25 @@ def test_the_owners_own_words_for_a_waiting_guesss_fact_settle_the_guess(daemon:
                                              [("journal", src)], 0.6))
 
 
+def test_the_owner_restating_their_own_words_settles_a_waiting_guess(daemon: Any) -> None:
+    """Scoped re-review P7: the owner stated "my dentist is Dr. Mehta"; FERB's guess "Dr. Rao" was asked; the owner then
+    typed the same sentence again, the natural reply to a wrong "Keep this?". `propose` credits identical words to the
+    existing item, which was already active, so nothing settled the guess, and a late Keep ended the owner's words. An
+    owner statement always settles the waiting guesses on its subject and key."""
+    d = daemon.daemon
+    mehta = owner_fact(daemon, "dentist", "my dentist is Dr. Mehta", kind="person")
+    q, rao = guess(daemon)
+    install(daemon, [json.dumps({"kind": "reply", "text": "Noted.", "remember": [{
+        "kind": "person", "subject": "owner", "key": "dentist", "content": "my dentist is Dr. Mehta",
+        "quote": "my dentist is Dr. Mehta"}]})])
+    chat(daemon, "my dentist is Dr. Mehta")
+    assert q.state == "superseded" and pending(daemon) == []
+    late = daemon.run(d._memory_learning(None, {"op": "guess", "id": rao.id, "action": "keep"}))
+    assert late == {"line": "That guess isn't waiting any more.", "state": "edited"}
+    [now] = [i for i in run(daemon, lambda: d.memory.items("active")) if i.key == "dentist"]
+    assert now.id == mehta.id and now.valid_to is None
+
+
 def test_a_waiting_guess_seen_again_keeps_one_open_index_node(daemon: Any) -> None:
     """Review Q-I3's fix closes nothing for a waiting guess's node, except an older node of the same guess: more
     evidence changes the guess's body, and its newer node replaces the older one (the dashboard lists it once)."""
