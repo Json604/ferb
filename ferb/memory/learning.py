@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import posixpath
 import re
 from dataclasses import asdict
 from datetime import datetime
@@ -22,11 +23,17 @@ from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources
 from ferb.orchestrator import episodes
 from ferb.policy.confirm import site_is_destination
 from ferb.policy.rules import REVERSIBLE, Kind, declared_of
-from ferb.sanitize.redact import FERB_ID, INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed, id_bodies
+from ferb.sanitize.redact import FERB_ID, INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed
 
 
 class LearningRefused(FerbError):
     pass
+
+
+# Why `Learning.record_use` wrote no receipt (L36 §8): journaled by the daemon
+NOT_FOLLOWED = 'a success that did not follow every required step'
+OWNER_STOPPED = 'the owner stopped it'
+OWNER_SAID_NO = 'the owner said No to a confirmation'
 
 
 # Kinds whose key is one of FERB's own ids: an episode card (its task id), its annotation and its intent label (L29)
@@ -532,37 +539,92 @@ def render_slots(value: Any, slots: dict[str, Any]) -> Any:
     return value
 
 
-# The per-run handles FERB's own tools hand out, by their shapes (L36 §8): a tab ("t39", the extension bridge), a
-# snapshot element ("s1e8", browser and Mac snapshots), a shell process ("p-e954619d", the shell manager); one of FERB's
-# ids (`FERB_ID`). A window or process number under one of these keys is one too. None of them means the same thing in
-# another run.
-_HANDLES = ((re.compile(r"t\d+"), "<tab>"), (re.compile(r"s\d+e\d+"), "<element>"),
-            (re.compile(r"p-[0-9a-f]{8}"), "<process>"))
-_NUMBER_HANDLES = frozenset({"window_id", "window", "pid"})
+# The per-run handles FERB's own tools hand out (L36 §8), recognized only under the argument names those tools give
+# them (fix round 1, I3; read from their input schemas): a tab id ("t39": browser `tab`, the extension bridge's `t{n}`),
+# a snapshot element ("s1e8": browser `element`, `end_element`, `split_elements`; Mac `element`, `subtree`), a Mac
+# screenshot ("shot3": `shot`) and a tracked command ("p-e954619d": shell `id`). Free text (`text`, `query`, …) is
+# compared as it is: "s1e8" typed into a search box is an episode, not an element.
+_TAB = (re.compile(r"t\d+"), "<tab>")
+_ELEMENT = (re.compile(r"s\d+e\d+"), "<element>")
+_HANDLE_ARGS: dict[str, tuple[re.Pattern[str], str]] = {
+    "tab": _TAB, "element": _ELEMENT, "end_element": _ELEMENT, "split_elements": _ELEMENT, "subtree": _ELEMENT,
+    "shot": (re.compile(r"shot\d+"), "<screenshot>"), "id": (re.compile(r"p-[0-9a-f]{8}"), "<process>")}
+# A window or process number (browser `window_id`; Mac `window`, whose digits-only text is a window id from a snapshot
+# and any other text a title, which is data; `pid`).
+_NUMBER_HANDLES = {"window_id": "<window>", "window": "<window>", "pid": "<pid>"}
+# One of FERB's own ids (`FERB_ID`, any generated body) under the keys its tools and records hold them in: the
+# redactor's id keys, a memory item's `item_id`, and a recording's or listening's `id` ("rec-…", "listen-…").
+_ID_ARGS = INTERNAL_ID_KEYS | {"item_id", "id"}
+# The path arguments of FERB's tools (fs.* and recordings `path`, fs.disk_usage `paths`, an upload's `files`, shell
+# `cwd`): only there does `~` expand and a temporary file read as "<temp>" (a bare "~" typed as text is text).
+_PATH_ARGS = frozenset({"path", "paths", "files", "cwd"})
 _TEMP_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
+# What a stored step's handle kind asks the worker to find in its own run (fix round 1, I1): a procedure never replays
+# an earlier run's tab, element, command, window, id or temporary file.
+HANDLE_KINDS = {
+    "<tab>": "the tab this run works in: find its id in this run",
+    "<element>": "the element for this step: find its id in this run's latest snapshot",
+    "<screenshot>": "this run's latest screenshot: find its id in this run",
+    "<process>": "the command this run started: find its id in this run",
+    "<window>": "the window this run works in: find its id in this run's snapshot",
+    "<pid>": "the app's process in this run: find its id in this run",
+    "<id>": "the id this run got for it: find it in this run",
+    "<temp>": "a temporary file this run makes, never one an earlier run left",
+}
 
 
 def comparable(value: Any, home: str, key: str | None = None) -> Any:
-    """An action argument as consolidation compares it with a procedure step's (L36 §8): each per-run handle reads as
-    its kind, `~` and `~/` expand to `home`, and a path under a temporary folder reads as "<temp>". Everything else is
-    compared as it is, so a real difference (another text, another timeout) still differs. A FERB id in free text needs
-    an a-f letter in its generated part, as redaction reads one (`id_bodies`): twelve digits are a phone number, and two
-    phone numbers are two recipients."""
+    """An action argument as consolidation compares it with a procedure step's (L36 §8): a per-run handle under the
+    argument its tool gives it reads as its kind (`_HANDLE_ARGS`, `_NUMBER_HANDLES`, `_ID_ARGS`); under a path argument
+    (`_PATH_ARGS`) `~` and `~/` expand to `home`, and an absolute path still under a temporary folder once `..` is
+    resolved reads as "<temp>" (fix round 1, I2). Everything else is compared as it is, so a real difference (another
+    text, another timeout, another checksum) still differs. A kind compares equal to itself, so a stored step's kind
+    matches any run's handle of that kind."""
     if isinstance(value, dict):
         return {k: comparable(v, home, str(k)) for k, v in value.items()}
     if isinstance(value, list):
         return [comparable(v, home, key) for v in value]
-    if isinstance(value, int) and not isinstance(value, bool) and key in _NUMBER_HANDLES:
-        return "<handle>"
-    if not isinstance(value, str):
+    if key in _NUMBER_HANDLES and ((isinstance(value, int) and not isinstance(value, bool)) or
+                                   (isinstance(value, str) and value.isascii() and value.isdigit())):
+        return _NUMBER_HANDLES[key]
+    if not isinstance(value, str) or key is None:
         return value
-    for shape, kind in _HANDLES:
-        if shape.fullmatch(value):
-            return kind
-    if FERB_ID.fullmatch(value) and id_bodies(value, keyed=key in INTERNAL_ID_KEYS):
+    handle = _HANDLE_ARGS.get(key)
+    if handle is not None and handle[0].fullmatch(value):
+        return handle[1]
+    if key in _ID_ARGS and FERB_ID.fullmatch(value):
         return "<id>"
-    path = home + value[1:] if value == "~" or value.startswith("~/") else value
-    return "<temp>" if path.startswith(_TEMP_ROOTS) else path
+    if key in _PATH_ARGS:
+        path = home + value[1:] if value == "~" or value.startswith("~/") else value
+        return "<temp>" if path.startswith("/") and posixpath.normpath(path).startswith(_TEMP_ROOTS) else path
+    return value
+
+
+def handle_kinds(value: Any, home: str, key: str | None = None) -> Any:
+    """A step's arguments as stored and shown (fix round 1, I1): each value `comparable` reads as a handle or a
+    temporary file is its kind (`HANDLE_KINDS`), never the literal one run used; everything else as the model wrote it
+    (a slot's {template} included)."""
+    if isinstance(value, dict):
+        return {k: handle_kinds(v, home, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [handle_kinds(v, home, key) for v in value]
+    seen = comparable(value, home, key)
+    return seen if isinstance(seen, str) and seen in HANDLE_KINDS else value
+
+
+def _shown_kinds(value: Any) -> Any:
+    """Each handle kind in a step's arguments as what the worker finds in its own run (`HANDLE_KINDS`)."""
+    if isinstance(value, dict):
+        return {k: _shown_kinds(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_shown_kinds(v) for v in value]
+    return f"<{HANDLE_KINDS[value]}>" if isinstance(value, str) and value in HANDLE_KINDS else value
+
+
+def readable_version(version: Any) -> bool:
+    """A version FERB read: text with a digit. "unknown", "" and third-party text without a digit ("Beta", "dev",
+    which would sort above every number) are not (fix round 1, M3)."""
+    return isinstance(version, str) and version != "unknown" and re.search(r"[0-9]", version) is not None
 
 
 def version_key(version: str) -> tuple[tuple[int, Any], ...]:
@@ -573,11 +635,11 @@ def version_key(version: str) -> tuple[tuple[int, Any], ...]:
 
 def observed_ranges(cards: Iterable[dict[str, Any]]) -> dict[str, list[str]]:
     """The app versions a procedure's examples ran on, [lowest, highest] per app (L36 §8). A version FERB couldn't
-    capture ("unknown", an "unresolved-…" app) adds nothing."""
+    capture ("unknown", an "unresolved-…" app) or that has no digit (`readable_version`) adds nothing."""
     out: dict[str, list[str]] = {}
     for c in cards:
         for app, version in (c['body'].get('apps') or {}).items():
-            if app.startswith('unresolved-') or not isinstance(version, str) or version in ('', 'unknown'):
+            if app.startswith('unresolved-') or not readable_version(version):
                 continue
             low, high = out.get(app, [version, version])
             out[app] = [min(low, version, key=version_key), max(high, version, key=version_key)]
@@ -586,12 +648,10 @@ def observed_ranges(cards: Iterable[dict[str, Any]]) -> dict[str, list[str]]:
 
 def version_bounds(value: Any) -> tuple[str, str] | None:
     """A stored app precondition as (lowest, highest): a range, or one version (a procedure stored before L36). None
-    for a version FERB couldn't capture ("unknown", which a model copied from a card before L36)."""
-    def read(v: Any) -> bool:
-        return isinstance(v, str) and v not in ('', 'unknown')
-    if read(value):
+    for a version FERB couldn't read ("unknown", which a model copied from a card before L36; `readable_version`)."""
+    if readable_version(value):
         return value, value
-    if isinstance(value, list) and len(value) == 2 and all(read(v) for v in value):
+    if isinstance(value, list) and len(value) == 2 and all(readable_version(v) for v in value):
         return value[0], value[1]
     return None
 
@@ -1128,9 +1188,12 @@ class Learning:
             selected.extend(actions[ref] for ref in refs)
             outside_steps.append(any(actions[ref].get('outside_action', True) for ref in refs))
         key = str(intent_id or proposal['intent'])
-        # the app versions are the range the examples' cards captured (L36 §8): code's facts, never the model's text
+        # the app versions are the range the examples' cards captured (L36 §8): code's facts, never the model's text.
+        # A step keeps each handle's kind, never the literal one run used (fix round 1, I1: replaying one run's tab,
+        # element or temporary file is the wrong step); the reproduction check above proved every example had one.
         given = proposal.get('preconditions')
-        proposal = proposal | {'steps': [s | {'optional': s.get('optional', False)} for s in steps],
+        proposal = proposal | {'steps': [s | {'optional': s.get('optional', False),
+                                              'args': handle_kinds(s['args'], self.home)} for s in steps],
                                'preconditions': (given if isinstance(given, dict) else {})
                                | {'apps': observed_ranges(cards)}}
         state = 'quarantined' if any(outside_steps) else 'candidate'
@@ -1216,23 +1279,38 @@ class Learning:
                                     (card['key'],)).fetchone()
         return card['body'].get('verified') is True and not (last and last[0] == 'fail')
 
-    def record_use(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> bool:
-        """The receipt of a run the planner gave this procedure (L36 §8), or False when none is written: a run that
-        failed (`succeeded` false) always gets its failure receipt, whether or not it followed the steps, so a
-        procedure that breaks partway can become suspect (concern ruling 2); a success only when it followed every
-        required step (`followed`). LearningRefused from `receipt` passes through."""
-        if self.succeeded(card) and not self.followed(procedure_id, card, slots):
-            return False
+    def record_use(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> str | None:
+        """The receipt of a run the planner gave this procedure (L36 §8): None when it is written, else why not. A
+        success gets one only when it followed every required step (`followed`; else NOT_FOLLOWED). A run that failed
+        (`succeeded` false) gets its failure receipt whether or not it followed the steps, so a procedure that breaks
+        partway can become suspect (concern ruling 2), unless the owner ended it, facts code records (fix round 1,
+        M4): the owner stopped it (OWNER_STOPPED: its card's status is "cancelled", which the supervisor gives a task
+        only for "stopped by you") or said No to one of FERB's confirmations in it (OWNER_SAID_NO: a `confirmations`
+        row of its tree whose key's latest answer is No). LearningRefused from `followed` or `receipt` passes
+        through."""
+        if self.succeeded(card):
+            if not self.followed(procedure_id, card, slots):
+                return NOT_FOLLOWED
+        elif card['body'].get('status') == 'cancelled':
+            return OWNER_STOPPED
+        elif self.db.conn.execute(
+                "SELECT 1 FROM confirmations c WHERE c.tree_id = ? AND c.granted = 0 AND NOT EXISTS (SELECT 1 FROM "
+                "confirmations d WHERE d.tree_id = c.tree_id AND d.key = c.key AND d.rowid > c.rowid) LIMIT 1",
+                (card['key'],)).fetchone():
+            return OWNER_SAID_NO
         self.receipt(procedure_id, card['id'], slots)
-        return True
+        return None
 
     def followed(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> bool:
         """Whether a run used its procedure (L36 §8): each required step has a successful action of the same tool whose
         arguments, with the planner's slot values filled in, equal the step's after `comparable`; a step whose slots
-        this run has no value for matches by its tool alone. An optional step never decides it."""
+        this run has no value for matches by its tool alone. An optional step never decides it. The filled arguments
+        are redacted as the card's were (`redacted_json`, keyed by the tool's own argument names: fix round 1, M2), so
+        a slot value redaction hides on the card still matches. LearningRefused for a missing procedure (M1), or when
+        the filled arguments can't be redacted safely."""
         p = self.get(procedure_id, sources=False)
         if p is None or p['kind'] != 'procedure':
-            return False
+            raise LearningRefused('missing procedure')
         actions = [a for a in card['body'].get('actions') or [] if isinstance(a, dict) and not a.get('error')]
         declared = p['body'].get('slots') or {}
         for step in p['body'].get('steps') or []:
@@ -1240,7 +1318,7 @@ class Learning:
                 continue
             args = render_slots(step.get('args') or {}, slots or {})
             unfilled = any('{' + str(k) + '}' in encoded(args) for k in declared)
-            wanted = comparable(args, self.home)
+            wanted = comparable(redacted_json(self.redact, args, self.secret_values()), self.home)
             if not any(a.get('tool') == step.get('tool') and
                        (unfilled or comparable(a.get('args'), self.home) == wanted) for a in actions):
                 return False
@@ -1698,8 +1776,8 @@ class Learning:
         installed = apps or {}
         newer = [(app, installed[app], bounds)
                  for app, value in sorted(((body.get('preconditions') or {}).get('apps') or {}).items())
-                 if (bounds := version_bounds(value)) and isinstance(installed.get(app), str)
-                 and installed[app] not in ('', 'unknown') and not in_range(installed[app], bounds)]
+                 if (bounds := version_bounds(value)) and readable_version(installed.get(app))
+                 and not in_range(installed[app], bounds)]
         if p['state'] == 'learned' and newer:
             said = '. '.join(f"{prompt_json(app)} is {prompt_json(now)} now; the runs this was learned from used "
                              f"{prompt_json(low if low == high else low + '–' + high)}"
@@ -1716,8 +1794,13 @@ class Learning:
                      f"Steps, with this run's slot values filled in ({prompt_json(filled)}):" if filled else
                      f"Steps; this run has no slot values, so fill each {{slot}} from the request (slots: "
                      f"{prompt_json(declared)}):")
-        for n, step in enumerate(body.get('steps') or [], 1):
-            lines.append(f"{n}. {step.get('tool')} {prompt_json(render_slots(step.get('args') or {}, filled))} — "
+        # each handle as what to find in this run, never a literal from an earlier one (fix round 1, I1), also for a
+        # step stored before; the kinds are read before the slots are filled, so this run's own values stay as given
+        steps = [step | {'args': handle_kinds(step.get('args') or {}, self.home)} for step in body.get('steps') or []]
+        if any(_shown_kinds(step['args']) != step['args'] for step in steps):
+            lines.append("A value in <angle brackets> is what to find in this run: never an earlier run's id or file.")
+        for n, step in enumerate(steps, 1):
+            lines.append(f"{n}. {step.get('tool')} {prompt_json(_shown_kinds(render_slots(step['args'], filled)))} — "
                          f"expect: {prompt_json(step.get('expect', ''))}"
                          + (' (optional: only some runs needed it)' if step.get('optional') else ''))
         parts = [shown._replace(text='\n'.join(lines))]

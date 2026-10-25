@@ -796,9 +796,11 @@ remembers the app versions it was learned on; on a newer version it still runs, 
 failures mark it suspect. A suggestion you turned down ("Not right") is not proposed again.
 Runs whose app versions FERB couldn't read add nothing to that range; with no range there is no new-version check.
 Steps are compared with their runs without the ids that change every run (tabs, page elements, shell processes,
-windows, FERB's ids) and with `~/` paths expanded, so repeats are learned (L36). A successful run counts as using its
-procedure only when it followed every required step; a run that fails counts against it either way, so one that breaks
-partway is still marked suspect. `ferb stats` shows the procedures stored, learned, used and refused.
+windows, FERB's ids) and with `~/` paths expanded, so repeats are learned (L36); typed text, checksums and other values
+must still be equal. A learned step names those ids and temporary files by kind, for the worker to find in its own run,
+never an earlier run's. A successful run counts as using its procedure only when it followed every required step; a run
+that fails counts against it either way, so one that breaks partway is still marked suspect, except a run you stopped or
+said No in. `ferb stats` shows the procedures stored, learned, used and refused.
 
 Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra
 (not in FERB.app); without it, the embedding commands say so before downloading anything.

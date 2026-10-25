@@ -1032,8 +1032,12 @@ After the owner's update (2026-10-24):
   another timeout is still a different step, and twelve digits (a phone number) are never taken for an id. A
   successful run that didn't follow its procedure's required steps isn't counted as a use (journaled
   `memory.procedure_not_followed`); a run that fails counts against the procedure either way (also when you fail it
-  later), so one that breaks partway is still marked suspect. A procedure no longer needs its latest run's app
-  versions to be learned, and the hourly learner is no longer asked for them.
+  later), so one that breaks partway is still marked suspect; a run you stopped or said No in doesn't count. A
+  procedure no longer needs its latest run's app versions to be learned, and the hourly learner is no longer asked for
+  them. A learned step names a tab, page element, command or temporary file by kind for the worker to find in its own
+  run, never an earlier run's (an element id like s1e8 means another element in the next run); ids count as ids only
+  where FERB's tools put them, so "s1e8" typed as text, a checksum or a path that leaves a temporary folder with `..`
+  must match exactly.
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,

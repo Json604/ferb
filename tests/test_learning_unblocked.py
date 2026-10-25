@@ -44,8 +44,8 @@ def propose(store: Learning, cards: list[Any], steps: list[dict[str, Any]], slot
 def test_handles_paths_and_temp_folders_compare_by_kind() -> None:
     assert comparable({"tab": "t39", "element": "s1e8", "id": "p-e954619d", "path": "~/a.txt", "window_id": 7},
                       HOME) == {"tab": "<tab>", "element": "<element>", "id": "<process>", "path": f"{HOME}/a.txt",
-                                "window_id": "<handle>"}
-    assert comparable("/private/var/folders/x/T/f.png", HOME) == "<temp>"
+                                "window_id": "<window>"}                  # fix round 1: each handle names its kind
+    assert comparable({"path": "/private/var/folders/x/T/f.png"}, HOME) == {"path": "<temp>"}
     assert comparable({"timeout_s": 70}, HOME) != comparable({"timeout_s": 120}, HOME)
 
 
@@ -136,7 +136,8 @@ def test_a_phone_number_is_not_an_id_but_one_of_ferbs_ids_is() -> None:
     """Twelve digits read as an id body would make two recipients one (redaction's rule, L36 §7 ruling 6): in free
     text an id needs an a-f letter; under one of FERB's own id keys any body is one."""
     assert comparable({"to": "919876543210"}, HOME) != comparable({"to": "918888888888"}, HOME)
-    assert comparable({"item": "m-" + "a" * 64}, HOME) == comparable({"item": "m-" + "b" * 64}, HOME) == {"item": "<id>"}
+    assert comparable({"item_id": "m-" + "a" * 64}, HOME) == comparable({"item_id": "m-" + "b" * 64}, HOME) == \
+        {"item_id": "<id>"}
     assert comparable({"task_id": "123456789012"}, HOME) == {"task_id": "<id>"}
 
 
@@ -257,7 +258,131 @@ def test_a_failed_run_offered_a_procedure_is_not_a_use(store: Learning, tmp_path
     successes, each of which followed its procedure (`record_use`)."""
     p = learned_on_two_brave_versions(store)
     failed = card(store, "failed", [{"id": "x-a", "tool": "browser.act", "args": {}}], verified=False, status="failed")
-    assert store.record_use(p["id"], failed, None)
+    assert store.record_use(p["id"], failed, None) is None                  # None: its failure receipt is written
     out = io.StringIO()
     assert stats(tmp_path, out, days=36500) == 0
     assert "Procedures: 1 stored, 1 learned; used in 0 run(s);" in out.getvalue()
+
+
+
+# Fix round 1 (task-10-review.md I1–I3, M1–M4) -------------------------------------------------------------------------
+
+def _clicked_and_uploaded(store: Learning) -> tuple[Any, list[dict[str, Any]]]:
+    """The reviewer's probe: three runs clicked t39/s1e8, t41/s2e5 and t3/s1e12 and uploaded one temporary file each;
+    the model's template carries the first run's literal values."""
+    runs = [("t39", "s1e8", "/tmp/invoice-aug.pdf"), ("t41", "s2e5", "/tmp/invoice-sep.pdf"),
+            ("t3", "s1e12", "/private/tmp/invoice-oct.pdf")]
+    cards = [card(store, f"u{i}", [
+        {"id": f"u{i}-c", "tool": "browser.act", "args": {"tab": tab, "element": el, "action": "click"}},
+        {"id": f"u{i}-u", "tool": "browser.act",
+         "args": {"tab": tab, "element": el, "action": "upload", "files": [temp]}}])
+             for i, (tab, el, temp) in enumerate(runs)]
+    steps = [{"tool": "browser.act", "args": {"tab": "t39", "element": "s1e8", "action": "click"},
+              "expect": "the upload form", "evidence": [f"u{i}-c" for i in range(3)]},
+             {"tool": "browser.act", "args": {"tab": "t39", "element": "s1e8", "action": "upload",
+                                              "files": ["/tmp/invoice-aug.pdf"]},
+              "expect": "the file is attached", "evidence": [f"u{i}-u" for i in range(3)]}]
+    return propose(store, cards, steps, {}, [{}, {}, {}]), cards
+
+
+def test_a_stored_step_names_handle_kinds_never_one_runs_values(store: Learning) -> None:
+    """I1: a template that reproduces its runs only modulo handles keeps the kinds, and the worker is told to find
+    each one in its own run; it never replays one run's tab, element or temporary file."""
+    p, _ = _clicked_and_uploaded(store)
+    stored = [s["args"] for s in p["body"]["steps"]]
+    assert stored == [{"tab": "<tab>", "element": "<element>", "action": "click"},
+                      {"tab": "<tab>", "element": "<element>", "action": "upload", "files": ["<temp>"]}]
+    text = store.procedure_parts(p["id"], {}, None)[0].text
+    assert not any(literal in text for literal in ("t39", "s1e8", "invoice-aug"))
+    assert "find its id in this run" in text and "a temporary file this run makes" in text
+    later = {"body": {"actions": [
+        {"tool": "browser.act", "args": {"tab": "t50", "element": "s9e2", "action": "click"}},
+        {"tool": "browser.act", "args": {"tab": "t50", "element": "s9e3", "action": "upload",
+                                         "files": ["/tmp/invoice-nov.pdf"]}}]}}
+    assert store.followed(p["id"], later, None)                   # a kind matches this run's own handle
+
+
+def test_a_path_that_leaves_a_temp_folder_is_not_temporary(store: Learning) -> None:
+    """I2: `..` is resolved before the temp check, so a home-folder path never passes as the run's temp file."""
+    for path in ("/tmp/../Users/owner/.ssh/id_rsa",
+                 "/private/var/folders/x/T/../../../../Users/owner/Documents/tax.pdf"):
+        assert comparable({"path": path}, HOME) != comparable({"path": "/tmp/shot.png"}, HOME)
+    cards = [card(store, f"r{i}", [{"id": f"r{i}-a", "tool": "fs.read", "args": {"path": f"/tmp/shot{i}.png"}}])
+             for i in range(2)]
+    with pytest.raises(LearningRefused, match="reproduce"):
+        propose(store, cards, [{"tool": "fs.read", "args": {"path": "/tmp/../Users/owner/Documents/tax.pdf"},
+                                "expect": "read", "evidence": ["r0-a", "r1-a"]}], {}, [{}, {}])
+
+
+def test_handle_shapes_count_only_under_the_tools_handle_arguments() -> None:
+    """I3: free text must be equal; a handle's shape names a handle only under the argument FERB's tools give it."""
+    assert comparable({"text": "s1e8"}, HOME) != comparable({"text": "s2e3"}, HOME)          # TV episodes typed
+    assert comparable({"text": "t5"}, HOME) != comparable({"text": "t6"}, HOME)
+    md5 = ("d41d8cd98f00b204e9800998ecf8427e", "9e107d9d372bb6826bd81d3542a419d6")
+    assert comparable({"expected": md5[0]}, HOME) != comparable({"expected": md5[1]}, HOME)
+    assert comparable({"commit": "5bd6483abcde"}, HOME) != comparable({"commit": "8327839abcde"}, HOME)
+    assert comparable({"text": "~"}, HOME) != comparable({"text": HOME}, HOME)
+    assert comparable({"tab": "t5"}, HOME) == comparable({"tab": "t6"}, HOME)
+    assert comparable({"split_elements": ["s1e2", "s1e3"]}, HOME) == {"split_elements": ["<element>", "<element>"]}
+    assert comparable({"window": "Inbox"}, HOME) == {"window": "Inbox"}          # a Mac window title is data
+    assert comparable({"window": "4242"}, HOME) == {"window": "<window>"}        # its id from a snapshot is a handle
+
+
+def test_a_successful_run_of_a_procedure_that_is_gone_is_journaled_as_unavailable(daemon: Any) -> None:
+    """M1: a missing procedure is not "not followed"."""
+    from tests.support.memory_items import run
+    d = daemon.daemon
+    run(daemon, lambda: card(d.learning, "orphan", [{"id": "o-a", "tool": "browser.navigate", "args": {}}]))
+    run(daemon, lambda: d._procedure_outcome("m-" + "0" * 64, "orphan", None))
+    assert run(daemon, lambda: [e.kind for e in d._journal().of_kind("memory.receipt_unavailable")]) == \
+        ["memory.receipt_unavailable"]
+    assert run(daemon, lambda: d._journal().of_kind("memory.procedure_not_followed")) == []
+
+
+def test_a_sealed_word_given_as_a_slot_value_still_counts_as_followed(tmp_path: Path) -> None:
+    """M2: the card's arguments were stored redacted; the planner's values are redacted the same way before they are
+    compared, keyed by the tool's own argument names."""
+    from ferb.sanitize.redact import Redactor
+    redactor = Redactor()
+    redactor.remember_hidden_secret("sunshine")
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    try:
+        store = Learning(db, Clock(), lambda *args: None, redactor.text)
+        store.secret_values = redactor.secret_values
+        p = store.put("procedure", "answer", {"intent": "answer", "slots": {"answer": "string"}, "steps": [
+            {"tool": "browser.act", "args": {"tab": "<tab>", "element": "<element>", "action": "type",
+                                             "text": "{answer}"}, "optional": False}],
+            "preconditions": {"apps": {}}}, [], made_by="code:test/1", state="candidate")
+        typed = card(store, "typed", [{"id": "t-a", "tool": "browser.act",
+                                       "args": {"tab": "t2", "element": "s1e4", "action": "type", "text": "sunshine"}}])
+        assert "sunshine" not in str(typed["body"])                                  # the card holds it redacted
+        assert store.followed(p["id"], typed, {"answer": "sunshine"})
+    finally:
+        db.close()
+
+
+def test_a_version_with_no_digit_is_unknown(store: Learning) -> None:
+    """M3: third-party version text without a digit ("Beta", "dev") would sort above every number."""
+    assert observed_ranges([{"body": {"apps": {"x.app": "Beta"}}}, {"body": {"apps": {"x.app": "1.2"}}}]) == \
+        {"x.app": ["1.2", "1.2"]}
+    p = learned_on_two_brave_versions(store)
+    assert "New version" not in store.procedure_parts(p["id"], {"com.brave.Browser": "dev"}, None)[0].text
+
+
+def test_a_run_the_owner_stopped_or_said_no_in_writes_no_failure_receipt(daemon: Any) -> None:
+    """M4: the owner's stop (status "cancelled", which only "stopped by you" sets) and the owner's No to one of FERB's
+    confirmations are facts code records; such a run says nothing about the procedure."""
+    from tests.support.memory_items import run
+    d = daemon.daemon
+    d.learning.home = HOME
+    p = run(daemon, lambda: learned_on_two_brave_versions(d.learning))
+    run(daemon, lambda: card(d.learning, "stopped", [], verified=False, status="cancelled"))
+    run(daemon, lambda: card(d.learning, "declined", [], verified=False, status="failed"))
+    run(daemon, lambda: d.db.conn.execute("INSERT INTO confirmations (id, tree_id, rule, key, granted, ask_span, used, "
+                                          "at) VALUES ('c-1', 'declined', 'floor:pay', 'pay 40', 0, NULL, 0, 'now')"))
+    for task in ("stopped", "declined"):
+        run(daemon, lambda task=task: d._procedure_outcome(p["id"], task, None))
+    assert _receipts(daemon, p["id"]) == {}
+    assert run(daemon, lambda: sorted(e.data["why"] for e in d._journal().of_kind("memory.receipt_skipped"))) == \
+        ["the owner said No to a confirmation", "the owner stopped it"]

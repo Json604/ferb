@@ -1657,20 +1657,28 @@ class Daemon:
 
     def _procedure_outcome(self, procedure_id: str, task_id: str, slots: dict[str, Any] | None = None) -> None:
         """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them
-        (`Learning.record_use`, L36 §8): a failed run's always; a success's only when it followed the procedure's
-        required steps, otherwise journaled as `memory.procedure_not_followed` (an owner's fail verdict later writes
-        its failure receipt: `_refresh_learning_verdict`)."""
+        (`Learning.record_use`, L36 §8): a failed run's unless the owner stopped it or said No in it (journaled as
+        `memory.receipt_skipped` with why); a success's only when it followed the procedure's required steps,
+        otherwise journaled as `memory.procedure_not_followed` (an owner's fail verdict later writes its failure
+        receipt: `_refresh_learning_verdict`)."""
         if self.learning is None:
             return
         node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
         if node:
             from ferb.memory.learning import LearningRefused
             try:
-                if not self.learning.record_use(procedure_id, node, slots):   # L36 §8: a success it didn't follow
-                    self._journal().append("memory.procedure_not_followed", {"procedure_id": procedure_id,
-                                                                             "task_id": task_id})
+                self._note_use(procedure_id, task_id, self.learning.record_use(procedure_id, node, slots))
             except LearningRefused:
                 self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})
+
+    def _note_use(self, procedure_id: str, task_id: str, why: str | None) -> None:
+        """Journal why `Learning.record_use` wrote no receipt, when it wrote none."""
+        from ferb.memory.learning import NOT_FOLLOWED
+        if why == NOT_FOLLOWED:
+            self._journal().append("memory.procedure_not_followed", {"procedure_id": procedure_id, "task_id": task_id})
+        elif why is not None:
+            self._journal().append("memory.receipt_skipped", {"procedure_id": procedure_id, "task_id": task_id,
+                                                              "why": why})
 
     def _refresh_learning_verdict(self, task_id: str) -> None:
         if not self.learning:
@@ -1690,7 +1698,7 @@ class Daemon:
             for procedure_id in {str(e.data.get("procedure_id")) for e in self._journal().of_kind(
                     "memory.procedure_not_followed") if e.data.get("task_id") == task_id}:
                 try:
-                    self.learning.record_use(procedure_id, card, None)
+                    self._note_use(procedure_id, task_id, self.learning.record_use(procedure_id, card, None))
                 except LearningRefused:
                     self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id,
                                                                           "task_id": task_id})
