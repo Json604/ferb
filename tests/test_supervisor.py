@@ -8,7 +8,7 @@ from typing import Any
 
 from ferb.core.types import RuntimeEvent
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
-from tests.conftest import RunningDaemon, STALL, chat, cond, done, install, outcome, sup, task, tool, writes
+from tests.conftest import RunningDaemon, STALL, chat, cond, done, install, looked, outcome, sup, task, tool, writes
 
 
 # ---------- chat basics ----------
@@ -101,7 +101,7 @@ def test_judgment_conditions_go_to_a_checker_with_observation_tools(daemon: Runn
     verdict = json.dumps({"results": [{"index": 0, "met": True, "evidence": "observed todo.md exists"},
                                        {"index": 1, "met": False, "evidence": "it reads as curt"}]})
     script = install(daemon, [sup("task", "x", t)], {"worker": writes(daemon.sock, "todo.md", "milk."),
-                                                     "worker.verify": verdict})
+                                                     "worker.verify": looked(daemon.sock, verdict)})   # L39: a look
     evs = chat(daemon, "write a friendly todo.md")
     res = {r["index"]: r for r in next(e for e in evs if e["type"] == "verification")["results"]}
     assert res[0]["path"] == "verifier" and res[0]["met"] is True

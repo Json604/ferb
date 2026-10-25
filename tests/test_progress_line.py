@@ -211,8 +211,9 @@ def test_progress_events_are_code_built_for_five_tool_kinds(daemon):
     ack = events[0]
     plan = next(e for e in events if e['type'] == 'plan')
     lines = [e for e in events if e['type'] == 'progress']
+    # the last line is the checker reading the change record of the file the step wrote (L39: a pass needs a look)
     assert [e['text'] for e in lines] == ["reading github.com", "writing notes.md", "running a command", "searching",
-                                          "drafting"]
+                                          "drafting", "reading"]
     for e in lines:
         assert e['task_id'] == plan['task_id'] and e['request_id'] == ack['request_id']
         assert _offset_time(e['started_at']) and _offset_time(e['at'])

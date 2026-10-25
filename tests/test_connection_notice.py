@@ -112,7 +112,8 @@ def test_a_tool_call_after_the_outage_says_reconnected_before_its_own_step_line(
         return done("Wrote notes.md.")
     install(daemon, [sup("task", "Tidying.", task("tidy the notes"))], {"worker": worker})
     lines = [(e.get("connection"), e["text"]) for e in _events(daemon, "tidy the notes") if e["type"] == "progress"]
-    assert lines == [("lost", LOST), ("back", BACK), (None, "writing notes.md")]
+    # then the checker reads the change record of the file the step wrote (L39: a pass needs a look)
+    assert lines == [("lost", LOST), ("back", BACK), (None, "writing notes.md"), (None, "reading")]
 
 
 def test_the_final_checker_tells_the_owner_too(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:

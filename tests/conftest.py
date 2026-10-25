@@ -361,6 +361,7 @@ class Script:
         self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
         self.fill_report_verdict = True       # complete older scripted verdicts (complete_report_verdict)
+        self.sock: Path | None = None         # the daemon's socket: the default scripted checker reads change records
 
     def step(self, key: str) -> Any:
         # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
@@ -377,8 +378,18 @@ class Script:
         if key not in self.workers and key.endswith('.verify'):
             ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
             indices = re.findall(r'^([0-9]+)\. ', ctx, re.M)
-            return json.dumps({'results': [{'index': int(i), 'met': True,
-                                           'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
+            final = json.dumps({'results': [{'index': int(i), 'met': True,
+                                            'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
+            records = re.findall(r'change record: task\.evidence span_id=(\S+)', ctx)
+            if records and self.sock is not None:     # L39: a pass on a file-changing step needs a look at each change
+                sock = self.sock
+
+                def look(token: str) -> str:
+                    for record in records:
+                        tool(sock, token, "task.evidence", span_id=record)
+                    return final
+                return look
+            return final
         w = self.workers[key]
         return w.pop(0) if isinstance(w, list) else w
 
@@ -453,7 +464,10 @@ class FakeRuntime:
 # sets script.fill_report_verdict = False (see complete_report_verdict); tests about the report condition must opt out.
 def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | None = None) -> Script:
     script = Script(supervisor, workers or {})
-    d.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: FakeRuntime(script, mode, tool_names)
+    script.sock = d.sock
+    # effort: what a checker of a file-changing step asks for (L39); the scripted runtime takes it like any other
+    d.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema, effort=None: FakeRuntime(
+        script, mode, tool_names)
     return script
 
 
@@ -502,6 +516,17 @@ def writes(sock: Any, path: str, text: str) -> Callable[[str], str]:
         return json.dumps({"status": "failed" if r["is_error"] else "done", "summary": f"wrote {path}",
                            "artifacts": [path], "evidence": []})
     return act
+
+
+def looked(sock: Any, final: str) -> Callable[[str], str]:
+    """A scripted checker that reads every change record of its task first (L39: a pass on a step that changed files
+    needs a look at each), then gives `final`."""
+    def check(token: str) -> str:
+        page = tool(sock, token, "task.evidence", kind="context.source", query="Change record", limit=100)
+        for record in page["content"]["records"]:
+            tool(sock, token, "task.evidence", span_id=record["id"])
+        return final
+    return check
 
 
 class FakeCap:
