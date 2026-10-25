@@ -868,7 +868,8 @@ After the owner's update (2026-10-24):
   with a stand-in username, that message brings it in 4th of the 60 (91st with the goal's words alone). Past
   tasks show their goal, outcome and date. A turn's memory took about 73 ms on a copy of your database. The index is
   rebuilt once at the next start, in the background in short steps (about 7 seconds on that copy; the first reply
-  waits for it).
+  waits for it). Your preferences about yourself, already in every prompt, no longer also take places among the 60
+  (or a worker's 20) (final review M1).
 - A worker's memory lookups find what they look for (L36). Live: 14 of 20 `memory.read` queries came back empty,
   because the query had to appear letter for letter in an item ("RSNA knee Kaggle rank score" never could). Both memory
   tools now use the same ranked search as the planner, and `memory.learned` returns what each item says, not only its

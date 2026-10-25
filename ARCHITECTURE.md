@@ -3176,7 +3176,9 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   search) took about 73 ms, against 1.3 s reading every matched node. Budgets after ranking: `PLANNER_MEMORY_ITEMS` 60
   (the planner and attention) and `WORKER_MEMORY_ITEMS` 20 (owner, 2026-10-24; workers and plan steps, §4); the identity
   layer and the planner's procedure list are outside them, and `PROMPT_LEAVES_OUT` drops identity, intent labels and
-  procedures before the budget applies. The memory blocks stay protected inside the budgets (the planner's conversation
+  procedures before the budget applies; leaving out identity also leaves out the fact node of each item identity holds
+  (`Learning._identity_twins`: an owner-stated preference about the owner is indexed as both; final review M1), which
+  the memory tools still find. The memory blocks stay protected inside the budgets (the planner's conversation
   fills its window before optional blocks, and it has no tool to fetch one). Episodes show `past task <id> (<date>):
   <goal> — <status>[, verified]` (`shown_text`); one without a goal is left out. An adopted embedding model embeds the
   same `search_text`; a node without one has no vector.

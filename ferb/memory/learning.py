@@ -1584,7 +1584,8 @@ class Learning:
         fused by reciprocal rank (each ranking adds 1 / (rank + 1), ranks from 0; equal scores share a rank: `_tied`),
         plus a small recency boost; at equal score the owner's own statement first. A query whose every word most nodes
         share finds nothing, by similarity too (m5); a query with no words lists the newest first, with
-        no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies. An
+        no recency or owner boost. `leave_out`: kinds dropped before `limit` (the budget) applies; leaving out
+        identity also leaves out the fact nodes of what identity holds (`_identity_twins`, final review M1). An
         episode without a stored goal is left out. `query_vector`: the query's embedding, computed off the event loop
         (L28); `embed` False: keyword ranking only (the caller's encode failed and was reported). `sources` False:
         nodes without their source refs (`get`), for a prompt's lines. `focus`: a task's target words (`target_words`),
@@ -1627,10 +1628,11 @@ class Learning:
         # Ranked by each node's columns first; bodies are read best first only until the budget is full (review fix 5:
         # a planner query matched 698 of the owner's nodes, and reading every body and its sources took 1.4 s a turn)
         now = self.clock.now()
+        twins = self._identity_twins() if 'identity' in leave_out else set()
         order: list[tuple[float, bool, str, str, float]] = []
         for row in self._columns(scores):
             if row['valid_to'] or row['state'] in ('retired', 'rolled_back', 'proposed') or \
-                    (kind and row['kind'] != kind) or row['kind'] in leave_out:
+                    (kind and row['kind'] != kind) or row['kind'] in leave_out or row['id'] in twins:
                 continue                          # 'proposed': a memory item waiting for the owner's Keep
             if row['kind'] == 'episode_intent':   # a card's intent label (L29): bookkeeping, never recalled
                 continue
@@ -1661,6 +1663,18 @@ class Learning:
             p['score'] = score
             out.append(p)
         return out
+
+    def _identity_twins(self) -> set[str]:
+        """The open fact nodes of the memory items the identity layer already holds (an owner-stated preference about
+        the owner: `sync_facts` indexes it as a fact and as identity). A search that leaves identity out leaves these
+        out too: identity is in every role's prompt and never takes a slot of the 60/20 (L36 ruling "Identity", final
+        review M1)."""
+        return {r[0] for r in self.db.conn.execute(
+            "SELECT f.node_id FROM learning_sources f JOIN learning_nodes n ON n.id = f.node_id "
+            "WHERE n.kind = 'fact' AND n.valid_to IS NULL AND f.source_ref IN ("
+            "SELECT s.source_ref FROM learning_sources s JOIN learning_nodes i ON i.id = s.node_id "
+            "WHERE i.kind = 'identity' AND i.origin = ? AND i.valid_to IS NULL "
+            "AND i.state NOT IN ('retired','rolled_back') AND s.source_ref LIKE 'memory:%')", (origin.OWNER,))}
 
     def _bm25(self, terms: list[str], *, positional: bool = False) -> dict[str, int]:
         """The nodes whose content holds any of `terms`, ranked by bm25 (ties share a rank: `_tied`)."""

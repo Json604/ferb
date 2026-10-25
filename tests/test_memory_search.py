@@ -406,6 +406,24 @@ def test_the_planner_gets_at_most_its_60_items(daemon: Any) -> None:
     assert len(found) == PLANNER_MEMORY_ITEMS and all("tomato" in c["text"] for c in found)
 
 
+def test_an_identity_preference_never_takes_a_slot_of_the_ranked_budget(daemon: Any) -> None:
+    """Final review M1 (the reviewer's probe): the owner preference "reply to visa emails in a formal tone" is in every
+    role's identity layer, and its fact twin was also one of the worker's 20 for "draft the visa email reply". The
+    spec's ruling: identity items don't count toward the 60/20, so the prompts' ranked lists leave them out. The memory
+    tools still find them."""
+    d = daemon.daemon
+    for i in range(4):
+        owner_fact(daemon, f"chain_{i}", f"bicycle chain note {i}")
+    tone = owner_fact(daemon, "visa_email_tone", "reply to visa emails in a formal tone", kind="preference")
+    other = owner_fact(daemon, "visa_email_signature", "visa email replies are signed Kartikey")
+    assert "reply to visa emails in a formal tone" in run(daemon, d._learning_identity)
+    worker = [c["text"] for c in daemon.run(d._learning_candidates("draft the visa email reply", WORKER_MEMORY_ITEMS,
+                                                                   procedures=False))]
+    assert any("signed Kartikey" in t for t in worker) and not any("formal tone" in t for t in worker)
+    found = [n["body"].get("id") for n in daemon.run(d._search("draft the visa email reply")) if n["kind"] == "fact"]
+    assert tone.id in found and other.id in found                         # memory.learned / memory.read still do
+
+
 def test_an_empty_query_lists_newest_first_with_no_recency_or_owner_boost(tmp_path: Path) -> None:
     clock = TickingClock()
     db, learning = new_store(tmp_path / "m.db", clock=clock)
