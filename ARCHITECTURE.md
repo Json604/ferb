@@ -3078,6 +3078,17 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   question once (journal `memory.backlog_offered`, marked on read); the notch shows them as one list in today's chat
   (a learning-digest notice whose items have `kind: "guess"`, one `learningProposals` parser for both), and each answer
   goes through `memory.learning {op: guess}` to `Daemon._settle_guess`.
+  Drop deletes the guess with its index node alone (`Learning.drop_fact_index`): never what tasks built while it
+  existed, and no tombstone (live 2026-10-25: a forget there deleted 750 learned items in 53 s). A waiting guess's
+  fact node closes no other node (`put(supersede=False)` from `sync_facts`); Keep replaces an older version through
+  the item's versioning, and `drop_fact_index` reopens a node a dropped guess's node had closed while its item is
+  prompt-ready. `{op: guess}` returns `state` (waiting, kept, edited, dropped, or `not_a_guess`) and
+  `{op: guess_state}` returns it alone; after a fault or a lost reply the notch asks `guess_state` once and keeps
+  "Try again" only while the guess waits.
+  Debugging: journal `daemon.internal_error` (a handler's exception: method, type, message redacted and cut to 300
+  characters, innermost 20 frames; recorded before a hidden answer's value is released; only a failed write of the
+  reply counts as the client leaving) and `daemon.slow_call` (an owner-side call of 10 s or longer); a repeating
+  problem is written once, then once per 10 minutes with `repeats`. `ferb stats` lists both.
 - **One ranked search (§3).** `Learning.search` is the one ranked search. The planner turn and attention use it through
   the daemon's `_search` (facts synced, the query's embedding off the loop); `memory.read` and `memory.learned` use it
   too (below), and every worker and plan step gets it pushed (§4, below). `learning_fts` holds each node's content only

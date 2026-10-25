@@ -848,6 +848,13 @@ After the owner's update (2026-10-24):
   stray "yes" is never saved.
 - The guesses FERB had made about you without asking appear once in the notch as one list, "Review N older guesses",
   each with Keep, Drop or your own words (L36).
+- Answering an older guess (L36). Live 2026-10-25: the first Drop in "Review 30 older guesses" deleted 750 learned
+  items (the cards of 59 tasks whose memory reads had returned the guess, and the summaries on them) in 53 s, and the
+  notch said the answer wasn't recorded though it was. Drop now deletes only the guess and its index entry, in about
+  0.1 s. A waiting guess no longer hides a kept version of the same fact from FERB's search, and dropping one brings
+  the kept fact back. The notch shows how a guess stands when a reply is lost, keeping "Try again" only while it
+  waits. `ferb stats` lists requests that failed inside FERB and those answered after 10 s; a repeating problem is
+  written once per 10 minutes with its count (eef5c2a, 0772eb8, 679f18d, 273df06, 834bf0d).
 - Memory is ranked and bounded (L36). Live 2026-10-24: every planner turn got about 207 memory lines (43 KB), 102 of
   them bare task ids, all kept whatever their relevance, because words like "is", "the" and "for" matched the JSON of
   every item. Search now reads only what items say, ignores words most items share, ranks by relevance with a small
