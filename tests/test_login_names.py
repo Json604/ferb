@@ -202,6 +202,40 @@ def test_retiring_the_memory_clears_the_username(daemon: Any) -> None:
     assert run(daemon, lambda: daemon.daemon.memory.get(item.id)).status == "active"   # kept as history
 
 
+def test_a_username_whose_memory_has_ended_is_never_offered(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review fix round 1: a record's username follows its memory item when it is read (`secrets.list`, the
+    hidden-input question): once the item is past the end date the owner gave it, it names no account. Nothing sweeps
+    the record, which still holds the name."""
+    from datetime import datetime
+
+    from ferb.clock.when import local_zone
+    from ferb.orchestrator.schemas import Until
+    zone = local_zone()
+    daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 10, 24, 10, 0, tzinfo=zone))
+    keychain_helper(monkeypatch)
+    dated = Remember(kind="fact", subject="owner", key="usvisascheduling-username", content="Asha Rao",
+                     quote="the username is Asha Rao", login_origin=VISA,
+                     until=Until(quote="until the 25th", date="10-25"))
+    remember(daemon, [dated], "the username is Asha Rao until the 25th", frozenset({"usvisascheduling.com"}))
+
+    def offered(tid: str) -> tuple[Any, str]:
+        owner = grant(daemon, tid, Identity.OWNER, {"task:read"}, "log in to usvisascheduling.com")
+        listed = call(daemon, owner, "secrets.list", place=VISA)["content"]["username"]
+        ctx = ToolContext(tid, f"w-{tid}", f"req-{tid}", Identity.OWNER, frozenset({"task:read"}), "dev", None, "/tmp",
+                          (), ())
+        waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(ctx, VISA), daemon.loop)
+        ap = asked(daemon)
+        daemon.call_soon(daemon.daemon.state.approvals.resolve, ap.id, False)
+        assert waiting.result(5) is None
+        return listed, ap.summary
+    listed, summary = offered("q1")
+    assert listed == "Asha Rao" and "(account: Asha Rao)" in summary
+    daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 10, 26, 0, 1, tzinfo=zone))
+    listed, summary = offered("q2")
+    assert listed is None and "Asha Rao" not in summary
+    assert username(daemon) == "Asha Rao"                                 # read at use: the record is unchanged
+
+
 def test_a_forget_that_cannot_clear_the_username_says_so(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Review I-3: any error clearing it (a full disk) is journaled with its type, never swallowed."""
     remember(daemon, [entry()], "the username is Asha Rao", frozenset({"usvisascheduling.com"}))
@@ -324,7 +358,8 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
     from ferb.daemon.gateway import _site
     from ferb.policy.targets import Request, Targets
     keychain_helper(monkeypatch)
-    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", "memory:x"))
+    source = "memory:" + owner_fact(daemon, "usvisascheduling-username", "the username is Asha Rao").id
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", source))
     owner = grant(daemon, "q", Identity.OWNER, {"task:read"}, words)
     run(daemon, lambda: daemon.daemon.state.requests.record(Request("req-q", words, Targets.of(sites=sites))))
     ctx = ToolContext("q", "w-q", "req-q", Identity.OWNER, frozenset({"task:read"}), "dev", None, "/tmp", (), ())
@@ -343,7 +378,7 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
                                                                  else (None, None))
     assert ("linked" in listed) == linked
     assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()) == {SITE: {
-        "username": "Asha Rao", "username_source": "memory:x", "sites": [], "entries": {}}}     # nothing written
+        "username": "Asha Rao", "username_source": source, "sites": [], "entries": {}}}         # nothing written
 
 
 def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,
@@ -354,7 +389,8 @@ def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,
     from ferb.policy.targets import Request, Targets
     google = "https://accounts.google.com"
     keychain = keychain_helper(monkeypatch)
-    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", "memory:x"))
+    source = "memory:" + owner_fact(daemon, "usvisascheduling-username", "the username is Asha Rao").id
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home).set_username(SITE, "Asha Rao", source))
     words = "check my visa appointment on usvisascheduling.com and mail it from gmail.com"
     run(daemon, lambda: daemon.daemon.state.requests.record(
         Request("req-q", words, Targets.of(sites=["usvisascheduling.com", "gmail.com"]))))

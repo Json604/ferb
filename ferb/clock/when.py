@@ -121,22 +121,38 @@ def _day(w: When, today: date) -> date | None:
 
 def end_of_day(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
     """The end of the calendar day `w` names, its next local midnight (UTC), strictly after `now` (L36 §6: a remembered
-    item's last day). Only one of day, date or in_days; never a time. A "MM-DD" already behind this year is over, not
-    next year's (`_day` rolls it forward, which suits a reminder; scan m13)."""
+    item's last day). Only one of day, date or in_days; never a time. A "MM-DD" is the occurrence nearest today (last
+    year's, this year's or next year's, ties toward the future: `_nearest`), so "until 01-02" on 31 December is two days
+    on and "10-23" on 24 October is over; `_day`'s next-one rule suits a reminder, not an end (review fix round 1)."""
     zone = zone or local_zone()
     if w.in_minutes is not None or w.time:
         raise WhenError("an end names a day, not a time")
     if sum(value is not None for value in (w.day, w.date, w.in_days)) != 1:
         raise WhenError("give exactly one calendar day source: day, date or in_days")
     today = now.astimezone(zone).date()
-    d = _day(w, today)
+    d = _nearest(w.date, today) if w.date and not re.match(r"\s*\d{4}-", w.date) else _day(w, today)
     assert d is not None
-    if w.date and not re.match(r"\s*\d{4}-", w.date) and d.year > today.year:
-        d = d.replace(year=today.year)                            # the day this year, already behind: over
     end = _wall(d + timedelta(days=1), time(0, 0), zone)
     if end <= now:
         raise WhenError(f"that day is already over ({d:%a %d %b})")
     return end
+
+
+def _nearest(month_day: str, today: date) -> date:
+    """The "MM-DD" occurrence nearest `today`: last year's, this year's or next year's, skipping one that doesn't exist
+    (29 February); at equal distance the later one."""
+    m = re.fullmatch(r"\s*(\d{1,2})-(\d{1,2})\s*", month_day)
+    if not m:
+        raise WhenError(f"date must be MM-DD or YYYY-MM-DD, not {month_day!r}")
+    found = []
+    for year in (today.year - 1, today.year, today.year + 1):
+        try:
+            found.append(date(year, int(m[1]), int(m[2])))
+        except ValueError:
+            continue
+    if not found:
+        raise WhenError(f"there's no {month_day}")
+    return min(found, key=lambda d: (abs((d - today).days), d < today))
 
 
 def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:

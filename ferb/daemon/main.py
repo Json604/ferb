@@ -802,9 +802,10 @@ class Daemon:
         from ferb.identity.secret_tools import SecretsList
         self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
                                       lambda ctx, place: self.gateway._question_sites(ctx, place) if self.gateway
-                                      else []))
+                                      else [], self._username_sources))
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
+        self.gateway.username_sources = self._username_sources
         from ferb.orchestrator.conversation_tools import ConversationRead
         from ferb.orchestrator.attention import AttentionNotices
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
@@ -1692,6 +1693,14 @@ class Daemon:
         owned = [i for i in ids if (it := self.memory.get(i)) is not None and it.origin == "owner_stated"]
         if owned:                                        # only the owner's own items ever give a username
             self._after_forgets(lambda: self._clear_login_names(owned))
+
+    def _username_sources(self) -> set[str] | None:
+        """The memory a login record's username may still come from (L36 §6, review fix round 1): the owner's own items
+        that hold now. One past the end date the owner gave it, retired, retracted or forgotten names no account when a
+        question or `secrets.list` reads the record (read at use: nothing sweeps the record). None without memory."""
+        if self.memory is None:
+            return None
+        return {"memory:" + i for i in self.memory.current_ids("owner_stated")}
 
     async def _clear_login_names(self, item_ids: list[str]) -> None:
         """Clear every login record's username that came from one of these memory items (forgotten, retracted, retired

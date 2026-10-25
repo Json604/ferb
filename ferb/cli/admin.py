@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
@@ -265,13 +265,19 @@ def kill(client: Client, proc_id: str, out: TextIO) -> int:
 ORIGIN = {"owner_stated": "you said", "observed": "observed", "inferred": "inferred", "third_party": "third-party"}
 
 
+def _last_day(stamp: str) -> str:
+    """The last day an item held, in the offset its end was stamped in: an end date's item ends at the next midnight
+    (L36 §6), so the day before it; a version replaced at 15:00 held that day."""
+    return (datetime.fromisoformat(stamp) - timedelta(microseconds=1)).date().isoformat()
+
+
 def _item_line(i: dict[str, Any]) -> str:
     extra = ""
     if i["status"] == "proposed" and i["origin"] == "observed":
         extra = f" — seen on {i['evidence_days']} of 3 days"
     elif i["status"] == "proposed":
         extra = f" — unconfirmed hint; `ferb memory confirm {i['id']}` to confirm"
-    until = f" (until {i['valid_to'][:10]})" if i.get("valid_to") else ""
+    until = f" (until {_last_day(i['valid_to'])})" if i.get("valid_to") else ""
     return (f"  {i['id']}  [{i['kind']} · {i['subject']} · {i['key']}] {i['content']}  "
             f"({ORIGIN[i['origin']]}, {i['status']}{until}){extra}")
 

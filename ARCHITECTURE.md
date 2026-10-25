@@ -3106,28 +3106,41 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   journal `memory.login_updated`), even when this message names no site (that record's site passed when its username
   was saved), before the queued clear runs; the owner's line then says "Updated your login name for <host>." when the
   entry's own site isn't named. An edit in the dashboard or `ferb memory edit` names no username (FERB can't tell
-  which of the words are one), so it clears it, as does a version whose username redaction hid. Setting and clearing
+  which of the words are one), so it clears it, as does a version whose username redaction hid. Residual (owner
+  facing): a distilled restatement of a username fact in a different sentence is a new version without a login entry,
+  so it clears the record's username too: FERB clears, never guesses. A record's username is also read only while its
+  memory holds (review fix round 1): `ask_secret` and `secrets.list` pass the owner's current items
+  (`Daemon._username_sources`, `Memory.current_ids`), and `OwnerSecrets._held` drops a username from any other (past
+  its end date, retired, retracted or forgotten while a clear failed); nothing sweeps the record. Setting and clearing
   run in a worker thread (`asyncio.to_thread`), as Keychain saves do: a hidden input's save holds the handle file's
   lock across its Keychain call, and the event loop must not wait on it (coordinator ruling), so `Daemon._remember`
   and the supervisor's `_side_entries` are coroutines; they run one at a time behind `Daemon._login_names` (an
   `asyncio.Lock`, review m-3), so a retract or forget issued while a write waits clears it after the write.
 - **Retirement (§6).** A planner `remember` entry may carry `until` {quote, day | date | in_days}: the quote must be
   whole words of the owner's typed text (`Daemon._until`); `when.end_of_day` gives the next local midnight after that
-  day (a "MM-DD" already behind this year is over, never next year's: scan m13) and `Memory.expire_at` sets
-  `valid_to`; `prompt_ready(item, now)` and `Memory.items` treat an item as current until then (`items.current`), so it
-  leaves search afterwards and stays as history. A day already over, or date words the owner didn't type, save the
-  item without an end, said in the owner's line and journaled (`memory.until_refused`). Distillation's `retire: true`
-  items name a current item by kind, subject and key (`Distiller._remembered`); with a passing quote (`owner_said`)
-  `Memory.retire` ends it now, else the owner gets "Is this no longer true? “…” FERB thinks something you said changed
-  it." with Retire / Keep (`Daemon._ask_retire`; kind `retire`, capability `memory.retire`, a FERB check that takes
-  only its options; `ferb chat` shows "Enter = Keep"). Keep, or a skip, is journaled (`memory.retire_kept`) and FERB
-  doesn't ask about that item again; the owner's own words still retire it. `distill_runs.detail` lists `retired` and
-  `retire_unconfirmed`. `Memory.on_ended` tells the daemon which items stopped holding now (superseded by a newer
-  version, or retired; an end date reached is not told): their retire questions close (a retract closes them too) and
-  the usernames the owner's items among them gave are cleared (`Daemon._memory_ended`). `_ask_keep` and `_ask_retire`
-  share `_ask_once`. Supersession by a reused key works on every turn path (1c22dcb); the spec's steer case (item 54's
-  Chennai preference) is a test. Residual: a username fact given with an end date keeps its login-record username
-  after that day, until it is forgotten, retracted, retired or replaced.
+  day and `Memory.expire_at` sets `valid_to`. A "MM-DD" is the occurrence nearest today, last year's, this year's or
+  next year's, ties toward the future (`when._nearest`; review fix round 1): "01-02" said on 31 December is two days
+  on, "12-30" said on 2 January and "10-23" on 24 October are over. `prompt_ready(item, now)` and `Memory.items` treat
+  an item as current until then (`items.current`), so it leaves search afterwards and stays as history; `ferb memory
+  list` shows its last day. A day already over, or date words the owner didn't type, save the item without an end,
+  said in the owner's line and journaled (`memory.until_refused`). Distillation's `retire: true` items name a current
+  item by kind, subject and key (`Distiller._current`); `Memory.retire` ends it now only on a passing quote
+  (`owner_said`) that also passes `Distiller._may_end`: the cited message is newer than the item (its `at` after the
+  item's `valid_from`: old words never undo a later version), and the quote is whole clauses of the owner's typed
+  words (`whole_clauses`, a chat forget's rule) sharing a telling word with what the item says
+  (`Memory.telling_words`, the one search's weighting). Otherwise the owner gets "Is this no longer true? “…” FERB
+  thinks something you said changed it." with Retire / Keep (`Daemon._ask_retire`; kind `retire`, capability
+  `memory.retire`, a FERB check that takes only its options; `ferb chat` shows "Enter = Keep"). The same check guards
+  a distilled owner-stated version that would replace current ones: words older than any of them, or a quote that is
+  no whole clause about an owner-stated one, keep it as FERB's guess, asked with Keep / Edit / Drop. Keep, or a skip,
+  is journaled (`memory.retire_kept`) and FERB doesn't ask about that item again; the owner's own words still retire
+  it. `distill_runs.detail` lists `retired`, and `retire_unconfirmed` and `kept_as_guess` with why each.
+  `Memory.on_ended` tells the daemon which items stopped holding now (superseded by a newer version, or retired; an
+  end date reached is not told): their retire questions close (a retract closes them too) and the usernames the
+  owner's items among them gave are cleared (`Daemon._memory_ended`). `_ask_keep` and `_ask_retire` share `_ask_once`.
+  Supersession by a reused key works on every turn path (1c22dcb); the spec's steer case (item 54's Chennai
+  preference) is a test. A username fact given with an end date keeps its name in the login record after that day,
+  but it is no longer offered (`_held`, above).
 
 ### 16.13 FERB's cursor (L33)
 

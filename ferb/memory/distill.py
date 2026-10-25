@@ -13,7 +13,9 @@ owner's words from one of its C handles: when chat capture's check passes on tha
 sentence is saved as theirs (`owner_said`); every other new inferred item is asked about at once, Keep / Edit / Drop
 (`ask_keep`, L36). An item with "retire" names a current item (kind, subject, key) the owner's words say no longer
 holds: it is retired on a quote that passes the same check, else the owner is asked, Retire / Keep (`ask_retire`, L36
-§6). A model failure leaves the summary in place and is retried on later hourly runs or an explicit retry."""
+§6). Quoted words that would end an item, or replace one the owner stated, must also be newer than it and a whole
+clause sharing a telling word with it (`_may_end`); otherwise a retire is asked and a new version is kept as a guess.
+A model failure leaves the summary in place and is retried on later hourly runs or an explicit retry."""
 
 import hashlib
 import json
@@ -25,7 +27,7 @@ from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory import summary
 from ferb.memory.calls import learning_call
-from ferb.memory.items import KINDS, Memory, MemoryRefused, capture, slug
+from ferb.memory.items import KINDS, Memory, MemoryRefused, capture, query_terms, slug, whole_clauses
 from ferb.store.db import Database
 
 # L36 §2: the owner's own words an inferred item rests on. Ruling: the model cites one of the item's C handles (it sees
@@ -34,6 +36,11 @@ QUOTE_SCHEMA: dict[str, Any] = {"anyOf": [{"type": "null"}, {
     "type": "object", "additionalProperties": False, "required": ["handle", "text"],
     "properties": {"handle": {"type": "string"}, "text": {"type": "string"}}}]}
 KEEP_GUESS = "Keep this? “{text}” FERB guessed it from your day on {day}."
+# L36 §6 (review fix round 1): why the owner's quoted words don't end or replace what FERB remembers (then it asks)
+NO_QUOTE = "no quote of the owner's own words"
+OLDER_WORDS = "the owner's words are older than what FERB remembers"
+NOT_A_CLAUSE = "the quote isn't a whole clause of the owner's words"
+NOTHING_SHARED = "the quote shares no telling word with what FERB remembers"
 DISTILL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["narrative", "items"],
     "properties": {
@@ -144,8 +151,9 @@ class Distiller:
         self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", "")),
                                                     "made_by": str(out.get("made_by", ""))})
         proposed, refused = 0, []
-        retired: list[str] = []         # L36 §6: items retired on the owner's words, and those asked about instead
-        unconfirmed: list[str] = []
+        retired: list[str] = []                    # L36 §6: items retired on the owner's words
+        unconfirmed: list[dict[str, str]] = []     # retires asked about instead, with why
+        guessed: list[dict[str, str]] = []         # quoted words kept as a guess instead of a new version, with why
         items = out.get("items", [])
         drop: set[int] = set()
         if self.jev is not None and items:
@@ -167,40 +175,69 @@ class Distiller:
             try:
                 if item.get("retire"):                 # L36 §6: on the owner's own words, else the owner is asked
                     check(item, ev)
-                    target = self._remembered(item)
+                    target = next(iter(self._current(item)), None)
                     if target is None:
                         raise MemoryRefused("it retires nothing FERB remembers")
-                    if owner_said(item, ev) is not None:
+                    stated = owner_said(item, ev)
+                    why = (NO_QUOTE if stated is None
+                           else self._may_end(item, ev, stated[1], ends=[target], about=[target]))
+                    if why:
+                        self.ask_retire(target)
+                        unconfirmed.append({"item": target.id, "why": why})
+                    else:
                         self.memory.retire(target.id, f"the owner's words on {day}")
                         retired.append(target.id)
-                    else:
-                        self.ask_retire(target)
-                        unconfirmed.append(target.id)
                     continue
                 srcs = check(item, ev)
                 origin_, content = item["origin"], item["content"]
                 confidence = float(item.get("confidence", 0.6))
-                stated = owner_said(item, ev)
-                if stated is not None:                  # exactly as if the planner had captured it in that turn
+                stated, why = owner_said(item, ev), ""
+                if stated is not None:                  # what it would replace: the current versions, unless one is it
+                    ends = self._current(item)
+                    if any(e.origin == "owner_stated" and e.content.lower() == stated[0].strip().lower() for e in ends):
+                        ends = []
+                    why = self._may_end(item, ev, stated[1], ends=ends,
+                                        about=[e for e in ends if e.origin == "owner_stated"]) if ends else ""
+                if stated is not None and not why:      # exactly as if the planner had captured it in that turn
                     origin_, content, confidence, srcs = "owner_stated", stated[0], 1.0, [("journal", stated[1])]
                 m = self.memory.propose(item["kind"], item["subject"], item["key"], content, origin_, srcs,
                                         confidence)  # type: ignore[arg-type]
                 proposed += 1
+                if why:
+                    guessed.append({"item": m.id, "why": why})
                 if m.origin == "inferred" and m.status == "proposed":
                     self.ask_keep(m, KEEP_GUESS.format(text=" ".join(m.content.split()), day=day))
             except (MemoryRefused, KeyError, ValueError) as e:
                 refused.append(str(e))
         done: dict[str, Any] = {"proposed": proposed, "refused": refused, "retired": retired,
-                                "retire_unconfirmed": unconfirmed}
+                                "retire_unconfirmed": unconfirmed, "kept_as_guess": guessed}
         self._run(day, "distilled", json.dumps(done))
         return {"day": day, "status": "distilled", **done}
 
-    def _remembered(self, item: dict[str, Any]) -> Any:
-        """The current item a retire names, by kind, subject and key as `Memory.propose` stores them, or None."""
+    def _current(self, item: dict[str, Any]) -> list[Any]:
+        """The current active versions of the fact an item names, by kind, subject and key as `Memory.propose` stores
+        them: what a retire ends, or what a new version replaces."""
         subject = self.memory.redact(str(item.get("subject", "")).strip()) or "owner"
         key = slug(self.memory.redact(str(item.get("key", ""))))
-        return next((i for i in self.memory.items("active", subject=subject)
-                     if i.kind == item.get("kind") and i.key == key), None)
+        return [i for i in self.memory.items("active", subject=subject) if i.kind == item.get("kind") and i.key == key]
+
+    def _may_end(self, item: dict[str, Any], ev: summary.DayEvidence, journal_id: str, *, ends: list[Any],
+                 about: list[Any]) -> str:
+        """Why the owner's quoted words (from the message `journal_id`) may not end or replace the current items `ends`,
+        or "" (L36 §6, review fix round 1). The message must be newer than each of them (old words never undo a later
+        version). For `about` (a retired item, or an owner-stated one replaced) the quote must be whole clauses of
+        what the owner typed (`whole_clauses`, a chat forget's rule: never one word they happened to type) that share
+        a telling word with what the item says (`Memory.telling_words`)."""
+        row = self.db.conn.execute("SELECT at FROM journal WHERE id = ?", (journal_id,)).fetchone()
+        if row is None or any(datetime.fromisoformat(row["at"]) <= e.valid_from for e in ends):
+            return OLDER_WORDS
+        quote = item["quote"]
+        if about and not whole_clauses(ev.owner_words[str(quote["handle"])][1], str(quote["text"])):
+            return NOT_A_CLAUSE
+        telling = set(self.memory.telling_words(str(quote["text"])))
+        if any(not telling & set(query_terms(e.content)) for e in about):
+            return NOTHING_SHARED
+        return ""
 
     async def catch_up(self) -> list[dict[str, Any]]:
         out = [await self.run_day(d) for d in self.pending_days()]

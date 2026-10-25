@@ -45,7 +45,7 @@ import re
 import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Container, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -406,6 +406,8 @@ class Gateway:
         # The task of a shell process while it runs (None once it ended), for the proxy's destinations (the daemon sets it)
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
         self.route_question: Any = None
+        # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
+        self.username_sources: Callable[[], Container[str] | None] = lambda: None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
         self.evidence: Any = None                          # the evidence store (ferb/act/evidence/store.py)
@@ -1755,7 +1757,8 @@ class Gateway:
             return None
         try:                                           # L36 §5: which account, shown to the owner, never a secret;
             # the task's one owner-typed site counts as a link before any entry is saved here (read only)
-            username, source = await asyncio.to_thread(store.account, target, self._question_sites(ctx, target))
+            username, source = await asyncio.to_thread(store.account, target, self._question_sites(ctx, target),
+                                                       self.username_sources())
         except Refused:
             if remember:                               # the save would fail after the owner typed: say why now
                 raise

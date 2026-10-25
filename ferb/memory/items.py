@@ -42,6 +42,9 @@ KINDS = ("fact", "preference", "person", "project", "env")
 ORIGINS = ("owner_stated", "observed", "inferred", "third_party")
 OBSERVED_DAYS = 3
 Source = tuple[Literal["journal", "trail"], str]
+# Stamps are compared as text in SQL; their UTC offsets can differ by 26 hours, so a bound there is this much wider
+# and the exact comparison is made on datetimes (`current`)
+SQL_SLACK = timedelta(days=2)
 
 
 class MemoryRefused(FerbError):
@@ -295,8 +298,8 @@ class Memory:
         if subject:
             q, args = q + " AND subject = ?", args + [subject]
         now = self.clock.now()
-        if valid_now:        # a coarse bound in SQL (stamps' UTC offsets differ by 26 hours at most); exact below
-            q, args = q + " AND (valid_to IS NULL OR valid_to > ?)", args + [(now - timedelta(days=2)).isoformat()]
+        if valid_now:                                    # a coarse bound in SQL (`SQL_SLACK`); the exact one below
+            q, args = q + " AND (valid_to IS NULL OR valid_to > ?)", args + [(now - SQL_SLACK).isoformat()]
         found = [self._item(r) for r in self.db.conn.execute(q + " ORDER BY subject, kind, key, seq", args)]
         return [it for it in found if not valid_now or current(it, now)]
 
@@ -313,21 +316,7 @@ class Memory:
         """Keyword (FTS5) recall of active items valid now (or at `at`); conflicting versions are flagged and the
         owner's own statement comes first."""
         when = (at or self.clock.now()).isoformat()
-        terms = query_terms(query)
-        if not terms:
-            return []
-        valid = "m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
-        total = int(self.db.conn.execute(f"SELECT COUNT(*) FROM memory_items m WHERE {valid}",
-                                         (when, when)).fetchone()[0])
-        if total == 0:
-            return []
-
-        def matches(term: str) -> int:
-            return int(self.db.conn.execute(
-                f"SELECT COUNT(*) FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid "
-                f"WHERE memory_fts MATCH ? AND {valid}", (f'"{term}"', when, when)).fetchone()[0])
-
-        terms = weighted(terms, total, matches)
+        terms = self.telling_words(query, at)
         if not terms:
             return []
         match = " OR ".join(f'"{t}"' for t in terms)
@@ -342,6 +331,33 @@ class Memory:
             out.append(Recalled(it, conflict=any(o.content != it.content for o in others)))
         out.sort(key=lambda r: 0 if r.item.origin == "owner_stated" else 1)
         return out
+
+    def telling_words(self, text: str, at: datetime | None = None) -> list[str]:
+        """The words of `text` that carry weight among the active items valid now (or at `at`): `weighted`, the one
+        search's rule (a word in more than half of them says nothing about any one). `recall` ranks by them; a distilled
+        quote that ends or replaces an item must share one with it (L36 §6, review fix round 1)."""
+        when = (at or self.clock.now()).isoformat()
+        terms = query_terms(text)
+        valid = "m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
+        total = int(self.db.conn.execute(f"SELECT COUNT(*) FROM memory_items m WHERE {valid}",
+                                         (when, when)).fetchone()[0]) if terms else 0
+
+        def matches(term: str) -> int:
+            return int(self.db.conn.execute(
+                f"SELECT COUNT(*) FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid "
+                f"WHERE memory_fts MATCH ? AND {valid}", (f'"{term}"', when, when)).fetchone()[0])
+        return weighted(terms, total, matches) if total else []
+
+    def current_ids(self, origin: str | None = None) -> set[str]:
+        """The ids of the active items that hold now (of `origin`), as `items` finds them, without reading each one:
+        a login record's username still comes from one of these (L36 §6, review fix round 1)."""
+        now = self.clock.now()
+        q, args = ("SELECT id, valid_to FROM memory_items WHERE status = 'active' "
+                   "AND (valid_to IS NULL OR valid_to > ?)", [(now - SQL_SLACK).isoformat()])
+        if origin:
+            q, args = q + " AND origin = ?", args + [origin]
+        return {r["id"] for r in self.db.conn.execute(q, args)
+                if not r["valid_to"] or datetime.fromisoformat(r["valid_to"]) > now}
 
     def _versions(self, kind: str, subject: str, key: str, at: datetime | None = None) -> list[MemoryItem]:
         when = (at or self.clock.now()).isoformat()

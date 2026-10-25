@@ -400,8 +400,9 @@ def test_the_secret_question_names_the_username_saved_for_the_site(daemon: Any, 
     account. The account comes after FERB's place (re-review R1, ruling C1): the owner's own words, printable, on one
     line, without format or line-separator characters, at most 64 characters, never before the place."""
     from ferb.identity.owner_secrets import OwnerSecrets
-    from tests.support.memory_items import run
-    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(VISA, username, 'memory:x'))
+    from tests.support.memory_items import owner_fact, run
+    source = 'memory:' + owner_fact(daemon, 'visa_username', 'the username is Asha Rao').id   # an item that holds
+    run(daemon, lambda: OwnerSecrets(daemon.daemon.home, lambda *a: None).set_username(VISA, username, source))
     for remember, want in (
             ('US visa scheduling login',
              f"For atlasauth.b2clogin.com only (account: {shown}): “US visa scheduling login” · saved in your "
@@ -444,11 +445,12 @@ def test_a_secret_saved_during_a_task_serves_its_sites_and_the_next_question_nam
     """I14, live 2026-10-24: the visa task named usvisascheduling.com; its sign-in form is on atlasauth.b2clogin.com.
     The entry saved there lists the task's sites the owner typed (by code), so the username the owner gave for
     usvisascheduling.com names the form's account; the question's place stays the form's origin (D12)."""
-    from tests.support.memory_items import run
+    from tests.support.memory_items import owner_fact, run
     store = _saved(daemon, monkeypatch, VISA, 'book my visa slot on usvisascheduling.com',
                    ['usvisascheduling.com', 'www.usvisascheduling.com'])
     assert store.records()[VISA]['sites'] == ['usvisascheduling.com', 'www.usvisascheduling.com']
-    run(daemon, lambda: store.set_username('https://usvisascheduling.com', 'Asha Rao', 'memory:x'))
+    source = 'memory:' + owner_fact(daemon, 'visa_username', 'the username is Asha Rao').id   # an item that holds
+    run(daemon, lambda: store.set_username('https://usvisascheduling.com', 'Asha Rao', source))
     waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='food'),
                                                daemon.loop)
     ap = _asked(daemon, 'owner_secret')

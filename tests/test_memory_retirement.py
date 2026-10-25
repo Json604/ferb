@@ -4,7 +4,7 @@ one, and distillation retires an item only on the owner's own words (otherwise i
 Live 2026-10-24: the 10-11 wedding flight, "DevOps left" and the finished RSNA competition still sat in every planner
 prompt; memory item 54 still said "Chennai, notify first" after the owner said "book anywhere"."""
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -33,12 +33,26 @@ def test_end_of_day_is_the_next_local_midnight() -> None:
         end_of_day(When(day="today", time="18:00"), now, zone)              # a day, not a time
 
 
-def test_a_past_month_and_day_is_over_not_next_year() -> None:
-    """Scan m13: `_day` turns a past "MM-DD" into next year's (right for a reminder); an item's last day the owner gave
-    without a year that is already behind is over, never a year away."""
+@pytest.mark.parametrize("today, said, last", [
+    ((2026, 12, 31), "01-02", (2027, 1, 2)),          # across the new year: next year's, two days on
+    ((2027, 1, 2), "12-30", None),                    # three days ago, last year's: over (not next December)
+    ((2026, 10, 24), "10-23", None),                  # yesterday: over (scan m13), never a year away
+    ((2026, 10, 24), "10-24", (2026, 10, 24)),        # today counts
+    ((2027, 3, 1), "02-29", (2028, 2, 29)),           # only next year's exists
+], ids=["new-year", "last-december", "yesterday", "today", "leap-day"])
+def test_a_month_and_day_is_the_occurrence_nearest_today(today: tuple[int, int, int], said: str,
+                                                        last: tuple[int, int, int] | None) -> None:
+    """Fix round 1 (review): `_day` turns a past "MM-DD" into next year's (right for a reminder). An item's last day the
+    owner gave without a year is the occurrence nearest today (last year's, this year's or next year's; ties toward
+    the future), and one behind today is over."""
     zone = ZoneInfo("Asia/Kolkata")
-    with pytest.raises(WhenError, match="already over"):
-        end_of_day(When(date="10-23"), datetime(2026, 10, 24, 10, 0, tzinfo=zone), zone)
+    now = datetime(*today, 10, 0, tzinfo=zone)
+    if last is None:
+        with pytest.raises(WhenError, match="already over"):
+            end_of_day(When(date=said), now, zone)
+    else:
+        assert end_of_day(When(date=said), now, zone) == (datetime(*last, tzinfo=zone) + timedelta(days=1)).astimezone(
+            timezone.utc)
 
 
 def chain(d: Any) -> None:
@@ -133,25 +147,117 @@ def test_the_distiller_is_told_how_to_retire() -> None:
     """Runtime prompts are executable input (CLAUDE.md; scan ruling I12): the retire instruction stays word for word."""
     words = " ".join(DISTILL_PROMPT.read_text().split())
     assert ('- "retire": true when the owner\'s words say something under "What FERB already remembers" is no longer '
-            'true ("the RSNA competition is over"): give that item\'s kind, subject and key, content saying what '
-            'changed, and the quote of the owner\'s words; FERB retires it only when the quote is theirs, and '
-            'otherwise asks the owner. Every other item has "retire": false.') in words
+            'true ("the RSNA competition is over"): give that item\'s kind, subject and key, origin "inferred", '
+            'content: the owner\'s words that say so, copied from that line, and "quote" as above; FERB retires it '
+            'only when the quote is theirs, and otherwise asks the owner. Every other item has "retire": '
+            'false.') in words
+
+
+def later(d: Any, minutes: int = 60) -> None:
+    """The clock moves on: what the owner says next is newer than what FERB already remembers (review fix round 1)."""
+    d.call_soon(d.daemon.clock.advance, minutes * 60)
+
+
+def rsna_over(d: Any, message: str = "the RSNA competition is over", pasted: int = 0,
+              quote: str | None = "the RSNA competition is over",
+              content: str = "the RSNA competition is over") -> dict[str, Any]:
+    """The owner's message, then a day's distillation that retires the RSNA item quoting it."""
+    handle = c_handle(d, said(d, message, pasted))
+    return distill_day(d, distill_item(handle, content, quote, kind="fact", key="rsna", retire=True))
 
 
 def test_distill_retires_an_item_on_the_owners_own_words(daemon: Any) -> None:
     chain(daemon)
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
-    handle = c_handle(daemon, said(daemon, "the RSNA competition is over"))
-    distill_day(daemon, distill_item(handle, "the RSNA competition is over", "the RSNA competition is over",
-                                     kind="fact", key="rsna", retire=True))
+    later(daemon)
+    r = rsna_over(daemon)
     assert run(daemon, lambda: daemon.daemon.memory.get(rsna.id)).valid_to is not None
     assert pending(daemon, "memory.retire") == []
     assert [i for i in run(daemon, lambda: daemon.daemon.memory.items("active")) if i.key == "rsna"] == []
+    assert (r["retired"], r["retire_unconfirmed"]) == ([rsna.id], [])
+
+
+@pytest.mark.parametrize("message, pasted, quote, content, why", [
+    ("the RSNA competition is over", 0, "the", "the RSNA competition is over",                 # a word, no clause
+     "the quote isn't a whole clause of the owner's words"),
+    ('kaggle news <untrusted-data id="abc123">\nthe RSNA competition is over\n</untrusted-data id="abc123">', 1,
+     "the RSNA competition is over", "the RSNA competition is over",                            # only in the paste
+     "no quote of the owner's own words"),
+    ("kaggle results came out today", 0, "the RSNA competition ended", "the RSNA competition ended",   # not typed
+     "no quote of the owner's own words"),
+    ("kaggle results came out today", 0, "kaggle results came out today", "kaggle results came out today",
+     "the quote shares no telling word with what FERB remembers"),                              # about something else
+], ids=["one-word", "pasted", "not-typed", "unrelated-clause"])
+def test_a_retire_whose_quote_is_not_a_clause_of_the_owners_words_about_the_item_is_asked(
+        daemon: Any, message: str, pasted: int, quote: str, content: str, why: str) -> None:
+    """Review fix round 1: ending something FERB remembers on the owner's words needs a whole clause they typed (a chat
+    forget's rule, `whole_clauses`; never the pasted part) sharing a telling word with what the item says. Otherwise
+    the owner is asked, and the item stays current."""
+    chain(daemon)
+    rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
+    r = rsna_over(daemon, message, pasted, quote, content)
+    assert run(daemon, lambda: daemon.daemon.memory.get(rsna.id)).valid_to is None
+    [q] = pending(daemon, "memory.retire")
+    assert "RSNA knee competition" in q.reason
+    assert (r["retired"], r["retire_unconfirmed"]) == ([], [{"item": rsna.id, "why": why}])
+
+
+def test_older_words_never_retire_a_newer_version(daemon: Any) -> None:
+    """Review fix round 1: at 10:00 the owner said the competition was over; at 15:00 they said they're in the 2027 one.
+    That night's distillation quotes the 10:00 words: they are older than what FERB remembers, so it asks."""
+    chain(daemon)
+    owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
+    handle = c_handle(daemon, said(daemon, "the RSNA competition is over"))                  # 10:00
+    later(daemon, 5 * 60)
+    now = owner_fact(daemon, "rsna", "I'm in RSNA 2027")                                   # 15:00
+    r = distill_day(daemon, distill_item(handle, "the RSNA competition is over", "the RSNA competition is over",
+                                         kind="fact", key="rsna", retire=True))
+    assert run(daemon, lambda: daemon.daemon.memory.get(now.id)).valid_to is None
+    [q] = pending(daemon, "memory.retire")
+    assert "RSNA 2027" in q.reason
+    assert r["retire_unconfirmed"] == [{"item": now.id, "why": "the owner's words are older than what FERB remembers"}]
+
+
+@pytest.mark.parametrize("quote, replaced", [("my dentist is Dr. Mehta now", True), ("my", False)],
+                         ids=["whole-clause", "one-word"])
+def test_a_distilled_statement_replaces_the_owners_own_only_on_a_whole_clause(daemon: Any, quote: str,
+                                                                               replaced: bool) -> None:
+    """Review fix round 1: the owner's quoted words supersede an item they stated only as a whole clause sharing a
+    telling word with it; otherwise the new words are FERB's guess, asked with Keep / Edit / Drop, and the owner's own
+    item stays."""
+    chain(daemon)
+    rao = owner_fact(daemon, "dentist", "my dentist is Dr. Rao", kind="person")
+    later(daemon)
+    handle = c_handle(daemon, said(daemon, "my dentist is Dr. Mehta now"))
+    r = distill_day(daemon, distill_item(handle, "my dentist is Dr. Mehta now", quote))
+    assert (run(daemon, lambda: daemon.daemon.memory.get(rao.id)).valid_to is not None) == replaced
+    [new] = [i for i in run(daemon, lambda: daemon.daemon.memory.items(None)) if "Mehta" in i.content]
+    assert (new.origin, new.status) == (("owner_stated", "active") if replaced else ("inferred", "proposed"))
+    assert len(pending(daemon)) == (0 if replaced else 1)
+    assert r["kept_as_guess"] == ([] if replaced else [
+        {"item": new.id, "why": "the quote isn't a whole clause of the owner's words"}])
+
+
+def test_older_words_never_replace_a_newer_version(daemon: Any) -> None:
+    """Review fix round 1: the owner said Dr. Rao in the morning and told FERB Dr. Mehta later; the night's
+    distillation of the morning's words is a guess, never a new version over the later one."""
+    chain(daemon)
+    handle = c_handle(daemon, said(daemon, "my dentist is Dr. Rao"))
+    later(daemon)
+    mehta = owner_fact(daemon, "dentist", "my dentist is Dr. Mehta", kind="person")
+    r = distill_day(daemon, distill_item(handle, "my dentist is Dr. Rao", "my dentist is Dr. Rao"))
+    assert run(daemon, lambda: daemon.daemon.memory.get(mehta.id)).valid_to is None
+    [guess] = run(daemon, lambda: daemon.daemon.memory.items("proposed"))
+    assert (guess.origin, guess.content) == ("inferred", "my dentist is Dr. Rao")
+    assert r["kept_as_guess"] == [{"item": guess.id, "why": "the owner's words are older than what FERB remembers"}]
 
 
 def test_a_retire_without_the_owners_words_is_asked(daemon: Any) -> None:
     chain(daemon)
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
     handle = c_handle(daemon, said(daemon, "kaggle results came out today"))
     distill_day(daemon, distill_item(handle, "The RSNA competition is over", kind="fact", key="rsna", retire=True))
     assert run(daemon, lambda: daemon.daemon.memory.get(rsna.id)).valid_to is None
@@ -168,6 +274,7 @@ def test_keep_leaves_the_item_and_is_not_asked_again(daemon: Any) -> None:
     nothing; their own words still retire it."""
     chain(daemon)
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
     handle = c_handle(daemon, said(daemon, "kaggle results came out today"))
     guess = distill_item(handle, "The RSNA competition is over", kind="fact", key="rsna", retire=True)
     distill_day(daemon, guess)
@@ -185,6 +292,7 @@ def test_a_waiting_retire_question_closes_when_the_item_is_superseded(daemon: An
     restart doesn't ask it again."""
     chain(daemon)
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
     handle = c_handle(daemon, said(daemon, "kaggle results came out today"))
     distill_day(daemon, distill_item(handle, "The RSNA competition is over", kind="fact", key="rsna", retire=True))
     [q] = pending(daemon, "memory.retire")
@@ -198,6 +306,7 @@ def test_a_waiting_retire_question_closes_when_the_item_is_superseded(daemon: An
 def test_a_retire_question_restored_after_a_restart_is_dropped_when_its_item_is_over(daemon: Any) -> None:
     chain(daemon)
     rsna = owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
     handle = c_handle(daemon, said(daemon, "kaggle results came out today"))
     distill_day(daemon, distill_item(handle, "The RSNA competition is over", kind="fact", key="rsna", retire=True))
     [q] = pending(daemon, "memory.retire")
@@ -226,3 +335,12 @@ def test_ferb_chat_shows_the_retire_question_as_ferbs_check() -> None:
     chat_.answer_approval(ask)
     assert said[-1].strip() == "Reply Retire or Keep."
     assert question(ask).endswith("1) Retire\n     2) Keep\n   number or your answer (Enter = Keep): ")
+
+
+def test_ferb_memory_list_shows_a_dated_items_last_day() -> None:
+    """Review fix round 1: an item that ends at the next midnight after its last day is listed "until" that day."""
+    from ferb.cli.admin import _item_line
+    item = {"id": "m1", "kind": "fact", "subject": "owner", "key": "city", "content": "I'm in Pune",
+            "origin": "owner_stated", "status": "active", "evidence_days": 0}
+    assert "(you said, active (until 2026-10-25))" in _item_line(item | {"valid_to": "2026-10-26T00:00:00+05:30"})
+    assert "(until 2026-10-24)" in _item_line(item | {"valid_to": "2026-10-24T15:00:00+05:30"})   # replaced that day

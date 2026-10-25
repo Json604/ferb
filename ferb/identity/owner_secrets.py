@@ -3,7 +3,8 @@
 One login record per place (L36 §5): an HTTPS origin, or `app:<bundle id>` for a native app. A record holds the
 username (plain text: owner decision 2026-10-24, "Yes, plain"; set only from the owner's own words, `set_username`;
 a newer version of the memory it came from gives it its spelling or clears it, and a forget, retract or retire of that
-memory clears it: `replace_usernames`), the sites the owner named for a task its entries were saved in
+memory clears it: `replace_usernames`; read only while that memory holds, past its end date none: `_held`), the
+sites the owner named for a task its entries were saved in
 (`sites`: hosts, taken by code; I14) and named sealed entries (the password, each security question's answer
 under that question's text), each a Keychain item under service `ferb.owner-secrets`. Saving a name that exists for
 that place replaces its value, so no duplicates. The place is always code-derived (D12); the worker chooses only the
@@ -33,7 +34,7 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Container, Iterable, Iterator
 
 from ferb.core.errors import Refused
 
@@ -161,14 +162,24 @@ def _accounts(data: dict[str, Any]) -> set[str]:
             | {u['name'] for u in data['unusable']})
 
 
-def _account(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> tuple[str | None, str | None]:
+def _held(record: dict[str, Any], holding: Container[str] | None) -> str | None:
+    """A record's username, unless the memory it came from no longer holds: `holding` is the sources that do (the
+    caller's memory decides: past its end date, retired, retracted or forgotten is none; L36 §6, review fix round 1),
+    None when the caller has no memory to ask."""
+    name = record.get('username')
+    return str(name) if name and (holding is None or record.get('username_source') in holding) else None
+
+
+def _account(records: dict[str, Any], place: str, sites: Iterable[str] = (),
+             holding: Container[str] | None = None) -> tuple[str | None, str | None]:
     """A place's username and where it came from: its own record's (None), else the one its linked records agree on,
     with the place of the first record holding it (review I-2: the owner sees whose account a question names); never
-    one of two that differ, so a question never names the wrong account."""
-    own = records.get(place, {}).get('username')
+    one of two that differ, so a question never names the wrong account. Only a username whose memory still holds
+    (`_held`)."""
+    own = _held(records.get(place, {}), holding)
     if own:
-        return str(own), None
-    holders = {p: str(records[p]['username']) for p in _linked(records, place, sites) if records[p].get('username')}
+        return own, None
+    holders = {p: name for p in _linked(records, place, sites) if (name := _held(records[p], holding))}
     names = set(holders.values())
     return (names.pop(), min(holders)) if len(names) == 1 else (None, None)
 
@@ -216,24 +227,26 @@ class OwnerSecrets:
         """`sites`: the current task's owner-typed site, read as a link (`_linked`)."""
         return _account(self._load()['records'], target, sites)[0]
 
-    def account(self, target: str, sites: Iterable[str] = ()) -> tuple[str | None, str | None]:
-        """The username for `target` and, when it comes through a link, the place whose record holds it."""
-        return _account(self._load()['records'], target, sites)
+    def account(self, target: str, sites: Iterable[str] = (),
+                holding: Container[str] | None = None) -> tuple[str | None, str | None]:
+        """The username for `target` and, when it comes through a link, the place whose record holds it; `holding`:
+        the memory sources a username may still come from (`_held`)."""
+        return _account(self._load()['records'], target, sites, holding)
 
-    def listing(self, target: str, sites: Iterable[str] = ()) -> dict[str, Any]:
+    def listing(self, target: str, sites: Iterable[str] = (), holding: Container[str] | None = None) -> dict[str, Any]:
         """What `secrets.list` shows for one place: its username and its entries' names, never a value or a Keychain
         account (L36 §5); every entry saved for a whole browser, unusable; and, under `linked`, each other record that
         serves this place, by the place where its entries fill (I14). `sites`: the current task's owner-typed site,
         read as a link (`_linked`). A username read through a link comes with `username_site`, the host of the record
-        holding it (review I-2)."""
+        holding it (review I-2). `holding`: only a username whose memory still holds is listed (`_held`)."""
         data = self._load()
         records = data['records']
-        username, source = _account(records, target, sites)
+        username, source = _account(records, target, sites, holding)
         out: dict[str, Any] = {'place': target, 'username': username,
                                **({'username_site': site_host(source)} if source else {}),
                                'entries': sorted(records.get(target, _empty())['entries']),
                                'unusable': [{'name': u['name'], 'why': u['why']} for u in data['unusable']]}
-        linked = [{'place': p, 'username': records[p]['username'], 'entries': sorted(records[p]['entries'])}
+        linked = [{'place': p, 'username': _held(records[p], holding), 'entries': sorted(records[p]['entries'])}
                   for p in _linked(records, target, sites)]
         return out | ({'linked': linked} if linked else {})
 
