@@ -2981,6 +2981,13 @@ Retirement (L36 §6): `memory.until_refused` (a `remember` entry's end not set; 
 `memory.retire_kept` (the owner kept an item FERB thought was out of date, or skipped the question; `id`).
 Sealed values (L36 §7): `secret.ordinary_word` (a saved sealed answer is an ordinary word; `task_id` of the tree,
 `place`; never the word).
+Guesses (L36 §2 ruling): `memory.backlog_offered` (FERB's older guesses were offered once as one list; `count`).
+Procedure use (L36 §8): `memory.procedure_not_followed` (a successful run that didn't follow its procedure's required
+steps wrote no receipt; `procedure_id`, `task_id`) and `memory.receipt_skipped` (any other run that wrote none, such as
+one the owner stopped or said No in; `procedure_id`, `task_id`, `why`).
+Daemon problems (L36): `daemon.internal_error` (a request that failed inside FERB; `method`, `error` (the exception's
+type), `message` redacted and cut to 300 characters, `frames` innermost last) and `daemon.slow_call` (an owner-side
+call of 10 s or longer; `method`, `seconds`); a repeating one is written once, then once per 10 minutes with `repeats`.
 
 ### 16.11 Loops (L31)
 
