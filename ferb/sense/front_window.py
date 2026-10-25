@@ -41,7 +41,10 @@ from ferb.sanitize.redact import EXCLUDED
 # FERB's own apps, as their bundles declare them: ui/mac/FERBNotch/Info.plist (the packaged FERB.app, L27, and the
 # development build ui/mac/FERBNotch/build.sh makes from it), macapp/FERB/Info.plist (its voice helper) and
 # ui/mac/FERBAgent/Info.plist (the daemon's agent app, whatever process of it shows a window)
-FERB_APPS = frozenset({"com.ferb.ferb", "dev.ferb.notch", "com.ferb.app", "com.ferb.daemon"})
+# plus the code identifiers the packaged app signs its non-bundle programs with (scripts/signing.sh, L34): the
+# bundled interpreter and the secret helper
+FERB_APPS = frozenset({"com.ferb.ferb", "dev.ferb.notch", "com.ferb.app", "com.ferb.daemon", "com.ferb.python",
+                       "com.ferb.secrets"})
 # libproc's PROC_PIDTBSDINFO answer (<sys/proc_info.h> struct proc_bsdinfo): its size, and where pbi_ppid lies in it
 PROC_PIDTBSDINFO, BSDINFO_SIZE, PPID_OFFSET = 3, 136, 16
 EXCLUDED_APP = f"an app FERB doesn't look at ({EXCLUDED}) is in front: no title, page or screenshot"

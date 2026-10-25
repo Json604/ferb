@@ -355,7 +355,10 @@ def test_ferbs_own_app_ids_are_the_ones_their_bundles_declare() -> None:
     # daemon's agent app (com.ferb.daemon) shows
     dev = re.search(r"CFBundleIdentifier (\S+)", (REPO / "ui/mac/FERBNotch/build.sh").read_text())
     assert dev is not None
-    assert {i.lower() for i in declared | {dev.group(1)}} == set(fw.FERB_APPS)     # matched case-insensitively
+    signed_ids = {"com.ferb.python", "com.ferb.secrets"}      # the bundled interpreter and the secret helper (L34)
+    assert {i.lower() for i in declared | {dev.group(1)} | signed_ids} == set(fw.FERB_APPS)   # case-insensitively
+    for own in signed_ids:
+        assert fw.ferb_process(4321, own, daemon_pid=1234, parent=lambda pid: None)
     for own in declared | {dev.group(1)}:                    # the packaged app's setup console is FERB's own window
         assert fw.ferb_process(4321, own, daemon_pid=1234, parent=lambda pid: None)
 
