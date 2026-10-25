@@ -4197,10 +4197,15 @@ class Daemon:
         model = self.config.get("models", name) or (self.config.get("runtimes", "claude_model") if name == "claude" else None)
         return str(model) if model else None
 
-    def _make_runtime(self, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any]) -> Any:
-        return self._build_runtime(self._runtime_for(role), role, mode=mode, tool_names=tool_names, schema=schema)
+    def _make_runtime(self, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
+                      effort: str | None = None) -> Any:
+        return self._build_runtime(self._runtime_for(role), role, mode=mode, tool_names=tool_names, schema=schema,
+                                   effort=effort)
 
-    def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any]) -> Any:
+    def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
+                       effort: str | None = None) -> Any:
+        """One runtime for a role (D32). `effort`: the reasoning effort a worker-mode run asks for (L39: "high" for the
+        checker of a step that changed files), each adapter's own setting; None keeps the runtime's default."""
         if name not in self.registry.runtimes:
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]")
         model = self._model_for(name)
@@ -4218,18 +4223,20 @@ class Daemon:
                                 timeout_s=None if mode == 'worker' else 900, on_abandoned=self.server.abandon,
                                 redact=self.redact, cache_role=self._codex_cache_role(role, mode, schema),
                                 cache_scope=str(self.config.get("device", "id", "unknown-device")),
-                                cache_allowed=self._codex_cache_turn, on_cache_fallback=self._codex_cache_fallback)
+                                cache_allowed=self._codex_cache_turn, on_cache_fallback=self._codex_cache_fallback,
+                                effort=effort if mode == "worker" else None)
         if name in ("anthropic", "openai", "google"):
             from ferb.runtimes.api import ApiRuntime, GatewayBridge
             from ferb.runtimes.catalog import CATALOG
             provider = _provider(name, model or CATALOG[name].default_model)
             return ApiRuntime(provider, mode=mode, role=role, tool_names=tool_names,  # type: ignore[arg-type]
-                              output_schema=schema, bridge=GatewayBridge(self.gateway, self.tokens), key=self._api_key)
+                              output_schema=schema, bridge=GatewayBridge(self.gateway, self.tokens), key=self._api_key,
+                              effort=effort if mode == "worker" else None)
         from ferb.runtimes.claude_sdk import ClaudeRuntime
         if self._proxy is None:
             self._proxy = ToolListProxy()
         return ClaudeRuntime(mode, self._proxy, str(self.home), shim_cmd=shim, tool_names=tool_names,  # type: ignore[arg-type]
-                             output_schema=schema, model=model)
+                             output_schema=schema, model=model, effort=effort if mode == "worker" else None)
 
     def _codex_cache_role(self, role: str, mode: str, schema: dict[str, Any]) -> str | None:
         """P20 (owner, 2026-10-25): "planner" for the planner's chat turn (the orchestrator's SUPERVISOR_SCHEMA call) when

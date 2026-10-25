@@ -47,3 +47,12 @@ def test_claude_runtime_options_carry_the_effort_asked_for() -> None:
     assert rt._options("run-1", "tok").effort == "high"
     plain = ClaudeRuntime("worker", rt.proxy, "/unused", shim_cmd=["ferb", "mcp"])
     assert plain._options("run-1", "tok").effort is None
+
+
+def test_the_daemons_runtime_factory_passes_the_effort_to_worker_runs(daemon) -> None:
+    daemon.daemon.config.set("runtimes", "checker", "anthropic")
+    daemon.daemon.config.set("runtimes", "orchestrator", "anthropic")
+    checker = daemon.daemon._make_runtime("checker", mode="worker", tool_names=[], schema={}, effort="high")
+    planner = daemon.daemon._make_runtime("orchestrator", mode="supervisor", tool_names=[], schema={}, effort="high")
+    plain = daemon.daemon._make_runtime("checker", mode="worker", tool_names=[], schema={})
+    assert (checker.effort, planner.effort, plain.effort) == ("high", None, None)   # supervisor runs stay low
