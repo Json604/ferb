@@ -13,6 +13,12 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 FERB for everyone, phase F (L34) — 2026-10-25 — launch at login; owner live check pending
+
+Phase F, launch at login (L34): FERB.app opens at login, on by default once after setup (Settings → General → Open FERB
+at login). macOS's login item (`SMAppService.mainApp`) first; when macOS refuses it, a user LaunchAgent
+(`com.ferb.FERB.login`) opens FERB in the background, and Settings says so. `ferb uninstall` removes that file.
+
 ## 0.27.0.dev1 FERB for everyone, phase E (L34) — 2026-10-25 — the FERB window and Settings; owner live check pending
 
 Phase E, the FERB window and Settings (L34):

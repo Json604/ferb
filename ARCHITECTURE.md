@@ -3624,6 +3624,17 @@ that a banner follows.
 - **Debugging:** a refused setting names its key in the reply and the problem line; `ferb timeline` shows
   `settings.changed`.
 
+### Launch at login (L34 Phase F)
+
+`LoginItemController` (`ui/mac/FERBNotch/Sources/FERBNotch/LoginItemController.swift`) tries
+`SMAppService.mainApp.register()`; when it throws, or returns with the item neither on nor waiting for the owner's OK,
+it writes `~/Library/LaunchAgents/com.ferb.FERB.login.plist` (`LoginItemPlan.agent`: `open -g -a <FERB.app>`,
+`RunAtLoad`, Aqua) and keeps macOS's refusal for the Settings note. `.requiresApproval` is not a refusal (no second
+launcher). The default applies once (`loginItem.defaultApplied`) when `AppSetupController.onSettled` fires: at launch
+on a set-up build, after a quiet update that needs no permission, or at the setup window's Done. FERB's shell can't
+write `~/Library/LaunchAgents` (never-write) or start launchd jobs; `ferb uninstall` removes the fallback file when its
+label is FERB's, and the app's Uninstall unregisters macOS's item first.
+
 ### 16.15 Careful edits (L39)
 
 Owner 2026-10-25: tasks that edit the owner's documents "demand high agency and there should be a good level of

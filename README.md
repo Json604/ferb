@@ -45,6 +45,11 @@ FERB.app itself. FERB's voice helper inside FERB.app appears as **FERB Voice** u
 asks once for its Speech Recognition, so FERB can turn an app's sound into text during a task (on this Mac only), and
 push-to-talk, when you turn it on, adds its Microphone.
 
+After setup, FERB.app opens at login by itself (Settings → General → **Open FERB at login**, on by default once; turn
+it off there or in System Settings → General → Login Items). FERB uses macOS's own login item; if macOS refuses it for
+FERB's self-made signature, FERB adds `~/Library/LaunchAgents/com.ferb.FERB.login.plist`, which opens FERB in the
+background at login, and Settings says so. The background service starts at login either way.
+
 FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
 before it replaces one, from its menu too. After you replace FERB.app with a newer build, the next launch updates the
 background service quietly (and so does a launch that finds it not running); the setup window opens only if that

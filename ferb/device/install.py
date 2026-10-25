@@ -31,6 +31,9 @@ from ferb.paths import app_bundle as app_bundle   # FERB.app's own location (set
 from ferb.paths import BUNDLE_PYTHON as BUNDLE_PYTHON   # its plain interpreter (python3.12)
 
 LABEL = "com.ferb.daemon"
+# FERB.app's login LaunchAgent: the fallback the app writes when macOS refuses its login item (L34 Phase F;
+# ui/mac/FERBNotch/Sources/NotchCore/LoginItemPlan.swift). Uninstall removes it, and only a file with this label.
+APP_LOGIN_LABEL = "com.ferb.FERB.login"
 PYTHON_VERSION = "3.12"
 MARKER = ".ferb-home"
 NATIVE_HOST_NAME = "com.ferb.native_host"            # extensions/chromium/protocol.js FERB_HOST
@@ -108,6 +111,14 @@ def certificate_leaf(requirement: str) -> str | None:
     certificate leaf = H"<SHA-1>"`), as a lowercase SHA-1; None for any other requirement."""
     m = re.fullmatch(r'identifier "[^"]+" and certificate leaf = H"([0-9a-fA-F]{40})"', requirement.strip())
     return m.group(1).lower() if m else None
+
+
+def _labelled(path: Path, label: str) -> bool:
+    """A launchd plist FERB wrote: it exists and names `label` (anything else at that path is left alone)."""
+    try:
+        return plistlib.loads(path.read_bytes()).get("Label") == label
+    except (OSError, ValueError, AttributeError):          # missing, not a plist (InvalidFileException), not a dict
+        return False
 
 
 def read_only_volume(path: Path) -> bool:
@@ -538,6 +549,10 @@ class Installer:
         if self.plist_path.exists():
             self.plist_path.unlink()
             removed.append(str(self.plist_path))
+        login = self.launch_agents / f"{APP_LOGIN_LABEL}.plist"
+        if _labelled(login, APP_LOGIN_LABEL):
+            login.unlink()
+            removed.append(str(login))
         for d in self.native_hosts_dirs:
             m = d / NATIVE_HOST_MANIFEST
             if m.exists():

@@ -1824,3 +1824,20 @@ Run after `ferb setup --update` (or on the second macOS user with a fresh DMG in
 - **Command-line tool:** Advanced → Install command-line tool. **Expected:** the output names `~/.local/bin/ferb`.
 - **AI:** Sign out of ChatGPT, then Sign in with ChatGPT again. **Expected:** `~/.ferb/codex-home/auth.json` goes and
   comes back; your personal `~/.codex` is untouched.
+
+## Launch at login (L34 Phase F) — pending live check (2026-10-25)
+
+On a fresh second macOS user, with a DMG built and signed with plan B's certificate (build N), the owner watching:
+
+1. Install, Open Anyway, finish setup. **Expected:** Settings → General → Startup shows "Open FERB at login" on. Record
+   which path: System Settings → General → Login Items lists FERB under **Open at Login** (macOS's item; no note) or
+   FERB appears under **Allow in the Background** and Settings' note says "macOS refused FERB's login item (…)" (the
+   LaunchAgent). Copy the note's text.
+2. Log out and in. **Expected:** the notch appears without opening FERB; nothing takes focus; `ferb doctor` shows the
+   daemon running.
+3. Settings → General: turn it off; log out and in. **Expected:** FERB.app doesn't open (the daemon still runs). Turn it
+   back on.
+4. Install build N+1 over it (same certificate). **Expected:** still on after the next login; one FERB process
+   (`pgrep -lf FERBNotch`).
+5. Settings → Advanced → Uninstall FERB. **Expected:** Login Items no longer lists FERB;
+   `~/Library/LaunchAgents/com.ferb.FERB.login.plist` is gone.
