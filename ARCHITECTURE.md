@@ -3205,25 +3205,28 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   the loop, then reads in a worker thread on a connection of its own (final review M3: a broad or empty query reads
   every matched node with all its source refs); its candidates carry `text` (`shown_text`) beside their ids.
 - **Workers and plan steps (§4).** `Supervisor._worker_memory` asks the daemon's `memory_push` (the one search,
-  `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal
-  and the task's `target_words`, the targets also as the search's `focus` (`memory_push(query, targets)`; the
-  planner's `memory_candidates(query, targets)` likewise), and adds each item as a protected "Layer 4 — retrieved
-  memory" block, recorded in `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no
-  longer blank memory, and their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The
-  daemon's `recall` stub is gone. Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the
+  `WORKER_MEMORY_ITEMS` 20, no procedures) for the owner's request words, a plan step's `parent_goal`, its own goal and
+  the task's `target_words`, the targets also as the search's `focus` (`memory_push(query, targets)`; the planner's
+  `memory_candidates(query, targets)` likewise), and adds each item as a protected "Layer 4 — retrieved memory" block,
+  recorded in `task_memory_refs` like any shown block. Plan steps (do/reduce, converse, loop rounds) no longer blank
+  memory, and their "Task:" block opens with "Parent task goal: …"; their activity layer stays empty. The daemon
+  supplies no `recall` (its stub is gone): `Supervisor.recall` is the bare supervisor's hook (empty by default), still
+  called on each chat message (`_send`) and, without `memory_push`, for a worker; in the daemon it returns "" and adds
+  nothing, since the planner's memory comes from `memory_candidates` and a worker's from `memory_push` (tests supply the
+  hook to read that path). Only a worker or step run (`_context(learned=True)`) gets memory: the checker, the
   next-attempt and question choices and the resource reconcile judge fresh observations and get none. A query with no
   words gets nothing, never the newest items. The push is the daemon's `_learning_candidates` coroutine: an adopted
   model embeds the query in a worker thread (L28) and SQLite runs on the loop, as for the planner; on the scratch copy
   of the owner's database (2026-10-24, no embedding model adopted) one push took about 34 ms for the visa research
   step's 223-word query and 22 ms for a 12-word one, `sync_facts` 14 ms of each. Without the daemon's search (a bare
-  supervisor), a worker gets the plain `recall` block, as before. Every worker attempt and every loop round records
-  the memory blocks it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20
-  items on that copy; the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that
-  much a round, and its spans stay until it ends and its episode exists (retention): about 3.8 MB a day for a loop
-  running only on its 30-minute backup check, more with probe trips. They are not deduplicated because nothing can say
-  which exposures are still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans
-  that showed its item (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be
-  harmed by a dedup).
+  supervisor), a worker gets the plain `recall` block, as before. Every worker attempt and every loop round records the
+  memory blocks it is shown again as `context.exposure` spans (about 80 KB of span JSON for the research step's 20 items
+  on that copy; the `task_memory_refs` rows are INSERT OR IGNORE), so a long loop grows the database by that much a
+  round, and its spans stay until it ends and its episode exists (retention): about 3.8 MB a day for a loop running only
+  on its 30-minute backup check, more with probe trips. They are not deduplicated because nothing can say which
+  exposures are still recorded: `task_memory_refs` outlives a forget, and a forget scrubs the exposure spans that showed
+  its item (fix round 2; re-review: the sink rule's per-tree payload set and `task_origins` would not be harmed by a
+  dedup).
 - **Login records (§5).** `OwnerSecrets` (`identity/owner_secrets.py`) keeps one record per place (`login_place`: an
   HTTPS origin, or `app:<bundle id>`): `username`, `username_source`, `sites` and `entries` (name -> Keychain account
   `"<place> · <name>"`, never one another entry or an unusable handle already uses); saving a name again replaces its

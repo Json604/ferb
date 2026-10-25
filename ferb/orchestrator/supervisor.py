@@ -592,8 +592,9 @@ class Supervisor(WorkerRuns):
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
-        # Memory, supplied by the daemon: recall for a turn (synchronous: intake calls it, and a worker's context when
-        # there is no `memory_push`); save what the owner stated (returns the confirmations shown to the owner)
+        # Recall for a turn without the daemon's search (synchronous: intake calls it on each chat message, and a
+        # worker's context when there is no `memory_push`). The daemon never supplies it: its planner memory comes from
+        # `memory_candidates` and a worker's from `memory_push`, so there it returns "" and adds nothing
         self.recall: Callable[[str], Any] = lambda words: ""
         self.timers: Any = None                  # clock.timers.Timers
         # Durable scheduling callbacks supplied by the daemon.
