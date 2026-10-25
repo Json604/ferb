@@ -480,6 +480,11 @@ class WorkerRuns:
                 raise Stalled() from None              # the watchdog's cancellation, not Stop or shutdown
             raise
         started.append(run)
+        # which role held the context's parts (P20, review I3): "developer" for a cached Codex planner turn, which says
+        # so in its run state; every other run puts them in the user turn
+        state = getattr(run, "state", None)
+        self.spans.update_input(parent_span, {"context_role": str(state.get("context_role", "user"))
+                                              if isinstance(state, dict) else "user"})
         self._active[run.id] = (rt, run)
         if notify is None and tree is not None:
             notify = partial(self._tell_tree, tree.id)

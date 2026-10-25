@@ -65,6 +65,15 @@ class PlannerOnCodex(PlannerRoute):
         return [m["params"] for m in self.servers[turn].requests if m["method"] == method]
 
 
+def planner_turn_roles(d: RunningDaemon) -> list[str]:
+    """`context_role` of each planner turn's model.turn span, oldest first (`ferb trace`)."""
+    async def go() -> list[str]:
+        return [json.loads(r["input_json"]).get("context_role") for r in d.daemon.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'model.turn' AND json_extract(input_json, '$.role') = "
+            "'supervisor' ORDER BY rowid")]
+    return d.run(go())                       # type: ignore[no-any-return]
+
+
 def _conversation_with_outside_content(d: RunningDaemon, planner: PlannerOnCodex) -> None:
     """Turn 1: the owner pastes a vendor message and asks for their newest email; the task reads it (outside content
     with a planted instruction) and reports it. Then a WhatsApp notice quoting another planted line."""
@@ -119,6 +128,7 @@ def test_code_guards_ask_the_same_whichever_role_holds_the_context(daemon: Runni
     assert [r["is_error"] for r in results] == [True, True] and send.calls == pay.calls == 0   # the owner said No
     assert rules == {"floor:new_recipient": 1, "floor:pay": 1}                                 # same rules, both paths
     assert (len(planner.sent(1, "thread/resume")), len(planner.sent(1, "thread/start"))) == ((1, 0) if cached else (0, 1))
+    assert planner_turn_roles(daemon) == (["developer", "developer"] if cached else ["user", "user"])   # review I3
 
 
 def test_the_developer_block_is_the_recorded_context_with_every_label(daemon: RunningDaemon, monkeypatch) -> None:

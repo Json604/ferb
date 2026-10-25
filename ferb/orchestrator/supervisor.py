@@ -1247,7 +1247,11 @@ class Supervisor(WorkerRuns):
         session.payload = self.continuity.pending_payload(session_id)
         paths = list(dict.fromkeys([*(self._pending_input_paths(session_id) if session.payload else []),
                                     *(normalize_path(p, self.workspace) for p in input_paths)]))
-        m = mark(text, self.pasted_is_data())
+        pasted_is_data = self.pasted_is_data()
+        m = mark(text, pasted_is_data)
+        # the owner's switch counts pastes as their own words: how many such parts, so the planner's cached Codex turn
+        # never puts this conversation in the developer role (P20, review M5)
+        as_owner_words = 0 if pasted_is_data else len(mark(text).untrusted)
         # Preserve the question as FERB's context for any answer; the agent interprets the reply.
         owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
         typed = owner_words  # provenance checks use only words the owner actually supplied
@@ -1272,7 +1276,8 @@ class Supervisor(WorkerRuns):
         entry = self.journal.append("chat.message", {"session_id": session_id, "request_id": request_id,
                                                      "text": m.for_model,
                                                      "untrusted_parts": len(m.untrusted) + bool(paths),
-                                                     "input_paths": paths})
+                                                     "input_paths": paths}
+                                    | ({"pasted_as_owner_words": as_owner_words} if as_owner_words else {}))
         recalled = self.recall(words)           # synchronous: as a worker without `memory_push` reads it (_worker_memory)
         env = await _value(self.environment(words))
         seen = await self._screen_at_send(request_id, screen) if screen is not None else {}

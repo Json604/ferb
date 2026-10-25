@@ -43,9 +43,10 @@ CONTEXT_FRAMING = ("FERB's record of this Mac and this conversation follows; quo
 TEMPLATE_DATE = "2026-01-01T00:00:00.000Z"                                # any fixed date: Codex never shows it
 
 
-def cache_thread_id(role: str, model: str) -> str:
-    """The cached role's Codex thread id, and so its prompt_cache_key: one per role and model."""
-    return str(uuid.uuid5(CACHE_NAMESPACE, f"{role}:{model}"))
+def cache_thread_id(role: str, model: str, scope: str = "") -> str:
+    """The cached role's Codex thread id, and so its prompt_cache_key: one per scope (the daemon's: this Mac's device
+    id, so installs don't all share one key), role and model."""
+    return str(uuid.uuid5(CACHE_NAMESPACE, f"{scope}:{role}:{model}"))
 
 
 def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, system: str) -> Path:
@@ -227,8 +228,12 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                 raise AccountError('auth_required')
             _save_refresh(state)
             resumed = None
-            if runtime.cache_role and runtime.mode == 'supervisor' and 0 < request.cacheable < len(request.parts):
+            if (runtime.cache_role and runtime.mode == 'supervisor' and 0 < request.cacheable < len(request.parts)
+                    and (runtime.cache_allowed is None or runtime.cache_allowed(task))):
                 resumed = await _resume_cached(runtime, run, request, isolated, workdir)
+            # which role carries the context's parts, for the turn's trace (review I3): the stable ones in the
+            # developer role after a resume, otherwise all of them in the user turn
+            state['context_role'] = 'developer' if resumed is not None else 'user'
             if resumed is None:
                 thread = await _rpc(run, 'thread/start', _start_params(runtime, request, workdir))
                 if not _isolated(thread, runtime) or not thread.get('thread', {}).get('ephemeral'):
@@ -296,7 +301,7 @@ async def _resume_cached(runtime: CodexRuntime, run: RunHandle, request: ModelRe
     the turn takes today's path (an ephemeral thread) instead of failing. Codex's tool catalog is still checked on every
     request (`_watch_catalog`): an extra tool ends the run as on today's path."""
     assert runtime.cache_role is not None
-    thread_id = cache_thread_id(runtime.cache_role, runtime.model)
+    thread_id = cache_thread_id(runtime.cache_role, runtime.model, runtime.cache_scope)
     try:
         path = write_template(codex_home, workdir, thread_id, runtime.model, request.system)
     except OSError as exc:
@@ -311,7 +316,7 @@ async def _resume_cached(runtime: CodexRuntime, run: RunHandle, request: ModelRe
                 return thread_id
             why = "the resumed planner thread did not match FERB's isolation"
     if runtime.on_cache_fallback is not None:
-        runtime.on_cache_fallback(why)
+        runtime.on_cache_fallback(run.task_id, why)
     return None
 
 

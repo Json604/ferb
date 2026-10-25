@@ -236,7 +236,8 @@ class CodexRuntime:
                  output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900,
                  on_abandoned: Callable[[str, str], None] | None = None,
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
-                 on_cache_fallback: Callable[[str], None] | None = None) -> None:
+                 cache_scope: str = "", cache_allowed: Callable[[Task], bool] | None = None,
+                 on_cache_fallback: Callable[[str, str], None] | None = None) -> None:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
         # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
         # which knows the values the owner stored, else the secret pattern classes
@@ -246,9 +247,12 @@ class CodexRuntime:
         # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
         self.on_abandoned = on_abandoned
         # P20 (owner, 2026-10-25; `[runtimes] codex_planner_cache`): the role whose app-server turns resume FERB's
-        # template thread under a cache key fixed per role and model, its stable context in the developer role
-        # (codex_stream.start); None for today's ephemeral thread. Told why when a turn falls back to today's path.
-        self.cache_role, self.on_cache_fallback = cache_role, on_cache_fallback
+        # template thread under a cache key fixed per `cache_scope` (this Mac), role and model, its stable context in the
+        # developer role (codex_stream.start); None for today's ephemeral thread. `cache_allowed` decides per turn
+        # (the daemon: only an owner's chat turn); `on_cache_fallback` is told (task id, why) when a turn that would
+        # resume takes today's path instead.
+        self.cache_role, self.cache_scope = cache_role, cache_scope
+        self.cache_allowed, self.on_cache_fallback = cache_allowed, on_cache_fallback
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
 
     @property

@@ -4150,7 +4150,8 @@ class Daemon:
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
                                 timeout_s=None if mode == 'worker' else 900, on_abandoned=self.server.abandon,
                                 redact=self.redact, cache_role=self._codex_cache_role(role, mode, schema),
-                                on_cache_fallback=self._codex_cache_fallback)
+                                cache_scope=str(self.config.get("device", "id", "unknown-device")),
+                                cache_allowed=self._codex_cache_turn, on_cache_fallback=self._codex_cache_fallback)
         if name in ("anthropic", "openai", "google"):
             from ferb.runtimes.api import ApiRuntime, GatewayBridge
             from ferb.runtimes.catalog import CATALOG
@@ -4172,9 +4173,29 @@ class Daemon:
         planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
         return "planner" if planner and self.config.get("runtimes", "codex_planner_cache", False) is True else None
 
-    def _codex_cache_fallback(self, why: str) -> None:
-        """One journal line when a cached planner turn took today's path instead, with why (P20)."""
-        self._journal().append("runtime.cache_fallback", {"runtime": "codex", "role": "planner", "why": why})
+    def _codex_cache_turn(self, task: Any) -> bool:
+        """Whether this planner turn may hold its stable context in the developer role (P20): only the owner's chat turn
+        (its `chat.message` is journaled under the request's id, outside a scheduled run's session; a scheduled or
+        watch run keeps the user role, review M4), only while pasted text is data (`[policy] pasted_text_is_data`), and
+        only in a conversation where no message's pasted parts were counted as the owner's own words: the developer
+        role never holds pasted text unmarked (review M5)."""
+        from ferb.orchestrator.continuity import SCHEDULE_SESSION
+        if not bool(self.config.get("policy", "pasted_text_is_data", True)):
+            return False
+        journal = self._journal()
+        asked = journal.of_kind("chat.message", "request_id", str(task.request_id))
+        if not asked:
+            return False
+        session = str(asked[-1].data.get("session_id", "owner"))
+        if session.startswith(SCHEDULE_SESSION):
+            return False
+        return not any(e.data.get("pasted_as_owner_words")
+                       for e in journal.of_kind("chat.message", "session_id", session, missing="owner"))
+
+    def _codex_cache_fallback(self, request_id: str, why: str) -> None:
+        """One journal line when a cached planner turn took today's path instead: for which request, and why (P20)."""
+        self._journal().append("runtime.cache_fallback", {"runtime": "codex", "role": "planner",
+                                                          "request_id": request_id, "why": why})
 
     async def _api_key(self, provider: str) -> str | None:
         """From the Keychain at call time; added to the redactor so an echo never reaches a trace or the journal."""
