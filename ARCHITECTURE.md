@@ -3243,13 +3243,16 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   `Daemon._save_login_name` writes the owner's own spelling of it (`owner_span`) to that https:// origin's record
   (`set_username`, `username_source` `memory:<id>`) only from an owner-stated item, when the host, exactly or with or
   without "www." (`same_site`, never a subdomain), is one the owner typed: in that message (`typed_site`), or among
-  the turn's task's sites the owner typed for it (`Supervisor._turn_sites`: a new task's sites against the message,
-  or those of the task a control acts on, live or saved, only when `continuity.load` finds it in this chat, plus the
-  sites a steered task named before the steer restated it, against that task's recorded words, steers' appended).
-  This tightens the spec's "or the task's targets" (review I-1, as Task 6 ruling (b) and rule 8's provenance): a site
-  only the planner or outside content named, a pasted email's, never gets the username. An app's username stays
-  ordinary memory. The owner's line gains "Saved as your login name for <host>."; a refusal, whatever its cause (a
-  failed write included, review m-2), is journaled (`memory.login_refused`, with why) and the turn goes on; a span of
+  the turn's candidate sites the owner typed (`Supervisor._turn_sites`, against the message and the recorded words of
+  each task it names, steers' appended: a new task's sites, the turn's own `login_origin` sites, and the sites of the
+  task a control acts on and of the task whose question the turn answered (final review I1: "What username?"
+  answered "Kartikey Attri"), each live or saved and only when `continuity.load` finds it in this chat, plus the
+  sites a steered task named before the steer restated it). This tightens the spec's "or the task's targets" (review
+  I-1, as Task 6 ruling (b) and rule 8's provenance): a site only the planner or outside content named, a pasted
+  email's, never gets the username. An app's username stays ordinary memory. The owner's line gains "Saved as your
+  login name for <host>."; a refusal for a site the owner didn't name adds "Not saved as your username for <host>:
+  you didn't name that site." (final review I1); a refusal, whatever its cause (a failed write included, review m-2),
+  is journaled (`memory.login_refused`, with why) and the turn goes on; a span of
   the owner's words that touches a "[redacted]" marker is never saved (`items.owner_span_at`, review m-1). The
   username is set on the site's record only; a sign-in form on another address shows it through the task's one
   owner-typed site and, once an entry is saved there, through its listed sites (above). A forget of that item, or of

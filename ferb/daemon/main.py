@@ -2650,8 +2650,9 @@ class Daemon:
                                origin: str = "owner_stated") -> str:
         """L36 §5: an owner-stated entry's username for its site's login record. Only when the username is the owner's
         own words (kept in their spelling, `owner_span`; never FERB's wording, which is an inferred item) and the site
-        is an https:// origin whose host the owner typed: in this message, or among the turn's task's sites
-        (`Supervisor._turn_sites` keeps only those the owner typed for it, review I-1), exactly, a leading "www." aside
+        is an https:// origin whose host the owner typed: in this message, or among the sites of the turn's tasks (the
+        new, controlled or answered one: `Supervisor._turn_sites` keeps only those the owner typed in this message or
+        that task's recorded words, review I-1, final review I1), exactly, a leading "www." aside
         (`same_site`, the rule a record's sites follow: never a subdomain, which on shared hosting is another tenant's).
         A span of the owner's words that touches a "[redacted]" marker is refused (review m-1). Every record whose
         username came from an older version of this fact takes the new spelling too, whether or not this entry's own
@@ -2659,7 +2660,9 @@ class Daemon:
         is left of the replaced versions after this write. The write runs in a worker thread (the handle file's lock
         may be held by a hidden input's Keychain save; coordinator ruling), one at a time (`_login_names`, review m-3).
         A line for the owner, or "" (the refusal, whatever its cause, is journaled, `memory.login_refused`, unless the
-        entry's own place was updated as an older version's record, and the turn goes on: review m-2)."""
+        entry's own place was updated as an older version's record, and the turn goes on: review m-2). A site the owner
+        didn't name is also said, in code's words ("Not saved as your username for <site>: you didn't name that site",
+        final review I1); the memory itself is saved either way."""
         import re
         from ferb.identity.owner_secrets import OwnerSecrets, login_place, same_site, site_host, typed_site
         from ferb.memory.items import owner_span_at
@@ -2697,9 +2700,12 @@ class Daemon:
             self._journal().append("memory.login_updated", {"item": item_id, "places": followed})
         if not why:
             return f"Saved as your login name for {host}."
+        lines = [f"Updated your login name for {', '.join(site_host(p) or p for p in followed)}."] if followed else []
         if place not in followed:
             self._journal().append("memory.login_refused", {"item": item_id, "place": place, "why": why})
-        return f"Updated your login name for {', '.join(site_host(p) or p for p in followed)}." if followed else ""
+            if host and not named:                       # the one refusal the owner can act on (final review I1)
+                lines.append(f"Not saved as your username for {host}: you didn't name that site.")
+        return " ".join(lines)
 
     def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
         return {"id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,

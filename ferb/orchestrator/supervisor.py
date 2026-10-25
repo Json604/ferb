@@ -1317,12 +1317,18 @@ class Supervisor(WorkerRuns):
         resumed_payload = ""
         resumed_prior: str | None = None
         acknowledged = ""                    # the answer's acknowledgement, said with the planner's reply
+        answered_tree: str | None = None     # the task whose question this message answered (its tree)
         if out.answer_question:
             # The answer is recorded first; the rest of the turn (a stop or correction, a new task, memory, reminders,
             # schedules) then runs as in any turn (final review M1). When FERB has to ask which question the answer is
             # for, the whole message comes back with the owner's reply, so nothing else in it runs now (or twice).
             answered = self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
                                     payload)
+            if answered["type"] == "reply" and answered["text"].startswith(ANSWERED):
+                # its sites the owner typed count for a login name given in the answer (L36 §5, final review I1)
+                question_ap = self.state.approvals.get(out.answer_question.approval_id)
+                answered_tree = (self.tasks.tree_of(question_ap.task_id)
+                                 if question_ap is not None and question_ap.task_id else None)
             out = out.model_copy(update={"answer_question": None})
             # With the planner's own reply (no stop, steer or task), the acknowledgement opens that reply: one message
             fold = (answered["type"] == "reply" and answered["text"] == ANSWERED and out.control is None
@@ -1344,7 +1350,8 @@ class Supervisor(WorkerRuns):
             control = out.control
             prior = self.continuity.load(control.task_id, session.id)
             if prior is None:
-                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
+                                                answered=answered_tree)
                 said = self._with_lines({"type": "reply", "text": "I couldn't find that attempt in this chat. Tell me "
                                                                   "which task to stop or retry."}, side.lines)
                 self._record_reply(session.id, request_id, said["text"], turn_origins)
@@ -1368,7 +1375,7 @@ class Supervisor(WorkerRuns):
                     # correction that found its task ending applies none of them: the owner sends it all again
                     side = (_Side([], [], []) if reply["text"] == JUST_ENDED else
                             await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id,
-                                                     turn_origins, named))
+                                                     turn_origins, named, answered_tree))
                     reply = self._with_lines(reply, side.lines)
                     # in the conversation record (next turns), with a stated scope's lines (D30; the planner's
                     # scopes: MP2) and code's lines about the side entries
@@ -1395,7 +1402,8 @@ class Supervisor(WorkerRuns):
             if settling or control.action == "stop":
                 said = ("I've requested a stop; the earlier attempt is still settling. I haven't started another."
                         if settling else "Stopped, as you asked." if was_running else "That attempt has already ended.")
-                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+                side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
+                                                answered=answered_tree)
                 reply = self._with_lines({"type": "reply", "text": said}, side.lines)
                 self._record_reply(session.id, request_id, reply["text"], turn_origins)
                 try:
@@ -1462,7 +1470,8 @@ class Supervisor(WorkerRuns):
             self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
             self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
                                           "payload": resumed_payload})
-        side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins)
+        side = await self._side_entries(out, session, request_id, m, typed, typed_lines, entry.id, turn_origins,
+                                        answered=answered_tree)
         for event in side.events:
             yield event
         side_lines, refused = side.lines, side.refused
@@ -1529,32 +1538,40 @@ class Supervisor(WorkerRuns):
         return reply | {key: reply[key].rstrip() + "\n" + said for key in ("text", "display_text") if key in reply}
 
     def _turn_sites(self, out: SupervisorOutcome, session: ChatSession, typed: str,
-                    named: frozenset[str] = frozenset()) -> frozenset[str]:
-        """Where a login name the owner gives may be saved for (L36 §5): the hosts of the sites this turn's task names
-        that the owner typed (review I-1: a site only the planner or outside content named, such as a pasted email's,
-        never gets their username). The candidates are the new task's sites, or those of the task a stop, steer,
-        continue or retry acts on, only when it is this chat's (`continuity.load` by session, review m-5): the live
-        tree's, else the saved spec's, plus `named`, the sites it had before a steer restated it. The owner's words are
-        this turn's `typed` and that task's own (its request's, steers' appended)."""
+                    named: frozenset[str] = frozenset(), answered: str | None = None) -> frozenset[str]:
+        """Where a login name the owner gives may be saved for (L36 §5: a site in "this message, or the task's recorded
+        owner words"): the hosts of the candidate sites that the owner typed (review I-1: a site only the planner or
+        outside content named, such as a pasted email's, never gets their username). The candidates are the new task's
+        sites, those of the task a stop, steer, continue or retry acts on and those of the task whose question this
+        turn answered (`answered`, its tree; final review I1), each only when it is this chat's (`continuity.load` by
+        session, review m-5): the live tree's, else the saved spec's, plus `named`, the sites the controlled task had
+        before a steer restated it; and the sites of the turn's own login entries. The owner's words are this turn's
+        `typed` and those tasks' own (each request's, steers' appended)."""
         from ferb.identity.owner_secrets import site_host, typed_site
-        candidates, words = list(out.task.targets.sites) if out.task is not None else [], [typed]
-        if out.control is not None:
-            saved = self.continuity.load(out.control.task_id, session.id)
+        candidates = [*(out.task.targets.sites if out.task is not None else ()),
+                      *(str(item.login_origin) for item in out.remember if item.login_origin)]
+        words = [typed]
+        trees = [(out.control.task_id, named)] if out.control is not None else []
+        if answered is not None:
+            trees.append((answered, frozenset()))
+        for tree_id, before in trees:
+            saved = self.continuity.load(tree_id, session.id)
             if saved is not None:
-                live = self._tree_of.get(out.control.task_id)
-                candidates += [*(live.spec if live is not None else saved[0]).targets.sites, *named]
+                live = self._tree_of.get(tree_id)
+                candidates += [*(live.spec if live is not None else saved[0]).targets.sites, *before]
                 words.append(saved[1].words)
         owner = provenance.prepare("\n".join(words))
         return frozenset(h for site in candidates if (h := site_host(site)) and typed_site(h, owner))
 
     async def _side_entries(self, out: SupervisorOutcome, session: ChatSession, request_id: str, m: Any, typed: str,
                             typed_lines: str, entry_id: str, turn_origins: set[str],
-                            named: frozenset[str] = frozenset()) -> _Side:
+                            named: frozenset[str] = frozenset(), answered: str | None = None) -> _Side:
         """A turn's side entries, applied once on every path a turn takes (a reply, a new task, and a stop, steer,
         continue or retry: live 2026-10-24, two steers' remember entries were dropped), in this order, with the
         owner's typed words as their quotes' check. `named`: the sites a steered task named before the steer
-        restated it (a restated task may leave its sites out); `_turn_sites` keeps those the owner typed, with the
-        turn's, as where a login name may be saved."""
+        restated it (a restated task may leave its sites out); `answered`: the tree whose question this message
+        answered; `_turn_sites` keeps the sites of those the owner typed, with the turn's, as where a login name may be
+        saved."""
         session_id = session.id
         events: list[dict[str, Any]] = []
         for change in out.conversation_changes:
@@ -1575,7 +1592,7 @@ class Supervisor(WorkerRuns):
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
         unsaved: list[tuple[str, str]] = []
-        sites = self._turn_sites(out, session, typed, named) if out.remember else frozenset()
+        sites = self._turn_sites(out, session, typed, named, answered) if out.remember else frozenset()
         for item in out.remember:           # one at a time, so a refused one is known by name, with code's reason
             answers = await _value(self.remember([item], typed_lines, entry_id, sites))
             saved_now = [r for r in answers if "receipt" in r]

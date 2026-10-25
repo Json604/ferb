@@ -13,7 +13,7 @@ from ferb.core.types import Identity, ToolContext
 from ferb.identity.owner_secrets import OwnerSecrets
 from ferb.orchestrator.plans import Plan, Step
 from ferb.orchestrator.schemas import Remember
-from tests.conftest import chat, done, install, outcome, sup, task
+from tests.conftest import chat, done, install, outcome, sup, task, tool
 from tests.mackit import gateway_call as call, grant_task as grant
 from tests.support.hidden_input import asked, keychain_helper
 from tests.support.live_steer import StalledWorker, control_turn
@@ -76,11 +76,17 @@ def test_a_site_the_owner_typed_names_it_too(daemon: Any) -> None:
 def test_no_username_is_saved_without_the_owners_words_and_a_named_https_site(daemon: Any, item: Remember,
                                                                              sites: frozenset[str], why: str) -> None:
     """The memory itself is still saved (or offered as FERB's wording); only the login record's username is refused,
-    and why is journaled for the trace."""
+    and why is journaled for the trace. A site the owner didn't name is said in one line of code's (final review I1);
+    the other causes stay in the journal (ruling m-2)."""
+    from ferb.identity.owner_secrets import site_host
     lines = remember(daemon, [item], "the username is Asha Rao", sites)
     assert username(daemon, VISA) is None and username(daemon, str(item.login_origin)) is None
     assert "login name" not in json.dumps(lines)
     assert refusals(daemon) == [why]
+    told = [line.get("line", "") for line in lines]
+    unnamed = f"Not saved as your username for {site_host(str(item.login_origin))}: you didn't name that site."
+    assert ([t.endswith("\n" + unnamed) for t in told] == [True]) == (why == "the site isn't one you named")
+    assert ("Not saved as your username" in json.dumps(lines)) == (why == "the site isn't one you named")
 
 
 @pytest.mark.parametrize("own, content", [
@@ -437,6 +443,64 @@ def test_a_continue_of_an_ended_task_names_the_site_its_owner_typed(daemon: Any,
     script.sup.append(control_turn("Log in to the visa site again", tree_id, "continue", remember=[USERNAME_ENTRY]))
     chat(daemon, "the username is Asha Rao, carry on", session="visa")
     assert username(daemon) == ("Asha Rao" if saved else None)
+
+
+def _answer_the_tasks_question(daemon: Any, request: str, sites: tuple[str, ...], login_origin: str,
+                               answer: str = "Kartikey Attri") -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The owner starts a task with `request`; its worker asks "What username?" (owner.ask) and waits; the owner's
+    answer is the planner's `answer_question` turn with a `remember` entry naming `login_origin`. The answer turn's
+    events, and what the worker got."""
+    import time
+    got: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        got["answer"] = tool(daemon.sock, token, "owner.ask", question="What username?")["content"]
+        return done("Signed in.")
+    script = install(daemon, [sup("task", "Logging in.", task("Log in to the visa site", sites=sites))],
+                     {"worker": worker})
+    first = threading.Thread(target=lambda: chat(daemon, request, session="visa"))
+    first.start()
+    try:
+        end = time.monotonic() + 5
+        while not (open_ := [q for q in daemon.daemon.state.approvals.pending() if q.capability == "owner.ask"]):
+            assert time.monotonic() < end, "the worker never asked"
+            time.sleep(0.02)
+        script.sup.append(json.dumps({"kind": "reply", "text": "", "task": None,
+                                      "answer_question": {"approval_id": open_[0].id, "answer": answer},
+                                      "remember": [USERNAME_ENTRY | {"content": answer, "quote": answer,
+                                                                     "login_origin": login_origin}]}))
+        events = chat(daemon, answer, session="visa")
+    finally:
+        first.join(10)
+    return events, got
+
+
+def test_a_username_given_as_the_answer_to_the_tasks_question_is_saved_for_the_site_its_owner_typed(
+        daemon: Any) -> None:
+    """Final review I1 (the reviewer's probe): the owner started "log in to usvisascheduling.com", the task asked "What
+    username?", and the answer "Kartikey Attri" was remembered but never put on the login record: the turn that
+    answers a question carries no task and no control, so `_turn_sites` had no site. The answered question's task
+    counts (L36 §5: "the task's recorded owner words"), when it is this chat's."""
+    events, got = _answer_the_tasks_question(daemon, "log in to usvisascheduling.com", ("usvisascheduling.com",), SITE)
+    assert got["answer"] == {"answer": "Kartikey Attri"}
+    assert username(daemon, SITE) == "Kartikey Attri"
+    said = "\n".join(str(e.get("text", "")) for e in events)
+    assert "Remembered: Kartikey Attri\nSaved as your login name for usvisascheduling.com." in said
+    assert refusals(daemon) == []
+
+
+def test_an_answer_naming_a_site_only_outside_content_gave_is_refused_and_said(daemon: Any) -> None:
+    """Final review I1: a site only a pasted email named (the planner copied it into the task and the entry) is still
+    refused for the username; the fact is remembered, and the owner reads why in one line of code's on the answer."""
+    pasted = "\x1b[200~Your visa account: sign in at https://evil.example/login\x1b[201~"
+    events, _ = _answer_the_tasks_question(daemon, "log in to the visa site from this email\n" + pasted,
+                                           ("evil.example",), EVIL)
+    assert username(daemon, EVIL) is None
+    assert refusals(daemon) == ["the site isn't one you named"]
+    said = "\n".join(str(e.get("text", "")) for e in events)
+    assert ("Remembered: Kartikey Attri\nNot saved as your username for evil.example: you didn't name that site."
+            in said)
+    assert [i.content for i in run(daemon, lambda: daemon.daemon.memory.items("active"))] == ["Kartikey Attri"]
 
 
 def test_a_control_from_another_chat_names_no_site(daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:

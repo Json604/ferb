@@ -741,8 +741,9 @@ just one (exactly that site, with or without "www.", never other addresses under
 gave for the site from the first sign-in; a login saved there keeps counting for that site in later tasks, and its
 secrets fill only on the page they were saved on. The hidden-input question names the account, and whose it is when it
 comes from another site: "For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): …". Tell FERB a
-site's username while it works ("the username is …") and it is remembered for that site, when you typed the site (in
-that message or for the task; never a site only a page, a pasted email or FERB named), and offered on its login page;
+site's username while it works ("the username is …"), or answer its "What username?", and it is remembered for that
+site, when you typed the site (in that message or for the task; never a site only a page, a pasted email or FERB named;
+then FERB says "Not saved as your username for <site>: you didn't name that site"), and offered on its login page;
 forgetting or retiring that memory removes it from the login record too, and a new username you give for the same
 fact replaces it there. A password saved for a whole browser before 2026-10-24 can't be used and is listed as "ask
 again". A saved answer that is an ordinary dictionary word (a city, a food) is hidden wherever that word appears, in any

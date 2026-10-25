@@ -903,7 +903,10 @@ After the owner's update (2026-10-24):
   visa site) names it from the first sign-in of a task you typed that one site for, saying whose account it is ("For
   atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): …"); so does any other page that shows it
   through a link. Forgetting or retracting the memory removes it from the login record; if that fails, FERB records
-  why.
+  why. A username given as the answer to the task's own question ("What username?" answered "Kartikey Attri") is
+  saved for the site you typed when starting that task too (final review I1: only the fact was saved); one for a site
+  you didn't name is still not saved, and FERB says so: "Not saved as your username for <site>: you didn't name that
+  site."
 - A loop keeps holding your tab between rounds (L31; live 2026-10-25, "keep this tab running", task cc5debe4: watching
   began 96 s after your message, and each round paused your reel itself). Every round ended with `browser.keep_open`,
   which let go of your borrowed Brave tab; letting go turns the browser's focus emulation off, and Instagram paused
