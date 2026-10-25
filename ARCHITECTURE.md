@@ -1654,16 +1654,21 @@ the owner must answer first (`confirm.decide`):
     run after a Yes; any item of a menu-bar menu titled Terminal, Run, Console or Shell (the VS Code family's Terminal
     and Run menus, JetBrains' Run: Run Selected Text, Run Active File, Run Task, New Terminal, whose profile may run a
     startup command) or a run control (VS Code's `codicon-play`/run/debug-start classes; in an editor app,
-    `terminals.editor_app`, a button or a context-menu item labelled Run… or Debug…), however it is reached: a press,
-    a pixel click, Space or Return on it while it has the focus, or a key the app's menus map to it (⇧⌘B is
-    "Terminal > Run Build Task…"), shown with the active editor's selection (its Monaco input inside the group VS
-    Code marks active, `accessibility.active_editor`, not whatever has the focus; "which FERB can't read" when it
-    can't) and its file; and opening a file whose Launch Services default app is a terminal app (a `.command`): a
-    double-click, an AX press on its item, a key or menu command while it is selected, or a Finder script naming
-    it, shown with its path and whole text and bound to its hash (`apps.default_app_for`, `accessibility.file_of`). `Gateway._terminal` asks after the call's span starts
-    and before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at once, so the same text
-    asks again, a retry included. A No is final for that exact input in the tree until the owner's own follow-up
-    reopens it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
+    `terminals.editor_app`, or in a window that hosts a terminal by structure, `terminals.structural` over a bounded
+    `accessibility.window_facts` walk (round 3, N6), a button or a context-menu item labelled Run… or Debug…),
+    however it is reached: a press, a pixel click, Space or Return on it while it has the focus, or a key the app's
+    menus map to it (⇧⌘B is "Terminal > Run Build Task…"; the question names the key and the Yes covers that key
+    press, even with the terminal focused: round 3, L1), shown with the active editor's selection (its Monaco input
+    inside the group VS Code marks active, `accessibility.active_editor`, not whatever has the focus; "which FERB
+    can't read" when it can't), its size as FERB read it ("26 characters on 1 line": Monaco may hold a shortened copy
+    of a very large selection) and its file; and opening a file whose Launch Services default app is a terminal app
+    (a `.command`): a double-click, an AX press on its item, a key or menu command while it is selected, or a Finder
+    script naming it, shown with its path and whole text and bound to its hash (`apps.default_app_for`,
+    `accessibility.file_of`). A Finder or System Events script that names no file by path says "FERB can't see which
+    file this opens, if it opens one" (`terminals.OPENS_FILES`; round 3, O1). `Gateway._terminal` asks after the
+    call's span starts and before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at
+    once, so the same text asks again, a retry included. A No is final for that exact input in the tree until the
+    owner's own follow-up reopens it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
   - *What the owner reads is what goes in* (review rounds 1 and 2). The question names the app, the terminal's own
     label (clipped) and its window's title, and shows text JSON-quoted with every character that would read as
     nothing (C0/C1, DEL, line and paragraph separators, format characters, non-ASCII spaces, blank glyphs such as
@@ -1687,28 +1692,42 @@ the owner must answer first (`confirm.decide`):
     `script_refusal`, `secret_refusal`, `_run_refusal`). The browser driver (`ext_bridge._TabDriver.act`) does the
     same for an element the snapshot marked `terminal` (extension 0.15.11, now the minimum: an older one is refused at
     hello), its one Return on the same element id, a drop onto it before the pointer path, a paste key with the
-    clipboard's text bound to its change count; a browser secret or login code into it is refused. mac.applescript
+    clipboard's text bound to its change count; a browser secret or login code into it (any split-code field, before
+    and after the question: round 3, O3) is refused. mac.applescript
     runs under a profile whose Apple Events reach only the app the call names (`(allow appleevent-send
     (appleevent-destination …))` after a deny: an event to any other app fails before it is sent, -600, measured),
     and that opens nothing and runs no program but osascript (`sandbox.APPS_LOCKDOWN`: lsopen denied, measured with
-    sandbox_check and no UI; `do shell script` fails, error 100013); a script holding `do shell script` is refused
-    first, naming shell.run. The refusal says "FERB types into a terminal only after the owner's Yes to that exact
+    sandbox_check and no UI; `do shell script` fails, error 100013); a script holding `do shell script` (any case,
+    across ¬ line continuations, or the raw `«event sysoexec»`: `tools.runs_shell`, round 3) is refused first, naming
+    shell.run. The refusal says "FERB types into a terminal only after the owner's Yes to that exact
     input, every time (D31) … Run commands with FERB's shell tool; if FERB's sandbox blocks a command you need, request
     the escape hatch".
   - *Unchanged.* Clicks and focus into a terminal need nothing. No check uses a bundle list alone: every one goes
     through `terminals.surface` (the built-in list plus the owner's).
-  - *FERB's own apps* (rule 8, rule 9, W2; 2026-10-25). No Mac tool operates them, so a worker can't answer FERB's
-    own question in the notch: `MacComputerDriver.app()` refuses `front_window.FERB_APPS` and the daemon's process
-    (every tool resolves through it; `mac.open` refuses their bundle ids); a click or drag whose point a FERB window
-    would take is refused (`_own_point`: the system's hit test, which skips click-through overlays like FERB's own
-    cursor, else the topmost normal window), re-checked right before each step; typing or a key while a FERB app is in
-    front is refused; a System Events script naming one is refused, never asked. "FERB never operates its own app;
-    questions are answered by the owner".
+  - *FERB's own apps* (rule 8, rule 9, W2; 2026-10-25, fix round 3). No Mac tool operates them, so a worker can't answer
+    FERB's own question in the notch: `MacComputerDriver.app()` refuses `front_window.FERB_APPS` and the daemon's
+    process (every tool resolves through it; `mac.open` refuses their bundle ids). FERB's processes are found among
+    every running app whatever its activation policy (`apps.pids_of`, NSWorkspace's whole list: the notch is an
+    accessory app, absent from the Regular-only `apps.running()`), plus the daemon. A click or drag whose point a FERB
+    window would take is refused (`_own_point`): the system's hit test first (it skips click-through windows like FERB's
+    own cursor overlay); when it can't tell, the on-screen window list on every level, front to back, down to the
+    target's window (`screenshot.windows_at`), skipping nothing: a FERB window above it, or no window list, refuses with
+    "FERB can't confirm what is under this point" (fail closed). The check runs before and again right before each
+    event, for `mac.pointer`, `mac.click` and a `mac.act` press or click with `mechanism=foreground` (a real click at
+    the element's centre, `_foreground_click`). Input that goes to what is in front (any foreground keyboard, pointer or
+    scroll route) is refused while a FERB app is frontmost or key; process-directed `pid` and `ax_keyboard` input to
+    another app goes on (round 3, M1: the notch becomes key on hover). A System Events script naming one literally is
+    refused, never asked. "FERB never operates its own app; questions are answered by the owner".
   - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; editor keybindings with
     no menu key equivalent (⇧⏎ in a Python editor) and run controls Accessibility doesn't expose; the task picked in
     Run Task's list after the asked menu press; the Command Palette and web IDE menus reached through browser.act; a
     drop whose text FERB can't read is asked as "something FERB can't read"; a `.command` opened by an app FERB drives
-    in a way Accessibility doesn't show (its own open dialog). Shell startup files are in `never_write` for the shell
+    in a way Accessibility doesn't show (its own open dialog); a System Events script naming a FERB app is refused only
+    when it names it literally: one that builds the name at run time, or picks a process by pid or by being frontmost,
+    gets the ordinary System Events question with the script shown (round 3, M2, accepted); a `do shell script` built
+    as a string at run time passes the early refusal and fails at the sandbox; the instant between a `.command` file's
+    re-hash and its open; a FERB notch started without a bundle (`swift run`) carries no bundle id, so it isn't in
+    `FERB_APPS`. Shell startup files are in `never_write` for the shell
     only (fs tools may change them, with S1 copies); VS Code's settings and tasks files and terminal profiles aren't
     in any list, so a terminal FERB opens asks rather than trusts its profile.
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result

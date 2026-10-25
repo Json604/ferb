@@ -1693,3 +1693,25 @@ owner saw.
   --full`) and FERB's recorded problems; no password, code or key in it, and none of `~/.ferb/logs/daemon.err.log`'s
   raw lines. Then press Send and confirm it arrived at ktky.attri@gmail.com with the file.
 - `ls -l ~/.ferb/reports`: the folder is `drwx------`, the file `-rw-------`.
+
+## Terminal input and FERB's own apps (D31, rule 10) — pending live checks (2026-10-25)
+
+Checkout validation is in the changelog entries (three security reviews); nothing here is installed or observed yet.
+Run after `ferb setup --update`, with the owner watching, in disposable windows and files only; pause between
+supervised actions and record what the owner saw. Two facts the reviews couldn't check without real apps:
+
+- **Finder rows carry the file (AXURL).** Make `~/Desktop/ferb-terminal-check/x.command` holding `echo ferb-check`
+  (`chmod +x`). Open that folder in a Finder window in list view, then in icon view. Ask FERB: "in Finder, open
+  x.command in ~/Desktop/ferb-terminal-check". **Expected:** before anything opens, a question naming the file's path
+  and showing `echo ferb-check`; answer No: Terminal doesn't open. `ferb trace TASK --full` shows rule
+  `floor:terminal_input` with `files` set. If FERB acts without asking in either view, record which view: that view's
+  rows don't carry AXURL, and the check needs another fact.
+- **Monaco's selection when it is large.** In a disposable VS Code window, open a scratch `.py` file with 400
+  numbered lines (`print(1)` … `print(400)`), select all of it, and ask FERB to "run the selected text in VS Code's
+  terminal". **Expected:** a question with the selection and "(N characters on 400 lines, as FERB read it)". Record
+  the counts it shows: fewer than 400 lines means VS Code gave FERB a shortened copy (the owner then sees the
+  difference before answering). Answer No: nothing runs in the terminal.
+- **The notch can't be answered by FERB.** With a question open in the notch, look in `ferb trace TASK --full` for any
+  `mac.*` call that names FERB, dev.ferb.notch or a point inside the notch: each must be refused ("FERB never operates
+  its own app" or "FERB can't confirm what is under this point"). While hovering the notch (it takes the keyboard),
+  background work typing into another app keeps going.

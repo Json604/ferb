@@ -1087,6 +1087,18 @@ After the owner's update (2026-10-24):
   holding a saved secret is refused without showing it, spaces show as typed, blank-looking characters are escaped,
   and the notch shows FERB's questions in a monospaced font. Ordinary typing no longer stops when an autocomplete
   moves the focus, and typed-text capture skips the apps on your own terminal list too.
+- FERB can't click its own notch on any route (D31, rule 8, rule 9; third review). The click refusal looked FERB's
+  processes up among ordinary apps only, and the notch is an accessory app, so a click on its Approve button went
+  through; a `mac.act` foreground press clicked an element's centre with no check at all. FERB now finds its
+  processes among every running app, checks every click point (the system's hit test, else every window level), and
+  refuses when it can't tell what is under the point ("FERB can't confirm what is under this point"). Background
+  typing and keys into another app's process go on while the notch holds the keyboard (hovering it makes it key);
+  only input that goes to whatever is in front is refused then.
+- The terminal question, third review (D31): a run shortcut you said yes to is no longer refused when the terminal
+  has the focus, and its question names the key; `do shell script` is refused however it is spelled (¬ line
+  continuations, `«event sysoexec»`); a Finder or System Events script that opens a file it doesn't name says "FERB
+  can't see which file this opens"; a Run… button asks in any app whose window holds a terminal; every split-code
+  field is checked for a web terminal; and the run question shows the selection's size as FERB read it.
 - Send to developer (L35; owner, 2026-10-25: "just add a simple send to developer thing tho, whenever ferb says
   failed", "just send to ktky.attri@gmail.com as of now"). A failed task left its record only on your Mac. Under an
   answer whose task failed or was interrupted, or whose turn failed, the notch now has a **Send to developer** button:
