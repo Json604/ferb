@@ -151,7 +151,7 @@ WORKER_SCHEMA: dict[str, Any] = _obj({
 })
 
 DISPATCH_SCHEMA = _obj({
-    "action": {"type": "string", "enum": ["retry", "ask", "finish"]},
+    "action": {"type": "string", "enum": ["retry", "ask", "finish", "recheck"]},
     "worker_type": {"type": "string"},
     "instructions": {"type": "string"},
     "question": {"type": "string"},
@@ -372,7 +372,7 @@ class WorkerOutcome(BaseModel):
 
 class DispatchOutcome(BaseModel):
     stop_reason: str = ""
-    action: Literal["retry", "ask", "finish"]
+    action: Literal["retry", "ask", "finish", "recheck"]   # recheck (L39): run only the check again, no worker
     # finish only. "unconfirmed": the work looks done and only confirmation is missing; code reports done but not
     # confirmed when the worker reported done and the check found nothing false. Anything else, or absent, is failed.
     result: Literal["unconfirmed", "failed"] | None = None

@@ -24,6 +24,10 @@ ask once "<tool> isn't installed — should I install it?" with the install comm
 in this task; never switch to another tool, and never narrow the request to read-only unless the owner said so.
 
 action=retry: pick a worker_type from the supplied catalog and provide concrete instructions.
+action=recheck: run only the check again, on the same work and its recorded file changes, with no worker run. When
+FERB's fact says the check marked conditions met without reading the files the work changed, the work isn't what
+failed and a worker retry can't fix it: use recheck, or finish with result unconfirmed naming the files the check
+didn't read, or ask the owner.
 action=ask: give one concise question in FERB's voice; use only when you also need the owner's answer.
 action=finish: put the concrete external blocker in instructions, and leave question empty. Use this only after
 recovery options are exhausted. Put the actual reason in stop_reason: the concrete unavailable source/capability,

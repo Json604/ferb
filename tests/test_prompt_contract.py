@@ -189,6 +189,17 @@ SENTENCES = [
     ("verifier.md",
      "Before any `met=true` on such a step, read each changed file (fs_read) or its change record (task_evidence with "
      "its span_id): FERB refuses a pass without that look."),
+    # L39 fix round 1 (I1, M9): facts-only changes may be the owner's; a bulk step's records in one read
+    ("verifier.md",
+     "One task_evidence call may name several change records (span_ids). A change listed as \"changed during this "
+     "step\" with no content may be the owner's or another task's: it is not by itself an unrequested change by the "
+     "worker."),
+    ("dispatch.md",
+     "action=recheck: run only the check again, on the same work and its recorded file changes, with no worker run."),
+    ("dispatch.md",
+     "When FERB's fact says the check marked conditions met without reading the files the work changed, the work isn't "
+     "what failed and a worker retry can't fix it: use recheck, or finish with result unconfirmed naming the files the "
+     "check didn't read, or ask the owner."),
 ]
 
 

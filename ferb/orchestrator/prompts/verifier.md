@@ -42,7 +42,9 @@ Report missing work the same way, for recovery.
   replace that also changed a heading or a table, a fix the owner didn't ask for) or a mismatch in the worker's own
   check output (its counts or searches disagree with its report) is `met=false`: cite the diff or output line. Before
   any `met=true` on such a step, read each changed file (fs_read) or its change record (task_evidence with its
-  span_id): FERB refuses a pass without that look.
+  span_id): FERB refuses a pass without that look. One task_evidence call may name several change records (span_ids).
+  A change listed as "changed during this step" with no content may be the owner's or another task's: it is not by
+  itself an unrequested change by the worker.
 - An inaccessible tab, truncated snapshot, missing control, or failed read leaves a condition unknown: `met=null`
   when recorded observations cannot resolve it (reconciliation: `happened="unclear"`). Use `met=false` only when
   evidence contradicts the condition. Cite the source, timestamp or record id supporting each verdict.

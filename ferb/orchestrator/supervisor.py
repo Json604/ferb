@@ -379,6 +379,7 @@ class _Tree:
     hold_resources: bool = False         # a loop round: what it starts stays the loop's until the loop ends
     calls_since: int = 0                 # and its check reads only the calls recorded after this span cursor
     unchecked: str = ''                  # why this round's model check was skipped (a look-only round), else ''
+    unlooked: list[str] = field(default_factory=list)   # L39 I4: the only gap is a check that didn't read these files
     step_context: str = ''
     parent_goal: str = ''                # a plan step's: the goal of the task it belongs to, above its own (L36 §4)
     required_inputs: list[str] = field(default_factory=list)
@@ -2857,7 +2858,8 @@ class Supervisor(WorkerRuns):
                                                  'why': cause.get('why')})
             member.calls_since = self._span_cursor(round_span.id)       # its check judges this round's calls only
             if self.changes is not None:                 # and only the files this round changed (L39)
-                await asyncio.to_thread(self.changes.reset, child.id)
+                if stuck := await asyncio.to_thread(self.changes.reset, child.id):
+                    self.journal.append("changes.cleanup_failed", {"task_id": child.id, "paths": len(stuck)})
             before = self._unknown_actions(tree.id, child.id)
             try:
                 out = await self._worker(member, round_span.id)
@@ -3118,50 +3120,61 @@ class Supervisor(WorkerRuns):
         instructions = ""
         artifacts: list[str] = []
         evidence: list[str] = []
+        recheck: Outcome | None = None       # L39 I4: the done report whose check alone runs again ("recheck")
         while not tree.stop:
-            # Prior attempts remain in report/cleanup spans. Only the current attempt determines final state.
-            tree.resources = []
-            tree.cleanup_errors = []
-            tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
-            tree.check_problem = ""
-            tree.checked_report = None
-            tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
-            tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
-            tree.probe = None
-            tree.unchecked = ''
-            self.tasks.set_status(task.id, "running")
-            raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
-                                           WORKER_SCHEMA, span)
-            attempt_revision = len(tree.steering.messages)
-            try:
-                w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
-                out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
-                tree.owner_answer = getattr(w, 'answer', '')
-                tree.input_notes = getattr(w, 'input_notes', [])
-                tree.conversation_action = getattr(w, 'conversation_action', None)
-                tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
-                tree.watch_met = getattr(w, 'watch_met', None)
-                tree.loop_action = getattr(w, 'loop_action', None)
-                tree.probe = getattr(w, 'probe', None)
-                if out.status == 'done' and tree.required_inputs:
-                    covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
-                    missing = [p for p in tree.required_inputs if covered.count(p) != 1]
-                    if missing or set(covered) - set(tree.required_inputs):
-                        out = Outcome(task.id, 'blocked', out.summary + '\nThe complete evidence notes are missing or duplicated for: ' +
-                                      json.dumps(missing), out.artifacts, out.evidence)
-            except ValidationError:
-                out = Outcome(task.id, "failed", "The report from this attempt was incomplete.", [], [])
-            artifacts = list(dict.fromkeys(artifacts + out.artifacts))
-            evidence = list(dict.fromkeys(evidence + out.evidence))
-            out = Outcome(task.id, out.status, out.summary, artifacts, evidence)
-            if tree.result_revision < len(tree.steering.messages) and not tree.stop:
-                # Preserve completed work while a fresh turn handles the correction that raced completion.
-                tree.reports.append({'status': out.status, 'summary': out.summary, 'artifacts': artifacts,
-                                     'evidence': evidence, 'note': 'Finished before the latest owner correction was delivered.'})
-                continue
+            tree.unlooked = []
+            if recheck is not None:          # only the check runs again: the same work and change records, no worker
+                out, recheck = recheck, None
+                tree.verification, tree.check_problem, tree.checked_report = [], "", None
+                attempt_revision = len(tree.steering.messages)
+                again = self.spans.start("verify.recheck", task_id=task.id, parent_id=span, input={})
+                self.spans.finish(again, output={"worker": "not run: the orchestrator chose to re-run only the check"})
+            else:
+                # Prior attempts remain in report/cleanup spans. Only the current attempt determines final state.
+                tree.resources = []
+                tree.cleanup_errors = []
+                tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
+                tree.check_problem = ""
+                tree.checked_report = None
+                tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
+                tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
+                tree.probe = None
+                tree.unchecked = ''
+                self.tasks.set_status(task.id, "running")
+                raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
+                                               WORKER_SCHEMA, span)
+                attempt_revision = len(tree.steering.messages)
+                try:
+                    w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
+                    out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
+                    tree.owner_answer = getattr(w, 'answer', '')
+                    tree.input_notes = getattr(w, 'input_notes', [])
+                    tree.conversation_action = getattr(w, 'conversation_action', None)
+                    tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
+                    tree.watch_met = getattr(w, 'watch_met', None)
+                    tree.loop_action = getattr(w, 'loop_action', None)
+                    tree.probe = getattr(w, 'probe', None)
+                    if out.status == 'done' and tree.required_inputs:
+                        covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
+                        missing = [p for p in tree.required_inputs if covered.count(p) != 1]
+                        if missing or set(covered) - set(tree.required_inputs):
+                            out = Outcome(task.id, 'blocked', out.summary + '\nThe complete evidence notes are missing or duplicated for: ' +
+                                          json.dumps(missing), out.artifacts, out.evidence)
+                except ValidationError:
+                    out = Outcome(task.id, "failed", "The report from this attempt was incomplete.", [], [])
+                artifacts = list(dict.fromkeys(artifacts + out.artifacts))
+                evidence = list(dict.fromkeys(evidence + out.evidence))
+                out = Outcome(task.id, out.status, out.summary, artifacts, evidence)
+                if tree.result_revision < len(tree.steering.messages) and not tree.stop:
+                    # Preserve completed work while a fresh turn handles the correction that raced completion.
+                    tree.reports.append({'status': out.status, 'summary': out.summary, 'artifacts': artifacts,
+                                         'evidence': evidence, 'note': 'Finished before the latest owner correction was delivered.'})
+                    continue
             finished: Outcome | None = None      # this attempt's done report when its check found nothing false
+            checked_done: Outcome | None = None  # the done report this attempt's check judged (for a recheck)
             if out.status == "done" and tree.spec.success_conditions and not tree.stop:
                 tree.outcome = out
+                checked_done = out
                 checking_revision = len(tree.steering.messages)
                 tree.unchecked = self._look_only(tree)
                 try:
@@ -3227,6 +3240,9 @@ class Supervisor(WorkerRuns):
                                artifacts, evidence)
             if attempt_revision != len(tree.steering.messages) and not tree.stop:
                 continue
+            if choice.action == "recheck" and checked_done is not None:
+                recheck = checked_done           # L39 I4: the check alone runs again on the same work
+                continue
             if choice.action == "ask":
                 tree.owner_question = choice.question
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
@@ -3277,6 +3293,9 @@ class Supervisor(WorkerRuns):
                wrap_untrusted(json.dumps({"status": outcome.status, "summary": outcome.summary,
                                           "artifacts": outcome.artifacts, "evidence": outcome.evidence})) +
                "\nInspection findings (data): " + wrap_untrusted(json.dumps([r.as_dict() for r in tree.verification])))
+        if tree.unlooked:                    # L39 I4: code's own fact, outside the data framing (paths quoted)
+            report += "\n" + CHECK_DIDNT_LOOK.format(files=", ".join(json.dumps(p, ensure_ascii=False)
+                                                                       for p in tree.unlooked))
         ctx = (await self._context(tree)) + [ContextBlock(report, "current worker and verification reports", protected=True)]
         rt = self.make_runtime('orchestrator', mode='supervisor', tool_names=[], schema=DISPATCH_SCHEMA)
         decision = Task(tree.worker.id + '.dispatch', tree.worker.id, 'choose recovery', self.device_id,
@@ -3645,8 +3664,8 @@ class Supervisor(WorkerRuns):
             refused = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
             self.spans.finish(refused, output={"rerun": "once, with the reason"})
             why = ContextBlock(REFUSED_PASS.format(files="; ".join(
-                f"{path} (task_evidence span_id={changed.records[path]})" for path in unread)),
-                "FERB refused this check's pass", protected=True)
+                f"{json.dumps(path, ensure_ascii=False)} (task_evidence span_id={changed.records[path]})"
+                for path in unread)), "FERB refused this check's pass", protected=True)
             checked = await self._check(tree, vtask, judged, span, ctx + [why], plain + [why], effort)
             if isinstance(checked, list):
                 return checked
@@ -3656,6 +3675,10 @@ class Supervisor(WorkerRuns):
                 again = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
                 self.spans.finish(again, output={"result": "met=null: a pass without a look is never a pass"})
                 shown = ", ".join(file_changes.shown(path) for path in unread)
+                # I4: when nothing else was unresolved, the dispatcher is told the work is recorded and only the
+                # check didn't look (a worker retry can't fix that; `recheck` re-runs only the check)
+                if all(r.met is True for r in verdict.results):
+                    tree.unlooked = list(unread)
                 verdict = verdict.model_copy(update={"results": [
                     r.model_copy(update={"met": None, "evidence": NO_LOOK.format(files=shown) + " " + r.evidence,
                                          "how": NO_LOOK_HOW.format(files=shown)}) if r.met is True else r
@@ -3696,54 +3719,75 @@ class Supervisor(WorkerRuns):
             raise
 
     async def _changed_files(self, tree: _Tree, task: Task, above: int) -> "_Changed":
-        """L39: the files this step changed (ferb/act/fs/changes.py), each as a change record its checker can read
-        (task.evidence span_id; a context.source on the task, its text redacted) and as data blocks for its context:
-        one always-shown list of the files and their records, then each diff (FERB's data framing, MP2), cut at a
-        task_evidence page with where to read on, each above every other optional block (`above`). No change record,
-        or none changed: nothing (the check runs as before)."""
+        """L39: the files that changed during this step (ferb/act/fs/changes.py). Each file a call of the step named
+        exactly is a change record its checker can read (task.evidence span_id; a context.source on the task holding
+        the redacted diff as the checker sees it, cut at `PAGE_CHARS`, never the whole file) and a data block (FERB's
+        data framing, MP2), above every other optional block (`above`); the always-shown list names them, the paths
+        JSON-quoted (outside content can choose a file name, rule 16). Anything else that changed in a folder the step
+        listed is a fact only (name, size, time) in one data block: it may be the owner's or another task's, and needs
+        no look. No change record, or nothing changed: nothing (the check runs as before)."""
         if self.changes is None:
             return _Changed()
+        store = self.changes
         try:
-            found = await asyncio.to_thread(self.changes.changes, task.id, tree.id)
-            texts = await asyncio.to_thread(lambda: [file_changes.describe(c) for c in found])
+            found = await asyncio.to_thread(store.changes, task.id, tree.id)
+            texts = await asyncio.to_thread(lambda: [store.describe(c) for c in found])
         except Exception as e:                       # the check runs without it; the journal says why
             self.journal.append("task.changes_failed", {"task_id": task.id, "error": f"{type(e).__name__}: {e}"})
             return _Changed()
         if not found:
             return _Changed()
         records: dict[str, str] = {}
-        listed, diffs = [], []
+        listed, diffs, facts = [], [], []
         untrusted = [Path(u).expanduser().resolve() for u in self.roots.untrusted_roots]
-        for n, (change, text) in enumerate(zip(found, texts), 1):
+        named = [(c, t) for c, t in zip(found, texts) if c.content]
+        for change, text in zip(found, texts):
+            text = str(self.gateway.redact({"t": text})["t"])
+            if not change.content:
+                facts.append(text)
+                continue
+            n = len(records) + 1
             path = Path(change.path)
             origin = (origins_.external("download") if any(path == u or u in path.parents for u in untrusted)
                       else origins_.PRIVATE)
-            text = str(self.gateway.redact({"t": text})["t"])
-            block = self._source_block(tree, f"Change record {n}", text, origin)
+            cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] +
+                  "\n[… cut here; read the rest in the file itself (fs_read for text)]")
+            block = self._source_block(tree, f"Change record {n}", cut, origin)
             span_id = block.reference.removeprefix("task.evidence span_id=")
             records[change.path] = span_id
-            what = {"modified": "changed", "removed": "removed"}.get(change.what, "made by this step" + (
-                f", compared with {change.source}" if change.source else ""))
-            listed.append(f"{n}. {change.path} ({what}) — change record: task.evidence span_id={span_id}")
-            cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] +
-                  f"\n[… cut here; read the whole record with task_evidence span_id={span_id}]")
+            source = f", compared with {json.dumps(change.source, ensure_ascii=False)}" if change.source else ""
+            what = {"modified": "changed", "removed": "removed"}.get(change.what, "new" + source)
+            listed.append(f"{n}. {json.dumps(change.path, ensure_ascii=False)} ({what}) — change record: "
+                          f"task.evidence span_id={span_id}")
             diffs.append(ContextBlock(f"Change record {n} (data): " + wrap_untrusted(cut), block.reference,
-                                      priority=above + len(found) - n, origin=origin, payload=text))
-        head = ContextBlock(CHANGED_FILES + "\n" + "\n".join(listed), "files this step changed", protected=True)
-        return _Changed(records, [head, *diffs])
+                                      priority=above + len(named) - n, origin=origin, payload=cut))
+        blocks: list[ContextBlock] = []
+        if records:
+            blocks.append(ContextBlock(CHANGED_FILES + "\n" + "\n".join(listed), "files this step changed",
+                                       protected=True))
+        if facts:
+            shown, more = _within(facts, PAGE_CHARS)
+            blocks.append(ContextBlock(OTHER_CHANGES + wrap_untrusted("\n".join(shown) + (
+                f"\n… and {more} more changed during this step" if more else "")), "other changes during this step",
+                protected=True, origin=origins_.PRIVATE))
+        return _Changed(records, [*blocks, *diffs])
 
     def _unread(self, check_id: str, cursor: int, records: dict[str, str]) -> list[str]:
-        """The changed files this check hasn't read: no successful observation call of its run(s) since `cursor`
-        targets the file, and no task.evidence read of its change record (L39: a pass needs a look)."""
+        """The changed files this check hasn't read (L39: a pass needs a look): since `cursor`, no successful content
+        read of its run(s) targets the file (a tool marked `reads_content`, e.g. fs.read: a listing or metadata call
+        doesn't count), and no task.evidence read names its change record (one read may name several, `span_ids`)."""
         seen_records, seen_paths = set(), set()
         for row in self.journal.db.conn.execute("SELECT input_json FROM spans WHERE task_id = ? AND kind = 'tool.call' "
                                                 "AND rowid > ? AND error IS NULL", (check_id, cursor)):
             call = json.loads(row[0])
             args = call.get("args") if isinstance(call.get("args"), dict) else {}
             target = (call.get("target") or {}).get("path") if isinstance(call.get("target"), dict) else None
-            if call.get("tool") == "task.evidence" and args.get("span_id"):
-                seen_records.add(str(args["span_id"]))
-            elif target and observes(self.gateway.caps.get(str(call.get("tool")))):
+            tool = str(call.get("tool"))
+            if tool == "task.evidence":
+                ids = [args.get("span_id"), *(args.get("span_ids") or [] if isinstance(args.get("span_ids"), list)
+                                             else [])]
+                seen_records |= {str(i) for i in ids if i}
+            elif target and getattr(self.gateway.caps.get(tool), "reads_content", False):
                 seen_paths.add(str(file_changes.real(Path(str(target)))))
         return [path for path, record in records.items() if record not in seen_records and path not in seen_paths]
 
@@ -3846,14 +3890,33 @@ class Supervisor(WorkerRuns):
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
 # L39: a check of a step that changed files
-CHANGED_FILES = ("Files this step changed (data: FERB compared each with its copy from before the step; each diff "
-                 "follows as data, and its change record holds all of it). Read each changed file before you mark a "
-                 "condition met: fs_read for a text file, or task_evidence with its change record's span_id.")
+CHANGED_FILES = ("Files this step's calls named that changed (FERB compared each with its copy from before the step; "
+                 "each diff follows as data, and its change record holds it). Read each one before you mark a "
+                 "condition met: fs_read for a text file, or task_evidence with its change record's span_id (one "
+                 "call may name several with span_ids).")
+OTHER_CHANGES = ("Also changed during this step in folders the step listed (facts only, shown as data: no call of the "
+                 "step named these files, so they may be the owner's or another task's; such a change is not by itself "
+                 "an unrequested change by the worker, and needs no read): ")
+CHECK_DIDNT_LOOK = ("FERB's fact about this check: the work's changes are recorded, and the check marked conditions "
+                    "met without reading them ({files}), so they stand unconfirmed. Re-running the worker can't fix "
+                    "this: use action=recheck to run only the check again, finish with result unconfirmed naming those "
+                    "files, or ask the owner.")
 REFUSED_PASS = ("FERB refused this check's pass: it marked conditions met without reading these files this step "
                 "changed: {files}. Read each one (fs_read for a text file, or task_evidence with its change record's "
                 "span_id), then judge every condition again; give met=true only for what you saw.")
 NO_LOOK = "The check marked this met without reading the files this step changed ({files}), so it isn't a pass."
 NO_LOOK_HOW = "Open {files} and check the change yourself."
+
+
+def _within(lines: list[str], chars: int) -> tuple[list[str], int]:
+    """The leading lines that fit in `chars` (at least one), and how many more there are. Display only."""
+    shown, used = [], 0
+    for line in lines:
+        if shown and used + len(line) > chars:
+            break
+        shown.append(line)
+        used += len(line) + 1
+    return shown, len(lines) - len(shown)
 
 
 @dataclass

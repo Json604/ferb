@@ -84,6 +84,8 @@ class TaskEvidence:
         after: int = Field(0, ge=0, description="next_after from the previous list page")
         limit: int = Field(20, ge=1, le=100)
         span_id: str | None = None
+        span_ids: list[str] | None = Field(None, max_length=50, description="several records at once (e.g. a step's "
+                                           "change records): the first page of each, max_chars shared between them")
         offset: int = Field(0, ge=0, description="character offset in the selected record's JSON")
         max_chars: int = Field(12000, ge=1000, le=60000)
         evidence_id: str | None = Field(None, description="read one stored capture's facts (an id from kind=evidence)")
@@ -102,6 +104,20 @@ class TaskEvidence:
 
         def task_origins(records: list[dict[str, Any]]) -> set[str]:     # read only when a returned record inherits
             return self.spans.task_origins(root or source) if any(inherits(r) for r in records) else set()
+        if args.span_ids:                # L39 M9: one read of several records (a bulk step's change records)
+            pages, origins = [], set()
+            share = max(1000, args.max_chars // len(args.span_ids))
+            for span_id in dict.fromkeys(args.span_ids):
+                row = self.spans.tool_call(source, span_id, root_id=root)
+                if row is None:
+                    pages.append({"span_id": span_id, "error": "no authorized recorded fact with that id in this task"})
+                    continue
+                payload = record_text(row)
+                start, end = page_bounds(payload, 0, share, self.secrets())
+                pages.append({"span_id": span_id, "text": payload[start:end],
+                              "next_offset": end if end < len(payload) else None, "total_chars": len(payload)})
+                origins |= record_origins(row, task_origins([row]))
+            return ToolResult({"source_task": source, "records": pages}, read_sources=_passed(origins))
         if args.span_id:
             row = self.spans.tool_call(source, args.span_id, root_id=root)
             if row is None:
