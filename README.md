@@ -79,9 +79,10 @@ recorded. Only missing or unknown grants are reported as deferred; updating does
 
 ### Browser extension
 
-FERB's browser hands are its extension, **0.15.10** (protocol 17; the daemon accepts 0.15.6 or later); the daemon
-refuses an older protocol with a reload notice. `ferb setup` (and `--update`) handles it for every Chromium browser it
-finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Vivaldi, Arc, Opera):
+FERB's browser hands are its extension, **0.15.11** (protocol 17; the daemon accepts 0.15.11 or later, the first that
+reports a terminal in a page, D31); the daemon refuses an older one with a reload notice. `ferb setup` (and
+`--update`) handles it for every Chromium browser it finds (Chrome and its Beta, Dev and Canary channels, Chromium,
+Brave, Edge, Vivaldi, Arc, Opera):
 - it registers FERB's native host in each browser's folder;
 - it asks each browser to install it from FERB's Chrome Web Store listing (documented for
   Chrome and Chromium; written but unconfirmed for Brave and Edge; not possible for Vivaldi, Arc and Opera). The
@@ -89,8 +90,10 @@ finds (Chrome and its Beta, Dev and Canary channels, Chromium, Brave, Edge, Viva
   reopen. Setup never restarts a browser, approves its prompt or edits its preferences;
 - it reports, per profile, whether the extension is installed, enabled and paired.
 
-The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and has carried 0.15.6, which
-this build needs, since 2026-10-22. 0.15.7 (typing and clicking on a page another extension put a frame into) and
+The listing went live on 2026-10-20 (id `plbfkifcmgkgnlfgikdeaaglgncdhkma`, built in) and carried 0.15.6 from
+2026-10-22; 0.15.11, which this build needs, was uploaded on 2026-10-25. Until a profile's store copy updates to it, the
+daemon refuses that copy with the reload notice (the browser updates store extensions on its own; Load unpacked works at
+once). 0.15.7 (typing and clicking on a page another extension put a frame into) and
 0.15.8 (each video's own id and each tab's sound, which a loop watches), 0.15.9 (where the pointer lands) and 0.15.10 (a
 first snapshot already says whether a video plays) aren't on the listing until 0.15.10 is uploaded;
 until then a profile gets them only by Load unpacked. With the store copy those facts are absent: a loop's probe on
@@ -631,7 +634,7 @@ These are sampled videos: 2 captures/second by default, configurable from 0.2–
 not high-frame-rate video. With `with_audio`, FERB transcribes the app's sound on this Mac and attaches a redacted,
 time-aligned transcript; the video itself keeps no audio track and the sound is deleted once transcribed. They need
 `ffmpeg` and `ffprobe` installed; FERB searches PATH and the usual Homebrew/user binary folders. Browser capture
-requires extension 0.15.6 / protocol 17; native capture requires macOS Screen Recording access and the target window
+requires extension 0.15.11 / protocol 17; native capture requires macOS Screen Recording access and the target window
 to remain capturable. A frame whose secret fields can't be painted over is skipped, and the result says how many.
 
 ### Hearing during tasks

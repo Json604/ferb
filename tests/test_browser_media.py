@@ -450,4 +450,4 @@ def test_protocol_14_adds_the_media_op_in_python_and_javascript_together() -> No
                         capture_output=True, text=True, timeout=10)
     assert json.loads(js.stdout) == {"v": 17, "media": True}
     assert ext_protocol.PROTOCOL_VERSION == 17 and "media" in ext_protocol.Op.__args__
-    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.6"            # protocol 17 (fix wave 4) ships with 0.15.6
+    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.11"           # protocol 17; 0.15.11 reports web terminals (D31)

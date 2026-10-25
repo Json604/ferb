@@ -2814,18 +2814,13 @@ def test_a_reconnect_while_the_held_tab_rests_leaves_it_armed(bd, monkeypatch):
         c.close()
 
 
-@pytest.mark.parametrize('version', ['0.15.10', '0.15.9'])
-def test_the_owners_file_picker_in_the_held_tab_is_theirs_between_rounds(bd, monkeypatch, version):
+def test_the_owners_file_picker_in_the_held_tab_is_theirs_between_rounds(bd, monkeypatch):
     """Re-review N2: between rounds the held tab's file-chooser interception goes off (the owner's file inputs work),
-    and a round turns it back on before it acts. An extension older than 0.15.10 doesn't know the command and is never
-    sent it: its held tab keeps the picker intercepted (a documented residual)."""
+    and a round turns it back on before it acts. Every extension FERB accepts knows the command (the minimum is 0.15.11
+    since D31 review round 1; the router's own gate for an older one is tests/test_whose_browser.py's)."""
     from tests.conftest import done, install, sup
     _fast(monkeypatch)
     d, ext = _owner_tab(bd)
-    if version != ext.version:
-        ext.version = version
-        ext.hello()
-        ext.wait_for(lambda: d.daemon.hub.bridges[('chrome', 'Profile 1')].version == version)
     install(d, [sup('task', 'Keeping it playing.', _owner_loop())],
             {'loop.keep': [_tab_round(d, ext, []), _tab_round(d, ext, [])], 'worker': done()})
     c, plan = _start_loop(d, 'keep my Instagram tab in Chrome playing until I say stop')
@@ -2837,12 +2832,9 @@ def test_the_owners_file_picker_in_the_held_tab_is_theirs_between_rounds(bd, mon
         _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
         ext.audible.add(OWNER_TAB)
         _wait(d, lambda: sv._loop_status.get((tree_id, 'keep'), {}).get('state') == 'watching')
-        if version == '0.15.10':                 # round 1 found the tab: resting after it; each later round takes it
-            states = [resting for tab, resting in ext.rests if tab == OWNER_TAB]      # back first, then rests it
-            assert states[:3] == [True, False, True] and states[-1] is True
-            assert all(a != b for a, b in zip(states, states[1:]))
-        else:
-            assert ext.rests == [] and not [w for w in ext.wire if '"rest"' in w]
+        states = [resting for tab, resting in ext.rests if tab == OWNER_TAB]  # round 1 found the tab: resting after
+        assert states[:3] == [True, False, True] and states[-1] is True       # it; each later round takes it back
+        assert all(a != b for a, b in zip(states, states[1:]))                # first, then rests it
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()

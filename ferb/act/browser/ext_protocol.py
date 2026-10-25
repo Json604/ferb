@@ -54,7 +54,10 @@ Extension 0.15.11 (D31) adds one optional reply field without a protocol change:
 own nodes (class `xterm` on an ancestor, or `xterm-helper-textarea` on the element) carries `terminal: true`, so the
 daemon asks the owner before typing or pressing a key into it (a web terminal). An older extension never reports it:
 until it updates, a web terminal reached through browser tools isn't recognized (one reached through mac.act still is,
-by the DOM classes Accessibility exposes)."""
+by the DOM classes Accessibility exposes). Review round 1 (D31): the minimum is therefore 0.15.11 (the owner published
+it), with the protocol unchanged at 17: an older extension meets the "reload the FERB extension" refusal at hello, so no
+web terminal goes unrecognized; every extension FERB talks to also knows `rest` (REST_VERSION's gate stays as a
+guard)."""
 
 import base64
 import hashlib
@@ -65,7 +68,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 PROTOCOL_VERSION = 17
-MIN_EXTENSION_VERSION = "0.15.6"
+MIN_EXTENSION_VERSION = "0.15.11"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 

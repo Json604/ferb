@@ -607,3 +607,25 @@ def test_tab_listing_reports_disconnected_pairing_instead_of_empty_tabs(bd):
     # owner's permission once per task.
     error = result['content']['error']
     assert 'browser.open' in error and 'minimized' in error and "owner's permission once per task" in error
+
+
+# ---------- D31 review round 1, finding 6: no web terminal goes unrecognized through an older extension ----------
+
+def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None:
+    """An extension before 0.15.11 never reports `terminal`, so a web terminal would get no question: the minimum is
+    0.15.11 (published by the owner), and an older one meets the existing "reload the FERB extension" refusal."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from ferb.act.browser.ext_bridge import Hub
+    from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, PROTOCOL_VERSION, ExtMessage, version_ok
+    verdict = SimpleNamespace(accepted=True, reason=None, reply=None, binding=object())
+    hub = Hub(SimpleNamespace(handle=lambda m: verdict), None, lambda *a: None, lambda: "test-device")
+    writes: list[bytes] = []
+    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()))
+    asyncio.run(hub._handle(conn, ExtMessage(install_id="test-install", type="hello", body_json=json.dumps(
+        {"version": "0.15.10", "protocol": PROTOCOL_VERSION}))))
+    reply = json.loads(writes[0])
+    assert reply["type"] == "refused" and "reload the FERB extension" in reply["reason"]
+    assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.15.11"
+    assert version_ok("0.15.11") and version_ok("0.15.12") and not version_ok("0.15.10")

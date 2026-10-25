@@ -1309,7 +1309,7 @@ pins the sentences).
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
 the `downloads` table (migration 0025); `browser.downloads` is an observation tool; built on extension 0.15.1,
-protocol 12 (now 0.15.6, protocol 17). The
+protocol 12 (now 0.15.11, protocol 17). The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -3275,9 +3275,10 @@ Geometry only: nothing about what the action does or says leaves the tool.
   (by id) or the browser's matched window. So a minimized window, another Space or a window behind another window at
   that spot gets no pointer. Residual: a native element's own window isn't matched (a sheet or popover is a window of
   its own), so another window of the same app over the spot still counts.
-- **Browser (extension 0.15.10, protocol 17, minimum 0.15.6).** BrowserAct, BrowserSecret and BrowserLoginCode place the
-  element through the page's AX web area (`page_on_screen`) and predict where the extension's scroll-to-centre leaves
-  it. New optional snapshot facts: `window`, `visual`, per element `pinned` and `scroll_box`, and page `scroll.x` /
+- **Browser (extension 0.15.10, protocol 17, minimum 0.15.6; since D31 review round 1 the minimum is 0.15.11).**
+  BrowserAct, BrowserSecret and BrowserLoginCode place the element through the page's AX web area (`page_on_screen`)
+  and predict where the extension's scroll-to-centre leaves it. New optional snapshot facts: `window`, `visual`, per
+  element `pinned` and `scroll_box`, and page `scroll.x` /
   `scroll.width` / `body_scrolls`; `scrollIntoView` and `scrollBy` are now `behavior: "instant"` (smooth-scroll pages
   made real input aim at the pre-scroll spot). A typing point is clipped to the part of the field the visual viewport
   shows (`page_rect(visible=True)`). There is no point for: sub-frames, FERB's own minimized window, a tab its window
