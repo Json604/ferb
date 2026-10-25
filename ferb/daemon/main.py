@@ -2892,7 +2892,8 @@ class Daemon:
                                       "overdue_by": round(t.overdue_s or 0)})
         try:
             await self._notify("FERB reminder" if t.kind == "reminder" else "FERB timer", f"{t.message}{late}",
-                               urgent=True)                     # a reminder is for now
+                               urgent=True, category="reminder", target={"kind": "reminder", "timer_id": str(t.id)},
+                               ident=f"reminder:{t.id}")                       # a reminder is for now
         except Exception:
             pass                                                     # chat, logs and the journal still have it
 
@@ -2938,10 +2939,16 @@ class Daemon:
                                                     str(ev.get("goal", "")), answer, int(shown)))
         if not publish:
             return
+        task = {"kind": "task", "task_id": str(ev["task_id"])}
         if alert:
-            await self._notify("FERB alert", answer, urgent=True)
-        elif not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
-            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer)
+            await self._notify("FERB alert", answer, urgent=True, category="alert", target=task)
+        elif ev.get("status") != "cancelled" and (self.posters.connected or (
+                not shown and not self._client_shows("task.result"))):
+            # L34 D: with FERB.app as the poster it decides by the notch: a banner while the notch isn't showing the
+            # answer, whichever chat showed it; without it, as before (L9)
+            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer,
+                               category="task_finished", target=task, when_hidden=self.posters.connected,
+                               ident=f"task:{ev['task_id']}")
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
             row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
             ev = {**ev, "request_id": row["request_id"] if row is not None else None}
@@ -2953,11 +2960,20 @@ class Daemon:
         names the question, never a CLI command (spec 4.4). The setup profile question is never a banner (L3): an open
         client (`chat.attach`, `ferb setup`) started it and shows it inline."""
         tid = str(data.get("task_id") or "")
-        if (tid.split(".", 1)[0] in self._attached_trees or data.get("capability") == "setup.persona"
-                or self._client_shows("approval.requested")):
+        if data.get("capability") == "setup.persona":
             return
         text = f"FERB needs your OK: {str(data.get('summary') or data.get('reason', ''))}"   # the short line first
-        asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
+        loop = asyncio.get_running_loop()
+        if self.posters.connected:          # L34 D: FERB.app shows it unless the notch already does
+            approval = str(data.get("approval_id") or "")
+            loop.create_task(self._notify("FERB needs you", text, urgent=True, category="question",
+                                          target={"kind": "question", "approval_id": approval,
+                                                  "task_id": tid.split(".", 1)[0]},
+                                          when_hidden=True, ident=f"question:{approval}"))
+            return
+        if tid.split(".", 1)[0] in self._attached_trees or self._client_shows("approval.requested"):
+            return
+        loop.create_task(self._notify("FERB needs you", text, urgent=True, category="question"))
 
     async def _notify_safely(self, title: str, text: str) -> None:
         banner = None
@@ -3067,7 +3083,9 @@ class Daemon:
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
                 "notices": self.attention_notices.unseen() if self.attention_notices else [],
                 "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else [],
-                "loops": self.supervisor.loop_statuses() if self.supervisor else []}
+                "loops": self.supervisor.loop_statuses() if self.supervisor else [],
+                "paused": bool(self.sense is not None and self.sense.paused),        # L34 D: the menu bar's state
+                "stopped": bool(self.state.stopped)}
 
     async def _results_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """A client that reads `chat.status` with `peek` showed these results in its chat: mark only them shown, so
@@ -3157,9 +3175,11 @@ class Daemon:
         until a client shows it; a banner when no client is connected). Its origin follows its text: a back-off is
         FERB's own; a pause quotes the round's words, so it also carries INFERRED."""
         import uuid
-        await self._tell_owner(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text, notice_origin)
+        await self._tell_owner(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text, notice_origin,
+                               category="loop", task_id=tree_id)
 
-    async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str) -> None:
+    async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str, *, category: str = "",
+                          task_id: str = "") -> None:
         """One notice line in the owner's chat, posted once per `ident` (`AttentionNotices.add`, `_post_notice`): a
         loop's notice (L31), or a fact distillation retired or replaced on the owner's words (L36 §6, re-review ruling
         (c), `Distiller.tell`). `refs`: what it cites."""
@@ -3167,9 +3187,9 @@ class Daemon:
             return
         notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin)
         if notice is not None:
-            await self._post_notice(notice)
+            await self._post_notice(notice, category=category, task_id=task_id)
 
-    async def _post_notice(self, notice: dict[str, Any]) -> None:
+    async def _post_notice(self, notice: dict[str, Any], *, category: str = "", task_id: str = "") -> None:
         """L9: a notice is a FERB message in the owner's chat: journaled `chat.notice`, published `attention.notice`, and
         listed in `chat.status` until a client acknowledges it. Posting it is telling: a notification it cites gets its
         told receipt now. A macOS banner (its text, never its outside quotes) only when no connected FERB client
@@ -3185,8 +3205,15 @@ class Daemon:
                     self.perception.policy.told(data.get('bundle_id', ''), data.get('conversation', ''),
                                                ref.removeprefix('trail:'), view['text'])
         self._publish('attention.notice', view)
-        if not self._client_shows('attention.notice'):
-            await self._notify('FERB noticed', view['text'])
+        if self.posters.connected:
+            # L34 D: FERB.app shows notices in the notch; a loop's pause or back-off is also a banner while the notch
+            # isn't showing it
+            if category == "loop":
+                await self._notify("FERB loop", view['text'], category="loop",
+                                   target={"kind": "task", "task_id": task_id}, when_hidden=True,
+                                   ident=f"loop:{view['id']}")
+        elif not self._client_shows('attention.notice'):
+            await self._notify('FERB noticed', view['text'], category=category)
 
     def _attention_effect(self, decision: str, effect: str) -> None:
         """Q4/C3: what Jev's live trail.attention yes led to, on its decision row (`ferb decide stats`)."""

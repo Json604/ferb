@@ -148,3 +148,118 @@ def test_a_banner_held_while_the_owner_was_away_goes_to_ferb_app_when_they_are_b
         assert poster.items[0]["body"] == "done"
     finally:
         d.owner_input.running = False
+# ---------- what each banner is ----------
+
+def test_a_reminder_goes_to_ferb_app_with_its_timer(daemon: RunningDaemon, notes: list[tuple[str, str]],
+                                                    poster: Poster) -> None:
+    d = daemon.daemon
+    timer = on_loop(daemon, lambda: d.timers.add("reminder", d.clock.now() + timedelta(minutes=1), "call Mom"))
+    daemon.run(d._timer_fired(timer))
+    until(lambda: bool(poster.items))
+    item = poster.items[0]
+    assert (item["id"], item["category"], item["title"], item["body"], item["when_hidden"]) == (
+        f"reminder:{timer.id}", "reminder", "FERB reminder", "call Mom", False)
+    assert item["target"] == {"kind": "reminder", "timer_id": timer.id}
+    assert notes == []
+
+
+def test_a_finished_task_goes_to_ferb_app_even_when_a_chat_showed_it(daemon: RunningDaemon,
+                                                                     notes: list[tuple[str, str]],
+                                                                     poster: Poster) -> None:
+    d = daemon.daemon
+    daemon.run(d._task_result({"task_id": "t9", "status": "done", "answer": "Renamed 12 files."}, shown=True))
+    daemon.run(d._task_result({"task_id": "t10", "status": "cancelled", "answer": "Stopped."}, shown=False))
+    daemon.run(d._task_result({"task_id": "t11", "status": "done", "answer": "It's $40 now."}, shown=True, alert=True))
+    until(lambda: len(poster.items) == 2)
+    settle()
+    finished, alert = poster.items
+    assert (finished["id"], finished["category"], finished["title"], finished["when_hidden"]) == (
+        "task:t9", "task_finished", "FERB finished", True)
+    assert finished["target"] == {"kind": "task", "task_id": "t9"}
+    assert (alert["category"], alert["title"], alert["when_hidden"], alert["target"]) == (
+        "alert", "FERB alert", False, {"kind": "task", "task_id": "t11"})
+    assert len(poster.items) == 2 and notes == []           # a task the owner stopped is never a banner
+
+
+def test_without_ferb_app_a_shown_answer_stays_quiet_as_before(daemon: RunningDaemon,
+                                                               notes: list[tuple[str, str]]) -> None:
+    d = daemon.daemon
+    daemon.run(d._task_result({"task_id": "t1", "status": "done", "answer": "Shown in chat."}, shown=True))
+    daemon.run(d._task_result({"task_id": "t2", "status": "done", "answer": "Nobody saw it."}, shown=False))
+    assert notes == [("FERB finished", "Nobody saw it.")]
+
+
+def test_a_question_goes_to_ferb_app_even_with_its_chat_attached(daemon: RunningDaemon,
+                                                                 notes: list[tuple[str, str]],
+                                                                 poster: Poster) -> None:
+    d = daemon.daemon
+    d._attached_trees.add("t1")
+    daemon.call_soon(d._approval_notice, {"approval_id": "a1", "task_id": "t1.w2", "reason": "Send it?",
+                                          "summary": "Send the email to Sam?", "capability": "mail.send"})
+    daemon.call_soon(d._approval_notice, {"approval_id": "p1", "task_id": None, "reason": "Confirm your profile",
+                                          "capability": "setup.persona"})        # never a banner (L3)
+    until(lambda: bool(poster.items))
+    settle()
+    assert poster.items == [{"id": "question:a1", "category": "question", "title": "FERB needs you",
+                             "body": "FERB needs your OK: Send the email to Sam?",
+                             "target": {"kind": "question", "approval_id": "a1", "task_id": "t1"},
+                             "when_hidden": True}]
+    assert notes == []
+
+
+def test_a_loop_notice_goes_to_ferb_app_as_a_loop_banner(daemon: RunningDaemon, notes: list[tuple[str, str]],
+                                                         poster: Poster) -> None:
+    d = daemon.daemon
+    daemon.run(d._loop_notice("tree-1", "keep", "I keep having to redo this: keep the tab playing."))
+    until(lambda: bool(poster.items))
+    item = poster.items[0]
+    assert (item["category"], item["title"], item["when_hidden"]) == ("loop", "FERB loop", True)
+    assert item["target"] == {"kind": "task", "task_id": "tree-1"} and item["id"].startswith("loop:")
+    assert item["body"] == "I keep having to redo this: keep the tab playing."
+    assert notes == []
+
+
+def test_a_notice_stays_in_the_notch_while_ferb_app_is_connected(daemon: RunningDaemon,
+                                                                 notes: list[tuple[str, str]],
+                                                                 poster: Poster) -> None:
+    daemon.run(daemon.daemon._tell_owner("n-renewed", [], "Your Claude plan renewed.", origin_.FERB))
+    settle()
+    assert poster.items == [] and notes == []
+
+
+def test_ferb_apps_own_notification_rows_are_ferbs_and_keep_no_body(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+    assert d.perception is not None
+
+    def arrive(external_id: str, bundle: str) -> None:
+        d.perception.notification(Observation("notification", {      # type: ignore[union-attr]
+            "external_id": external_id, "bundle_id": bundle, "title": "FERB finished", "body": "Renamed 12 files.",
+            "conversation": "FERB finished", "conversation_source": "title"}, {"actor": "unknown"}))
+    for external_id, bundle in (("nc-app", "com.ferb.FERB"), ("nc-dev", "dev.ferb.notch"),
+                                ("nc-other", "net.whatsapp.WhatsApp")):
+        daemon.call_soon(arrive, external_id, bundle)
+    rows = on_loop(daemon, lambda: {json.loads(r["data_json"])["external_id"]: (r["actor"], json.loads(r["data_json"]))
+                                    for r in d.db.conn.execute(          # type: ignore[union-attr]
+                                        "SELECT actor, data_json FROM trail WHERE source='notification'")})
+    assert rows["nc-app"][0] == "ferb" and "body" not in rows["nc-app"][1]
+    assert rows["nc-app"][1]["ferb_banner"] == {"poster": "com.ferb.FERB"}
+    assert rows["nc-dev"][0] == "ferb"
+    assert rows["nc-other"][0] == "unknown"
+
+
+def test_chat_status_says_whether_ferb_is_paused_or_stopped(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+    original = d.sense
+    client = Client(daemon.sock)
+    try:
+        status = client.call("chat.status", {"peek": True})
+        assert status["paused"] is False and status["stopped"] is False
+        d.sense = SimpleNamespace(paused=True)                  # type: ignore[assignment]
+        assert client.call("chat.status", {"peek": True})["paused"] is True
+        d.sense = original
+        client.call("stop.engage")
+        assert client.call("chat.status", {"peek": True})["stopped"] is True
+        client.call("stop.lift")
+    finally:
+        d.sense = original
+        client.close()

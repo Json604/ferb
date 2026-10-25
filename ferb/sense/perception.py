@@ -79,10 +79,16 @@ class Perception:
         self.banners = [b for b in self.banners if b is not banner]
 
     def _own_banner(self, observation: Observation) -> Observation:
-        """A record showing a banner FERB posted (same poster app, title and body) is FERB's (P4), as a fact: recorded
+        """A record showing a banner FERB posted (same poster app, title and body) is FERB's (P4; any row FERB.app or its development build posted is too, L34 D), as a fact: recorded
         with actor FERB, without the body (FERB's words stay with the notice or answer they came from), and never sent
         to Jev as an outside arrival. Any other record is returned unchanged. Bundle ids compare in any case (I4)."""
         data = observation.data
+        from ferb.device.install import APP_BUNDLE_ID, DEV_APP_BUNDLE_ID
+        if str(data.get("bundle_id", "")).lower() in (APP_BUNDLE_ID.lower(), DEV_APP_BUNDLE_ID.lower()):
+            # FERB.app posts only FERB's own banners (L34 D): every row of it is FERB's, by its poster alone, and its
+            # words stay with the answer or question they came from
+            kept = {k: v for k, v in data.items() if k != "body"} | {"ferb_banner": {"poster": str(data["bundle_id"])}}
+            return Observation(observation.source, kept, {"actor": "ferb"})
         for banner in self.banners:
             if (banner["poster"].lower(), banner["title"], banner["body"]) == (
                     str(data.get("bundle_id", "")).lower(), data.get("title"), data.get("body")):

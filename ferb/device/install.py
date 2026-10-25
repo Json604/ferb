@@ -38,6 +38,7 @@ NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 
 # The packaged app's layout (scripts/build-app.sh builds it; ui/mac/FERBNotch/Info.plist names it).
 APP_BUNDLE_ID = "com.ferb.FERB"
+DEV_APP_BUNDLE_ID = "dev.ferb.notch"        # the development notch build (ui/mac/FERBNotch/build.sh)
 BUNDLE_CLI = Path("Contents/Resources/bin/ferb")
 BUNDLE_NODE = Path("Contents/Resources/node")                 # node_modules/@openai/codex-darwin-<arm64|x64>
 BUNDLE_SECRET_HELPER = Path("Contents/Helpers/ferb-secrets")
