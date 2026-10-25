@@ -80,27 +80,44 @@ def _ask_to_quit(pid: int, bundle_id: str) -> bool:
     return bool(app.terminate())
 
 
+def _tree(task_id: str) -> str:
+    return task_id.partition(".")[0]
+
+
 class LaunchedApps:
-    """The apps each task's calls launched. `running()`: the apps running now (apps.running's RunningApp list);
+    """The apps each task tree's calls launched. `running()`: the apps running now (apps.running's RunningApp list);
     `owner_used(task_id, app)`: the owner used it during the task; `unsaved(pid)` and `quit(pid, bundle_id)` as above
-    (tests give fakes)."""
+    (tests give fakes); `now()`: FERB's clock, as ISO text, for when a launch happened (the desktop records' clock).
+    An app belongs to its tree, not to the plan step that launched it: it is released with the tree's own task
+    (`<tree>.worker`, released when the task ends, whatever happened), so a later step doesn't launch it again."""
 
     def __init__(self, running: Callable[[], list[Any]], owner_used: Callable[[str, Launched], bool],
                  unsaved: Callable[[int], bool | None] = unsaved,
-                 quit: Callable[[int, str], bool] = _ask_to_quit) -> None:
+                 quit: Callable[[int, str], bool] = _ask_to_quit, now: Callable[[], str] | None = None) -> None:
         self.running, self.owner_used, self.unsaved, self.quit = running, owner_used, unsaved, quit
-        self._by_task: dict[str, list[Launched]] = {}
+        self.now = now or (lambda: __import__("datetime").datetime.now().astimezone().isoformat())
+        self._by_tree: dict[str, list[Launched]] = {}
+
+    def launched(self, task_id: str, bundle_id: str, name: str, pid: int) -> Launched:
+        """A call of this task launched the app (it wasn't running): stamped with FERB's clock."""
+        app = Launched(bundle_id, name, pid, self.now())
+        self.add(task_id, app)
+        return app
 
     def add(self, task_id: str, app: Launched) -> None:
-        self._by_task.setdefault(task_id, []).append(app)
+        self._by_tree.setdefault(_tree(task_id), []).append(app)
 
     def of(self, task_id: str) -> list[Launched]:
-        return list(self._by_task.get(task_id, []))
+        return list(self._by_tree.get(_tree(task_id), []))
 
     async def release(self, task_id: str) -> list[dict[str, Any]]:
-        """Each app the task launched: quit, or left running with why; one resource record each."""
+        """At the tree's own task's release (`<tree>.worker`): each app the tree launched, quit or left running with
+        why; one resource record each. Any other task's release (a plan step, a check) leaves them to the tree."""
+        tree, _, rest = task_id.partition(".")
+        if rest != "worker":
+            return []
         out = []
-        for app in self._by_task.pop(task_id, []):
+        for app in self._by_tree.pop(tree, []):
             record: dict[str, Any] = {"resource": "app", "app": app.name, "bundle_id": app.bundle_id}
             try:
                 now = [a for a in await asyncio.to_thread(self.running)

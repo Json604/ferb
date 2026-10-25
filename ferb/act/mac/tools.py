@@ -210,9 +210,7 @@ class MacOpen(_Base):
         # L39: an app this call launched (it wasn't running) is the task's resource, quit at its release
         launched = not running and (app := self.driver.apps.find(bid)) is not None
         if launched and (record := getattr(self.driver, "launched", None)) is not None:
-            from datetime import datetime
-            from ferb.act.mac.launched import Launched
-            record.add(ctx.task_id, Launched(app.bundle_id, app.name, app.pid, datetime.now().astimezone().isoformat()))
+            record.launched(ctx.task_id, app.bundle_id, app.name, app.pid)     # stamped with FERB's clock (M7)
         window = await self.driver.ensure_window(bid)
         return ToolResult({"opened": bid, "launched": launched, "window": window,
                            "next": "mac_snapshot reads it where it is" if window else

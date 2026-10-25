@@ -36,10 +36,12 @@ def _run(coro: Any) -> Any:
 def test_an_app_ferb_launched_is_quit_when_its_task_ends() -> None:
     launched, quits = _apps([RunningApp(PAGES.bundle_id, "Pages", 41, False)])
     launched.add("t.step.two", PAGES)
-    [record] = _run(launched.release("t.step.two"))
+    assert _run(launched.release("t.step.two")) == [] and quits == []     # a plan step's end: the tree keeps it (M7)
+    assert _run(launched.release("t.step.two.verify")) == []
+    [record] = _run(launched.release("t.worker"))                          # the task's end (run_tree releases it)
     assert quits == [41] and record == {"resource": "app", "app": "Pages", "bundle_id": PAGES.bundle_id,
                                         "released": True, "closed": True}
-    assert _run(launched.release("t.step.two")) == []              # released once
+    assert _run(launched.release("t.worker")) == []                        # released once
 
 
 @pytest.mark.parametrize("running, used, edited, why", [
@@ -51,8 +53,8 @@ def test_an_app_ferb_launched_is_quit_when_its_task_ends() -> None:
 def test_an_app_the_owner_used_or_that_may_hold_unsaved_work_stays_and_is_named(
         running: list[RunningApp], used: bool, edited: bool | None, why: str) -> None:
     launched, quits = _apps(running, used, edited)
-    launched.add("t", PAGES)
-    records = _run(launched.release("t"))
+    launched.add("t.step.one", PAGES)
+    records = _run(launched.release("t.worker"))
     assert quits == [] and records[0]["left_running"] == why and records[0]["closed"] is False
     assert left_running(records) == [f"Pages is still open: FERB opened it for this task and left it running because "
                                      f"{why}."]
@@ -60,9 +62,16 @@ def test_an_app_the_owner_used_or_that_may_hold_unsaved_work_stays_and_is_named(
 
 def test_an_app_that_quit_or_was_relaunched_by_the_owner_is_left_alone() -> None:
     launched, quits = _apps([RunningApp(PAGES.bundle_id, "Pages", 99, False)])      # another process now
-    launched.add("t", PAGES)
-    [record] = _run(launched.release("t"))
+    launched.add("t.worker", PAGES)
+    [record] = _run(launched.release("t.worker"))
     assert quits == [] and record["note"] == "it had already quit" and not left_running([record])
+
+
+def test_a_launch_is_stamped_with_ferbs_clock() -> None:
+    """M7: the desktop records use FERB's clock, so the launch does too (never the wall clock)."""
+    launched = LaunchedApps(lambda: [], lambda task, app: False, now=lambda: "2026-10-25T07:34:05+05:30")
+    assert launched.launched("t.step.two", "com.apple.iWork.Pages", "Pages", 41).at == "2026-10-25T07:34:05+05:30"
+    assert launched.of("t.worker") == [Launched("com.apple.iWork.Pages", "Pages", 41, "2026-10-25T07:34:05+05:30")]
 
 
 def test_coming_forward_with_no_ferb_on_screen_call_near_is_the_owners(daemon: RunningDaemon) -> None:
@@ -95,11 +104,11 @@ def test_mac_open_records_the_app_it_launched_and_its_task_end_quits_it(daemon: 
     launched = mac.launched                                                  # type: ignore[attr-defined]
     launched.unsaved = lambda pid: False
     launched.quit = lambda pid, bundle: quits.append((pid, bundle)) or True
-    g = task(daemon, "t-open", Identity.OWNER, {"mac:read"})
+    g = task(daemon, "t-open.worker", Identity.OWNER, {"mac:read"})
     r = call(daemon, g, "mac.open", bundle_id="com.apple.iWork.Pages")
     assert not r["is_error"] and r["content"]["launched"] is True, r
     assert call(daemon, g, "mac.open", bundle_id="com.apple.Notes")["content"]["launched"] is False   # already running
-    resources = daemon.run(daemon.daemon._task_end("t-open"))
+    resources = daemon.run(daemon.daemon._task_end("t-open.worker"))
     assert quits == [(41, "com.apple.iWork.Pages")]
     assert {"resource": "app", "app": "Pages", "bundle_id": "com.apple.iWork.Pages", "released": True,
             "closed": True} in resources
