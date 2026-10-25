@@ -277,3 +277,15 @@ def test_a_named_file_past_the_walk_limit_is_still_found(tmp_path: Path) -> None
     [made] = [c for c in out if c.path == str(result)]
     assert made.content and made.named and "the answer" in store.describe(made)
     assert any(f"more than {changes_mod.WALK_MAX:,} entries" in store.describe(c) for c in out)
+
+
+def test_empty_new_folders_count_toward_the_walk_limit(tmp_path: Path) -> None:
+    """N7: each folder made during the step is an entry, so thousands of empty ones stop the walk too."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store = Changes(tmp_path / "changes")
+    store.before("t.s", "t", [proj])
+    for i in range(changes_mod.WALK_MAX + 100):
+        (proj / f"e{i}").mkdir()
+    out = store.changes("t.s")
+    assert any(f"more than {changes_mod.WALK_MAX:,} entries" in store.describe(c) for c in out)

@@ -814,6 +814,7 @@ class Changes:
         if look.entries >= WALK_MAX:
             look.stopped = look.stopped or where
             return
+        look.entries += 1                                # the new folder itself is an entry too
         fd = _open(top.name, directory=True, dir_fd=parent) if parent is not None else None
         if fd is None:
             return
