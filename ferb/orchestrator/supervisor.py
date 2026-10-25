@@ -3241,6 +3241,20 @@ class Supervisor(WorkerRuns):
                                artifacts, evidence)
             if attempt_revision != len(tree.steering.messages) and not tree.stop:
                 continue
+            if choice.action == "recheck" and checked_done is None:
+                # N5: nothing was checked (the attempt didn't finish as done): the dispatcher gets that fact and
+                # chooses again; a recheck never becomes a worker retry
+                try:
+                    choice = await self._dispatch(tree, out, span, note=NOTHING_TO_RECHECK)
+                except Exception as exc:
+                    self.journal.append("task.dispatch_failed", {"task_id": task.id,
+                                         "error": f"{type(exc).__name__}: {exc}"})
+                    return Outcome(task.id, "cancelled" if tree.stop else "failed",
+                                   tree.stop or _sentence(out.summary) + "I couldn't plan the next attempt.",
+                                   artifacts, evidence)
+                if choice.action == "recheck":
+                    return Outcome(task.id, "failed", _sentence(out.summary) + RECHECK_NOTHING_STOP, artifacts,
+                                   evidence)
             if choice.action == "recheck" and checked_done is not None:
                 recheck = checked_done           # L39 I4: the check alone runs again on the same work
                 continue
@@ -3288,7 +3302,7 @@ class Supervisor(WorkerRuns):
         note = look_only_round(calls, probe, self.gateway.caps, held)
         return str(self.gateway.redact({'note': note})['note']) if note else ''
 
-    async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str) -> DispatchOutcome:
+    async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str, note: str = "") -> DispatchOutcome:
         report = ("\nAvailable worker types: " + json.dumps(self.worker_types()) +
                "\nPrevious worker type: " + tree.spec.worker_type + "\nWorker report (data): " +
                wrap_untrusted(json.dumps({"status": outcome.status, "summary": outcome.summary,
@@ -3297,6 +3311,8 @@ class Supervisor(WorkerRuns):
         if tree.unlooked:                    # L39 I4: code's own fact, outside the data framing (paths quoted)
             report += "\n" + CHECK_DIDNT_LOOK.format(files=", ".join(json.dumps(p, ensure_ascii=False)
                                                                        for p in tree.unlooked))
+        if note:                             # code's own fact for this choice (N5)
+            report += "\n" + note
         ctx = (await self._context(tree)) + [ContextBlock(report, "current worker and verification reports", protected=True)]
         rt = self.make_runtime('orchestrator', mode='supervisor', tool_names=[], schema=DISPATCH_SCHEMA)
         decision = Task(tree.worker.id + '.dispatch', tree.worker.id, 'choose recovery', self.device_id,
@@ -3744,26 +3760,32 @@ class Supervisor(WorkerRuns):
         named = [(c, t) for c, t in zip(found, texts) if c.content]
         for change, text in zip(found, texts):
             text = str(self.gateway.redact({"t": text})["t"])
-            if not change.content:
+            if not change.content and not change.named:
                 facts.append(text)
                 continue
-            n = len(records) + 1
+            n = len(listed) + 1
+            if not change.content:               # N2: named, but nothing FERB may read now: a fact, no record, no look
+                listed.append(f"{n}. {json.dumps(change.path, ensure_ascii=False)} (named by the call; a fact, "
+                              f"nothing to read): " + json.dumps(text.partition(": ")[2], ensure_ascii=False))
+                continue
             path = Path(change.path)
             origin = (origins_.external("download") if any(path == u or u in path.parents for u in untrusted)
                       else origins_.PRIVATE)
-            cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] +
-                  "\n[… cut here; read the rest in the file itself (fs_read for text)]")
-            block = self._source_block(tree, f"Change record {n}", cut, origin)
+            # N6: the record holds the whole diff (a new file: its first part and where it is), paged by task.evidence;
+            # the checker's context gets the first page
+            block = self._source_block(tree, f"Change record {n}", text, origin)
             span_id = block.reference.removeprefix("task.evidence span_id=")
             records[change.path] = span_id
+            cut = text if len(text) <= PAGE_CHARS else (text[:PAGE_CHARS] + "\n[… the record holds the rest: "
+                                                         f"task_evidence span_id={span_id}, following next_offset]")
             source = f", compared with {json.dumps(change.source, ensure_ascii=False)}" if change.source else ""
             what = {"modified": "changed", "removed": "removed"}.get(change.what, "new" + source)
             listed.append(f"{n}. {json.dumps(change.path, ensure_ascii=False)} ({what}) — change record: "
                           f"task.evidence span_id={span_id}")
             diffs.append(ContextBlock(f"Change record {n} (data): " + wrap_untrusted(cut), block.reference,
-                                      priority=above + len(named) - n, origin=origin, payload=cut))
+                                      priority=above + len(named) - len(records) + 1, origin=origin, payload=cut))
         blocks: list[ContextBlock] = []
-        if records:
+        if listed:
             blocks.append(ContextBlock(CHANGED_FILES + "\n" + "\n".join(listed), "files this step changed",
                                        protected=True))
         if facts:
@@ -3778,16 +3800,20 @@ class Supervisor(WorkerRuns):
         read of its run(s) targets the file (a tool marked `reads_content`, e.g. fs.read: a listing or metadata call
         doesn't count), and no task.evidence read names its change record (one read may name several, `span_ids`)."""
         seen_records, seen_paths = set(), set()
-        for row in self.journal.db.conn.execute("SELECT input_json FROM spans WHERE task_id = ? AND kind = 'tool.call' "
-                                                "AND rowid > ? AND error IS NULL", (check_id, cursor)):
+        for row in self.journal.db.conn.execute("SELECT input_json, output_json FROM spans WHERE task_id = ? AND "
+                                                "kind = 'tool.call' AND rowid > ? AND error IS NULL",
+                                                (check_id, cursor)):
             call = json.loads(row[0])
-            args = call.get("args") if isinstance(call.get("args"), dict) else {}
             target = (call.get("target") or {}).get("path") if isinstance(call.get("target"), dict) else None
             tool = str(call.get("tool"))
-            if tool == "task.evidence":
-                ids = [args.get("span_id"), *(args.get("span_ids") or [] if isinstance(args.get("span_ids"), list)
-                                             else [])]
-                seen_records |= {str(i) for i in ids if i}
+            if tool == "task.evidence":          # N4: only the records the read returned (task.evidence names them)
+                got = json.loads(row[1]) if row[1] else {}
+                got = got if isinstance(got, dict) else {}
+                pages = got.get("records") if isinstance(got.get("records"), list) else []
+                seen_records |= {str(r["span_id"]) for r in pages
+                                 if isinstance(r, dict) and r.get("span_id") and "text" in r}
+                if got.get("span_id") and "text" in got:
+                    seen_records.add(str(got["span_id"]))
             elif target and getattr(self.gateway.caps.get(tool), "reads_content", False):
                 seen_paths.add(str(file_changes.real(Path(str(target)))))
         return [path for path, record in records.items() if record not in seen_records and path not in seen_paths]
@@ -3892,12 +3918,16 @@ class Supervisor(WorkerRuns):
 NOT_CHECKED = "Not checked: the task stopped before a check."
 # L39: a check of a step that changed files
 CHANGED_FILES = ("Files this step's calls named that changed (FERB compared each with its copy from before the step; "
-                 "each diff follows as data, and its change record holds it). Read each one before you mark a "
-                 "condition met: fs_read for a text file, or task_evidence with its change record's span_id (one "
-                 "call may name several with span_ids).")
+                 "each diff's first page follows as data, and its change record holds all of it). Read each one that "
+                 "has a change record before you mark a condition met: fs_read for a text file, or task_evidence with "
+                 "its span_id (one call may name several with span_ids). A named file listed as a fact has nothing "
+                 "to read: judge it from the fact.")
 OTHER_CHANGES = ("Also changed during this step in folders the step listed (facts only, shown as data: no call of the "
                  "step named these files, so they may be the owner's or another task's; such a change is not by itself "
                  "an unrequested change by the worker, and needs no read): ")
+NOTHING_TO_RECHECK = ("FERB's fact: there is nothing to re-check: this attempt didn't finish as done, so no check "
+                      "judged it. recheck isn't possible; choose retry with instructions, ask the owner, or finish.")
+RECHECK_NOTHING_STOP = "The orchestrator asked to re-check work that no check had judged, so the task stopped here."
 CHECK_DIDNT_LOOK = ("FERB's fact about this check: the work's changes are recorded, and the check marked conditions "
                     "met without reading them ({files}), so they stand unconfirmed. Re-running the worker can't fix "
                     "this: use action=recheck to run only the check again, finish with result unconfirmed naming those "

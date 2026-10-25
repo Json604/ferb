@@ -258,3 +258,104 @@ def test_a_change_record_holds_the_cut_the_checker_sees_never_the_whole_file(dae
     script, _ = install(daemon, {"worker": worker, "worker.verify": reads})
     outcome(chat(daemon, "write big.txt"))
     assert sizes and sizes[0] < PAGE_CHARS + 2000
+
+
+def test_a_named_file_replaced_by_a_link_is_listed_as_named_not_as_someone_elses(daemon: Any, tmp_path: Path) -> None:
+    """N2: the step named it and made it a link: it is in the named list as a fact ("named by the call; now a link"),
+    never in the block that says no call named it; it needs no look (nothing readable)."""
+    notes, report = tmp_path / "notes.txt", tmp_path / "report.txt"
+    notes.write_text("Student ID: ID\n")
+    report.write_text("the owner's report\n")
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "fs.write", path=str(notes), content="Student ID: 2024eb02238\n",
+                        overwrite=True, effect="edit")["is_error"]
+        assert not tool(daemon.sock, token, "fs.trash", path=str(report))["is_error"]
+        report.symlink_to(notes)                                       # the step put a link where the report was
+        return done("Set the student id.")
+
+    def reads(token: str) -> str:
+        context = checker_context(script)
+        for record in RECORD.findall(context):
+            tool(daemon.sock, token, "task.evidence", span_id=record)
+        return verdict(True, "notes.txt shows the id.")
+    from tests.support.trash import use_trash
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    bin_ = daemon.daemon.home.parent / ".Trash"
+    bin_.mkdir(parents=True, exist_ok=True)
+    use_trash(mp, bin_)
+    try:
+        script, _ = install(daemon, {"worker": worker, "worker.verify": reads})
+        out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    finally:
+        mp.undo()
+    context = checks(script)[0]
+    named_part = context.split("Files this step's calls named", 1)[1].split("Change record 1 (data)", 1)[0]
+    assert json.dumps(str(report.resolve())) in named_part and "named by the call" in named_part
+    assert "now a link" in named_part
+    other = context.split("Also changed during this step", 1)[1] if "Also changed during this step" in context else ""
+    assert str(report.resolve()) not in other
+    assert out["verified"]
+
+
+def test_only_records_a_read_returned_count_as_looked_at(daemon: Any, tmp_path: Path) -> None:
+    """N4: task.evidence with kind=evidence returns captures, not the record; span_id with span_ids is refused."""
+    notes = tmp_path / "notes.txt"
+    notes.write_text("Student ID: ID\n")
+
+    def sly(token: str) -> str:
+        [record] = RECORD.findall(checker_context(script))
+        tool(daemon.sock, token, "task.evidence", kind="evidence", span_id=record)
+        both = tool(daemon.sock, token, "task.evidence", span_id=record, span_ids=[record])
+        assert both["is_error"]
+        return verdict(True, "Looked.")
+    script, _ = install(daemon, {"worker": _writes_notes(daemon, notes), "worker.verify": sly})
+    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    assert not out["verified"] and len(checks(script)) == 2
+
+
+def test_a_recheck_with_nothing_checked_is_answered_with_that_fact_never_a_worker_retry(daemon: Any) -> None:
+    """N5: the worker failed, so there is no checked report; the dispatcher's recheck gets that fact and chooses again;
+    the worker isn't run again."""
+    told: list[str] = []
+
+    def dispatch(token: str) -> str:
+        ctx = next(c for _, k, c, _ in reversed(script.contexts) if k == "worker.dispatch")
+        told.append(ctx)
+        action = "finish" if "nothing to re-check" in ctx else "recheck"
+        return json.dumps({"action": action, "worker_type": "default", "instructions": "" if action == "recheck"
+                           else "The work failed.", "question": "", "stop_reason": "The work failed.",
+                           "result": None})
+    failed = json.dumps({"status": "failed", "summary": "Couldn't open it.", "artifacts": [], "evidence": []})
+    script, _ = install(daemon, {"worker": [failed], "worker.dispatch": dispatch})
+    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
+    assert out["status"] == "failed"
+    assert [k for _, k, _, _ in script.contexts].count("worker") == 1 and len(told) == 2
+    assert "nothing to re-check" in told[1]
+
+
+def test_nothing_in_a_named_files_diff_is_unreadable(daemon: Any, tmp_path: Path) -> None:
+    """N6: a replace-all in a long file: the record holds the whole diff, paged by task.evidence, so a change past the
+    first page is reachable."""
+    big = tmp_path / "long.txt"
+    big.write_text("".join(f"line {i}: ID\n" for i in range(3000)))
+
+    def worker(token: str) -> str:
+        assert not tool(daemon.sock, token, "fs.write", path=str(big), effect="edit", overwrite=True,
+                        content="".join(f"line {i}: 2024eb02238\n" for i in range(3000)))["is_error"]
+        return done("Replaced every ID.")
+
+    def pages(token: str) -> str:
+        [record] = RECORD.findall(checker_context(script))
+        offset, text = 0, ""
+        while offset is not None:
+            page = tool(daemon.sock, token, "task.evidence", span_id=record, offset=offset, max_chars=60000)["content"]
+            text += page["text"]
+            offset = page["next_offset"]
+        seen.append(text)
+        return verdict(True, "Every line changed as asked.")
+    seen: list[str] = []
+    script, _ = install(daemon, {"worker": worker, "worker.verify": pages})
+    assert outcome(chat(daemon, "replace ID in long.txt"))["verified"]
+    assert "+line 2999: 2024eb02238" in seen[0].replace("\\n", "\n")

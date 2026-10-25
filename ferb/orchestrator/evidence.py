@@ -104,6 +104,8 @@ class TaskEvidence:
 
         def task_origins(records: list[dict[str, Any]]) -> set[str]:     # read only when a returned record inherits
             return self.spans.task_origins(root or source) if any(inherits(r) for r in records) else set()
+        if args.span_ids and args.span_id:
+            return ToolResult({"error": "give span_id or span_ids, not both"}, is_error=True)
         if args.span_ids:                # L39 M9: one read of several records (a bulk step's change records)
             pages, origins = [], set()
             share = max(1000, args.max_chars // len(args.span_ids))
@@ -124,7 +126,8 @@ class TaskEvidence:
                 return ToolResult({"error": "no authorized recorded fact with that id in this task"}, is_error=True)
             payload = record_text(row)
             start, end = page_bounds(payload, args.offset, args.max_chars, self.secrets())
-            return ToolResult({"source_task": source, "text": payload[start:end], "offset": start,
+            return ToolResult({"source_task": source, "span_id": args.span_id, "text": payload[start:end],
+                               "offset": start,
                                "next_offset": end if end < len(payload) else None, "total_chars": len(payload),
                                "source_refs": sorted(record_sources(row))},
                               read_sources=_passed(record_origins(row, task_origins([row]))))
