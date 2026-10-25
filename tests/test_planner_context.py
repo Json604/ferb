@@ -1135,11 +1135,12 @@ def _receipt_slots(daemon, proc: str, task_id: str) -> list[dict]:
 @pytest.mark.parametrize("value, recorded", [('"rajma"', {"dish": "rajma"}), ("3", {})])
 def test_a_receipt_records_the_planner_slot_values(daemon, value, recorded) -> None:
     """The planner's values for its procedure's slots reach the run's receipt, typed; values of the wrong type are
-    left out (the receipt records none) and the task still runs."""
+    left out (the receipt records none) and the task still runs. Its worker follows the procedure (L36 §8)."""
+    from tests.support.learning_fixtures import typing_worker
     proc = _food_procedure(daemon)
     spec = task("order the cheapest rajma")
     spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": value}]
-    install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    install(daemon, [sup("task", "Ordering.", spec)], {"worker": typing_worker(daemon, "rajma")})
     assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
 
@@ -1150,9 +1151,10 @@ def test_a_receipt_records_the_planner_slot_values(daemon, value, recorded) -> N
 
 def test_a_deferred_receipt_replays_with_the_planner_slot_values(daemon) -> None:
     """A receipt whose capture shutdown deferred keeps the planner's slot values in its journal entry, and the replay
-    records them."""
+    records them (its worker followed the procedure, L36 §8)."""
+    from tests.support.learning_fixtures import typing_worker
     proc = _food_procedure(daemon)
-    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": typing_worker(daemon, "rajma")})
     outcome(chat(daemon, "do the job"))
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
 
@@ -1245,8 +1247,9 @@ def test_slot_values_the_procedure_refuses_leave_a_trace_note(daemon) -> None:
 def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
     """A database error reading the slot values is journaled, at the task's end and wherever its worker's context is
     built (the worker then gets the steps with their {slot} templates, L29); the card is still captured and the
-    receipt recorded without slot values."""
+    receipt recorded without slot values (its worker followed the procedure, L36 §8)."""
     from ferb.memory.lineage import PROCEDURE_LABEL
+    from tests.support.learning_fixtures import typing_worker
     proc = _food_procedure(daemon)
 
     def broken(procedure_id, pairs):
@@ -1254,7 +1257,7 @@ def test_a_failing_slot_lookup_never_skips_the_capture(daemon) -> None:
     daemon.daemon.supervisor.slot_values = broken
     spec = task("order the cheapest rajma")
     spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": "dish", "value": '"rajma"'}]
-    script = install(daemon, [sup("task", "Ordering.", spec)], {"worker": done("done")})
+    script = install(daemon, [sup("task", "Ordering.", spec)], {"worker": typing_worker(daemon, "rajma")})
     assert outcome(chat(daemon, "order the cheapest rajma"))["status"] == "done"
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
 
@@ -1369,9 +1372,9 @@ def test_the_daemon_checks_its_registered_secret_values_when_learning_stores(dae
 def test_a_procedure_whose_slot_is_named_like_a_secret_runs_end_to_end(daemon, name) -> None:
     """Re-review O3, end to end: the planner picks a learned procedure whose slot is named like a credential and gives
     its value; the task runs (no KeyError at the task's start or end), the trace notes nothing ignored, and the run's
-    receipt is recorded."""
+    receipt is recorded (its worker followed the procedure, L36 §8)."""
     from ferb.memory import intents
-    from tests.support.learning_fixtures import on_loop
+    from tests.support.learning_fixtures import on_loop, typing_worker
 
     def make() -> str:
         learning = daemon.daemon.learning
@@ -1398,7 +1401,7 @@ def test_a_procedure_whose_slot_is_named_like_a_secret_runs_end_to_end(daemon, n
     proc = on_loop(daemon, make)
     spec = task("check the price of DOGE")
     spec["procedure_id"], spec["procedure_slots"] = proc, [{"name": name, "value": '"DOGE"'}]
-    install(daemon, [sup("task", "Checking.", spec)], {"worker": done("done")})
+    install(daemon, [sup("task", "Checking.", spec)], {"worker": typing_worker(daemon, "DOGE")})
     assert outcome(chat(daemon, "check the price of DOGE"))["status"] == "done"
     daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
     kinds = on_loop(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(

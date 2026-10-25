@@ -245,7 +245,7 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
     assert kinds['episode_annotation']['slots'] == {'recipient': 'a@kartikey.xyz'}
     procedure = kinds['procedure']
     assert procedure['slots'] == {'recipient': 'string'}
-    assert procedure['preconditions'] == {'apps': {'com.apple.mail': '16.0'}}
+    assert procedure['preconditions'] == {'apps': {'com.apple.mail': ['16.0', '16.0']}}   # the observed range (L36 §8)
     assert procedure['steps'][0]['args'] == {'to': '{recipient}', 'cc': []}
     assert procedure['steps'][0]['optional'] is False
     assert procedure['examples'] == [{'episode': card['id'], 'slots': {'recipient': 'a@kartikey.xyz'}}]

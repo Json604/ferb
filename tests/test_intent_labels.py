@@ -487,3 +487,12 @@ def test_a_new_name_that_is_an_intent_the_labeler_was_not_shown_names_it_in_the_
         assert status == "failed" and f"{iid} (cheapest food order)" in error and "wasn't shown" in error
     finally:
         db.close()
+
+
+def test_the_labeler_is_told_to_name_the_purpose_so_repeats_group() -> None:
+    """L36 §8: "keep media playing" ran as three per-site intents (3 cards, 0 verified each)."""
+    from pathlib import Path
+    text = " ".join((Path(__file__).resolve().parents[1] / "ferb" / "memory" / "intent.md").read_text().split())
+    assert ('Name the purpose the owner had, not the site or app this run used ("keep a background tab\'s media '
+            'playing", not "keep Instagram playing in Brave"), so runs with the same purpose on different sites group '
+            'together.') in text

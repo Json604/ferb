@@ -1594,7 +1594,7 @@ with the owner watching; pause between supervised actions and record what the ow
 ## Memory that works (L36) — pending live checks (2026-10-24)
 
 Checkout validation is in the changelog entries; nothing here is installed or observed yet. Run after `ferb setup --update`,
-with the owner watching. Later L36 tasks add their checks here.
+with the owner watching; pause between supervised actions and record what the owner saw.
 
 - The first start after the update re-indexes your memory's search text once (L36 §3), in the background, in short
   steps: 6.6 s in 189 steps on a scratch copy of your database (1,150 learned nodes; the 2.3 GB is mostly other records;
@@ -1608,6 +1608,24 @@ with the owner watching. Later L36 tasks add their checks here.
   that don't name the fact ("hmm idk if thats a good strategy, search more and propose a better one"): the new task's
   planner snapshot (`ferb trace TASK --full`, planner-context) lists the fact among at most 60 memory lines, and past
   tasks read "past task <id> (<date>): <goal> — <status>".
+- Tell FERB a fact while it works on something else ("the username for usvisascheduling.com is …"), then start an
+  unrelated multi-step task that logs in there: `ferb trace TASK --full` shows the login step's "Parent task goal" and
+  a "retrieved memory" block with the username, and the step types it (not the email).
+- Log in to the same site twice: the second login calls `secrets.list`, asks for nothing already saved, and the
+  hidden-input line names the account after the place: "For <place> only (account: <username>): …", or "(<site>
+  account: <username>)" when it came through the one site you typed.
+- A guess about you (say something FERB has to reword): a "Keep this, in FERB's words (you didn't say it this way)?"
+  question with Keep, Edit and Drop (a nightly guess reads "Keep this? … FERB guessed it from your day on …"); Edit asks
+  for your words; Drop removes it for good.
+- Open the notch once after the update: "Review N older guesses" appears once in today's chat.
+- A fact with a date ("I'm in Pune until Sunday"): the next Monday, `ferb memory` shows it ended and the planner no
+  longer gets it.
+- Saving a security answer that is an ordinary word: the task's answer ends with one line saying FERB hides it
+  everywhere; that word elsewhere in a task record shows [redacted], and ids and longer words keep their form.
+- `ferb stats`: the Procedures line, before and after a repeated task runs three verified times.
+  On the fourth run, which the planner gives that procedure, the worker's procedure block (`ferb trace TASK --full`)
+  starts "Eligible for learned fast path" ("New version: verify each step" after the app updated past the versions
+  it was learned on), and "used in" goes up by one, or the journal says `memory.procedure_not_followed` for that task.
 
 ## Planner prompt caching (P20 follow-up) — pending owner eval and live checks (2026-10-25)
 

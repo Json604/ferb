@@ -777,10 +777,14 @@ a site FERB read needs no confirm (plan 2026-10-23 Task 2); a send, typing or cl
 F3) still holds it. Reading an outside page alone does not quarantine a procedure. A revision of a procedure is the same
 procedure: its runs keep counting (receipts belong to its key), and the confirm you gave by hand carries over unless the
 revision adds a step built on outside content that the version you confirmed didn't have (then `ferb memory consolidate`
-names it; if the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). An app update sends a
-learned procedure back to candidate until it succeeds on the new version; two consecutive failures mark it suspect. A
-suggestion you turned down ("Not right") is not proposed again.
-Old episodes without captured app versions cannot establish the current-version requirement.
+names it; if the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). A learned procedure
+remembers the app versions it was learned on; on a newer version it still runs, checking each step; two consecutive
+failures mark it suspect. A suggestion you turned down ("Not right") is not proposed again.
+Old episodes without captured app versions add nothing to that range, and a procedure whose latest run has none stays a
+candidate. Steps are compared with their runs without the ids that change every run (tabs, page elements, shell
+processes, windows, FERB's ids) and with `~/` paths expanded, so repeats are learned (L36). A run counts as using its
+procedure only when it followed every required step; `ferb stats` shows the procedures stored, learned, used and
+refused.
 
 Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra
 (not in FERB.app); without it, the embedding commands say so before downloading anything.

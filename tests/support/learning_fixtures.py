@@ -105,6 +105,19 @@ def intent_procedure(daemon: Any, *, name: str, slots: dict[str, str]) -> str:
     return str(on_loop(daemon, store_intent_procedure, daemon.daemon.learning, name=name, slots=slots))
 
 
+def typing_worker(daemon: Any, text: str) -> Any:
+    """A scripted worker that follows the fixtures' one-step procedures (`browser.type {"text": …}`): it types `text`
+    with a stand-in `browser.type` tool, then reports done. L36 §8: only a run that follows its procedure's required
+    steps gets a receipt."""
+    from tests.conftest import FakeCap, done, tool
+    daemon.daemon.registry.capabilities["browser.type"] = FakeCap("browser.type", "read", set())
+
+    def work(token: str) -> str:
+        assert not tool(daemon.sock, token, "browser.type", text=text)["is_error"]
+        return done("done")
+    return work
+
+
 def procedure_task_contexts(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
                             worker_limits: Any = None, workers: dict[str, Any] | None = None) -> dict[str, list[str]]:
     """Every context the runtimes were given, by role key ("worker", "worker.verify", "worker.dispatch", …, each in

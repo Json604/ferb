@@ -742,11 +742,30 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                            (since,)).fetchone()
         if latest and latest[0]:
             print(f"  latest failed call: ferb trace {latest[0]}", file=out)
+        if "learning_nodes" in tables:
+            _procedures(c, out)
         _daemon_problems(c, since, out)
         _resources(c, days, "resource_samples" in tables, out)
     finally:
         c.close()
     return 0
+
+
+def _procedures(c: Any, out: TextIO) -> None:
+    """What learning produced and whether it was used (L36 §8), all time: the current procedures and how many are
+    learned; the runs that used one (a receipt of a procedure version whose examples don't include that run, counted
+    once per task); and the kinds of task whose latest consolidation refused every procedure it proposed."""
+    procs = c.execute("SELECT state FROM learning_nodes WHERE kind = 'procedure' AND valid_to IS NULL AND state NOT IN "
+                      "('retired', 'rolled_back')").fetchall()
+    examples = {pid: {e.get("episode") for e in json.loads(body).get("examples") or [] if isinstance(e, dict)}
+                for pid, body in c.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'procedure'")}
+    used = {task for pid, ep, task in c.execute("SELECT r.procedure_id, r.episode_id, n.key FROM learning_receipts r "
+                                                "JOIN learning_nodes n ON n.id = r.episode_id")
+            if ep not in examples.get(pid, ())}
+    refused = c.execute("SELECT COUNT(*) FROM learning_jobs WHERE source_ref LIKE 'intent:%' AND error LIKE "
+                        "'every procedure proposed was refused%'").fetchone()[0]
+    print(f"Procedures: {len(procs)} stored, {sum(1 for (s,) in procs if s == 'learned')} learned; used in "
+          f"{len(used)} run(s); {refused} kind(s) of task whose every proposed procedure was refused", file=out)
 
 
 def _daemon_problems(c: Any, since: str, out: TextIO) -> None:

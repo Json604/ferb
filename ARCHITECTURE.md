@@ -1975,7 +1975,7 @@ migration 0037: no per-forget rebuild) and vectors. Source-origin labels remain 
   each change to its runs, and each revision is a new node with the same key (the intent id). `_refresh` counts the
   receipts of every version of the key (one per task, its latest; a rolled-back version's receipts and a forgotten
   run's are left out), so a planner run, a failure and a slot value outlive a revision: "learned" (≥3 verified, ≥2
-  slot variants, current app versions) and "suspect" (two failures in a row) hold across revisions, and slot variety
+  slot variants, captured app versions) and "suspect" (two failures in a row) hold across revisions, and slot variety
   counts only the slots the current version declares. A receipt recorded on a superseded version refreshes the key's
   current version too. Receipts are read across versions rather than copied forward on `put`: one record per run, and
   rollback and forget apply at read time. `propose_procedure` carries a confirm to a revision of a confirmed version
@@ -2209,9 +2209,13 @@ intent's job. Code rollups cite their child cards.
   meanwhile is forgotten.
 - **Owner refusals (M3).** `Learning.put` refuses a procedure, identity proposal or lesson whose key or text matches
   one the owner retired. **Procedure state (M1, M6):** slot variants count only receipts that supply the declared
-  slots; "current" versions are the installed ones, so an update demotes to candidate, and only two consecutive
-  failures mark suspect. A planner `procedure_id` that isn't a current procedure becomes a `procedure.ignored` span
-  and the task runs without it (I5). **Procedure steps (L29):** `Learning.propose_procedure` checks that a required
+  slots, and only two consecutive failures mark suspect. Since L36, a procedure step reproduces a cited action when
+  their arguments are equal after `comparable` (per-run handles by kind, `~` expanded, temporary paths as `<temp>`);
+  app versions are stored as the observed range per app (`observed_ranges`) and a run on a version outside it gets
+  "New version: verify each step"; a run's receipt is written only when it followed the required steps (`followed`).
+  This replaces M6's "an update demotes to candidate" (§16.12). A planner `procedure_id` that isn't a current
+  procedure becomes a `procedure.ignored` span and the task runs without it (I5). **Procedure steps (L29):**
+  `Learning.propose_procedure` checks that a required
   step's template reproduces a cited action in every example; an optional step (`optional: true`, one some runs
   skipped) must reproduce it in every example whose actions it cites, and it cites at least one, so a step no run did
   is refused. A step without `optional` is stored as required (`false`). A procedure is keyed by the `intent_id`
@@ -2238,7 +2242,8 @@ intent's job. Code rollups cite their child cards.
   starts as a `procedure.slots_ignored` span (input: the procedure id and the planner's values; output: why) and left
   out; the procedure is still used. When the task ends the supervisor computes them (`Supervisor._planner_slots`, the
   `slot_values` hook; a failed read is journaled as `memory.slot_values_failed` and gives None, never skipping the
-  capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`); a
+  capture) and passes them to the receipt (`procedure_outcome(procedure, task, slots)` → `Learning.receipt`, only
+  when `Learning.followed` holds, L36 §8); a
   deferred capture journals them in `memory.episode_deferred` and `_replay_deferred_receipts` passes them on. Values
   that are missing or of the wrong type give a receipt without slot values. An ignored procedure (I5) drops its slot
   values too. **Worker start (L29, spec §5):** `Learning.procedure_parts(procedure, apps, slots)` gives what a worker
@@ -3276,6 +3281,36 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   strictly inside a free-text hex run that has an a-f letter and is 12, 32 or 64 long counts as inside an id ("cafe1234"
   in "cafe1234abcd"); text in another Unicode normalization (macOS file names are NFD, a value typed NFC: "Zürich") or
   in full-width letters ("ｐｉｚｚａ") is not matched, as before.
+- **Learning (§8).** Comparisons modulo per-run handles; version ranges; the intent labeler names a task's purpose;
+  receipts on use; `ferb stats` prints "Procedures: N stored, N learned; used in N run(s); N kind(s) of task whose every
+  proposed procedure was refused". Live 2026-10-24: 0 procedures, all 5 consolidations refused.
+  `learning.comparable(value, home, key)` reads an argument as consolidation compares it: a tab (`t39`), a snapshot
+  element (`s1e8`) and a shell process (`p-e954619d`) by the shapes FERB's tools give them, one of FERB's ids
+  (`redact.FERB_ID`; in free text only with an a-f letter in its body, `id_bodies`, so two 12-digit phone numbers stay
+  two recipients), and an integer under `window_id`, `window` or `pid`, read as their kind; `~` and `~/` expand to
+  `Learning.home` (the daemon user's home) on both sides; a path under `/tmp/`, `/private/tmp/`, `/var/folders/` or
+  `/private/var/folders/` reads as `<temp>`. Anything else must be equal, so another text or another timeout is still
+  refused ("template arguments do not reproduce a cited action for each example"). `propose_procedure` no longer refuses
+  examples on different app versions: it stores `preconditions.apps` as `observed_ranges(cards)`, [lowest, highest] per
+  app by `version_key` (numbers by value), from the examples' cards, never the model's text; a version FERB couldn't
+  capture (`unknown`, an `unresolved-…` app) adds nothing. A procedure stored before reads its single version as a range
+  of one (`version_bounds`). `_refresh` ignores the installed versions; learned still needs a latest run whose versions
+  were captured. `procedure_parts` gives a learned procedure whose app is installed outside the range (`in_range`; an
+  installed version FERB couldn't read aside) the mode `New version: verify each step. "<app>" is "<version>" now; the
+  runs this was learned from used "<low>–<high>". Follow these steps, check each step's result before the next and the
+  final state; on any mismatch use full reasoning.` (app and versions JSON-encoded, as recorded text; several apps
+  joined by ". "). `Learning.followed(procedure, card, slots)` decides use: every required step has a successful action
+  of its tool whose arguments, with the planner's slot values filled in (`render_slots`), equal the step's after
+  `comparable`; a step whose slots this run has no value for matches by its tool alone; optional steps never decide it.
+  `Daemon._procedure_outcome` writes the receipt only then, else journals `memory.procedure_not_followed` {procedure_id,
+  task_id}; the deferred-receipt replay goes through it too. `intent.md` tells the labeler to name the purpose ("keep a
+  background tab's media playing", not "keep Instagram playing in Brave"). `ferb stats` (`admin._procedures`, all time):
+  current procedures (not superseded, retired or rolled back) and the learned ones; runs that used one (tasks with a
+  receipt of a procedure version whose own examples don't include that run, so a revision's dropped examples aren't
+  counted); intents whose latest consolidation job ended "every procedure proposed was refused". Residuals: a failed run
+  that stopped partway (a required step never succeeded) gets no receipt, so it no longer counts toward "suspect"; a
+  short value of a handle's shape in another key (a text "t5") compares as a handle; the consolidation prompt still asks
+  the model for apps and versions, which code replaces.
 
 ### 16.13 FERB's cursor (L33)
 

@@ -1017,6 +1017,13 @@ After the owner's update (2026-10-24):
   still is, and twelve digits in text are never taken for an id); a password, a word the dictionary lacks and a word in
   a script written without spaces (Chinese, Japanese, Korean, Thai) are still hidden wherever they appear; and saving
   an answer that is an ordinary word adds one line to the task's answer saying FERB hides that word everywhere.
+- FERB learns from repeated tasks (L36). Live: 0 procedures in two weeks; all 5 attempts were refused because tab,
+  element and process ids differ every run, `~/` paths didn't match their expanded form, and Brave had updated between
+  runs (151 vs 155). Steps are now compared without those per-run ids and with paths expanded, versions are a range (a
+  newer one runs with each step checked), runs of the same purpose on different sites group together, a run that
+  follows a procedure is counted, and `ferb stats` shows procedures stored, learned, used and refused. Another text or
+  another timeout is still a different step, and twelve digits (a phone number) are never taken for an id. A run that
+  doesn't follow its procedure's required steps gets no receipt (journaled `memory.procedure_not_followed`).
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,

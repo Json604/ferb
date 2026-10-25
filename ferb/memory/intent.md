@@ -7,6 +7,9 @@ of them — the same goal, even with different values, apps or steps — answer 
 description and slots empty, and give this run's value for each of its slots in "values". A shared word is not
 sameness: decide from what the owner wanted done.
 
+Name the purpose the owner had, not the site or app this run used ("keep a background tab's media playing", not "keep
+Instagram playing in Brave"), so runs with the same purpose on different sites group together.
+
 Otherwise answer with an empty intent_id and a new intent: a short name ("cheapest food order"), a one-line
 description, its slots (the parts that change between runs of this kind, each with its JSON type: string, number,
 boolean, array or object) and this run's values. Prefer few slots; a task with nothing that varies has none.

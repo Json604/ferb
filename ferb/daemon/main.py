@@ -1589,13 +1589,19 @@ class Daemon:
         return None
 
     def _procedure_outcome(self, procedure_id: str, task_id: str, slots: dict[str, Any] | None = None) -> None:
-        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them."""
+        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them. Written
+        only when the run followed the procedure's required steps (L36 §8, `Learning.followed`); otherwise journaled
+        as `memory.procedure_not_followed`."""
         if self.learning is None:
             return
         node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
         if node:
             from ferb.memory.learning import LearningRefused
             try:
+                if not self.learning.followed(procedure_id, node, slots):   # L36 §8: use is following its steps
+                    self._journal().append("memory.procedure_not_followed", {"procedure_id": procedure_id,
+                                                                             "task_id": task_id})
+                    return
                 self.learning.receipt(procedure_id, node["id"], slots)
             except LearningRefused:
                 self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})

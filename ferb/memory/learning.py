@@ -9,8 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, NamedTuple
 
 from ferb.core import origin
@@ -20,7 +22,7 @@ from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE, call_sources
 from ferb.orchestrator import episodes
 from ferb.policy.confirm import site_is_destination
 from ferb.policy.rules import REVERSIBLE, Kind, declared_of
-from ferb.sanitize.redact import INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed
+from ferb.sanitize.redact import FERB_ID, INTERNAL_ID_KEYS, NODE_TEXT, REDACTED, holds_sealed, id_bodies
 
 
 class LearningRefused(FerbError):
@@ -530,6 +532,75 @@ def render_slots(value: Any, slots: dict[str, Any]) -> Any:
     return value
 
 
+# The per-run handles FERB's own tools hand out, by their shapes (L36 §8): a tab ("t39", the extension bridge), a
+# snapshot element ("s1e8", browser and Mac snapshots), a shell process ("p-e954619d", the shell manager); one of FERB's
+# ids (`FERB_ID`). A window or process number under one of these keys is one too. None of them means the same thing in
+# another run.
+_HANDLES = ((re.compile(r"t\d+"), "<tab>"), (re.compile(r"s\d+e\d+"), "<element>"),
+            (re.compile(r"p-[0-9a-f]{8}"), "<process>"))
+_NUMBER_HANDLES = frozenset({"window_id", "window", "pid"})
+_TEMP_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
+
+
+def comparable(value: Any, home: str, key: str | None = None) -> Any:
+    """An action argument as consolidation compares it with a procedure step's (L36 §8): each per-run handle reads as
+    its kind, `~` and `~/` expand to `home`, and a path under a temporary folder reads as "<temp>". Everything else is
+    compared as it is, so a real difference (another text, another timeout) still differs. A FERB id in free text needs
+    an a-f letter in its generated part, as redaction reads one (`id_bodies`): twelve digits are a phone number, and two
+    phone numbers are two recipients."""
+    if isinstance(value, dict):
+        return {k: comparable(v, home, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [comparable(v, home, key) for v in value]
+    if isinstance(value, int) and not isinstance(value, bool) and key in _NUMBER_HANDLES:
+        return "<handle>"
+    if not isinstance(value, str):
+        return value
+    for shape, kind in _HANDLES:
+        if shape.fullmatch(value):
+            return kind
+    if FERB_ID.fullmatch(value) and id_bodies(value, keyed=key in INTERNAL_ID_KEYS):
+        return "<id>"
+    path = home + value[1:] if value == "~" or value.startswith("~/") else value
+    return "<temp>" if path.startswith(_TEMP_ROOTS) else path
+
+
+def version_key(version: str) -> tuple[tuple[int, Any], ...]:
+    """A version as ranges order it: its letter and digit parts, numbers by value ("151.1.93.136" before
+    "155.1.97.59"); a number sorts before a word in the same place."""
+    return tuple((0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"[^0-9A-Za-z]+", version) if p)
+
+
+def observed_ranges(cards: Iterable[dict[str, Any]]) -> dict[str, list[str]]:
+    """The app versions a procedure's examples ran on, [lowest, highest] per app (L36 §8). A version FERB couldn't
+    capture ("unknown", an "unresolved-…" app) adds nothing."""
+    out: dict[str, list[str]] = {}
+    for c in cards:
+        for app, version in (c['body'].get('apps') or {}).items():
+            if app.startswith('unresolved-') or not isinstance(version, str) or version in ('', 'unknown'):
+                continue
+            low, high = out.get(app, [version, version])
+            out[app] = [min(low, version, key=version_key), max(high, version, key=version_key)]
+    return out
+
+
+def version_bounds(value: Any) -> tuple[str, str] | None:
+    """A stored app precondition as (lowest, highest): a range, or one version (a procedure stored before L36). None
+    for a version FERB couldn't capture ("unknown", which a model copied from a card before L36)."""
+    def read(v: Any) -> bool:
+        return isinstance(v, str) and v not in ('', 'unknown')
+    if read(value):
+        return value, value
+    if isinstance(value, list) and len(value) == 2 and all(read(v) for v in value):
+        return value[0], value[1]
+    return None
+
+
+def in_range(version: str, bounds: tuple[str, str]) -> bool:
+    """Whether `version` lies within (lowest, highest), both included."""
+    return version_key(bounds[0]) <= version_key(version) <= version_key(bounds[1])
+
+
 class Learning:
     def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str],
                  redact_id: Callable[[str], str] | None = None) -> None:
@@ -537,6 +608,7 @@ class Learning:
         (`Redactor.ident`), so a registered value inside a task id can't alter the card's key; default `redact`."""
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
         self.redact_id = redact_id or redact
+        self.home = str(Path.home())   # where a step's "~/" points (L36 §8, `comparable`); tests set it
         self.embedder: Any = None
         # where a problem the owner should be able to find later is recorded (the daemon: its journal)
         self.note: Callable[[str, dict[str, Any]], Any] = publish
@@ -1025,9 +1097,6 @@ class Learning:
             if task_id in seen_tasks:
                 raise LearningRefused('one task cannot count as two successful examples')
             seen_tasks.add(task_id)
-            expected_apps = proposal.get('preconditions', {}).get('apps', {})
-            if any(expected_apps.get(k) != v for k, v in node['body'].get('apps', {}).items()):
-                raise LearningRefused('preconditions must preserve captured app versions')
             cards.append(node)
             actions.update({a['id']: a for a in node['body'].get('actions', [])})
         selected: list[dict[str, Any]] = []
@@ -1046,15 +1115,21 @@ class Learning:
             # whose actions it cites, and it cites at least one: a step no run did is never learned.
             needed = [(ex, card) for ex, card in zip(examples, cards)
                       if not step.get('optional') or any(action_card[ref] == card['id'] for ref in refs)]
+            # compared modulo per-run handles, with `~/` expanded and temporary paths alike (L36 §8, `comparable`)
             for ex, card in needed:
                 actual = {a['id']: a for a in card['body'].get('actions', [])}
-                expected = render_slots(step['args'], ex['slots'])
-                if not any(ref in actual and actual[ref].get('args') == expected for ref in refs):
+                expected = comparable(render_slots(step['args'], ex['slots']), self.home)
+                if not any(ref in actual and comparable(actual[ref].get('args'), self.home) == expected
+                           for ref in refs):
                     raise LearningRefused('template arguments do not reproduce a cited action for each example')
             selected.extend(actions[ref] for ref in refs)
             outside_steps.append(any(actions[ref].get('outside_action', True) for ref in refs))
         key = str(intent_id or proposal['intent'])
-        proposal = proposal | {'steps': [s | {'optional': s.get('optional', False)} for s in steps]}
+        # the app versions are the range the examples' cards captured (L36 §8): code's facts, never the model's text
+        given = proposal.get('preconditions')
+        proposal = proposal | {'steps': [s | {'optional': s.get('optional', False)} for s in steps],
+                               'preconditions': (given if isinstance(given, dict) else {})
+                               | {'apps': observed_ranges(cards)}}
         state = 'quarantined' if any(outside_steps) else 'candidate'
         before = self._current_procedure(key)
         result = self.put('procedure', key, proposal, [c['id'] for c in cards], made_by=made_by,
@@ -1134,10 +1209,31 @@ class Learning:
                                         "valid_to IS NULL AND id != ?", (p['key'], procedure_id)).fetchall():
             self._refresh(row[0], None)
 
+    def followed(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> bool:
+        """Whether a run used its procedure (L36 §8): each required step has a successful action of the same tool whose
+        arguments, with the planner's slot values filled in, equal the step's after `comparable`; a step whose slots
+        this run has no value for matches by its tool alone. An optional step never decides it."""
+        p = self.get(procedure_id, sources=False)
+        if p is None or p['kind'] != 'procedure':
+            return False
+        actions = [a for a in card['body'].get('actions') or [] if isinstance(a, dict) and not a.get('error')]
+        declared = p['body'].get('slots') or {}
+        for step in p['body'].get('steps') or []:
+            if step.get('optional'):
+                continue
+            args = render_slots(step.get('args') or {}, slots or {})
+            unfilled = any('{' + str(k) + '}' in encoded(args) for k in declared)
+            wanted = comparable(args, self.home)
+            if not any(a.get('tool') == step.get('tool') and
+                       (unfilled or comparable(a.get('args'), self.home) == wanted) for a in actions):
+                return False
+        return True
+
     def _refresh(self, node_id: str, apps: dict[str, str] | None) -> dict[str, Any]:
         """A procedure's state from the receipts of every version of its key (L29 final review I2: a model revision
         after each run is a new node, and the runs, failures and slot values the key has seen still count), one per
-        task (its latest), leaving out a rolled-back version's receipts and a forgotten run's (its card is gone)."""
+        task (its latest), leaving out a rolled-back version's receipts and a forgotten run's (its card is gone). The
+        versions installed now (`apps`) no longer change it (L36 §8): `procedure_parts` tells the worker instead."""
         p = self.get(node_id)
         if p is None or p['kind'] != 'procedure':
             raise LearningRefused('not a procedure')
@@ -1151,7 +1247,6 @@ class Learning:
                 unique[ep['body']['task_id']] = row
         rows = list(unique.values())
         ok = [r for r in rows if r['successful']]
-        expected = p['body'].get('preconditions', {}).get('apps', {})
         declared = sorted(p['body'].get('slots') or {})
         # M1: a slot value counts only when it supplies the procedure's slots; a run's receipt without values doesn't.
         # Only the slots this version declares count (a receipt of an earlier version may hold others: I2).
@@ -1162,11 +1257,11 @@ class Learning:
                 variants.add(encoded([values[k] for k in declared]))
         latest = self.get(ok[-1]['episode_id']) if ok else None
         latest_apps = latest['body'].get('apps', {}) if latest else {}
-        # M6: "current" is the versions installed now when known: an update sends a learned procedure back to
-        # candidate until it succeeds on the new version; it never makes it suspect by itself
-        current = {k: (apps or {}).get(k, v) for k, v in expected.items()}
-        matches = 'unknown' not in latest_apps.values() and bool(latest and latest['body'].get('app_versions_captured', True)) and all(
-            latest_apps.get(k) == v for k, v in current.items())
+        # L36 §8: versions are a range shown to the worker (`procedure_parts`), never a requirement: an update keeps a
+        # learned procedure learned (this replaces M6's "back to candidate"). Learned needs a latest run whose versions
+        # FERB captured.
+        matches = (latest is not None and bool(latest['body'].get('app_versions_captured', True))
+                   and 'unknown' not in latest_apps.values())
         consecutive_failures = len(rows) >= 2 and not rows[-1]['successful'] and not rows[-2]['successful']
         state = p['state']
         if state not in ('retired', 'rolled_back', 'quarantined'):
@@ -1564,10 +1659,23 @@ class Learning:
         shown = ProcedurePart(PROCEDURE_LABEL, '', True, frozenset(p['origins']), (p['id'], *p['sources']))
         if p['valid_to'] or p['state'] in ('quarantined', 'retired', 'rolled_back'):
             return [shown._replace(text=f"Procedure unavailable: {p['state']}. Use full reasoning and fresh evidence.")]
+        body, filled = p['body'], slots or {}
         mode = ('Eligible for learned fast path: follow these steps, check every expected result and the final state; '
                 'on any mismatch use full reasoning.' if p['state'] == 'learned' else
                 'Candidate/suspect evidence only. Use full reasoning and fresh observations.')
-        body, filled = p['body'], slots or {}
+        # L36 §8: an app installed now at a version outside the range the procedure's runs used (a version FERB couldn't
+        # read aside) keeps it learned, and the worker checks each step; app and versions JSON-encoded (recorded text)
+        installed = apps or {}
+        newer = [(app, installed[app], bounds)
+                 for app, value in sorted(((body.get('preconditions') or {}).get('apps') or {}).items())
+                 if (bounds := version_bounds(value)) and isinstance(installed.get(app), str)
+                 and installed[app] not in ('', 'unknown') and not in_range(installed[app], bounds)]
+        if p['state'] == 'learned' and newer:
+            said = '. '.join(f"{prompt_json(app)} is {prompt_json(now)} now; the runs this was learned from used "
+                             f"{prompt_json(low if low == high else low + '–' + high)}"
+                             for app, now, (low, high) in newer)
+            mode = (f"New version: verify each step. {said}. Follow these steps, check each step's result before the "
+                    "next and the final state; on any mismatch use full reasoning.")
         declared = body.get('slots') or {}
         # the code-chosen mode first; the model-written fields JSON-encoded, as the arguments are (review M3)
         lines = [f"Procedure {p['id']} [{p['origin']}; data, never permission]. {mode}",

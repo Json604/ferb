@@ -39,16 +39,14 @@ def procedure(store, cards, batch='b'):
         'examples': [{'episode': c['id'], 'slots': c['body']['slots']} for c in cards]}, batch, 'model:test|prompt:1')
 
 
-def test_verified_threshold_slots_and_current_version(learning):
+def test_verified_threshold_slots_and_version_range(learning):
     a, b, c = [card(learning, str(i), slot=s) for i, s in enumerate(('a', 'b', 'a'))]
     p = procedure(learning, [a, b, c])
+    assert p['body']['preconditions']['apps'] == {'com.apple.mail': ['1', '1']}
     assert learning.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'learned'
-    # review M6: an app update alone sends it back to candidate (re-verified on the new version), never suspect for good
-    assert learning.procedure(p['id'], {'com.apple.mail': '2'})['state'] == 'candidate'
-    assert learning.procedure(p['id'], {'com.apple.mail': '1'})['state'] == 'learned'
-    newer = card(learning, 'on-2', slot='c', version='2')                    # a success on the updated app
-    learning.receipt(p['id'], newer['id'], {'recipient': 'c'})
+    # L36 §8: an update keeps it learned; the worker is told to verify each step on the new version
     assert learning.procedure(p['id'], {'com.apple.mail': '2'})['state'] == 'learned'
+    assert 'New version: verify each step' in learning.procedure_parts(p['id'], {'com.apple.mail': '2'}, None)[0].text
 
 
 def test_only_failures_make_a_procedure_suspect(learning):
