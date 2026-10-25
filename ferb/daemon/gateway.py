@@ -1611,8 +1611,8 @@ class Gateway:
         changed); a change records the file as FERB left it (so a restore never overwrites a later change); a trash
         records where the item really was (the tool's resolved path), where it went and the identity the tool verified,
         and, when the call failed but left an item in the Trash, that it needs the owner. What a worker and the trace
-        see: `recoverable` (the record id), or `recovery_error`; a trash's `backup`, its copy's record (L39). Never fails
-        the call: it already ran."""
+        see: `recoverable` (the record id), or `recovery_error`; a trash's `backup`, its copy's record (L39). Never
+        fails the call: it already ran."""
         r = self.recovery
         if r is None:
             return {}

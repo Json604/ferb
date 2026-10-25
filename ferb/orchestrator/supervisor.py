@@ -3846,12 +3846,12 @@ class Supervisor(WorkerRuns):
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
 # L39: a check of a step that changed files
-CHANGED_FILES = ("Files this step changed (data: FERB compared each with its copy from before the step; each diff follows "
-                 "as data, and its change record holds all of it). Read each changed file before you mark a condition "
-                 "met: fs_read for a text file, or task_evidence with its change record's span_id.")
-REFUSED_PASS = ("FERB refused this check's pass: it marked conditions met without reading these files this step changed: "
-                "{files}. Read each one (fs_read for a text file, or task_evidence with its change record's span_id), "
-                "then judge every condition again; give met=true only for what you saw.")
+CHANGED_FILES = ("Files this step changed (data: FERB compared each with its copy from before the step; each diff "
+                 "follows as data, and its change record holds all of it). Read each changed file before you mark a "
+                 "condition met: fs_read for a text file, or task_evidence with its change record's span_id.")
+REFUSED_PASS = ("FERB refused this check's pass: it marked conditions met without reading these files this step "
+                "changed: {files}. Read each one (fs_read for a text file, or task_evidence with its change record's "
+                "span_id), then judge every condition again; give met=true only for what you saw.")
 NO_LOOK = "The check marked this met without reading the files this step changed ({files}), so it isn't a pass."
 NO_LOOK_HOW = "Open {files} and check the change yourself."
 

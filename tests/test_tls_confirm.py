@@ -1,6 +1,7 @@
-"""L39 (owner, 2026-10-25, rule 8): a shell command that turns off TLS certificate checks asks the owner first, showing
-the exact command; a No runs nothing; the answer covers that exact command for the task tree, across retries. The live
-case: task 39e35d57 ran `pip install … --trusted-host pypi.org --trusted-host files.pythonhosted.org` without asking."""
+"""L39 (owner, 2026-10-25, rule 8): a shell command that turns off TLS certificate checks asks the owner first,
+showing the exact command; a No runs nothing; the answer covers that exact command for the task tree, across retries.
+The live case: task 39e35d57 ran `pip install … --trusted-host pypi.org --trusted-host files.pythonhosted.org`
+without asking."""
 
 from pathlib import Path
 from typing import Any

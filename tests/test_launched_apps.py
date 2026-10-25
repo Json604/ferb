@@ -1,7 +1,7 @@
-"""L39: apps FERB launches are task resources (live case 39e35d57: Pages, launched by mac.open, was still running after
-the task; every task.cleanup released nothing). An app that wasn't running and that FERB launched is quit when its task's
-resources are released, unless the owner used it or it may hold unsaved changes: then it stays and the answer names it.
-Launches go to the background."""
+"""L39: apps FERB launches are task resources (live case 39e35d57: Pages, launched by mac.open, was still running
+after the task; every task.cleanup released nothing). An app that wasn't running and that FERB launched is quit when
+its task's resources are released, unless the owner used it or it may hold unsaved changes: then it stays and the
+answer names it. Launches go to the background."""
 
 import json
 from typing import Any
@@ -132,7 +132,8 @@ def test_released_apps_reach_the_answer_lines() -> None:
     assert json.dumps(records)                                              # plain data for the trace
 
 
-def test_an_app_left_running_is_named_in_the_tasks_answer(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_app_left_running_is_named_in_the_tasks_answer(daemon: RunningDaemon,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.conftest import chat, cond, done, install, outcome, sup, task as plan, tool
     from tests.support.checker_calls import verdict
     _fake_mac(daemon, monkeypatch)
