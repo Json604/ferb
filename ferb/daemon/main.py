@@ -796,12 +796,11 @@ class Daemon:
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots
-        # L39: what each step's files looked like before it changed them, for its checker's diff; never copied from
-        # FERB's own state or a store closed to FERB's tools. What a stopped daemon left goes now, before any task
+        # L39: what each step's files looked like before it changed them, for its checker's diff. Closed exactly as
+        # the shell's sandbox closes reads (FERB's state, the never-read stores: Protection.read_denied), whatever
+        # FERB's file tools may read: the unsandboxed daemon must never read for the shell what its sandbox denies
         protection = self.protection
-        self.changes = Changes(self.home / "changes",
-                               closed=lambda path: protection.fs_denied(path, "read") is not None)
-        self.changes.sweep()
+        self.changes = Changes(self.home / "changes", closed=lambda path: protection.read_denied(path) is not None)
         self.gateway.changes = self.changes
         self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids, self.redact)     # D33, S4 (F5a)
         self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids, self.redact)  # SQ6
@@ -822,6 +821,11 @@ class Daemon:
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished
         self.supervisor.changes = self.changes
+        # L39 M1: the records a stopped daemon left go now, before any task, except those of trees that will resume
+        # (their checks still see the changes made before the restart)
+        resuming = set(self.supervisor.plans.pending())
+        if stuck := self.changes.sweep(keep=resuming.__contains__):
+            self._journal().append("changes.cleanup_failed", {"at": "start", "paths": len(stuck)})
         self.supervisor.disturbance_context = self.disturbance.context
         self.supervisor.disturbance = self.disturbance
         self.supervisor.relevant_context = self._relevant_context      # its fourth element: the search's source refs
@@ -902,7 +906,8 @@ class Daemon:
             await self.disturbance.finish(tree_id)
         finally:
             if self.changes is not None:                  # L39: the tree's copies from before its changes
-                await asyncio.to_thread(self.changes.forget, tree_id)
+                if stuck := await asyncio.to_thread(self.changes.forget, tree_id):
+                    self._journal().append("changes.cleanup_failed", {"task_id": tree_id, "paths": len(stuck)})
             if self.uploads is not None:
                 await self._clean_uploads(self.uploads.forget_tree, tree_id, about={"task_id": tree_id})
 
@@ -1138,7 +1143,8 @@ class Daemon:
         # L39: apps a task's calls launch are its resources, quit at its release unless the owner used them
         self.mac.launched = LaunchedApps(  # type: ignore[attr-defined]
             lambda: list(mac.apps.running()),
-            lambda task, app: self._owner_used_app(task, app))
+            lambda task, app: self._owner_used_app(task, app),
+            now=lambda: self.clock.now().isoformat())      # FERB's clock, as the desktop records use (M7)
         # FERB's shell and AppleScript run only inside its sandbox, built from the protection lists (S2, D27, rule
         # 10): when sandbox-exec can't run, their tools are left out and `ferb doctor` says why, never uncontained (Q7)
         assert self.protection is not None

@@ -193,3 +193,19 @@ def test_one_lock_per_task_and_the_index_is_written_only_on_change(tmp_path: Pat
     os.utime(index, ns=(first - 10_000_000_000, first - 10_000_000_000))
     store.before("a.step.x", "a", [f])                                    # nothing new to record
     assert index.stat().st_mtime_ns == first - 10_000_000_000
+
+
+def test_the_daemons_change_record_is_closed_as_the_shell_sandbox_is(daemon) -> None:
+    """C1 wiring: the daemon's record closes what the shell's sandbox denies to reads (Protection.read_denied), even
+    where FERB's own file tools may read (fs_reads_never_read = true)."""
+    protection = daemon.daemon.protection
+    store = daemon.daemon.changes
+    entry = protection.reads[0].path / "inside"
+    assert store.closed(entry) is True and store.closed(daemon.daemon.home / "config.toml") is True
+    assert store.closed(daemon.daemon.home / "workspace" / "notes.txt") is False
+
+
+def test_the_daemons_launches_are_stamped_with_ferbs_clock(daemon) -> None:
+    """M7 wiring: the launch time comes from FERB's clock (the desktop records' clock), not the wall clock."""
+    launched = daemon.daemon.mac.launched                                 # type: ignore[union-attr]
+    assert launched.now() == daemon.daemon.clock.now().isoformat()
