@@ -155,7 +155,8 @@ def test_a_named_file_replaced_by_a_link_is_a_named_fact(tmp_path: Path) -> None
 
 
 def test_a_new_folder_of_thirty_thousand_files_is_listed_fast_as_facts(tmp_path: Path) -> None:
-    """N7 (p7, `cd proj && npm install`): a page of names, then "and K more"; under a second."""
+    """N7 (p7, `cd proj && npm install`): a page of names, then "and K more", and the walk stops after WALK_MAX
+    entries (round 3: the limits are per check); under a second."""
     proj = tmp_path / "proj"
     proj.mkdir()
     (proj / "package.json").write_text("{}")
@@ -172,7 +173,7 @@ def test_a_new_folder_of_thirty_thousand_files_is_listed_fast_as_facts(tmp_path:
     texts = [store.describe(c) for c in out]
     assert elapsed < 1.0, elapsed
     assert not any(c.content for c in out) and len(out) <= changes_mod.FOLDER_FACTS + 1
-    assert any("and 29,9" in t and "more new files" in t for t in texts)
+    assert any("more new or changed files" in t and f"more than {changes_mod.WALK_MAX:,} entries" in t for t in texts)
 
 
 def test_pairing_in_a_bulk_step_reads_a_few_candidates_per_new_file(tmp_path: Path,
