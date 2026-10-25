@@ -2988,6 +2988,8 @@ protected FERB state (16.9).
 
 ### 16.10 Journal kinds added in the launch week
 
+L34 Phase E: `settings.changed` (a Settings write, origin owner) and `diagnostic.built`.
+
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
 `screen.page_secrets_failed`, `screen.native_capture_failed`, `screen.image_refused`, `runtime.limits_unknown`,
@@ -3605,6 +3607,22 @@ refused connections in a row = not running), `chat.status`'s `paused` and `stopp
 tasks; `StatusMenu.entries` builds the menu (Pause = `sense.pause`, Restart = `DaemonService.restart`, Lift Emergency
 Stop = `stop.lift`). Debugging: journal `banners.switched`; `ferb logs` shows each `approval.requested`/`task.result`
 that a banner follows.
+
+### The FERB window and Settings (L34 Phase E)
+
+- **App:** `FERBWindowController` (`ui/mac/FERBNotch/Sources/FERBNotch/FERBWindow.swift`) opens one regular window
+  (menu bar **Open FERB Window**, ⌘, at Settings). `FERBWindowStore` turns each button into one RPC and shows a failure
+  as the problem line. Rows are decoded in `NotchCore/WindowRows.swift`. Settings → AI, Permissions and Browsers embed
+  plan C's step views on the setup window's own `SetupModel`; Notifications uses plan D's `notifications.categories`;
+  Advanced runs `ferb setup --cli` and `ferb uninstall` through plan C's runner. The window belongs to FERB.app, so
+  every Mac tool refuses it (`driver.OWN_APP`).
+- **Daemon:** `tasks.list` (root tasks, newest first, 50 per page), `notices.list` (acknowledges nothing),
+  `schedules.list` rows with `last_result`, `settings.get`/`settings.set` (`ferb/daemon/settings.py`: privacy and
+  retention keys only, each value checked; journal `settings.changed`), `reports.diagnostic` (the redacted local
+  file; journal `diagnostic.built`). All are CLI-role methods only (rule 10).
+- **CLI:** `ferb setup --cli` (link `ferb` from FERB.app) and `ferb setup --codex-logout` (FERB's own Codex home).
+- **Debugging:** a refused setting names its key in the reply and the problem line; `ferb timeline` shows
+  `settings.changed`.
 
 ### 16.15 Careful edits (L39)
 

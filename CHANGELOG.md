@@ -13,6 +13,17 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 FERB for everyone, phase E (L34) — 2026-10-25 — the FERB window and Settings; owner live check pending
+
+Phase E, the FERB window and Settings (L34):
+- A regular FERB window (menu bar **Open FERB Window**; ⌘, opens Settings in it): Tasks with answers, Inspect,
+  verdicts and stop; Schedules & Reminders with each schedule's last result; Noticed; Memory with confirm and forget;
+  Settings with General, AI, Permissions, Browsers, Notifications, Privacy and Advanced. The old sound and pointer
+  window is gone; its switches are in Settings → General.
+- New owner-only RPCs: `tasks.list`, `notices.list`, `settings.get`, `settings.set` (privacy and retention keys only,
+  each value checked; rule 10) and `reports.diagnostic` (a local, redacted diagnostic file). `schedules.list` rows
+  carry `last_result`. New `ferb setup --cli` and `ferb setup --codex-logout`.
+
 ## L34 FERB for everyone — Phase D: notifications and menu bar — 2026-10-25 — checkout; owner live check pending
 
 - FERB.app posts FERB's banners with UNUserNotificationCenter (FERB's name and icon, Focus respected) while it holds

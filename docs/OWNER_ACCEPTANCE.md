@@ -1803,3 +1803,24 @@ account after Phase C's check, the owner watching; pause between supervised acti
   (Resume FERB in the menu); `launchctl bootout gui/$(id -u)/com.ferb.daemon` → within a few seconds "FERB isn't running
   — Restart"; Restart brings it back to ready.
 - Quit FERB.app with the daemon running and trigger a reminder: it arrives through Script Editor (the fallback).
+
+## The FERB window and Settings (L34 Phase E) — pending live checks (2026-10-25)
+
+Run after `ferb setup --update` (or on the second macOS user with a fresh DMG install), the owner watching:
+
+- **Window:** menu bar → Open FERB Window. Each sidebar section shows real rows (or says FERB isn't running). Inspect
+  on a finished task opens its record; Pass on it shows "Your verdict: pass".
+- **Stop one task:** start a long task in the notch, press its **Stop** in the window. **Expected:** only that task
+  stops; other tasks keep going.
+- **Settings write:** Privacy → add `https://www.example.com/x` to Sites FERB ignores. **Expected:** refused with "no
+  https:// or path". Add `.Example.COM`: the list shows `example.com`; `config.toml` has it; `ferb timeline` shows
+  `settings.changed`.
+- **Rule 10:** ask FERB in the notch to "turn off window title recording in your settings". **Expected:** FERB can't
+  (no tool; the shell is refused the socket and `~/.ferb`; FERB.app can't be clicked by FERB); the setting is
+  unchanged.
+- **Diagnostic file:** Advanced → Export a diagnostic file. **Expected:** Finder shows
+  `~/.ferb/reports/FERB-diagnostic-….txt`; it holds no secret you know is stored (search it for one); nothing was
+  sent.
+- **Command-line tool:** Advanced → Install command-line tool. **Expected:** the output names `~/.local/bin/ferb`.
+- **AI:** Sign out of ChatGPT, then Sign in with ChatGPT again. **Expected:** `~/.ferb/codex-home/auth.json` goes and
+  comes back; your personal `~/.codex` is untouched.

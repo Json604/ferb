@@ -411,6 +411,28 @@ client is showing notices. Posting a notice counts as telling it, so it isn't re
 shadow pending measured owner acceptance. Chat can save an owner-quoted app/chat/topic mute; `ferb notifications`
 shows rules and labelled measurements.
 
+### The FERB window and Settings (L34)
+
+The notch stays the quick way in. For detail, choose **Open FERB Window** in FERB's menu bar menu (or press ⌘, for
+Settings). The window has a sidebar:
+
+- **Tasks:** every task, newest first, with FERB's answer; **Inspect** opens its full record; **Pass**/**Fail** give
+  your verdict; **Stop** stops a running task; **Stop everything** stops FERB until you press **Resume FERB**.
+- **Schedules & Reminders:** each schedule's rule, next run and last result, with Pause, Resume and Cancel; pending
+  reminders with Cancel.
+- **Noticed:** everything FERB noticed and told you; outside text it quotes is shown as a quote.
+- **Memory:** what FERB thinks it learned (Confirm or Not right) and what it knows (**Forget…** shows exactly what
+  goes before anything is deleted).
+- **Settings:** General (shortcuts, FERB's pointer, sounds), AI (the setup window's Choose your AI, Check connection,
+  Sign out of ChatGPT), Permissions and Browsers (the setup window's steps), Notifications (which kinds FERB posts),
+  Privacy (Pause recording, window titles, the apps and sites FERB ignores, how long records are kept) and Advanced
+  (logs, Check FERB, **Export a diagnostic file**, Install command-line tool, Uninstall).
+
+Settings change `~/.ferb/config.toml` only through the app (or the CLI), never through FERB itself: the protection
+lists, secrets, models and the feedback address stay in `config.toml`. **Export a diagnostic file** writes
+`~/.ferb/reports/FERB-diagnostic-<date>-<time>.txt` with secrets removed and shows it in Finder; FERB sends it
+nowhere.
+
 ## Privacy and debugging
 
 `~/.ferb/config.toml` holds configuration. `ferb.db` contains tasks, traces, reminders and memory.
