@@ -187,7 +187,9 @@ class Change:
     copy FERB kept from before (None: none was kept, `note` says why); `source` for a new file, the file it was compared
     with, and for a renamed one, its name before the step.
     `content` False: a fact only (a file no call named, a shell history file, a path that is no longer a plain file):
-    its name, size and time, never what it says. `named`: a call of the step named it exactly."""
+    its name, size and time, never what it says. `named`: a call of the step named it exactly. `original`: a renamed
+    file with its bytes unchanged whose old name holds a new file now: this name holds the original of `source` (the
+    backup an edit kept, as `sed -i.bak` does)."""
     path: str
     what: str
     before: str | None = None
@@ -198,6 +200,7 @@ class Change:
     mtime_ns: int | None = None
     named: bool = False
     before_real: str | None = None   # the file FERB's copy was taken from (checked again before the copy is read)
+    original: bool = False
 
 
 def _kind(st: os.stat_result) -> int:
@@ -244,20 +247,22 @@ class _Scan:
 
 @dataclass
 class _Look:
-    """One check's walk: the changes found, the paths seen, recorded files whose name is gone (by identity, a new name
-    for one is a rename) and those renamed, and the page shared by every folder: files no call named listed so far
-    (FOLDER_FACTS in all), the rest counted per listed folder, entries looked at (WALK_MAX in all), where FERB stopped
-    and where folders nested too deep weren't walked."""
+    """One check's walk: the changes found, the paths seen, recorded files whose name no longer holds them (by
+    identity, a new name for one is a rename), those whose name holds another file now (`held`: the new name is a
+    backup) and those renamed, and the page shared by every folder: files no call named listed so far (FOLDER_FACTS in
+    all), the rest counted per listed folder, entries looked at (WALK_MAX in all), the listed folders FERB stopped
+    looking in once that was reached, and where folders nested too deep weren't walked."""
     rec: _Record
     folder: Path
     seen: set[str]
     out: list[Change] = field(default_factory=list)
     moved: dict[tuple[int, int], str] = field(default_factory=dict)
     renamed: set[str] = field(default_factory=set)
+    held: set[str] = field(default_factory=set)
     names: int = 0
     entries: int = 0
     more: Counter[str] = field(default_factory=Counter)
-    stopped: str | None = None
+    stopped: set[str] = field(default_factory=set)
     deep: set[str] = field(default_factory=set)
 
 
@@ -370,38 +375,38 @@ class Changes:
         hard link or another spelling counts): every file under ~/.zsh_sessions (and older macOS bash's
         ~/.bash_sessions), ~/.local/share/fish/fish_history,
         and the home folder's dotfiles named *_history or *.history, .histfile and .lesshst (zsh, bash, ksh, tcsh,
-        Python, Node, psql, mysql, sqlite, less). Enumerated afresh by each before() and changes() call."""
+        Python, Node, psql, mysql, sqlite, less). One of these that is a link (a dotfile manager's, a synced folder's)
+        adds the file it leads to as well: metadata only (os.stat following the link), nothing is read. Enumerated
+        afresh by each before() and changes() call."""
         if self._hist is not None:
             return self._hist
         ids: set[tuple[int, int]] = set()
 
-        def add(st: os.stat_result) -> None:
-            if stat.S_ISREG(st.st_mode):
-                ids.add((st.st_dev, st.st_ino))
+        def add(path: Path | str) -> None:
+            try:
+                st = os.stat(path, follow_symlinks=False)
+                if stat.S_ISLNK(st.st_mode):
+                    ids.add((st.st_dev, st.st_ino))   # the link itself
+                    st = os.stat(path)                # I1: and the file it leads to, by identity
+                if stat.S_ISREG(st.st_mode):
+                    ids.add((st.st_dev, st.st_ino))
+            except OSError:
+                pass
         try:
             with os.scandir(self.home) as it:
                 for e in it:
                     if _history_name(e.name):
-                        try:
-                            add(e.stat(follow_symlinks=False))
-                        except OSError:
-                            continue
+                        add(e.path)
         except OSError:
             pass
         for folder in self.sessions:
             try:
                 with os.scandir(folder) as it:
                     for e in it:
-                        try:
-                            add(e.stat(follow_symlinks=False))
-                        except OSError:
-                            continue
+                        add(e.path)
             except OSError:
                 pass
-        try:
-            add(os.stat(self.fish, follow_symlinks=False))
-        except OSError:
-            pass
+        add(self.fish)
         self._hist = ids
         return ids
 
@@ -621,9 +626,11 @@ class Changes:
         look = _Look(rec, folder, seen=set(rec.files))
         found: dict[str, Change | None] = {}
         for key, f in rec.files.items():
-            found[key] = self._compare(Path(key), f, folder)
+            found[key] = compared = self._compare(Path(key), f, folder)
             if f.existed and self._gone(rec, Path(key), f, scans):
                 look.moved[(f.dev, f.ino)] = key
+                if compared is None or compared.what != "removed":   # its name holds another file: a kept backup
+                    look.held.add(key)
         recorded = {(f.dev, f.ino) for f in rec.files.values() if f.existed}
         for where, entries in rec.folders.items():
             place, scan = Path(where), scans[where]
@@ -664,11 +671,14 @@ class Changes:
             parts = ([f"and {look.more[where]:,} more new or changed files here and in folders made here, not "
                       "listed"] if look.more[where] else []) + \
                     ([f"more than {WALK_MAX:,} entries in folders made during the step (and files changed in "
-                      "place): FERB stopped looking there"] if look.stopped == where else []) + \
+                      "place): FERB stopped looking there"] if where in look.stopped else []) + \
                     ([f"folders nested more than {WALK_DEPTH} deep were not walked"] if where in look.deep else [])
             if parts:
                 look.out.append(Change(where, "modified", content=False, note="; ".join(parts)))
-        out = [c for key, c in found.items() if c is not None and key not in look.renamed] + look.out
+        # A1: a renamed file's old record goes only when its name holds nothing now; a name that holds another file
+        # keeps its record (modified, diffed against FERB's copy), wherever the old file went
+        out = [c for key, c in found.items() if c is not None and not (key in look.renamed and key not in look.held)]
+        out += look.out
         return [self._paired(c, out, folder, rec) if c.what == "created" and c.content else c for c in out]
 
     @staticmethod
@@ -701,7 +711,7 @@ class Changes:
             return
         if not shown:
             if look.entries >= WALK_MAX:
-                look.stopped = look.stopped or where
+                look.stopped.add(where)
                 return
             look.entries += 1
             if self._closed_as_written(real_path):
@@ -738,7 +748,7 @@ class Changes:
         if was is not None:
             look.moved.pop((dev, ino), None) or look.moved.pop((0, ino), None)
             look.renamed.add(was)
-            look.out.append(self._renamed(path, st, was, look.rec.files[was], look.folder))
+            look.out.append(self._renamed(path, st, was, look.rec.files[was], look.folder, was in look.held))
         else:
             look.out.append(self._new(look.rec, path, st))
 
@@ -783,10 +793,11 @@ class Changes:
         os.close(fd)
         return made
 
-    def _renamed(self, path: Path, st: os.stat_result, was: str, f: _File, folder: Path) -> Change:
+    def _renamed(self, path: Path, st: os.stat_result, was: str, f: _File, folder: Path, held: bool) -> Change:
         """A1: the file a call named, now under another name (the same device and inode): renamed, its content compared
         with FERB's copy from before the step; a fact when its content is unchanged, it is a history file, FERB can't
-        read it, or its copy came from a path now closed."""
+        read it, or its copy came from a path now closed. `held`: its old name holds another file now (that name keeps
+        its own record), so unchanged bytes here are the original of it, kept as a backup."""
         made = Change(str(path), "renamed", source=was, named=True, size=st.st_size, mtime_ns=st.st_mtime_ns)
         if f.history or self._history(path):
             return dataclasses.replace(made, content=False, note=HISTORY_NOTE)
@@ -796,7 +807,7 @@ class Changes:
             return dataclasses.replace(made, content=False, note="closed to FERB's shell now")
         copy = str(folder / f.copy) if f.copy else None
         if (st.st_size, st.st_mtime_ns) == (f.size, f.mtime_ns) or (copy is not None and _same(path, Path(copy))):
-            return dataclasses.replace(made, content=False, note=UNCHANGED)
+            return dataclasses.replace(made, content=False, note=UNCHANGED, original=held)
         return dataclasses.replace(made, before=copy, note=f.no_copy, before_real=f.real or None)
 
     @staticmethod
@@ -812,7 +823,7 @@ class Changes:
         Files a call named carry content; others go on the check's page, then are counted by name. FERB stops after
         WALK_MAX entries in all and doesn't go deeper than WALK_DEPTH folders (facts on `where` say so)."""
         if look.entries >= WALK_MAX:
-            look.stopped = look.stopped or where
+            look.stopped.add(where)
             return
         look.entries += 1                                # the new folder itself is an entry too
         fd = _open(top.name, directory=True, dir_fd=parent) if parent is not None else None
@@ -844,7 +855,7 @@ class Changes:
                     os.close(dir_fd)
                     continue
                 if look.entries >= WALK_MAX:
-                    look.stopped = look.stopped or where
+                    look.stopped.add(where)
                     return
                 look.entries += 1
                 name, is_dir, is_file, ino = item
@@ -912,7 +923,8 @@ class Changes:
         candidates chosen before any text is read, each within PAIR_SIZE of its size. First the step's own copies (the
         files its calls named, whose sources aren't closed now), whatever their names: alike names (SIMILAR) the most
         alike first, then the rest the closest in size first. Then plain files beside it with alike names, the most
-        alike first."""
+        alike first: its folder listed through an fd opened without following a link and checked as the folder it
+        really is, never by path, and each read through `text_of` (P1)."""
         path = Path(made.path)
         kind, suffix = _kind_of(path), path.suffix.lower()
         try:
@@ -932,18 +944,23 @@ class Changes:
         picks = [c[1:] for c in sorted(own, key=lambda c: (c[0], c[1]))[:PAIR_READS]]
         changed = {c.path for c in all_changes}
         siblings: list[tuple[float, str, Path, bool, str | None]] = []
-        try:
-            with os.scandir(path.parent) as it:
-                for e in it:
-                    sibling = Path(e.path)
-                    if (sibling.suffix.lower() != suffix or e.path in changed or sibling == path
-                            or e.path in rec.files or not e.is_file(follow_symlinks=False)):
-                        continue
-                    if size / PAIR_SIZE <= e.stat(follow_symlinks=False).st_size <= size * PAIR_SIZE \
-                            and (alike := likeness(sibling)) >= SIMILAR:
-                        siblings.append((alike, str(sibling), sibling, True, None))
-        except OSError:
-            pass
+        dir_fd = _open(path.parent, directory=True)
+        if dir_fd is not None:
+            try:
+                if self._opened(dir_fd) is not None:
+                    with os.scandir(dir_fd) as it:
+                        for e in it:
+                            sibling = path.parent / e.name
+                            if (sibling.suffix.lower() != suffix or str(sibling) in changed or sibling == path
+                                    or str(sibling) in rec.files or not e.is_file(follow_symlinks=False)):
+                                continue
+                            if size / PAIR_SIZE <= e.stat(follow_symlinks=False).st_size <= size * PAIR_SIZE \
+                                    and (alike := likeness(sibling)) >= SIMILAR:
+                                siblings.append((alike, str(sibling), sibling, True, None))
+            except OSError:
+                pass
+            finally:
+                os.close(dir_fd)
         picks += [c[1:] for c in sorted(siblings, key=lambda c: (-c[0], c[1]))][:PAIR_READS - len(picks)]
         if not picks:
             return made
@@ -976,9 +993,16 @@ class Changes:
 
     def describe(self, change: Change) -> str:
         """One change as the checker reads it (module `describe`), its current file read through `text_of`, and FERB's
-        copy read only while the file it was taken from is still open to the shell."""
+        copy read only while the file it was taken from is still open to the shell. A base that isn't FERB's copy (an
+        unchanged file beside a new one) is read through `text_of` too, never by path (P1); when it can't be read so
+        now, the new file's text is shown whole."""
         if change.before_real and self._closed_as_written(Path(change.before_real)):
             change = dataclasses.replace(change, before=None, note="its copy came from a path closed to FERB's shell")
+        if change.before is not None and self.root not in Path(change.before).parents:
+            old = self.text_of(Path(change.before))
+            if old is None:
+                return describe(dataclasses.replace(change, before=None, source=None), self.text_of)
+            return describe(change, self.text_of, lambda _: old)
         return describe(change, self.text_of)
 
     def forget(self, tree_id: str) -> list[str]:
@@ -1226,13 +1250,19 @@ def _when(ns: int | None) -> str:
     return ", modified " + datetime.fromtimestamp(ns / 1e9).astimezone().isoformat(timespec="seconds")
 
 
-def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]] | None] = text_of) -> str:
+def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]] | None] = text_of,
+             base: Callable[[Path], tuple[str, list[Annotation]] | None] | None = None) -> str:
     """One change as the checker reads it. A fact-only change: what happened, its size and time, and why no content
     is shown. Otherwise the old-vs-new diff of its text (a new file against the original it resembles), a PDF's
-    annotations added or removed, or why there is no diff. `read` reads the current file (`Changes.text_of`)."""
+    annotations added or removed, or why there is no diff. `read` reads the current file (`Changes.text_of`); `base`
+    reads `before` when it isn't FERB's own copy (None: it is, read as is)."""
     path = Path(change.path)
     verb = {"created": "new", "removed": "removed", "modified": "changed",
             "renamed": f"renamed from {change.source}"}.get(change.what, change.what)
+    if change.original:                               # A1: the backup an edit kept; its old name has its own record
+        size = f", {change.size:,} bytes" if change.size is not None else ""
+        return (f"{change.path}: holds the original of {change.source} (the file a call named, renamed here during "
+                f"the step; {change.source} now holds a new file){size}{_when(change.mtime_ns)}; {change.note}")
     if not change.content and change.named:          # named by the step, but nothing FERB may read now
         size = f", {change.size:,} bytes" if change.size is not None else ""
         return (f"{change.path}: {verb}, named by the call{size}{_when(change.mtime_ns)}; "
@@ -1256,7 +1286,8 @@ def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]]
         return f"{change.path}: new, named by this step. Its text{' (the first part)' if cut else ''}:\n{body}{notes}"
     if change.before is None:
         return f"{change.path}: {verb}; no diff: {change.note or 'FERB kept no copy from before'}"
-    old, new = _text(Path(change.before), None), read(path)        # the copy is FERB's own; the file is read safely
+    old = base(Path(change.before)) if base is not None else _text(Path(change.before), None)   # FERB's own copy
+    new = read(path)                                                                             # read safely
     if change.what == "created":
         head = f"{change.path}: new, named by this step; compared with {change.source} as it was before the step"
     elif change.what == "renamed":
@@ -1265,8 +1296,9 @@ def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]]
         head = f"{change.path}: changed, named by this step; compared with FERB's copy from before the step"
     if old is None or new is None:
         sizes = ""
-        try:
-            sizes = f" ({Path(change.before).stat().st_size:,} bytes before, {path.lstat().st_size:,} now)"
+        try:                                             # a size from before only from FERB's own copy
+            before = f"{Path(change.before).stat().st_size:,} bytes before, " if base is None else ""
+            sizes = f" ({before}{path.lstat().st_size:,} now)"
         except OSError:
             pass
         return f"{head}\nNo text FERB can read in it{sizes}; its bytes changed."

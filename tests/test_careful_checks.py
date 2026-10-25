@@ -386,3 +386,28 @@ def test_a_renamed_named_file_is_listed_as_renamed_with_a_change_record(daemon: 
     assert f"{json.dumps(str(new))} (renamed from {json.dumps(str(old))}) — change record" in checks(script)[0]
     assert "-Student ID: ID\n+Student ID: 2024eb02238" in seen[0].replace("\\n", "\n")
     assert out["verified"]
+
+
+def test_an_edit_that_keeps_a_backup_still_needs_a_look_at_the_edited_file(daemon: Any, tmp_path: Path) -> None:
+    """A1 (round 4): `perl -pi.bak` moves the original to notes.txt.bak and writes the edit to a new notes.txt. The
+    checker's list carries notes.txt as changed, with a change record a pass must read, and the backup as a named fact;
+    a pass with no look is refused, then unclear."""
+    folder = tmp_path / "w"
+    folder.mkdir()
+    (folder / "notes.txt").write_text("Student ID: ID\nline two\n")
+    command = f"cd '{folder}' && perl -pi.bak -e 's/ID$/2024eb02238/' notes.txt"
+
+    def worker(token: str) -> str:
+        r = tool(daemon.sock, token, "shell.run", command=command, effect="edit")
+        assert not r["is_error"], r
+        return done("Set the id; the original is in notes.txt.bak.")
+    script, _ = install(daemon, {"worker": worker, "worker.verify": verdict(True, "The report says so.")})
+    out = outcome(chat(daemon, "put 2024eb02238 in notes.txt, keep a backup"))
+    notes, backup = folder.resolve() / "notes.txt", folder.resolve() / "notes.txt.bak"
+    first = checks(script)[0]
+    assert f"{json.dumps(str(notes))} (changed) — change record" in first
+    assert "-Student ID: ID\n+Student ID: 2024eb02238" in first
+    assert f"{json.dumps(str(backup))} (named by the call; a fact, nothing to read)" in first
+    assert "holds the original of" in first
+    assert len(checks(script)) == 2 and not out["verified"]          # refused, run once more, never a pass
+    assert all(r["met"] is None for r in out["verification"])

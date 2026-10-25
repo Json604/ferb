@@ -647,7 +647,8 @@ summary = "FERB's cursor: before an action the gateway asks the tool for the ele
 [L39]
 milestone = "L"
 tests = ["tests/test_careful_checks.py", "tests/test_changes.py", "tests/test_changes_protection.py",
-         "tests/test_changes_races.py", "tests/test_changes_round3.py", "tests/test_checker_effort.py",
+         "tests/test_changes_races.py", "tests/test_changes_round3.py", "tests/test_changes_round4.py",
+         "tests/test_checker_effort.py",
          "tests/test_launched_apps.py", "tests/test_recovery.py", "tests/test_tls_floor.py", "tests/test_tls_confirm.py",
          "tests/test_prompt_contract.py"]
 note = "Owner 2026-10-25, after the assignment task (39e35d57) corrupted a document and certified it: tasks like this \"demand high agency and there should be a good level of responsibility in doing them\", and being slower on long tasks is OK. The owner set the goal only; the mechanisms below are design rulings (not the owner's), which the owner can correct. Live evidence: a shell perl replace turned Table 10's header \"ID\" into the student id; the step's checker made 0 tool calls and passed; PDF placeholders were covered by white boxes; FERB-launched Pages stayed running and Word came forward over the owner's Brave; 5 trashed files had no backup copy. Owner 2026-10-25 answered \"yes\" to \"Should FERB ask you before any command that turns off certificate checks?\" (CLAUDE.md rule 8). Rulings: shell writes are caught from the paths a command's text names (APFS clones before the call, folder listings), not from the sandbox's kernel write reports (measured, but they need a live system log stream and give no earlier copy); \"the owner used an app\" is its coming forward with no FERB on-screen call near, or being frontmost at release; an app whose unsaved state Accessibility can't read stays running."
