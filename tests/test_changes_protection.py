@@ -47,7 +47,7 @@ def test_a_named_file_swapped_for_a_link_into_a_closed_path_shows_no_content(tmp
     notes.symlink_to(home / target)
     [change] = store.changes("t.step.a")
     text = store.describe(change)
-    assert not change.content and TOKEN not in text and "replaced by a link to" in text
+    assert not change.content and change.named and TOKEN not in text and "now a link to" in text
 
 
 def test_a_new_link_in_a_listed_folder_or_beside_a_new_file_is_never_read(tmp_path: Path) -> None:

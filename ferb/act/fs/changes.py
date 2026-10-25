@@ -53,6 +53,9 @@ CONTEXT_LINES = 2           # unchanged lines shown around each change in a diff
 FILE_MAX = 100_000_000      # display only: a file larger than this is not read for a diff (the record says so)
 PAIR_READS = 3              # a new file is compared with at most this many like-named files beside it (never a whole
 PAIR_SIZE = 4               # folder), each within this factor of its size; both filter before any text is read
+FOLDER_FACTS = 50           # display only: plain files under a new folder listed by name, the rest counted
+PREVIEW_CHARS = 12_000      # display only: the first part of a new named file's text in its record (the file holds all)
+HISTORY_NOTE = "a shell history file: what is typed in a terminal is never shown (rule 14)"
 INDEX = "index.json"
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _PROPS = {"{http://purl.org/dc/elements/1.1/}title": "title", "{http://purl.org/dc/elements/1.1/}subject": "subject",
@@ -155,6 +158,8 @@ class _File:
     ino: int = 0
     copy: str | None = None          # the clone's name in the task's folder
     no_copy: str = ""                # why there is none (the volume can't clone, ...)
+    real: str = ""                   # the file the clone was taken from, as the opened file really is (F_GETPATH)
+    history: bool = False            # a shell history file, by identity: never cloned, never shown
 
 
 @dataclass
@@ -171,8 +176,8 @@ class _Record:
 class Change:
     """One file that changed during the task, as facts: `what` is modified, created or removed; `before` the copy FERB
     kept from before (None: none was kept, `note` says why); `source` for a new file, the file it was compared with.
-    `content` False: a fact only (a file the step's calls didn't name, a shell history file, a link): its name, size
-    and time, never what it says."""
+    `content` False: a fact only (a file no call named, a shell history file, a path that is no longer a plain file):
+    its name, size and time, never what it says. `named`: a call of the step named it exactly."""
     path: str
     what: str
     before: str | None = None
@@ -181,6 +186,8 @@ class Change:
     content: bool = True
     size: int | None = None
     mtime_ns: int | None = None
+    named: bool = False
+    before_real: str | None = None   # the file FERB's copy was taken from (checked again before the copy is read)
 
 
 def _kind(st: os.stat_result) -> int:
@@ -191,23 +198,37 @@ def _what_now(st: os.stat_result, path: Path) -> str:
     """A path that is no longer a plain file, in words (no content is read)."""
     if stat.S_ISLNK(st.st_mode):
         try:
-            return f"replaced by a link to {os.readlink(path)}"
+            return f"now a link to {os.readlink(path)}"
         except OSError:
-            return "replaced by a link"
+            return "now a link"
     return "now a folder" if stat.S_ISDIR(st.st_mode) else "now a special file (not a plain file)"
+
+
+_NOFOLLOW = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+
+
+def _open(path: Path | str, directory: bool = False, dir_fd: int | None = None) -> int | None:
+    """An fd for the path itself, never through a link at its last name (O_NOFOLLOW; O_NONBLOCK so a FIFO can't hold
+    FERB); a folder with O_DIRECTORY. None when it can't be opened so."""
+    try:
+        return os.open(path, _NOFOLLOW | (os.O_DIRECTORY if directory else 0), dir_fd=dir_fd)
+    except OSError:
+        return None
 
 
 class Changes:
     """The before-and-after record. `closed(path)`: whether FERB's shell sandbox denies reading the path (FERB's own
-    state, the never-read stores: `Protection.read_denied`); the record never reads, copies or lists such a path,
-    whatever the call named, and checks the path a file really opens to before reading it. `home`: the owner's home,
-    for the shell history files whose text is never shown (rule 14)."""
+    state, the never-read stores: `Protection.read_denied`). The record never clones, reads or lists such a path,
+    whatever the call named: every file and folder is opened without following a link, the path it really opened
+    (F_GETPATH) is checked, and only then is it cloned (from the fd), read or listed (from the fd), so a link swapped in
+    between can't redirect it. `home`: the owner's home, for the shell history files, recognized by identity (device
+    and inode), whose text is never shown (rule 14)."""
 
     def __init__(self, root: Path, closed: Callable[[Path], bool] | None = None, home: Path | None = None) -> None:
         self.root, self.closed = root, closed or (lambda path: False)
-        home = home or Path.home()
-        self.history = (home / ".zsh_history", home / ".bash_history")
-        self.sessions = home / ".zsh_sessions"
+        self.home = home or Path.home()
+        self.history = (self.home / ".zsh_history", self.home / ".bash_history")
+        self.sessions = self.home / ".zsh_sessions"
         self._records: dict[str, _Record] = {}
         self._saved: dict[str, str] = {}               # task -> the index last written (written again only on change)
         self._locks: dict[str, threading.Lock] = {}    # one per task: one task's large folder never holds another's
@@ -265,17 +286,62 @@ class Changes:
             return True
         return any(p == self.root or self.root in p.parents or self.closed(p) for p in {path, resolved})
 
-    def _history_file(self, path: Path) -> bool:
-        """A shell history file (the HISTFILE defaults): what the owner typed into a terminal, never shown (rule 14)."""
-        return path in self.history or path == self.sessions or self.sessions in path.parents
+    def _closed_as_written(self, path: Path) -> bool:
+        """`_skip` for a recorded path as it was written, without resolving what stands there now."""
+        parts = path.parts
+        return (parts[:2] == ("/", "dev") or any(p in (".Trash", ".Trashes") for p in parts) or path == self.root
+                or self.root in path.parents or self.closed(path))
+
+    def _opened(self, fd: int) -> Path | None:
+        """The path an open fd really is, when it isn't skipped (closed, a Trash, FERB's store); else None."""
+        try:
+            where = opened_path(fd)
+        except OSError:
+            return None
+        return None if self._skip(where) else where
+
+    # shell history, by identity
+    def _identity(self, path: Path) -> tuple[int, int] | None:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return st.st_dev, st.st_ino
+
+    def _history_st(self, st: os.stat_result, opened: Path) -> bool:
+        """An opened file is a shell history file: the same file (device and inode) as ~/.zsh_history or
+        ~/.bash_history (any spelling, a hard link), or inside ~/.zsh_sessions."""
+        if (st.st_dev, st.st_ino) in {i for p in self.history if (i := self._identity(p)) is not None}:
+            return True
+        sessions = self._identity(self.sessions)
+        return sessions is not None and any(self._identity(p) == sessions for p in opened.parents)
+
+    def _history(self, path: Path) -> bool:
+        """A path names a shell history file: by identity when it exists (opened without following a link); when it
+        doesn't, by its canonical folder (the home folder or ~/.zsh_sessions) and a case-insensitive name."""
+        fd = _open(path)
+        if fd is not None:
+            try:
+                st = os.fstat(fd)
+                return stat.S_ISREG(st.st_mode) and self._history_st(st, opened_path(fd))
+            except OSError:
+                return False
+            finally:
+                os.close(fd)
+        folder = self._identity(path.parent)
+        if folder is None:
+            return False
+        if folder == self._identity(self.sessions):
+            return True
+        return folder == self._identity(self.home) and path.name.casefold() in {p.name for p in self.history}
 
     # before a call
     def before(self, task_id: str, tree_id: str, paths: Iterable[Path]) -> dict[str, int]:
         """Before a call that may change these paths (each named exactly by the call): each existing plain file not yet
-        recorded for the task is copied and its folder listed; a missing one is remembered as named and its nearest
-        existing folder listed (a file made there, or under new folders there, shows as new); a named folder is
-        listed. A path the shell's sandbox denies to reads is never touched (counted as protected). Returns counts
-        for the call's record. Never raises for one path."""
+        recorded for the task is cloned (from its fd) and its folder listed; a missing one is remembered as named and
+        its nearest existing folder listed (a file made there, or under new folders there, shows as new); a named
+        folder is listed. A path the shell's sandbox denies to reads is never touched (counted as protected). Returns
+        counts for the call's record. Never raises for one path."""
         with self._lock(task_id):
             rec = self._record(task_id, tree_id)
             assert rec is not None
@@ -300,61 +366,90 @@ class Changes:
                 except OSError:
                     continue
                 if stat.S_ISDIR(st.st_mode):
-                    if os.access(path, os.W_OK):
-                        self._list(rec, path, counts)
+                    self._list(rec, path, counts)
                 elif stat.S_ISREG(st.st_mode):
-                    if os.access(path.parent, os.W_OK):
-                        self._list(rec, path.parent, counts)
+                    self._list(rec, path.parent, counts)
                     self._file(rec, folder, path, counts)
             self._save(rec)
             return counts
 
+    def _scan(self, folder: Path) -> dict[str, os.stat_result] | None:
+        """A folder's own entries (lstat), listed through an fd opened without following a link and only when the
+        folder it really is isn't skipped; None otherwise (a link now stands there, or it is closed)."""
+        fd = _open(folder, directory=True)
+        if fd is None:
+            return None
+        try:
+            if self._opened(fd) is None:
+                return None
+            entries: dict[str, os.stat_result] = {}
+            with os.scandir(fd) as it:
+                for e in it:
+                    try:
+                        entries[e.name] = e.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+            return entries
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
+
     def _list(self, rec: _Record, folder: Path, counts: dict[str, int]) -> bool:
-        """The folder's own entries, once per task (its listing from before the task first touched it)."""
+        """The folder's own entries, once per task (its listing from before the task first touched it); only a
+        writable folder FERB may list (`_scan`)."""
         key = str(folder)
         if key in rec.folders:
             return True
-        if self._skip(folder):
+        if self._skip(folder) or not os.access(folder, os.W_OK):
             return False
-        entries: dict[str, list[int]] = {}
-        try:
-            with os.scandir(folder) as it:
-                for e in it:
-                    try:
-                        st = e.stat(follow_symlinks=False)
-                    except OSError:
-                        continue
-                    entries[e.name] = [_kind(st), st.st_size, st.st_mtime_ns, st.st_ino]
-        except OSError:
+        entries = self._scan(folder)
+        if entries is None:
             return False
-        rec.folders[key] = entries
+        rec.folders[key] = {name: [_kind(st), st.st_size, st.st_mtime_ns, st.st_ino] for name, st in entries.items()}
         counts["folders"] += 1
         return True
 
     def _file(self, rec: _Record, folder: Path, path: Path, counts: dict[str, int]) -> None:
+        """Record one named plain file: opened without following a link, checked as the file it really is, cloned
+        from that fd (fclonefileat), its facts from that fstat. A path that turns into anything else, or into a closed
+        file, between FERB's look and its open is never cloned."""
         key = str(path)
         if key in rec.files or self._skip(path):
             return
+        fd = _open(path)
+        if fd is None:
+            return
         try:
-            st = path.lstat()
+            st = os.fstat(fd)
+            opened = self._opened(fd)
+            if not stat.S_ISREG(st.st_mode) or opened is None:
+                counts["protected"] += 0 if opened is not None else 1
+                return
+            if not (os.access(opened, os.W_OK) or os.access(opened.parent, os.W_OK)):
+                return                                 # a file FERB couldn't change
+            rec.n += 1
+            name = f"c{rec.n}" + (path.suffix if _SUFFIX.fullmatch(path.suffix) else "")   # the type tells how to read it
+            entry = _File(True, st.st_size, st.st_mtime_ns, st.st_ino, real=str(opened),
+                          history=self._history_st(st, opened))
+            if not entry.history:                       # a history file's text is never kept, so never diffed
+                dir_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+                try:
+                    recovery._fclone(fd, dir_fd, name)
+                    recovery._unlock(folder / name)     # a locked original's clone could never be removed
+                    entry.copy = name
+                    counts["copied"] += 1
+                except OSError as e:
+                    entry.no_copy = ("this volume can't make an instant copy" if e.errno in (errno.EXDEV, errno.ENOTSUP)
+                                     else f"FERB couldn't copy it ({e.strerror or e})")
+                    counts["not_copied"] += 1
+                finally:
+                    os.close(dir_fd)
+            rec.files[key] = entry
         except OSError:
             return
-        if not stat.S_ISREG(st.st_mode) or not (os.access(path, os.W_OK) or os.access(path.parent, os.W_OK)):
-            return                                     # a file FERB couldn't change
-        rec.n += 1
-        name = f"c{rec.n}" + (path.suffix if _SUFFIX.fullmatch(path.suffix) else "")   # the type tells how to read it
-        entry = _File(True, st.st_size, st.st_mtime_ns, st.st_ino)
-        if not self._history_file(path):                # a history file's text is never kept, so never diffed
-            try:
-                recovery._clone(path, folder / name)
-                recovery._unlock(folder / name)         # a locked original's clone could never be removed
-                entry.copy = name
-                counts["copied"] += 1
-            except OSError as e:
-                entry.no_copy = ("this volume can't make an instant copy" if e.errno in (errno.EXDEV, errno.ENOTSUP)
-                                 else f"FERB couldn't copy it ({e.strerror or e})")
-                counts["not_copied"] += 1
-        rec.files[key] = entry
+        finally:
+            os.close(fd)
 
     def reset(self, task_id: str) -> list[str]:
         """A loop round starts its own record (its check judges that round only). Returns what couldn't be removed."""
@@ -368,9 +463,10 @@ class Changes:
     def changes(self, task_id: str, tree_id: str | None = None) -> list[Change]:
         """What changed since the task first touched each recorded file or folder: a recorded file by its copy
         (content) or, with no copy, its size, time and identity; new, changed and removed files in each listed folder
-        (and plain files under folders made there). A file the calls named exactly carries content; anything else
-        that changed in a listed folder is a fact only, as is a shell history file or a path that is no longer a plain
-        file. Nothing the shell's sandbox denies to reads appears."""
+        (and, as a page of names, the plain files under folders made there). A file the calls named exactly carries
+        content; anything else that changed in a listed folder is a fact only, as is a shell history file or a path
+        that is no longer a plain file. Nothing the shell's sandbox denies to reads appears, and no folder is listed
+        through a link."""
         with self._lock(task_id):
             rec = self._record(task_id, tree_id)
             if rec is None:
@@ -378,42 +474,52 @@ class Changes:
             folder = self._folder(rec.tree_id, task_id)
             out: list[Change] = []
             seen: set[str] = set()
+            recorded = {f.ino for f in rec.files.values() if f.existed}   # a recorded file under another spelling
             for key, f in rec.files.items():
                 seen.add(key)
                 if (c := self._compare(Path(key), f, folder)) is not None:
                     out.append(c)
             for where, entries in rec.folders.items():
-                try:
-                    now = {e.name: e for e in os.scandir(where)}
-                except OSError:
-                    now = {}
+                place = Path(where)
+                now = self._scan(place)
+                if now is None:                          # no longer a folder FERB may list: a fact, never its names
+                    try:
+                        st = place.lstat()
+                        out.append(Change(where, "modified", content=False, note=_what_now(st, place)))
+                    except FileNotFoundError:
+                        out.append(Change(where, "removed", content=False, note="the folder is gone"))
+                    except OSError:
+                        pass
+                    continue
                 for name in sorted(set(entries) | set(now)):
-                    path = Path(where) / name
+                    path = place / name
                     key = str(path)
                     if key in seen or self._skip(path):
                         continue
                     seen.add(key)
-                    old, new = entries.get(name), now.get(name)
-                    if new is None:
+                    old, st = entries.get(name), now.get(name)
+                    if (old is not None and old[3] in recorded) or (st is not None and st.st_ino in recorded):
+                        continue                         # the same file a call named (another case or spelling)
+                    if st is None:
                         if old is not None and old[0] == 1:
                             out.append(self._fact(path, "removed", None))
-                        continue
-                    try:
-                        st = new.stat(follow_symlinks=False)
-                    except OSError:
                         continue
                     if stat.S_ISDIR(st.st_mode) and old is None:     # a folder made here: the plain files in it
                         out += self._made_under(rec, path, seen)
                     elif stat.S_ISREG(st.st_mode) and old is None:
-                        out.append(Change(key, "created", size=st.st_size, mtime_ns=st.st_mtime_ns)
-                                   if self._shows(rec, path) else self._fact(path, "created", st))
+                        out.append(self._new(rec, path, st))
                     elif stat.S_ISREG(st.st_mode) and [1, st.st_size, st.st_mtime_ns, st.st_ino] != old:
                         out.append(self._fact(path, "modified", st))
             return [self._paired(c, out, folder, rec) if c.what == "created" and c.content else c for c in out]
 
-    def _shows(self, rec: _Record, path: Path) -> bool:
-        """Whether a new file's content is shown: a call named it exactly, and it isn't a shell history file."""
-        return str(path) in rec.named and not self._history_file(path)
+    def _new(self, rec: _Record, path: Path, st: os.stat_result) -> Change:
+        """A new plain file: content when a call named it exactly and it isn't a shell history file; else a fact."""
+        if str(path) not in rec.named:
+            return self._fact(path, "created", st)
+        if self._history(path):
+            return Change(str(path), "created", content=False, named=True, size=st.st_size, mtime_ns=st.st_mtime_ns,
+                          note=HISTORY_NOTE)
+        return Change(str(path), "created", size=st.st_size, mtime_ns=st.st_mtime_ns, named=True)
 
     @staticmethod
     def _fact(path: Path, what: str, st: os.stat_result | None) -> Change:
@@ -421,22 +527,40 @@ class Changes:
                       mtime_ns=st.st_mtime_ns if st is not None else None)
 
     def _made_under(self, rec: _Record, top: Path, seen: set[str]) -> list[Change]:
-        """The plain files under a folder made during the step (never following links, never into a skipped path)."""
+        """The plain files under a folder made during the step, walked through fds (os.fwalk, never following a link,
+        never into a skipped folder): named files with content, then the first FOLDER_FACTS others as facts and a
+        count of the rest (their names only are counted, nothing more is read)."""
         out: list[Change] = []
-        for here, dirs, names in os.walk(top, followlinks=False):
-            dirs[:] = [d for d in dirs if not self._skip(Path(here) / d)]
+        more = 0
+        fd = _open(top, directory=True)
+        if fd is None or self._opened(fd) is None:
+            if fd is not None:
+                os.close(fd)
+            return out
+        os.close(fd)
+        for here, dirs, names, dir_fd in os.fwalk(top, follow_symlinks=False):
+            base = Path(here)
+            dirs[:] = [d for d in dirs if not self._skip(base / d)]
             for name in sorted(names):
-                path = Path(here) / name
-                if str(path) in seen or self._skip(path):
+                path = base / name
+                key = str(path)
+                if key in seen:
                     continue
-                seen.add(str(path))
+                seen.add(key)
+                if key not in rec.named and len(out) >= FOLDER_FACTS:
+                    more += 1                          # counted by name: no stat, no read
+                    continue
+                if self._skip(path):
+                    continue
                 try:
-                    st = path.lstat()
+                    st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
                 except OSError:
                     continue
                 if stat.S_ISREG(st.st_mode):
-                    out.append(Change(str(path), "created", size=st.st_size, mtime_ns=st.st_mtime_ns)
-                               if self._shows(rec, path) else self._fact(path, "created", st))
+                    out.append(self._new(rec, path, st))
+        if more:
+            out.append(Change(str(top), "created", content=False,
+                              note=f"a new folder: and {more:,} more new files under it, not listed"))
         return out
 
     def _compare(self, path: Path, f: _File, folder: Path) -> Change | None:
@@ -447,57 +571,73 @@ class Changes:
         except OSError:
             return None
         copy = str(folder / f.copy) if f.copy else None
-        history = self._history_file(path)
         if st is not None and not stat.S_ISREG(st.st_mode):           # never read through what replaced it
             if not f.existed:
                 return None
-            return Change(str(path), "modified", content=False, note=_what_now(st, path))
+            return Change(str(path), "modified", content=False, named=True, note=_what_now(st, path))
+        if f.real and self._closed_as_written(Path(f.real)):   # its copy came from a path now closed: never read
+            return Change(str(path), "modified", content=False, named=True, note="closed to FERB's shell now")
         if not f.existed:
-            return None if st is None else Change(str(path), "created", content=not history, size=st.st_size,
-                                                  mtime_ns=st.st_mtime_ns)
+            return None if st is None else Change(str(path), "created", content=not f.history, size=st.st_size,
+                                                  mtime_ns=st.st_mtime_ns, named=True,
+                                                  note=HISTORY_NOTE if f.history else "")
+        if f.history or (st is not None and self._history(path)):
+            if st is None:
+                return Change(str(path), "removed", content=False, named=True, note=HISTORY_NOTE)
+            if (st.st_size, st.st_mtime_ns, st.st_ino) == (f.size, f.mtime_ns, f.ino):
+                return None
+            return Change(str(path), "modified", content=False, named=True, size=st.st_size,
+                          mtime_ns=st.st_mtime_ns, note=HISTORY_NOTE)
         if st is None:
-            return Change(str(path), "removed", copy, note=f.no_copy, content=not history)
+            return Change(str(path), "removed", copy, note=f.no_copy, named=True, before_real=f.real or None)
         if (st.st_size, st.st_mtime_ns, st.st_ino) == (f.size, f.mtime_ns, f.ino):
             return None
         if copy is not None and _same(path, Path(copy)):
             return None                                     # touched, same bytes
-        if history:
-            return self._fact(path, "modified", st)
-        return Change(str(path), "modified", copy, note=f.no_copy, size=st.st_size, mtime_ns=st.st_mtime_ns)
+        return Change(str(path), "modified", copy, note=f.no_copy, size=st.st_size, mtime_ns=st.st_mtime_ns,
+                      named=True, before_real=f.real or None)
 
     def _paired(self, made: Change, all_changes: list[Change], folder: Path, rec: _Record) -> Change:
-        """A new file with the most similar original of its kind (SIMILAR at least): first the copies FERB kept of the
-        files the step named, then at most PAIR_READS plain files beside it whose names are like its name and whose
-        sizes are near its size (filtered before any text is read)."""
+        """A new file with the most similar original of its kind (SIMILAR at least), chosen among at most PAIR_READS
+        candidates picked by name likeness and size before any text is read: the copies FERB kept of the files the
+        step named (their sources not closed now), and plain files beside it."""
         path = Path(made.path)
-        new = self.text_of(path)
-        if new is None or not new[0]:
-            return made
         suffix = path.suffix.lower()
-        candidates: list[tuple[str, Path, bool]] = [
-            (key, folder / f.copy, False) for key, f in rec.files.items()
-            if f.copy and Path(key).suffix.lower() == suffix and key != made.path]
-        changed = {c.path for c in all_changes}
         try:
             size = path.lstat().st_size
-            near: list[tuple[float, Path]] = []
+        except OSError:
+            return made
+
+        def likeness(other: Path) -> float:
+            return difflib.SequenceMatcher(None, other.stem.lower(), path.stem.lower()).ratio()
+        pool: list[tuple[float, str, Path, bool, str | None]] = []   # (likeness, original, readable, current, real)
+        for key, f in rec.files.items():
+            if f.copy and key != made.path and Path(key).suffix.lower() == suffix and size / PAIR_SIZE <= f.size \
+                    <= size * PAIR_SIZE and not (f.real and self._closed_as_written(Path(f.real))):
+                pool.append((likeness(Path(key)), key, folder / f.copy, False, f.real or None))
+        changed = {c.path for c in all_changes}
+        try:
             with os.scandir(path.parent) as it:
                 for e in it:
                     sibling = Path(e.path)
                     if (sibling.suffix.lower() != suffix or e.path in changed or sibling == path
                             or e.path in rec.files or not e.is_file(follow_symlinks=False)):
                         continue
-                    alike = difflib.SequenceMatcher(None, sibling.stem.lower(), path.stem.lower()).ratio()
-                    sz = e.stat(follow_symlinks=False).st_size
-                    if alike >= SIMILAR and size / PAIR_SIZE <= sz <= size * PAIR_SIZE and not self._skip(sibling) \
-                            and not self._history_file(sibling):
-                        near.append((alike, sibling))
-            candidates += [(str(p), p, True) for _, p in sorted(near, reverse=True)[:PAIR_READS]]
+                    if size / PAIR_SIZE <= e.stat(follow_symlinks=False).st_size <= size * PAIR_SIZE:
+                        pool.append((likeness(sibling), str(sibling), sibling, True, None))
         except OSError:
             pass
-        best: tuple[float, str, Path] | None = None
+        picks = [c for c in sorted(pool, key=lambda c: -c[0]) if c[0] >= SIMILAR][:PAIR_READS]
+        if not picks:
+            return made
+        new = self.text_of(path)
+        if new is None or not new[0]:
+            return made
+        best: tuple[float, str, Path, str | None] | None = None
         lines = new[0].splitlines()
-        for original, source, current in candidates:
+        for _, original, source, current, real_from in picks:
+            if current and (self._skip(source) or self._history(source)):
+                continue
             old = self.text_of(source) if current else _text(source, None)
             if old is None or not old[0]:
                 continue
@@ -506,10 +646,10 @@ class Changes:
                 continue
             ratio = m.ratio()
             if ratio >= SIMILAR and (best is None or ratio > best[0]):
-                best = (ratio, original, source)
+                best = (ratio, original, source, real_from)
         if best is None:
             return made
-        return dataclasses.replace(made, before=str(best[2]), source=best[1])
+        return dataclasses.replace(made, before=str(best[2]), source=best[1], before_real=best[3])
 
     # reading
     def text_of(self, path: Path) -> tuple[str, list[Annotation]] | None:
@@ -518,7 +658,10 @@ class Changes:
         return _text(path, lambda opened: self._skip(opened))
 
     def describe(self, change: Change) -> str:
-        """One change as the checker reads it (module `describe`), its current file read through `text_of`."""
+        """One change as the checker reads it (module `describe`), its current file read through `text_of`, and FERB's
+        copy read only while the file it was taken from is still open to the shell."""
+        if change.before_real and self._closed_as_written(Path(change.before_real)):
+            change = dataclasses.replace(change, before=None, note="its copy came from a path closed to FERB's shell")
         return describe(change, self.text_of)
 
     def forget(self, tree_id: str) -> list[str]:
@@ -768,6 +911,11 @@ def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]]
     is shown. Otherwise the old-vs-new diff of its text (a new file against the original it resembles), a PDF's
     annotations added or removed, or why there is no diff. `read` reads the current file (`Changes.text_of`)."""
     path = Path(change.path)
+    if not change.content and change.named:          # named by the step, but nothing FERB may read now
+        size = f", {change.size:,} bytes" if change.size is not None else ""
+        verb = {"created": "new", "removed": "removed", "modified": "changed"}.get(change.what, change.what)
+        return (f"{change.path}: {verb}, named by the call{size}{_when(change.mtime_ns)}; "
+                f"{change.note or 'not a plain file now'}; not read")
     if not change.content:
         size = f", {change.size:,} bytes" if change.size is not None else ""
         how = change.note or ("not shown: no call of this step named it; it may be the owner's or another task's"
@@ -777,13 +925,14 @@ def describe(change: Change, read: Callable[[Path], tuple[str, list[Annotation]]
     if change.what == "removed":
         head = f"{change.path}: removed (no longer at this path)"
         return head + (f"; {change.note}" if change.note else "")
-    if change.what == "created" and change.source is None:
+    if change.what == "created" and change.source is None:     # the file holds it: a preview here, never all of it
         new = read(path)
         if new is None:
             return f"{change.path}: new, named by this step (no text FERB can read)"
-        body = new[0] if len(new[0]) <= TEXT_MAX else new[0][:TEXT_MAX] + "\n[… cut here; read the file for the rest]"
+        cut = len(new[0]) > PREVIEW_CHARS
+        body = new[0][:PREVIEW_CHARS] + ("\n[… the file holds the rest: read it with fs_read]" if cut else "")
         notes = f"\nPDF annotations: {_annotations([], new[1])}" if new[1] else ""
-        return f"{change.path}: new, named by this step. Its text:\n{body}{notes}"
+        return f"{change.path}: new, named by this step. Its text{' (the first part)' if cut else ''}:\n{body}{notes}"
     if change.before is None:
         return f"{change.path}: changed; no diff: {change.note or 'FERB kept no copy from before'}"
     old, new = _text(Path(change.before), None), read(path)        # the copy is FERB's own; the file is read safely
