@@ -708,11 +708,13 @@ secrets fill only on the page they were saved on. The hidden-input question name
 comes from another site: "For atlasauth.b2clogin.com only (usvisascheduling.com account: Asha Rao): …". Tell FERB a
 site's username while it works ("the username is …") and it is remembered for that site, when you typed the site (in
 that message or for the task; never a site only a page, a pasted email or FERB named), and offered on its login page;
-forgetting that memory removes it from the login record too. A password saved for a whole browser before 2026-10-24
-can't be used and is listed as "ask again". "Remember that …" saves as yours the whole sentence you typed it in (only
-a line break or a pasted part ends it, never a dot, "!" or "?"; so "I don't [paste] like tea" saves "like tea");
-FERB's rewording, like any inferred fact, waits for your Keep (FERB asks in chat and the notch; or
-`ferb memory confirm ID`) before it reaches a prompt. Observed patterns not yet seen on three days are labelled
+forgetting or retiring that memory removes it from the login record too, and a new username you give for the same
+fact replaces it there. A password saved for a whole browser before 2026-10-24 can't be used and is listed as "ask
+again". "Remember that …" saves as yours the whole sentence you typed it in (only a line break or a pasted part ends
+it, never a dot, "!" or "?"; so "I don't [paste] like tea" saves "like tea"); FERB's rewording, like any inferred
+fact, waits for your Keep (FERB asks in chat and the notch; or `ferb memory confirm ID`) before it reaches a prompt.
+Things you say with a date ("I'm in Pune until the 25th") stop being used after that day; when you say something is
+over, FERB retires it, or asks you when it only thinks so. Observed patterns not yet seen on three days are labelled
 unconfirmed hints. Only owner statements or confirmed identity proposals enter always-loaded identity
 (`ferb memory identity 'rule' --key NAME`). A pending identity digest is shown in chat at most once per day: the app
 shows Confirm and Not right; in the terminal `/memory confirm ID` records an explicit confirmation.

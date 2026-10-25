@@ -2795,9 +2795,12 @@ baseline, trip or error, with the count of reads since it was armed).
 Memory search (L36 §3): `memory.search_reindexed` (the start's content re-index changed nodes; `version`, `finished`)
 and `memory.search_reindex_failed` (its error; search stays as it stands until the next start).
 Login names (L36 §5): `memory.login_refused` (a `login_origin` entry's username not saved; `item`, `place`, `why`),
-`memory.login_cleared` (the places whose username went with a forgotten or retracted item),
+`memory.login_cleared` (the places whose username went with a forgotten, retracted, retired or replaced item),
+`memory.login_updated` (the places whose username took a newer version's spelling; `item`, `places`),
 `memory.login_unreadable` (the handle file couldn't be read to clear them; `error`) and `memory.login_clear_failed`
 (any other failure clearing them; `items`, `error` with its type).
+Retirement (L36 §6): `memory.until_refused` (a `remember` entry's end not set; `item`, `why`) and
+`memory.retire_kept` (the owner kept an item FERB thought was out of date, or skipped the question; `id`).
 
 ### 16.11 Loops (L31)
 
@@ -3058,14 +3061,37 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   the owner's words that touches a "[redacted]" marker is never saved (`items.owner_span_at`, review m-1). The
   username is set on the site's record only; a sign-in form on another address shows it through the task's one
   owner-typed site and, once an entry is saved there, through its listed sites (above). A forget of that item, or of
-  any version of its key (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`), or a retract
-  (`memory.retract`) clears it (`Daemon._clear_login_names`; journal `memory.login_cleared`; `memory.login_unreadable`
-  when the handle file can't be read; `memory.login_clear_failed` with the error's type for any other failure, review
-  I-3). Setting and clearing run in a worker thread (`asyncio.to_thread`), as Keychain saves do: a hidden input's save
-  holds the handle file's lock across its Keychain call, and the event loop must not wait on it (coordinator ruling),
-  so `Daemon._remember` and the supervisor's `_side_entries` are coroutines; they run one at a time behind
-  `Daemon._login_names` (an `asyncio.Lock`, review m-3), so a retract or forget issued while a write waits clears it
-  after the write.
+  any version of its key (`Memory.on_forget`, queued with the forget's scrub, `_after_forgets`), a retract
+  (`memory.retract`), a retire or a newer version of the fact (`Memory.on_ended`, §6 below) clears it
+  (`Daemon._clear_login_names`; journal `memory.login_cleared`; `memory.login_unreadable` when the handle file can't be
+  read; `memory.login_clear_failed` with the error's type for any other failure, review I-3). A newer version whose own
+  login entry names the username in the owner's words gives it its spelling instead (review m-8): `_save_login_name`
+  writes it to every record whose username came from an older version of the fact (`OwnerSecrets.replace_usernames`,
+  journal `memory.login_updated`), even when this message names no site (that record's site passed when its username
+  was saved), before the queued clear runs; the owner's line then says "Updated your login name for <host>." when the
+  entry's own site isn't named. An edit in the dashboard or `ferb memory edit` names no username (FERB can't tell
+  which of the words are one), so it clears it, as does a version whose username redaction hid. Setting and clearing
+  run in a worker thread (`asyncio.to_thread`), as Keychain saves do: a hidden input's save holds the handle file's
+  lock across its Keychain call, and the event loop must not wait on it (coordinator ruling), so `Daemon._remember`
+  and the supervisor's `_side_entries` are coroutines; they run one at a time behind `Daemon._login_names` (an
+  `asyncio.Lock`, review m-3), so a retract or forget issued while a write waits clears it after the write.
+- **Retirement (§6).** A planner `remember` entry may carry `until` {quote, day | date | in_days}: the quote must be
+  whole words of the owner's typed text (`Daemon._until`); `when.end_of_day` gives the next local midnight after that
+  day (a "MM-DD" already behind this year is over, never next year's: scan m13) and `Memory.expire_at` sets
+  `valid_to`; `prompt_ready(item, now)` and `Memory.items` treat an item as current until then (`items.current`), so it
+  leaves search afterwards and stays as history. A day already over, or date words the owner didn't type, save the
+  item without an end, said in the owner's line and journaled (`memory.until_refused`). Distillation's `retire: true`
+  items name a current item by kind, subject and key (`Distiller._remembered`); with a passing quote (`owner_said`)
+  `Memory.retire` ends it now, else the owner gets "Is this no longer true? “…” FERB thinks something you said changed
+  it." with Retire / Keep (`Daemon._ask_retire`; kind `retire`, capability `memory.retire`, a FERB check that takes
+  only its options; `ferb chat` shows "Enter = Keep"). Keep, or a skip, is journaled (`memory.retire_kept`) and FERB
+  doesn't ask about that item again; the owner's own words still retire it. `distill_runs.detail` lists `retired` and
+  `retire_unconfirmed`. `Memory.on_ended` tells the daemon which items stopped holding now (superseded by a newer
+  version, or retired; an end date reached is not told): their retire questions close (a retract closes them too) and
+  the usernames the owner's items among them gave are cleared (`Daemon._memory_ended`). `_ask_keep` and `_ask_retire`
+  share `_ask_once`. Supersession by a reused key works on every turn path (1c22dcb); the spec's steer case (item 54's
+  Chennai preference) is a test. Residual: a username fact given with an end date keeps its login-record username
+  after that day, until it is forgotten, retracted, retired or replaced.
 
 ### 16.13 FERB's cursor (L33)
 

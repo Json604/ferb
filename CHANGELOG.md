@@ -977,6 +977,11 @@ After the owner's update (2026-10-24):
   the run's random temporary folder right after FERB's instructions: about 611 tokens and 1-3 s per run, and it kept
   the rest of the prompt from ever matching the previous run's. FERB loads no Codex skills, so every role now runs with
   `skills.include_instructions=false` and `skills.bundled.enabled=false`.
+- Old facts retire (L36). Live: the 10-11 wedding flight and the finished RSNA competition were still in every planner
+  prompt. A fact you give with a date now leaves memory after that day, and when your words say something is over FERB
+  retires it (or asks: "Is this no longer true? …", Retire or Keep). Keep is remembered, so FERB doesn't ask about that
+  fact again. A username you give again for the same fact replaces the old one on its login record; a new version of
+  the fact that names no username (an edit in the dashboard, say) clears it, and so does retiring it.
 
 Licensed under Apache-2.0.
 
