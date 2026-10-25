@@ -556,6 +556,7 @@ class Daemon:
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['tasks.list'] = self._tasks_list
+        self.server.unary['reports.diagnostic'] = self._reports_diagnostic
         self.server.unary['notices.list'] = self._notices_list
         self.server.unary['settings.get'] = self._settings_get        # the FERB window's Settings (L34 Phase E)
         self.server.unary['settings.set'] = self._settings_set
@@ -4963,6 +4964,23 @@ class Daemon:
         rows.sort(key=lambda r: str(r["created_at"]), reverse=True)
         return {"notices": [self.attention_notices.view(r) | {"shown": r["delivered_at"] is not None} for r in rows]}
 
+    async def _reports_diagnostic(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Settings → Advanced → Export a diagnostic file: reports.diagnostic writes it; FERB sends nothing (sending it
+        anywhere is a later owner decision). Params: `app_version`, the app's version."""
+        from ferb.daemon import reports
+        if self.db is None:
+            raise FerbError("daemon not started")
+        text = getattr(self.redact, "text", None)
+        if not callable(text):                     # never written unredacted
+            raise FerbError("FERB couldn't redact the diagnostic file, so it wrote none")
+        health = await self._doctor_check(session, {"selftest": False, "hearing": False})
+        recording = await self._sense_status(session, {})
+        built = await asyncio.to_thread(
+            reports.diagnostic, self.db.path, health, recording, self._report_facts(), home=self.home,
+            now=self.clock.now(), walk=self.redact, text=text, app_version=str(params.get("app_version") or ""))
+        self._journal().append("diagnostic.built", {"file": built["path"]})
+        return built
+
     # ---------- methods ----------
 
     async def _ping(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -5061,12 +5079,23 @@ class Daemon:
             self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
 
+    def _report_facts(self) -> dict[str, Any]:
+        """The runtimes and extension versions a failure report (L35) and a diagnostic file (L34 Phase E) name."""
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        runtimes = []
+        for role in ROLES:
+            name = self._runtime_for(role)
+            model = self._model_for(name) or (CATALOG[name].default_model if name in CATALOG else "")
+            runtimes.append(f"{role}: {name} {model}".rstrip())
+        bridges = self.hub.bridges.items() if self.hub is not None else []
+        return {"runtimes": runtimes,
+                "extensions": [f"{browser} {folder}: {br.version}" for (browser, folder), br in bridges if br.version]}
+
     async def _reports_build(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Send to developer (L35): the report file of a turn FERB recorded as ending badly (`reports.failure`), with
         the feedback address and subject for a new email in the owner's own Mail app. FERB sends nothing. Params: the
         turn's `task_id` and `request_id`, whichever the notch holds, and `app_version`, the notch's version."""
         from ferb.daemon import reports
-        from ferb.runtimes.catalog import CATALOG, ROLES
         if self.db is None:
             raise FerbError("daemon not started")
         address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
@@ -5076,14 +5105,7 @@ class Daemon:
         if not callable(text):                # never written unredacted (review 1, M4)
             raise FerbError("FERB couldn't redact the report, so it wrote none")
         task_id = self._resolve_root_task(str(params.get("task_id") or ""))
-        runtimes = []
-        for role in ROLES:
-            name = self._runtime_for(role)
-            model = self._model_for(name) or (CATALOG[name].default_model if name in CATALOG else "")
-            runtimes.append(f"{role}: {name} {model}".rstrip())
-        bridges = self.hub.bridges.items() if self.hub is not None else []
-        facts = {"runtimes": runtimes,
-                 "extensions": [f"{browser} {folder}: {br.version}" for (browser, folder), br in bridges if br.version]}
+        facts = self._report_facts()
         found, built = await asyncio.to_thread(
             reports.report, self.db.path, task_id, str(params.get("request_id") or ""), facts, home=self.home,
             now=self.clock.now(), clock=self.clock, ids=self.ids, walk=self.redact, text=text,

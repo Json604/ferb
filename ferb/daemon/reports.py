@@ -38,6 +38,10 @@ NAME = re.compile(r"FERB-report-\d{4}-\d{2}-\d{2}-[A-Za-z0-9._-]+\.txt")
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 SPAN_CONTENT = ("input", "output", "error", "summary")   # a span's recorded content; the rest is FERB's own structure
 SPAN_LABEL = re.compile(r" *\d{2}:\d{2}:\d{2}  ")        # where `render_trace` starts a span's lines
+# Settings → Advanced → Export a diagnostic file (L34 Phase E): FERB's state for debugging, one text file per export
+DIAGNOSTIC = re.compile(r"FERB-diagnostic-\d{4}-\d{2}-\d{2}-\d{6}\.txt")
+DIAGNOSTIC_SECTIONS = ("Summary", "Health", "Recording", "Recent tasks", "FERB's recorded problems")
+RECENT_TASKS = 20
 
 
 @dataclass(frozen=True)
@@ -184,6 +188,46 @@ def build(found: Failure, spans: list[dict[str, Any]], rows: list[tuple[str, str
     return {"path": str(path), "subject": "FERB report: " + lines.clip(short, SUBJECT_CHARS), "summary": told}
 
 
+def diagnostic(db_path: Path, health: dict[str, Any], recording: dict[str, Any], facts: dict[str, Any], *,
+               home: Path, now: datetime, walk: Callable[[Any], Any], text: Callable[[str], str],
+               app_version: str = "") -> dict[str, str]:
+    """Settings → Advanced → Export a diagnostic file (L34 Phase E): versions, the daemon's own health check, what it
+    records, its latest tasks by id and status, and its recorded problems, every part redacted as a failure report is
+    (rule 14; never raw stderr). FERB sends nothing. Runs off the event loop on its own connection; diagnostic files
+    older than KEEP_DAYS go first. Returns {path, summary}."""
+    db = Database(db_path)
+    try:
+        tasks = [dict(r) for r in db.conn.execute(
+            "SELECT id, status, created_at FROM tasks WHERE parent_id IS NULL ORDER BY created_at DESC, rowid DESC "
+            "LIMIT ?", (RECENT_TASKS,))]
+        rows = problems(db, None, None)
+    finally:
+        db.close()
+    mac = platform.mac_ver()[0] or "unknown"
+    summary = [("FERB version", ferb.__version__), ("macOS version", mac),
+               ("App version", lines.clip(app_version, 60) if app_version else "unknown"),
+               ("Extension version", "; ".join(facts.get("extensions") or []) or "unknown"),
+               ("AI runtime and model", "; ".join(facts.get("runtimes") or []) or "unknown"),
+               ("Written", now.astimezone().isoformat(timespec="seconds"))]
+
+    def shown(value: Any) -> str:
+        return text(json.dumps(walk(value), ensure_ascii=False, indent=2, sort_keys=True, default=str))
+    parts = [text("FERB diagnostic file"), "",
+             "## Summary", text("\n".join(f"{key}: {value}" for key, value in summary)), "",
+             "## Health", shown(health), "",
+             "## Recording", shown(recording), "",
+             "## Recent tasks",
+             *([text(f"{t['created_at']}  {t['id']}  {t['status']}") for t in tasks] or ["(none recorded)"]), "",
+             "## FERB's recorded problems",
+             f"FERB's own records of requests that failed inside it or answered slowly: the latest {PROBLEMS_LAST}.",
+             *([text(f"{at}  {kind}  {json.dumps(walk(data), ensure_ascii=False)}") for at, kind, data in rows]
+               or ["(none recorded)"]), ""]
+    folder = home / FOLDER
+    purge(folder, now, names=DIAGNOSTIC)
+    path = write(folder, f"FERB-diagnostic-{now.astimezone():%Y-%m-%d-%H%M%S}.txt", "\n".join(parts))
+    return {"path": str(path), "summary": text(f"FERB {ferb.__version__}, macOS {mac}")}
+
+
 def _redacted(node: dict[str, Any], walk: Callable[[Any], Any]) -> dict[str, Any]:
     """A span and its children with their recorded content through the structural redaction, as at capture."""
     own = {key: walk(value) if key in SPAN_CONTENT else value for key, value in node.items() if key != "children"}
@@ -202,14 +246,15 @@ def _blocks(rendered: list[str]) -> Iterator[list[str]]:
         yield block
 
 
-def purge(folder: Path, now: datetime, days: int = KEEP_DAYS) -> int:
-    """Removes FERB's own reports (by name) last written more than `days` ago; how many."""
+def purge(folder: Path, now: datetime, days: int = KEEP_DAYS, names: re.Pattern[str] = NAME) -> int:
+    """Removes FERB's own files of one kind (`names`: failure reports, or diagnostic files) last written more than
+    `days` ago; how many."""
     if not folder.is_dir():
         return 0
     cutoff = now.timestamp() - days * 86400
     gone = 0
     for p in folder.iterdir():
-        if NAME.fullmatch(p.name) and not p.is_symlink() and p.is_file() and p.stat().st_mtime < cutoff:
+        if names.fullmatch(p.name) and not p.is_symlink() and p.is_file() and p.stat().st_mtime < cutoff:
             p.unlink(missing_ok=True)
             gone += 1
     return gone

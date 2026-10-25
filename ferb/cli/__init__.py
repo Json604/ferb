@@ -157,6 +157,10 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sp.add_argument("--codex-login", action="store_true",
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
+    sp.add_argument("--codex-logout", action="store_true",
+                    help="sign out FERB's own Codex (your personal Codex login is never touched)")
+    sp.add_argument("--cli", action="store_true",
+                    help="link the `ferb` command at ~/.local/bin to this FERB.app (Settings → Advanced)")
     sp.add_argument("--claude-login", action="store_true",
                     help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
     sp.add_argument("--voice", action="store_true",
@@ -280,6 +284,10 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.jev_setup(env)
             if args.cmd == "setup" and args.voice:
                 return setup_cmd.voice_setup(env)
+            if args.cmd == "setup" and args.codex_logout:
+                return setup_cmd.codex_logout(env)
+            if args.cmd == "setup" and args.cli:
+                return setup_cmd.cli_setup(env)
             if args.cmd == "setup" and args.codex_login:
                 return setup_cmd.codex_login(env)
             if args.cmd == "setup" and args.claude_login:

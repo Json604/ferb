@@ -28,7 +28,7 @@ from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
 from ferb.device import permissions
-from ferb.device.install import (MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
+from ferb.device.install import (BUNDLE_CLI, MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
                                  designated_requirement, repo_root, trusted_requirement, voice_app)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
@@ -583,6 +583,43 @@ def claude_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     cl.mark(env.inst.home)
     env.say("Done: FERB now uses its own Claude sign-in.")
     return 0
+
+
+def codex_logout(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """Settings → AI → Sign out of ChatGPT (L34 Phase E): `codex logout` in FERB's own Codex home only; the owner's
+    personal Codex login is never touched."""
+    import os
+    from ferb.runtimes.codex_exec import codex_binary
+    home = env.inst.home / "codex-home"
+    if not (home / "auth.json").exists():
+        env.say("FERB's Codex isn't signed in; nothing to sign out of.")
+        return 0
+    try:
+        binary = codex_binary(env.inst.home)
+    except Exception as e:
+        env.say(f"FERB's pinned Codex isn't installed: {e}")
+        return 1
+    rc = run([str(binary), "logout"], env={**os.environ, "CODEX_HOME": str(home)}).returncode
+    gone = not (home / "auth.json").exists()
+    env.say("Signed out: FERB can't answer through Codex until you sign in again." if rc == 0 and gone else
+            "Codex didn't sign out; nothing changed.")
+    return 0 if rc == 0 and gone else 1
+
+
+def cli_setup(env: Env) -> int:
+    """Settings → Advanced → Install command-line tool (L34 Phase E): `ferb` on PATH as a link to this FERB.app's
+    launcher (Installer.link_cli leaves anything else called `ferb` alone). Setup never edits shell profiles."""
+    inst = env.inst
+    if inst.bundle is None:
+        env.say("The command-line tool is linked from FERB.app; a checkout runs `uv run ferb`.")
+        return 1
+    inst.link_cli()
+    link = inst.cli_link
+    ok = link is not None and link.is_symlink() and link.resolve() == (inst.bundle / BUNDLE_CLI).resolve()
+    env.say(inst.cli_status() or "")
+    if ok:
+        env.say('To use it in a terminal, add  export PATH="$HOME/.local/bin:$PATH"  to ~/.zprofile.')
+    return 0 if ok else 1
 
 
 def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:

@@ -37,7 +37,7 @@ CLIENT_WAIT_S = 10.0
 # Calls the notch waits longer for (seconds; its `wait:` calls): a failed task's report renders and redacts the task's
 # whole record first (L35; NotchModel.reportWait); a permission request and an Automation request wait for the owner's
 # answer to macOS's prompt, and a runtime check makes one model call (L34 C, the setup window)
-LONG_WAITS = {"reports.build": 120.0, "setup.permission_request": 120.0, "automation.request": 120.0,
+LONG_WAITS = {"reports.build": 120.0, "reports.diagnostic": 60.0, "setup.permission_request": 120.0, "automation.request": 120.0,
               "runtimes.check": 60.0}
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
