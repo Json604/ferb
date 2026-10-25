@@ -35,12 +35,14 @@ struct QuestionFocus: Equatable {
 
 @MainActor
 final class NotchModel: ObservableObject {
-    @Published var session = NotchSession()
+    // The task list's inputs (TaskList.swift): each change drops the list built from them, so it is built again once.
+    @Published var session = NotchSession() { didSet { taskListSessionChanged(from: oldValue) } }
     @Published var measuredTranscriptHeight: CGFloat = 0
-    var workSessions: [UUID: NotchSession] = [:]
+    var workSessions: [UUID: NotchSession] = [:] { didSet { taskListCache.invalidate() } }
+    var taskListCache = TaskListCache()
     var submissions: [UUID: Task<Void, Never>] = [:]
     @Published var pendingStops = Set<UUID>()
-    @Published var conversation = ConversationArchive()
+    @Published var conversation = ConversationArchive() { didSet { taskListCache.invalidate() } }
     @Published var followsToday = true
     @Published var selectedDay = Calendar.current.startOfDay(for: Date())
     @Published var handleWidth: CGFloat = 180
@@ -81,13 +83,19 @@ final class NotchModel: ObservableObject {
     let rpc: DaemonRPCTransport
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
-    @Published var pendingApprovals: [DaemonApproval] = []
+    @Published var pendingApprovals: [DaemonApproval] = [] {
+        didSet { if pendingApprovals != oldValue { taskListCache.invalidate() } }
+    }
     @Published var questionFocus: QuestionFocus?
     @Published var promptError: String?
     @Published var sendingAnswer = false
-    @Published var runningTasks: [String: String] = [:]
+    @Published var runningTasks: [String: String] = [:] {
+        didSet { if runningTasks != oldValue { taskListCache.invalidate() } }
+    }
     /// Running loops (L31), keyed by root task id: standing work, shown with its counts until the loop or its task ends.
-    @Published var standingWork: [String: StandingWork] = [:]
+    @Published var standingWork: [String: StandingWork] = [:] {
+        didSet { if standingWork != oldValue { taskListCache.invalidate() } }
+    }
     var conversationID: String?
     var supportsAttachments = false
     var eventsTask: Task<Void, Never>?
@@ -157,14 +165,19 @@ final class NotchModel: ObservableObject {
     /// question or approval (whose sound plays as always): a question that arrives then is never hidden silently.
     /// The completion glow yields with the rest of FERB.
     var tracerLightShows: Bool { !isYielded || attentionTraceVisible }
+    /// Measured once per draft and width: the notch's size reads it on every pointer move and animation frame.
     var composerHeight: CGFloat {
         let textWidth = bodyWidth - 152
+        if let last = composerMeasure, last.width == textWidth, last.draft == session.draft { return last.height }
         let measured = ((session.draft + "\u{200B}") as NSString).boundingRect(
             with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: NSFont.systemFont(ofSize: 14)])
-        return min(72, max(18, ceil(measured.height))) + 18
+        let height = min(72, max(18, ceil(measured.height))) + 18
+        composerMeasure = (session.draft, textWidth, height)
+        return height
     }
+    private var composerMeasure: (draft: String, width: CGFloat, height: CGFloat)?
     var chatTranscriptHeight: CGFloat { min(320, max(240, measuredTranscriptHeight)) }
 
     var bodyHeight: CGFloat {

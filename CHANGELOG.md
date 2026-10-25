@@ -1035,6 +1035,13 @@ After the owner's update (2026-10-24):
   and Zed are never read; elsewhere a field inside a terminal (VS Code's, a web terminal, JetBrains' Terminal tool
   window, or one whose label names a terminal, console or shell) is skipped. Editors and page boxes are captured as
   before.
+- The notch no longer lags while you type, open or close it (owner, 2026-10-25: "ferb notch lag a bit now... while
+  typing, opening, closing"). Its size read the task list, which was rebuilt from the whole conversation and sorted on
+  every read, and the pointer, every animation frame and every keystroke read it several times: about 5 ms a read with
+  254 turns and 105 tasks in the development build. The list is now built once per change of what it reads (the
+  conversation, the task sessions, running tasks, questions and loops; typing, opening and closing change none of
+  them), and the composer is measured once per draft. 1000 reads of the notch's size took 0.10 s instead of 5.0 s
+  (development build) and 0.05 s instead of 1.2 s (release). A loop's "last N min ago" still follows the clock.
 - FERB's own notch is never read by its own typing and accessibility watchers (L17, rule 17, owner, 2026-10-25): each
   key typed there cost about 20 Accessibility reads on the notch's main thread. Both skip `FERB_APPS`.
 

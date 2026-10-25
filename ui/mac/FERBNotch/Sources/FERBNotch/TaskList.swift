@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 import NotchCore
 
-struct TaskItem: Identifiable {
+struct TaskItem: Identifiable, Equatable {
     let id: String
     let backendID: String?
     let localID: UUID?
@@ -14,14 +14,101 @@ struct TaskItem: Identifiable {
     var artifacts: [URL] = []
     /// A running loop's line (L31); its task is standing work while no round is acting.
     var standing: String? = nil
-    var isRunning: Bool { ["working", "needs_user"].contains(status) }
+    var isRunning: Bool { Self.isRunning(status) }
     /// Still going: running, or a loop kept between its rounds. Either can be stopped.
     var isOngoing: Bool { isRunning || standing != nil }
+    static func isRunning(_ status: String) -> Bool { status == "working" || status == "needs_user" }
+}
+
+/// The task list as last built. The notch's size reads it on every pointer move, animation frame and keystroke, so it
+/// is built once per change of what it reads, never per read (owner, 2026-10-25: the notch lagged as history grew).
+/// Every input invalidates it where it is set (NotchModel.swift); a loop's line reads the clock, so each read makes it.
+struct TaskListCache {
+    struct Built {
+        let rows: [TaskItem]
+        /// The rows of loops kept going, whose line is made again at each read.
+        let standing: [Int]
+        let active: Int
+        let kept: Int
+    }
+
+    fileprivate var built: Built?
+    /// How many times the list was built (tests count rebuilds).
+    fileprivate(set) var builds = 0
+
+    mutating func invalidate() { built = nil }
 }
 
 @MainActor
 extension NotchModel {
+    /// Running first, then kept loops, then the newest first; a task with no turn here (recovered from the daemon)
+    /// counts as newest. Never the random task id's order (owner 2026-10-25: "it shows previous on top").
     var taskItems: [TaskItem] {
+        let list = builtTaskList
+        guard !list.standing.isEmpty else { return list.rows }
+        var rows = list.rows
+        let now = Date()
+        for index in list.standing { rows[index].standing = standingLine(rows[index].id, now: now) }
+        return rows
+    }
+
+    var activeTaskCount: Int { builtTaskList.active }
+
+    /// Loops kept between their rounds (L31): standing work, counted apart from the active tasks.
+    var keptGoingCount: Int { builtTaskList.kept }
+
+    /// The chat's work row: shown while a task runs or a loop is kept; its spinner turns only for running work.
+    var showsWorkRow: Bool { hasRunningWork || keptGoingCount > 0 }
+
+    var workRowText: String {
+        let active = activeTaskCount, kept = keptGoingCount
+        var parts: [String] = []
+        if active > 0 { parts.append("\(active) active \(active == 1 ? "task" : "tasks")") }
+        if kept > 0 { parts.append("\(kept) kept going") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var builtTaskList: TaskListCache.Built {
+        if let built = taskListCache.built { return built }
+        let built = makeTaskList()
+        taskListCache.built = built
+        taskListCache.builds += 1
+        return built
+    }
+
+    /// The window's session changed. The list reads it only while it holds a task, and its draft only when that draft
+    /// is the task's title, so typing, opening and closing keep the list.
+    func taskListSessionChanged(from old: NotchSession) {
+        guard taskListCache.built != nil else { return }
+        if Self.taskFields(old) != Self.taskFields(session) || old.draft != session.draft && draftIsTaskTitle(session) {
+            taskListCache.invalidate()
+        }
+    }
+
+    private struct SessionTaskFields: Equatable {
+        let local: UUID
+        let backendTaskID: String?
+        let attention: Bool
+        let request: String?
+        let activity: [TaskActivity]
+    }
+
+    /// What the list reads from a session that holds a task (`makeTaskList`), apart from its draft.
+    private static func taskFields(_ work: NotchSession) -> SessionTaskFields? {
+        guard let local = work.activeTaskID else { return nil }
+        return SessionTaskFields(local: local, backendTaskID: work.backendTaskID, attention: work.phase == .attention,
+                                 request: work.result?.request, activity: work.activity)
+    }
+
+    /// The draft is the row's title only when nothing before it names the task (`makeTaskList`).
+    private func draftIsTaskTitle(_ work: NotchSession) -> Bool {
+        guard let local = work.activeTaskID, work.result?.request == nil,
+              work.backendTaskID.flatMap({ runningTasks[$0] }) == nil else { return false }
+        return !conversation.turns.contains { $0.id == local }
+    }
+
+    /// Builds the list from the conversation, the task sessions, the daemon's running tasks, open questions and loops.
+    func makeTaskList() -> TaskListCache.Built {
         var rows: [String: TaskItem] = [:]
         var asked: [String: Int] = [:]          // the conversation's order: a later turn was asked later
         var sessions = workSessions
@@ -30,7 +117,7 @@ extension NotchModel {
             let id = turn.backendTaskID!
             asked[id] = index
             let active = runningTasks[id] != nil || sessions.values.contains { $0.backendTaskID == id && $0.activeTaskID != nil }
-            let status = ["working", "needs_user"].contains(turn.status) && !active ? "Status unavailable" : turn.status
+            let status = TaskItem.isRunning(turn.status) && !active ? "Status unavailable" : turn.status
             rows[id] = TaskItem(id: id, backendID: id, localID: turn.id, title: Self.title(of: turn),
                                 status: status, activity: [], answer: turn.visibleAnswer, artifacts: turn.artifacts)
         }
@@ -51,32 +138,15 @@ extension NotchModel {
             rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title, status: status,
                 activity: old?.activity ?? [], standing: standingLine(id, now: now))
         }
-        // Running first, then kept loops, then the newest first; a task with no turn here (recovered from the daemon)
-        // counts as newest. Never the random task id's order (owner 2026-10-25: "it shows previous on top").
-        return rows.values.sorted {
-            if $0.isRunning != $1.isRunning { return $0.isRunning }
-            if $0.isOngoing != $1.isOngoing { return $0.isOngoing }
-            let a = asked[$0.id] ?? Int.max, b = asked[$1.id] ?? Int.max
-            return a != b ? a > b : $0.id < $1.id
-        }
-    }
-
-    var activeTaskCount: Int { taskItems.filter(\.isRunning).count }
-
-    /// Loops kept between their rounds (L31): standing work, counted apart from the active tasks.
-    var keptGoingCount: Int { taskItems.filter { $0.status == "standing" }.count }
-
-    /// The chat's work row: shown while a task runs or a loop is kept; its spinner turns only for running work.
-    var showsWorkRow: Bool { hasRunningWork || keptGoingCount > 0 }
-
-    var workRowText: String {
-        let items = taskItems
-        let active = items.filter(\.isRunning).count
-        let kept = items.filter { $0.status == "standing" }.count
-        var parts: [String] = []
-        if active > 0 { parts.append("\(active) active \(active == 1 ? "task" : "tasks")") }
-        if kept > 0 { parts.append("\(kept) kept going") }
-        return parts.joined(separator: " · ")
+        // Each row's place is worked out once, not in every comparison.
+        let sorted = rows.values.map { ($0, $0.isRunning, $0.isOngoing, asked[$0.id] ?? Int.max) }.sorted {
+            if $0.1 != $1.1 { return $0.1 }
+            if $0.2 != $1.2 { return $0.2 }
+            return $0.3 != $1.3 ? $0.3 > $1.3 : $0.0.id < $1.0.id
+        }.map(\.0)
+        return TaskListCache.Built(rows: sorted, standing: sorted.indices.filter { sorted[$0].standing != nil },
+                                   active: sorted.filter(\.isRunning).count,
+                                   kept: sorted.filter { $0.status == "standing" }.count)
     }
 
     /// "Keeping: <goal> · fixed N times · last X min ago", plus the loop's state when it waits longer or needs you.
