@@ -34,6 +34,9 @@ SOL_LOCAL, LOCAL_PEERCRED = 0, 1   # <sys/un.h>
 # How long the notch waits for a reply (its socket read timeout, DaemonRPC.swift), and the CLI by default
 # (cli/client.py). A later reply reaches neither, unless the caller chose a longer wait (`ferb chat` waits 30 minutes).
 CLIENT_WAIT_S = 10.0
+# Calls the notch waits longer for (seconds; its `wait:` calls): a failed task's report renders and redacts the task's
+# whole record first (L35; NotchModel.reportWait)
+LONG_WAITS = {"reports.build": 120.0}
 # The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
 INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
 
@@ -291,7 +294,8 @@ class Server:
                 await self._write(writer, reply)
             finally:
                 # an MCP shim waits for its call however long it runs; the notch and the CLI stop waiting
-                if session.role is not Role.MCP_SHIM and (seconds := time.monotonic() - started) >= CLIENT_WAIT_S:
+                if session.role is not Role.MCP_SHIM and (seconds := time.monotonic() - started) >= LONG_WAITS.get(
+                        req.method, CLIENT_WAIT_S):
                     self._tell(self.on_slow, req.method, seconds)
             return True
         if req.method in self.streams:

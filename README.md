@@ -430,6 +430,15 @@ receive only handles and fill facts. Login codes, including recognized split num
 A choice you pick (a "1" for SMS) is never treated as a secret. A code typed into an ordinary question that asks for a
 code is hidden for that answer, but only codes entered through the hidden input are remembered as secrets.
 Full trace output remains private data: share deliberately.
+**Send to developer** (L35): under an answer that says a task failed or was interrupted, or that FERB couldn't start
+it, a button writes one text file, `~/.ferb/reports/FERB-report-<date>-<task>.txt` (owner-only, kept 30 days): a
+summary (versions, AI service and model, status, reason, times), your request and FERB's answer, the task's full
+trace as `ferb trace TASK --full` shows it, and the last 200 lines of FERB's error log. Its text passes FERB's secret
+redaction once more before it is written; redaction covers secret classes, so the trace's other private text (pages,
+file names, messages) is in the file. FERB then opens a new email in your own Mail app, to `[feedback] address` in
+`config.toml` (default `ktky.attri@gmail.com`; empty turns it off), with the file attached. Open the file to see
+exactly what you would send. A report leaves the Mac only when you press Send in Mail: FERB never sends it. Without a
+Mail account, FERB shows the file in Finder and the address to send it to.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 FERB's shell and its AppleScript run inside a macOS sandbox built from `[protection]`. It can't read the credential
 stores or FERB's own files, can't write the never-write places, can't use the Keychain, can't open apps or URLs or

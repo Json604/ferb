@@ -36,6 +36,16 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
 
     public var isRecovered: Bool { taskGoal != nil }
     public var isVerified: Bool { verified == true }
+    /// What a report about this answer names (L35): its task, or its request when a planning failure ended the turn
+    /// before any task existed.
+    public var reportID: String? { backendTaskID ?? requestID }
+    /// Whether the answer offers Send to developer (L35): its task ended failed or interrupted, or a planning failure
+    /// ended the turn (the daemon's reply says `failed`). A draft the notch cut off before FERB confirmed it
+    /// (`interrupted` with no task) is the notch's own interruption, no task's.
+    public var offersReport: Bool {
+        guard reportID != nil else { return false }
+        return status == "failed" || (status == "interrupted" && backendTaskID != nil)
+    }
     /// FERB's lines above the answer, in the order shown: the acknowledgement, then the plan line.
     public var ferbLines: [String] { [ack, plan].compactMap { $0 } }
     /// The request as one line, for a late reply's quote.

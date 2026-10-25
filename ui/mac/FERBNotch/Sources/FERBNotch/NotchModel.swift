@@ -106,6 +106,9 @@ final class NotchModel: ObservableObject {
     var knownCompletedTasks = Set<String>()
     /// An unreadable archive couldn't be set aside, so nothing may be saved over it.
     var archiveBlocked = false
+    /// Send to developer (L35): each answer's report, by turn id (live state, never saved), and the owner's Mail.
+    @Published var reports: [UUID: ReportState] = [:]
+    var reportMailer: ReportMailing = SystemReportMailer()
 
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {
         self.microphone = microphone ?? Microphone()

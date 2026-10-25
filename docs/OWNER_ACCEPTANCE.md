@@ -1675,3 +1675,20 @@ Checkout validation is in the changelog entry; nothing here is installed or obse
 - 27b2567 builds the list once per change (1000 `panelSize` reads: 4.98 s -> 0.10 s, debug build). The notch was
   restarted on that build at about 11:10.
 - Owner, after the restart: "yep its fast now".
+
+## Send to developer (L35) — pending live check (2026-10-25)
+
+Checkout validation is in the changelog entry; nothing here is installed or observed yet. Run after `ferb setup
+--update` and the new notch build, with the owner watching; pause between supervised actions and record what the
+owner saw.
+
+- Force a failure on a disposable target (for example "rename every file in ~/Desktop/ferb-no-such-folder by date",
+  a folder that doesn't exist): the answer reads "Failed" and shows **Send to developer**. A done or stopped answer
+  shows no button.
+- Click it: Mail comes forward with a new email to ktky.attri@gmail.com, subject "FERB report: <the failure's first
+  line>", the short summary and the note about the attachment, and `FERB-report-<date>-<task>.txt` attached. Record
+  whether anything else on screen moved.
+- Open the attached file from the email before sending: Summary, Request, Steps (the same text as `ferb trace TASK
+  --full`) and Recent FERB errors; no password, code or key in it. Then press Send and confirm it arrived at
+  ktky.attri@gmail.com with the file.
+- `ls -l ~/.ferb/reports`: the folder is `drwx------`, the file `-rw-------`.

@@ -530,6 +530,7 @@ class Daemon:
         self.server.unary['notifications.rules'] = self._notification_rules
         self.server.unary['notifications.label'] = self._notification_label
         self.server.unary['attention.ack'] = self._attention_ack
+        self.server.unary['reports.build'] = self._reports_build
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
         self.server.streams['ps.attach'] = self._ps_attach
@@ -4601,7 +4602,8 @@ class Daemon:
                 # no task of this turn had started (none named in its events: a task's plan line comes before its
                 # work), or one may have been under way
                 said = couldnt("finish that" if my_tasks else "start that", e, self.redact)
-                await queue.put(stamped({"type": "reply", "text": self.redact(said)}))
+                # the turn ended failed: the notch offers Send to developer on it (L35)
+                await queue.put(stamped({"type": "reply", "text": self.redact(said), "status": "failed"}))
             finally:
                 if screen is not None and not screen.done():   # the turn ended before routing used it
                     screen.cancel()
@@ -4735,6 +4737,32 @@ class Daemon:
                 self._journal().append(kind, {"task_id": task_id, "error": self._redact_text(str(e))})
             self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
+
+    async def _reports_build(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Send to developer (L35): the report file of a task that ended failed or interrupted, or of a turn a planning
+        failure ended, with the feedback address and subject for a new email in the owner's own Mail app. FERB sends
+        nothing. `app_version`: the notch's version, when it passes one."""
+        from ferb.daemon import reports
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        if self.db is None or self.spans is None:
+            raise FerbError("daemon not started")
+        address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
+        if not address:
+            raise FerbError("No feedback address set")
+        found = reports.failure(self.db, self._resolve_root_task(str(params.get("task_id") or "")))
+        trace = {"task_id": found.task_id, "spans": self.spans.tree_json(found.task_id)}
+        runtimes = []
+        for role in ROLES:
+            name = self._runtime_for(role)
+            model = self._model_for(name) or (CATALOG[name].default_model if name in CATALOG else "")
+            runtimes.append(f"{role}: {name} {model}".rstrip())
+        bridges = self.hub.bridges.items() if self.hub is not None else []
+        facts = {"runtimes": runtimes,
+                 "extensions": [f"{browser} {folder}: {br.version}" for (browser, folder), br in bridges if br.version]}
+        built = await asyncio.to_thread(reports.build, found, trace, facts, home=self.home, now=self.clock.now(),
+                                        redact=self._redact_text, app_version=str(params.get("app_version") or ""))
+        self._journal().append("report.built", {"task_id": found.task_id, "file": built["path"]})
+        return {**built, "address": address}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         summary = self.stop_control.engage()

@@ -287,9 +287,10 @@ extension NotchModel {
             conversation.abortReply(id: localID, reason: event["reason"] as? String ?? "")
             saveConversation()
         case "reply", "clarify":
-            _ = session.finishBackendWork(taskID: nil, status: "done", answer: event["text"] as? String ?? "", artifacts: [])
-            feedback.play(.completed)
-            showCompletionTrace()
+            // A reply that ended the turn on a failure says so (`status: failed`), and offers Send to developer (L35).
+            let status = event["status"] as? String ?? "done"
+            _ = session.finishBackendWork(taskID: nil, status: status, answer: event["text"] as? String ?? "", artifacts: [])
+            if status == "done" { feedback.play(.completed); showCompletionTrace() } else { feedback.play(.attention) }
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
         case "outcome": receiveOutcome(event)
         case "error":

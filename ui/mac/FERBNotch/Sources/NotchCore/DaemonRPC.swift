@@ -4,7 +4,15 @@ import Darwin
 /// Owner-authenticated local transport. Request bodies (including secrets) are never logged or persisted.
 public protocol DaemonRPCTransport {
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any]
+    /// A call whose reply may take longer than the usual 10 s (L35: a long task's report), waiting up to `seconds`.
+    func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any]
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error>
+}
+
+extension DaemonRPCTransport {
+    public func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any] {
+        try await call(method, params: params)
+    }
 }
 
 public final class DaemonRPC: DaemonRPCTransport, @unchecked Sendable {
@@ -14,10 +22,14 @@ public final class DaemonRPC: DaemonRPCTransport, @unchecked Sendable {
     }
 
     public func call(_ method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
+        try await call(method, params: params, wait: UnixRPCConnection.replyWait)
+    }
+
+    public func call(_ method: String, params: [String: Any], wait seconds: Int) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async { [socketPath] in
                 do {
-                    let connection = try UnixRPCConnection(path: socketPath)
+                    let connection = try UnixRPCConnection(path: socketPath, wait: seconds)
                     defer { connection.close() }
                     continuation.resume(returning: try connection.call(method, params: params))
                 } catch { continuation.resume(throwing: error) }
@@ -78,13 +90,16 @@ private final class UnixRPCConnection: @unchecked Sendable {
     private var buffered = RPCLineBuffer()
     private let lock = NSLock()
 
-    init(path: String) throws {
+    /// How long a reply is waited for (seconds): the daemon's `CLIENT_WAIT_S` (server.py).
+    static let replyWait = 10
+
+    init(path: String, wait: Int = replyWait) throws {
         descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw DaemonRPCError.unavailable }
         do {
             var noSignal: Int32 = 1
             setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-            var timeout = timeval(tv_sec: 10, tv_usec: 0)
+            var timeout = timeval(tv_sec: wait, tv_usec: 0)
             setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
             var address = sockaddr_un()

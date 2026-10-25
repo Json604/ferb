@@ -31,8 +31,10 @@ def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon
     install(daemon, [RuntimeEvent("violation", {"unexpected_tools": ["shell"]})])
     evs = chat(daemon, "hello")
     # the reason, in plain words (owner 2026-10-24: never "something went wrong on my side"); no raw adapter data
-    assert evs[0] == {"type": "reply", "text": "I couldn't start that: the AI runtime (fake) broke one of FERB's "
-                                               "rules: it used tools FERB didn't offer it: shell."}
+    # the turn ended failed, so the notch offers Send to developer on it (L35)
+    assert evs[0] == {"type": "reply", "status": "failed",
+                      "text": "I couldn't start that: the AI runtime (fake) broke one of FERB's rules: it used tools "
+                              "FERB didn't offer it: shell."}
     assert "fake" not in daemon.daemon.registry.unregistered
 
 

@@ -1225,10 +1225,11 @@ class Supervisor(WorkerRuns):
 
     def _failure_reply(self, session_id: str, request_id: str, text: str) -> dict[str, Any]:
         """A turn that failed before routing still answers its request, in the conversation record too, so the next
-        turn's history shows what FERB told the owner and "retry" has something to refer to (L21)."""
+        turn's history shows what FERB told the owner and "retry" has something to refer to (L21). The reply says the
+        turn failed, so the notch offers Send to developer on it (L35)."""
         text = self.gateway.redact(text)
         self.journal.append("chat.reply", {"session_id": session_id, "request_id": request_id, "text": text})
-        return {"type": "reply", "text": text}
+        return {"type": "reply", "text": text, "status": "failed"}
 
     def _pending_input_paths(self, session_id: str) -> list[str]:
         """Carry selected source metadata across a clarification, including after a daemon restart."""

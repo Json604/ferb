@@ -324,6 +324,7 @@ private struct AnswerView: View {
             Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
                 .font(.system(size: 10)).foregroundStyle(Palette.secondary)
         }
+        if turn.offersReport { ReportRow(turn: turn, model: model) }
         ForEach(turn.artifacts, id: \.self) { url in
             Button { model.onOpenDocument?(url) } label: {
                 Label(url.lastPathComponent, systemImage: "doc").lineLimit(1)
