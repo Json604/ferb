@@ -1,19 +1,23 @@
 """Socket server (section 2), talking to a real daemon over its Unix socket.
 Ported from spike 8: socket/folder permissions, stale socket replaced, second daemon refused, EOF handling."""
 
+import asyncio
+import io
 import json
 import socket
 import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from ferb.cli.admin import stats
 from ferb.cli.client import Client, RpcError
 from ferb.clock.clock import FakeClock
 from ferb.core.errors import AlreadyRunning, NotRunning
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
-from ferb.daemon.server import MAX_MESSAGE, TOO_LARGE, UNAUTHORIZED
+from ferb.daemon.server import INTERNAL, INTERNAL_ERROR, MAX_MESSAGE, SLOW_CALL, TOO_LARGE, UNAUTHORIZED
 from tests.conftest import RunningDaemon, raw, send
 
 
@@ -129,3 +133,57 @@ def test_client_reports_daemon_not_running_and_eof(home: Path) -> None:        #
     with pytest.raises(NotRunning):
         Client(home / "run" / "ferb.sock")
     srv.close()
+
+
+def _journaled(d: RunningDaemon, kind: str) -> list[dict[str, Any]]:
+    async def read() -> list[dict[str, Any]]:
+        return [e.data for e in d.daemon._journal().of_kind(kind)]
+    return list(d.run(read()))
+
+
+def test_a_failure_inside_ferb_is_journaled_with_its_type_redacted_message_and_frames(daemon: RunningDaemon) -> None:
+    """L36 (live 2026-10-25): a request that failed inside FERB got a bare `INTERNAL <type>` reply and left nothing in
+    any of the debugging tools. Its method, type, redacted message (rule 14) and frames are journaled, and `ferb stats`
+    lists them; the reply still names only the type."""
+    async def broken_handler(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("the vault refused sk-ant-api03-abcdefghijklmnopqrst")
+    daemon.daemon.server.unary["ping"] = broken_handler
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(RpcError) as e:
+            c.call("ping")
+    finally:
+        c.close()
+    assert (e.value.code, str(e.value)) == (INTERNAL, "RuntimeError")
+    [row] = _journaled(daemon, INTERNAL_ERROR)
+    assert (row["method"], row["error"]) == ("ping", "RuntimeError")
+    assert "the vault refused" in row["message"] and "sk-ant" not in row["message"]
+    assert row["frames"][-1].startswith("test_server.py:") and row["frames"][-1].endswith(":broken_handler")
+    assert any(f.startswith("ferb/daemon/server.py:") for f in row["frames"])
+    out = io.StringIO()
+    assert stats(daemon.daemon.home, out, days=36500) == 0
+    text = out.getvalue()
+    assert "Requests that failed inside FERB: 1" in text and "ping: RuntimeError: the vault refused" in text
+    assert ":broken_handler" in text and "sk-ant" not in text
+
+
+def test_a_reply_later_than_the_app_waits_is_journaled(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """L36 (live 2026-10-25): a guess's Drop took 53 s on the daemon; the notch stopped waiting after 10 s and said
+    the answer wasn't recorded, while the daemon finished and recorded nothing about it."""
+    import ferb.daemon.server as server
+    monkeypatch.setattr(server, "CLIENT_WAIT_S", 0.05)
+
+    async def slow_handler(session: Any, params: dict[str, Any]) -> dict[str, Any]:
+        await asyncio.sleep(0.1)
+        return {"ok": True}
+    daemon.daemon.server.unary["ping"] = slow_handler
+    c = Client(daemon.sock)
+    try:
+        assert c.call("ping") == {"ok": True}
+    finally:
+        c.close()
+    [row] = _journaled(daemon, SLOW_CALL)
+    assert row["method"] == "ping" and row["seconds"] >= 0.1
+    out = io.StringIO()
+    stats(daemon.daemon.home, out, days=36500)
+    assert "Requests answered after the app stopped waiting (0 s): 1" in out.getvalue()

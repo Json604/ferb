@@ -53,7 +53,7 @@ from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon import resources as resource_use   # not `resources`: the constructor's flag
 from ferb.daemon.auth import RunTokens
-from ferb.daemon.server import Server, Session, ensure_socket_free
+from ferb.daemon.server import INTERNAL_ERROR, SLOW_CALL, Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
 from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, PROMPT_LEAVES_OUT, SEARCH_TEXT_VERSION, SOURCE_REF_INDEX,
                                   WORKER_MEMORY_ITEMS, reindex_search, search_indexed)
@@ -153,6 +153,22 @@ RETIRE_KEPT = "memory.retire_kept"            # the owner's Keep (or a skip) on 
 def _all_hidden(text: str) -> bool:
     """Words of which redaction left nothing but its marks ("[redacted]", "[redacted] [redacted]")."""
     return bool(text.strip()) and not text.replace(REDACTED, "").strip()
+
+
+# A request that failed inside FERB (`_record_internal`): its message's first characters and its innermost frames are
+# kept, enough to find the line; a deep recursion's thousand frames are not
+INTERNAL_MESSAGE_CHARS, INTERNAL_FRAMES = 300, 20
+
+
+def _code_path(filename: str) -> str:
+    """A traceback's file as a record shows it: under FERB's package from `ferb/`, else its file name alone (never a
+    path through the owner's home)."""
+    import ferb
+    path = Path(filename)
+    try:
+        return "ferb/" + path.relative_to(Path(ferb.__file__).parent).as_posix()
+    except ValueError:
+        return path.name
 
 
 # Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
@@ -376,6 +392,9 @@ class Daemon:
         self._reindex_task = asyncio.get_running_loop().create_task(self._reindex_search())   # searches wait for it
         self.db.on_wal_kept = lambda after, details: self._journal().append(
             "store.wal_not_truncated", {"after": after, **details})
+        self.server.on_internal = self._record_internal
+        self.server.on_slow = lambda method, seconds: self._journal().append(
+            SLOW_CALL, {"method": method, "seconds": round(seconds, 1)})
         if self.run_resources:                  # its first window starts here, so start-up's own work is in it
             try:
                 self.resource_log = resource_use.ResourceLog(self.db, self.clock, resource_use.MacReadings(),
@@ -3691,6 +3710,17 @@ class Daemon:
     def _redact_text(self, text: str) -> str:
         f = getattr(self.redact, "text", None)
         return str(f(text)) if f else text
+
+    def _record_internal(self, method: str, error: BaseException) -> None:
+        """A request that failed inside FERB (server.py's catch-all, whose reply names only the exception's type): its
+        method, the exception's type, its message redacted (rule 14) and cut short, and where it was raised as
+        file:line:function, innermost last, journaled for `ferb stats` (L36: a notch answer that failed left no
+        trace)."""
+        import traceback
+        frames = [f"{_code_path(f.filename)}:{f.lineno}:{f.name}" for f in traceback.extract_tb(error.__traceback__)]
+        self._journal().append(INTERNAL_ERROR, {"method": method, "error": type(error).__name__,
+                                                "message": self._redact_text(str(error))[:INTERNAL_MESSAGE_CHARS],
+                                                "frames": frames[-INTERNAL_FRAMES:]})
 
     def _redact_id(self, text: str) -> str:
         """Text that is one of FERB's own ids (a card's task-id key): redacted by structure (`Redactor.ident`)."""

@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import struct
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal
@@ -29,6 +30,12 @@ PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INTERNAL = -32700, -32600, -3260
 UNAUTHORIZED, TOO_LARGE, UNSUPPORTED, FAILED = -32001, -32002, -32003, -32004
 
 SOL_LOCAL, LOCAL_PEERCRED = 0, 1   # <sys/un.h>
+
+# How long an owner-side client waits for a reply: the notch's socket read timeout (DaemonRPC.swift) and the CLI's
+# default (cli/client.py). A reply later than this reaches nobody: the client has already shown a failure.
+CLIENT_WAIT_S = 10.0
+# The journal kinds the daemon records `on_internal` and `on_slow` under; `ferb stats` lists them
+INTERNAL_ERROR, SLOW_CALL = "daemon.internal_error", "daemon.slow_call"
 
 
 class Request(BaseModel):
@@ -129,6 +136,17 @@ class Server:
         # (task id, the runtime's call id) -> each running MCP shim call so named: (caller-left flag, its connection),
         # oldest first (a runtime may repeat a call id; each call can still be released)
         self._shim_calls: dict[tuple[str, str], list[tuple[asyncio.Event, asyncio.StreamWriter]]] = {}
+        # Told what a reply can't carry, for the daemon to record (L36: a notch answer that failed left no trace): a
+        # handler's exception that isn't one of FERB's own errors (its method and the exception; the reply names only
+        # its type), and an owner-side call that took longer than its client waits (its method and seconds)
+        self.on_internal: Callable[[str, BaseException], None] = lambda method, error: None
+        self.on_slow: Callable[[str, float], None] = lambda method, seconds: None
+
+    @staticmethod
+    def _tell(hook: Callable[..., None], *args: Any) -> None:
+        """A recording hook never changes a reply or ends a connection."""
+        with contextlib.suppress(Exception):
+            hook(*args)
 
     def abandon(self, task_id: str, call_id: str) -> bool:
         """The runtime of `task_id` gave up its call `call_id` without telling the shim (Codex sends no cancellation):
@@ -255,6 +273,7 @@ class Server:
             await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} not allowed for {session.role.value}"))
             return True
         if req.method in self.unary:
+            started = time.monotonic()
             try:
                 if session.role is Role.MCP_SHIM:
                     result = await self._watched(session, req, reader, writer)
@@ -265,8 +284,15 @@ class Server:
                 await self._send(writer, _result(req.id, result))
             except FerbError as e:
                 await self._send(writer, _error(req.id, FAILED, str(e)))
+            except (ConnectionResetError, BrokenPipeError):
+                raise                               # the caller left: the connection ends (`_connection`)
             except Exception as e:                  # failures are values, never a crashed connection
+                self._tell(self.on_internal, req.method, e)
                 await self._send(writer, _error(req.id, INTERNAL, f"{type(e).__name__}"))
+            finally:
+                # an MCP shim waits for its call however long it runs; the notch and the CLI stop waiting
+                if session.role is not Role.MCP_SHIM and (seconds := time.monotonic() - started) >= CLIENT_WAIT_S:
+                    self._tell(self.on_slow, req.method, seconds)
             return True
         if req.method in self.streams:
             await self._stream(session, req, reader, writer)
@@ -329,6 +355,8 @@ class Server:
             if exc is None:
                 await self._send(writer, _result(req.id, {"ended": True}))
             else:
+                if not isinstance(exc, (FerbError, ConnectionResetError, BrokenPipeError)):
+                    self._tell(self.on_internal, req.method, exc)
                 await self._send(writer, _error(req.id, FAILED, f"{type(exc).__name__}: {exc}"))
         else:
             task.cancel()

@@ -742,10 +742,34 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                            (since,)).fetchone()
         if latest and latest[0]:
             print(f"  latest failed call: ferb trace {latest[0]}", file=out)
+        _daemon_problems(c, since, out)
         _resources(c, days, "resource_samples" in tables, out)
     finally:
         c.close()
     return 0
+
+
+def _daemon_problems(c: Any, since: str, out: TextIO) -> None:
+    """Requests that failed inside FERB (the server's catch-all: the reply named only the exception's type) and those
+    answered after their client stopped waiting (the notch showed a failure meanwhile), as the daemon journaled them
+    (L36): each failure grouped by method and type, with its latest message and innermost frames."""
+    from ferb.daemon.server import CLIENT_WAIT_S, INTERNAL_ERROR, SLOW_CALL
+    failed = [json.loads(r[0]) for r in c.execute("SELECT data_json FROM journal WHERE kind = ? AND at >= ? "
+                                                  "ORDER BY seq", (INTERNAL_ERROR, since))]
+    print(f"Requests that failed inside FERB: {len(failed)}", file=out)
+    groups: dict[tuple[str, str], list[Any]] = {}
+    for d in failed:
+        seen = groups.setdefault((str(d.get("method")), str(d.get("error"))), [0, d])
+        seen[0], seen[1] = seen[0] + 1, d
+    for (method, error), (n, d) in sorted(groups.items(), key=lambda item: -item[1][0])[:10]:
+        print(f"  {n:>4}  {method}: {error}: {str(d.get('message', ''))[:160]}", file=out)
+        for frame in list(d.get("frames") or [])[-3:]:
+            print(f"          at {frame}", file=out)
+    slow = [json.loads(r[0]) for r in c.execute("SELECT data_json FROM journal WHERE kind = ? AND at >= ? "
+                                                "ORDER BY seq", (SLOW_CALL, since))]
+    print(f"Requests answered after the app stopped waiting ({CLIENT_WAIT_S:.0f} s): {len(slow)}", file=out)
+    for d in slow[-10:]:
+        print(f"        {d.get('method')}: {d.get('seconds')} s", file=out)
 
 
 def shown_bytes(n: float) -> str:
