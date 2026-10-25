@@ -357,10 +357,10 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
     assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and not version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
-    # the bundle FERB ships is never one its daemon refuses; 0.15.7 to 0.15.10 change no protocol (0.15.8 and 0.15.9
-    # only add optional reply fields, 0.15.10 only waits for new media to move), so 0.15.6 is still accepted
+    # the bundle FERB ships is never one its daemon refuses; 0.15.7 to 0.15.11 change no protocol (0.15.8, 0.15.9 and
+    # 0.15.11 only add optional reply fields, 0.15.10 only waits for new media to move), so 0.15.6 is still accepted
     shipped = json.loads((EXT / "manifest.json").read_text())["version"]
-    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.10", "0.15.6")
+    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.11", "0.15.6")
 
 
 # ---------- the extension's own code, run in node ----------

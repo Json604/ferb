@@ -344,6 +344,7 @@
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
     if (container) e.container = container;
+    if (terminalOf(el)) e.terminal = true;
     const pinned = pinnedOf(el);                     // L33: what a scroll into view moves besides the page
     if (pinned) e.pinned = pinned;
     if (boxedBy(drawnParent(el))) e.scroll_box = true;
@@ -356,6 +357,12 @@
       e.expanded = !!(el.parentElement && el.parentElement.open);
     if (role === "heading") e.level = HEADING.has(el.tagName) ? Number(el.tagName[1]) : Number(el.getAttribute("aria-level") || 2);
     return e;
+  }
+
+  // D31: an element inside a terminal library's own nodes, so the daemon asks the owner before typing into it.
+  // xterm.js marks its root `xterm` and its input `xterm-helper-textarea`: classes the library sets, never page words.
+  function terminalOf(el) {
+    return !!(el.classList && (el.classList.contains("xterm-helper-textarea") || el.closest(".xterm")));
   }
 
   // Visible text nearest the viewport, in document order. Each text node is a chunk with its rect; in-view chunks

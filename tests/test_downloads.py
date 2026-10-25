@@ -293,9 +293,10 @@ def test_protocol_and_extension_versions_move_together() -> None:
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
     # 0.15.7 (another extension's frame no longer blocks act), 0.15.8 (media ids, tab sound), 0.15.9 (the cursor's
-    # snapshot facts, instant centring scrolls) and 0.15.10 (a first snapshot waits for new media to move) change no
-    # protocol: optional reply fields an older side ignores or misses, so the daemon still accepts 0.15.6
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.6", "0.15.10")
+    # snapshot facts, instant centring scrolls), 0.15.10 (a first snapshot waits for new media to move) and 0.15.11 (an
+    # element's `terminal` fact, D31) change no protocol: optional reply fields an older side ignores or misses, so the
+    # daemon still accepts 0.15.6
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.6", "0.15.11")
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 

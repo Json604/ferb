@@ -49,7 +49,12 @@ sent it (its held tab keeps the picker intercepted), and an older daemon never s
 command it doesn't know and the protocol number and minimum stay. It fails closed: a detach forgets `resting`, `rest`
 records it even without a session, and any acting command (act, fill, upload, navigate, media, scroll, pointer) in a
 resting tab takes the picker back before it runs; the daemon retries an unconfirmed rest(false) once. A dialog the
-owner closes in the browser (`Page.javascriptDialogClosed`) clears the extension's pending dialog."""
+owner closes in the browser (`Page.javascriptDialogClosed`) clears the extension's pending dialog.
+Extension 0.15.11 (D31) adds one optional reply field without a protocol change: a snapshot element inside xterm.js's
+own nodes (class `xterm` on an ancestor, or `xterm-helper-textarea` on the element) carries `terminal: true`, so the
+daemon asks the owner before typing or pressing a key into it (a web terminal). An older extension never reports it:
+until it updates, a web terminal reached through browser tools isn't recognized (one reached through mac.act still is,
+by the DOM classes Accessibility exposes)."""
 
 import base64
 import hashlib
