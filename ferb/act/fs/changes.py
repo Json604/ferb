@@ -234,10 +234,12 @@ def _open(path: Path | str, directory: bool = False, dir_fd: int | None = None) 
 
 @dataclass(frozen=True)
 class _Scan:
-    """A listed folder now: the folder it really is (F_GETPATH of the checked fd), its device, its entries (lstat)."""
+    """A listed folder now: the folder it really is (F_GETPATH of the checked fd), its device, its entries (lstat)
+    and, during a check, that fd."""
     where: Path
     dev: int
     entries: dict[str, os.stat_result]
+    fd: int | None = None            # the checked fd, while changes() holds it open
 
 
 @dataclass
@@ -478,12 +480,14 @@ class Changes:
             self._save(rec)
             return counts
 
-    def _scan(self, folder: Path) -> _Scan | None:
+    def _scan(self, folder: Path, keep: bool = False) -> _Scan | None:
         """A folder's own entries (lstat), listed through an fd opened without following a link and only when the
-        folder it really is isn't skipped; None otherwise (a link now stands there, or it is closed)."""
+        folder it really is isn't skipped; None otherwise (a link now stands there, or it is closed). `keep`: the fd
+        stays open in the result (the caller closes it)."""
         fd = _open(folder, directory=True)
         if fd is None:
             return None
+        kept = False
         try:
             where = self._opened(fd)
             if where is None:
@@ -495,11 +499,14 @@ class Changes:
                         entries[e.name] = e.stat(follow_symlinks=False)
                     except OSError:
                         continue
-            return _Scan(where, os.fstat(fd).st_dev, entries)
+            scan = _Scan(where, os.fstat(fd).st_dev, entries, fd if keep else None)
+            kept = keep
+            return scan
         except OSError:
             return None
         finally:
-            os.close(fd)
+            if not kept:
+                os.close(fd)
 
     def _list(self, rec: _Record, folder: Path, counts: dict[str, int]) -> bool:
         """The folder's own entries, once per task (its listing from before the task first touched it); only a
@@ -598,59 +605,71 @@ class Changes:
                 return []
             self._hist = None
             folder = self._folder(rec.tree_id, task_id)
-            scans = {where: self._scan(Path(where)) for where in rec.folders}
-            look = _Look(rec, folder, seen=set(rec.files))
-            found: dict[str, Change | None] = {}
-            for key, f in rec.files.items():
-                found[key] = self._compare(Path(key), f, folder)
-                if f.existed and self._gone(rec, Path(key), f, scans):
-                    look.moved[(f.dev, f.ino)] = key
-            recorded = {(f.dev, f.ino) for f in rec.files.values() if f.existed}
-            for where, entries in rec.folders.items():
-                place, scan = Path(where), scans[where]
-                if scan is None:                         # no longer a folder FERB may list: a fact, never its names
-                    try:
-                        here = place.lstat()
-                        look.out.append(Change(where, "modified", content=False, note=_what_now(here, place)))
-                    except FileNotFoundError:
-                        look.out.append(Change(where, "removed", content=False, note="the folder is gone"))
-                    except OSError:
-                        pass
+            scans: dict[str, _Scan | None] = {}
+            try:
+                for where in rec.folders:
+                    scans[where] = self._scan(Path(where), keep=True)
+                return self._check(rec, folder, scans)
+            finally:
+                for scan in scans.values():
+                    if scan is not None and scan.fd is not None:
+                        os.close(scan.fd)
+
+    def _check(self, rec: _Record, folder: Path, scans: dict[str, _Scan | None]) -> list[Change]:
+        """changes() for one record: its listed folders as scanned through the checked fds in `scans`, kept open so a
+        folder made in one is opened relative to it (never by path)."""
+        look = _Look(rec, folder, seen=set(rec.files))
+        found: dict[str, Change | None] = {}
+        for key, f in rec.files.items():
+            found[key] = self._compare(Path(key), f, folder)
+            if f.existed and self._gone(rec, Path(key), f, scans):
+                look.moved[(f.dev, f.ino)] = key
+        recorded = {(f.dev, f.ino) for f in rec.files.values() if f.existed}
+        for where, entries in rec.folders.items():
+            place, scan = Path(where), scans[where]
+            if scan is None:                         # no longer a folder FERB may list: a fact, never its names
+                try:
+                    here = place.lstat()
+                    look.out.append(Change(where, "modified", content=False, note=_what_now(here, place)))
+                except FileNotFoundError:
+                    look.out.append(Change(where, "removed", content=False, note="the folder is gone"))
+                except OSError:
+                    pass
+                continue
+            for name in sorted(set(entries) | set(scan.entries)):
+                path = place / name
+                key = str(path)
+                if key in look.seen:
                     continue
-                for name in sorted(set(entries) | set(scan.entries)):
-                    path = place / name
-                    key = str(path)
-                    if key in look.seen:
-                        continue
-                    look.seen.add(key)
-                    old, st = entries.get(name), scan.entries.get(name)      # each change is made right here
-                    if old is not None and _known(recorded, scan.dev, old[3]) and (st is None or st.st_ino == old[3]):
-                        continue                         # a recorded file under another spelling: its record says it
-                    if st is None:
-                        if old is not None and old[0] == 1:
-                            self._unnamed(look, where, scan.where / name, lambda: self._fact(path, "removed", None),
-                                          shown=True)
-                    elif stat.S_ISDIR(st.st_mode) and old is None:     # a folder made here: the plain files in it
-                        self._made_under(look, path, where)
-                    elif stat.S_ISREG(st.st_mode) and old is None:
-                        now = st
-                        self._made(look, path, scan.where / name, where, now.st_dev, now.st_ino, lambda: now)
-                    elif stat.S_ISREG(st.st_mode) and [1, st.st_size, st.st_mtime_ns, st.st_ino] != old:
-                        changed = st
-                        self._unnamed(look, where, scan.where / name, lambda: self._fact(path, "modified", changed),
-                                      shown=False)
-            for key in sorted(rec.named - look.seen):    # a named file the walk didn't reach (a limit, a deep folder)
-                self._named_now(look, Path(key))
-            for where in rec.folders:
-                parts = ([f"and {look.more[where]:,} more new or changed files here and in folders made here, not "
-                          "listed"] if look.more[where] else []) + \
-                        ([f"more than {WALK_MAX:,} entries in folders made during the step (and files changed in "
-                          "place): FERB stopped looking there"] if look.stopped == where else []) + \
-                        ([f"folders nested more than {WALK_DEPTH} deep were not walked"] if where in look.deep else [])
-                if parts:
-                    look.out.append(Change(where, "modified", content=False, note="; ".join(parts)))
-            out = [c for key, c in found.items() if c is not None and key not in look.renamed] + look.out
-            return [self._paired(c, out, folder, rec) if c.what == "created" and c.content else c for c in out]
+                look.seen.add(key)
+                old, st = entries.get(name), scan.entries.get(name)      # each change is made right here
+                if old is not None and _known(recorded, scan.dev, old[3]) and (st is None or st.st_ino == old[3]):
+                    continue                         # a recorded file under another spelling: its record says it
+                if st is None:
+                    if old is not None and old[0] == 1:
+                        self._unnamed(look, where, scan.where / name, lambda: self._fact(path, "removed", None),
+                                      shown=True)
+                elif stat.S_ISDIR(st.st_mode) and old is None:     # a folder made here: the plain files in it
+                    self._made_under(look, path, where, scan.fd)
+                elif stat.S_ISREG(st.st_mode) and old is None:
+                    now = st
+                    self._made(look, path, scan.where / name, where, now.st_dev, now.st_ino, lambda: now)
+                elif stat.S_ISREG(st.st_mode) and [1, st.st_size, st.st_mtime_ns, st.st_ino] != old:
+                    changed = st
+                    self._unnamed(look, where, scan.where / name, lambda: self._fact(path, "modified", changed),
+                                  shown=False)
+        for key in sorted(rec.named - look.seen):    # a named file the walk didn't reach (a limit, a deep folder)
+            self._named_now(look, Path(key))
+        for where in rec.folders:
+            parts = ([f"and {look.more[where]:,} more new or changed files here and in folders made here, not "
+                      "listed"] if look.more[where] else []) + \
+                    ([f"more than {WALK_MAX:,} entries in folders made during the step (and files changed in "
+                      "place): FERB stopped looking there"] if look.stopped == where else []) + \
+                    ([f"folders nested more than {WALK_DEPTH} deep were not walked"] if where in look.deep else [])
+            if parts:
+                look.out.append(Change(where, "modified", content=False, note="; ".join(parts)))
+        out = [c for key, c in found.items() if c is not None and key not in look.renamed] + look.out
+        return [self._paired(c, out, folder, rec) if c.what == "created" and c.content else c for c in out]
 
     @staticmethod
     def _gone(rec: _Record, path: Path, f: _File, scans: dict[str, _Scan | None]) -> bool:
@@ -785,16 +804,17 @@ class Changes:
         return Change(str(path), what, content=False, size=st.st_size if st is not None else None,
                       mtime_ns=st.st_mtime_ns if st is not None else None)
 
-    def _made_under(self, look: _Look, top: Path, where: str) -> None:
-        """The plain files under a folder made during the step. It is opened without following a link and checked as
-        the folder it really is; every folder under it is opened relative to its parent's fd (O_NOFOLLOW|O_DIRECTORY,
-        dir_fd) and checked again before it is listed (os.scandir on the fd), so no folder is ever re-opened by path.
+    def _made_under(self, look: _Look, top: Path, where: str, parent: int | None) -> None:
+        """The plain files under a folder made during the step. It is opened relative to the listed folder's checked
+        fd (`parent`), without following a link, and checked as the folder it really is; every folder under it is
+        opened relative to its parent's fd (O_NOFOLLOW|O_DIRECTORY, dir_fd) and checked again before it is listed
+        (os.scandir on the fd), so no folder is ever re-opened by path.
         Files a call named carry content; others go on the check's page, then are counted by name. FERB stops after
         WALK_MAX entries in all and doesn't go deeper than WALK_DEPTH folders (facts on `where` say so)."""
         if look.entries >= WALK_MAX:
             look.stopped = look.stopped or where
             return
-        fd = _open(top, directory=True)
+        fd = _open(top.name, directory=True, dir_fd=parent) if parent is not None else None
         if fd is None:
             return
         opened = self._opened(fd)

@@ -55,9 +55,9 @@ def test_every_history_file_is_a_fact_by_identity(tmp_path: Path, rel: str, name
 
 def test_a_new_folder_is_walked_only_through_the_handle_that_was_checked(tmp_path: Path,
                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
-    """N1 (the reviewer's walkswap.py): the parent is swapped for a link to the home folder right after FERB opens and
-    checks a folder the step made; the walk lists that folder's own files through its handle, never the closed
-    folder's names, and no folder is opened by path after the checked handle."""
+    """N1 (the reviewer's walkswap.py): the parent is swapped for a link to the home folder right after FERB opens a
+    folder the step made; the walk lists that folder's own files through its handle, never the closed folder's names,
+    and no folder at or under it is opened by path (it is opened relative to the listed folder's checked fd)."""
     home = (tmp_path / "home").resolve()
     ferb = home / ".ferb"
     ferb.mkdir(parents=True)
@@ -74,12 +74,15 @@ def test_a_new_folder_is_walked_only_through_the_handle_that_was_checked(tmp_pat
     (proj / ".ssh" / "sub" / "deeper.txt").write_text("y")
     real_open = os.open
     by_path: list[str] = []
+    swapped: list[str] = []
 
     def opened(path: object, flags: int, *a: object, dir_fd: int | None = None, **k: object) -> int:
         fd = real_open(path, flags, *a, dir_fd=dir_fd, **k)    # type: ignore[arg-type]
         mine = sys._getframe(1).f_code.co_filename == changes_mod.__file__
         if mine and dir_fd is None and flags & os.O_DIRECTORY and str(path).startswith(str(proj / ".ssh")):
             by_path.append(str(path))
+        if mine and flags & os.O_DIRECTORY and str(path) in (".ssh", str(proj / ".ssh")):
+            swapped.append(str(path))
             if not proj.is_symlink():
                 os.rename(proj, proj.with_name("proj.real"))
                 proj.symlink_to(home)                         # the parent swapped for a link after FERB's open
@@ -94,7 +97,8 @@ def test_a_new_folder_is_walked_only_through_the_handle_that_was_checked(tmp_pat
             os.rename(proj.with_name("proj.real"), proj)
     assert not any("id_ed25519" in c.path or "id_ed25519" in c.note for c in out)
     assert sorted(Path(c.path).name for c in out) == ["deeper.txt", "mine.txt"]
-    assert by_path == [str(proj / ".ssh")]                     # the checked top only, never a folder below it
+    assert by_path == []                                       # never by path: relative to a checked fd
+    assert swapped                                             # the swap happened at FERB's open
 
 
 def test_the_fact_limits_hold_per_check_across_all_new_folders(tmp_path: Path) -> None:
