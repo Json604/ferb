@@ -523,6 +523,10 @@ class Supervisor(WorkerRuns):
         # the browser tabs a task holds now, by tab id, redacted (daemon supplied; L31: a loop's, for each round)
         self.task_tabs: Callable[[str], list[dict[str, Any]]] = lambda task_id: []
         self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
+        # L34 Phase G: open until an update's hold; a new tree and a loop's next round wait on it, and the shutdown
+        # that follows the hold cancels them (a loop's round then runs after the restart, L31)
+        self._work_open = asyncio.Event()
+        self._work_open.set()
         # daemon supplied (L31): a loop's round starts (False) or ends (True): the browser drivers give the owner's held
         # tab's file picker back between rounds and take it again for a round
         self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = None
@@ -1016,6 +1020,32 @@ class Supervisor(WorkerRuns):
         daemon publishes (fix wave 6c, review I3)."""
         return [(key, tree.spec.goal) for key, tree in self._tree_of.items() if key == tree.id
                 and (watches or not tree.watch)]
+
+    def hold_new_work(self) -> None:
+        """L34 Phase G: FERB stops for an update now. Nothing new starts: run_tree and a loop's round wait."""
+        self._work_open.clear()
+
+    def update_blockers(self) -> list[dict[str, str]]:
+        """L34 Phase G: the running trees an update must wait for (watch checks included). A tree is left out only when
+        each step it has in progress is a plan wait or a loop resting between rounds: a clean shutdown suspends its plan
+        and it resumes after the restart as it was (L31). A tree whose plan hasn't started runs a planner turn."""
+        return [{"task_id": tree_id, "goal": goal} for tree_id, goal in self.running_trees()
+                if not self._restart_safe(tree_id)]
+
+    def _restart_safe(self, tree_id: str) -> bool:
+        if tree_id not in self._plan_runs:
+            return False
+        kinds = {step.id: step.kind for step in self.plans.load(tree_id)['plan'].steps}
+        for key, state in self.plans.steps(tree_id).items():
+            if key.startswith(EARLIER) or state['status'] not in ('running', 'waiting'):
+                continue
+            step = key.split(':', 1)[0]                      # a map batch's row is "<step>:<n>"
+            if kinds.get(step) == 'wait' and state['status'] == 'waiting':
+                continue
+            if kinds.get(step) == 'loop' and f'{tree_id}.loop.{step}' in self._resting:
+                continue
+            return False
+        return True
 
 
     def cancel_all(self) -> None:
@@ -2162,6 +2192,7 @@ class Supervisor(WorkerRuns):
         """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content.
         `watch`: a watch's check (fix wave 6c): its check judges the reported condition, and clients hear of it only
         when the daemon publishes its result (review I3)."""
+        await self._work_open.wait()                     # L34 Phase G: an update's hold (the shutdown ends the wait)
         tree_id = resume_id or self.ids.new_id()
         now = self.clock.now()
         limit = None  # the owner may give a task of any length; explicit stop still cancels all input
@@ -2871,6 +2902,7 @@ class Supervisor(WorkerRuns):
                   **({'earlier_plan_results': earlier} if (earlier := self.plans.earlier(tree.id)) else {})}
 
         async def play(cause: dict[str, Any]) -> dict[str, Any]:
+            await self._work_open.wait()                 # L34 Phase G: no round starts during an update's hold
             self._resting.discard(child.id)          # the round drives the loop's tabs (D35: what it starts is FERB's)
             await self._loop_rest(child.id, False)
             try:

@@ -412,6 +412,7 @@ class Daemon:
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
         # Chat: turns outlive a closed chat; which task trees have a chat attached
         self._shutting_down = False
+        self._stop = asyncio.Event()   # run() waits on it: SIGTERM, SIGINT or update.prepare (L34 Phase G)
         self._turns: set[asyncio.Task[None]] = set()
         self._attached_trees: set[str] = set()
         self._log_subscriptions: set[Any] = set()             # open `logs.subscribe` streams' bus subscriptions (L9)
@@ -556,6 +557,7 @@ class Daemon:
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['tasks.list'] = self._tasks_list
+        self.server.unary['update.prepare'] = self._update_prepare
         self.server.unary['reports.diagnostic'] = self._reports_diagnostic
         self.server.unary['notices.list'] = self._notices_list
         self.server.unary['settings.get'] = self._settings_get        # the FERB window's Settings (L34 Phase E)
@@ -667,13 +669,13 @@ class Daemon:
             self.db.close()
 
     async def run(self) -> None:
-        """Run until SIGTERM / SIGINT, then shut down cleanly."""
+        """Run until SIGTERM / SIGINT, or until an update stops FERB (`update.prepare`), then shut down cleanly. The exit
+        is clean, so launchd doesn't start the daemon again (KeepAlive SuccessfulExit false)."""
         await self.start()
         loop = asyncio.get_running_loop()
-        done = asyncio.Event()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, done.set)
-        await done.wait()
+            loop.add_signal_handler(sig, self._stop.set)
+        await self._stop.wait()
         await self.shutdown()
 
     # ---------- policy plumbing ----------
@@ -2865,8 +2867,8 @@ class Daemon:
         """The consumer. Sleeps wake their worker; reminders reach the owner once (notification, chat, logs,
         journal), even if a crash made the timer fire again."""
         from ferb.clock.timers import mark_handled
-        if self._shutting_down:
-            return
+        if self._shutting_down:          # left claimed, not acknowledged: it fires after the restart (L34 Phase G)
+            raise FerbError("FERB is shutting down; this timer fires after the restart")
         if t.kind == "sleep":
             ev = self._sleepers.get(t.id)
             if ev is not None:
@@ -4980,6 +4982,38 @@ class Daemon:
             now=self.clock.now(), walk=self.redact, text=text, app_version=str(params.get("app_version") or ""))
         self._journal().append("diagnostic.built", {"file": built["path"]})
         return built
+
+    # ---------- updates (L34 Phase G) ----------
+
+    def _update_blockers(self) -> list[dict[str, str]]:
+        """What an update must wait for: the supervisor's running trees (update_blockers), and each FERB process still
+        running whose tree isn't listed already (a long-lived server outlives its task; a restart would kill it)."""
+        running = self.supervisor.update_blockers() if self.supervisor is not None else []
+        listed = {r["task_id"] for r in running}
+        if self.shells is not None:
+            for p in self.shells.list():
+                if p.running and p.owner_task.split(".", 1)[0] not in listed:
+                    running.append({"task_id": p.owner_task,
+                                    "goal": "process: " + self._redact_text(p.command)[:120]})
+        return running
+
+    async def _update_prepare(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """FERB.app is about to install an update. Ready only when nothing runs that a restart would cut, unless the
+        owner chose Quit and Install (`even_if_busy`). When ready, in one step: nothing new starts, FERB Voice quits (it
+        runs from the app being replaced) and the daemon shuts down at once. The new FERB.app's quiet service update
+        starts it on the new code, and suspended plans, loops included, resume (L31)."""
+        running = self._update_blockers()
+        if running and params.get("even_if_busy") is not True:
+            return {"ready": False, "running": running}
+        self._shutting_down = True                   # before any await: chat, timers and new trees stop here
+        if self.supervisor is not None:
+            self.supervisor.hold_new_work()
+        self._journal().append("update.prepared", {"version": str(params.get("version") or "")[:40],
+                                                    "interrupted": [r["task_id"] for r in running]})
+        with contextlib.suppress(Exception):
+            self._quit_voice_app()
+        self._stop.set()
+        return {"ready": True, "running": running}
 
     # ---------- methods ----------
 
