@@ -20,6 +20,8 @@ anyway (SQ1).
 - The sink rule (c): irreversible bulk work (a send to two or more recipients, a permanent delete of a folder) asks
   once, shown concretely: the count, the total size and a sample. Recipients and paths in the owner's words are
   already authorized and don't count. The sample's size (SHOWN) is display only.
+- The certificate floor (L39; owner, 2026-10-25): a shell command that turns off TLS certificate checks (policy/tls.py
+  reads its words and environment) asks once per task tree for that exact command, showing it.
 FERB's question (`line`) comes first and is labelled, in the owner's terms (P27): the concrete action, then the call."""
 
 import base64
@@ -34,7 +36,7 @@ from urllib.parse import unquote_plus
 import idna
 
 from ferb.core.types import Target
-from ferb.policy import provenance, urls
+from ferb.policy import provenance, tls, urls
 from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
@@ -45,6 +47,8 @@ SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kin
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
 SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one Yes/No covers it, shell and browser
 BULK = "sink:irreversible_bulk"
+TLS_OFF = "floor:tls_off"                 # L39: a shell command that turns off certificate checks (policy/tls.py)
+TLS_QUESTION = ("Run this with certificate checks turned off? `{command}` — this skips the check that {site}")
 TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: any input into a terminal, asked every time (policy/terminal.py)
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
@@ -468,6 +472,10 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
             needs.append(Need(BULK, key(BULK, unnamed, content),
                               {"what": "call" if calls else "send", "count": str(len(unnamed)),
                                "bytes": _counted(len((content or "").encode()), "byte"), "sample": sample(unnamed)}))
+    if kind == Kind.RUN_SHELL and content and (off := tls.certificate_checks_off(content)) is not None:
+        # L39: the command's own words turn certificate checks off; one answer covers this exact command in the tree
+        needs.append(Need(TLS_OFF, key(TLS_OFF, content), {"command": " ".join(content.split()),
+                                                          "hosts": " or ".join(off.hosts), "how": ", ".join(off.how)}))
     values = who + ([("amount", str(target.amount))] if target.amount is not None else [])
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
@@ -517,9 +525,17 @@ def _terminal(v: dict[str, str]) -> str:
     return said + (", then press Return there" if v.get("enter") else "") + " (it runs as you, outside FERB's sandbox)"
 
 
+def _tls(v: dict[str, str]) -> str:
+    """FERB's certificate question (L39, D33: code-written): the exact command and the site whose check it skips."""
+    site = f"the site is really {v['hosts']}" if v.get("hosts") else "each site it reaches is really that site"
+    return TLS_QUESTION.format(command=v["command"], site=site)
+
+
 def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     """One need in the owner's terms; `alongside` holds the rules of the other needs in the same question."""
     v = n.values
+    if n.rule == TLS_OFF:
+        return _tls(v)
     if n.rule == TERMINAL_INPUT:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
                 "before every input into a terminal, and this Yes covers this one input only")
@@ -581,6 +597,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     """One need as what FERB wants to do, a verb phrase from the need's facts only (never the step or the task's
     reason); None when another need of the same question already says it."""
     v = n.values
+    if n.rule == TLS_OFF:
+        return _tls(v)
     if n.rule == TERMINAL_INPUT:
         return _terminal(v)
     if n.rule == "floor:pay":
@@ -626,6 +644,8 @@ def summary(needs: list[Need]) -> str:
     full question (`line`) stays the approval's reason, shown under Details. Display only: it decides nothing."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     rules = frozenset(n.rule for n in needs)
+    if rules == {TLS_OFF}:                      # L39: the question as the owner reads it, already a question
+        return "; ".join(_tls(n.values) for n in needs) + "."
     parts = [p for n in needs if n.rule not in said and (p := _short(n, rules))]
     return "FERB wants to " + "; ".join(parts) + "."
 
@@ -638,6 +658,8 @@ def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:
     and the reason to single ones and clips what goes in."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}   # a bulk delete already says the floor's words
     rules = frozenset(n.rule for n in needs)
+    if rules == {TLS_OFF}:                      # L39: the exact command is in the question, which asks it
+        return "FERB: " + "; ".join(_tls(n.values) for n in needs) + "." + (f' Reason given: "{why}".' if why else "")
     parts = "; ".join(_part(n, rules) for n in needs if n.rule not in said)
     text = "FERB: " + parts + (f". The step: {call}." if call else ".")
     if typed:
