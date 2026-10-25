@@ -435,6 +435,19 @@ class Daemon:
         self._timer_task: asyncio.Task[None] | None = None
         self._sleepers: dict[str, asyncio.Event] = {}
         self.notify: Callable[[str, str], Awaitable[None]] = self._osascript_notify if notifications else _no_notify
+        # L34 C: the setup window's permission checks and requests; tests replace them (nothing there may prompt)
+        from ferb.device import permissions as _permissions
+        self.permission_check: Callable[[], dict[str, str]] = _permissions.check_all
+        self.permission_request: Callable[[str], Any] = _permissions.request
+        self.automation_check: Callable[[str], Awaitable[Any]] = (
+            lambda bundle: _permissions.automation_async(bundle, ask=False))
+        self.speech_request: Callable[[Path], Any] = (
+            lambda app: subprocess.run(_permissions.speech_request_argv(app), check=False))
+
+        def _clipboard_request() -> Any:          # one read, so macOS shows its paste alert (I3); nothing kept
+            from ferb.sense.watchers.clipboard import request_access
+            return request_access()
+        self.clipboard_request: Callable[[], Any] = _clipboard_request
 
     @property
     def stop_marker(self) -> Path:
@@ -532,6 +545,9 @@ class Daemon:
         self.server.unary['notifications.label'] = self._notification_label
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
+        self.server.unary['setup.permissions'] = self._setup_permissions
+        self.server.unary['setup.permission_request'] = self._setup_permission_request
+        self.server.unary['setup.finish'] = self._setup_finish
         self.server.unary['ui.click_through'] = self._ui_click_through
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
@@ -4946,6 +4962,68 @@ class Daemon:
         state = await asyncio.to_thread(request_access)
         self._journal().append("clipboard.access", {"access": state, "requested": True})
         return {"access": state}
+
+    def _setup_containment(self) -> dict[str, Any]:
+        """The containment facts this daemon started with (CQ5) for the Full Disk Access row: no sandbox-exec run or proxy
+        probe per poll; `doctor.check` is the live check."""
+        return {"profile_ok": bool(self.containment[0]), "shell": "shell.run" in self.registry.capabilities,
+                "proxy": self.proxy is not None}
+
+    async def _setup_permissions(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: the setup window's Permissions step (and Settings → Permissions): each grant as this daemon's own
+        process holds it, never a prompt. `hearing: true` also probes FERB Voice's Speech Recognition (it starts FERB
+        Voice in the background), so the window asks for it only on entering the step and after a request."""
+        from ferb.device import permissions
+        from ferb.device.install import APP_BUNDLE_ID
+        from ferb.paths import app_bundle
+        grants = await asyncio.to_thread(self.permission_check)
+        hearing = await self._hearing_status(True) if params.get("hearing") is True else None
+        profile = self._device_profile()
+        running = {bundle for bundle, _, _ in self._running_apps()}
+        apps = permissions.automation_candidates(profile.apps if profile is not None else [], running)
+
+        async def automation(bundle: str) -> str:
+            try:
+                return str((await asyncio.wait_for(self.automation_check(bundle), 2)).value)
+            except TimeoutError:
+                return permissions.Status.UNKNOWN.value
+        statuses = await asyncio.gather(*(automation(bundle) for _, bundle in apps))
+        clipboard = permissions.clipboard_row(await asyncio.to_thread(self._clipboard_access))   # owner decision 2
+        return {"rows": permissions.rows(grants, self._setup_containment(), hearing) + [clipboard],
+                "automation": [{"name": name, "bundle_id": bundle, "status": status}
+                               for (name, bundle), status in zip(apps, statuses)],
+                "automation_pane": permissions.pane_url("automation"),
+                "grant_target": permissions.grant_target(app_bundle(), sys.executable),
+                "app_panes": permissions.app_panes(APP_BUNDLE_ID),
+                "setup_done": int(self.config.get("setup", "permissions_version", 0) or 0) >= 27}
+
+    async def _setup_permission_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: the owner's Grant on one row: macOS's own prompt, which also lists FERB in that pane; made here so the
+        grant attaches to this daemon's process. Hearing is FERB Voice asking for itself, and returns after the owner
+        answered. Journaled."""
+        from ferb.device import permissions
+        permission = str(params.get("permission", ""))
+        if permission not in permissions.REQUESTABLE:
+            raise FerbError(f"{permission or 'That permission'} has no request; add FERB in its System Settings pane")
+        if permission == "hearing":
+            await asyncio.to_thread(self.speech_request, self.voice_bundle)
+            status, _ = permissions.hearing_row_status(await self._hearing_status(True))
+        elif permission == "clipboard":           # as `clipboard.request`: one read, journaled; nothing read is kept
+            access = await asyncio.to_thread(self.clipboard_request)
+            self._journal().append("clipboard.access", {"access": access, "requested": True})
+            status = str(permissions.clipboard_row(access)["status"])
+        else:
+            status = str((await asyncio.to_thread(self.permission_request, permission)).value)
+        self._journal().append("setup.permission_requested", {"permission": permission, "status": status})
+        return {"permission": permission, "status": status}
+
+    async def _setup_finish(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """L34 C: the setup window's Done, recorded as `ferb setup` records the end of its permission step, so launch
+        stops showing the window."""
+        current = int(self.config.get("setup", "permissions_version", 0) or 0)
+        self.config.set("setup", "permissions_version", max(27, current))
+        self._journal().append("setup.finished", {"by": "app"})
+        return {"setup_done": True}
 
     async def _dump_codex_catalog(self) -> None:
         """L28, final review M8: when a role runs on Codex, the catalog shipped with the pinned binary is dumped (once

@@ -334,3 +334,15 @@ code/instructions; it is recorded with the call and adds no approval. Semantic o
 complete detection by code. Use `shell.start` or `background: true` for a continuing network process; failure never
 automatically retries an uncertain command. FERB does not inspect encrypted payloads. `owner.ask` has no
 `allow_destination` argument.
+
+## FERB.app's setup window and Settings (L34)
+
+FERB.app's native setup window (Phase C) and its Settings pages (Phase E) read and act through these CLI-role methods;
+`ferb setup` uses the same functions (`ferb/device/permissions.py`, `ferb/device/extensions.py`, `ferb/cli/runtimes.py`).
+None of them prompts unless its row says so.
+
+| Method | Parameters | Result / behavior |
+|---|---|---|
+| `setup.permissions` | `{hearing?: bool}` | `{rows, automation, automation_pane, grant_target, app_panes, setup_done}`. Each row: `{id, status, process, required, pane, requestable, restart_to_check, blocked}` for `accessibility`, `screen_recording`, `full_disk_access`, `input_monitoring`, `clipboard` (Paste from Other Apps, from the pasteboard's accessBehavior; process `daemon`: FERB's agent app, the daemon's own TCC identity), plus `hearing` (process `voice`: FERB Voice's Speech Recognition) only with `hearing: true`, which starts FERB Voice in the background to ask it. `status`: `granted`, `denied`, `not_determined`, `target_not_running` or `unknown`; `blocked`: why a row can't be granted yet (Full Disk Access until containment works, CQ5). `automation`: `[{name, bundle_id, status}]` for the running scriptable apps (each check waits at most 2 s, then `unknown`). `grant_target`: the path macOS lists as FERB for the daemon's grants. `app_panes`: System Settings URLs for FERB.app's own rows (`notifications`, `microphone`, `speech_recognition`). `setup_done`: `[setup] permissions_version` ≥ 27. Never a prompt |
+| `setup.permission_request` | `{permission: "accessibility"\|"screen_recording"\|"input_monitoring"\|"clipboard"\|"hearing"}` | `{permission, status}`: macOS's own prompt, made by the daemon so the grant attaches to it (it also lists FERB in that pane); `clipboard` reads the clipboard once so macOS shows its paste alert (journaled `clipboard.access`, nothing read is kept); `hearing` runs FERB Voice's one Speech Recognition request and returns after the owner answered. Journaled `setup.permission_requested`. Any other permission is refused (Full Disk Access has no request; Automation is `automation.request`) |
+| `setup.finish` | `{}` | `{setup_done: true}`; records `[setup] permissions_version = max(27, current)`; journaled `setup.finished` |

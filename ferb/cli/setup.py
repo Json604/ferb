@@ -37,8 +37,8 @@ from ferb.identity import seed
 
 Connect = Callable[[], Client]
 Ask = Callable[[str], str]
-REQUIRED_PERMISSIONS = ("accessibility", "screen_recording", "full_disk_access")
-SETUP_PERMISSIONS = (*REQUIRED_PERMISSIONS, 'input_monitoring')
+REQUIRED_PERMISSIONS = permissions.REQUIRED
+SETUP_PERMISSIONS = permissions.DAEMON_PERMISSIONS
 IDENTITY_CHECK_S = 90.0
 
 
@@ -230,8 +230,7 @@ def setup(env: Env, update: bool = False) -> int:
     for perm in SETUP_PERMISSIONS:
         if perm == "full_disk_access":
             containment = client.call("doctor.check", {"selftest": False}).get("containment", {})
-            if not (containment.get("profile_ok") and containment.get("shell") and containment.get("proxy")
-                    and containment.get("proxy_alive")):
+            if not permissions.fda_ready(containment):
                 env.say("Full Disk Access setup deferred: containment must report a working shell profile and proxy first.")
                 continue
             env.say("Full Disk Access is part of FERB's full-access setup; containment is active before this grant.")
@@ -433,7 +432,14 @@ def _status(client: Client, perm: str) -> str:
 
 def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: bool) -> Client:
     label = perm.replace("_", " ").title()
+    requested = False
     while _status(client, perm) != "granted":
+        if not requested and perm in permissions.REQUESTABLE:     # macOS lists FERB in that pane (L34 C)
+            requested = True
+            try:
+                client.call("setup.permission_request", {"permission": perm})
+            except FerbError:
+                pass                                              # an older daemon: the pane still opens
         if env.inst.bundle:
             env.say(f"     {label}: not granted. In the System Settings pane that just opened, switch on FERB ({binary});")
             env.say("     if it isn't listed, click +, press ⌘⇧G, paste that path, click Open and switch it on.")
@@ -457,15 +463,15 @@ def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: b
 
 def _automation(env: Env, client: Client, profile: Any) -> None:
     running = env.running_apps()
-    apps = [a for a in (profile.apps if profile else []) if a.scriptable and a.bundle_id in running]
-    if not apps:
+    candidates = permissions.automation_candidates(profile.apps if profile else [], running)
+    if not candidates:
         env.say("     No scriptable apps are running. Rerun setup to grant Automation for additional apps.")
         return
-    for i, a in enumerate(apps, 1):
-        env.say(f"     {i:>2}. {a.name} ({a.bundle_id})")
+    for i, (name, bundle) in enumerate(candidates, 1):
+        env.say(f"     {i:>2}. {name} ({bundle})")
     picked = env.ask("     Numbers to request now, comma-separated (Enter for none): ").strip()
-    chosen = [apps[int(n) - 1].bundle_id for n in picked.replace(" ", "").split(",") if n.isdigit()
-              and 1 <= int(n) <= len(apps)]
+    chosen = [candidates[int(n) - 1][1] for n in picked.replace(" ", "").split(",") if n.isdigit()
+              and 1 <= int(n) <= len(candidates)]
     if chosen:
         for bundle, status in client.call("automation.request", {"bundle_ids": chosen})["results"].items():
             env.say(f"     {bundle}: {status}")
@@ -1108,7 +1114,7 @@ def hearing_setup(env: Env, client: Any) -> None:
     app = voice_app(env.inst.home, env.inst.bundle)
     name = _voice_name(env)
     env.say(f"     macOS will ask once for Speech Recognition for {name} — allow it.")
-    env.run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"])
+    env.run(permissions.speech_request_argv(app))
     hearing = client.call("doctor.check", {"selftest": False, "hearing": True}).get("hearing", {})
     speech = hearing.get("speech")
     if speech == "granted":

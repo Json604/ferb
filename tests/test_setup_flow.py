@@ -25,6 +25,7 @@ class FakeDaemon:
         self.pending_sr = False          # granted in Settings but not applied until restart
         self.tap_ok = True
         self.automation_requests: list[list[str]] = []
+        self.requested: list[str] = []   # setup.permission_request (L34 C): macOS asked to list FERB in that pane
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
         # FERB.app's Speech Recognition state as the daemon reports it (L26: FERB hears app sound during tasks)
         self.hearing = {"installed": True, "signed": True, "speech": "granted", "on_device": True, "locale": "en-US"}
@@ -79,6 +80,9 @@ class FakeClient:
         if method == "automation.request":
             self.d.automation_requests.append(params["bundle_ids"])
             return {"results": {b: "granted" for b in params["bundle_ids"]}}
+        if method == "setup.permission_request":     # macOS shows its prompt; granting stays the owner's (in Settings)
+            self.d.requested.append(params["permission"])
+            return {"permission": params["permission"], "status": self.d.perms.get(params["permission"], "unknown")}
         raise AssertionError(method)
 
     def close(self) -> None:
@@ -200,6 +204,12 @@ def test_input_monitoring_is_collected_at_setup(world: dict[str, Any]) -> None:
     S.setup(env)
     assert "input_monitoring" in world["panes"]
 
+
+def test_setup_asks_macos_to_list_ferb_before_opening_a_pane(world: dict[str, Any]) -> None:
+    env, out = make_env(world, ["", "", "", ""], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    # Full Disk Access has no request; Input Monitoring was already granted
+    assert world["daemon"].requested == ["accessibility", "screen_recording"]
 
 def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str, Any]) -> None:
     world["inst"].install()
