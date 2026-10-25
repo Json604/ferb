@@ -1841,3 +1841,23 @@ On a fresh second macOS user, with a DMG built and signed with plan B's certific
    (`pgrep -lf FERBNotch`).
 5. Settings → Advanced → Uninstall FERB. **Expected:** Login Items no longer lists FERB;
    `~/Library/LaunchAgents/com.ferb.FERB.login.plist` is gone.
+
+## Automatic updates (L34 Phase G) — pending live check (2026-10-25)
+
+Needs plan B's certificate and `scripts/sparkle-keys.sh` done once. Publishing a test release reaches GitHub: run it
+only with the owner's go-ahead. On a fresh second macOS user, the owner watching:
+
+1. Install build N (`v0.28.0`) from its DMG; finish setup. Start a loop ("keep this YouTube tab playing") and a long
+   task.
+2. Publish build N+1 (`v0.28.1`: both DMGs and both appcasts, `gh release create`). Settings → General → Check for
+   Updates… **Expected:** while the long task runs, Settings says "FERB 0.28.1 installs when this finishes: …"; nothing
+   restarts. When it ends, within a minute FERB.app quits and reopens by itself, the notch says "Updated to 0.28.1",
+   `ferb doctor` shows the new version, and the loop keeps the tab playing with no new chat line. `ferb timeline`
+   shows `update.prepared` and `daemon.started`.
+3. macOS permissions still granted (System Settings → Privacy & Security shows FERB on; `ferb doctor`), no Open Anyway
+   prompt for the update.
+4. Turn Install updates automatically off; publish N+2. **Expected:** the menu shows "Update available (FERB …) —
+   Install" and no Sparkle window appears by itself; clicking it shows Sparkle's window; Install waits for idle again.
+5. Quit FERB from the menu while a task runs and an update waits. **Expected:** the Keep FERB Open / Quit and Install
+   question; Keep FERB Open leaves the task running.
+6. `log stream --predicate 'process == "FERBNotch"'` during a check shows only the GitHub feed request (no other host).

@@ -2988,7 +2988,7 @@ protected FERB state (16.9).
 
 ### 16.10 Journal kinds added in the launch week
 
-L34 Phase E: `settings.changed` (a Settings write, origin owner) and `diagnostic.built`.
+L34 Phase G: `update.prepared`. L34 Phase E: `settings.changed` (a Settings write, origin owner) and `diagnostic.built`.
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
@@ -3634,6 +3634,27 @@ launcher). The default applies once (`loginItem.defaultApplied`) when `AppSetupC
 on a set-up build, after a quiet update that needs no permission, or at the setup window's Done. FERB's shell can't
 write `~/Library/LaunchAgents` (never-write) or start launchd jobs; `ferb uninstall` removes the fallback file when its
 label is FERB's, and the app's Uninstall unregisters macOS's item first.
+
+### Automatic updates (L34 Phase G)
+
+- **Find and verify:** Sparkle 2 (`Contents/Frameworks/Sparkle.framework`, pinned in `ui/mac/FERBNotch/Package.swift`)
+  checks `SUFeedURL` (`releases/latest/download/appcast-<arch>.xml`, one item, `scripts/make_appcast.py`) about daily;
+  `SparkleUpdater.feedURLString(for:)` answers the build's feed, so no preference can redirect it; the archive is the
+  release DMG, verified with `SUPublicEDKey` and against the running app's designated requirement (plan B's
+  certificate). No system profile is sent.
+- **When:** `UpdateCoordinator` holds Sparkle's install (`willInstallUpdateOnQuit` / `shouldPostponeRelaunchForUpdate`)
+  until `update.prepare` answers ready: `Supervisor.update_blockers()` (running trees, except loops resting between
+  rounds and plan waits) plus running FERB processes. Ready means, in one step: `_shutting_down`, `hold_new_work()`,
+  `update.prepared` journaled, FERB Voice quit, `_stop` set; `Daemon.run()` shuts down and exits 0 (launchd doesn't
+  restart a clean exit). Once `ping` fails, Sparkle replaces FERB.app and relaunches it.
+- **Restart:** the new app's launch sees a new build and runs plan C's quiet `ferb setup --service --update`, which
+  re-pins the helpers and loads the LaunchAgent; `resume_plans()` resumes suspended plans and loops (L31); when setup
+  settles (`onSettled`), `NotchModel.noteUpdate` posts "Updated to <version>" once. A failed install after the stop
+  runs `DaemonService.restart()`.
+- **Quit:** `applicationShouldTerminate` asks `update.prepare` when an install is armed; with a task running the owner
+  chooses Keep FERB Open or Quit and Install (`even_if_busy`).
+- **Rule 10:** the shell sandbox denies `user-preference-write` for `APP_PREFERENCE_DOMAINS` and writes to their plist
+  files. A timer due while FERB shuts down stays claimed and fires after the restart.
 
 ### 16.15 Careful edits (L39)
 

@@ -57,6 +57,13 @@ fails or a required permission is missing. Every release is signed with
 the same FERB certificate, so an update keeps FERB's macOS permissions and its secret helper's Keychain access (the
 two-build check on a second macOS user is pending).
 
+FERB updates itself. About once a day it asks GitHub's public release list for a newer version (nothing about you is
+sent), downloads it, checks it with FERB's own update key and certificate, and installs it when no task is running;
+the background service restarts, a loop you asked for carries on, and the notch says "Updated to <version>". If you
+quit FERB while a task runs and an update waits, FERB asks first (**Keep FERB Open** or **Quit and Install**).
+Settings → General → **Install updates automatically** turns this off; FERB then shows "Update available — Install"
+in its menu and in Settings.
+
 The app is the product; the `ferb` command is for development. Setup links it at `~/.local/bin/ferb` and never edits
 your shell profile; to use it, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`. `scripts/build-dmg.sh` builds both apps and both disk images;
 `scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds one app (an Intel app builds on Apple silicon under Rosetta) and prints its size by part; `SIGN_IDENTITY=release` signs with FERB's release certificate (creating and backing it up: the top of `scripts/signing.sh`); a disk image holds only a release-signed or Developer ID app (`FERB_DEV_DMG=1` makes a test image); set `SIGN_IDENTITY` to a Developer ID (its name or
@@ -723,6 +730,23 @@ Open [docs/walkthrough/index.html](docs/walkthrough/index.html) in your browser 
 `open -g docs/walkthrough/index.html`). It works offline without a server or dependencies. Fourteen task journeys
 explain the current HLD/LLD step by step, with source links and evidence limits, including the interactive Claude
 Code trace. The page does not execute tasks. See [ARCHITECTURE.md](ARCHITECTURE.md) for full Mermaid sources.
+
+### Releasing (owner)
+
+Once: `scripts/sparkle-keys.sh` makes FERB's update key (the private half stays in your login Keychain) and writes
+`scripts/sparkle-public-key.txt` (commit it); `scripts/sparkle-keys.sh --export ~/Documents/FERB-keys/update-key`
+backs the private key up outside the checkout. Keep that backup offline: without it no later release can update
+existing installs.
+
+Each release: build and sign both images with your release certificate (`SIGN_IDENTITY=release scripts/build-dmg.sh`),
+then `scripts/release-appcast.sh v<version> build/FERB-AppleSilicon.dmg arm64` and
+`scripts/release-appcast.sh v<version> build/FERB-Intel.dmg x86_64`, and publish all four files as one release:
+`gh release create v<version> build/FERB-AppleSilicon.dmg build/FERB-Intel.dmg build/appcast-arm64.xml build/appcast-x86_64.xml`.
+Every installed FERB finds it through `releases/latest`. A build with `FERB_UPDATES=off` never checks.
+
+SwiftPM fetches Sparkle anonymously: `scripts/swiftpm-anonymous.sh` (sourced by the build scripts) turns git's credential
+helper off, so no build asks for your keychain. Source it yourself before a bare `swift build` or `swift test` in
+`ui/mac/FERBNotch`.
 
 ## Understanding and validating 0.26
 

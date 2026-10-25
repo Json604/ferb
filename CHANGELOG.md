@@ -13,6 +13,16 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 FERB for everyone, phase G (L34) — 2026-10-25 — automatic updates; owner live check pending
+
+Phase G, automatic updates (L34): Sparkle 2 in FERB.app checks GitHub's public release feed about daily, verifies each
+update with FERB's EdDSA key and certificate, and installs it only when no task is running (loops resting between
+rounds and plan waits resume after the restart); the background service restarts quietly and the notch says "Updated
+to <version>". Settings → General → Install updates automatically (default on); off shows "Update available —
+Install". A quit while a task runs and an update waits asks first. New `update.prepare` (owner-only); the sandbox keeps
+FERB's shell out of FERB.app's preferences; a timer due during shutdown now fires after the restart instead of being
+lost; `scripts/sparkle-keys.sh` and `scripts/release-appcast.sh` make the key and each release's appcasts.
+
 ## 0.27.0.dev1 FERB for everyone, phase F (L34) — 2026-10-25 — launch at login; owner live check pending
 
 Phase F, launch at login (L34): FERB.app opens at login, on by default once after setup (Settings → General → Open FERB
