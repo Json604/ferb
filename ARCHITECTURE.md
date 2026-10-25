@@ -2803,6 +2803,8 @@ protected FERB state (16.9).
   terminal_app`); elsewhere a focused text field inside a terminal by its and its ancestors' facts (xterm.js classes,
   a native identifier, else a label naming a terminal, console or shell) is skipped (`text_input.in_terminal`, the
   answer reused while the focus stays on one element, so a keystroke costs one CFEqual, not a walk).
+  The same two watchers skip FERB's own apps (`front_window.FERB_APPS`, case-insensitive; owner, 2026-10-25, rule 17):
+  no typed-text read, no accessibility observer. What the owner types in the notch reaches the daemon as `chat.send`.
 - **Choice answers (L18).** Only sealed inputs call `remember_hidden_secret`; a picked option (`Approval.option_for`) is
   never redacted; other words to a code-labelled question are hidden for that answer only (`Redactor.answer`).
 - **Codex account errors (L21).** Any account-check failure becomes `AccountError('account_unavailable')` and a named

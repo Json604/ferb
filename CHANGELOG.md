@@ -1035,6 +1035,8 @@ After the owner's update (2026-10-24):
   and Zed are never read; elsewhere a field inside a terminal (VS Code's, a web terminal, JetBrains' Terminal tool
   window, or one whose label names a terminal, console or shell) is skipped. Editors and page boxes are captured as
   before.
+- FERB's own notch is never read by its own typing and accessibility watchers (L17, rule 17, owner, 2026-10-25): each
+  key typed there cost about 20 Accessibility reads on the notch's main thread. Both skip `FERB_APPS`.
 
 Licensed under Apache-2.0.
 

@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from ferb.policy import terminal as terminals
 from ferb.policy.protection import DEFAULT_TERMINAL_APPS
+from ferb.sense.front_window import FERB_APPS
 from ferb.sense.capture import Field, TypedFields, TEXT_ROLES, password_element
 from ferb.sense.watchers.base import Emit, Focused, focused_app, poll
 
@@ -63,6 +64,8 @@ def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
     app = focused_app()
     if app is None or terminal_app(app) or excluded(app.bundle_id, app.name):
         return None
+    if app.bundle_id.casefold() in FERB_APPS:
+        return None                         # rule 17 (owner, 2026-10-25): FERB's own apps are never read per keystroke
     root = AX.AXUIElementCreateApplication(app.pid)
     field = _attr(root, "AXFocusedUIElement")
     role = str(_attr(field, "AXRole") or "") if field is not None else ""

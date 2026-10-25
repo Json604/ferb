@@ -62,6 +62,31 @@ def test_retained_observer_callback_is_bridged_and_runloop_source_is_removed(bri
     assert hasattr(calls[0][2], 'pyobjc_closure')
 
 
+@pytest.mark.parametrize('bundle', ['dev.ferb.notch', 'DEV.Ferb.Notch', 'com.ferb.ferb', 'com.ferb.app', 'com.ferb.daemon'])
+def test_ferb_own_apps_never_get_an_observer(bridge, monkeypatch, bundle):
+    """Rule 17 (owner, 2026-10-25): no subscription, callback or read in FERB's own apps."""
+    _, calls, observers = bridge
+    own = SimpleNamespace(processIdentifier=lambda: 9, bundleIdentifier=lambda: bundle, localizedName=lambda: 'FERB')
+    workspace = sys.modules['AppKit'].NSWorkspace.sharedWorkspace()
+    monkeypatch.setattr(workspace, 'runningApplications', lambda: [own], raising=False)
+    monkeypatch.setattr(sys.modules['AppKit'].NSWorkspace, 'sharedWorkspace', lambda: workspace)
+    scanned = threading.Event()
+    monkeypatch.setattr(sys.modules['Quartz'], 'CFRunLoopRunInMode', lambda *args: scanned.set() or 1)
+
+    async def run():
+        stop = asyncio.Event()
+        task = asyncio.create_task(AccessibilityWatcher(lambda data: data, lambda *args: False).run(
+            lambda event: None, stop))
+        try:
+            assert await asyncio.to_thread(scanned.wait, 1)
+        finally:
+            stop.set()
+            await asyncio.wait_for(task, .5)
+
+    asyncio.run(run())
+    assert observers == [] and not any(call[0] == 'create' for call in calls)
+
+
 def test_subscription_failure_keeps_sanitized_bridge_diagnostic(bridge):
     ax, _, _ = bridge
     redactor = Redactor()

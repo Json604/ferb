@@ -4,6 +4,7 @@ import threading
 from typing import Any, Callable
 
 from ferb.sense.capture import password_element
+from ferb.sense.front_window import FERB_APPS
 from ferb.sense.trail import Observation
 from ferb.sense.watchers.base import Emit, run_loop_slice
 
@@ -73,6 +74,8 @@ class AccessibilityWatcher:
                 pid, bundle, name = int(app.processIdentifier()), str(app.bundleIdentifier() or ""), str(app.localizedName() or "")
                 if not bundle or self.excluded(bundle, name):
                     return
+                if bundle.casefold() in FERB_APPS:
+                    return      # rule 17 (owner, 2026-10-25): no observer in FERB's own apps; each key typed there read the UI
                 root = AX.AXUIElementCreateApplication(pid)
                 registered: list[Any] = []
 

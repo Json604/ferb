@@ -104,3 +104,12 @@ def test_an_app_that_is_or_hosts_an_unseen_terminal_is_never_read(monkeypatch, b
     monkeypatch.setattr('ferb.act.mac.apps.declares_shell', lambda b: b == 'com.example.Shelly')
     screen = ChainScreen(bundle, EDITOR)
     assert capture(monkeypatch, screen, [key_event('hunter2')]) == [] and screen.queried == []
+
+
+@pytest.mark.parametrize('bundle', ['dev.ferb.notch', 'DEV.FERB.NOTCH', 'com.ferb.ferb', 'com.ferb.app', 'com.ferb.daemon'])
+def test_ferb_own_apps_record_nothing_and_are_never_read(monkeypatch, bundle) -> None:
+    """Rule 17 (owner, 2026-10-25): what the owner types in FERB's own apps arrives as their message over RPC; reading
+    its field per key lagged the notch."""
+    screen = Screen(bundle_id=bundle)
+    assert capture(monkeypatch, screen, [key_event('hi')]) == []
+    assert screen.queried == []
