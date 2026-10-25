@@ -1728,3 +1728,19 @@ supervised actions and record what the owner saw. Facts the reviews couldn't che
 - **(c) The hit test's real decision counts (round 4, U3).** After a day of ordinary use, run `ferb stats` and, for a
   task that clicked, `ferb trace TASK`. **Expected:** a "Click point checks: hit test N, window list M, refused
   (can't tell) K" line. Record the three numbers: they are how often the system hit test answers on this Mac.
+
+## FERB for everyone, phase A (L34) — pending live checks (2026-10-25)
+
+Checkout validation is in the L34 final report; nothing here is installed on the owner's account. Run on a second
+macOS user account (System Settings → Users & Groups → Add User), never the owner's own; pause between supervised
+actions and record what the owner saw.
+
+- Apple silicon: copy `FERB-AppleSilicon.dmg` to `/Users/Shared`, and in the second account open it, drag FERB into
+  `~/Applications` (make the folder first), open it, click Open Anyway once in Privacy & Security, finish setup, sign
+  in to ChatGPT, then ask FERB: "make a folder ferb-pkg-test on my Desktop with a file hello.txt that says hi".
+  Expected: the task finishes and the file exists (Codex works without its trimmed parts). Record the first-open
+  note the disk image showed.
+- Intel: on the owner's real Intel Mac (macOS 14.2 or later), the same steps with `FERB-Intel.dmg`, plus whether the
+  notch draws at the top of a notchless screen.
+- Afterwards: `~/.local/bin/ferb uninstall` and trash `~/Applications/FERB.app` in the second account; delete
+  `~/Desktop/ferb-pkg-test` there.

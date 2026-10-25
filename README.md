@@ -14,12 +14,12 @@ The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) e
 
 ## Setup
 
-Requires macOS 14.2 or later on Apple silicon and a signed-in Codex or Claude account. Install the app from the
+Requires macOS 14.2 or later, on Apple silicon (`FERB-AppleSilicon.dmg`) or an Intel Mac (`FERB-Intel.dmg`), and a signed-in Codex or Claude account. Install the app from the
 disk image, or from source.
 
 ### FERB.app (disk image)
 
-1. Open `FERB-<version>.dmg` and drag FERB to Applications. Open it from Applications, not from the disk image.
+1. Open `FERB-AppleSilicon.dmg` (M1 or later) or `FERB-Intel.dmg`; the disk image's first-open note repeats step 2. Drag FERB to Applications. Open it from Applications, not from the disk image.
 2. This build is ad-hoc signed, not yet signed with an Apple Developer ID, so macOS stops it the first time. Once:
    open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the message about
    FERB. The button is there for about an hour after the blocked attempt; if it's gone, open FERB again. macOS asks
@@ -47,10 +47,10 @@ signed, an update needs its macOS permissions granted again (the window says whi
 and the Keychain may ask once before FERB's secret helper reads an item stored by an earlier build.
 
 The app is the product; the `ferb` command is for development. Setup links it at `~/.local/bin/ferb` and never edits
-your shell profile; to use it, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`. Build the app and disk
-image with `scripts/build-app.sh` and `scripts/build-dmg.sh`; set `SIGN_IDENTITY` to a Developer ID (its name or
+your shell profile; to use it, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`. `scripts/build-dmg.sh` builds both apps and both disk images;
+`scripts/build-app.sh [--arch arm64|x86_64] [OUT_DIR]` builds one app (an Intel app builds on Apple silicon under Rosetta) and prints its size by part; set `SIGN_IDENTITY` to a Developer ID (its name or
 SHA-1 hash) and the notary credentials described in `scripts/signing.sh` to sign, notarize and staple the same bundle
-(`scripts/build-app.sh --sign-only build/app/FERB.app` re-signs a built app without rebuilding it).
+(`scripts/build-app.sh --sign-only build/app-arm64/FERB.app` re-signs a built app without rebuilding it).
 
 ### From source
 
@@ -598,7 +598,7 @@ no automated test proves that the owner experienced no disturbance.
   [owner acceptance](docs/OWNER_ACCEPTANCE.md).
 - FERB.app is ad-hoc signed: the first open needs **Open Anyway**, macOS permissions must be granted again after each
   update, and whether macOS runs the bundled Python from a downloaded (quarantined) disk image under launchd is
-  untested. Developer ID signing and notarization come later. The app is about 666 MB.
+  untested. Developer ID signing and notarization come later. The app is about 581 MB on Apple silicon and 609 MB on Intel (downloads 171 MB and 190 MB). The Intel app is tested on a real Intel Mac by the owner ("Yes, I have one"); that check is pending.
 - The Chrome Web Store listing isn't live yet; until it is, each profile needs Load unpacked. Brave and Edge may ignore
   the store install request; Vivaldi, Arc and Opera always need Load unpacked.
 - Trust, record, recover: after reading a malicious page, the shell could send one of your files somewhere. It is

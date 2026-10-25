@@ -10,6 +10,20 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+
+## 0.27.0.dev1 FERB for everyone, phase A (L34) — 2026-10-25 — two architectures, smaller app; owner live check pending
+
+Spec `docs/superpowers/specs/2026-10-24-ferb-for-everyone-design.md`; plan
+`docs/superpowers/plans/2026-10-25-packaging-a-shrink-two-arch.md` (owner's answers at its end).
+- FERB.app leaves out what FERB never runs: Codex's code-mode host (FERB disables it on every start), voice and
+  zsh, Python's lib2to3, pydoc topics, build configuration, test suites and debug symbols, and the other
+  architecture's half of universal modules. Apple silicon: 682.3 MB before, 580.6 MB after (download 171 MB);
+  Intel: 608.9 MB (download 190 MB).
+- `scripts/build-app.sh --arch arm64|x86_64`; `scripts/build-dmg.sh` makes `FERB-AppleSilicon.dmg` and
+  `FERB-Intel.dmg`, each with a first-open note. The daemon starts the Codex binary of its own architecture.
+- The Intel app uses cryptography 48.0.1, the last release with Intel Mac wheels (owner, A3).
+- Checkout validation: see the L34 final report. Installed: no. Owner live check: pending (`docs/OWNER_ACCEPTANCE.md`).
+
 ## 0.27.0.dev1 launch week (L1–L28) — 2026-10-13 to 2026-10-14 — integrated, owner install and live checks pending
 
 The fixes from the owner's first days of daily use, before the public launch on 2026-10-21. Decisions L1–L28 are in

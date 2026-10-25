@@ -2948,10 +2948,15 @@ protected FERB state (16.9).
   previously used profile's window forward; and a daemon restart starts a new try per qualifying profile.
 
 **Packaged FERB.app (L27, [`scripts/build-app.sh`](scripts/build-app.sh)).**
-- **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; uv's standalone CPython 3.12.13 with `ferb` and
-  its locked dependencies in `Contents/Resources/python` (precompiled, never written); the `ferb` launcher; Codex in
-  `Contents/Resources/node`; `Contents/Helpers/ferb-secrets`; `Contents/Helpers/FERB Voice.app`; and the agent
-  `Contents/Helpers/FERB.app`.
+- **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; one architecture per app (arm64 or x86_64,
+  `scripts/build-app.sh --arch`, checked file by file by `ferb_check_arch`); uv's standalone CPython 3.12.13 for
+  that architecture with `ferb` and its locked dependencies in `Contents/Resources/python` (precompiled, never
+  written; no lib2to3, pydoc_data, build configuration, test suites or debug symbols); the `ferb` launcher; Codex's
+  platform package for that architecture in `Contents/Resources/node` without the code-mode host, voice and zsh
+  (FERB disables or never starts them; `codex debug models --bundled` proves each build still starts);
+  `Contents/Helpers/ferb-secrets`; `Contents/Helpers/FERB Voice.app`; and the agent `Contents/Helpers/FERB.app`.
+  `scripts/app-parts.sh` names each architecture's parts, trims, thins universal files and prints the size table.
+  The Intel app uses cryptography 48.0.1 (the last with Intel Mac wheels); Apple silicon uses 50.0.1.
 - **The agent** ([`ui/mac/FERBAgent`](ui/mac/FERBAgent/), `com.ferb.daemon`) is a native stub embedding the app's
   libpython. launchd runs it as `-m ferb.daemon`, so macOS names FERB in permission prompts, Privacy & Security and
   Login Items. It accepts only `-m ferb.daemon`, `-I -m ferb.cli.mcp` and `-I -m ferb.memory.card_reader`, and only
@@ -2971,7 +2976,7 @@ protected FERB state (16.9).
   finalized through the held folder, the folder is closed, staging and the sound are deleted, and the task's end finds
   it finished and never encodes again.
 - **Residuals** (owner-accepted or live checks): ad-hoc builds lose macOS grants and may prompt the Keychain on update;
-  whether launchd runs the bundled Python from a quarantined download is untested; the app is about 666 MB;
+  whether launchd runs the bundled Python from a quarantined download is untested; the app is about 581 MB (Apple silicon) and 609 MB (Intel);
   `mac.applescript` keeps Apple Events, so a script could ask Finder to move Trash items (not a file rule).
 
 ### 16.10 Journal kinds added in the launch week
