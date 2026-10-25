@@ -1197,10 +1197,7 @@ class Learning:
         p, ep = self.get(procedure_id), self.get(episode_id)
         if not p or not ep or p['kind'] != 'procedure' or ep['kind'] != 'episode':   # checked before writing (M7)
             raise LearningRefused('missing procedure/episode')
-        # The owner's latest verdict counts even when the card couldn't be refreshed after it (a replayed receipt).
-        last = self.db.conn.execute('SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1',
-                                    (ep['key'],)).fetchone()
-        successful = ep['body'].get('verified') is True and not (last and last[0] == 'fail')
+        successful = self.succeeded(ep)
         # the slot values are model-written (the planner's, L29, or a proposal's examples): redacted like a node's body
         values = redacted_json(self.redact, slots or ep['body'].get('slots') or {}, self.secret_values())
         self.db.conn.execute('INSERT INTO learning_receipts VALUES (?,?,?,?,?) ON CONFLICT(procedure_id,episode_id) '
@@ -1211,6 +1208,23 @@ class Learning:
         for row in self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind = 'procedure' AND key = ? AND "
                                         "valid_to IS NULL AND id != ?", (p['key'], procedure_id)).fetchall():
             self._refresh(row[0], None)
+
+    def succeeded(self, card: dict[str, Any]) -> bool:
+        """Whether a run's receipt records a success: its card is verified and the owner's latest verdict is not a fail
+        (it counts even when the card couldn't be refreshed after it: a replayed receipt)."""
+        last = self.db.conn.execute('SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1',
+                                    (card['key'],)).fetchone()
+        return card['body'].get('verified') is True and not (last and last[0] == 'fail')
+
+    def record_use(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> bool:
+        """The receipt of a run the planner gave this procedure (L36 §8), or False when none is written: a run that
+        failed (`succeeded` false) always gets its failure receipt, whether or not it followed the steps, so a
+        procedure that breaks partway can become suspect (concern ruling 2); a success only when it followed every
+        required step (`followed`). LearningRefused from `receipt` passes through."""
+        if self.succeeded(card) and not self.followed(procedure_id, card, slots):
+            return False
+        self.receipt(procedure_id, card['id'], slots)
+        return True
 
     def followed(self, procedure_id: str, card: dict[str, Any], slots: dict[str, Any] | None) -> bool:
         """Whether a run used its procedure (L36 §8): each required step has a successful action of the same tool whose
@@ -1258,20 +1272,16 @@ class Learning:
             values = self._receipt_slots(r)
             if set(declared) <= set(values):
                 variants.add(encoded([values[k] for k in declared]))
-        latest = self.get(ok[-1]['episode_id']) if ok else None
-        latest_apps = latest['body'].get('apps', {}) if latest else {}
-        # L36 §8: versions are a range shown to the worker (`procedure_parts`), never a requirement: an update keeps a
-        # learned procedure learned (this replaces M6's "back to candidate"). Learned needs a latest run whose versions
-        # FERB captured.
-        matches = (latest is not None and bool(latest['body'].get('app_versions_captured', True))
-                   and 'unknown' not in latest_apps.values())
+        # L36 §8: app versions are a range shown to the worker (`procedure_parts`), never a requirement: an update keeps
+        # a learned procedure learned (this replaces M6's "back to candidate"), and runs whose versions FERB couldn't
+        # read count like any other (concern ruling 1: then there is no range and no new-version line)
         consecutive_failures = len(rows) >= 2 and not rows[-1]['successful'] and not rows[-2]['successful']
         state = p['state']
         if state not in ('retired', 'rolled_back', 'quarantined'):
             if consecutive_failures:                 # only a procedure that actually failed is suspect (M6)
                 state = 'suspect'
             elif state != 'suspect':
-                state = 'learned' if len(ok) >= 3 and len(variants) >= 2 and matches else 'candidate'
+                state = 'learned' if len(ok) >= 3 and len(variants) >= 2 else 'candidate'
         self.db.conn.execute('UPDATE learning_nodes SET state=? WHERE id=?', (state, node_id))
         p['state'] = state
         p['counters'] = {'verified_successes': len(ok), 'failures': len(rows) - len(ok),

@@ -1029,8 +1029,11 @@ After the owner's update (2026-10-24):
   runs (151 vs 155). Steps are now compared without those per-run ids and with paths expanded, versions are a range (a
   newer one runs with each step checked), runs of the same purpose on different sites group together, a run that
   follows a procedure is counted, and `ferb stats` shows procedures stored, learned, used and refused. Another text or
-  another timeout is still a different step, and twelve digits (a phone number) are never taken for an id. A run that
-  doesn't follow its procedure's required steps gets no receipt (journaled `memory.procedure_not_followed`).
+  another timeout is still a different step, and twelve digits (a phone number) are never taken for an id. A
+  successful run that didn't follow its procedure's required steps isn't counted as a use (journaled
+  `memory.procedure_not_followed`); a run that fails counts against the procedure either way (also when you fail it
+  later), so one that breaks partway is still marked suspect. A procedure no longer needs its latest run's app
+  versions to be learned, and the hourly learner is no longer asked for them.
 - Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
   control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
   FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,

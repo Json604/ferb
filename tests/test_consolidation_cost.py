@@ -450,7 +450,7 @@ def dish_run(store: Learning, n: int, intent: str = "food") -> Any:
 
 def food_procedure(cards: list[Any]) -> dict[str, Any]:
     """A procedure proposal (PROPOSAL_SCHEMA shape) built on `cards`, each an example with its dish."""
-    return {"intent": "food", "slots": [{"name": "dish", "value": "string"}], "preconditions": {"apps": []},
+    return {"intent": "food", "slots": [{"name": "dish", "value": "string"}],
             "ui_hints": "", "steps": [{"tool": "browser.type", "args": [{"name": "text", "value": '"{dish}"'}],
                                        "expect": "typed", "optional": False,
                                        "evidence": [c["body"]["actions"][0]["id"] for c in cards]}],

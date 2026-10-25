@@ -753,14 +753,16 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
 
 def _procedures(c: Any, out: TextIO) -> None:
     """What learning produced and whether it was used (L36 §8), all time: the current procedures and how many are
-    learned; the runs that used one (a receipt of a procedure version whose examples don't include that run, counted
-    once per task); and the kinds of task whose latest consolidation refused every procedure it proposed."""
+    learned; the runs that used one (a success receipt, which only a run that followed its procedure gets, of a
+    procedure version whose examples don't include that run, counted once per task; a failed run offered one gets a
+    failure receipt either way, `Learning.record_use`); and the kinds of task whose latest consolidation refused every
+    procedure it proposed."""
     procs = c.execute("SELECT state FROM learning_nodes WHERE kind = 'procedure' AND valid_to IS NULL AND state NOT IN "
                       "('retired', 'rolled_back')").fetchall()
     examples = {pid: {e.get("episode") for e in json.loads(body).get("examples") or [] if isinstance(e, dict)}
                 for pid, body in c.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'procedure'")}
     used = {task for pid, ep, task in c.execute("SELECT r.procedure_id, r.episode_id, n.key FROM learning_receipts r "
-                                                "JOIN learning_nodes n ON n.id = r.episode_id")
+                                                "JOIN learning_nodes n ON n.id = r.episode_id WHERE r.successful = 1")
             if ep not in examples.get(pid, ())}
     refused = c.execute("SELECT COUNT(*) FROM learning_jobs WHERE source_ref LIKE 'intent:%' AND error LIKE "
                         "'every procedure proposed was refused%'").fetchone()[0]

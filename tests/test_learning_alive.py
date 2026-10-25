@@ -227,7 +227,6 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
                        {'name': 'recipient', 'value': '"b@kartikey.xyz"'}]}],         # a name given twice: refused
         'procedures': [{
             'intent': 'send the weekly report', 'slots': [{'name': 'recipient', 'value': 'string'}],
-            'preconditions': {'apps': [{'name': 'com.apple.mail', 'value': '16.0'}]},
             'steps': [{'tool': 'mail.send', 'expect': 'the report is in Sent', 'evidence': ['t-1-action'],
                        'optional': False,
                        'args': [{'name': 'to', 'value': '"{recipient}"'}, {'name': 'cc', 'value': '[]'}]}],

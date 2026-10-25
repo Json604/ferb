@@ -40,14 +40,11 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
                 'episode': {'type': 'string'}, 'intent_signature': {'type': 'string'},
                 'slots': pairs(JSON_TEXT), 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
         'procedures': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
-            'required': ['intent', 'slots', 'preconditions', 'steps', 'ui_hints', 'examples'],
+            'required': ['intent', 'slots', 'steps', 'ui_hints', 'examples'],
             'properties': {
                 'intent': {'type': 'string'},
                 'slots': pairs({'type': 'string', 'description': "the slot's JSON type: string, number, boolean, "
                                                                   "array or object"}),
-                'preconditions': {'type': 'object', 'required': ['apps'], 'additionalProperties': False,
-                                  'properties': {'apps': pairs({'type': 'string',
-                                                                 'description': 'the captured app version'})}},
                 'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
                     'required': ['tool', 'args', 'expect', 'optional', 'evidence'], 'properties': {
                         'tool': {'type': 'string'}, 'args': pairs(JSON_TEXT), 'expect': {'type': 'string'},
@@ -87,9 +84,9 @@ def _waits(e: Exception) -> bool:
 
 
 def _procedure(p: dict[str, Any]) -> dict[str, Any]:
-    """A proposed procedure in the shape Learning checks and stores: its slots, apps and args as maps."""
+    """A proposed procedure in the shape Learning checks and stores: its slots and args as maps. Its app versions are
+    code's (`observed_ranges`, L36 §8), never asked of the model."""
     return p | {'slots': to_map(p['slots']),
-                'preconditions': p['preconditions'] | {'apps': to_map(p['preconditions']['apps'])},
                 'steps': [s | {'args': to_map(s['args'], json_text=True)} for s in p['steps']],
                 'examples': [e | {'slots': to_map(e['slots'], json_text=True)} for e in p['examples']]}
 

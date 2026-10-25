@@ -1656,20 +1656,19 @@ class Daemon:
         return None
 
     def _procedure_outcome(self, procedure_id: str, task_id: str, slots: dict[str, Any] | None = None) -> None:
-        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them. Written
-        only when the run followed the procedure's required steps (L36 §8, `Learning.followed`); otherwise journaled
-        as `memory.procedure_not_followed`."""
+        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them
+        (`Learning.record_use`, L36 §8): a failed run's always; a success's only when it followed the procedure's
+        required steps, otherwise journaled as `memory.procedure_not_followed` (an owner's fail verdict later writes
+        its failure receipt: `_refresh_learning_verdict`)."""
         if self.learning is None:
             return
         node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
         if node:
             from ferb.memory.learning import LearningRefused
             try:
-                if not self.learning.followed(procedure_id, node, slots):   # L36 §8: use is following its steps
+                if not self.learning.record_use(procedure_id, node, slots):   # L36 §8: a success it didn't follow
                     self._journal().append("memory.procedure_not_followed", {"procedure_id": procedure_id,
                                                                              "task_id": task_id})
-                    return
-                self.learning.receipt(procedure_id, node["id"], slots)
             except LearningRefused:
                 self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})
 
@@ -1683,6 +1682,18 @@ class Daemon:
                                        (task_id,)).fetchone()
             if row and row[0] == "fail":
                 self.db.conn.execute("UPDATE learning_receipts SET successful=0 WHERE episode_id=?", (node["id"],))
+        # L36 §8, concern ruling 2: a run offered a procedure that it didn't follow had no receipt as a success; the
+        # owner's fail verdict makes it a failed run, which gets its failure receipt
+        card = self.learning.current_card(task_id)
+        if card is not None and not self.learning.succeeded(card):
+            from ferb.memory.learning import LearningRefused
+            for procedure_id in {str(e.data.get("procedure_id")) for e in self._journal().of_kind(
+                    "memory.procedure_not_followed") if e.data.get("task_id") == task_id}:
+                try:
+                    self.learning.record_use(procedure_id, card, None)
+                except LearningRefused:
+                    self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id,
+                                                                          "task_id": task_id})
         for procedure in self.learning.items("procedure"):
             self.learning.procedure(procedure["id"], self._app_versions())
 

@@ -25,10 +25,11 @@ def store(tmp_path: Path) -> Any:
     db.close()
 
 
-def card(store: Learning, task_id: str, actions: list[dict[str, Any]], apps: dict[str, str] | None = None) -> Any:
+def card(store: Learning, task_id: str, actions: list[dict[str, Any]], apps: dict[str, str] | None = None,
+         **body: Any) -> Any:
     return store.put("episode", task_id, {"task_id": task_id, "verified": True, "request": "r", "intent": "i",
                                           "apps": apps or {}, "slots": {}, "status": "done", "ended_at": "2026-10-20",
-                                          "actions": [a | {"outside_action": False} for a in actions]},
+                                          "actions": [a | {"outside_action": False} for a in actions]} | body,
                      [], origin_label="ferb", made_by="code:evidence-card/4", state="active")
 
 
@@ -185,3 +186,78 @@ def test_a_superseded_versions_example_run_is_not_a_use(store: Learning, tmp_pat
     out = io.StringIO()
     assert stats(tmp_path, out, days=36500) == 0
     assert "Procedures: 1 stored, 1 learned; used in 0 run(s); 0 kind(s)" in out.getvalue()
+
+
+def test_runs_whose_app_versions_were_not_read_still_make_a_procedure_learned(store: Learning) -> None:
+    """Concern ruling 1: versions are advisory, so learned no longer needs a latest run whose versions FERB captured
+    (live 2026-10-25: only 6 of 32 verified cards could be that run). With no range there is no new-version line."""
+    cards = [card(store, f"m{i}", [{"id": f"m{i}-a", "tool": "browser.navigate", "args": {"url": f"https://k/{i}"}}],
+                  apps={"unresolved-mac-app": "unknown"}, app_versions_captured=False) for i in range(3)]
+    p = propose(store, cards, [{"tool": "browser.navigate", "args": {"url": "{url}"}, "expect": "the board",
+                                "evidence": [f"m{i}-a" for i in range(3)]}], {"url": "string"},
+                [{"url": f"https://k/{i}"} for i in range(3)])
+    assert p["body"]["preconditions"]["apps"] == {} and p["state"] == "learned"
+    text = store.procedure_parts(p["id"], {"com.apple.Notes": "4.11"}, None)[0].text
+    assert "Eligible for learned fast path" in text and "New version" not in text
+
+
+def _receipts(daemon: Any, procedure_id: str) -> dict[str, int]:
+    from tests.support.memory_items import run
+    return run(daemon, lambda: {r[0]: r[1] for r in daemon.daemon.db.conn.execute(
+        "SELECT n.key, r.successful FROM learning_receipts r JOIN learning_nodes n ON n.id = r.episode_id "
+        "WHERE r.procedure_id = ? AND n.key NOT LIKE 'k%'", (procedure_id,))})
+
+
+def test_a_run_that_stops_at_a_broken_step_records_a_failure_receipt(daemon: Any) -> None:
+    """Concern ruling 2: a run offered a procedure that ended unverified writes its failure receipt whether or not it
+    followed every step, so a procedure that breaks partway becomes suspect, as before L36."""
+    from tests.support.memory_items import run
+    d = daemon.daemon
+    d.learning.home = HOME
+    p = run(daemon, lambda: learned_on_two_brave_versions(d.learning))
+    broken = [{"id": "b-a", "tool": "browser.navigate", "args": {"url": "https://k/9"}, "error": "net::ERR_TIMED_OUT"}]
+    run(daemon, lambda: card(d.learning, "broken", broken, verified=False, status="failed"))
+    run(daemon, lambda: card(d.learning, "elsewhere", [{"id": "e-a", "tool": "browser.act", "args": {}}],
+                             verified=False, status="failed"))
+    for task in ("broken", "elsewhere"):
+        run(daemon, lambda task=task: d._procedure_outcome(p["id"], task, {"url": "https://k/9"}))
+    assert _receipts(daemon, p["id"]) == {"broken": 0, "elsewhere": 0}
+    assert run(daemon, lambda: d.learning.procedure(p["id"], {})["state"]) == "suspect"
+    assert run(daemon, lambda: d._journal().of_kind("memory.procedure_not_followed")) == []
+
+
+def test_the_owners_fail_verdict_on_a_run_that_did_not_follow_counts_against_its_procedure(daemon: Any) -> None:
+    """A success that didn't follow the procedure gets no receipt; the owner's later fail verdict makes it a failed run
+    offered the procedure, so it gets its failure receipt then (concern ruling 2)."""
+    from tests.support.memory_items import run
+    d = daemon.daemon
+    d.learning.home = HOME
+    p = run(daemon, lambda: learned_on_two_brave_versions(d.learning))
+    run(daemon, lambda: card(d.learning, "ignored", [{"id": "g-a", "tool": "browser.act", "args": {}}]))
+    run(daemon, lambda: d._procedure_outcome(p["id"], "ignored", {"url": "https://k/9"}))
+    assert _receipts(daemon, p["id"]) == {}
+    run(daemon, lambda: d.db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES "
+                                          "('v-1', 'ignored', 'fail', '', 'now')"))
+    run(daemon, lambda: d._refresh_learning_verdict("ignored"))
+    assert _receipts(daemon, p["id"]) == {"ignored": 0}
+
+
+def test_the_consolidator_is_not_asked_for_app_versions() -> None:
+    """Concern ruling 3: code records the versions (`observed_ranges`), so the prompt and schema no longer ask."""
+    from ferb.core.prompts import load_prompt
+    from ferb.memory.consolidate import PROPOSAL_SCHEMA
+    words = " ".join(load_prompt("memory/consolidate.md").split())
+    assert "version" not in words and "precondition" not in words
+    procedure = PROPOSAL_SCHEMA["properties"]["procedures"]["items"]
+    assert "preconditions" not in procedure["properties"] and "preconditions" not in procedure["required"]
+
+
+def test_a_failed_run_offered_a_procedure_is_not_a_use(store: Learning, tmp_path: Path) -> None:
+    """Since a failed run gets its failure receipt whether or not it followed (concern ruling 2), "used in" counts the
+    successes, each of which followed its procedure (`record_use`)."""
+    p = learned_on_two_brave_versions(store)
+    failed = card(store, "failed", [{"id": "x-a", "tool": "browser.act", "args": {}}], verified=False, status="failed")
+    assert store.record_use(p["id"], failed, None)
+    out = io.StringIO()
+    assert stats(tmp_path, out, days=36500) == 0
+    assert "Procedures: 1 stored, 1 learned; used in 0 run(s);" in out.getvalue()

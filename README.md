@@ -766,7 +766,7 @@ was about changes (that kind of task's runs, or for a label the task's card) or 
 requests a pass.
 Procedures contain text tool templates and expect lines and cite verified episodes. A step some runs skipped is
 optional and must reproduce the runs that cite it; every other step must reproduce every run. Procedures become
-learned after three verified successes across two slot values, with the latest on current captured app versions.
+learned after three verified successes across two slot values (L36: app versions are not a requirement).
 The planner is shown every procedure it may use, whatever words you use, as data: its kind of task's name and
 description and its slots (the most recently used kinds first, as many as fit its window); it picks one by meaning
 and gives this request's value for each slot. Code checks each value against the slot's type: if any value is
@@ -789,11 +789,11 @@ revision adds a step built on outside content that the version you confirmed did
 names it; if the hourly pass revised it, `ferb timeline` shows `memory.procedure_requarantined`). A learned procedure
 remembers the app versions it was learned on; on a newer version it still runs, checking each step; two consecutive
 failures mark it suspect. A suggestion you turned down ("Not right") is not proposed again.
-Old episodes without captured app versions add nothing to that range, and a procedure whose latest run has none stays a
-candidate. Steps are compared with their runs without the ids that change every run (tabs, page elements, shell
-processes, windows, FERB's ids) and with `~/` paths expanded, so repeats are learned (L36). A run counts as using its
-procedure only when it followed every required step; `ferb stats` shows the procedures stored, learned, used and
-refused.
+Runs whose app versions FERB couldn't read add nothing to that range; with no range there is no new-version check.
+Steps are compared with their runs without the ids that change every run (tabs, page elements, shell processes,
+windows, FERB's ids) and with `~/` paths expanded, so repeats are learned (L36). A successful run counts as using its
+procedure only when it followed every required step; a run that fails counts against it either way, so one that breaks
+partway is still marked suspect. `ferb stats` shows the procedures stored, learned, used and refused.
 
 Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra
 (not in FERB.app); without it, the embedding commands say so before downloading anything.

@@ -33,7 +33,7 @@ def test_three_runs_become_a_procedure_the_worker_starts_from(learning) -> None:
     def consolidate(ctx: str) -> dict[str, Any]:
         return {"episodes": [], "lessons": [], "identity": [], "procedures": [{
             "intent": "cheapest food order", "slots": [{"name": "dish", "value": "string"}],
-            "preconditions": {"apps": []}, "ui_hints": "",
+            "ui_hints": "",
             "steps": [{"tool": "browser.type", "args": [{"name": "text", "value": '"{dish}"'}], "expect": "typed",
                        "optional": False, "evidence": [f"r{n}-a" for n in range(3)]}],
             "examples": [{"episode": c["id"], "slots": [{"name": "dish", "value": json.dumps(d)}]}
