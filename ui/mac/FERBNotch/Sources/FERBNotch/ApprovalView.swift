@@ -18,10 +18,18 @@ struct ApprovalView: View {
                 Text(context).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
                     .help("Task " + (approval.taskID ?? ""))
             }
-            MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12))
+            if approval.plainText {                  // FERB's own question: verbatim, never Markdown (D31)
+                Text(verbatim: approval.visibleReason).font(.system(size: 12)).textSelection(.enabled)
+            } else {
+                MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12))
+            }
             if let details = approval.details {
                 DisclosureGroup("Details") {
-                    MarkdownContent(details).equatable().font(.system(size: 11))
+                    if approval.plainText {
+                        Text(verbatim: details).font(.system(size: 11)).textSelection(.enabled)
+                    } else {
+                        MarkdownContent(details).equatable().font(.system(size: 11))
+                    }
                 }.font(.system(size: 11))
             }
             if !approval.evidence.isEmpty {

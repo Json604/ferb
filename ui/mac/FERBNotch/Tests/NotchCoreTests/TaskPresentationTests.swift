@@ -166,6 +166,23 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertNil(DaemonApproval(["approval_id": "plain", "reason": "Which file?"])?.details)
     }
 
+    func testFERBsOwnQuestionsShowTheirTextVerbatimNeverAsMarkdown() {
+        // D31, review round 1: backticks, asterisks, brackets and backslashes in a terminal command must show as they
+        // are typed; Markdown would restyle or hide them. FERB's code-written questions are plain text.
+        let command = "FERB wants to type \"echo `id` *x* [a](b) \\\\n\" into the terminal in Code, then press "
+            + "Return there."
+        let confirm = DaemonApproval(["approval_id": "t", "kind": "owner_question", "capability": "ferb.confirm",
+                                      "reason": "FERB: this would type …. Go ahead?", "summary": command,
+                                      "options": ["Yes", "No"]])!
+        XCTAssertTrue(confirm.plainText)
+        XCTAssertEqual(confirm.visibleReason, command)
+        let codeSummary = DaemonApproval(["approval_id": "s", "kind": "owner_secret", "reason": "r", "summary": "x"])!
+        XCTAssertTrue(codeSummary.plainText)
+        let workerQuestion = DaemonApproval(["approval_id": "q", "kind": "owner_question", "capability": "owner.ask",
+                                             "reason": "Which **file**?", "display_text": "Which file?"])!
+        XCTAssertFalse(workerQuestion.plainText)                 // an ordinary question keeps its Markdown
+    }
+
     func testSecretAndConsequentialApprovalsNeverHideTheirExactReason() {
         for kind in ["owner_login_code", "owner_admin_password", "owner_secret", "send", "approval", "owner_question"] {
             let approval = DaemonApproval(["approval_id": kind, "kind": kind, "reason": "Exact scope", "display_text": "Short"])

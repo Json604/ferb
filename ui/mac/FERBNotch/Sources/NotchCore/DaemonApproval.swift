@@ -14,6 +14,10 @@ public struct DaemonApproval: Identifiable, Equatable {
     }
     /// The full question under the "Details" disclosure, when the card shows a shorter line first.
     public var details: String? { visibleReason == reason ? nil : reason }
+    /// FERB's own code-written question (it has a summary, or it is a confirmation FERB's code raised): shown verbatim,
+    /// never as Markdown, so a command's backticks, asterisks, brackets and backslashes read as typed (D31).
+    public var plainText: Bool { !(summary ?? "").isEmpty || capability == "ferb.confirm" }
+    public let capability: String?
     public let options: [String]
     public let title: String?
     public let evidence: [String]
@@ -24,7 +28,8 @@ public struct DaemonApproval: Identifiable, Equatable {
         taskID = value["task_id"] as? String
         kind = value["kind"] as? String ?? "owner_question"
         reason = value["reason"] as? String ?? "FERB needs your answer."
-        let ordinaryQuestion = kind == "owner_question" && value["capability"] as? String == "owner.ask"
+        capability = value["capability"] as? String
+        let ordinaryQuestion = kind == "owner_question" && capability == "owner.ask"
         displayText = ordinaryQuestion ? value["display_text"] as? String : nil
         summary = value["summary"] as? String
         options = value["options"] as? [String] ?? []
