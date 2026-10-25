@@ -31,6 +31,9 @@ from ferb.policy import terminal as terminals
 # Rule 8, rule 9, D31, W2: FERB never operates its own apps (the notch shows FERB's own questions; pressing, clicking or
 # typing into it would answer them for the owner): `front_window.FERB_APPS` and the daemon's own process
 OWN_APP = "FERB never operates its own app; questions are answered by the owner"
+# Fix round 3, H1: fail closed when FERB can't tell whose window would take a click
+CANT_CONFIRM = ("FERB can't confirm what is under this point, so it didn't click: one of its own windows could be "
+                "there (rule 8, rule 9)")
 UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "net.whatsapp.WhatsApp": "message",
                   "com.tinyspeck.slackmacgap": "message", "com.hnc.Discord": "message",
                   "ru.keepcoder.Telegram": "message", "com.microsoft.teams2": "message"}
@@ -376,22 +379,34 @@ class MacComputerDriver:
         return bundle_id.casefold() in FERB_APPS or pid == os.getpid()
 
     def _own_pid(self, pid: int) -> bool:
-        """Whether this process is one of FERB's own apps or the daemon (by the running apps' bundle ids)."""
+        """Whether this process is one of FERB's own apps or the daemon, among every running app whatever its
+        activation policy (fix round 3, H1: the notch is an accessory app, absent from the Regular apps list)."""
         import os
+        from ferb.sense.front_window import FERB_APPS
         if pid == os.getpid():
             return True
-        return any(app.pid == pid and self._own_app(app.bundle_id, app.pid) for app in self.apps.running())
+        return pid in self.apps.pids_of(FERB_APPS)
 
-    def _own_point(self, x: float, y: float) -> bool:
-        """Blocking: a click at this screen point would land on a window of FERB's own app, by the system's hit test
-        (it skips click-through overlays, like FERB's own cursor), else by the topmost normal window there."""
+    def _own_point(self, x: float, y: float, pid: int | None = None) -> str | None:
+        """Blocking: why a click at this screen point is refused, else None. The system's hit test first (it skips
+        click-through windows, like FERB's own cursor overlay): FERB's window there refuses it. When the hit test
+        can't tell, every window at the point on every level, front to back, down to the target process's window: a
+        FERB window above it (the notch's panel, or one FERB can't show is click-through: no window is skipped) or no
+        window list at all refuses it (fail closed, fix round 3, H1)."""
         hit = getattr(self.ax, "hit", None)
         found = hit(x, y) if callable(hit) else None
         if found is not None:
-            return self._own_pid(int(found[0]))
-        at = getattr(self.shots, "window_at", None)
-        top = at(x, y) if callable(at) else None
-        return top is not None and self._own_pid(int(top.pid))
+            return OWN_APP if self._own_pid(int(found[0])) else None
+        layered = getattr(self.shots, "windows_at", None)
+        windows = layered(x, y) if callable(layered) else None
+        if windows is None:
+            return CANT_CONFIRM
+        for w in windows:
+            if pid is not None and w.pid == pid:
+                return None
+            if self._own_pid(int(w.pid)):
+                return CANT_CONFIRM
+        return None
 
     def _own_front(self) -> bool:
         """Blocking: one of FERB's own apps is in front (its window may hold the keyboard): no keyboard input."""
@@ -765,12 +780,12 @@ class MacComputerDriver:
             raise Refused("pointer point outside the screenshot")
         bx, by, bw, bh = shot.bounds
         start, finish = [(bx + px * bw / shot.size[0], by + py * bh / shot.size[1]) for px, py in points]
-        if await asyncio.to_thread(lambda: self._own_point(*start) or self._own_point(*finish)):
-            raise Refused(OWN_APP)                       # a FERB window takes clicks there (rule 8, rule 9)
+        if why := await asyncio.to_thread(lambda: self._own_point(*start, a.pid) or self._own_point(*finish, a.pid)):
+            raise Refused(why)                           # a FERB window takes clicks there (rule 8, rule 9)
 
         def window_ok() -> None:
-            if self._own_point(*start) or self._own_point(*finish):
-                raise Refused(OWN_APP)
+            if why := self._own_point(*start, a.pid) or self._own_point(*finish, a.pid):
+                raise Refused(why)
             w = self.shots.window(shot.window)
             if w is None or w.pid != a.pid or not _same(w.bounds, shot.bounds):
                 raise StaleRef("the window moved or closed; take another screenshot")
@@ -845,8 +860,10 @@ class MacComputerDriver:
         if now is None or now.pid != a.pid or not _same(now.bounds, shot.bounds):
             raise StaleRef("the window moved, resized, changed owner or closed since the screenshot; take a new one")
         px, py = shot_to_screen(shot, x, y)
-        if await asyncio.to_thread(self._own_point, px, py):
-            raise Refused(OWN_APP)                       # a FERB window takes clicks there (rule 8, rule 9)
+        if why := await asyncio.to_thread(self._own_point, px, py, a.pid):
+            raise Refused(why)                           # a FERB window takes clicks there (rule 8, rule 9)
+        if mechanism == "foreground" and await asyncio.to_thread(self._own_front):
+            raise Refused(OWN_APP)                       # input that goes to what is in front (M1)
 
         if mechanism == "pointer":
             return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder, terminal=terminal,
@@ -874,8 +891,8 @@ class MacComputerDriver:
 
         def guarded(step: Step) -> Step:
             def post() -> None:
-                if self._own_point(px, py):
-                    raise Refused(OWN_APP)
+                if why := self._own_point(px, py, a.pid):
+                    raise Refused(why)
                 w = self.shots.window(shot.window)
                 if w is None or not _same(w.bounds, shot.bounds) or not reaches_the_window():
                     raise StaleRef("another window is over that point now, or the window moved; take a new "
@@ -890,6 +907,21 @@ class MacComputerDriver:
         return r
 
     # ---------- actions ----------
+
+    async def _foreground_click(self, a: Any, n: axm.AxNode) -> list[Step]:
+        """A real click at the element's centre (it goes to whatever window is on top there): refused when a FERB
+        window would take it, checked now and again right before the click (fix round 3, H1)."""
+        x, y = self.ax.center(n)
+        if why := await asyncio.to_thread(self._own_point, x, y, a.pid):
+            raise Refused(why)
+
+        def guarded(step: Step) -> Step:
+            def post() -> None:
+                if why := self._own_point(x, y, a.pid):
+                    raise Refused(why)
+                step.post()
+            return Step(step.what, post)
+        return [guarded(step) for step in click_steps(x, y)]
 
     # ---------- terminals (D31, rule 10) ----------
 
@@ -1310,8 +1342,6 @@ class MacComputerDriver:
         if action.kind in {"key", "type", "set_value", "select"} and action.text is None:
             raise Refused(f"{action.kind} requires explicit text; omitted text never means clear or Return")
         a = self.app(app)
-        if action.kind in ("type", "key") and await asyncio.to_thread(self._own_front):
-            raise Refused(OWN_APP)                       # FERB's own app is in front: its window may hold the keyboard
         st = self._state.get(a.bundle_id)
         if action.element and st and st.pid and st.pid != a.pid:
             raise StaleRef("element process changed; take a new snapshot")
@@ -1319,6 +1349,8 @@ class MacComputerDriver:
         if mechanism == "foreground" and not action.allow_foreground:
             return ActionResult(False, "This explicit route needs task-wide foreground permission.",
                                 {"code": "needs_foreground", "method": mechanism, "performed": False})
+        if mechanism == "foreground" and await asyncio.to_thread(self._own_front):
+            raise Refused(OWN_APP)                       # foreground input goes to what is in front: FERB's app (M1)
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r}")
@@ -1355,13 +1387,13 @@ class MacComputerDriver:
                 if n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._item_pastes, n.ref):
                     focus = await asyncio.to_thread(self._focus, a)      # ⌘V's item pastes into the focus (D31)
                     if await self._terminal_check(a, focus, terminal, task, keys="cmd+v"):
-                        r = await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
+                        r = await self._real(a, await self._foreground_click(a, n), holder, "click", task)
                         self._terminal_typed(a, focus, terminal, task, r.ok)
                         return r
                 elif n.ax_role == "AXMenuItem" and await asyncio.to_thread(self._terminal_app, a):
                     focus = await asyncio.to_thread(self._focus, a)      # a terminal app's command (finding 10)
                     await self._terminal_check(a, focus, terminal, task, menu=n.label)
-                return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
+                return await self._real(a, await self._foreground_click(a, n), holder, "click", task)
             if action.kind == "type":
                 landed: list[Any] = []
 

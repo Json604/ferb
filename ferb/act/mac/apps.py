@@ -25,6 +25,14 @@ def running() -> list[RunningApp]:
     return out
 
 
+def pids_of(bundle_ids: Any) -> set[int]:
+    """The pids of every running app (whatever its activation policy: accessory and UI-element apps included) whose
+    bundle id, casefolded, is in `bundle_ids` (fix round 3, H1: the notch is an accessory app)."""
+    from AppKit import NSWorkspace
+    return {int(a.processIdentifier()) for a in NSWorkspace.sharedWorkspace().runningApplications()
+            if a.bundleIdentifier() and str(a.bundleIdentifier()).casefold() in bundle_ids}
+
+
 def candidates(name_or_bundle: str) -> list[RunningApp]:
     """Return all matching processes. Exact equality is lookup mechanics, never first-match selection."""
     apps = running()

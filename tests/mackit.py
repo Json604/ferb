@@ -120,6 +120,9 @@ class FakeApps:
     def running(self) -> list[RunningApp]:
         return self.apps
 
+    def pids_of(self, bundle_ids: Any) -> set[int]:
+        return {a.pid for a in self.apps if a.bundle_id.casefold() in bundle_ids}
+
     def frontmost(self) -> RunningApp | None:
         return next(a for a in self.apps if a.active)
 
@@ -174,6 +177,9 @@ class FakeShots:
 
     def window_at(self, x: float, y: float, max_layer: int = 0) -> Window | None:
         return Window(self.top if self.top is not None else 110, 0, self.bounds, "w")
+
+    def windows_at(self, x: float, y: float) -> list[Window] | None:
+        return [w for w in [self.window_at(x, y)] if w is not None]     # every level: no FERB window here
 
     def capture(self, w: Window, marks: Any = None) -> tuple[bytes, int, int]:
         self.captured.append(w.id)

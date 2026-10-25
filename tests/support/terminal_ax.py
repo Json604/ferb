@@ -270,6 +270,9 @@ class TerminalApps:
     def running(self) -> list[RunningApp]:
         return self.apps
 
+    def pids_of(self, bundle_ids: Any) -> set[int]:
+        return {a.pid for a in self.apps if a.bundle_id.casefold() in bundle_ids}
+
     def frontmost(self) -> RunningApp | None:
         return next((a for a in self.apps if a.active), None)
 

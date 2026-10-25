@@ -27,8 +27,13 @@ NOTCH, CODE = RunningApp("dev.ferb.notch", "FERB", 900, False), RunningApp("com.
 
 
 class Apps:
+    """Like the real apps module: `running()` lists Regular apps only, so the notch (an accessory, LSUIElement app)
+    isn't in it; `pids_of` reads every running app whatever its activation policy (round 3, H1). `find` searches
+    every app, so `app()`'s own refusal is exercised (the real `find` never resolves the notch at all)."""
+
     def __init__(self, front: RunningApp) -> None:
         self.apps, self.front, self.activated = [NOTCH, CODE], front, []
+        self.accessory = {NOTCH.pid}
 
     def find(self, q: str) -> RunningApp | None:
         hits = [a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower(), f"pid:{a.pid}")]
@@ -38,7 +43,10 @@ class Apps:
         return [a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower(), f"pid:{a.pid}")]
 
     def running(self) -> list[RunningApp]:
-        return self.apps
+        return [a for a in self.apps if a.pid not in self.accessory]
+
+    def pids_of(self, bundle_ids: Any) -> set[int]:
+        return {a.pid for a in self.apps if a.bundle_id.casefold() in bundle_ids}
 
     def frontmost(self) -> RunningApp | None:
         return self.front
@@ -137,11 +145,11 @@ def test_a_click_where_a_notch_window_would_take_it_is_refused(monkeypatch: pyte
     assert posted == [] and ax.pressed == []
 
 
-def test_typing_or_a_key_while_the_notch_is_in_front_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_foreground_typing_or_a_key_while_the_notch_is_in_front_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, posted = _driver(monkeypatch, front=NOTCH)
     asyncio.run(d.snapshot("Code"))
-    for action in (ComputerAction("type", "s1e1", "yes", mechanism="pid"), ComputerAction("key", None, "return"),
-                   ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True)):
+    for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
+                   ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True)):
         with pytest.raises(Refused, match=OWN):
             asyncio.run(d.act("Code", action, "w1", "t1"))
     assert posted == []
@@ -163,3 +171,112 @@ def test_a_script_for_a_ferb_app_or_naming_one_to_system_events_is_refused_not_a
     opener = MacOpen(d)
     out = asyncio.run(opener.run(opener.Input(bundle_id="dev.ferb.notch"), SimpleNamespace(task_id="t1")))
     assert out.is_error and OWN in out.content["error"]
+
+
+# ---------- fix round 3, H1: the real notch is an accessory app, at window level 25 ----------
+
+NOTCH_PANEL = Window(77, NOTCH.pid, (560.0, 0.0, 400.0, 220.0), "")             # the expanded question, level 25
+APPROVE = (760, 180)                                                            # its Approve button (screen points)
+
+
+def _shot_over_notch(d: MacComputerDriver, ax: Ax, layered: list[tuple[Window, int]] | None) -> None:
+    """VS Code's window spans the screen's top; the notch's question covers its top centre. `layered`: what the window
+    list shows at a point, front to back, with each window's level (None: the window list can't be read)."""
+    d._state[CODE.bundle_id] = _AppState(pid=CODE.pid, shot=Shot("s1", 4115, (0.0, 0.0, 1512.0, 900.0), (1512, 900),
+                                                                   pid=CODE.pid))
+    code_win = Window(4115, CODE.pid, (0.0, 0.0, 1512.0, 900.0), "FERB")
+    d.shots = SimpleNamespace(window=lambda wid: code_win, window_at=lambda x, y, max_layer=0: code_win,
+                              on_screen=lambda wid: True,
+                              windows_at=lambda x, y: None if layered is None else [w for w, _ in layered])
+
+
+def test_a_click_on_the_real_notchs_approve_button_is_refused_by_every_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The notch isn't in `apps.running()` (accessory): its pid is found among every running app. A pointer click and a
+    foreground press of an element whose centre lies under the notch's question are refused."""
+    d, ax, posted = _driver(monkeypatch)
+    assert NOTCH not in d.apps.running()
+    _shot_over_notch(d, ax, [])
+    ax.hits = {APPROVE: NOTCH.pid}
+    with pytest.raises(Refused, match=OWN):
+        asyncio.run(d.click_at("Code", "s1", *APPROVE, mechanism="pointer"))
+    with pytest.raises(Refused, match=OWN):
+        asyncio.run(d.pointer_at("Code", "s1", *APPROVE, "click"))
+    ax.center = lambda n: APPROVE                                               # type: ignore[method-assign]
+    asyncio.run(d.snapshot("Code"))
+    with pytest.raises(Refused, match=OWN):
+        asyncio.run(d.act("Code", ComputerAction("press", "s1e1", mechanism="foreground", allow_foreground=True),
+                          "w1", "t1"))
+    assert posted == []
+
+
+def test_when_the_hit_test_cant_tell_a_ferb_window_at_the_point_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the system hit test failing, every window level is read: a FERB window at the point (the notch's panel at
+    level 25, or one FERB can't tell is click-through) refuses the click; no window list refuses it too."""
+    d, ax, posted = _driver(monkeypatch)
+    ax.hits = {}                                                                # the hit test answers nothing
+    _shot_over_notch(d, ax, [(NOTCH_PANEL, 25), (Window(4115, CODE.pid, (0.0, 0.0, 1512.0, 900.0), "FERB"), 0)])
+    with pytest.raises(Refused, match="FERB can't confirm what is under this point"):
+        asyncio.run(d.click_at("Code", "s1", *APPROVE, mechanism="foreground", allow_foreground=True))
+    _shot_over_notch(d, ax, None)
+    with pytest.raises(Refused, match="FERB can't confirm what is under this point"):
+        asyncio.run(d.click_at("Code", "s1", *APPROVE, mechanism="foreground", allow_foreground=True))
+    code_win = Window(4115, CODE.pid, (0.0, 0.0, 1512.0, 900.0), "FERB")
+    _shot_over_notch(d, ax, [(code_win, 0)])
+    assert d._own_point(50, 600, CODE.pid) is None                              # VS Code is on top there: allowed
+    _shot_over_notch(d, ax, [(code_win, 0), (NOTCH_PANEL, 0)])
+    assert d._own_point(*APPROVE, CODE.pid) is None                             # the notch yielded behind VS Code
+    assert posted == []
+
+
+def test_the_window_list_reads_every_level_and_skips_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`windows_at` reads the on-screen window list on every level, front to back: the notch's level-25 panel and a
+    transparent FERB window are both there (no window is assumed click-through); an unreadable list is None."""
+    import ferb.act.mac.screenshot as shots
+
+    def info(level: int, pid: int, num: int, alpha: float = 1.0) -> dict[str, Any]:
+        return {"kCGWindowNumber": num, "kCGWindowOwnerPID": pid, "kCGWindowLayer": level, "kCGWindowAlpha": alpha,
+                "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 1512, "Height": 900}}
+    monkeypatch.setattr(shots, "_info_windows", lambda everywhere=False: [info(26, NOTCH.pid, 5, 0.0),
+                                                                          info(25, NOTCH.pid, 77),
+                                                                          info(0, CODE.pid, 4115)])
+    assert [(w.id, w.pid) for w in shots.windows_at(*APPROVE) or []] == [(5, 900), (77, 900), (4115, CODE.pid)]
+    assert shots.window_at(*APPROVE).id == 4115                                 # the layer-0 lookup can't see it
+
+    def broken(everywhere: bool = False) -> list[dict[str, Any]]:
+        raise RuntimeError("window server")
+    monkeypatch.setattr(shots, "_info_windows", broken)
+    assert shots.windows_at(*APPROVE) is None
+
+
+def test_ferbs_pids_come_from_every_running_app_whatever_its_activation_policy(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """`apps.pids_of` reads NSWorkspace's whole list (accessory and UI-element apps included), not the Regular one."""
+    import AppKit
+
+    import ferb.act.mac.apps as apps
+    from ferb.sense.front_window import FERB_APPS
+
+    def app(bundle: str | None, pid: int, policy: int) -> Any:
+        return SimpleNamespace(bundleIdentifier=lambda: bundle, processIdentifier=lambda: pid,
+                               activationPolicy=lambda: policy)
+    listed = [app("dev.ferb.notch", 900, 1), app("com.ferb.FERB", 901, 2), app("com.microsoft.VSCode", 41154, 0),
+              app(None, 5, 2)]
+    workspace = SimpleNamespace(runningApplications=lambda: listed)
+    monkeypatch.setattr(AppKit, "NSWorkspace", SimpleNamespace(sharedWorkspace=lambda: workspace))
+    assert apps.pids_of(FERB_APPS) == {900, 901}
+
+
+def test_background_input_goes_on_while_the_notch_holds_the_keyboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M1: process-directed typing and keys go to the target app's process and can't reach the notch, so they work
+    while the notch is key; foreground keyboard and pointer input, which go to whatever is in front, are refused."""
+    d, ax, posted = _driver(monkeypatch, front=NOTCH)
+    asyncio.run(d.snapshot("Code"))
+    assert asyncio.run(d.act("Code", ComputerAction("type", "s1e1", "hello", mechanism="pid"), "w1", "t1")).ok
+    assert asyncio.run(d.act("Code", ComputerAction("key", None, "return", mechanism="pid"), "w1", "t1")).ok
+    assert posted == ["type hello", "key return"]
+    for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
+                   ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True),
+                   ComputerAction("press", "s1e1", mechanism="foreground", allow_foreground=True)):
+        with pytest.raises(Refused, match=OWN):
+            asyncio.run(d.act("Code", action, "w1", "t1"))
+    assert posted == ["type hello", "key return"]

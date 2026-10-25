@@ -120,6 +120,21 @@ def window(window_id: int) -> Window | None:
     return next((_window(d) for d in _info_windows(True) if int(d["kCGWindowNumber"]) == window_id), None)
 
 
+def windows_at(x: float, y: float) -> list[Window] | None:
+    """Every visible window at this point, all levels, front to back (fix round 3, H1: the notch's panel sits above
+    layer 0); None when the window list can't be read."""
+    try:
+        found = []
+        for d in _info_windows():                    # every level; nothing skipped, not even a transparent window
+            w = _window(d)
+            bx, by, bw, bh = w.bounds
+            if bx <= x < bx + bw and by <= y < by + bh:
+                found.append(w)
+        return found
+    except Exception:
+        return None
+
+
 def window_at(x: float, y: float, max_layer: int = 0) -> Window | None:
     """The topmost visible window at this point among layers <= max_layer (the fallback when Accessibility can't
     hit-test: higher layers hold full-screen click-through overlays the window list can't tell apart)."""
