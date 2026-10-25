@@ -368,6 +368,25 @@ def test_dmg_holds_the_app_and_an_applications_link_and_is_notarized_only_with_a
             assert b"ferb-notary" not in f.read_bytes(), f
 
 
+FIRST_OPEN = "First open — System Settings → Privacy & Security → Open Anyway.txt"
+
+
+def test_dmg_is_named_for_the_apps_architecture_and_says_how_to_open_it_the_first_time(tmp_path: Path) -> None:
+    env = {**_stubs(tmp_path), "FERB_DMG_DIR": str(tmp_path / "dist")}
+    for arch, name in (("arm64", "FERB-AppleSilicon.dmg"), ("x86_64", "FERB-Intel.dmg")):
+        app = _fake_app(tmp_path / arch)
+        compile_macho(app / "Contents/MacOS/FERBNotch", arch)
+        done = subprocess.run([str(BUILD_DMG), str(app)], capture_output=True, text=True, env=env)
+        assert done.returncode == 0, done.stderr + done.stdout
+        assert (tmp_path / "dist" / name).is_file(), name
+    staging = (tmp_path / "staging.txt").read_text()
+    assert FIRST_OPEN in staging and "Applications -> /Applications" in staging and "FERB.app" in staging
+    universal = _fake_app(tmp_path / "fat")              # copies of /usr/bin/true: x86_64 and arm64e in one file
+    done = subprocess.run([str(BUILD_DMG), str(universal)], capture_output=True, text=True, env=env)
+    assert done.returncode != 0 and "one-architecture" in done.stderr
+    assert sorted(p.name for p in (tmp_path / "dist").iterdir()) == ["FERB-AppleSilicon.dmg", "FERB-Intel.dmg"]
+
+
 # ---------- a real bundle ----------
 
 def _real_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
