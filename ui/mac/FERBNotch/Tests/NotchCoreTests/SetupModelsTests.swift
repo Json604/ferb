@@ -137,4 +137,20 @@ final class SetupModelsTests: XCTestCase {
         }
         XCTAssertEqual(PermissionCopy.status(.granted), "On")
     }
+
+    func testAIReplyCarriesEachSignIn() {
+        let snapshot = AISnapshot(reply: [
+            "roles": ["orchestrator": "claude", "worker": "claude", "checker": "claude"],
+            "runtimes": [["name": "claude", "usable": true, "fix": "", "model": "", "signed_in": false,
+                          "sign_in": ["state": "waiting", "url": "https://claude.ai/oauth/authorize?x=1", "why": ""]],
+                         ["name": "codex", "usable": true, "fix": "", "model": "", "signed_in": true]]])!
+        XCTAssertEqual(snapshot.signIn("claude")?.state, "waiting")
+        XCTAssertEqual(snapshot.signIn("claude")?.url?.host, "claude.ai")
+        XCTAssertTrue(snapshot.signIn("claude")!.waiting)
+        XCTAssertNil(snapshot.signIn("codex"))
+        XCTAssertTrue(snapshot.signedIn("codex"))
+        XCTAssertFalse(snapshot.signedIn("claude"))
+        XCTAssertNil(SignInStatus(["state": "idle", "url": "", "why": ""])?.url)
+        XCTAssertNil(SignInStatus(nil))
+    }
 }

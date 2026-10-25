@@ -13,6 +13,7 @@ final class SetupModel: ObservableObject {
     @Published private(set) var ai: AISnapshot?
     @Published private(set) var aiMessage: String?
     @Published private(set) var signingIn = false
+    @Published private(set) var claudeSigningIn = false
     @Published private(set) var permissions: PermissionSnapshot?
     @Published private(set) var hearingRow: PermissionRow?
     @Published private(set) var appRows: [PermissionRow] = []
@@ -160,7 +161,14 @@ final class SetupModel: ObservableObject {
         do {
             ai = AISnapshot(reply: try await rpc.call("runtimes.status", params: [:]))
             clearNotAnswering()
-        } catch { message = Self.notAnswering }
+        } catch {
+            message = Self.notAnswering
+            return
+        }
+        guard claudeSigningIn, let status = claudeSignIn, !status.waiting else { return }
+        claudeSigningIn = false                        // the daemon's Claude sign-in ended
+        if status.state == "signed_in" { await use("claude", check: true) }
+        else { aiMessage = status.why.isEmpty ? "Not signed in to Claude." : status.why }
     }
 
     func signInWithChatGPT() {
@@ -182,6 +190,41 @@ final class SetupModel: ObservableObject {
     func cancelSignIn() { runner.cancel() }
 
     func useClaude() async { await use("claude", check: true) }
+
+    var claudeSignIn: SignInStatus? { ai?.signIn("claude") }
+
+    /// Sign in with Claude (owner 2026-10-25): the daemon runs the pinned Claude Code's own sign-in in the browser; the
+    /// credential stays with Claude Code in the Keychain. Polling (`refreshAI`) sees it end, then FERB uses Claude.
+    func signInWithClaude() async {
+        do {
+            let status = SignInStatus(try await rpc.call("runtimes.sign_in", params: ["runtime": "claude"]))
+            claudeSigningIn = status?.waiting == true
+            aiMessage = claudeSigningIn ? "Finish signing in to Claude in the browser window that opened."
+                : (status?.why ?? "FERB couldn't start the Claude sign-in.")
+        } catch { aiMessage = error.localizedDescription }
+        await refreshAI()
+    }
+
+    /// The code the sign-in page shows when its own redirect couldn't finish; it goes to the daemon's waiting sign-in
+    /// and is never kept here.
+    func sendClaudeCode(_ code: String) async {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do { _ = try await rpc.call("runtimes.sign_in", params: ["runtime": "claude", "code": trimmed]) }
+        catch { aiMessage = error.localizedDescription }
+    }
+
+    func cancelClaudeSignIn() async {
+        _ = try? await rpc.call("runtimes.sign_in", params: ["runtime": "claude", "cancel": true])
+        claudeSigningIn = false
+        aiMessage = nil
+        await refreshAI()
+    }
+
+    /// The owner's click when the browser didn't open by itself.
+    func openClaudeSignInPage() {
+        if let url = claudeSignIn?.url { system.open(url) }
+    }
 
     func saveAPIKey(_ provider: APIProvider, key: String) async {
         guard APIKeyEntry.isStorable(key) else {

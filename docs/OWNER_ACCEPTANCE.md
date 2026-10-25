@@ -1757,3 +1757,29 @@ SHA-1 in `scripts/release-cert.sha1`). Then, on the owner's account:
 Install N on a second macOS user, grant Accessibility, Screen Recording and Full Disk Access, run
 `~/.local/bin/ferb doctor`, replace it with N1 and run doctor again. Pass: same permission lines, no permission asked
 again, no second FERB entry in System Settings. If anything differs: stop and report (spec stop rule).
+
+## Native setup (L34 Phase C) — pending live check (2026-10-25)
+
+Nothing here is installed or observed yet. Run on a fresh second macOS user account with a built FERB.app
+(`scripts/build-dmg.sh`), the owner watching; pause between supervised actions and record what the owner saw.
+
+- Open FERB.app straight from the disk image: Welcome's **Set Up FERB** fails with "drag FERB.app to Applications…" and
+  stays on Welcome. Drag it to Applications, open it, **Set Up FERB**: the window moves to Choose your AI;
+  `launchctl print gui/$(id -u)/com.ferb.daemon` shows it running.
+- Choose your AI: **Sign in with ChatGPT** opens the browser; after signing in the row says Signed in and "FERB uses:
+  ChatGPT (Codex)". Paste a disposable API key and Save: `security find-generic-password -s ferb -a api/<provider>`
+  finds it; `ps -ax | grep security` during the save never shows the key.
+- Sign in with Claude (needs a Claude subscription): the browser opens Claude's sign-in page; after approving, the row
+  says Signed in, "FERB uses: Claude" and the check answers. `security find-generic-password -s "Claude
+  Code-credentials-$(printf %s ~/.ferb/claude-home | shasum -a 256 | cut -c1-8)"` finds the item (no `-w`: the value
+  stays unread); `grep -r "sk-ant" ~/.ferb/logs` finds nothing. Cancel during a second sign-in stops it.
+- Permissions: each **Grant** opens the named pane; Accessibility, Screen Recording and Input Monitoring already list
+  FERB; Full Disk Access shows FERB in Finder to drag in; after Screen Recording, **Restart FERB to check** ticks it.
+  Notifications and Microphone show macOS's prompts for FERB.app itself. Paste from Other Apps: **Grant** shows macOS's
+  paste alert once and opens that pane, where setting FERB to Allow ticks the row. Record anything that took focus.
+- On the owner's own Mac (already set up with `ferb setup`): the first launch of this build shows no setup window and
+  macOS asks once whether FERB may send notifications; the next launch doesn't ask again.
+- Browsers: **Add to Chrome** opens FERB's Web Store page in that profile; after adding and turning it on, the row
+  reads On, then Paired once you're in that profile's window.
+- Getting to know you: Save, Edit and Skip each close the question. Done opens the notch. Quit and reopen FERB.app: no
+  window. Replace FERB.app with a newer build: launch updates quietly.

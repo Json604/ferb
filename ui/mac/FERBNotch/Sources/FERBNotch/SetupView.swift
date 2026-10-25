@@ -89,11 +89,7 @@ struct AIStepView: View {
                 if model.signingIn { Button("Cancel") { model.cancelSignIn() } }
                 if model.ai?.usable("codex") == true { Text("Signed in").foregroundStyle(.secondary) }
             }
-            HStack {
-                Button("Use Claude") { Task { await model.useClaude() } }
-                Text("Your Claude subscription, signed in to Claude Code on this Mac").font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            ClaudeSignInRow(model: model)
             HStack {
                 Picker("API key", selection: $provider) {
                     ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
@@ -258,6 +254,41 @@ struct DoneStep: View {
             Text("• Double-tap the right Option key to open FERB, or click the notch.")
             Text("• Hold right Command + Option and speak to ask by voice.")
             Text("• Close the notch and keep working: FERB tells you when it needs you or finishes.")
+        }
+    }
+}
+
+struct ClaudeSignInRow: View {
+    @ObservedObject var model: SetupModel
+    @State private var code = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Button(model.claudeSigningIn ? "Waiting for your browser…" : "Sign in with Claude") {
+                    Task { await model.signInWithClaude() }
+                }
+                .disabled(model.claudeSigningIn)
+                if model.claudeSigningIn { Button("Cancel") { Task { await model.cancelClaudeSignIn() } } }
+                if model.ai?.signedIn("claude") == true && !model.claudeSigningIn {
+                    Text("Signed in").foregroundStyle(.secondary)
+                    if model.ai?.current != "claude" { Button("Use Claude") { Task { await model.useClaude() } } }
+                }
+            }
+            if model.claudeSigningIn {
+                if model.claudeSignIn?.url != nil {
+                    Button("Open the sign-in page") { model.openClaudeSignInPage() }
+                }
+                HStack {
+                    SecureField("Code from the page (only if it shows one)", text: $code)
+                    Button("Send") {
+                        let entered = code
+                        code = ""                              // the field never keeps it
+                        Task { await model.sendClaudeCode(entered) }
+                    }
+                    .disabled(code.isEmpty)
+                }
+            }
         }
     }
 }

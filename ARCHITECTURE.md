@@ -3565,6 +3565,30 @@ each failure, no per-part review sheet, no screenshots. FERB writes a file and o
 - **Debugging.** `sqlite3 ~/.ferb/ferb.db "select at, data_json from journal where kind = 'report.built'"`; the file
   itself is the record. Tests: `tests/test_failure_report.py`, `FailureReportTests.swift`.
 
+### 16.16 Native setup window (L34 phase C)
+
+FERB.app (`AppSetupController`) decides at launch from the installed LaunchAgent alone (`AppSetupPlan.decide`): a new
+install or another installation (after the owner's yes) opens `SetupView`; a replaced build or a stopped service runs
+`ferb setup --service --update` quietly and opens the window only on failure or a missing required grant
+(`SetupModel.needsPermissions`); otherwise the window opens only while `setup.permissions.setup_done` is false
+(`[setup] permissions_version` >= 27, set by `ferb setup` or `setup.finish`). Welcome runs the bundled `ferb setup
+--service` (`service_setup`: `Installer.install()` from the bundle, the app scan, FERB Voice's pin, the browser install
+requests; exit 0 once the daemon answers). Choose your AI uses `runtimes.status`/`runtimes.use`/`runtimes.check` and the
+bundled `ferb setup --codex-login`; an API key goes on `security -i`'s stdin into the Keychain item `ferb setup --key`
+writes (`KeychainAPIKeyStore`), never to the daemon. Permissions: the daemon's rows (`setup.permissions`, its own TCC
+identity: the agent app `Contents/Helpers/FERB.app`) with `setup.permission_request` for macOS's prompt; Full Disk
+Access is blocked until containment (CQ5) and revealed in Finder; Automation per running app through
+`automation.request`; FERB.app's own Notifications and Microphone+Speech rows are read and requested by FERB.app;
+FERB Voice's hearing row is probed only on entry. Browsers: `setup.browsers` (`autoinstall.read_states`, read only) and
+`setup.browser_open` (the Web Store page in that profile, on the owner's click). Getting to know you: `setup.persona`
+with `chat.approve`/`chat.answer`. Done: `setup.finish`, then the notch. Sign in with Claude (owner 2026-10-25):
+`runtimes.sign_in` runs `ClaudeSignIn` (`ferb/runtimes/claude_login.py`), the pinned Claude Code's own `auth login
+--claudeai` with `CLAUDE_CONFIG_DIR=~/.ferb/claude-home`; Claude Code writes the credential to the login Keychain
+itself; after `auth status --json` confirms it, FERB writes the marker `.ferb-signed-in`, and Claude runs
+(`ClaudeRuntime._options`) then get that `CLAUDE_CONFIG_DIR`. `ferb setup --claude-login` is the same from a terminal.
+Debugging: journal kinds `setup.permission_requested`, `setup.browser_opened`, `runtimes.changed`, `setup.finished`,
+`runtimes.sign_in`, `runtimes.sign_in_finished`.
+
 ### 16.15 Careful edits (L39)
 
 Owner 2026-10-25: tasks that edit the owner's documents "demand high agency and there should be a good level of

@@ -12,6 +12,22 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+
+## 0.27.0.dev1 FERB for everyone, phase C (L34) — 2026-10-25 — native setup window; owner live check pending
+
+- FERB.app's setup window replaces the setup console: Welcome, Choose your AI, Permissions, Browsers, Getting to know
+  you, Done; plain SwiftUI, styled later.
+- `ferb setup --service [--update]` installs or updates the background service with no questions.
+- New CLI-role RPCs: `setup.permissions`, `setup.permission_request`, `setup.finish`, `runtimes.status`,
+  `runtimes.use`, `runtimes.sign_in`, `setup.browsers`, `setup.browser_open` (docs/RPC.md). `runtimes.check`'s detail
+  is redacted.
+- Sign in with Claude, like Sign in with ChatGPT (owner, 2026-10-25): the pinned Claude Code's own `auth login` with
+  FERB's Claude home; the credential stays with Claude Code in the Keychain. `ferb setup --claude-login`.
+- `ferb setup` asks macOS to list FERB (`setup.permission_request`) before it opens each pane; Sign in to Codex… left
+  the menu bar (Choose your AI has it). Paste from Other Apps is an optional permission row.
+- Tests: tests/test_setup_rpcs.py, test_permissions.py, test_runtime_selection.py, test_extension_autoinstall.py,
+  test_setup_flow.py, test_claude_login.py; SetupModelsTests.swift, SetupModelTests.swift.
+
 ## 0.27.0.dev1 FERB for everyone, phase B (L34) — 2026-10-25 — stable signing; two-build TCC test pending
 
 Plan `docs/superpowers/plans/2026-10-25-packaging-b-stable-signing.md`.

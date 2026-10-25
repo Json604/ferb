@@ -25,14 +25,19 @@ disk image, or from source.
    FERB. The button is there for about an hour after the blocked attempt; if it's gone, open FERB again. macOS asks
    for your login password, then FERB opens and macOS remembers the choice
    ([Apple](https://support.apple.com/guide/mac-help/mh40616/mac)).
-3. FERB opens a **Set Up FERB** window that runs `ferb setup` from inside the app: the background service, the
-   browser extension and the permission steps. Answer its questions in the line at the bottom. Closing the window
-   doesn't stop setup; **Set Up FERB…** in FERB's menu bar shows it again.
-4. Near the end, setup asks **Sign in to ChatGPT for FERB now? [Y/n]**. Press Return: your browser opens ChatGPT's
-   sign-in, and FERB keeps the login in its own Codex home (`~/.ferb/codex-home`), never your personal Codex
-   settings. FERB can't answer anything until this is done. If you skipped it, or the sign-in didn't finish, choose
-   **Sign in to Codex…** in FERB's menu bar; it runs the same sign-in in the setup window. To use Claude instead,
-   see `ferb runtimes` below (that needs the `ferb` command).
+3. FERB opens its **Set Up FERB** window. **Set Up FERB** installs the background service from inside the app (a
+   minute; a copy opened from the disk image is refused with how to fix it). Then: **Choose your AI** (Sign in with
+   ChatGPT, which opens your browser and keeps the login in FERB's own Codex home `~/.ferb/codex-home`; Sign in with
+   Claude, which opens your browser and keeps the login in FERB's own Claude home `~/.ferb/claude-home` (Claude Code
+   keeps the credential in your Keychain); or an API key, which goes straight into your Keychain), **Permissions**
+   (each row's **Grant** opens the right System Settings pane and ticks itself when it's on; Full Disk Access shows
+   FERB in Finder to drag into the list; optional rows: Input Monitoring, Paste from Other Apps for what you copy,
+   Notifications, Microphone, Hearing app sound), **Browsers** (**Add to Chrome** opens FERB's Web Store page in that
+   profile; FERB pairs a profile by itself when you're in it), **Getting to know you** (save, edit or skip what FERB
+   found about the apps you use) and **Done**, which opens the notch.
+4. Closing the window doesn't stop a service install; **Set Up FERB…** in FERB's menu bar shows the window again. An
+   installation set up before this window existed is asked once, at launch, whether FERB may send notifications.
+   `ferb setup --codex-login` and `ferb setup --claude-login` sign in from a terminal (the `ferb` command).
 
 In Privacy & Security, FERB appears as **FERB**: the background service (Accessibility, Screen Recording, Full Disk
 Access, Automation) is FERB's agent app inside FERB.app, and dictation's Microphone and Speech Recognition belong to
@@ -42,7 +47,8 @@ push-to-talk, when you turn it on, adds its Microphone.
 
 FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
 before it replaces one, from its menu too. After you replace FERB.app with a newer build, the next launch updates the
-background service in the same window (and so does a launch that finds it not running). Every release is signed with
+background service quietly (and so does a launch that finds it not running); the setup window opens only if that
+fails or a required permission is missing. Every release is signed with
 the same FERB certificate, so an update keeps FERB's macOS permissions and its secret helper's Keychain access (the
 two-build check on a second macOS user is pending).
 

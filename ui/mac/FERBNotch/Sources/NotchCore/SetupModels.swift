@@ -155,12 +155,31 @@ public struct BrowserSnapshot: Equatable {
     }
 }
 
+/// A sign-in the daemon runs for a runtime (`runtimes.sign_in`): idle, waiting (for the browser or a pasted code),
+/// signed_in, or failed (`why` gives the exact steps to sign in by hand).
+public struct SignInStatus: Equatable {
+    public let state: String
+    public let url: URL?
+    public let why: String
+
+    public init?(_ value: Any?) {
+        guard let row = value as? [String: Any], let state = row["state"] as? String else { return nil }
+        self.state = state
+        url = (row["url"] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) }
+        why = row["why"] as? String ?? ""
+    }
+
+    public var waiting: Bool { state == "waiting" }
+}
+
 public struct RuntimeRow: Equatable, Identifiable {
     public var id: String { name }
     public let name: String
     public let usable: Bool
     public let fix: String
     public let model: String
+    public let signedIn: Bool
+    public let signIn: SignInStatus?
 }
 
 /// `runtimes.status`'s reply.
@@ -176,7 +195,8 @@ public struct AISnapshot: Equatable {
         runtimes = rows.compactMap { row in
             guard let name = row["name"] as? String else { return nil }
             return RuntimeRow(name: name, usable: row["usable"] as? Bool ?? false, fix: row["fix"] as? String ?? "",
-                              model: row["model"] as? String ?? "")
+                              model: row["model"] as? String ?? "", signedIn: row["signed_in"] as? Bool ?? false,
+                              signIn: SignInStatus(row["sign_in"]))
         }
     }
 
@@ -187,6 +207,8 @@ public struct AISnapshot: Equatable {
     }
 
     public func usable(_ name: String) -> Bool { runtimes.first { $0.name == name }?.usable ?? false }
+    public func signedIn(_ name: String) -> Bool { runtimes.first { $0.name == name }?.signedIn ?? false }
+    public func signIn(_ name: String) -> SignInStatus? { runtimes.first { $0.name == name }?.signIn }
 
     public static func label(_ runtime: String) -> String {
         ["codex": "ChatGPT (Codex)", "claude": "Claude", "anthropic": "your Anthropic API key",

@@ -316,4 +316,59 @@ final class SetupModelTests: XCTestCase {
             XCTAssertGreaterThan(view.fittingSize.height, 0, "\(step)")
         }
     }
+
+    private func aiReply(claude signIn: [String: Any], signedIn: Bool) -> [String: Any] {
+        ["roles": ["orchestrator": "codex", "worker": "codex", "checker": "codex"],
+         "runtimes": [["name": "codex", "usable": true, "fix": "", "model": "gpt-5.6-sol", "signed_in": true],
+                      ["name": "claude", "usable": true, "fix": "", "model": "", "signed_in": signedIn,
+                       "sign_in": signIn]]]
+    }
+
+    func testSignInWithClaudeRunsTheDaemonsSignInThenChoosesClaude() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "waiting",
+                                                              "url": "https://claude.ai/oauth/authorize?x=1", "why": ""],
+                                                     signedIn: false)
+        rig.rpc.replies["runtimes.check"] = ["ok": true, "detail": "answered"]
+        let model = rig.model()
+        await model.signInWithClaude()
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").first?["runtime"] as? String, "claude")
+        XCTAssertTrue(model.claudeSigningIn)
+        model.openClaudeSignInPage()
+        XCTAssertEqual(rig.opener.opened.last?.host, "claude.ai")
+        await model.sendClaudeCode("  fake-auth-code-0123456789 \n")
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").last?["code"] as? String, "fake-auth-code-0123456789")
+        let state = Mirror(reflecting: model).children.map { String(describing: $0.value) }.joined()
+        XCTAssertFalse(state.contains("fake-auth-code-0123456789"))          // the code isn't kept in the window
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "signed_in", "url": "", "why": ""], signedIn: true)
+        await model.refreshAI()
+        XCTAssertFalse(model.claudeSigningIn)
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.use").last?["runtime"] as? String, "claude")
+        XCTAssertEqual(model.aiMessage, "Claude answered. FERB uses it now.")
+    }
+
+    func testAFailedClaudeSignInShowsTheStepsToDoItByHand() async {
+        let rig = SetupRig()
+        let why = "Claude didn't confirm the sign-in. Try again. To sign in by hand, run this in Terminal yourself: " +
+            "\"/Applications/FERB.app/Contents/Resources/bin/ferb\" setup --claude-login"
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        let model = rig.model()
+        await model.signInWithClaude()
+        rig.rpc.replies["runtimes.status"] = aiReply(claude: ["state": "failed", "url": "", "why": why], signedIn: false)
+        await model.refreshAI()
+        XCTAssertFalse(model.claudeSigningIn)
+        XCTAssertEqual(model.aiMessage, why)
+        XCTAssertTrue(rig.rpc.params(of: "runtimes.use").isEmpty)
+    }
+
+    func testCancelStopsTheClaudeSignIn() async {
+        let rig = SetupRig()
+        rig.rpc.replies["runtimes.sign_in"] = ["state": "waiting", "url": "", "why": ""]
+        let model = rig.model()
+        await model.signInWithClaude()
+        await model.cancelClaudeSignIn()
+        XCTAssertEqual(rig.rpc.params(of: "runtimes.sign_in").last?["cancel"] as? Bool, true)
+        XCTAssertFalse(model.claudeSigningIn)
+    }
 }
