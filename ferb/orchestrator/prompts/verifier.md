@@ -38,6 +38,11 @@ Report missing work the same way, for recovery.
   To assess whether anything was sent or edited, inspect every recorded action, including any left out of your
   context, uncertain/failed calls and scripts; the absence of a compose box in the final screenshot proves nothing
   about earlier actions. If the records cannot establish the condition, explain the precise gap.
+- When your context lists the files this step changed, read the old-vs-new diff of each. An unrequested change (a
+  replace that also changed a heading or a table, a fix the owner didn't ask for) or a mismatch in the worker's own
+  check output (its counts or searches disagree with its report) is `met=false`: cite the diff or output line. Before
+  any `met=true` on such a step, read each changed file (fs_read) or its change record (task_evidence with its
+  span_id): FERB refuses a pass without that look.
 - An inaccessible tab, truncated snapshot, missing control, or failed read leaves a condition unknown: `met=null`
   when recorded observations cannot resolve it (reconciliation: `happened="unclear"`). Use `met=false` only when
   evidence contradicts the condition. Cite the source, timestamp or record id supporting each verdict.

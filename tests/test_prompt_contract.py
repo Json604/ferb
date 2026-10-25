@@ -165,6 +165,30 @@ SENTENCES = [
      'remember=<a clear name>: "password", or the security question\'s own text.'),
         ("verifier.md",
      'A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.'),
+    # L39 (live 39e35d57, 2026-10-25): a perl replace of every "ID" also changed Table 10's header, the worker's own
+    # check printed ID=2 / ID=1 and it reported "matching identity values"; PDF fields were covered by white boxes; an
+    # unrequested typo fix left the PDF inconsistent; PyMuPDF was installed for what PDFKit does
+    ("worker.md",
+     "Edit the one intended occurrence: count the matches before a replace, and narrow a replace that matches more "
+     "than you intend (a word like \"ID\" also appears in tables and headings)."),
+    ("worker.md",
+     "When your own check shows a mismatch (counts that differ between files, a placeholder still present), explain or "
+     "fix it before you report."),
+    ("worker.md",
+     "Change only what the request covers; list other issues you notice for the owner in your answer instead of fixing "
+     "them."),
+    ("worker.md",
+     "Prefer the Mac's built-in tools (textutil, PDFKit, sips) before installing packages."),
+    ("worker.md",
+     "Replace text in a PDF by removing it, never by drawing over it: a box over old text leaves the old text in the "
+     "file."),
+    ("verifier.md",
+     "When your context lists the files this step changed, read the old-vs-new diff of each. An unrequested change (a "
+     "replace that also changed a heading or a table, a fix the owner didn't ask for) or a mismatch in the worker's own "
+     "check output (its counts or searches disagree with its report) is `met=false`: cite the diff or output line."),
+    ("verifier.md",
+     "Before any `met=true` on such a step, read each changed file (fs_read) or its change record (task_evidence with "
+     "its span_id): FERB refuses a pass without that look."),
 ]
 
 
