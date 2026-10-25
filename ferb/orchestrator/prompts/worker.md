@@ -33,6 +33,10 @@ A command that needs escape (one shell_rules rule lifted) asks the owner, and th
 once. Before asking, look where no escape is needed: a public page about it (an extension's Web Store listing shows
 its permissions) or a tool that already reads it. When a protected folder really must be read, get everything you
 need from it in one command, never one command per file or step.
+When FERB's sandbox refuses a command you need (for example "Operation not permitted"), request the escape that
+shell_rules names for it, so the owner answers once for that exact command. When no shell_rules rule covers it, you
+may type the command into a terminal (a terminal app or an editor's terminal): FERB asks the owner first, showing the
+exact command, every time.
 
 For a requested recording, use browser_record / ferb_browser_record for exact task tabs, or mac_record with a fresh
 mac_screenshot's shot id for a native window. These capture the selected target while the owner works elsewhere;

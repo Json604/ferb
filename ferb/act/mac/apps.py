@@ -3,6 +3,7 @@
 import threading
 import time
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,36 @@ def known_opens_web_links(bundle_id: str) -> bool:
     the event loop); False without one."""
     handlers = _fresh()
     return handlers is not None and bundle_id.strip().casefold() in handlers
+
+
+# D31: what an app's Info.plist declares about running programs. Terminal.app declares the Shell role for executables
+# and shell scripts; an editor declares Editor for shell scripts. A fact the app states, read once per bundle id.
+SHELL_TYPES = frozenset({"public.unix-executable", "com.apple.terminal.shell-script", "public.shell-script"})
+_shell_apps: dict[str, bool] = {}
+
+
+def shell_role(info: Any) -> bool:
+    """Whether an Info.plist (a mapping) has a document type with CFBundleTypeRole "Shell" for executables or shell
+    scripts."""
+    types = (info.get("CFBundleDocumentTypes") if info is not None else None) or ()
+    return any(str(t.get("CFBundleTypeRole") or "") == "Shell" and
+               bool(SHELL_TYPES & {str(u) for u in (t.get("LSItemContentTypes") or ())}) for t in types)
+
+
+def declares_shell(bundle_id: str) -> bool:
+    """Whether the installed app's Info.plist declares the Shell role for executables or shell scripts (`shell_role`;
+    ferb/policy/terminal.py counts such an app a terminal). Read-only, cached per bundle id; False when the app or its
+    Info.plist can't be read."""
+    key = bundle_id.strip().casefold()
+    if key not in _shell_apps:
+        try:
+            from AppKit import NSWorkspace
+            from Foundation import NSBundle
+            url = NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(bundle_id)
+            _shell_apps[key] = shell_role(NSBundle.bundleWithURL_(url).infoDictionary() if url is not None else None)
+        except Exception:
+            return False
+    return _shell_apps[key]
 
 
 def frontmost() -> RunningApp | None:

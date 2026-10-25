@@ -35,7 +35,8 @@ from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
 from ferb.core.errors import DriverError, FerbError, Refused, StaleRef, Withheld
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
-                             PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
+                             PageSnapshot, SecretRef, SecretSpec, TabRef, TerminalInput, ToolContext, WaitCondition)
+from ferb.policy import terminal as terminals
 from ferb.orchestrator.ledger import Ledger
 from ferb.sanitize.redact import Redactor
 
@@ -695,6 +696,8 @@ class _Tab:
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
     motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
+    # D31: the web terminal element FERB just typed approved text into, and that Yes: it covers one Return there
+    armed: tuple[str, str] | None = None
 
 
 REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
@@ -1096,6 +1099,9 @@ class _TabDriver:
         t.visual = None
         if action.kind == "type" and info.secret:
             raise Refused("that's a password/code field; FERB never types into it")
+        into = action.kind in ("type", "press") and info.terminal                # D31: a web terminal
+        if into and (refusal := self._terminal_refusal(t, el.element_id, action)):
+            raise Refused(refusal)
         if action.kind == "upload":
             return await self._upload(t, frame, snap, local, action.files, intent_id, action.files_closed)
         args: dict[str, Any] = {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
@@ -1116,6 +1122,10 @@ class _TabDriver:
             raise
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
+        if into:                                       # one Return stays covered after approved text, nothing else
+            g = action.terminal
+            t.armed = ((el.element_id, g.confirmation_id) if g is not None and action.kind == "type" and g.input.enter
+                       and v.get("ok") else None)
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")),
                             {k:value for k,value in v.items() if k not in {"ok","detail"}})
 
@@ -1636,6 +1646,40 @@ class _TabDriver:
         t = self._tabs.get(tab_id)
         hit = t.elements.get(element_id) if t else None
         return hit[3] if hit else None
+
+    def terminal_input(self, tab_id: str, element_id: str, kind: str, text: str | None) -> TerminalInput | None:
+        """D31: what this act would put into a web terminal (the snapshot marked the element inside xterm.js's own
+        nodes), for the gateway's question, else None. A Return on the element FERB just typed approved text into is
+        covered by that Yes (`covered_by`)."""
+        t = self._tabs.get(tab_id)
+        info = self.element_info(tab_id, element_id)
+        if t is None or info is None or not info.terminal or kind not in ("type", "press") or text is None:
+            return None
+        host = urlsplit(t.url or "").hostname or ""
+        app, bid = (f"the page on {host}" if host else "a web page"), f"web:{host}"
+        why = "a terminal in the page (xterm.js)"
+        if kind == "type":
+            return TerminalInput(app, bid, why, text=text, enter=not terminals.newline(text))
+        if text.strip().casefold() in terminals.RETURN_KEYS and t.armed is not None and t.armed[0] == element_id:
+            return TerminalInput(app, bid, why, keys="return", covered_by=t.armed[1])
+        return TerminalInput(app, bid, why, keys=text)
+
+    @staticmethod
+    def _terminal_refusal(t: _Tab, element_id: str, action: BrowserAction) -> str | None:
+        """Right before input is sent into a web terminal: None when the owner's Yes names exactly this input (a Return
+        only on the element the approved text went into), else the refusal; nothing is sent then."""
+        g = action.terminal
+        if g is not None and action.kind == "type" and g.input.text == action.text and not g.input.keys:
+            return None
+        if g is not None and action.kind == "press" and action.text is not None:
+            if g.input.covered_by is not None:
+                if (action.text.strip().casefold() in terminals.RETURN_KEYS and g.input.covered_by == g.confirmation_id
+                        and t.armed == (element_id, g.confirmation_id)):
+                    return None
+            elif g.input.keys == action.text and g.input.text is None:
+                return None
+        host = urlsplit(t.url or "").hostname or ""
+        return terminals.UNASKED.format(why="a terminal in the page (xterm.js)", app=host or "a web page")
 
     def element_ref(self, tab: TabRef, element_id: str) -> ElementRef:
         head = element_id[1:].split("e")[0] if element_id.startswith("s") else ""

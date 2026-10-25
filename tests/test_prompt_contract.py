@@ -119,6 +119,14 @@ SENTENCES = [
      "command once. Before asking, look where no escape is needed: a public page about it (an extension's Web Store "
      "listing shows its permissions) or a tool that already reads it. When a protected folder really must be read, get "
      "everything you need from it in one command, never one command per file or step."),
+    # live 2026-10-25 (task 6f5b8589): the sandbox refused `ps` and a socket, and the worker typed the command into
+    # the owner's VS Code terminal unasked; owner: "it should've just said that I'm getting blocked I just wanna run
+    # this can I?" (D31: the escape hatch, or a terminal input FERB asks about every time)
+    ("worker.md",
+     'When FERB\'s sandbox refuses a command you need (for example "Operation not permitted"), request the escape '
+     "that shell_rules names for it, so the owner answers once for that exact command. When no shell_rules rule "
+     "covers it, you may type the command into a terminal (a terminal app or an editor's terminal): FERB asks the "
+     "owner first, showing the exact command, every time."),
         ("worker.md",
      'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",

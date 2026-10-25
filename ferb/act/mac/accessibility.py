@@ -128,6 +128,11 @@ def _same(a: Any, b: Any) -> bool:
     return a is not None and b is not None and bool(CF.CFEqual(a, b))
 
 
+def same(a: Any, b: Any) -> bool:
+    """Whether two AX references name one element (CFEqual)."""
+    return _same(a, b)
+
+
 def actions(el: Any) -> list[str]:
     import ApplicationServices as AX
     if el is None:
@@ -657,6 +662,70 @@ def popup_menu(el: Any, pid: int) -> Any:
 
 def menu_items(menu: Any) -> list[tuple[Any, str]]:
     return [(i, _title(i)) for i in (_attr(menu, "AXChildren") or []) if role_of(i) == "AXMenuItem"]
+
+
+# D31: the facts code reads to tell whether an element is a terminal (ferb/policy/terminal.py decides), for the
+# element and each ancestor: structure (role, subrole, role description, identifiers, the DOM classes Chromium and
+# WebKit expose) and its own label. Never its value.
+SURFACE_ATTRS = {"role": "AXRole", "subrole": "AXSubrole", "role_description": "AXRoleDescription",
+                 "identifier": "AXIdentifier", "dom_identifier": "AXDOMIdentifier", "dom_classes": "AXDOMClassList",
+                 "title": "AXTitle", "description": "AXDescription"}
+SURFACE_DEPTH = 60                 # ancestors read at most (VS Code's terminal input sits ~30 deep)
+
+
+def _strings(v: Any) -> tuple[str, ...]:
+    """An AX list of strings (an NSArray) as a tuple; one string as itself; anything else as none."""
+    if v is None:
+        return ()
+    if isinstance(v, str):
+        return (v,)
+    try:
+        return tuple(str(c) for c in v)
+    except TypeError:
+        return ()
+
+
+def surface_facts(el: Any) -> list[dict[str, Any]]:
+    """The element's structural facts and label, then each ancestor's up to the app (`SURFACE_ATTRS`), for the terminal
+    check. Read-only; never a value. Empty for no element."""
+    chain: list[dict[str, Any]] = []
+    while el is not None and len(chain) < SURFACE_DEPTH:
+        facts: dict[str, Any] = {}
+        for key, name in SURFACE_ATTRS.items():
+            v = _attr(el, name)
+            if key == "dom_classes":
+                v = _strings(v)
+            if v not in (None, "", ()):
+                facts[key] = v if key == "dom_classes" else str(v)
+        chain.append(facts)
+        if facts.get("role") == "AXApplication":
+            break
+        el = _attr(el, "AXParent")
+    return chain
+
+
+def menu_item_shortcut(pid: int, path: list[str]) -> tuple[str, int] | None:
+    """The key equivalent of the menu item at `path` ("Edit", "Paste"), as (AXMenuItemCmdChar, AXMenuItemCmdModifiers),
+    found as `press_menu` finds the item. Read-only; None when the item has none or isn't uniquely there."""
+    import ApplicationServices as AX
+    level = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    el = None
+    for i, name in enumerate(path):
+        kids = _attr(level, "AXChildren") or []
+        if i > 0:
+            kids = [x for m in kids for x in (_attr(m, "AXChildren") or [])]
+        matches = [k for k in kids if _title(k) == name.strip()]
+        el = matches[0] if len(matches) == 1 else None
+        if el is None:
+            return None
+        level = el
+    return item_shortcut(el)
+
+
+def item_shortcut(item: Any) -> tuple[str, int] | None:
+    """A menu item's key equivalent (AXMenuItemCmdChar, AXMenuItemCmdModifiers), or None."""
+    ch, mods = _attr(item, "AXMenuItemCmdChar"), _attr(item, "AXMenuItemCmdModifiers")
+    return (str(ch), int(mods)) if ch and mods is not None else None
 
 
 def focused_element(pid: int) -> Any:

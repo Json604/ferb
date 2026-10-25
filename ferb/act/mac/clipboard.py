@@ -16,6 +16,20 @@ def write_general(text: str) -> int:
     return int(board.changeCount())
 
 
+CONCEALED = frozenset({"org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"})
+
+
+def read_general() -> tuple[int, str | None, bool]:
+    """The general pasteboard now: (change count, its text or None, whether an app marked the item secret). Read for
+    the owner's question before a paste into a terminal (D31); a concealed item's text is not returned."""
+    from AppKit import NSPasteboard, NSPasteboardTypeString
+    board = NSPasteboard.generalPasteboard()
+    types = {str(t) for t in (board.types() or ())}
+    concealed = bool(CONCEALED & types)
+    text = None if concealed else board.stringForType_(NSPasteboardTypeString)
+    return int(board.changeCount()), (str(text) if text is not None else None), concealed
+
+
 class MacClipboard:
     name = "mac.clipboard"
     description = "Write text to the Mac clipboard without changing focus. Reports the clipboard change count."

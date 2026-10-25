@@ -228,8 +228,8 @@ def test_native_acts_the_driver_refuses_or_sends_elsewhere_publish_no_point(monk
     assert _point(tool, cls, element='s1e2', action='type', text='x', mechanism='ax') is None
     assert _point(tool, cls, element='s1e2', action='set_value', text='x', mechanism='pid') is None
     assert _point(tool, cls, element='s1e2', action='focus') is not None
-    tool.protection = SimpleNamespace(terminal_apps={'com.x'})                    # FERB never types into a terminal
-    assert _point(tool, cls, element='s1e2', action='type', text='x') is None
+    tool.protection = SimpleNamespace(terminal_apps={'com.x'})     # typing into a terminal runs once the owner said
+    assert _point(tool, cls, element='s1e2', action='type', text='x') is not None    # Yes to it (D31): it points
     assert _point(tool, cls, element='s1e2', action='click') is not None
     assert _point(*_mac(monkeypatch, tool='secret', bundle='com.brave.Browser'), element='s1e2') is None   # web page
 

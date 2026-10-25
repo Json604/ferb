@@ -125,6 +125,8 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordi
     for cap in r.capabilities.values():
         if cap.name.startswith("mac."):
             cap.protection = protection  # type: ignore[attr-defined]
+    if protection is not None:          # D31: the owner's terminal apps, beside policy/terminal.py's built-in list
+        driver.terminal_apps = lambda: protection.terminal_apps
     from ferb.act.mac.clipboard import MacClipboard
     r.add(MacClipboard())
 

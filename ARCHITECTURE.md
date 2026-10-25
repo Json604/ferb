@@ -108,6 +108,9 @@ and the reason under Details; it takes `display_text` only for an ordinary `owne
   never the step or the task's reason.
 - The escape hatch (D31): "FERB wants to read <folder> once, with one command (normally off-limits: a private store
   FERB's shell never reads)." (`confirm._LIFTED`, by the lifted rule's kind: read, write, admin, the trustd service).
+- Terminal input (D31, rule 10): "FERB wants to type "codex" into the terminal in Code, then press Return there (it
+  runs as you, outside FERB's sandbox)." / "… press ctrl+c in the terminal in Code." / "… paste the clipboard's text
+  "…" into …" (`confirm._terminal`), the exact text JSON-quoted in full, never clipped.
 - An owner secret: "For <site or app> only: “<name>” · saved in your Mac's Keychain", or without saving "For <site or
   app>: a password or private answer — used once, not saved" (`gateway.secret_summary`; owner 2026-10-24: "just state
   what is this for"). The line always starts with the place from the code-derived target (an origin's host, with its
@@ -1623,6 +1626,45 @@ the owner must answer first (`confirm.decide`):
   again.
 - **Secrets (rule 14).** Keys and destinations are stored through the redactor; one the redactor changes is never
   known and never covers anything, so FERB asks again rather than let two secrets share one stored "[redacted]".
+- **Terminal input (D31, rule 10; live 2026-10-25).** Typing into any terminal (terminal apps and terminals inside
+  other apps, e.g. VS Code's) is enforced by code: FERB always asks the owner first, showing the exact command, every
+  time, with no standing permission; a No types nothing. Live: FERB's sandbox refused `ps` and the Codex control
+  socket, and a worker typed `codex` and Enter into the owner's VS Code terminal through `mac.act` (task 6f5b8589);
+  the old floor knew terminal apps only by bundle id. Now:
+  - *What a terminal is* ([`policy/terminal.py`](ferb/policy/terminal.py) `surface`, a where/what fact, rule 5, never
+    the text's meaning): a terminal app (the built-in `DEFAULT_TERMINAL_APPS`, always, plus the owner's
+    `[protection] terminal_apps`), an app whose Info.plist declares the Shell role for executables or shell scripts
+    (`apps.declares_shell`; Terminal.app does, editors declare Editor), an element inside xterm.js's own nodes by the
+    DOM classes Chromium and WebKit expose (`xterm`, `xterm-helper-textarea`: VS Code, Cursor, Windsurf, JupyterLab,
+    web terminals), in native content an element whose role, subrole, role description or identifier names a
+    terminal, console or shell, and, with none of those, a label on the element or an ancestor below its window
+    naming one (JetBrains IDEs' Terminal tool window, Xcode's console, Nova). Web content is judged by the library's
+    classes only; a label errs toward asking. Zed's terminal panel exposes no facts, so any typing in Zed asks.
+    `accessibility.surface_facts` reads the element and its ancestors (structure and label, never a value).
+  - *Asking.* `mac.act`, `mac.menu` and `browser.act` have `terminal_input(args, task)`: from the driver's facts now,
+    the input that would reach a terminal (typed, set or edited text into the element named; a key into the app's
+    keyboard focus; ⌘V, or a menu item whose key equivalent is ⌘V, pastes the clipboard's text, shown, or "marked
+    secret" for a password manager's concealed item). `Gateway._terminal` asks after the call's span starts and
+    before any lock is held, every time: rule `floor:terminal_input`, `always`, spent at once, so the same text asks
+    again, a retry included. A No is final for that exact input in the tree until the owner's own follow-up reopens
+    it. The Yes travels as `ToolContext.terminal` (`TerminalGrant`).
+  - *Enforced at delivery.* `MacComputerDriver._terminal_refusal` runs right before any text, value, edit, key or
+    paste goes out (pid, ax_keyboard, ax_value, foreground): input that would reach a terminal is delivered only when
+    the grant names exactly it, and the destination is the real keyboard focus after focusing (a container whose focus
+    lands in a terminal counts). A delivered approved text arms one Return in that element for that task (`_armed`):
+    `terminal_input` reports it `covered_by`, so the Return after the text isn't asked again; in another terminal, a
+    second time, or after any other key it asks. A paste's Yes holds while the pasteboard's change count is the one
+    shown. The browser driver (`ext_bridge._TabDriver.act`) does the same for an element the snapshot marked
+    `terminal` (extension 0.15.11), its one Return on the same element id. The refusal says "FERB types into a
+    terminal only after the owner's Yes to that exact input, every time (D31) … Run commands with FERB's shell tool;
+    if FERB's sandbox blocks a command you need, request the escape hatch".
+  - *Unchanged.* Clicks and focus into a terminal, and opening one ("Terminal > New Terminal"), need nothing.
+    `mac.applescript` and `mac.secret` never run in a terminal app (`precheck`).
+  - *Residuals.* A custom terminal panel exposing none of these facts in an app not listed; a menu command that runs
+    an editor's own text in its terminal ("Run Selected Text", tasks) is the app's feature, not FERB's typing; a
+    pixel click on a context menu's Paste (`mac.pointer`) and a drag of text onto a terminal aren't checked; a web
+    terminal reached through browser tools before the extension updates to 0.15.11 isn't marked (through `mac.act`
+    it is, by Accessibility's DOM classes).
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
   says `snapshot_error`, and `ferb doctor` shows the last failure in local time, or that snapshots are off (OPEN
   QUESTION 3).
@@ -3206,9 +3248,9 @@ Geometry only: nothing about what the action does or says leaves the tool.
   loop), not the snapshot's rect, which goes stale when a list scrolls or the window moves. They report none for an act
   the driver would refuse before any input or that doesn't go to the element (`driver.acts_on` mirrors `act`'s checks:
   no text, foreground without the call's permission, a route the action doesn't take, typing a password; keys go to
-  the app's focus; a drift test runs `act` against it) or that `precheck` refuses (a terminal app, `mac.secret` on a
-  browser). MacClick maps screenshot pixels to an 8×8 pt rect through `driver.shot_to_screen` (shared with
-  `click_at`); `shot_point` applies `click_at`'s moved-window check. MacMenu and MacPointer report none.
+  the app's focus; a drift test runs `act` against it) or that `precheck` refuses (a script or a secret in a terminal
+  app, `mac.secret` on a browser). MacClick maps screenshot pixels to an 8×8 pt rect through `driver.shot_to_screen`
+  (shared with `click_at`); `shot_point` applies `click_at`'s moved-window check. MacMenu and MacPointer report none.
   `screenshot.window_on_screen` counts a spot only when the frontmost normal window (layer 0, not transparent) at its
   centre, in the window server's front-to-back order, is the target: the process's window, the screenshot's window
   (by id) or the browser's matched window. So a minimized window, another Space or a window behind another window at

@@ -58,13 +58,13 @@ from ferb.clock import context
 from ferb.core import origin
 from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext, EscapeGrant
+from ferb.core.types import ToolContext, EscapeGrant, TerminalGrant
 from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
 from ferb.daemon.server import caller_left
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import TaskTree
-from ferb.policy import confirm, provenance, urls
+from ferb.policy import confirm, provenance, terminal as terminals, urls
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
 from ferb.policy.rules import EFFECTS, declare, declared_kinds
@@ -824,8 +824,15 @@ class Gateway:
                 except Refused as error:
                     self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
                     return reply({"error": str(error)}, True, {origin.FERB})
+            terminal = None
+            if hasattr(cap, "terminal_input"):           # D31, rule 10: every input into a terminal asks first
+                terminal, refused = await self._terminal(cap, name, args, grant, rec, span, arguments, why)
+                if refused is not None:                  # the owner said no, or wasn't there: nothing was typed
+                    self.spans.update_input(span.id, {"boundary_refused": True})
+                    self._finish_call(span, name, refused, True, error=str(refused["error"]))
+                    return reply(refused, True, {origin.FERB})
             return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments,
-                                    escape)
+                                    escape, terminal)
         finally:
             if escape is not None and escape.secret and isinstance(self.redact, Redactor):
                 self.redact.release_secret(escape.secret)
@@ -835,7 +842,8 @@ class Gateway:
 
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
-                    arguments: dict[str, Any], escape: EscapeGrant | None = None) -> dict[str, Any]:
+                    arguments: dict[str, Any], escape: EscapeGrant | None = None,
+                    terminal: TerminalGrant | None = None) -> dict[str, Any]:
         """The call under its resource locks, with the disturbance record around it."""
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
@@ -850,7 +858,7 @@ class Gateway:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
                     return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                               escape)
+                                               escape, terminal)
                 finally:
                     if self.disturbance is not None:
                         await self.disturbance.after_action(span.id)
@@ -1292,6 +1300,38 @@ class Gateway:
             raise Refused("the approved admin command was cancelled without a password")
         return EscapeGrant(rule, confirmation_id, command, str(cwd), secret)
 
+    async def _terminal(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any, span: Any,
+                        arguments: dict[str, Any], why: str) -> tuple[TerminalGrant | None, dict[str, Any] | None]:
+        """D31, CLAUDE.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
+        Code's) is enforced by code: FERB always asks the owner first, showing the exact command, every time, with no
+        standing permission; a No types nothing. The capability says what would go in, from the driver's facts now
+        (`terminal_input`); FERB asks while nothing is held. A Yes covers that one input (and the one Return after its
+        text) and is spent at once, so the next input asks again, the same text and a retry included. A No is final
+        for that exact input in this task tree until the owner's own follow-up reopens it. The driver delivers only
+        the input the Yes names. (the grant, None) to run; (None, the refusal) when nothing may be typed."""
+        inp = await cap.terminal_input(args, grant.task_id)
+        if inp is None:
+            return None, None
+        if inp.covered_by is not None:                   # the Return after text the owner just said Yes to
+            self.spans.update_input(span.id, {"terminal": {"confirmation": inp.covered_by, "covers": "return"}})
+            return TerminalGrant(inp, inp.covered_by), None
+        need = terminals.need(inp)
+        root = rec.tree_id or grant.task_id
+        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
+        if self.confirmations is None:                   # never skipped silently: no record, no input
+            return None, {"error": NOT_RECORDED.format(line=self._ferb_line([need], call, why))}
+        async with self._confirming.setdefault(root, asyncio.Lock()):
+            row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
+            if row is not None and not row["granted"]:
+                return None, {"error": ALREADY_NO.format(line=self._ferb_line([need], call, why)),
+                              "next": OWNER_DECIDED_NEXT}
+            answer = await self.ask_confirmation(grant, rec, [need], span, call, why)
+            if not answer:
+                return None, {"error": answer.error} | ({"next": answer.next} if answer.next else {})
+            self.confirmations.use(answer.ids[0])        # spent now: it never covers another input
+        self.spans.update_input(span.id, {"terminal": {"confirmation": answer.ids[0]}})
+        return TerminalGrant(inp, answer.ids[0]), None
+
     async def _admin_password(self, grant: RunGrant, rec: Any) -> str | None:
         if not isinstance(self.redact, Redactor) or rec.task.request_id in self.state.approvals.unattended:
             return None
@@ -1319,7 +1359,7 @@ class Gateway:
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
                        real: Path | None = None, claimed: Claimed | None = None,
-                       escape: EscapeGrant | None = None) -> dict[str, Any]:
+                       escape: EscapeGrant | None = None, terminal: TerminalGrant | None = None) -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
@@ -1338,7 +1378,8 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape)
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape,
+                              terminal=terminal)
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)

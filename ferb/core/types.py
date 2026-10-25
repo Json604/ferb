@@ -238,6 +238,31 @@ class EscapeGrant:
 
 
 @dataclass(frozen=True)
+class TerminalInput:
+    """Input about to reach a terminal (D31, rule 10: code asks the owner first, every time), as code found it: the
+    app, why it is a terminal (ferb/policy/terminal.py), and exactly what goes in. Facts only; never a judgement of
+    what the text does."""
+    app: str                                 # the app's name as the owner knows it
+    bundle_id: str
+    surface: str                             # why code counts it a terminal, for the question and the trace
+    text: str | None = None                  # the exact text typed, or pasted (`paste`)
+    keys: str | None = None                  # a key or combo pressed ("ctrl+c", "return")
+    paste: bool = False                      # the text is the clipboard's, put there by a paste
+    concealed: bool = False                  # paste: the clipboard item is marked secret; its text isn't shown
+    clipboard: int | None = None             # paste: the pasteboard's change count when asked (a new copy asks again)
+    enter: bool = False                      # the owner's Yes also covers one Return after this text
+    covered_by: str | None = None            # a Return covered by the Yes to the text FERB just typed there
+
+
+@dataclass(frozen=True)
+class TerminalGrant:
+    """The owner's Yes to one TerminalInput (one run: the next input asks again). The driver delivers only the input
+    the grant names and refuses any other input that would reach a terminal."""
+    input: TerminalInput
+    confirmation_id: str
+
+
+@dataclass(frozen=True)
 class ToolContext:
     task_id: str
     worker_id: str
@@ -258,6 +283,7 @@ class ToolContext:
     # the error to return when the lists close it, else None. None when the daemon has no lists (rule 10).
     path_closed: Callable[[Path, str], str | None] | None = None
     escape: EscapeGrant | None = None
+    terminal: TerminalGrant | None = None    # the owner's Yes to the one terminal input this call makes (D31)
 
 
 @dataclass(frozen=True)
@@ -310,6 +336,7 @@ class BrowserAction:
     end_element: str | None = None           # drag: another screenshot-resolved point in the same tab
     # upload: the protection lists' check of each file as the driver really opened it (ToolContext.path_closed)
     files_closed: Callable[[Path, str], str | None] | None = field(default=None, compare=False, repr=False)
+    terminal: TerminalGrant | None = field(default=None, compare=False)   # the owner's Yes to this input (D31)
 
 
 @dataclass(frozen=True)
@@ -345,6 +372,7 @@ class PageElement:
     container: str | None = None             # id of its scroll container (see PageSnapshot.scrollers), None = window
     state: tuple[str, ...] = ()              # "disabled", "expanded", "collapsed", "selected"
     level: int | None = None                 # headings
+    terminal: bool = False                   # inside a terminal library's own nodes (xterm.js), D31
 
 
 @dataclass(frozen=True)

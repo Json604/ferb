@@ -64,6 +64,10 @@ def page(url: str) -> dict[str, Any]:
                              {"role": "listitem", "label": "message 2", "form": None, "container": "c1",
                               "in_view": False, "offscreen": "below"},
                              {"role": "textbox", "label": "Type a message", "form": None}]}
+    if u.path == "/terminal":                             # a web terminal: an input inside xterm.js's nodes (D31)
+        return {"title": "Cloud Shell", "text": "$ ",
+                "elements": [{"role": "textbox", "label": "Terminal input", "form": None, "terminal": True},
+                             {"role": "textbox", "label": "Search docs", "form": None}]}
     if u.path == "/upload":
         return {"title": "Upload", "text": "pick a file",
                 "elements": [{"role": "button", "label": "Choose file", "form": "other", "input_type": "file"}]}
@@ -466,6 +470,8 @@ class FakeExtension:
                   "form": e.get("form"), "secret": bool(e.get("secret")), "code_fill": bool(e.get("code_fill"))}
             if e.get("offscreen"):
                 el["offscreen"] = e["offscreen"]
+            if e.get("terminal"):
+                el["terminal"] = True
             if e.get("container"):
                 el["container"] = e["container"]
                 containers.add(e["container"])

@@ -462,7 +462,7 @@ Known gaps:
 `shell.run`/`shell.start` may name one `escape` rule from `shell.rules`. FERB shows the exact command and working
 folder and asks once for that launch; a No is final for that command in the task. `admin` uses hidden password input,
 then starts the exact command inside the same sandbox under sudo. Read lifts do not lift writes; write lifts do not
-lift file contents. FERB state, its proxy requirement and terminal-app input restrictions are never lifted.
+lift file contents. FERB state, its proxy requirement and the question before terminal input are never lifted.
 Both worker identities can use shell, Mac and clipboard tools; account-bearing tools remain identity-bound, and
 checkers remain observation-only. `shell.send` records input as FERB's; `mac.clipboard` records the actual change.
 
@@ -490,7 +490,8 @@ answer more than one, FERB asks which. FERB asks only for these (Enter counts as
   files and outside content, a link carrying one of your actual private values, or a recipient, number or amount that
   only outside content (a page, an email, a message, text you pasted) supplied;
 - installing a tool you named that isn't installed (asked once);
-- an escape-hatch command, and a retry of a step whose outcome is unknown.
+- an escape-hatch command, and a retry of a step whose outcome is unknown;
+- typing into a terminal: every time, showing the exact command (below).
 
 A big job's plan doesn't wait: FERB states the plan, its estimate and any standing permission in the plan line and
 starts; reply to change it. You're asked once per task: your answer carries across its retries, and a No stops that
@@ -498,6 +499,17 @@ step for the task (when you yourself ask FERB to retry or continue, it asks that
 open while its task waits; it never expires. A recipient or place you named, chose in an answer, or said Yes to is
 known from then on and isn't asked about again. A scheduled run doesn't take such a step, since nobody is at chat to
 answer, except a send inside a standing permission recorded with the schedule.
+
+Typing into any terminal (terminal apps and terminals inside other apps, e.g. VS Code's) is enforced by code: FERB
+always asks you first, showing the exact command, every time, with no standing permission; a No types nothing. A Yes
+covers that one input and the one Return after it ("FERB wants to type "codex" into the terminal in Code, then press
+Return there"). What counts as a terminal: a terminal app (Terminal, iTerm2, Warp, Ghostty, Alacritty, kitty,
+WezTerm, Hyper, Tabby, Termius, Rio, Contour, any you add to `[protection] terminal_apps`, and any app whose
+Info.plist declares itself a shell); an xterm.js terminal inside an app or a page (VS Code, Cursor, Windsurf,
+JupyterLab, a cloud shell), by the classes xterm.js puts on its own elements; a native text area whose identifier or
+label names a terminal, console or shell (JetBrains IDEs' Terminal tool window, Xcode's console, Nova); and any
+typing in Zed, whose terminal panel shows Accessibility nothing. A click into a terminal, or opening one, needs no
+question. Not recognized: a custom terminal panel that exposes none of these facts.
 
 For a scheduled campaign (posts at set times), say the exact site and handle when you create the schedule, for
 example "every day at 9, post the next launch update on x.com from @handle": FERB records a schedule's standing

@@ -62,11 +62,14 @@ DEFAULT_NEVER_WRITE = (
     "~/.zshrc", "~/.zprofile", "~/.zshenv", "~/.zlogin", "~/.bash_profile", "~/.bashrc", "~/.profile",
     "/System", "/Library", "/Applications",
 )
-# D31: FERB never types into terminal apps (bundle ids; the owner may edit the list in config). L17: typed text is
-# never captured in these apps either (sense/watchers/text_input.py uses this constant).
-DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
+# D31: terminal apps (bundle ids). FERB types into a terminal only after the owner's Yes to that exact input, every
+# time (policy/terminal.py, which always counts these and adds the owner's [protection] terminal_apps); mac.applescript
+# and mac.secret never run in one. L17: typed text is never captured in these apps either (sense/watchers/text_input.py
+# uses this constant).
+DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "dev.warp.Warp-Preview",
                          "com.mitchellh.ghostty", "org.alacritty", "net.kovidgoyal.kitty", "com.github.wez.wezterm",
-                         "co.zeit.hyper")
+                         "co.zeit.hyper", "org.tabby", "com.termius-dmg.mac", "com.termius.mac",
+                         "com.raphaelamorim.rio", "org.contourterminal.contour")
 FERB_STATE, NETWORK, ADMIN, TRUSTD = "ferb_state", "network", "admin", "trustd"
 FERB_APP = "ferb_app"                                   # the FERB.app the daemon runs from: never written, never lifted
 WORKSPACE, UPLOADS = "workspace", "uploads"

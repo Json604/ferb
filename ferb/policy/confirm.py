@@ -45,6 +45,7 @@ SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kin
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
 SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one Yes/No covers it, shell and browser
 BULK = "sink:irreversible_bulk"
+TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: any input into a terminal, asked every time (policy/terminal.py)
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
@@ -499,9 +500,29 @@ def bulk_delete(path: str, facts: dict[str, Any]) -> Need:
                  "covers": "floor:delete_permanent"})
 
 
+def _terminal(v: dict[str, str]) -> str:
+    """A terminal input as what FERB would do, from the input's facts (D31): the exact text, keys or clipboard text,
+    where, and whether the Yes also covers its Return."""
+    where = f"the terminal in {v['app']}"
+    if v.get("paste"):
+        what = ("the clipboard's item, which an app marked secret (FERB doesn't show it)" if v.get("concealed") else
+                f"the clipboard's text {v['text']}")
+        said = f"paste {what} into {where}"
+    elif v.get("text"):
+        said = f"type {v['text']} into {where}"
+    elif v.get("keys") in ("return", "enter"):
+        return f"press Return in {where} (it runs what is on its command line, which FERB didn't type there)"
+    else:
+        return f"press {v['keys']} in {where}"
+    return said + (", then press Return there" if v.get("enter") else "") + " (it runs as you, outside FERB's sandbox)"
+
+
 def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     """One need in the owner's terms; `alongside` holds the rules of the other needs in the same question."""
     v = n.values
+    if n.rule == TERMINAL_INPUT:
+        return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
+                "before every input into a terminal, and this Yes covers this one input only")
     if n.rule == "floor:pay":
         return (f"this pays {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
                 + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
@@ -560,6 +581,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     """One need as what FERB wants to do, a verb phrase from the need's facts only (never the step or the task's
     reason); None when another need of the same question already says it."""
     v = n.values
+    if n.rule == TERMINAL_INPUT:
+        return _terminal(v)
     if n.rule == "floor:pay":
         return (f"pay {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
                 + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))

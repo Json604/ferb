@@ -18,7 +18,8 @@ from ferb.act.point import Point, display_of
 from ferb.core.errors import DriverError, FerbError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
-                             RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
+                             RiskLevel, SecretRef, SecretSpec, TabRef, Target, TerminalInput, ToolContext, ToolResult,
+                             WaitCondition)
 from ferb.policy import urls
 from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
@@ -641,6 +642,16 @@ class BrowserAct(_Base):
                                                                          page_mode=args.page_mode,
                                                                          end_element=args.end_element))
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: what this act would put into a terminal in the page (xterm.js, from the snapshot's facts), for the
+        gateway's question before it runs, every time; else None."""
+        find = getattr(self.driver, "terminal_input", None)
+        if not callable(find):
+            return None
+        found = find(str(getattr(args, "tab")), str(getattr(args, "element")), str(getattr(args, "action")),
+                     getattr(args, "text"))
+        return found if isinstance(found, TerminalInput) else None
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         el = self.driver.element_ref(ref, str(getattr(args, "element")))
@@ -652,7 +663,7 @@ class BrowserAct(_Base):
                                                     files=tuple(str(owner_path(f, ctx.workspace))
                                                                 for f in getattr(args, "files", None) or ()),
                                                     end_element=getattr(args, "end_element", None),
-                                                    files_closed=ctx.path_closed),
+                                                    files_closed=ctx.path_closed, terminal=ctx.terminal),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}

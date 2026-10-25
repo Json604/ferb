@@ -32,7 +32,8 @@ def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
                        code_fill=secret and raw.get("code_fill") is True,
                        in_view=in_view, offscreen=raw.get("offscreen") if not in_view else None,
                        occluded=bool(raw.get("occluded")), container=raw.get("container") or None,
-                       state=tuple(state), level=int(level) if isinstance(level, (int, float)) else None)
+                       state=tuple(state), level=int(level) if isinstance(level, (int, float)) else None,
+                       terminal=raw.get("terminal") is True)
 
 
 def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) -> dict[str, Any]:

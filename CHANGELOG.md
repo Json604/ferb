@@ -1015,6 +1015,18 @@ After the owner's update (2026-10-24):
   nothing is hidden inside FERB's ids (a saved value that is itself a whole id-shaped token still is), a password is
   still hidden wherever it appears, and saving an answer that is an ordinary word adds one line to the task's answer
   saying FERB hides that word everywhere.
+- Typing into a terminal asks you first, every time (D31, rule 10). Live: FERB's sandbox blocked `ps` and the Codex
+  control socket, and the worker typed `codex` and Enter into your VS Code terminal without asking (task 6f5b8589);
+  FERB knew terminal apps only by bundle id. Typing into any terminal (terminal apps and terminals inside other apps,
+  e.g. VS Code's) is now enforced by code: FERB always asks the owner first, showing the exact command, every time,
+  with no standing permission; a No types nothing. One Yes covers that input and the one Return after it, so the same
+  command again, or a retry, asks again. Code recognizes a terminal from facts: terminal apps (now also Warp Preview,
+  Tabby, Termius, Rio and Contour, plus any app whose Info.plist declares itself a shell), xterm.js terminals in
+  editors and pages (VS Code, Cursor, Windsurf, cloud shells) by xterm.js's own classes, and native terminals by
+  their identifier or label (JetBrains, Xcode's console, Nova); any typing in Zed asks. Every path is covered: typing,
+  values, edits, keys, foreground input, ⌘V and menu pastes, and `browser.act` into a web terminal (extension
+  0.15.11). A refusal says to use FERB's shell, and the escape hatch when the sandbox blocks a command you need; the
+  worker prompt says the same.
 
 Licensed under Apache-2.0.
 

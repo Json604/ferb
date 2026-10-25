@@ -19,7 +19,8 @@ from ferb.act.mac.input import Yielded
 from ferb.act.mac.screenshot import window_on_screen
 from ferb.act.point import Point, display_of
 from ferb.core.errors import Refused, StaleRef
-from ferb.core.types import ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.core.types import (ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, TerminalInput,
+                             ToolContext, ToolResult)
 from ferb.policy.contacts import Contact
 from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
@@ -43,6 +44,19 @@ def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
     if is_browser(bundle_id):
         return (("web", bundle_id),)
     return (("app", bundle_id),)
+
+
+async def _terminal_input(find: Any, *args: Any) -> TerminalInput | None:
+    """The driver's terminal-input facts for the gateway's question (D31), in a worker thread. None when it can't tell
+    now (no such element or app any more): the call then meets the same error, and the driver's own check right
+    before delivery still refuses any input into a terminal the owner didn't say Yes to."""
+    if not callable(find):
+        return None
+    try:
+        found = await asyncio.to_thread(find, *args)
+    except (Refused, StaleRef, LookupError, ValueError):
+        return None
+    return found if isinstance(found, TerminalInput) else None
 
 
 class _Base:
@@ -73,10 +87,12 @@ class _Base:
         raise NotImplementedError
 
     def precheck(self, args: BaseModel) -> str | None:
-        typing = self.name == "mac.act" and getattr(args, "action", None) in {"type", "key", "set_value", "edit"}
-        if self.protection is not None and (typing or self.name in {"mac.applescript", "mac.secret"}):
+        # D31: a script or a secret never goes into a terminal app; typing into any terminal asks the owner first,
+        # every time (`terminal_input`, the gateway's question, the driver's check)
+        if self.protection is not None and self.name in {"mac.applescript", "mac.secret"}:
             if self._bundle(args).casefold() in self.protection.terminal_apps:
-                return "FERB never types or runs scripts into terminal apps; use FERB's own shell"
+                return ("FERB never runs scripts or fills secrets in terminal apps; run commands with FERB's shell "
+                        "tool")
         if self.name == "mac.secret" and self._web_browser(self._bundle(args)):
             return whole_browser(self._shown(args))
         return None
@@ -232,6 +248,15 @@ class MacMenu(_Base):
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: pressing an item whose key equivalent is ⌘V pastes into the app's focus: when that is a terminal, the
+        paste (the gateway asks the owner first), else None."""
+        items = self._items(args)
+        if not items:
+            return None
+        return await _terminal_input(getattr(self.driver, "menu_terminal_input", None), str(getattr(args, "app")),
+                                     items)
+
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         items = self._items(args)
         app = str(getattr(args, "app"))
@@ -239,7 +264,8 @@ class MacMenu(_Base):
             return ToolResult({"menus": await self.driver.menus(app)}, read_sources=_sources(self._bundle(args)))
         if "mac:act" not in ctx.scopes:
             return _err(f"pressing “{items[-1]}” is acting, which needs mac:act")
-        ok = await self.driver.press_menu(app, items)
+        granted: dict[str, Any] = {"terminal": ctx.terminal, "task": ctx.task_id} if ctx.terminal is not None else {}
+        ok = await self.driver.press_menu(app, items, **granted)
         return ToolResult({"pressed": " > ".join(items)} if ok else {"error": f"no menu item {' > '.join(items)}"},
                           is_error=not ok)
 
@@ -351,6 +377,12 @@ class MacAct(_Base):
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
 
+    async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
+        """D31: the input this call would put into a terminal, by the driver's facts now (the gateway asks the owner
+        about it, every time, before the call runs), else None. Off the event loop."""
+        return await _terminal_input(getattr(self.driver, "terminal_input", None), str(getattr(args, "app")),
+                                     self._action(args), task)
+
     @staticmethod
     def _action(args: BaseModel) -> ComputerAction:
         return ComputerAction(getattr(args, "action"), getattr(args, "element"), getattr(args, "text"),
@@ -368,8 +400,9 @@ class MacAct(_Base):
         return await self._element_point(args, kinds.get(action.kind, "click"), lambda node: acts_on(action, node))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        granted: dict[str, Any] = {"terminal": ctx.terminal} if ctx.terminal is not None else {}   # the Yes (D31)
         r = await self.driver.act(str(getattr(args, "app")), self._action(args), holder=ctx.worker_id,
-                                  task=ctx.task_id)
+                                  task=ctx.task_id, **granted)
         # facts are read back from the app (observed values, menu candidates): label them with its sources
         return ToolResult({"ok": r.ok, "detail": r.detail, "facts": r.facts, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok, read_sources=_sources(self._bundle(args)))
