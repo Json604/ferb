@@ -3151,7 +3151,14 @@ Spec `docs/superpowers/specs/2026-10-24-memory-that-works-design.md`; plan
   a distilled owner-stated version that would replace current ones: words older than any of them, or a quote that is
   no whole clause about an owner-stated one, keep it as FERB's guess, asked with Keep / Edit / Drop. Keep, or a skip,
   is journaled (`memory.retire_kept`) and FERB doesn't ask about that item again; the owner's own words still retire
-  it. `distill_runs.detail` lists `retired`, and `retire_unconfirmed` and `kept_as_guess` with why each.
+  it. `distill_runs.detail` lists `retired`, and `retire_unconfirmed` and `kept_as_guess` with why each. Whatever
+  FERB retires or replaces without asking it tells the owner once (re-review ruling (c)): "I retired “<item>” because
+  you said “<quote>” (<day>). Reply to undo." ("I replaced …" for a new version), a notice line through the L9
+  mechanism (`Distiller.tell` → `Daemon._tell_owner`, which loop notices use too: `attention_notices`, journaled
+  `chat.notice`, listed until a client shows it, a banner when none is connected), citing the item and the message. A
+  reply undoes it through the planner's usual steer, forget or edit; there is no undo path of its own. The model is
+  asked to quote the whole clause its words are in (distill.md). Residual: a short whole owner message that shares one
+  common word with an item ("it's over") can still pass the check; the notice makes that visible.
   `Memory.on_ended` tells the daemon which items stopped holding now (superseded by a newer version, or retired; an
   end date reached is not told): their retire questions close (a retract closes them too) and the usernames the
   owner's items among them gave are cleared (`Daemon._memory_ended`). `_ask_keep` and `_ask_retire` share `_ask_once`.

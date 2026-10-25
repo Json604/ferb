@@ -133,8 +133,8 @@ def end_of_day(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime
     d = _nearest(w.date, today) if w.date and not re.match(r"\s*\d{4}-", w.date) else _day(w, today)
     assert d is not None
     end = _wall(d + timedelta(days=1), time(0, 0), zone)
-    if end <= now:
-        raise WhenError(f"that day is already over ({d:%a %d %b})")
+    if end <= now:                                            # another year's day names its year
+        raise WhenError(f"that day is already over ({d:%a %d %b}{f' {d.year}' if d.year != today.year else ''})")
     return end
 
 

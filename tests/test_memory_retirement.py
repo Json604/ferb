@@ -55,6 +55,18 @@ def test_a_month_and_day_is_the_occurrence_nearest_today(today: tuple[int, int, 
             timezone.utc)
 
 
+@pytest.mark.parametrize("today, said, shown", [((2027, 1, 2), "12-30", "(Wed 30 Dec 2026)"),
+                                                ((2026, 10, 24), "10-23", "(Fri 23 Oct)")],
+                         ids=["last-year", "this-year"])
+def test_a_day_already_over_names_its_year_when_it_is_another(today: tuple[int, int, int], said: str,
+                                                             shown: str) -> None:
+    """Re-review minor: the refusal names the year of a day in another year, so the owner sees which one was meant."""
+    zone = ZoneInfo("Asia/Kolkata")
+    with pytest.raises(WhenError) as refused:
+        end_of_day(When(date=said), datetime(*today, 10, 0, tzinfo=zone), zone)
+    assert str(refused.value) == f"that day is already over {shown}"
+
+
 def chain(d: Any) -> None:
     for i in range(4):
         owner_fact(d, f"chain_{i}", f"bicycle chain note {i}")
@@ -148,14 +160,25 @@ def test_the_distiller_is_told_how_to_retire() -> None:
     words = " ".join(DISTILL_PROMPT.read_text().split())
     assert ('- "retire": true when the owner\'s words say something under "What FERB already remembers" is no longer '
             'true ("the RSNA competition is over"): give that item\'s kind, subject and key, origin "inferred", '
-            'content: the owner\'s words that say so, copied from that line, and "quote" as above; FERB retires it '
-            'only when the quote is theirs, and otherwise asks the owner. Every other item has "retire": '
-            'false.') in words
+            'content: the owner\'s words that say so, copied from that line, and "quote": the whole clause it\'s in, '
+            'as above; FERB retires it only when the quote is theirs, and otherwise asks the owner. Every other item '
+            'has "retire": false.') in words
 
 
 def later(d: Any, minutes: int = 60) -> None:
     """The clock moves on: what the owner says next is newer than what FERB already remembers (review fix round 1)."""
     d.call_soon(d.daemon.clock.advance, minutes * 60)
+
+
+def notices(d: Any) -> list[str]:
+    """What FERB told the owner in chat (`chat.notice`, the notice mechanism, L9)."""
+    return [str(e.data["text"]) for e in run(d, lambda: d.daemon._journal().of_kind("chat.notice"))]
+
+
+def said_on(d: Any, journal_id: str) -> str:
+    """The day a chat message was said, as FERB's notice names it."""
+    at = run(d, lambda: d.daemon.db.conn.execute("SELECT at FROM journal WHERE id = ?", (journal_id,)).fetchone()["at"])
+    return f"{datetime.fromisoformat(at).astimezone():%a %d %b}"
 
 
 def rsna_over(d: Any, message: str = "the RSNA competition is over", pasted: int = 0,
@@ -175,6 +198,19 @@ def test_distill_retires_an_item_on_the_owners_own_words(daemon: Any) -> None:
     assert pending(daemon, "memory.retire") == []
     assert [i for i in run(daemon, lambda: daemon.daemon.memory.items("active")) if i.key == "rsna"] == []
     assert (r["retired"], r["retire_unconfirmed"]) == ([rsna.id], [])
+
+
+def test_a_retire_without_asking_is_told_once(daemon: Any) -> None:
+    """Re-review ruling (c): whenever FERB retires a fact without asking, it tells the owner in one notice line with the
+    item and their words; a reply undoes it through the planner's usual steer, forget or edit."""
+    chain(daemon)
+    owner_fact(daemon, "rsna", "I'm in the RSNA knee competition")
+    later(daemon)
+    jid = said(daemon, "the RSNA competition is over")
+    distill_day(daemon, distill_item(c_handle(daemon, jid), "the RSNA competition is over",
+                                     "the RSNA competition is over", kind="fact", key="rsna", retire=True))
+    assert notices(daemon) == [f"I retired “I'm in the RSNA knee competition” because you said “the RSNA competition "
+                               f"is over” ({said_on(daemon, jid)}). Reply to undo."]
 
 
 @pytest.mark.parametrize("message, pasted, quote, content, why", [
@@ -201,6 +237,7 @@ def test_a_retire_whose_quote_is_not_a_clause_of_the_owners_words_about_the_item
     [q] = pending(daemon, "memory.retire")
     assert "RSNA knee competition" in q.reason
     assert (r["retired"], r["retire_unconfirmed"]) == ([], [{"item": rsna.id, "why": why}])
+    assert notices(daemon) == []                                       # asked, so nothing to tell
 
 
 def test_older_words_never_retire_a_newer_version(daemon: Any) -> None:
@@ -230,9 +267,11 @@ def test_a_distilled_statement_replaces_the_owners_own_only_on_a_whole_clause(da
     chain(daemon)
     rao = owner_fact(daemon, "dentist", "my dentist is Dr. Rao", kind="person")
     later(daemon)
-    handle = c_handle(daemon, said(daemon, "my dentist is Dr. Mehta now"))
-    r = distill_day(daemon, distill_item(handle, "my dentist is Dr. Mehta now", quote))
+    jid = said(daemon, "my dentist is Dr. Mehta now")
+    r = distill_day(daemon, distill_item(c_handle(daemon, jid), "my dentist is Dr. Mehta now", quote))
     assert (run(daemon, lambda: daemon.daemon.memory.get(rao.id)).valid_to is not None) == replaced
+    assert notices(daemon) == ([f"I replaced “my dentist is Dr. Rao” because you said “my dentist is Dr. Mehta now” "
+                                f"({said_on(daemon, jid)}). Reply to undo."] if replaced else [])
     [new] = [i for i in run(daemon, lambda: daemon.daemon.memory.items(None)) if "Mehta" in i.content]
     assert (new.origin, new.status) == (("owner_stated", "active") if replaced else ("inferred", "proposed"))
     assert len(pending(daemon)) == (0 if replaced else 1)

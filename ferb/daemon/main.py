@@ -1394,6 +1394,7 @@ class Daemon:
                                    record_usage=self._record_learning_usage("distill"), spans=self.spans)
         self.distiller.ask_keep = self._ask_keep
         self.distiller.ask_retire = self._ask_retire
+        self.distiller.tell = self._tell_owner
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.running_apps = self._running_apps
@@ -2864,11 +2865,16 @@ class Daemon:
         """L31: a loop's back-off or pause notice, posted to the owner's chat like a notice (listed in `chat.status`
         until a client shows it; a banner when no client is connected). Its origin follows its text: a back-off is
         FERB's own; a pause quotes the round's words, so it also carries INFERRED."""
+        import uuid
+        await self._tell_owner(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text, notice_origin)
+
+    async def _tell_owner(self, ident: str, refs: list[str], text: str, notice_origin: str) -> None:
+        """One notice line in the owner's chat, posted once per `ident` (`AttentionNotices.add`, `_post_notice`): a
+        loop's notice (L31), or a fact distillation retired or replaced on the owner's words (L36 §6, re-review ruling
+        (c), `Distiller.tell`). `refs`: what it cites."""
         if self.attention_notices is None:
             return
-        import uuid
-        notice = self.attention_notices.add(f'loop-{step_id}-{uuid.uuid4().hex[:12]}', [f'task:{tree_id}'], text,
-                                            notice_origin=notice_origin)
+        notice = self.attention_notices.add(ident, refs, text, notice_origin=notice_origin)
         if notice is not None:
             await self._post_notice(notice)
 

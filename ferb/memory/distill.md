@@ -17,14 +17,15 @@ Write:
      before" shows up again today, propose it with exactly the same kind, subject and key.
    - origin "inferred": a reasonable conclusion from the owner's activity or words (E / C handles); FERB asks the owner
      about it at once. When the owner said it in so many words, add "quote": the C handle it rests on and the owner's
-     exact words copied from that line (never from pasted text); FERB checks them against what the owner typed and
-     then saves the owner's own sentence as theirs. Otherwise "quote" is null. Every other origin has "quote": null.
+     exact words copied from that line, the whole clause it's in (never from pasted text); FERB checks them against
+     what the owner typed and then saves the owner's own sentence as theirs. Otherwise "quote" is null. Every other
+     origin has "quote": null.
    - origin "third_party": a fact about the world from pasted text (P handles); subject is never "owner" and kind is never
      "preference".
    - "retire": true when the owner's words say something under "What FERB already remembers" is no longer true ("the
      RSNA competition is over"): give that item's kind, subject and key, origin "inferred", content: the owner's words
-     that say so, copied from that line, and "quote" as above; FERB retires it only when the quote is theirs, and
-     otherwise asks the owner. Every other item has "retire": false.
+     that say so, copied from that line, and "quote": the whole clause it's in, as above; FERB retires it only when the
+     quote is theirs, and otherwise asks the owner. Every other item has "retire": false.
    - kind: fact / preference / person / project / env. subject: "owner", "project:<slug>", "person:<slug>", ...
      key: a short slug naming what the item is about ("editor", "dentist"); reuse the key of something FERB already
      remembers when updating it. content: one sentence.

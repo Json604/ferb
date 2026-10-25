@@ -44,9 +44,9 @@ def test_the_distiller_is_told_how_to_quote_the_owners_words() -> None:
     words = " ".join(DISTILL_PROMPT.read_text().split())
     assert ('- origin "inferred": a reasonable conclusion from the owner\'s activity or words (E / C handles); FERB asks '
             'the owner about it at once. When the owner said it in so many words, add "quote": the C handle it rests '
-            'on and the owner\'s exact words copied from that line (never from pasted text); FERB checks them against '
-            'what the owner typed and then saves the owner\'s own sentence as theirs. Otherwise "quote" is null. Every '
-            'other origin has "quote": null.') in words
+            'on and the owner\'s exact words copied from that line, the whole clause it\'s in (never from pasted '
+            'text); FERB checks them against what the owner typed and then saves the owner\'s own sentence as theirs. '
+            'Otherwise "quote" is null. Every other origin has "quote": null.') in words
 
 
 def test_the_planner_routes_a_guess_questions_own_options() -> None:

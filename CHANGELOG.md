@@ -1002,11 +1002,12 @@ After the owner's update (2026-10-24):
 - Old facts retire (L36). Live: the 10-11 wedding flight and the finished RSNA competition were still in every planner
   prompt. A fact you give with a date now leaves memory after that day, and when your words say something is over FERB
   retires it (or asks: "Is this no longer true? …", Retire or Keep). Keep is remembered, so FERB doesn't ask about that
-  fact again. The nightly look retires or replaces something only on your own words about it (a whole phrase you
-  typed, never a stray word or pasted text) said after FERB learned it; otherwise it asks. "Until 01-02" said on 31
-  December means two days on. A username you give again for the same fact replaces the old one on its login record; a
-  new version of the fact that names no username (an edit in the dashboard, say) clears it, and so does retiring it;
-  one whose fact is past its date is no longer offered.
+  fact again. The nightly look retires or replaces something only on a whole phrase you typed that shares a word with
+  it (never pasted text), said after FERB learned it, and FERB tells you when it does ("I retired “…” because you said
+  “…” (date). Reply to undo."); otherwise it asks. "Until 01-02" said on 31 December means two days on. A username
+  you give again for the same fact replaces the old one on its login record; a new version of the fact that names no
+  username (an edit in the dashboard, say) clears it, and so does retiring it; one whose fact is past its date is no
+  longer offered.
 
 Licensed under Apache-2.0.
 

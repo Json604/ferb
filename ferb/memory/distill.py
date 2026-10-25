@@ -20,8 +20,9 @@ A model failure leaves the summary in place and is retried on later hourly runs 
 import hashlib
 import json
 from datetime import date, datetime, timedelta
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
+from ferb.core import origin
 from ferb.core.interfaces import Clock
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
@@ -41,6 +42,13 @@ NO_QUOTE = "no quote of the owner's own words"
 OLDER_WORDS = "the owner's words are older than what FERB remembers"
 NOT_A_CLAUSE = "the quote isn't a whole clause of the owner's words"
 NOTHING_SHARED = "the quote shares no telling word with what FERB remembers"
+# Re-review ruling (c): what FERB ended or replaced without asking is told once; a reply undoes it the usual way
+RETIRED_NOTICE = "I retired “{item}” because you said “{quote}” ({day}). Reply to undo."
+REPLACED_NOTICE = "I replaced “{item}” because you said “{quote}” ({day}). Reply to undo."
+
+
+async def _untold(ident: str, refs: list[str], text: str, notice_origin: str) -> None:
+    return None
 DISTILL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["narrative", "items"],
     "properties": {
@@ -104,6 +112,8 @@ class Distiller:
         self.ask_keep: Callable[[Any, str], None] = lambda item, reason: None
         # L36 §6: a current item FERB thinks is out of date, without the owner's words for it: Retire / Keep
         self.ask_retire: Callable[[Any], None] = lambda item: None
+        # one notice line in the owner's chat, once per id: (id, refs, text, origin)
+        self.tell: Callable[[str, list[str], str, str], Awaitable[None]] = _untold
 
     def pending_days(self, today: date | None = None) -> list[str]:
         """Past days with anything to remember that aren't done yet (oldest first). A day whose distillation failed
@@ -187,11 +197,13 @@ class Distiller:
                     else:
                         self.memory.retire(target.id, f"the owner's words on {day}")
                         retired.append(target.id)
+                        assert stated is not None
+                        await self._tell(RETIRED_NOTICE, "retired", target, item, stated[1])
                     continue
                 srcs = check(item, ev)
                 origin_, content = item["origin"], item["content"]
                 confidence = float(item.get("confidence", 0.6))
-                stated, why = owner_said(item, ev), ""
+                stated, why, ends = owner_said(item, ev), "", []
                 if stated is not None:                  # what it would replace: the current versions, unless one is it
                     ends = self._current(item)
                     if any(e.origin == "owner_stated" and e.content.lower() == stated[0].strip().lower() for e in ends):
@@ -205,6 +217,9 @@ class Distiller:
                 proposed += 1
                 if why:
                     guessed.append({"item": m.id, "why": why})
+                elif stated is not None and ends and m.origin == "owner_stated":
+                    await self._tell(REPLACED_NOTICE, "replaced",
+                                     next((e for e in ends if e.origin == "owner_stated"), ends[0]), item, stated[1])
                 if m.origin == "inferred" and m.status == "proposed":
                     self.ask_keep(m, KEEP_GUESS.format(text=" ".join(m.content.split()), day=day))
             except (MemoryRefused, KeyError, ValueError) as e:
@@ -228,8 +243,8 @@ class Distiller:
         version). For `about` (a retired item, or an owner-stated one replaced) the quote must be whole clauses of
         what the owner typed (`whole_clauses`, a chat forget's rule: never one word they happened to type) that share
         a telling word with what the item says (`Memory.telling_words`)."""
-        row = self.db.conn.execute("SELECT at FROM journal WHERE id = ?", (journal_id,)).fetchone()
-        if row is None or any(datetime.fromisoformat(row["at"]) <= e.valid_from for e in ends):
+        said = self._said_at(journal_id)
+        if said is None or any(said <= e.valid_from for e in ends):
             return OLDER_WORDS
         quote = item["quote"]
         if about and not whole_clauses(ev.owner_words[str(quote["handle"])][1], str(quote["text"])):
@@ -238,6 +253,22 @@ class Distiller:
         if any(not telling & set(query_terms(e.content)) for e in about):
             return NOTHING_SHARED
         return ""
+
+    def _said_at(self, journal_id: str) -> datetime | None:
+        """When the owner's message was journaled."""
+        row = self.db.conn.execute("SELECT at FROM journal WHERE id = ?", (journal_id,)).fetchone()
+        return datetime.fromisoformat(row["at"]) if row else None
+
+    async def _tell(self, template: str, verb: str, ended: Any, item: dict[str, Any], journal_id: str) -> None:
+        """Re-review ruling (c): FERB ended or replaced `ended` on the owner's words without asking, so it tells them
+        once, with the item, their quote and the day they said it (`tell`: the daemon's notice line, journaled
+        `chat.notice`). A reply undoes it through the planner's usual steer, forget or edit; no other path."""
+        from ferb.memory.learning import memory_origin
+        said = self._said_at(journal_id)
+        text = template.format(item=" ".join(ended.content.split()), quote=" ".join(str(item["quote"]["text"]).split()),
+                               day=f"{said.astimezone():%a %d %b}" if said else "today")
+        await self.tell(f"memory-{verb}-{ended.id}", ["memory:" + ended.id, "journal:" + journal_id], text,
+                        origin.join({origin.FERB, origin.OWNER, memory_origin(ended.origin)}))
 
     async def catch_up(self) -> list[dict[str, Any]]:
         out = [await self.run_day(d) for d in self.pending_days()]
