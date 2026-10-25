@@ -14,7 +14,7 @@ The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) e
 
 ## Setup
 
-Requires macOS 14.2 or later, on Apple silicon (`FERB-AppleSilicon.dmg`) or an Intel Mac (`FERB-Intel.dmg`), and a signed-in Codex or Claude account. Install the app from the
+Requires macOS 14.2 or later, on Apple silicon (`FERB-AppleSilicon.dmg`) or an Intel Mac (`FERB-Intel.dmg`; built the same way but not yet tested on an Intel Mac), and a signed-in Codex or Claude account. Install the app from the
 disk image, or from source.
 
 ### FERB.app (disk image)
