@@ -29,7 +29,14 @@ from ferb.policy.rules import Kind
 
 # D31 review round 2, N7: AppleScript's command that runs a program; its sandbox denies the exec, and the call is
 # refused first with the tool to use (an argument-validity check on the script's own command, never its meaning)
-SHELL_COMMAND = re.compile(r"(?i)\bdo\s+shell\s+script\b")
+SHELL_COMMAND = re.compile(r"(?i)\bdo\s+shell\s+script\b|(?:\u00ab|<<)\s*event\s+sysoexec\s*(?:\u00bb|>>)")
+CONTINUATION = re.compile(r"\u00ac[ \t]*(?:\r\n|\r|\n)")     # AppleScript's ¬ joins a line to the next (round 3)
+
+
+def runs_shell(script: str) -> bool:
+    """`do shell script` in any case, across ¬ line continuations or line breaks, or its raw form `«event sysoexec»`
+    (round 3). A string built at run time isn't seen here; the sandbox denies running any program anyway (N7)."""
+    return SHELL_COMMAND.search(CONTINUATION.sub(" ", script)) is not None
 SHELL_REFUSED = ("mac.applescript runs no shell code: `do shell script` would run a program outside the shell's own "
                  "checks. Run the command with shell.run, where FERB's sandbox, terminal question and change record "
                  "apply")
@@ -103,7 +110,7 @@ class _Base:
     def precheck(self, args: BaseModel) -> str | None:
         # D31: typing, a secret or a script into any terminal asks the owner first, every time (`terminal_input`, the
         # gateway's question, the driver's check), by policy/terminal.py's facts (the built-in list and the owner's)
-        if self.name == "mac.applescript" and SHELL_COMMAND.search(str(getattr(args, "script", ""))):
+        if self.name == "mac.applescript" and runs_shell(str(getattr(args, "script", ""))):
             return SHELL_REFUSED
         if self.name == "mac.secret" and self._web_browser(self._bundle(args)):
             return whole_browser(self._shown(args))

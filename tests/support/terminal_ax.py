@@ -155,6 +155,11 @@ class TerminalAx:
     def surface_facts(self, el: Any) -> list[dict[str, Any]]:
         return [dict(f) for f in self.chains.get(el, [])]
 
+    def window_facts(self, el: Any) -> list[dict[str, Any]]:
+        """Each element's own facts in `el`'s window (elements share a window by `windows`, default "FERB")."""
+        where = self.windows.get(el, "FERB")
+        return [dict(chain[0]) for other, chain in self.chains.items() if self.windows.get(other, "FERB") == where]
+
     def focused_element(self, pid: int) -> Any:
         return self.focused
 

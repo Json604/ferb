@@ -51,6 +51,9 @@ CODE_RUNNERS = {SYSTEM_EVENTS: "System Events, whose keystrokes type into whatev
                 "com.apple.automator": "Automator, which runs workflows",
                 "com.apple.shortcuts.events": "Shortcuts Events, which runs shortcuts",
                 "com.apple.shortcuts": "Shortcuts, which runs shortcuts"}
+# Round 3, O1: apps whose scripts open files with their default apps; a file a script names only indirectly (a path
+# built at run time, an item of a folder) FERB can't resolve, and the question says so
+OPENS_FILES = frozenset({"com.apple.finder", SYSTEM_EVENTS})
 # Apps with a terminal panel whose focus Accessibility can't show (GPUI exposes no element tree): typing there asks.
 NO_FACTS_HOSTS = {"dev.zed.zed": "Zed", "dev.zed.zed-preview": "Zed Preview"}
 # Review round 1, finding 2: a menu-bar menu that operates an app's terminal or runs its code (the VS Code family's
@@ -127,6 +130,23 @@ def surface(bundle_id: str, chain: Sequence[Mapping[str, Any]], owner_apps: Coll
     return None
 
 
+def _size(text: str) -> str:
+    """A selection's size as FERB read it (round 3: Monaco may hold a shortened copy of a very large selection, so the
+    owner can compare it with what they selected)."""
+    lines = len(text.splitlines()) or 1
+    return f"{len(text)} characters on {lines} line{'' if lines == 1 else 's'}"
+
+
+def structural(f: Mapping[str, Any]) -> bool:
+    """Whether one element is a terminal by its structure alone (round 3, N6): an xterm.js class, or, for a native
+    element (no DOM facts), a role, subrole, role description or identifier naming a terminal. A label never counts."""
+    if TERMINAL_CLASSES & {str(c).casefold() for c in f.get("dom_classes") or ()}:
+        return True
+    if f.get("dom_classes") or f.get("dom_identifier"):
+        return False
+    return any(_names(f.get(k)) for k in (*_KINDS, "identifier"))
+
+
 def run_menu(path: Sequence[str]) -> bool:
     """Whether a menu path is under a menu-bar menu that operates the app's terminal or runs its code."""
     return bool(path) and bool(RUN_MENUS.match(path[0]))
@@ -139,9 +159,9 @@ def editor_app(bundle_id: str) -> bool:
 
 
 def run_control(chain: Sequence[Mapping[str, Any]], editor: bool = False) -> str | None:
-    """Why pressing this control runs code: its run icon class (any app), or, in an editor (`editor_app`), a button
-    without DOM classes or a menu item (a context menu's "Run Python File in Terminal") labelled Run… or Debug….
-    Else None."""
+    """Why pressing this control runs code: its run icon class (any app), or, in an editor (`editor_app`, or a window
+    that hosts a terminal by structure: round 3, N6), a button without DOM classes or a menu item (a context menu's
+    "Run Python File in Terminal") labelled Run… or Debug…. Else None."""
     if not chain or chain[0].get("role") not in _CONTROLS:
         return None
     f = chain[0]
@@ -204,11 +224,12 @@ def need(inp: TerminalInput) -> confirm.Need:
               "drag": "yes" if inp.drag else "", "runs": "yes" if inp.runs else "",
               "control": visible(inp.control) if inp.control else "",
               "selection": visible(inp.selection) if inp.selection else "",
+              "selection_size": _size(inp.selection) if inp.selection else "",
               "file": visible(inp.file) if inp.file else "", "runs_where": visible(inp.runs_where, False),
               "files": "; ".join(f"{visible(path)}, which opens in a terminal app and runs {visible(text)}"
                                  for path, _, text in inp.files),
               "paste": "yes" if inp.paste else "", "concealed": "yes" if inp.concealed else "",
-              "enter": "yes" if inp.enter else ""}
+              "enter": "yes" if inp.enter else "", "opens": "yes" if inp.opens else ""}
     return confirm.Need(RULE, confirm.key(RULE, inp.bundle_id.casefold(), inp.text, inp.keys, inp.paste, inp.menu,
                                                   inp.secret, inp.script, inp.drag, inp.control, inp.selection,
                                                   inp.file, [(p, h) for p, h, _ in inp.files]),

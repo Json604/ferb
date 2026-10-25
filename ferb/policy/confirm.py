@@ -519,7 +519,8 @@ def _terminal(v: dict[str, str]) -> str:
         (f" (window {v['window']})" if v.get("window") else "")
     if v.get("runs"):
         if v.get("selection"):
-            facts = [f"the editor's selection is {v['selection']}"]
+            facts = [f"the editor's selection is {v['selection']}"
+                     + (f" ({v['selection_size']}, as FERB read it)" if v.get("selection_size") else "")]
         else:
             facts = [f"the selection or current line in {v['file'] or 'the active editor'}, which FERB can't read"]
         if v.get("file") and v.get("selection"):
@@ -528,11 +529,18 @@ def _terminal(v: dict[str, str]) -> str:
         where = v.get("runs_where") or v["app"]
         opens = (", and a terminal it opens may run its profile's startup command"
                  if where.endswith("terminal") else "")
-        return (f"press {v.get('menu') or v.get('control')} in {v['app']} (this {kind} runs code in {where}{opens}"
+        pressed = v.get('menu') or v.get('control')
+        pressed = f"{v['keys']} ({pressed})" if v.get("keys") else pressed      # a key that presses it (round 3, L1)
+        return (f"press {pressed} in {v['app']} (this {kind} runs code in {where}{opens}"
                 + "; " + ", ".join(facts) + ")")
     if v.get("script"):
-        return (f"run the AppleScript {v['script']} in {v['app']} (it runs with that app's own access, outside "
-                f"FERB's sandbox: {v['surface']})" + (f"; it names {v['files']}" if v.get("files") else ""))
+        said = (f"run the AppleScript {v['script']} in {v['app']} (it runs with that app's own access, outside "
+                f"FERB's sandbox: {v['surface']})")
+        if v.get("files"):
+            said += f"; it names {v['files']}" + ("; FERB can't see any other file it opens" if v.get("opens") else "")
+        elif v.get("opens"):                         # a file named indirectly (round 3, O1)
+            said += "; FERB can't see which file this opens, if it opens one"
+        return said
     if v.get("files"):
         return f"open {v['files']} (in {v['app']})"
     if v.get("menu"):

@@ -24,6 +24,7 @@ from ferb.core.types import ComputerAction
 
 OWN = "FERB never operates its own app; questions are answered by the owner"
 NOTCH, CODE = RunningApp("dev.ferb.notch", "FERB", 900, False), RunningApp("com.microsoft.VSCode", "Code", 41154, True)
+TEXTEDIT = RunningApp("com.apple.TextEdit", "TextEdit", 5120, False)
 
 
 class Apps:
@@ -32,7 +33,7 @@ class Apps:
     every app, so `app()`'s own refusal is exercised (the real `find` never resolves the notch at all)."""
 
     def __init__(self, front: RunningApp) -> None:
-        self.apps, self.front, self.activated = [NOTCH, CODE], front, []
+        self.apps, self.front, self.activated = [NOTCH, CODE, TEXTEDIT], front, []
         self.accessory = {NOTCH.pid}
 
     def find(self, q: str) -> RunningApp | None:
@@ -62,6 +63,7 @@ class Ax:
     def __init__(self) -> None:
         self.pressed: list[str] = []
         self.hits: dict[tuple[int, int], int] = {}
+        self.posted: list[str] = []
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
         if pid == NOTCH.pid:
@@ -92,6 +94,10 @@ class Ax:
 
     def center(self, n: AxNode) -> tuple[float, float]:
         return 5.0, 5.0
+
+    def post_text(self, pid: int, text: str) -> bool:                     # the AX keyboard API, to the app's process
+        self.posted.append(f"ax {pid} {text}")
+        return True
 
 
 def _driver(monkeypatch: pytest.MonkeyPatch, front: RunningApp = CODE) -> tuple[MacComputerDriver, Ax, list[str]]:
@@ -270,13 +276,17 @@ def test_background_input_goes_on_while_the_notch_holds_the_keyboard(monkeypatch
     """M1: process-directed typing and keys go to the target app's process and can't reach the notch, so they work
     while the notch is key; foreground keyboard and pointer input, which go to whatever is in front, are refused."""
     d, ax, posted = _driver(monkeypatch, front=NOTCH)
+    asyncio.run(d.snapshot("TextEdit"))
+    assert asyncio.run(d.act("TextEdit", ComputerAction("type", "s1e1", "hello", mechanism="pid"), "w1", "t1")).ok
+    assert asyncio.run(d.act("TextEdit", ComputerAction("key", None, "return", mechanism="pid"), "w1", "t1")).ok
+    assert asyncio.run(d.act("TextEdit", ComputerAction("type", "s1e1", "there", mechanism="ax_keyboard"), "w1",
+                             "t1")).ok
+    assert posted == ["type hello", "key return"] and ax.posted == [f"ax {TEXTEDIT.pid} there"]
+    posted.clear()
     asyncio.run(d.snapshot("Code"))
-    assert asyncio.run(d.act("Code", ComputerAction("type", "s1e1", "hello", mechanism="pid"), "w1", "t1")).ok
-    assert asyncio.run(d.act("Code", ComputerAction("key", None, "return", mechanism="pid"), "w1", "t1")).ok
-    assert posted == ["type hello", "key return"]
     for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
                    ComputerAction("key", None, "return", mechanism="foreground", allow_foreground=True),
                    ComputerAction("press", "s1e1", mechanism="foreground", allow_foreground=True)):
         with pytest.raises(Refused, match=OWN):
             asyncio.run(d.act("Code", action, "w1", "t1"))
-    assert posted == ["type hello", "key return"]
+    assert posted == []

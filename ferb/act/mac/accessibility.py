@@ -21,6 +21,7 @@ AXManualAccessibility, so `expose_tree` does nothing for them: spike 06, fix wav
 
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -749,6 +750,28 @@ def active_editor(pid: int) -> Any:
             return el
         stack.extend((kid, inside) for kid in reversed(list(_attr(el, "AXChildren") or [])))
     return None
+
+
+WINDOW_WALK_MAX = 4000                     # elements of a window read at most (round 3, N6)
+
+
+def window_facts(el: Any) -> Iterator[dict[str, Any]]:
+    """Each element's own structural facts (`SURFACE_ATTRS`, no ancestors) in the window holding `el`, depth first,
+    at most `WINDOW_WALK_MAX` elements. Read-only; never a value."""
+    stack = [w] if (w := _attr(el, "AXWindow")) is not None else []
+    read = 0
+    while stack and read < WINDOW_WALK_MAX:
+        node = stack.pop()
+        read += 1
+        facts: dict[str, Any] = {}
+        for key, name in SURFACE_ATTRS.items():
+            v = _attr(node, name)
+            if key == "dom_classes":
+                v = _strings(v)
+            if v not in (None, "", ()):
+                facts[key] = v if key == "dom_classes" else str(v)
+        yield facts
+        stack.extend(reversed(list(_attr(node, "AXChildren") or [])))
 
 
 def selected_text(el: Any) -> str | None:

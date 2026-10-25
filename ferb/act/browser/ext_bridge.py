@@ -705,7 +705,7 @@ def _read_clipboard() -> tuple[int, str | None, bool]:
     return read_general()
 
 
-REST_VERSION = "0.15.10"
+REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
 SECRET_TERMINAL = ("that's a terminal in the page: FERB puts no password or code into a terminal (D31); it would run "
                    "as the owner's input there")
 
@@ -713,7 +713,7 @@ SECRET_TERMINAL = ("that's a terminal in the page: FERB puts no password or code
 def _no_secret_into_terminal(info: PageElement) -> None:
     """D31 round 2, O3: a secret or a login code never goes into a web terminal (mac.secret asks for a native one)."""
     if info.terminal:
-        raise Refused(SECRET_TERMINAL)   # the first extension with `rest` (L31): an older one is never sent it
+        raise Refused(SECRET_TERMINAL)
 
 
 class _TabDriver:
@@ -1962,6 +1962,7 @@ class Router(_TabDriver):
                     raise Refused("split-code fields must share one tab, frame and snapshot")
                 if field.role != "textbox" or field.input_type not in {None, "", "text", "tel", "number"}:
                     raise Refused("split-code fields must all be textboxes, not passwords or other controls")
+                _no_secret_into_terminal(field)  # every split field, not just the first (round 3, O3)
                 locals_.append(other_local)
         ask = getattr(self, "ask_secret", None)
         if ask is None:
@@ -1975,7 +1976,7 @@ class Router(_TabDriver):
             return ActionResult(False, "secret input declined")
         try:
             for ref in refs:
-                self._resolve(ref)
+                _no_secret_into_terminal(self._resolve(ref)[4])
             self.add_secret_value(value)
             key = self.hub.pairings.key(t.bridge.binding.install_id)
             if key is None:

@@ -265,6 +265,7 @@ class TerminalInput:
     # files the input would open in a terminal app (a .command): (path, sha256 of its contents, its text as shown)
     files: tuple[tuple[str, str, str], ...] = ()
     label: str = ""                          # the terminal element's own label (VS Code: "Terminal 108, zsh …")
+    opens: bool = False                      # a script for an app that opens files by their default app (round 3, O1)
 
 
 @dataclass(frozen=True)

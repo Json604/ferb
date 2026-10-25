@@ -959,13 +959,14 @@ class MacComputerDriver:
                 document(editor) if callable(document) and editor is not None else None)
 
     def _run_input(self, a: Any, menu: str | None = None, control: str | None = None,
-                   why: str = "") -> TerminalInput:
+                   why: str = "", keys: str | None = None) -> TerminalInput:
         """Blocking (review rounds 1 and 2, finding 2): a press that runs code, with what it would run (`_run_facts`)
-        and where: the app's terminal for its Terminal (or Console, Shell) menu, else the app."""
+        and where: the app's terminal for its Terminal (or Console, Shell) menu, else the app. `keys`: the key press
+        that triggers it, which the Yes is bound to (round 3, L1: it goes on to the focus, a terminal or not)."""
         selection, file = self._run_facts(a)
         where = f"{a.name}'s terminal" if menu and terminals.TERMINAL_MENUS.match(menu.split(" > ")[0]) else a.name
         return TerminalInput(a.name, a.bundle_id, why or f"a menu or control that runs code in {where}",
-                             menu=menu, control=control, runs=True, selection=selection, file=file,
+                             keys=keys, menu=menu, control=control, runs=True, selection=selection, file=file,
                              runs_where=where)
 
     def _run_refusal(self, a: Any, grant: TerminalGrant | None, menu: str | None = None,
@@ -983,10 +984,20 @@ class MacComputerDriver:
 
     def _runs(self, a: Any, el: Any) -> str | None:
         """Blocking: why pressing this element runs code (policy/terminal.py `run_control`; a label counts only in
-        an editor app, N6), else None."""
+        an editor app, or in a window that hosts a terminal by structure: N6, round 3), else None."""
         facts = getattr(self.ax, "surface_facts", None)
-        return (terminals.run_control(facts(el), terminals.editor_app(a.bundle_id))
-                if el is not None and callable(facts) else None)
+        if el is None or not callable(facts):
+            return None
+        chain = facts(el)
+        if why := terminals.run_control(chain, terminals.editor_app(a.bundle_id)):
+            return why
+        labelled = terminals.run_control(chain, True)
+        return labelled if labelled and self._hosts_terminal(el) else None
+
+    def _hosts_terminal(self, el: Any) -> bool:
+        """Blocking: the element's window holds an element that is a terminal by its structure (round 3, N6)."""
+        walk = getattr(self.ax, "window_facts", None)
+        return callable(walk) and any(terminals.structural(f) for f in walk(el))
 
     @staticmethod
     def _shortcut(parts: list[str]) -> bool:
@@ -1069,7 +1080,7 @@ class MacComputerDriver:
         if action.kind == "key":                           # a key that presses a run command (round 2, 2a, 2c)
             path, control = self._key_run(a, action.text or "")
             if path or control:
-                return self._run_input(a, menu=path, control=control)
+                return self._run_input(a, menu=path, control=control, keys="+".join(normalize(action.text or "")))
         focus = self._focus(a)
         why = self._terminal_why(a, focus)
         if why is None:
@@ -1107,7 +1118,8 @@ class MacComputerDriver:
         a = self.app(app)
         why = self._script_why(a)
         return None if why is None else TerminalInput(a.name, a.bundle_id, why, script=script,
-                                                      files=self._open_files(self._script_paths(script)))
+                                                      files=self._open_files(self._script_paths(script)),
+                                                      opens=a.bundle_id.casefold() in terminals.OPENS_FILES)
 
     def script_refusal(self, a: Any, script: str, grant: TerminalGrant | None) -> str | None:
         """Blocking, right before the script runs: None unless its app needs the owner's Yes to exactly it (and to the

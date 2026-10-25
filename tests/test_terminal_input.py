@@ -794,10 +794,14 @@ def test_a_run_command_in_the_terminal_menu_asks_showing_the_selection_and_file(
     assert confirm.summary([terminal.need(inp)]) == (
         'FERB wants to press "Terminal > Run Selected Text" in Code (this menu runs code in Code\'s terminal, and a '
         "terminal it opens may run its profile's startup command; the editor's selection is \"import os; "
-        'os.system(\'id\')", the active file is "/Users/kartikey/Desktop/FERB/scratch.py").')
+        'os.system(\'id\')" (26 characters on 1 line, as FERB read it), the active file is '
+        '"/Users/kartikey/Desktop/FERB/scratch.py").')
     with pytest.raises(Refused, match=UNASKED):
         asyncio.run(d.press_menu("Code", ["Terminal", "Run Selected Text"]))
     assert ax.menus_pressed == []
+    ax.selections["editor"] = "a = 1\nb = 2\nprint(a + b)\n"                  # round 3: Monaco may shorten a big one
+    inp = d.menu_terminal_input("Code", ["Terminal", "Run Selected Text"])
+    assert inp is not None and "(25 characters on 3 lines, as FERB read it)" in confirm.summary([terminal.need(inp)])
     assert asyncio.run(d.press_menu("Code", ["Terminal", "Run Selected Text"], terminal=_grant(inp), task="t1"))
     assert d.menu_terminal_input("Code", ["Run", "Run Without Debugging"]) is not None    # the Run menu too
     assert d.menu_terminal_input("Code", ["View", "Explorer"]) is None
@@ -826,7 +830,11 @@ def test_a_run_button_asks_and_an_ordinary_button_does_not(monkeypatch: Any) -> 
 # ---------- review round 2, N7: a script runs no shell code and opens nothing ----------
 
 @pytest.mark.parametrize("script", ['do shell script "open -a Terminal ~/x.command"',
-                                    'set r to (DO   SHELL\nSCRIPT "id")'])
+                                    'set r to (DO   SHELL\nSCRIPT "id")',
+                                    'do shell \u00ac\n    script "id"',                     # round 3: ¬ continuation
+                                    'Do \u00ac \r\nShell \u00ac\nScript "id"',
+                                    '\u00abevent sysoexec\u00bb "id"',                      # the raw event form
+                                    '<<EVENT SYSOEXEC>> "id"'])
 def test_a_script_with_shell_code_is_refused_with_the_shell_tool_named(daemon: RunningDaemon, monkeypatch: Any,
                                                                        script: str) -> None:
     """`do shell script` would run a program outside the shell's own checks (the terminal and certificate floors, the
@@ -936,6 +944,27 @@ def test_a_finder_script_naming_a_file_that_runs_in_a_terminal_shows_and_binds_i
     assert d.script_refusal(a, script, _grant(inp)) is not None                   # the file changed: not this Yes
 
 
+def test_a_finder_script_that_opens_a_file_it_doesnt_name_says_so_and_asks(monkeypatch: Any, tmp_path: Any) -> None:
+    """Round 3, O1: a script that builds the path at run time, or names a file relative to a folder, opens a file FERB
+    can't resolve: the question says so (and still asks). One that names a file by path lists it, and says FERB can't
+    see any other file it opens. A script for an app that doesn't open files says neither."""
+    from tests.support.terminal_ax import FINDER
+    cmd = _command_file(tmp_path)
+    apps = TerminalApps(RunningApp(FINDER, "Finder", 300, False), RunningApp("com.apple.ScriptEditor2",
+                                                                             "Script Editor", 301, False))
+    apps.default_app_for = (                                                     # type: ignore[attr-defined]
+        lambda path: "com.apple.Terminal" if path.endswith(".command") else None)
+    d = terminal_mac(monkeypatch, vscode_ax(), apps)
+    for script in (f'open POSIX file ("{tmp_path}/" & "x.command")', 'open file "x.command" of desktop'):
+        inp = d.script_terminal_input("Finder", script)
+        assert inp is not None and inp.files == ()
+        assert "FERB can't see which file this opens" in confirm.summary([terminal.need(inp)]), script
+    inp = d.script_terminal_input("Finder", f'open POSIX file "{cmd}"')
+    assert inp is not None and "FERB can't see any other file it opens" in confirm.summary([terminal.need(inp)])
+    inp = d.script_terminal_input("Script Editor", 'open "x.scpt"')
+    assert inp is not None and "can't see" not in confirm.summary([terminal.need(inp)])
+
+
 # ---------- review round 2, N4: ordinary typing isn't stopped by a focus element change ----------
 
 def test_ordinary_typing_goes_on_when_the_focus_element_changes_but_not_into_a_terminal(monkeypatch: Any) -> None:
@@ -983,6 +1012,21 @@ def test_a_shortcut_that_presses_a_run_menu_item_asks_on_every_mechanism(monkeyp
             _act(d, "key", text="cmd+shift+b", mechanism=mechanism)
     assert ax.landed == []
     assert d.terminal_input("Code", ComputerAction("key", None, "cmd+s", mechanism="ax"), "t1") is None
+
+
+def test_a_run_shortcut_the_owner_said_yes_to_runs_while_the_terminal_has_the_focus(monkeypatch: Any) -> None:
+    """Round 3, L1: ⇧⌘B with VS Code's terminal focused asks about the run command; the Yes is bound to that key
+    press, so the focus check doesn't refuse it again. The question names the key and the command it presses."""
+    d, ax, ids = _run_routes(monkeypatch)
+    ax.focused = "term108"
+    action = ComputerAction("key", None, "cmd+shift+b", mechanism="pid")
+    inp = d.terminal_input("Code", action, "t1")
+    assert inp is not None and inp.menu == "Terminal > Run Build Task…" and inp.keys == "cmd+shift+b"
+    assert 'press cmd+shift+b ("Terminal > Run Build Task…") in Code' in confirm.summary([terminal.need(inp)])
+    assert asyncio.run(d.act("Code", action, "w1", "t1", terminal=_grant(inp))).ok
+    with pytest.raises(Refused, match=UNASKED):                                  # another key isn't covered
+        asyncio.run(d.act("Code", ComputerAction("key", None, "cmd+shift+t", mechanism="pid"), "w1", "t1",
+                          terminal=_grant(inp)))
 
 
 def test_a_context_menu_run_item_and_a_focused_run_button_ask(monkeypatch: Any) -> None:
@@ -1033,6 +1077,28 @@ def test_the_run_label_rule_holds_only_in_editors_and_says_code_runs_in_the_app(
     _, out = asyncio.run(d.snapshot("PyCharm"))
     inp = d.terminal_input("PyCharm", ComputerAction("press", out["elements"][0]["id"], mechanism="ax"), "t1")
     assert inp is not None and "runs code in PyCharm" in confirm.summary([terminal.need(inp)])
+
+
+def test_the_run_label_rule_holds_in_any_app_whose_window_hosts_a_terminal(monkeypatch: Any) -> None:
+    """Round 3, N6: a Run… button in an app FERB doesn't list as an editor asks when its window hosts a terminal that
+    code detects by structure (xterm.js classes here); the same button in a window without one asks nothing."""
+    term = [{"role": "AXTextArea", "dom_classes": ("xterm-helper-textarea",)},
+            {"role": "AXGroup", "dom_classes": ("xterm",)}, {"role": "AXWindow", "title": "Build"},
+            {"role": "AXApplication", "title": "DevTool"}]
+    btn = [{"role": "AXButton", "title": "Run task"}, {"role": "AXWindow", "title": "Build"},
+           {"role": "AXApplication", "title": "DevTool"}]
+    ax = TerminalAx({"btn": btn, "term": term}, labels={"btn": "Run task", "term": "Terminal"})
+    apps = TerminalApps(RunningApp("com.example.devtool", "DevTool", 802, False))
+    d = terminal_mac(monkeypatch, ax, apps)
+    ids = _ids(d, "DevTool")
+    inp = d.terminal_input("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "t1")
+    assert inp is not None and inp.control == "Run task" and inp.runs
+    with pytest.raises(Refused, match=UNASKED):
+        asyncio.run(d.act("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "w1", "t1"))
+    ax.windows["term"] = "Logs"                                                  # the terminal is in another window
+    assert d.terminal_input("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "t1") is None
+    del ax.chains["term"]
+    assert d.terminal_input("DevTool", ComputerAction("press", ids["Run task"], mechanism="ax"), "t1") is None
 
 
 def test_opening_a_terminal_asks_and_says_its_profile_may_run_a_command(monkeypatch: Any) -> None:
@@ -1112,6 +1178,26 @@ def test_a_browser_secret_into_a_web_terminal_is_refused() -> None:
         with pytest.raises(Refused, match="terminal"):
             asyncio.run(fill())
     assert "fill" not in calls
+
+
+def test_a_split_code_whose_later_field_is_a_web_terminal_is_refused() -> None:
+    """Round 3, O3: every split-code field is checked, not just the first: a code split across a box and a terminal
+    input is refused before the owner is asked, and nothing is filled."""
+    from ferb.core.types import Identity, PageElement, ToolContext
+    r, ref, t, calls = _web()
+    t.elements["s3e3"] = (0, 3, 3, PageElement("s3e3", "0", "textbox", "Digit 2", "", (0, 0, 9, 9), True))
+    t.elements["s3e2"] = (0, 3, 2, PageElement("s3e2", "0", "textbox", "Terminal input", "", (0, 0, 9, 9), True,
+                                               terminal=True))
+    asked: list[str] = []
+
+    async def ask(ctx: Any, origin: str, **kw: Any) -> str:
+        asked.append(origin)
+        return "123456"
+    r.ask_secret = ask                                                             # type: ignore[attr-defined]
+    ctx = ToolContext("task-1", "w1", "r1", Identity.OWNER, frozenset(), "dev", None, "/tmp", (), ())
+    with pytest.raises(Refused, match="terminal"):
+        asyncio.run(r.owner_secret(r.element_ref(ref, "s3e1"), ctx, split_elements=["s3e1", "s3e3", "s3e2"]))
+    assert asked == [] and "fill" not in calls
 
 
 # ---------- review round 2, finding 5: the question is byte-exact and never shows a secret ----------
