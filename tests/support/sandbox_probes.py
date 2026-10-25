@@ -62,5 +62,16 @@ for name in sys.argv[1:]:
 
 def lookups(sandbox: Any, names: list[str], *, apps: bool = False) -> dict[str, int]:
     import sys
-    r = run_under(sandbox, [sys.executable, "-c", LOOKUP, *names], apps=apps)
+    argv = [sys.executable, "-c", LOOKUP, *names]
+    if not apps:
+        r = run_under(sandbox, argv)
+    else:   # mac.applescript's profile runs only osascript (D31 round 2, N7): this one probe needs its interpreter, so
+        # it keeps every other line of that profile and drops only the exec rules
+        from ferb.act.shell.sandbox import SANDBOX_EXEC
+        text = "\n".join(l for l in sandbox.profile(apps=True).splitlines() if "process-exec" not in l) + "\n"
+        path = sandbox._write(text)
+        try:
+            r = subprocess.run([SANDBOX_EXEC, "-f", str(path), *argv], capture_output=True, text=True, timeout=20)
+        finally:
+            sandbox.cleanup(path)
     return {n: int(rc) for n, rc in (line.split() for line in r.stdout.splitlines() if line.strip())}

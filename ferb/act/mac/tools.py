@@ -27,6 +27,14 @@ from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
 
 
+# D31 review round 2, N7: AppleScript's command that runs a program; its sandbox denies the exec, and the call is
+# refused first with the tool to use (an argument-validity check on the script's own command, never its meaning)
+SHELL_COMMAND = re.compile(r"(?i)\bdo\s+shell\s+script\b")
+SHELL_REFUSED = ("mac.applescript runs no shell code: `do shell script` would run a program outside the shell's own "
+                 "checks. Run the command with shell.run, where FERB's sandbox, terminal question and change record "
+                 "apply")
+
+
 def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
 
@@ -95,6 +103,8 @@ class _Base:
     def precheck(self, args: BaseModel) -> str | None:
         # D31: typing, a secret or a script into any terminal asks the owner first, every time (`terminal_input`, the
         # gateway's question, the driver's check), by policy/terminal.py's facts (the built-in list and the owner's)
+        if self.name == "mac.applescript" and SHELL_COMMAND.search(str(getattr(args, "script", ""))):
+            return SHELL_REFUSED
         if self.name == "mac.secret" and self._web_browser(self._bundle(args)):
             return whole_browser(self._shown(args))
         return None
@@ -624,8 +634,8 @@ class MacAppleScript(_Base):
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "
                    "the body may use the operations needed for the requested task). Returns the script's result. "
-                   "It runs inside FERB's sandbox, like the shell: `do shell script` and file reads meet the same "
-                   "rules (shell.rules).")
+                   "It runs inside FERB's sandbox: it reaches only that app, opens nothing, and runs no shell code "
+                   "(`do shell script` is refused: use shell.run).")
     scopes = {"applescript"}
     risk, reversible = RiskLevel.MEDIUM, False
 

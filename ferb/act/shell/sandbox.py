@@ -96,6 +96,11 @@ NETWORK_SERVICES = ("com.apple.nsurlsessiond", "com.apple.nsurlsessiond-launchon
 TRUST_SERVICES = ("com.apple.trustd", "com.apple.trustd.agent")
 # Denied to the shell profile only (mac.applescript's keeps them): app lookup and the Apple Events service
 APP_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", "com.apple.coreservices.appleevents")
+# mac.applescript's profile (D31 review round 2, N7): no app launch or document open (the app a call names is already
+# running: tools.MacAppleScript resolves a running app) and no program but osascript itself, so `do shell script`
+# can't run (measured 2026-10-25: lsopen denied by sandbox_check, `do shell script` fails with error 100013)
+OSASCRIPT = "/usr/bin/osascript"
+APPS_LOCKDOWN = ("(deny lsopen)", "(deny process-exec)", f'(allow process-exec (literal "{OSASCRIPT}"))')
 
 
 def _q(path: Path | str) -> str:
@@ -129,11 +134,11 @@ class Sandbox:
 
     def profile(self, lift: str | None = None, *, apps: bool = False, direct: tuple[LocalPort, ...] = (),
                 report: str | None = None, events_to: str | None = None) -> str:
-        """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, but app
-        launches stay possible (`tell application` may launch the app) and Apple Events reach only `events_to`, the
-        app the call names (D31 review round 1: a script can't address a terminal app or System Events through
-        another app; none named, none at all). `direct`: pinned local ports the shell command FERB tracks under the
-        `report` tag reaches directly (`contain`); mac.applescript's never has any."""
+        """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, Apple
+        Events reach only `events_to`, the app the call names (D31 review round 1: a script can't address a terminal
+        app or System Events through another app; none named, none at all), and nothing launches or opens and no
+        program but osascript runs (round 2, N7: `APPS_LOCKDOWN`). `direct`: pinned local ports the shell command
+        FERB tracks under the `report` tag reaches directly (`contain`); mac.applescript's never has any."""
         return self._profile(lift, apps, direct, report, events_to)[0]
 
     def _profile(self, lift: str | None, apps: bool, direct: tuple[LocalPort, ...],
@@ -199,6 +204,7 @@ class Sandbox:
             lines.append("(deny lsopen)")
             lines += [f'(deny mach-lookup (global-name "{name}"))' for name in APP_SERVICES]
         else:                                    # measured: an event to any other app fails before it is sent (-600)
+            lines += list(APPS_LOCKDOWN)
             lines.append("(deny appleevent-send)")
             if events_to:
                 lines.append(f"(allow appleevent-send (appleevent-destination {_q(events_to)}))")

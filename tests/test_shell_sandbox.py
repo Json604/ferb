@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import threading
 from pathlib import Path
 
@@ -279,7 +280,7 @@ def test_applescript_runs_under_the_same_sandbox(tmp_path: Path, monkeypatch: py
     async def fake_exec(*a: str, **k: object) -> object:
         seen.append(list(a))
         assert Path(a[2]).exists()                                   # the profile is there while it runs
-        captured["apps"] = "(deny lsopen)" not in Path(a[2]).read_text()   # the apps profile keeps lsopen
+        captured["apps"] = "(deny appleevent-send)" in Path(a[2]).read_text()   # mac.applescript's own profile
         captured["cwd"] = k.get("cwd")
         captured["env"] = k.get("env")
         return await real_exec(sys.executable, "-c", "print('ok')", stdout=-1, stderr=-1)
@@ -298,11 +299,15 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     (ferb / "workspace").mkdir(parents=True)
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", listeners=lambda: {9999})   # fixed: comparable
     shell_only = set(sb.profile().splitlines()) - set(sb.profile(apps=True).splitlines())
-    assert shell_only == {"(deny lsopen)", *(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
-    # D31 review round 1: Apple Events reach only the app the call names (none named: none)
-    assert set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines()) == {"(deny appleevent-send)"}
+    assert shell_only == {*(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
+    # D31 review round 1: Apple Events reach only the app the call names (none named: none); round 2 (N7): no app
+    # launch or document open (lsopen) and no program but osascript itself, so `do shell script` can't run
+    lockdown = {"(deny process-exec)", '(allow process-exec (literal "/usr/bin/osascript"))'}
+    assert "(deny lsopen)" in sb.profile(apps=True).splitlines()
+    assert set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines()) == {"(deny appleevent-send)",
+                                                                                        *lockdown}
     assert set(sb.profile(apps=True, events_to="com.apple.Notes").splitlines()) - set(sb.profile().splitlines()) == {
-        "(deny appleevent-send)", '(allow appleevent-send (appleevent-destination "com.apple.Notes"))'}
+        "(deny appleevent-send)", '(allow appleevent-send (appleevent-destination "com.apple.Notes"))', *lockdown}
     assert "(deny job-creation)" in sb.profile(apps=True)                     # still no background jobs
 
 
@@ -318,6 +323,30 @@ def test_an_apple_event_to_any_app_but_the_named_one_is_refused_by_the_sandbox(t
                         'tell application id "com.apple.finder" to count windows'],
                        capture_output=True, text=True, timeout=20)
     assert r.returncode != 0 and "(-600)" in r.stderr
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt")
+def test_the_applescript_lockdown_stops_launches_and_shell_code_without_touching_an_app(tmp_path: Path) -> None:
+    """D31 review round 2, N7: a script for any app could `do shell script "open -a Terminal x.command"` or launch
+    an app. Measured with no UI effect (2026-10-25): under the AppleScript profile's lockdown rules the kernel reports
+    lsopen denied for the running osascript (sandbox_check, nothing opened), and `do shell script "echo hi"` fails
+    (error 100013) where it prints "hi" without them."""
+    import ctypes
+    from ferb.act.shell.sandbox import APPS_LOCKDOWN
+    profile = tmp_path / "apps.sb"
+    profile.write_text("(version 1)\n(allow default)\n" + "\n".join(APPS_LOCKDOWN) + "\n")
+    shell = subprocess.run([SANDBOX_EXEC, "-f", str(profile), "/usr/bin/osascript", "-e", 'do shell script "echo hi"'],
+                           capture_output=True, text=True, timeout=20)
+    assert shell.returncode != 0 and "hi" not in shell.stdout
+    busy = subprocess.Popen([SANDBOX_EXEC, "-f", str(profile), "/usr/bin/osascript", "-e", "delay 8"],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        time.sleep(1.5)
+        lib = ctypes.CDLL("/usr/lib/libSystem.dylib")
+        assert busy.poll() is None and lib.sandbox_check(busy.pid, b"lsopen", 0) == 1
+    finally:
+        busy.kill()
+        busy.wait()
 
 
 def test_applescript_events_reach_only_the_app_the_call_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
