@@ -299,8 +299,43 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", listeners=lambda: {9999})   # fixed: comparable
     shell_only = set(sb.profile().splitlines()) - set(sb.profile(apps=True).splitlines())
     assert shell_only == {"(deny lsopen)", *(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
-    assert not set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines())   # apps adds nothing
+    # D31 review round 1: Apple Events reach only the app the call names (none named: none)
+    assert set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines()) == {"(deny appleevent-send)"}
+    assert set(sb.profile(apps=True, events_to="com.apple.Notes").splitlines()) - set(sb.profile().splitlines()) == {
+        "(deny appleevent-send)", '(allow appleevent-send (appleevent-destination "com.apple.Notes"))'}
     assert "(deny job-creation)" in sb.profile(apps=True)                     # still no background jobs
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt")
+def test_an_apple_event_to_any_app_but_the_named_one_is_refused_by_the_sandbox(tmp_path: Path) -> None:
+    """D31 review round 1, finding 1: a script told to address one app can't reach another (a terminal app, or System
+    Events typing into whatever has focus). Measured 2026-10-25: with only another app allowed, an event to the
+    always-running Finder fails before it is sent (-600), so no Automation prompt appears and Finder gets nothing."""
+    profile = tmp_path / "only.sb"
+    profile.write_text('(version 1)\n(allow default)\n(deny appleevent-send)\n'
+                       '(allow appleevent-send (appleevent-destination "com.example.none"))\n')
+    r = subprocess.run([SANDBOX_EXEC, "-f", str(profile), "/usr/bin/osascript", "-e",
+                        'tell application id "com.apple.finder" to count windows'],
+                       capture_output=True, text=True, timeout=20)
+    assert r.returncode != 0 and "(-600)" in r.stderr
+
+
+def test_applescript_events_reach_only_the_app_the_call_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.mac import applescript
+    home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p")
+    profiles: list[str] = []
+    real_exec = asyncio.create_subprocess_exec
+
+    async def fake_exec(*a: str, **k: object) -> object:
+        profiles.append(Path(a[2]).read_text())
+        return await real_exec(sys.executable, "-c", "print('ok')", stdout=-1, stderr=-1)
+    monkeypatch.setattr(applescript.asyncio, "create_subprocess_exec", fake_exec)
+    asyncio.run(applescript.run("com.apple.Notes", 'tell application "Terminal" to do script "id"', sandbox=sb))
+    assert "(deny appleevent-send)" in profiles[0]
+    assert '(allow appleevent-send (appleevent-destination "com.apple.Notes"))' in profiles[0]
+    assert "com.apple.Terminal" not in profiles[0]
 
 
 def test_osascript_can_use_the_approved_exact_command_trustd_escape(daemon: RunningDaemon) -> None:

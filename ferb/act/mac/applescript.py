@@ -3,8 +3,10 @@
 AppleScript target encoding and execution. Setup offers Automation; macOS enforces actual grants.
 Script content is not classified by permission keywords. osascript runs under FERB's shell sandbox (D27, rule 10):
 `do shell script` would otherwise be a shell outside it. Measured (F5a Task 2): Apple Events still reach apps under the
-profile, and `do shell script "cat <denied file>"` is refused, also inside a `tell` block. What another app does when
-told to (Finder, Terminal) is that app's, outside any sandbox of FERB's: Automation grants bound it."""
+profile, and `do shell script "cat <denied file>"` is refused, also inside a `tell` block. What the named app does when
+told to is that app's, outside any sandbox of FERB's: Automation grants bound it. Apple Events reach only the app the
+call names (D31 review round 1): a script addressed to Notes can't tell Terminal or System Events anything; a call that
+names a terminal app or System Events asks the owner first, showing the script (tools.MacAppleScript)."""
 
 import asyncio
 import re
@@ -32,7 +34,7 @@ async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = N
     if sandbox is not None:
         from ferb.act.shell.manager import clean_env
         # Building the profile runs netstat and sandbox_check: off the event loop. The shell's clean environment
-        argv, env = await asyncio.to_thread(sandbox.wrap, argv, apps=True), clean_env(sandbox)
+        argv, env = await asyncio.to_thread(sandbox.wrap, argv, apps=True, events_to=bundle_id), clean_env(sandbox)
     try:
         if asyncio.get_running_loop().time() >= deadline:
             return False, "timed out before execution"

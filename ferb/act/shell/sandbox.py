@@ -128,15 +128,16 @@ class Sandbox:
         self.listeners = listeners or (lambda: outside_ports(protection.ferb_home, protection.workspace))
 
     def profile(self, lift: str | None = None, *, apps: bool = False, direct: tuple[LocalPort, ...] = (),
-                report: str | None = None) -> str:
-        """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, but Apple
-        Events and app launches stay possible (`tell application` may launch the app). `direct`: pinned local ports
-        the shell command FERB tracks under the `report` tag reaches directly (`contain`); mac.applescript's never
-        has any."""
-        return self._profile(lift, apps, direct, report)[0]
+                report: str | None = None, events_to: str | None = None) -> str:
+        """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, but app
+        launches stay possible (`tell application` may launch the app) and Apple Events reach only `events_to`, the
+        app the call names (D31 review round 1: a script can't address a terminal app or System Events through
+        another app; none named, none at all). `direct`: pinned local ports the shell command FERB tracks under the
+        `report` tag reaches directly (`contain`); mac.applescript's never has any."""
+        return self._profile(lift, apps, direct, report, events_to)[0]
 
     def _profile(self, lift: str | None, apps: bool, direct: tuple[LocalPort, ...],
-                 report: str | None) -> tuple[str, tuple[LocalPort, ...]]:
+                 report: str | None, events_to: str | None = None) -> tuple[str, tuple[LocalPort, ...]]:
         """The profile text, and the pinned local ports it allows directly."""
         p = self.protection
         if lift is not None:
@@ -197,6 +198,10 @@ class Sandbox:
         if not apps:
             lines.append("(deny lsopen)")
             lines += [f'(deny mach-lookup (global-name "{name}"))' for name in APP_SERVICES]
+        else:                                    # measured: an event to any other app fails before it is sent (-600)
+            lines.append("(deny appleevent-send)")
+            if events_to:
+                lines.append(f"(allow appleevent-send (appleevent-destination {_q(events_to)}))")
         if self.socket is not None:
             lines += [f"(deny network-outbound (remote unix-socket (path-literal {_q(s)})))" for s in _forms(self.socket)]
         return "\n".join(lines) + "\n", direct
@@ -234,10 +239,11 @@ class Sandbox:
         """Each entry as resolved at FERB's start, as written, and as written resolved now (it may be a link since)."""
         return list(dict.fromkeys(f for e in entries if e.id != lift for f in (e.path, *_forms(e.typed))))
 
-    def wrap(self, argv: list[str], lift: str | None = None, *, apps: bool = False) -> list[str]:
+    def wrap(self, argv: list[str], lift: str | None = None, *, apps: bool = False,
+             events_to: str | None = None) -> list[str]:
         """argv under the profile. The profile file stays until `cleanup` (after the process ends): sandbox-exec reads
         it after it starts, so removing it as soon as Popen returns failed every run (measured)."""
-        return [SANDBOX_EXEC, "-f", str(self._write(self.profile(lift, apps=apps))), *argv]
+        return [SANDBOX_EXEC, "-f", str(self._write(self.profile(lift, apps=apps, events_to=events_to))), *argv]
 
     def _write(self, text: str) -> Path:
         self.profiles_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

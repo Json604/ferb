@@ -195,7 +195,7 @@ def test_applescript_wraps_target_and_validates_bundle_syntax():
 def test_applescript_never_starts_after_budget_expires_during_preparation(monkeypatch, tmp_path, timeout):
     class Sandbox:
         owner_task = 't'
-        def wrap(self, argv, apps=False):
+        def wrap(self, argv, apps=False, events_to=None):
             time.sleep(0.03)
             return argv
         def profile_path(self, argv): return str(tmp_path / 'profile')
