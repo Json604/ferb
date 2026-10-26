@@ -41,14 +41,25 @@ final class NotchCoreTests: XCTestCase {
         XCTAssertEqual(geometry.panelFrame(size: CGSize(width: 528, height: 354)).maxY, 950)
     }
 
-    func testExternalDisplayUsesAnEdgeTabBelowTheMenuBar() {
+    func testANotchlessDisplayGetsAVirtualNotchOverTheMenuBar() {
+        // Owner 2026-10-27 (a friend's M1): a black pill at the top centre, as tall as the menu bar, not a tab below it
         let geometry = NotchGeometry(screen: CGRect(x: -1920, y: 200, width: 1920, height: 1080),
                                      topInset: 0, leftAreaMaxX: nil, rightAreaMinX: nil,
                                      menuBarHeight: 25)
         XCTAssertFalse(geometry.hasNotch)
-        XCTAssertEqual(geometry.topEdge, 1255)
         XCTAssertEqual(geometry.centerX, -960)
-        XCTAssertEqual(geometry.panelFrame(size: CGSize(width: 528, height: 354)).midX, -960)
+        XCTAssertEqual(geometry.cutoutFrame, CGRect(x: -1042, y: 1255, width: 164, height: 25))
+        let hidden = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1440, height: 900), topInset: 0,
+                                   leftAreaMaxX: nil, rightAreaMinX: nil, menuBarHeight: 0)
+        XCTAssertEqual(hidden.cutoutFrame.maxY, 900)                  // a hidden menu bar: still at the top edge
+        XCTAssertEqual(hidden.cutoutFrame.height, 24)
+    }
+
+    func testANotchedDisplaysPillIsTheCameraHousing() {
+        let geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1512, height: 982),
+                                     topInset: 32, leftAreaMaxX: 666, rightAreaMinX: 846,
+                                     menuBarHeight: 32)
+        XCTAssertEqual(geometry.cutoutFrame, CGRect(x: 666, y: 950, width: 180, height: 32))
     }
 
     func testClosingTheSurfaceDoesNotStopTheTask() {

@@ -315,13 +315,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                             NSStatusBar.system.thickness)
         model.handleWidth = current.handleWidth
         model.hasHardwareNotch = current.hasNotch
-        model.cutoutHeight = current.hasNotch ? screen.safeAreaInsets.top : 24
-        // Native displays begin at the screen edge. Other displays get a small
-        // equivalent tab immediately below their menu bar.
-        let top = current.hasNotch ? screen.frame.maxY : current.topEdge
-        cutoutFrame = CGRect(x: current.centerX - current.handleWidth / 2,
-                             y: top - model.cutoutHeight,
-                             width: current.handleWidth, height: model.cutoutHeight)
+        // The camera housing, or a virtual notch over the menu bar's centre: both begin at the screen's top edge.
+        model.cutoutHeight = current.cutoutFrame.height
+        cutoutFrame = current.cutoutFrame
         tracerPanel.setFrame(frame(for: CGSize(width: model.handleWidth + 40,
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
