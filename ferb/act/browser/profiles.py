@@ -234,6 +234,15 @@ def extension_entry(p: BrowserProfile, extension_ids: tuple[str, ...] | frozense
     return next((e for e in installed if extension_enabled(e[1])), installed[0] if installed else None)
 
 
+def extension_state(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> str:
+    """"on" (a FERB copy is turned on), "off" (installed but turned off: Chrome keeps an externally requested copy
+    off until the owner approves it, "Action Required"; its pages are blocked) or "missing"."""
+    entry = extension_entry(p, extension_ids, data_dir)
+    if entry is None:
+        return "missing"
+    return "on" if extension_enabled(entry[1]) else "off"
+
+
 def has_extension(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> bool:
     """Is the FERB extension installed in this profile? Read from the profile's own settings on disk (both files
     Chromium uses), so it's known before the extension ever says hello."""

@@ -3861,7 +3861,7 @@ class Daemon:
         apps (the device profile), running apps, the macOS version, and whether FERB's extension is in each profile not
         yet paired (its Preferences files)."""
         import platform
-        from ferb.act.browser.profiles import has_extension
+        from ferb.act.browser.profiles import extension_state
         from ferb.act.mac import apps as appsm
         found = self._profiles()
         try:
@@ -3869,7 +3869,7 @@ class Daemon:
         except Exception:
             running = set()
         ids = frozenset(accepted_extension_ids(self.config))   # the pinned unpacked id and the store id (L25)
-        extension = {(p.browser, p.folder): has_extension(p, ids, (self.browser_data_dirs or {}).get(p.browser))
+        extension = {(p.browser, p.folder): extension_state(p, ids, (self.browser_data_dirs or {}).get(p.browser))
                      for p in found if (p.browser, p.folder) not in paired}
         return found, self._installed_apps(), running, platform.mac_ver()[0] or "unknown", extension
 
@@ -3944,18 +3944,19 @@ class Daemon:
                 json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False),
                 ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])
 
-    def _profile_state(self, p: Any, installed: bool | None = None) -> str:
-        """connected / paired (FERB opens it) / installed, not paired / no extension. `installed`: whether the
-        extension is in the profile, when its files were already read (the environment reads them in a thread)."""
-        from ferb.act.browser.profiles import has_extension
+    def _profile_state(self, p: Any, extension: str | None = None) -> str:
+        """connected / paired (FERB opens it) / installed (turned on, not paired) / off (installed, turned off: its
+        pages are blocked, so it can't pair until the owner turns it on) / missing. `extension`: the profile's
+        `extension_state`, when its files were already read (the environment reads them in a thread)."""
+        from ferb.act.browser.profiles import extension_state
         b = self.pairings.for_profile(p.browser, p.folder) if self.pairings else None
         if b is not None:
             br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
             return "connected" if br is not None and br.conn else "paired"
-        if installed is None:
+        if extension is None:
             data = (self.browser_data_dirs or {}).get(p.browser)
-            installed = has_extension(p, frozenset(accepted_extension_ids(self.config)), data)
-        return "installed" if installed else "missing"
+            extension = extension_state(p, frozenset(accepted_extension_ids(self.config)), data)
+        return {"on": "installed", "off": "off"}.get(extension, "missing")
 
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
@@ -4300,8 +4301,13 @@ class Daemon:
         base = {"browser": p.browser, "folder": p.folder, "name": p.display_name}
         if (p.browser, p.folder) == self._identity_profile():
             return base | {"paired": False, "why": "FERB's own profile is paired as FERB"}
-        if self._profile_state(p) == "missing":
+        state = self._profile_state(p)
+        if state == "missing":
             return base | {"paired": False, "needs_install": True, "why": "FERB's extension isn't in that profile"}
+        if state == "off":                     # live 2026-10-27: a page sent to a turned-off copy is blocked by Chrome
+            return base | {"paired": False, "needs_enable": True,
+                           "why": "FERB's extension is in that profile but turned off: the owner turns it on there "
+                                  "(Chrome shows “Action Required”, or the switch on its extensions page), then pair"}
         token = self.pairings.issue_token(p.browser, p.folder)
         wake = await self._open_pairing(p.browser, p.folder, token)
         end = self.clock.monotonic() + timeout_s

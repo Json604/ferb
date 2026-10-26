@@ -109,3 +109,34 @@ def test_a_profile_the_owner_named_pairs_without_a_question(bd: Any) -> None:  #
         assert d.run(asked()) == 0
     finally:
         exts["Default"].kill()
+
+
+def test_a_copy_waiting_for_the_owners_approval_is_never_sent_a_pairing_page(bd: Any) -> None:  # noqa: F811
+    """Live 2026-10-27 (task 4a957731, "connect all my browser profile of all chrome"): Chrome had installed FERB's
+    store copy in "old" but kept it off until the owner approved it ("Action Required", disable_reasons 8192), so the
+    pairing page FERB opened there showed "… is blocked, ERR_BLOCKED_BY_CLIENT". A copy that is off isn't pairable:
+    Pair all skips it and browser_pair says to turn FERB on there first."""
+    import json
+    d, launched = bd
+    prefs = d.daemon.browser_data_dirs["chrome"] / "Profile 1" / "Secure Preferences"
+    doc = json.loads(prefs.read_text())
+    for entry in doc["extensions"]["settings"].values():
+        entry["disable_reasons"] = [8192]
+    prefs.write_text(json.dumps(doc))
+    exts = _unpaired(d, ("Default",))
+    before = len(launched)
+    out: dict[str, Any] = {}
+    run = threading.Thread(target=lambda: out.update(d.run(d.daemon._setup_browsers_pair_all(None, {"timeout_s": 10}))))
+    run.start()
+    _answer_pages(launched, before, exts, 1)
+    run.join(15)
+    try:
+        assert [r["folder"] for r in out["results"]] == ["Default"] and "Profile 1" not in _pages(launched, before)
+        g = task(d, "w", OWNER, "pair my work profile")
+        r = call(d, g, "browser.pair", profile="chrome/Profile 1")
+        assert r["is_error"] and r["content"]["needs_enable"] is True and "turned off" in r["content"]["why"]
+        assert "Profile 1" not in _pages(launched, before)
+        facts = d.run(d.daemon._environment(""))["stable"]                  # the planner sees it as off
+        assert '"profile": "Profile 1", "name": "Work", "account_hint": "me@work.com", "connection": "off"' in facts
+    finally:
+        exts["Default"].kill()

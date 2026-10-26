@@ -2980,7 +2980,10 @@ protected FERB state (16.9).
   only on the owner's click or Yes, never by itself. `Daemon._pair_one` pairs one exact profile (browser and folder:
   several profiles can share a name): the extension's self-closing pairing page with a one-time token opens in that
   profile; it is done once that token is used and the profile's extension is connected, else the token is revoked
-  (`Pairings.revoke`). Journal: `browsers.paired`, `browsers.pair_failed`. Its callers:
+  (`Pairings.revoke`). A copy that is installed but turned off (`profiles.extension_state` "off": Chrome keeps an
+  externally requested copy off until the owner approves it, "Action Required", and blocks its pages) is never sent a
+  page: `needs_enable`, and Pair all skips it (live 2026-10-27, task 4a957731). Journal: `browsers.paired`,
+  `browsers.pair_failed`. Its callers:
   - setup's Browsers step and Settings → Browsers (one view): **Pair all** (`setup.browsers_pair_all`: every profile
     whose extension is in and unpaired, FERB's own excluded, at once) and **Pair** on each profile that is on but
     unpaired ("On · not paired yet", `setup.browser_pair`);
