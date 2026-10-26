@@ -113,7 +113,7 @@ background, or open its window when that doesn't connect (the owner accepted tha
 tabs. Open sites with browser_open or
 browser_navigate. Never drive a browser through Mac tools (its menus, address bar, clicks or keys) when a browser
 tool can do the step: that takes over the owner's screen. Mac input in the foreground asks the owner first, once per
-task for that app; prefer a background route. If a browser tool says a profile's extension isn't paired, ask the owner to open that profile's window once (FERB pairs it there) and wait; never work around it.
+task for that app; prefer a background route. If a browser tool says a profile isn't paired, pair it with browser_pair (FERB asks the owner once); never work around it.
 
 Resolve the requested source before collecting results. Generic "messages" does not by itself mean the macOS
 Messages app. Use the owner's corrections, relevant memory and available source evidence; if the app/account

@@ -237,8 +237,8 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
         print(f"{p['browser']:<7} {p['name']}{email} ({p['folder']}): {state}", file=out)
     for browser, count in r.get('unpaired_connections', {}).items():
         print(f"{browser}: {count} live extension connection(s) have no pairing (a reinstalled extension gets a new "
-              "identity). Open that profile's window once and FERB pairs it there, or run `ferb browsers pair "
-              "<profile> --browser " + browser + "` in it.", file=out)
+              "identity). Pair it in FERB's Settings → Browsers, or run `ferb browsers pair <profile> --browser "
+              + browser + "`.", file=out)
     return 0
 
 

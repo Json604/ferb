@@ -43,11 +43,13 @@ class Resolver:
                 raise NeedsOwner(r.message(named, pool))
             p = r.candidates[0]
             if (p.browser, p.folder) not in paired:
-                raise NeedsOwner(f"{p.browser} profile '{p.display_name}' isn't connected to FERB yet: run "
-                                 f"`ferb browsers pair {p.browser} \"{p.display_name}\"`")
+                raise NeedsOwner(f"{p.browser} profile '{p.display_name}' ({p.browser}/{p.folder}) isn't paired "
+                                 f"with FERB yet: pair it with browser_pair profile={p.browser}/{p.folder} (FERB asks "
+                                 "the owner once)")
             return Choice(p.browser, p.folder, f"named: {named}")
         if not paired:
-            raise NeedsOwner("no browser profile is connected to FERB yet: run `ferb browsers pair <browser> <profile>`")
+            raise NeedsOwner("no browser profile is paired with FERB yet: pick the owner's profile from browser_profiles "
+                             "and pair it with browser_pair (FERB asks the owner once)")
         raise NeedsOwner("select a profile from the task context; available: " +
                          ", ".join(self._name(b, f) for b, f in sorted(paired)) +
                          ". Use ferb_browser for ordinary browsing in FERB's own profile.")

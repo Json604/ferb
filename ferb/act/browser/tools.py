@@ -307,6 +307,33 @@ class BrowserProfiles(_Base):
         return ToolResult({"profiles": self.driver.profile_candidates()})  # type: ignore[attr-defined]
 
 
+class BrowserPair(_Base):
+    """Pair one of the owner's browser profiles with FERB, on the owner's Yes (owner 2026-10-27: pairing happens on the
+    owner's click or yes, never by itself; this replaces automatic pairing and sending the owner to windows or Terminal
+    commands). FERB's code asks the owner first, every profile once per task (floor:pair_profile)."""
+    verb = "pair"
+    on_screen = True                                   # the pairing page opens in that profile and closes itself
+    risk, reversible = RiskLevel.MEDIUM, False
+    blurb = ("Pair one of the owner's browser profiles with FERB when a browser tool says it isn't paired: FERB asks "
+             "the owner once, then opens that profile's own pairing page, which closes itself. Name the profile "
+             "exactly (browser/folder from {p}_profiles).")
+    class Input(BaseModel):
+        profile: str = Field(description="the profile as browser/folder from browser_profiles, e.g. chrome/Profile 15")
+    def _scopes(self) -> set[str]:
+        return {self.family.act}
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.CLICK, Target(site=str(getattr(args, "profile"))))
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        pair = getattr(self.driver, "pair_profile", None)
+        if pair is None:
+            raise Refused("pairing isn't available here")
+        browser, _, folder = str(args.profile).partition("/")
+        if not folder:
+            raise Refused("name the profile as browser/folder, from browser_profiles")
+        result = await pair(browser, folder)
+        return ToolResult(result, is_error=not result.get("paired"))
+
+
 class BrowserDialog(_Base):
     verb = "dialog"
     on_screen = True

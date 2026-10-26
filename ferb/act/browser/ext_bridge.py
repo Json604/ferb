@@ -365,7 +365,7 @@ class Hub:
         v = self.pairings.handle(m)
         if not v.accepted:
             if m.type == "hello" and v.reason in {"bad_mac", "replay"}:
-                why = f"extension pairing failed ({v.reason}); run ferb browsers pair for this profile"
+                why = f"extension pairing failed ({v.reason}); pair this profile again (browser_pair, or Settings → Browsers)"
                 self.refused[m.install_id] = why
                 conn.writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
                 await conn.writer.drain()
@@ -783,9 +783,9 @@ class _TabDriver:
                     # can't tell it is this profile's. Only the owner can pair it, while they are in its window.
                     raise DriverError(
                         f"{br.name}'s FERB extension is connected but not paired with FERB (a reinstall gives it a new "
-                        "identity). Ask the owner to open that profile's window once: FERB pairs it while they are "
-                        "there. Never work around this through Mac tools (the browser's menus, address bar or "
-                        "clicks): that takes over the owner's screen.")
+                        f"identity): pair it with browser_pair profile={br.binding.browser}/{br.binding.folder} (FERB "
+                        "asks the owner once). Never work around this through Mac tools (the browser's menus, address "
+                        "bar or clicks): that takes over the owner's screen.")
                 if reason is not None:
                     raise DriverError(f"{br.name}'s FERB extension was refused: {reason}.")
                 open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), window=True, **kwargs)

@@ -233,29 +233,13 @@ def _code_path(filename: str) -> str:
         return path.name
 
 
-# Automatic pairing (L25, owner 2026-10-24) only where handing a page to one profile is verified: Chrome (spike 19,
-# pairing) and Brave (its profiles paired live). Elsewhere `ferb browsers pair` pairs by hand.
-AUTOPAIR_BROWSERS = ("chrome", "brave")
 # A paired owner profile that isn't connected, where FERB can't start it without a window (no wake service): plain
 # words, not a fault (live 2026-10-24: "extension transport disconnected" read as broken)
 IDLE_PROFILE = "not connected now — FERB connects once that profile is open in its browser"
-# Chromium writes Local State and Preferences up to 10 s after a change (ImportantFileWriter's commit interval), so
-# a window switch or FERB being turned on shows on disk that late. A technical wait, not a behaviour limit.
-PREFS_SETTLE_S = 12.0
 
 
 SCHEDULE_RETRY = "retry:"            # a schedule timer's message for a failed run's one retry
 SCHEDULE_RETRY_S = 600.0             # 10 minutes after the failure (owner 2026-10-27)
-
-
-def _front_app() -> str | None:
-    """The frontmost app's bundle id (Accessibility, as the app-focus watcher reads it); None when it can't be read."""
-    from ferb.sense.watchers.base import focused_app
-    try:
-        f = focused_app()
-    except Exception:
-        return None
-    return f.bundle_id if f else None
 
 
 class _Rescrub:
@@ -286,7 +270,7 @@ class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
-                 notifications: bool = True, retention: bool = True, resources: bool = True, autopair: bool = True,
+                 notifications: bool = True, retention: bool = True, resources: bool = True,
                  snapshots: bool = True,
                  persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True) -> None:
         self.home = home or ferb_home()
@@ -344,11 +328,6 @@ class Daemon:
         self.browser_launch: Callable[[list[str]], None] | None = None
         self.pair_load_wait_s = 2.0                          # a profile opened just to pair gets this long to load
         self.pair_timeout_s = 60.0                           # how long a pairing page's key may take (as browsers.pair)
-        self.front_app: Callable[[], str | None] = _front_app   # the frontmost app's bundle id, for automatic pairing
-        self.run_autopair = autopair
-        self._autopair_task: asyncio.Task[None] | None = None
-        self._autopair_again = False
-        self._autopair_tried: set[tuple[str, str]] = set()  # one automatic try per profile while FERB runs
         self.pairings: Pairings | None = None
         self.hub: Hub | None = None
         self.router: Router | None = None
@@ -550,6 +529,8 @@ class Daemon:
                          ("test.mode", self._test_mode),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
                          ("browsers.pair", self._browsers_pair), ("browsers.installed", self._browsers_installed), ("browsers.unpair", self._browsers_unpair),
+                         ("setup.browser_pair", self._setup_browser_pair),
+                         ("setup.browsers_pair_all", self._setup_browsers_pair_all),
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
                          ("ps.kill", self._ps_kill)):
             self.server.unary[name] = fn
@@ -629,7 +610,7 @@ class Daemon:
         # Stop task producers before taking the task snapshot. Task finalizers still need the
         # gateway resources, disturbance observer and database until cancellation has completed.
         await drain({job for job in (self._macos_task, self._distill_task, self._retention_task, self._timer_task,
-                                self._held_task, self._resources_task, self._autopair_task)
+                                self._held_task, self._resources_task)
                      if job is not None}, "producers")
         if self.supervisor:
             self.supervisor.suspend_plans()
@@ -897,6 +878,7 @@ class Daemon:
             self.gateway.test_send_allowlist = (set(allowed) if isinstance(allowed, list) and
                 all(isinstance(item, str) and item.strip() for item in allowed) else set())
         self.gateway.disturbance = self.disturbance
+        self.gateway.profile_name = self._profile_display_name   # browser_pair's question names the profile
         self.gateway.memory_read = lambda task_id, refs: self.db.conn.executemany(   # re-review a3
             "INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)", [(task_id, ref) for ref in refs])
         self.gateway.journal_problem = lambda kind, data: self._journal().append(kind, data)   # re-review R4
@@ -1063,8 +1045,8 @@ class Daemon:
         if self.hub is None or browser not in self.hub.unpaired.values() or self._owner_extension_connected(browser):
             return None
         name = {"brave": "Brave", "chrome": "Chrome"}.get(browser, browser)
-        return (f"The FERB extension is installed in {name} but not paired. Tell the owner to pair it: "
-                f"`ferb browsers pair {browser} \"<profile name>\"` (or say yes when ferb chat offers it).")
+        return (f"The FERB extension is installed in {name} but not paired: a task pairs the profile it needs with "
+                "browser_pair (FERB asks the owner once); the owner can also pair it in Settings → Browsers.")
 
     def _owner_extension_connected(self, browser: str) -> bool:
         """A paired owner profile of this browser is connected: browser work goes through the extension."""
@@ -1422,7 +1404,7 @@ class Daemon:
         self.perception.purge_text()
         watchers: list[Any] = [self.perception]
         if self.run_watchers:
-            watchers += [AppFocusWatcher(on_change=self._on_app_focus), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
+            watchers += [AppFocusWatcher(), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
                                                                                            True))),
                         IdleWatcher(lambda: self.owner_input.last_owner_wall, lambda: self.owner_input.running,
                                     float(self.config.get("sense", "idle_after_s", 120))),
@@ -3997,8 +3979,8 @@ class Daemon:
             live = [b for b in owner if self.hub is not None and (br := self.hub.bridges.get((b.browser, b.folder)))
                     is not None and br.conn is not None]
             if not owner:
-                problems["owner_browsers"] = "none of the owner's browser profiles is paired — `ferb browsers pair " \
-                                             "<browser> \"<profile>\"`"
+                problems["owner_browsers"] = ("none of the owner's browser profiles is paired — browser_pair pairs "
+                                              "one (FERB asks the owner once)")
             elif not live and not (self.router and self.router.wake):
                 shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                   for b in owner)
@@ -4117,7 +4099,6 @@ class Daemon:
         self.pairings = Pairings(self.db, self.clock)
         self.hub = Hub(self.pairings, self.ledger, self._publish,
                        lambda: str(self.config.get("device", "id", "unknown-device")))
-        self.hub.on_unpaired = self._autopair_soon
         resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
@@ -4149,6 +4130,7 @@ class Daemon:
         self.router.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
+        self.router.pair_profile = self._pair_for_task       # browser_pair, after the owner's Yes (2026-10-27)
         self.router.release_secret = lambda value: self.gateway.release_secret(value)
         if self.mac is not None:
             self.mac.ask_secret = self.router.ask_secret
@@ -4241,131 +4223,6 @@ class Daemon:
                                             known, background=False, **kwargs)   # the owner must see this page
         return wake
 
-    def _on_app_focus(self, focused: Any) -> None:
-        """The owner switched apps: to a browser while an unpaired FERB copy is connected, FERB can pair it now."""
-        if self.hub is not None and self.hub.unpaired and any(
-                browser_profiles.BROWSERS[b].bundle_id == focused.bundle_id for b in AUTOPAIR_BROWSERS):
-            self._autopair_soon()
-
-    def _autopair_soon(self) -> None:
-        """L25 automatic pairing (owner 2026-10-24): one pass at a time; a trigger during a pass runs one more."""
-        if not self.run_autopair or self._shutting_down:
-            return
-        if self._autopair_task is not None and not self._autopair_task.done():
-            self._autopair_again = True
-            return
-        self._autopair_again = False
-        self._autopair_task = asyncio.get_running_loop().create_task(self._autopair())
-
-    async def _autopair(self) -> None:
-        while True:
-            try:
-                await self._autopair_pass()
-            except Exception as e:                         # FERB goes on; `ferb browsers pair` still works
-                self._journal().append("browsers.autopair_failed", {
-                    "why": "the automatic pairing pass failed",
-                    "error": self._redact_text(f"{type(e).__name__}: {e}")})
-            if not self._autopair_again:
-                return
-            self._autopair_again = False
-
-    def _autopair_wanted(self) -> bool:
-        """An unpaired FERB copy is connected and FERB isn't paused (`ferb pause` reads nothing of the desktop)."""
-        return (self.hub is not None and self.pairings is not None and bool(self.hub.unpaired)
-                and not (self.sense is not None and self.sense.paused))
-
-    def _autopair_front(self) -> tuple[str, str] | None:
-        """The browser in front and the profile it last recorded as active (Local State), for the browsers whose
-        profile delivery is verified (AUTOPAIR_BROWSERS). Files and Accessibility only (run in a thread)."""
-        front = self.front_app()
-        browser = next((b for b in AUTOPAIR_BROWSERS if browser_profiles.BROWSERS[b].bundle_id == front), None)
-        if browser is None:
-            return None
-        folder = browser_profiles.last_used(browser, (self.browser_data_dirs or {}).get(browser))
-        return (browser, folder) if folder else None
-
-    def _autopair_open(self, browser: str, folder: str) -> bool:
-        """Database and memory facts (on the loop): not FERB's identity profile, not tried in this run, not paired,
-        not unpaired by the owner (`ferb browsers unpair` sticks), and no pairing of it already in progress."""
-        assert self.pairings is not None
-        return ((browser, folder) != self._identity_profile() and (browser, folder) not in self._autopair_tried
-                and (self.pairings.for_profile(browser, folder) is None or self._paired_copy_gone(browser, folder))
-                and not self.pairings.autopair_off(browser, folder) and not self.pairings.pending(browser, folder))
-
-    def _paired_copy_gone(self, browser: str, folder: str) -> bool:
-        """The profile is paired, but that copy isn't connected while an unpaired copy is (a reinstall gives the
-        extension a new identity): it is paired again the same way, with the owner in its window (owner 2026-10-26:
-        "i did reinstall it myself... this is bad UX"). A paired copy that is connected is never taken over."""
-        br = self.hub.bridges.get((browser, folder)) if self.hub is not None else None
-        return br is None or br.conn is None
-
-    def _autopair_target(self, browser: str, folder: str) -> tuple[str, list[browser_profiles.BrowserProfile]] | None:
-        """The FERB copy turned on in that profile, unless the profile holds FERB's own account (its mailbox address:
-        setup pairs it as FERB, even before `ferb setup --identity` records it). Files only (run in a thread)."""
-        known = self._profiles()
-        p = next((p for p in known if (p.browser, p.folder) == (browser, folder)), None)
-        if p is None:
-            return None
-        address = str(self.config.get("mailbox", "address", "") or "").strip().lower()
-        if address and p.email == address:
-            return None
-        data = (self.browser_data_dirs or {}).get(browser)
-        found = browser_profiles.extension_entry(p, accepted_extension_ids(self.config), data)
-        if found is None or not browser_profiles.extension_enabled(found[1]):
-            return None
-        return found[0], known
-
-    async def _autopair_pass(self) -> None:
-        """An unpaired FERB copy is connected: pair the profile the owner is in by its self-closing pairing page
-        (pair.js), with no command. Chrome records a window switch, and FERB being turned on, in Local State and
-        Preferences up to PREFS_SETTLE_S late, so the profile counts only once two readings that far apart agree with
-        the browser in front each time; the front app is read again just before the page is handed over, so it goes
-        to the window in front. One try per profile while FERB runs, journaled either way; its key is revoked when the
-        wait ends."""
-        if not self._autopair_wanted():
-            return
-        assert self.pairings is not None
-        end = self.clock.monotonic() + self.pair_timeout_s
-        seen = await asyncio.to_thread(self._autopair_front)
-        while True:
-            if seen is None or not self._autopair_open(*seen):
-                return
-            await self.clock.sleep_until(self.clock.now() + timedelta(seconds=PREFS_SETTLE_S))
-            if not self._autopair_wanted():
-                return
-            now = await asyncio.to_thread(self._autopair_front)
-            if now == seen:
-                break
-            if self.clock.monotonic() >= end:               # the owner kept switching: next trigger
-                return
-            seen = now
-        browser, folder = seen
-        if not self._autopair_open(browser, folder):
-            return
-        target = await asyncio.to_thread(self._autopair_target, browser, folder)
-        if target is None or await asyncio.to_thread(self.front_app) != browser_profiles.BROWSERS[browser].bundle_id:
-            return
-        ext, known = target
-        self._autopair_tried.add((browser, folder))
-        stale = self.pairings.for_profile(browser, folder)       # a reinstalled copy's old pairing, or None
-        token = self.pairings.issue_token(browser, folder)
-        kwargs: dict[str, Any] = {"launch": self.browser_launch} if self.browser_launch else {}
-        browser_profiles.open_known_profile(browser, folder, f"chrome-extension://{ext}/pair.html#token={token}",
-                                            known, background=False, **kwargs)   # its window is the one in front
-        end = self.clock.monotonic() + self.pair_timeout_s
-        try:
-            # until this pairing's token is used: a stale pairing of a reinstalled copy must not end the wait
-            while self.clock.monotonic() < end and token not in self.pairings.paired:
-                await asyncio.sleep(0.2)
-        finally:
-            self.pairings.revoke(token)
-        if token in self.pairings.paired:
-            self._journal().append("browsers.autopaired", {"browser": browser, "folder": folder})
-        elif self.pairings.for_profile(browser, folder) == stale:
-            self._journal().append("browsers.autopair_failed", {
-                "browser": browser, "folder": folder,
-                "why": "the pairing page's key wasn't used; `ferb browsers pair` pairs it by hand"})
-
     @staticmethod
     async def _close_wake(br: Any, wake: str | None) -> None:
         if wake:
@@ -4393,35 +4250,87 @@ class Daemon:
                 "unpaired_connections": {browser: unpaired.count(browser) for browser in sorted(set(unpaired))}}
 
     async def _browsers_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Open the extension's own pairing page in that profile with a one-time token; wait for the pairing."""
+        """Pair one profile (`ferb browsers pair`): by its exact browser and folder when given (several profiles can
+        share a name, live 2026-10-27), else by name. A profile without the extension opens its extensions page."""
         assert self.pairings
+        p = self._exact_profile(params) or self._named_profile(params)
+        if (p.browser, p.folder) == self._identity_profile():
+            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
+        if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
+            from ferb.device.extensions import extension_path
+            browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", self._profiles(),
+                                                background=False)   # the owner does the clicks: they must see it
+            return {"paired": False, "needs_install": True, "browser": p.browser, "folder": p.folder,
+                    "name": p.display_name, "extension_dir": str(extension_path(self.home))}
+        return await self._pair_one(p, float(params.get("timeout_s", 60)))
+
+    def _named_profile(self, params: dict[str, Any]) -> Any:
         known = self._profiles()
         name, browser = str(params.get("profile", "")), params.get("browser")
         r = browser_profiles.resolve(name, known, browser=browser)
         if r.kind != "one":
             raise FerbError(r.message(name, known))
-        p = r.candidates[0]
+        return r.candidates[0]
+
+    def _exact_profile(self, params: dict[str, Any]) -> Any:
+        """The discovered profile with exactly that browser and folder, or None when the params name no folder."""
+        browser, folder = str(params.get("browser") or ""), str(params.get("folder") or "")
+        if not folder:
+            return None
+        p = next((p for p in self._profiles() if (p.browser, p.folder) == (browser, folder)), None)
+        if p is None:
+            raise FerbError(f"no {browser} profile in folder {folder!r} on this Mac")
+        return p
+
+    async def _pair_one(self, p: Any, timeout_s: float) -> dict[str, Any]:
+        """Pair one profile: the extension's own pairing page, with a one-time token, opened in that profile (the page
+        closes itself); done once that token is used and the profile's extension is connected. The owner's click
+        (Pair, Pair all) or Yes (a task's browser_pair) is what authorizes it (owner 2026-10-27, replacing automatic
+        pairing). A page left unanswered revokes its token."""
+        assert self.pairings
+        base = {"browser": p.browser, "folder": p.folder, "name": p.display_name}
         if (p.browser, p.folder) == self._identity_profile():
-            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
-        if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
-            from ferb.device.extensions import extension_path
-            browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", known,
-                                                background=False)   # the owner does the clicks: they must see it
-            return {"paired": False, "needs_install": True, "browser": p.browser, "folder": p.folder,
-                    "name": p.display_name, "extension_dir": str(extension_path(self.home))}
+            return base | {"paired": False, "why": "FERB's own profile is paired as FERB"}
+        if self._profile_state(p) == "missing":
+            return base | {"paired": False, "needs_install": True, "why": "FERB's extension isn't in that profile"}
         token = self.pairings.issue_token(p.browser, p.folder)
         wake = await self._open_pairing(p.browser, p.folder, token)
-        timeout = float(params.get("timeout_s", 60))
-        end = self.clock.monotonic() + timeout
+        end = self.clock.monotonic() + timeout_s
         while self.clock.monotonic() < end:
-            b = self.pairings.for_profile(p.browser, p.folder)
-            if b is not None and self.hub and (br := self.hub.bridges.get((p.browser, p.folder))) and br.conn:
+            br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
+            if token in self.pairings.paired and br is not None and br.conn:
                 await self._close_wake(br, wake)
-                return {"paired": True, "browser": p.browser, "folder": p.folder, "name": p.display_name}
+                self._journal().append("browsers.paired", {"browser": p.browser, "folder": p.folder})
+                return base | {"paired": True}
             await asyncio.sleep(0.2)
         self.pairings.revoke(token)                          # its page went unanswered: the key can't pair later
-        return {"paired": False, "browser": p.browser, "folder": p.folder, "name": p.display_name,
-                "hint": "is the FERB extension loaded and enabled in that profile?"}
+        self._journal().append("browsers.pair_failed", {"browser": p.browser, "folder": p.folder,
+                                                         "why": "the pairing page wasn't answered"})
+        return base | {"paired": False, "hint": "is the FERB extension loaded and enabled in that profile?",
+                       "why": "FERB's extension didn't answer in that profile; check it is turned on there"}
+
+    async def _pair_for_task(self, browser: str, folder: str) -> dict[str, Any]:
+        """A task's browser_pair, after the owner's Yes (the gateway asked): that exact profile."""
+        return await self._pair_one(self._exact_profile({"browser": browser, "folder": folder}), self.pair_timeout_s)
+
+    def _profile_display_name(self, browser: str, folder: str) -> str:
+        p = next((p for p in self._profiles() if (p.browser, p.folder) == (browser, folder)), None)
+        return p.display_name if p is not None else folder
+
+    async def _setup_browser_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Setup's or Settings' Pair on one profile (owner 2026-10-27: "single per profile too")."""
+        p = self._exact_profile(params)
+        if p is None:
+            raise FerbError("name the profile's browser and folder")
+        return await self._pair_one(p, float(params.get("timeout_s", 60)))
+
+    async def _setup_browsers_pair_all(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Pair all (owner 2026-10-27: "a pair all which opens all pairs instantly and closes all too. SO THERES NO
+        MANUAL STEP LATER"): every profile whose FERB extension is in and not yet paired, all at once."""
+        todo = [p for p in self._profiles() if (p.browser, p.folder) != self._identity_profile()
+                and self._profile_state(p) == "installed"]
+        results = await asyncio.gather(*(self._pair_one(p, float(params.get("timeout_s", 60))) for p in todo))
+        return {"results": list(results), "paired": sum(1 for r in results if r.get("paired"))}
 
     async def _browsers_installed(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Is FERB's extension installed in that profile yet (read from its settings on disk)?"""

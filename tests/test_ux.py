@@ -161,10 +161,10 @@ def test_an_installed_but_unpaired_extension_is_reported(daemon: RunningDaemon) 
                 break
             time.sleep(0.05)
         note = daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
-        assert note and "installed in Brave but not paired" in note and "ferb browsers pair brave" in note
+        assert note and "installed in Brave but not paired" in note and "browser_pair" in note
         assert "not paired" in daemon.run(_async(daemon.daemon._facts))
         daemon.daemon.config.set("gates", "owner_profiles", True)
-        assert "ferb browsers pair brave" in daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
+        assert "Settings → Browsers" in daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
     finally:
         ext.kill()
 

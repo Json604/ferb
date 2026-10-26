@@ -52,7 +52,6 @@ class RunningDaemon:
         kwargs.setdefault("distill", False)             # the daily distillation calls a model
         kwargs.setdefault("retention", False)           # tests purge explicitly, never on a timer
         kwargs.setdefault("resources", False)           # nor sample FERB's resource use on a timer (L30)
-        kwargs.setdefault("autopair", False)            # nor read the front app or open a pairing page (L25)
         kwargs.setdefault("notifications", False)       # no macOS notifications from tests
         kwargs.setdefault("snapshots", False)           # never a real APFS snapshot (tmutil) from tests
         kwargs.setdefault("persona_scan", None)         # never scan the owner's apps from disposable daemons

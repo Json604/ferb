@@ -96,9 +96,8 @@ SENTENCES = [
      "hidden tabs. Open sites with browser_open "
      "or browser_navigate. Never drive a browser through Mac tools (its menus, address bar, clicks or keys) when a "
      "browser tool can do the step: that takes over the owner's screen. Mac input in the foreground asks the owner "
-     "first, once per task for that app; prefer a background route. If a browser tool says a profile's extension "
-     "isn't paired, ask the owner to open that profile's window once (FERB pairs it there) and wait; never work "
-     "around it."),
+     "first, once per task for that app; prefer a background route. If a browser tool says a profile isn't paired, "
+     "pair it with browser_pair (FERB asks the owner once); never work around it."),
     # live 2026-10-24 (task 4a8b1d73): probes on media.44 / media.51 watched another video as the feed loaded more
     ("worker.md",
      'To watch one video or audio element, probe browser_snapshot with media_by_id.<id>.playing, where <id> is that '

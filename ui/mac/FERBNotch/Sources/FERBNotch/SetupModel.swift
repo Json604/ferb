@@ -418,6 +418,35 @@ final class SetupModel: ObservableObject {
         } catch { message = error.localizedDescription }
     }
 
+    /// Pairing happens on the owner's click (owner 2026-10-27: "a pair all which opens all pairs instantly and closes all
+    /// too", and "single per profile too"): each profile's own pairing page opens and closes itself.
+    @Published private(set) var pairing = false
+
+    func pairProfile(_ profile: BrowserProfileRow) async {
+        guard !pairing else { return }
+        pairing = true
+        defer { pairing = false }
+        do {
+            let reply = try await rpc.call("setup.browser_pair", params: ["browser": profile.browser,
+                                                                          "folder": profile.folder], wait: 90)
+            message = reply["paired"] as? Bool == true ? nil : (reply["why"] as? String ?? "That profile didn't pair.")
+        } catch { message = error.localizedDescription }
+        await refreshBrowsers()
+    }
+
+    func pairAll() async {
+        guard !pairing else { return }
+        pairing = true
+        defer { pairing = false }
+        do {
+            let reply = try await rpc.call("setup.browsers_pair_all", params: [:], wait: 90)
+            let results = reply["results"] as? [[String: Any]] ?? []
+            let failed = results.filter { $0["paired"] as? Bool != true }.map { "\($0["name"] as? String ?? "a profile")" }
+            message = failed.isEmpty ? nil : "Not paired: " + failed.joined(separator: ", ") + ". Is FERB turned on there?"
+        } catch { message = error.localizedDescription }
+        await refreshBrowsers()
+    }
+
     // MARK: Getting to know you
 
     func refreshPersona() async {

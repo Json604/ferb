@@ -61,6 +61,14 @@ BROWSER_PAGE = "floor:browser_page"
 BROWSER_SCHEMES = ("chrome://", "brave://", "edge://", "arc://", "vivaldi://", "opera://")
 
 
+PAIR = "floor:pair_profile"     # a task's browser_pair: the owner's Yes pairs that profile (owner 2026-10-27)
+
+
+def pair_need(name: str, browser: str, folder: str) -> "Need":
+    """One Yes per profile in the task: pairing gives FERB that profile's signed-in accounts."""
+    return Need(PAIR, key(PAIR, browser, folder), {"name": name or folder, "browser": browser.capitalize()})
+
+
 def browser_page(address: str | None) -> bool:
     """Whether an address is one of a browser's own pages (scheme only; what is typed or reported, trimmed)."""
     return bool(address) and str(address).strip().casefold().startswith(BROWSER_SCHEMES)
@@ -652,6 +660,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     if n.rule == BROWSER_PAGE:
         return (f"this would act on {v['app']}'s own page {v['page']} (its settings or extensions); FERB asks before "
                 "every input there, and this Yes covers this one input only")
+    if n.rule == PAIR:
+        return (f"this pairs your {v['browser']} profile “{v['name']}” with FERB, so FERB can open tabs and work in that "
+                "profile's signed-in accounts; its pairing page opens there and closes itself")
     if n.rule == TERMINAL_INPUT:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
                 "before every input into a terminal, and this Yes covers this one input only")
@@ -719,6 +730,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
         return f"use your screen in {v['app']} (it comes to the front) for this task"
     if n.rule == BROWSER_PAGE:
         return f"change something on {v['app']}'s own page {v['page']} (its settings or extensions)"
+    if n.rule == PAIR:
+        return f"pair your {v['browser']} profile “{v['name']}” with FERB, so it can work in that profile"
     if n.rule == TERMINAL_INPUT:
         return _terminal(v)
     if n.rule == "floor:pay":

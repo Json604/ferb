@@ -146,7 +146,8 @@ def test_pairing_binds_the_profile_and_unpaired_installs_cannot_act_or_report(bd
     assert listed["Work"]["paired"] and listed["Work"]["connected"] and not listed["Personal"]["paired"]
     g = task(d, "a", OWNER, {"research"})
     r = call(d, g, "browser.open", url="https://example.com/", profile="Personal")
-    assert r["is_error"] and "isn't connected to FERB yet" in r["content"]["error"]   # unpaired: never routed
+    assert r["is_error"] and "isn't paired with FERB yet" in r["content"]["error"]    # unpaired: never routed
+    assert "browser_pair" in r["content"]["error"]                     # the worker's way: FERB asks the owner once
 
 
 def test_bad_mac_replay_and_reused_or_expired_tokens_are_refused(bd: Any) -> None:
@@ -726,7 +727,7 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
     assert version_ok("0.15.11") and version_ok("0.15.12") and not version_ok("0.15.10")
 
 
-def test_a_reinstalled_unpaired_extension_says_open_the_profile_once_to_pair(
+def test_a_reinstalled_unpaired_extension_says_pair_it_with_browser_pair(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Live 2026-10-26: New_Personal's extension was reinstalled, so it connected with no pairing; the windowless wake
     waited for the old install and the worker drove the owner's screen instead. The error now names the cause and the
@@ -752,4 +753,4 @@ def test_a_reinstalled_unpaired_extension_says_open_the_profile_once_to_pair(
     assert all(argv[-1] == "--no-startup-window" for argv in launched[before:])   # no window: only the owner pairs
     assert r["is_error"]
     err = r["content"]["error"]
-    assert "not paired" in err and "open that profile" in err and "Mac tools" in err
+    assert "not paired" in err and "browser_pair profile=chrome/Profile 1" in err and "Mac tools" in err

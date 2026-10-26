@@ -1031,6 +1031,10 @@ class Gateway:
             needs.append(fg)
         if page is not None:                             # rule 5: a browser's own page, asked every time
             needs.append(confirm.browser_page_need(str(arguments.get("app") or "the browser"), page))
+        if name == "browser.pair":                       # the owner's Yes is what pairs a profile (2026-10-27)
+            browser, _, folder = str(arguments.get("profile") or "").partition("/")
+            named = getattr(self, "profile_name", None)
+            needs.append(confirm.pair_need(named(browser, folder) if callable(named) else folder, browser, folder))
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped

@@ -100,7 +100,7 @@ public enum ProfileSetupState: String, Equatable {
         case .notInstalled: return "Not added"
         case .removed: return "Removed earlier"
         case .installed: return "Added; turn it on in the browser"
-        case .on: return "On"
+        case .on: return "On · not paired yet"
         case .paired: return "Paired"
         }
     }

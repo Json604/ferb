@@ -165,10 +165,16 @@ struct BrowsersStepView: View {
         VStack(alignment: .leading, spacing: 10) {
             StepHeader(title: "Browsers", lines: [
                 "FERB works in your browsers through its extension.",
-                "Add it where you want FERB's help; FERB pairs a profile by itself when you're in it."])
+                "Add it where you want FERB's help and turn it on, then pair: all at once, or one profile at a time."])
             if let snapshot = model.browsers {
                 if snapshot.browsers.isEmpty {
                     Text("No Chrome-family browser has been opened on this Mac yet.").foregroundStyle(.secondary)
+                }
+                if snapshot.browsers.contains(where: { $0.profiles.contains { $0.state == .on && !$0.ferbIdentity } }) {
+                    HStack {
+                        Button("Pair all") { Task { await model.pairAll() } }.disabled(model.pairing)
+                        if model.pairing { ProgressView().controlSize(.small) }
+                    }
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
@@ -181,6 +187,10 @@ struct BrowsersStepView: View {
                                     Text(profile.state.text).foregroundStyle(.secondary)
                                     if profile.state.canAdd {
                                         Button("Add to \(browser.label)") { Task { await model.addExtension(profile) } }
+                                    }
+                                    if profile.state == .on && !profile.ferbIdentity {
+                                        Button("Pair") { Task { await model.pairProfile(profile) } }
+                                            .disabled(model.pairing)
                                     }
                                 }
                             }
