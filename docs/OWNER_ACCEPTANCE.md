@@ -1861,3 +1861,23 @@ only with the owner's go-ahead. On a fresh second macOS user, the owner watching
 5. Quit FERB from the menu while a task runs and an update waits. **Expected:** the Keep FERB Open / Quit and Install
    question; Keep FERB Open leaves the task running.
 6. `log stream --predicate 'process == "FERBNotch"'` during a check shows only the GitHub feed request (no other host).
+
+## Background browser, identity on continue, extension 0.15.12 (L25, W1) — pending live checks (2026-10-26)
+
+Built in 3b9b76e, 7ef0c3e and 1a12ce7 after the visa runs 9e788c88, 0a5fbe31 and 490777c8 drove the owner's screen.
+The owner uploaded extension 0.15.12 to the Chrome Web Store on 2026-10-26 (pending Google's review); until it reaches
+New_Personal, item 3 can't pass there.
+
+1. With Chrome's New_Personal profile closed (Chrome running or quit), ask a task in that profile. **Expected:** no
+   question and no screen change: the profile loads with no window, the tab opens in the background, `ferb trace`
+   shows only `browser.*` calls, and its desktop section shows no FERB-caused front-app or Space change.
+2. Continue an ended task that ran as FERB ("now do it in my New_Personal profile"). **Expected:** the worker runs as
+   the owner (`ferb trace --json`: the worker's tools include `browser.open`), never asks to bring Chrome to the front.
+3. After 0.15.12 reaches New_Personal (`ferb browsers` shows extension 0.15.12): the visa portal's Cloudflare page.
+   **Expected:** the screenshot point names the checkbox (not an unlabeled generic), the click is delivered, and a
+   refused press says "nothing was pressed" instead of an unknown outcome. Cloudflare may still reject it; that is
+   its call, recorded as seen.
+4. Reinstall the extension in one profile, then open that profile's window. **Expected:** `ferb browsers` shows it
+   paired and connected again within about 30 s, with no command.
+5. Fresh user on the owner's second MacBook (owner's choice, 2026-10-26): install the arm64 DMG built from b1b8d21 and
+   go through setup and a first task as a new user would; record everything confusing, slow or broken.
