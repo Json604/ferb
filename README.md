@@ -128,8 +128,8 @@ it when idle.
 
 Pairing happens on your click or your Yes, never by itself. Once FERB is turned on in a profile, **Pair all** (setup's
 Browsers step, or Settings → Browsers) pairs every such profile at once, and **Pair** pairs one: a blank FERB page
-opens in that profile and closes itself. Later, a task that needs an unpaired profile asks you once ("pair your Chrome
-profile “Work” with FERB…") and pairs it on your Yes. FERB's own profile is paired by `ferb setup --identity`.
+opens in that profile and closes itself. Later, "pair my Work profile" in the chat pairs it with no question; a task
+that needs an unpaired profile you didn't name asks you once ("pair your Chrome profile “Work” with FERB…"). FERB's own profile is paired by `ferb setup --identity`.
 
 In a profile that holds both copies, switching from the paired copy to the other also needs a pairing. From a
 terminal:

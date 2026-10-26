@@ -1896,8 +1896,10 @@ click brings that profile's browser forward instead of the exact tab.
    in that time still asks with only Yes / No.
 3. In setup's Browsers step (or Settings → Browsers) with two profiles turned on but unpaired: **Pair all**.
    **Expected:** a blank FERB tab opens and closes in each, both read "Paired"/"Connected" within a minute, nothing
-   else moves. Then **Pair** on one more profile. Then a task naming an unpaired profile: one question "pair your
-   Chrome profile “…” with FERB", and on Yes it pairs and carries on.
+   else moves. Then **Pair** on one more profile. Then a task needing an unpaired profile you didn't name: one
+   question "pair your Chrome profile “…” with FERB", and on Yes it pairs and carries on.
+   - Owner, live 2026-10-27: "pair my online bits profile" in the chat paired it, but asked first ("why did it ask me
+     the question?"). Fixed after: a profile named in your words pairs with no question; to recheck.
 4. A page behind a "Verify you are human" check: **Expected:** the worker reads the browser_verification procedure
    (`ferb trace`: `abilities.read`) and tries the check itself (a click, pictured objects, a slider). If it still
    blocks: one notification "<site> wants to check you're human…"; clicking it brings that exact tab forward

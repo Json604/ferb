@@ -77,10 +77,35 @@ def test_pair_one_profile_by_its_exact_folder(bd: Any) -> None:  # noqa: F811
 
 def test_a_task_pairs_a_profile_only_after_the_owners_yes(bd: Any) -> None:  # noqa: F811
     d, launched = bd
-    g = task(d, "w", OWNER, "use my Personal profile")
+    g = task(d, "w", OWNER, "check my inbox")                           # the owner's words don't name the profile
     with FerbAnswers(d, yes=False) as ferb:
         ferb.expect(confirm.PAIR)
         r = call(d, g, "browser.pair", profile="chrome/Default")
         assert r["is_error"] and not _pages(launched, 0)                  # No: no pairing page opened
         assert "“Personal”" in ferb.asked[0]
         ferb.verify()
+
+
+def test_a_profile_the_owner_named_pairs_without_a_question(bd: Any) -> None:  # noqa: F811
+    """Owner 2026-10-27, after "pair my online bits profile" asked "pair your Chrome profile “online bits”…?": "why
+    did it ask me the question?" A profile named in the owner's own words is already authorized (rule 8 provenance)."""
+    d, launched = bd
+    exts = _unpaired(d, ("Default",))
+    d.daemon.pair_timeout_s = 10
+    g = task(d, "w", OWNER, "pair my personal profile with ferb")
+    before = len(launched)
+    out: dict[str, Any] = {}
+    run = threading.Thread(target=lambda: out.update(call(d, g, "browser.pair", profile="chrome/Default")))
+    run.start()
+    _answer_pages(launched, before, exts, 1)
+    run.join(15)
+    try:
+        assert out["content"]["paired"] is True, out
+
+        async def asked() -> int:
+            return int(d.daemon.db.conn.execute(
+                "SELECT count(*) FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = "
+                "'owner.ask'").fetchone()[0])
+        assert d.run(asked()) == 0
+    finally:
+        exts["Default"].kill()

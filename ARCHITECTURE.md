@@ -2984,8 +2984,9 @@ protected FERB state (16.9).
   - setup's Browsers step and Settings → Browsers (one view): **Pair all** (`setup.browsers_pair_all`: every profile
     whose extension is in and unpaired, FERB's own excluded, at once) and **Pair** on each profile that is on but
     unpaired ("On · not paired yet", `setup.browser_pair`);
-  - a task's `browser_pair profile=<browser>/<folder>`, after the owner's Yes (`floor:pair_profile`, once per profile
-    per task; `Daemon._pair_for_task`);
+  - a task's `browser_pair profile=<browser>/<folder>` (`Daemon._pair_for_task`): asked once per profile per task
+    (`floor:pair_profile`) unless the profile's display name is in the owner's words or answers (`provenance.sources`,
+    owner 2026-10-27: "why did it ask me the question?" after "pair my online bits profile");
   - `ferb browsers pair` (by name, or by exact folder).
   The unpaired-profile errors, the planner facts and the doctor hint point to `browser_pair` or Settings → Browsers.
   Migration 0046's `ext_autopair_off` table stays (unused).
