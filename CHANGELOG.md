@@ -10,6 +10,16 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0.dev1 Packaged ability discovery — 2026-10-27 — source only; live checks pending
+
+P21/D32/MP2: FERB now ships an explicit ability catalog under `ferb/abilities/`, with browser verification's saved
+procedure discoverable from the first task. Planner and worker context includes compact metadata; `abilities.list`
+and `abilities.read` expose the definition and packaged body without learning or an owner skill installation.
+Owner skills remain separate and keep their provenance. Duplicate IDs fail registration, reads accept only known
+IDs, and filesystem procedure resources reject symlinks. Browser verification execution remains explicitly
+unavailable until the runner and browser input lifecycle land; this slice adds no solving/hold execution or live
+acceptance claim. The owner's 2026-10-27 approval is recorded in the plan of record and implementation documents.
+
 
 
 

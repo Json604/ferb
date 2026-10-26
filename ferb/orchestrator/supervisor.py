@@ -584,6 +584,7 @@ class Supervisor(WorkerRuns):
         # why the procedure's slots refuse the planner's values, or None (L29)
         self.slot_problem: Callable[[str, list[dict[str, Any]]], str | None] = lambda procedure_id, pairs: None
         self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
+        self.abilities_catalog: Callable[[], list[dict[str, Any]]] = lambda: []
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
@@ -651,6 +652,8 @@ class Supervisor(WorkerRuns):
         text += (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
         text += '\n\nLayer 1 — identity and owner rules:\n' + self.identity_context()
         text += '\nOwner-written skills (read bodies with skills.read only when relevant):\n' + json.dumps(self.skills_catalog())
+        text += ('\nBuilt-in FERB abilities (abilities.list reports availability; read a relevant procedure with '
+                 'abilities.read; unavailable abilities cannot execute):\n' + json.dumps(self.abilities_catalog()))
         return text
 
     def _default_availability(self) -> Availability:

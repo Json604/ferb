@@ -22,3 +22,19 @@ def test_skill_symlinks_and_parent_paths_cannot_read_ferb_state(tmp_path):
     assert skills.catalog() == []
     for name in ('../config.toml', 'bad'):
         with pytest.raises(Refused): skills.read(name)
+
+
+def test_owner_skill_cannot_shadow_builtin_ability_or_acquire_its_origin(tmp_path):
+    from ferb.abilities.catalog import AbilityCatalog
+    from ferb.abilities.tools import AbilitiesRead
+    from ferb.orchestrator.skills import SkillsRead
+    folder = tmp_path / 'browser_verification'
+    folder.mkdir()
+    (folder / 'SKILL.md').write_text('---\nname: browser_verification\ndescription: My own notes\n---\nOwner notes.')
+    skills = Skills(tmp_path)
+    abilities = AbilityCatalog()
+    assert skills.read('browser_verification')['body'] == 'Owner notes.'
+    assert 'Owner notes.' not in abilities.read('browser_verification')['body']
+    assert abilities.catalog()[0]['source_kind'] == 'builtin'
+    assert SkillsRead(skills).origin == 'owner'
+    assert AbilitiesRead(abilities).origin == 'ferb'

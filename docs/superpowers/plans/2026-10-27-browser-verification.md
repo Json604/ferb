@@ -1,10 +1,12 @@
 # Built-in abilities and browser verification
 
-Date: 2026-10-27. **Draft for owner review. Do not execute this plan yet.**
+Date: 2026-10-27. **Owner-approved for implementation. Source work in progress; live acceptance pending.**
 
-The owner requested research and documentation only, then clarified that browser verification must be a separate,
-reusable feature in FERB, with a home for future abilities. That clarification is included here. No runtime code,
-skill resource, test, migration or extension change is authorized by this planning session.
+The owner initially requested research and documentation, then clarified that browser verification must be a
+separate, reusable feature in FERB, with a home for future abilities. On 2026-10-27 the owner approved implementation:
+“good, make it now under the folder we discussed. complete and come”. This authorizes the reviewed source plan,
+including visible-puzzle and feedback-driven-hold attempts with the existing handoff as fallback. It does not
+authorize live third-party runs, deployments, installs, restarts or browser-settings changes.
 
 ## Goal
 
@@ -38,7 +40,7 @@ override of a model provider's refusal. Those failure sources must have separate
 ## Spec
 
 [Research, evidence and behavioral specification](../specs/2026-10-27-browser-verification-design.md).
-BV1–BV8 in that document are proposal references, not approved decision IDs. BV8 covers the owner's additional
+BV1–BV8 in that document are specification references, not decision registry IDs. BV8 covers the owner's additional
 requirement for a reusable abilities library. BV1–BV7 cover browser verification and its evidence/acceptance rules.
 
 Research baseline: HEAD `9686aaddd156ee127a99254b245fd621cac1be16`, plus the working tree observed 2026-10-27.
@@ -47,18 +49,18 @@ ongoing changes. The observed failure is task `490777c8a2cf461b8e013f5c7ff44120`
 `47ef354b73794546957b84e275889bba`; 0.15.12 live acceptance remains unverified by this planning work.
 During final research HEAD advanced to `1bc3a1a`; separate uncommitted changes added `BrowserHandoff`, a proposed
 0.15.13 `show_tab`, notification UI and `tests/test_human_check_handoff.py`. This plan did not write that code.
-Task 6 must integrate with its eventual reviewed implementation. The human-only prompt in that work and this
-proposal's automatic-puzzle behavior require explicit reconciliation in the owner's review before implementation.
+Task 6 must integrate with its reviewed implementation. The 2026-10-27 approval adopts this design's automatic
+visible-interaction behavior; Task 5 replaces the human-only instruction while keeping the handoff as fallback.
 
 ## Global Constraints
 
-1. **Execution gate:** wait for owner review and an explicit instruction to implement. This document is not a
-   background task, approval or release request. No live runs, deployments, installs or restarts were performed.
+1. **Approved execution scope:** the owner authorized implementation on 2026-10-27. This is not a release or live-run
+   request. No live runs, deployments, installs or restarts were performed during the research.
 2. Follow CLAUDE.md and AGENTS.md. Production code is written fresh in `ferb/`; extension code stays in
    `extensions/chromium/`. No `vibed/` searches or spike imports. Read any applicable subdirectory agreement.
 3. Use existing P21/D32 for abilities/runtime separation, W1/W2/W4 for worker/action/checker boundaries, D17 for
    acceptance, D8/D12/D28/D29/MP2/S4/D31/D33 for secrets and authority, and P19 for unknown outcomes. Reconcile this
-   approved feature with the plan of record before implementation; do not mark the present proposal Decided now.
+   approved feature with the plan of record before implementation; BV labels remain intra-spec references.
 4. Background first. Same authorized profile/account. The extension never moves the OS cursor or activates a tab
    to solve a check. Foreground help and browser settings remain subject to the owner's existing rules.
 5. No new retry count, total hold ceiling, poll quota, task budget, retention period or rate limit. A requested
@@ -99,7 +101,7 @@ proposal's automatic-puzzle behavior require explicit reconciliation in the owne
 - The current checkbox rule (`worker.md:147`) and stale broad limitation (`docs/FEATURES.md:919`) need deliberate
   reconciliation. Retain the badge-is-not-a-block rule and the existing foreground/security boundaries.
 
-## Execution preflight — only after approval
+## Execution preflight — approval recorded 2026-10-27
 
 Read this plan's ledger, current agreements, current task/skill/registry code and `git status`. Identify the first
 task without a completion entry. Review intervening commits and dirty changes with their owner; never absorb them
@@ -112,7 +114,7 @@ abilities. Every task commit cites actual registered decisions; BV labels remain
 
 Ledger location: `.superpowers/sdd/2026-10-27-browser-verification/progress.md`. Record every dispatch, exact base/head,
 test output, review, ruling and residual. Each implementation report separates source validation, installed version
-and owner live results. The planning ledger has **no completed implementation tasks**.
+and owner live results. The ledger's completion entries, not this document's planning history, identify finished tasks.
 
 ## Task 1: Built-in ability catalog and first-run discovery
 

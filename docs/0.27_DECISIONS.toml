@@ -302,8 +302,9 @@ note = "F1 made the orchestrator context append-only (device facts first, histor
 
 [P21]
 milestone = "F6"
-tests = ["tests/test_owner_skills.py"]
-summary = "Owner-maintained skills directory, loaded by FERB for every runtime"
+tests = ["tests/test_owner_skills.py", "tests/abilities/test_catalog.py"]
+summary = "Owner-maintained skills and packaged built-in abilities, loaded by FERB for every runtime"
+note = "Clarified and approved 2026-10-27 (owner: 'good, make it now under the folder we discussed. complete and come'): reviewed, versioned abilities live in ferb/abilities, browser verification first, with metadata available from the first task and procedures read on demand. Explicit registration is independent of owner skills and learned-run thresholds. Built-in metadata/procedures use source_kind=builtin and ferb origin; owner skills remain owner-origin and observations/model judgments retain external/inferred provenance. The approved browser-verification design uses gateway-backed visible interactions, feedback-driven holds and puzzles, result verification and exact-tab handoff; no model-refusal override or guaranteed site acceptance. Task 1 adds discovery only; execution remains unavailable until its workflow lands. No installation or live-third-party-run approval is implied. Spec: docs/superpowers/specs/2026-10-27-browser-verification-design.md."
 
 [P22]
 milestone = "F6"
@@ -589,8 +590,8 @@ summary = "Local services (T3b, owner's Q1): direct connections to executable-pi
 
 [L25]
 milestone = "L"
-tests = ["tests/test_extension_autoinstall.py", "tests/test_setup_flow.py", "tests/test_browser_autopair.py"]
-note = "Owner 2026-10-24, after OpenClaw's extension \"pairs on its first native call\": \"yes build\" automatic pairing. FERB pairs a Chrome or Brave profile once FERB is turned on there and the owner is in its window (browser frontmost, profile last used, read twice past Chromium's write delay); never FERB's identity or mailbox-account profile, a profile the owner unpaired (until paired by hand), or while paused; one try per profile per daemon run. Ruling: an explicit `ferb browsers unpair` sticks, since the owner's last word on the profile wins."
+tests = ["tests/test_extension_autoinstall.py", "tests/test_setup_flow.py", "tests/test_pair_all.py"]
+note = "Superseded 2026-10-27 (9686aad): the owner requested removal of automatic pairing. Setup/Settings now offer Pair all and Pair per exact profile; a task's browser.pair asks first. tests/test_pair_all.py replaces the deleted automatic-pairing tests. Earlier decision, 2026-10-24: automatic pairing of the profile the owner was in, excluding FERB's own profile and explicit unpairs; this historical behavior is no longer current."
 summary = "ferb setup asks each Chromium browser to install FERB's Chrome Web Store extension, registers the native host and reports per profile; never edits browser preferences or restarts a browser"
 
 [L26]

@@ -2441,6 +2441,17 @@ paths. `cli/attach.py` exposes a managed PTY output stream and optional exclusiv
 releases the lease. Owner skills are catalogued from local owner-written files, with no symlink traversal or automatic
 network installation.
 
+P21 built-in abilities are separate packages under `ferb/abilities/`. `catalog.builtin_definitions` registers
+reviewed definitions explicitly, rejecting duplicate IDs. `registry.build` adds observation-only `abilities.list`
+and `abilities.read`; the daemon supplies that catalog to `Supervisor._system`, so both planner and worker see
+concise metadata before any learned runs or owner skills exist. Bodies load only on demand through package
+resources, including from a wheel; filesystem resource reads reject symlinks. The read tool accepts an installed
+ID, never a Python module or filesystem path. `source_kind=builtin` uses the existing `ferb` trust label, while
+owner skills keep `owner`; inner observations and model decisions must retain external/inferred read sources.
+Browser verification currently ships its definition and procedure only. Its catalog explicitly reports execution
+unavailable, no supported interactions, and any absent capability dependencies. There is no ability run/status tool
+in this slice; the gateway-backed workflow and browser input lifecycle are subsequent implementation tasks.
+
 P3 context labels protect identity, request/conversation and task state. The raw last-ten-minutes trail is
 fetch-only through `trail.query` (L28); today's matching activity goes in every planner turn.
 F8 supplies individually ranked fact, episode and lesson candidates, after one line per procedure the planner may

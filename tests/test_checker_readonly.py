@@ -21,6 +21,7 @@ from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setu
 # Every installed capability a checker may use (W4: snapshots, reads, screenshots, scrolling, opening a URL in FERB's
 # own browser). Anything else, including a capability added later and left unmarked, is unavailable to a checker.
 OBSERVATION = {
+    "abilities.list", "abilities.read",
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query", "secrets.list",
     "fs.list", "fs.read", "fs.disk_usage", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",

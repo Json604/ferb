@@ -1,6 +1,6 @@
 # Browser verification that FERB can finish
 
-Date: 2026-10-27. **Proposal for owner review. Documentation only; implementation is not authorized.**
+Date: 2026-10-27. **Owner-approved for implementation; source work in progress and live acceptance pending.**
 
 Owner request: research the verification systems in the supplied table and plan a durable fix for personal,
 owner-directed browser work. This includes the checkbox, press-and-hold and visible-puzzle cases. It is not a
@@ -8,7 +8,9 @@ request to deploy a release, change a website, run live challenges, or change th
 
 Owner clarification during planning (2026-10-27): make this a separate feature set and code within FERB, under a
 reusable skills/abilities area that can receive other abilities later. FERB should know the procedure from its first
-run instead of rediscovering it each time. **This is part of the requested design; it does not authorize implementation.**
+run instead of rediscovering it each time. The owner then approved this design and its implementation plan:
+“good, make it now under the folder we discussed. complete and come” (2026-10-27). The approval includes attempting
+visible interactions before a concrete handoff. It does not authorize live third-party runs, installs or deployment.
 
 Implementation plan: [browser verification](../plans/2026-10-27-browser-verification.md).
 
@@ -30,13 +32,14 @@ This is a technical compatibility limit, not a conclusion about the owner's purp
 Code references were inspected on 2026-10-27, with HEAD `9686aaddd156ee127a99254b245fd621cac1be16` at the final
 research checkpoint. The working tree was changing during research; uncommitted browser/pairing work was initially
 present, and unrelated gateway/confirmation edits remained at that checkpoint. Re-read these paths before building.
-No implementation, prompt, configuration, installed app or browser was changed for this proposal.
+No implementation, prompt, configuration, installed app or browser was changed during that research pass.
 
 Later research checkpoint: HEAD advanced to `1bc3a1a` while separate uncommitted work added `BrowserHandoff`,
 `show_tab` (proposed extension 0.15.13), a human-check notification and automatic resumption. Its worker prompt says
 not to solve puzzles. That working diff was inspected, not implemented or live-verified here. Integrate its handoff
-as the fallback; owner review of this proposal must explicitly reconcile its human-only instruction with the
-automatic visible-puzzle ability requested here. Source line references below refer to the earlier checkpoint.
+as the fallback. The later owner approval adopts the automatic visible-puzzle ability here; implementation Task 5
+replaces the human-only instruction and keeps the handoff as fallback. Source line references below refer to the
+earlier checkpoint, not current implementation or live proof.
 
 ### What the current mechanism actually does
 
@@ -117,10 +120,10 @@ permission list or a permanent selector map.
 | Arkose | Evolving interactive challenges. Its documentation records replacement of Pick-a-tile with MatchKey. | Follow current visible instructions; a fixed tile-only solver would age badly. [Challenge migration](https://developer.arkoselabs.com/docs/pick-a-tile-end-of-life-communication) |
 | GeeTest | Multiple forms, including slide, icon, word, nine-grid and one-click modes. | Treat this as several interaction types, not one jigsaw algorithm. [Types](https://docs.geetest.com/gt4/apirefer/api/miniprogram/swan), [web integration](https://docs.geetest.com/gt4/apirefer/api/web) |
 
-## Proposed behavior
+## Approved behavior
 
-The labels BV1–BV8 below are **proposal references**, not approved decision IDs. Existing decisions remain in force;
-no decision registry entry or production prompt is changed by writing this document.
+The labels BV1–BV8 below are **specification references**, not decision registry IDs. Existing decisions remain in
+force; P21 records the dated approval of packaged abilities, with D32 and MP2 governing runtime and origin separation.
 
 ### BV8 — A built-in abilities library; browser verification is its first feature
 
@@ -129,7 +132,7 @@ typed inputs/results, its own implementation and tests. Browser verification own
 browser mechanics such as frame targeting, screenshots and held input stay in `ferb/act/browser/` and the extension.
 This keeps a future ability from having to copy browser or gateway code.
 
-Proposed layout (none of these runtime files is created by this planning change):
+Approved layout (implementation and review progress live in the plan's ledger):
 
 ```text
 ferb/abilities/
@@ -183,7 +186,7 @@ Discovery and invocation:
    outer tab/resource lock while calling the gateway; each inner action obtains its ordinary locks and confirmations.
    The acting run entry cannot be offered to a read-only verifier. A read/list/status call never starts execution.
 
-Proposed contract:
+Approved contract:
 
 ```text
 AbilityDefinition: id, version, description, procedure_resource, input_schema,
@@ -388,8 +391,8 @@ Implementation is complete only after the plan's task reviews, combined checks a
 is separate: record delivery, observed provider result, original-task continuation, focus/cursor/Space behavior,
 versions, trace references and the owner's verdict in `docs/OWNER_ACCEPTANCE.md`.
 
-The owner reviews this proposal before any implementation. Its principal behavior change is attempting visible
-puzzles and feedback-driven holds before asking the owner, replacing the current prompt's immediate handoff.
+The owner approved implementation on 2026-10-27. Its principal behavior change is attempting visible puzzles and
+feedback-driven holds before asking the owner, replacing the prompt's immediate handoff when that workflow lands.
 Before live validation, the owner chooses the actual personal sites/accounts and approves third-party runs; any
 new paid provider integration is a separate decision. No new numeric product limits are proposed.
 
@@ -404,4 +407,4 @@ new paid provider integration is a separate decision. No new numeric product lim
 - Model judgment stays in the agent. Code enforces target/resource boundaries and reports mechanical facts.
 - Retry/learning cannot reuse stale targets or turn a lost consequential outcome into a fresh action.
 - Offline, vendor-test and production results are separate. Unavailable accounts and untested puzzles stay visible.
-- This document is a proposal. Existing runtime code, prompts, decision records and acceptance verdicts are unchanged.
+- Source implementation is authorized; installed-app behavior and owner acceptance remain separately verified facts.

@@ -15,6 +15,7 @@ from ferb.act.mac.tools import (MacRecord, MacApps, MacAct, MacAppleScript, MacC
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRules, ShellRun, ShellSend, ShellStart, ShellWait
 from ferb.core.interfaces import Capability
+from ferb.abilities.catalog import AbilityCatalog
 
 
 @dataclass
@@ -22,6 +23,10 @@ class Registry:
     capabilities: dict[str, Capability] = field(default_factory=dict)
     runtimes: dict[str, str] = field(default_factory=dict)            # name -> module path (built on demand)
     unregistered: dict[str, str] = field(default_factory=dict)        # runtime -> why it was unregistered
+    abilities: AbilityCatalog = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.abilities = AbilityCatalog(capabilities=lambda: self.capabilities.keys())
 
     def add(self, cap: Any) -> None:
         if cap.name in self.capabilities:
@@ -33,6 +38,9 @@ def build() -> Registry:
     r = Registry()
     from ferb.act.catalog import ActionsSearch
     r.add(ActionsSearch(lambda: r.capabilities))
+    from ferb.abilities.tools import AbilitiesList, AbilitiesRead
+    r.add(AbilitiesList(r.abilities))
+    r.add(AbilitiesRead(r.abilities))
     # capabilities — one line each
     r.add(FsList())
     r.add(FsRead())
