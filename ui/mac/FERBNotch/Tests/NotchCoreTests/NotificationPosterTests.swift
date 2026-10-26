@@ -89,7 +89,8 @@ final class NotificationPosterTests: XCTestCase {
         }
         let rows = [row("accessibility", .denied), row("screen_recording", .notDetermined),
                     row("full_disk_access", .denied), row("notifications", .notDetermined), row("microphone", .denied)]
-        XCTAssertEqual(SetupModel.allowAllOrder(rows), ["notifications", "microphone", "accessibility", "full_disk_access",
+        // Notifications second to last (2026-10-27): its banner is never waited on, and Screen Recording stays last
+        XCTAssertEqual(SetupModel.allowAllOrder(rows), ["microphone", "accessibility", "full_disk_access", "notifications",
                                                         "screen_recording"])
         XCTAssertEqual(SetupModel.allowAllOrder([row("accessibility", .granted), row("screen_recording", .denied)]),
                        ["screen_recording"])
