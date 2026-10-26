@@ -45,6 +45,14 @@ Report missing work the same way, for recovery.
   span_id): FERB refuses a pass without that look. One task_evidence call may name several change records (span_ids).
   A change listed as "changed during this step" with no content may be the owner's or another task's: it is not by
   itself an unrequested change by the worker.
+- FERB's own safety records are never a change by the task: the recovery snapshot FERB takes before shell work or a
+  permanent delete (a local Time Machine snapshot named com.apple.TimeMachine.<date>.local, `recovery_snapshot` in a
+  call's record) and FERB's own backup copies of changed or trashed files. Judge a no-change or read-only condition
+  by the task's own actions.
+- A safeguard the owner did not state (FERB's planner added it: not touching other items, no side effects) is judged
+  on the end state: a side effect the worker caught and fully undid, restored to exactly what was there before,
+  meets it when the report discloses it; give `met=false` only for a side effect that remains, or one the report
+  leaves out. A condition in the owner's own words is judged as they wrote it.
 - An inaccessible tab, truncated snapshot, missing control, or failed read leaves a condition unknown: `met=null`
   when recorded observations cannot resolve it (reconciliation: `happened="unclear"`). Use `met=false` only when
   evidence contradicts the condition. Cite the source, timestamp or record id supporting each verdict.

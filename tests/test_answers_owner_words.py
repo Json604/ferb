@@ -248,6 +248,26 @@ def test_a_plan_whose_step_failed_ends_as_failed_not_as_a_crash(daemon: RunningD
     assert final['status'] == 'failed'
 
 
+def test_a_stopped_plan_says_where_it_stopped_why_and_what_was_done(daemon: RunningDaemon) -> None:
+    """Live 2026-10-27 (a friend's Homebrew cleanup): every requested deletion was done, one step was marked failed,
+    and the answer was "The plan needs attention before I can finish." The friend asked "whats the attention needed
+    for the plan?". The answer now names the step that stopped, its own reason, and what the earlier steps did."""
+    old = task(OLD_GOAL)
+    old['plan'] = Plan(steps=[Step(id='fill', kind='do', goal='Fill the Origins field'),
+                              Step(id='submit', kind='do', goal='Submit the application', depends_on=['fill'])]
+                       ).model_dump()
+    install(daemon, [sup('task', 'Submitting.', old)], {
+        'step.fill': done('Filled the Origins field.'),
+        'step.submit': json.dumps({'status': 'blocked', 'summary': 'The submit button was disabled.', 'artifacts': [],
+                                   'evidence': []})})
+    final = outcome(chat(daemon, 'fill and submit the application'))
+    assert final['status'] == 'failed'
+    said = final['answer']
+    assert 'needs attention' not in said
+    assert 'Submit the application' in said and 'The submit button was disabled.' in said
+    assert 'Filled the Origins field.' in said
+
+
 def test_a_new_goal_without_a_plan_never_reruns_the_old_plan_s_unfinished_steps(daemon: RunningDaemon) -> None:
     """[fill done, submit blocked] + "don't submit it, just rewrite the origins field" (new goal, no plan): one worker
     runs the new goal in the same task, with the old steps' results as data; the unfinished submit never runs."""

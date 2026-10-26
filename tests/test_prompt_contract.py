@@ -147,6 +147,15 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
+    # live 2026-10-27 (a friend's FERB): a storage scan failed because FERB's own safety snapshot counted as a
+    # change, and a Homebrew cleanup failed because Homebrew's own removal of five libraries, undone by the
+    # worker, broke a safeguard the planner added; both did what was asked
+    ("verifier.md",
+     "FERB's own safety records are never a change by the task: the recovery snapshot FERB takes before shell work or a permanent delete (a local Time Machine snapshot named com.apple.TimeMachine.<date>.local, `recovery_snapshot` in a call's record) and FERB's own backup copies of changed or trashed files. Judge a no-change or read-only condition by the task's own actions."),
+    ("verifier.md",
+     "A safeguard the owner did not state (FERB's planner added it: not touching other items, no side effects) is judged on the end state: a side effect the worker caught and fully undid, restored to exactly what was there before, meets it when the report discloses it; give `met=false` only for a side effect that remains, or one the report leaves out. A condition in the owner's own words is judged as they wrote it."),
+    ("supervisor.md",
+     "FERB's own safety snapshots and backup copies are never a change by the task: never write a condition that they would break."),
     # live 2026-10-26 (task 7c1eca3a): every Indian OFC location said "No Slots Available" and the run reported
     # "failed" because its condition was "booked"; the six-hourly schedule keeps checking
     ("supervisor.md",

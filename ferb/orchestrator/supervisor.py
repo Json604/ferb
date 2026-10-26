@@ -32,6 +32,7 @@ from ferb.core.errors import Deferred, PlanRejected
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
+from ferb.trace.lines import clip
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
@@ -2657,7 +2658,7 @@ class Supervisor(WorkerRuns):
                                'Include a concise digest of the messages actually sent, failed, or still unconfirmed; inspect evidence.'})
             return await self._worker(tree, span)
         return Outcome(tree.worker.id, 'failed' if result['status'] == 'blocked' else result['status'],
-                       'The plan needs attention before I can finish.', artifacts, evidence)
+                       _stopped_plan_summary(plan.steps, states), artifacts, evidence)
 
     def change_conversation(self, ident: str, action: str, words: str) -> None:
         row = self.conversations.get(ident)
@@ -4039,6 +4040,21 @@ class _Changed:
 ORDINARY_WORD_LINE = "The answer you saved for {place} is an ordinary word, so FERB hides it wherever it appears."
 FOUND_BEFORE_STOP = "What I'd found before stopping (not checked):"
 NEEDS_ANSWER = "I need your answer to finish this task."
+def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -> str:
+    """Why a plan stopped, in the owner's terms (live 2026-10-27: "The plan needs attention before I can finish." left a
+    friend asking "whats the attention needed for the plan?"): the step that stopped by its goal, with its own report,
+    then what the steps before it did. Clipped; the full reports stay in the trace."""
+    def said(step: Any) -> str:
+        return clip(" ".join(str(states.get(step.id, {}).get("output", {}).get("summary") or "").split()), 400)
+    stopped = [s for s in steps if states.get(s.id, {}).get("status") not in ("done", "pending", "running")]
+    done = [s for s in steps if states.get(s.id, {}).get("status") == "done" and said(s)]
+    lines = [f"I stopped at \u201c{clip(' '.join(s.goal.split()), 160)}\u201d: {said(s) or 'it did not finish.'}"
+             for s in stopped] or ["The plan stopped before its last step."]
+    if done:
+        lines.append("Done before that:\n" + "\n".join(f"- {said(s)}" for s in done))
+    return "\n\n".join(lines)
+
+
 NOT_FINISHED = "I couldn't finish this task."
 # FERB's report condition in the owner's terms: they never saw the worker's report (P27)
 REPORT_FALSE = "What I reported didn't match the records"
