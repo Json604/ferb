@@ -190,8 +190,8 @@ def _filled_origins(daemon: RunningDaemon) -> str:
     return tree
 
 
-def _continue(tree: str, goal: str, new_goal: bool, plan: Plan | None = None) -> str:
-    follow_up = json.loads(sup('task', 'On it.', task(goal)))
+def _continue(tree: str, goal: str, new_goal: bool, plan: Plan | None = None, identity: str = 'ferb') -> str:
+    follow_up = json.loads(sup('task', 'On it.', task(goal, identity)))
     follow_up['task']['plan'] = plan.model_dump() if plan else None
     follow_up['control'] = {'task_id': tree, 'action': 'continue', 'new_goal': new_goal,
                             'standing_sends': 'unchanged', 'supersedes': []}
@@ -317,7 +317,7 @@ def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task
         refusals.append(daemon.run(check()))
         return done('Logged in and checked the application.')
 
-    install(daemon, [_continue(tree, 'carry on with the application', False)], {'worker': worker})
+    install(daemon, [_continue(tree, 'carry on with the application', False, identity='owner')], {'worker': worker})
     second = outcome(chat(daemon, 'I logged in, carry on', session='apply'))
     assert second['task_id'] == tree
     assert second['goal'].startswith('send the application on shop.example')
@@ -860,3 +860,25 @@ def _pending(daemon: RunningDaemon) -> list[Any]:
 
 def _at(clock: str) -> dict[str, Any]:
     return {'in_minutes': None, 'in_days': None, 'day': None, 'date': None, 'time': clock}
+
+
+def test_a_continue_whose_planner_task_changes_identity_runs_as_that_identity(daemon: RunningDaemon) -> None:
+    """Live 2026-10-26 (task 0a5fbe31): a visa research task ran as FERB; the owner's "now you can do the visa task"
+    came back as continue (new_goal false) with the planner's task naming the owner's Chrome profile and identity
+    owner. FERB resumed the saved FERB-identity spec, so the worker had no owner browser tools and drove Chrome's
+    window instead. Whose account acts is the planner's call each turn: a changed identity runs the planner's task."""
+    old = task(OLD_GOAL)                                         # identity ferb
+    install(daemon, [sup('task', 'Researching.', old)], {'worker': done('Researched it.')})
+    tree = str(outcome(chat(daemon, 'research the Origins field', session='who'))['task_id'])
+    identities: list[str] = []
+
+    def worker(token: str) -> str:
+        identities.append(daemon.daemon.tokens.validate(token).identity.value)
+        return done('Filled it in your profile.')
+
+    install(daemon, [_continue(tree, 'Fill the Origins field in your own browser profile', False, identity='owner')],
+            {'worker': worker})
+    second = outcome(chat(daemon, 'now do it in my profile', session='who'))
+    assert second['task_id'] == tree                                   # the same task and its records
+    assert identities == ['owner']
+    assert second['goal'].startswith('Fill the Origins field in your own browser profile')

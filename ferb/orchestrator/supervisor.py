@@ -1462,7 +1462,11 @@ class Supervisor(WorkerRuns):
             # - a retry with the planner's task: the saved plan reopens when that task leaves it as it was (a generic
             #   retry task); otherwise the planner's task is the fresh attempt, with the earlier goal and result.
             action = 'continue' if control.action == 'steer' else control.action
-            if action == 'continue' and control.new_goal and out.task is not None:
+            # Whose account acts is the planner's call each turn (live 2026-10-26, task 0a5fbe31: a FERB-identity
+            # research task resumed as FERB though the planner's task named the owner's profile, so its worker had no
+            # owner browser tools and drove Chrome's window): a changed identity runs the planner's task.
+            identity_changed = out.task is not None and out.task.identity != prior_spec.identity
+            if (action == 'continue' and control.new_goal or identity_changed) and out.task is not None:
                 resumed = out.task
                 resumed.goal += (f"\nEarlier goal of this task: {prior_spec.goal}\n"
                                  f"Last recorded result (verify afresh): {prior_state}")
