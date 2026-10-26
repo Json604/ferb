@@ -67,6 +67,18 @@ def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
     return (("app", bundle_id),)
 
 
+async def _browser_page(find: Any, *args: Any) -> str | None:
+    """The driver's browser-page fact for the gateway's question (rule 5, live 2026-10-26), in a worker thread. None
+    when it can't tell now (no such element or app any more): the call then meets the same error."""
+    if not callable(find):
+        return None
+    try:
+        found = await asyncio.to_thread(find, *args)
+    except (Refused, StaleRef, LookupError, ValueError):
+        return None
+    return found if isinstance(found, str) and found else None
+
+
 async def _terminal_input(find: Any, *args: Any) -> TerminalInput | None:
     """The driver's terminal-input facts for the gateway's question (D31), in a worker thread. None when it can't tell
     now (no such element or app any more): the call then meets the same error, and the driver's own check right
@@ -410,6 +422,12 @@ class MacAct(_Base):
         return await _terminal_input(getattr(self.driver, "terminal_input", None), str(getattr(args, "app")),
                                      self._action(args), task)
 
+    async def browser_page(self, args: BaseModel) -> str | None:
+        """A browser's own page this input acts on (chrome://extensions…), by the driver's facts now: the gateway asks
+        the owner about every such input. Off the event loop."""
+        return await _browser_page(getattr(self.driver, "browser_page", None), str(getattr(args, "app")),
+                                   self._action(args))
+
     @staticmethod
     def _action(args: BaseModel) -> ComputerAction:
         return ComputerAction(getattr(args, "action"), getattr(args, "element"), getattr(args, "text"),
@@ -559,6 +577,11 @@ class MacClick(_Base):
             except (StaleRef, Refused, ValueError, LookupError):
                 return None
         return await asyncio.to_thread(find)
+
+    async def browser_page(self, args: BaseModel) -> str | None:
+        """A browser's own page under the point (chrome://extensions…): the gateway asks about every such input."""
+        return await _browser_page(getattr(self.driver, "pointer_browser_page", None), str(getattr(args, "app")),
+                                   str(getattr(args, "shot")), float(getattr(args, "x")), float(getattr(args, "y")))
 
     async def terminal_input(self, args: BaseModel, task: str) -> TerminalInput | None:
         """D31 (review round 1, finding 4): a click on a Paste item over a terminal, or a terminal app's menu item."""

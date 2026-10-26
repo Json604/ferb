@@ -47,3 +47,15 @@ def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
     monkeypatch.setattr(apps, "pids_of", lambda ids: {1302} if "com.google.chrome" in ids else set())
     assert confirm.foreground_need("mac.click", {"app": "pid:1302", "mechanism": "pointer"}) is not None
     assert confirm.foreground_need("mac.click", {"app": "pid:999", "mechanism": "pointer"}) is None
+
+
+def test_the_short_question_says_the_tasks_reason() -> None:
+    """Live 2026-10-26 (task 7c1eca3a): the owner said Yes to "read Chrome's files", "bring Chrome to the front" and
+    "type chrome://extensions/…" without seeing that they served turning off their visa-slots extension; the reason
+    was only under Details. The short line now carries it, quoted as the task's words (D33), never FERB's."""
+    need = confirm.foreground_need("mac.click", {"app": "Google Chrome", "allow_foreground": True})
+    assert need is not None
+    why = "Disable only `Check US Visa Slots - USVisaScheduling` in Chrome New_Personal"
+    text = confirm.summary([need], why)
+    assert text.endswith(f' The task\'s reason: "{why}".')
+    assert confirm.summary([need]) == confirm.summary([need], "  ")      # no reason given: nothing added

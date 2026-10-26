@@ -52,7 +52,23 @@ TLS_OFF = "floor:tls_off"                 # L39: a shell command that turns off 
 TLS_QUESTION = ("Run this with certificate checks turned off? `{command}` — this skips the check that {site}")
 TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: any input into a terminal, asked every time (policy/terminal.py)
 FOREGROUND = "floor:foreground"           # rule 17: input that brings an app to the front, once per task per app
-FOREGROUND_TOOLS = frozenset({"mac.act", "mac.click"})
+FOREGROUND_TOOLS = frozenset({"mac.act", "mac.click", "mac.pointer"})
+# A browser's own pages (its settings, extensions, flags): input there asks every time, naming the page (live
+# 2026-10-26: a worker switched off the owner's extension on chrome://extensions under a once-per-task screen Yes).
+# A where-boundary by the page's address, as the browser reports it, never by what the input is meant to do.
+BROWSER_PAGE = "floor:browser_page"
+BROWSER_SCHEMES = ("chrome://", "brave://", "edge://", "arc://", "vivaldi://", "opera://")
+
+
+def browser_page(address: str | None) -> bool:
+    """Whether an address is one of a browser's own pages (scheme only; what is typed or reported, trimmed)."""
+    return bool(address) and str(address).strip().casefold().startswith(BROWSER_SCHEMES)
+
+
+def browser_page_need(app: str, page: str) -> "Need":
+    """Every input on that browser page asks (always): one Yes covers one input."""
+    return Need(BROWSER_PAGE, key(BROWSER_PAGE, app.casefold(), page.strip()), {"app": app, "page": page.strip()},
+                always=True)
 BROWSER_APPS = frozenset({"google chrome", "com.google.chrome", "brave browser", "com.brave.browser", "arc",
                           "company.thebrowser.browser", "safari", "com.apple.safari", "microsoft edge",
                           "com.microsoft.edgemac"})
@@ -611,6 +627,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     if n.rule == FOREGROUND:
         return (f"this would bring {v['app']} to the front and use your screen; one Yes covers {v['app']} for the rest "
                 "of this task, and a No keeps FERB in the background")
+    if n.rule == BROWSER_PAGE:
+        return (f"this would act on {v['app']}'s own page {v['page']} (its settings or extensions); FERB asks before "
+                "every input there, and this Yes covers this one input only")
     if n.rule == TERMINAL_INPUT:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
                 "before every input into a terminal, and this Yes covers this one input only")
@@ -676,6 +695,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
         return _tls(v)
     if n.rule == FOREGROUND:
         return f"use your screen in {v['app']} (it comes to the front) for this task"
+    if n.rule == BROWSER_PAGE:
+        return f"change something on {v['app']}'s own page {v['page']} (its settings or extensions)"
     if n.rule == TERMINAL_INPUT:
         return _terminal(v)
     if n.rule == "floor:pay":
@@ -715,16 +736,19 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
-def summary(needs: list[Need]) -> str:
+def summary(needs: list[Need], why: str = "") -> str:
     """FERB's question in one line (P27; owner 2026-10-24: "we should have the short version and in details see if
-    you want the raw things"): what FERB wants to do, from the needs' facts, never the step or the task's reason. The
-    full question (`line`) stays the approval's reason, shown under Details. Display only: it decides nothing."""
+    you want the raw things"): what FERB wants to do, from the needs' facts, then the task's reason, quoted as its
+    words (D33; live 2026-10-26: the owner said Yes to three mechanical steps without seeing they served turning off
+    their extension). The full question (`line`) stays the approval's reason, shown under Details. Display only: it
+    decides nothing; the caller has redacted and clipped `why`."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     rules = frozenset(n.rule for n in needs)
+    reason = f' The task\'s reason: "{from_task_lines(why.strip())}".' if why.strip() else ""   # D33: never FERB's
     if rules == {TLS_OFF}:                      # L39: the question as the owner reads it, already a question
-        return "; ".join(_tls(n.values) for n in needs) + "."
+        return "; ".join(_tls(n.values) for n in needs) + "." + reason
     parts = [p for n in needs if n.rule not in said and (p := _short(n, rules))]
-    return "FERB wants to " + "; ".join(parts) + "."
+    return "FERB wants to " + "; ".join(parts) + "." + reason
 
 
 def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:

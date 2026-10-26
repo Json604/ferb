@@ -29,6 +29,7 @@ from ferb.core import call_facts
 from ferb.core.errors import NoTarget, Refused, StaleRef, Withheld
 from ferb.core.types import ActionResult, ComputerAction, TerminalGrant, TerminalInput
 from ferb.policy import terminal as terminals
+from ferb.policy import confirm as floors
 
 # Rule 8, rule 9, D31, W2: FERB never operates its own apps (the notch shows FERB's own questions; pressing, clicking or
 # typing into it would answer them for the owner): `front_window.FERB_APPS` and the daemon's own process
@@ -1296,6 +1297,36 @@ class MacComputerDriver:
     def _role(self, el: Any) -> str:
         role = getattr(self.ax, "role_of", None)
         return str(role(el)) if el is not None and callable(role) else ""
+
+    def browser_page(self, app: str, action: ComputerAction) -> str | None:
+        """Blocking (live 2026-10-26: a worker switched off the owner's extension on chrome://extensions): the
+        browser's own page this input would act on (policy/confirm.py `browser_page`), else None. An address typed in;
+        else the element's page, or the keyboard focus's for input without an element, by the address the browser
+        reports. The gateway asks the owner about every such input."""
+        a = self.app(app)
+        if a.bundle_id.casefold() not in floors.BROWSER_APPS:
+            return None
+        if action.kind in ("type", "set_value", "edit") and floors.browser_page(action.text):
+            return str(action.text).strip()
+        if action.element:
+            el = self.node(a.bundle_id, action.element).ref
+        elif action.kind in ("type", "key", "edit"):
+            el = self._focus(a)
+        else:
+            return None
+        return self._browser_page_at(el)
+
+    def pointer_browser_page(self, app: str, shot_id: str, x: float, y: float) -> str | None:
+        """Blocking: the browser's own page under a screenshot point, else None (see `browser_page`)."""
+        a = self.app(app)
+        if a.bundle_id.casefold() not in floors.BROWSER_APPS:
+            return None
+        return self._browser_page_at(self._hit(a, shot_id, x, y))
+
+    def _browser_page_at(self, el: Any) -> str | None:
+        find = getattr(self.ax, "page_url", None)
+        url = find(el) if el is not None and callable(find) else None
+        return str(url) if floors.browser_page(url) else None
 
     def pointer_terminal_input(self, app: str, shot_id: str, x: float, y: float, kind: str,
                                end: tuple[float, float] | None = None) -> TerminalInput | None:

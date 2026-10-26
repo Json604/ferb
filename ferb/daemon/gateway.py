@@ -789,6 +789,8 @@ class Gateway:
             extra["destination"] = reaches.model_dump(exclude_defaults=True)
         consequential = spec.kind not in REVERSIBLE or bool(declared)   # a declared purpose only adds
         takes_screen = confirm.foreground_need(name, arguments) is not None   # rule 17: asked even for a reversible click
+        # rule 5: input on a browser's own page (chrome://extensions…) asks every time, by the driver's facts now
+        page = await cap.browser_page(args) if takes_screen and hasattr(cap, "browser_page") else None
         if consequential or takes_screen:                # where each target came from (S3), a fact
             extra["arg_sources"] = self._arg_sources(checked, rec, grant)
         blocked = self._send_blocked(checked)            # test mode: before FERB asks the owner anything
@@ -800,7 +802,7 @@ class Gateway:
         if (consequential or takes_screen) and blocked is None and repeat is None:
             # D23 floor, S4: asked by code, before anything is held
             covered = await self._confirmed(grant, rec, name, arguments, checked, why, extra["arg_sources"],
-                                            ident if isinstance(ident, tuple) else None)
+                                            ident if isinstance(ident, tuple) else None, page)
         if consequential:
             extra["confirmations"] = covered.ids
         if covered.standing and covered.refused is None:  # D30: runs inside a standing permission, logged as such
@@ -995,7 +997,8 @@ class Gateway:
         return places
 
     async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
-                         sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
+                         sources: dict[str, list[str]], ident: tuple[str, str] | None = None,
+                         page: str | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
         (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results, the
         request's pasted parts and private or outside content actually retrieved into model context; L4: only context
@@ -1024,6 +1027,8 @@ class Gateway:
         fg = confirm.foreground_need(name, arguments)      # rule 17: the owner's screen, asked once per task per app
         if fg is not None:
             needs.append(fg)
+        if page is not None:                             # rule 5: a browser's own page, asked every time
+            needs.append(confirm.browser_page_need(str(arguments.get("app") or "the browser"), page))
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
@@ -1204,7 +1209,9 @@ class Gateway:
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, [YES, NO], key=text)
         if new:
-            ap.summary = self._one_line(confirm.summary(needs), any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+            reason = quoted(self.redact({"w": why})["w"]) if why.strip() else ""     # redacted, then clipped
+            ap.summary = self._one_line(confirm.summary(needs, reason),
+                                        any(n.rule == confirm.TERMINAL_INPUT for n in needs))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": [YES, NO],
                                                 "task_id": grant.task_id, "summary": ap.summary})

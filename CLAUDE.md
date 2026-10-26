@@ -43,7 +43,8 @@ look at a specific experiment only when needed. Historical documentation remains
    owner-reviewed labelled set; the code floor is enforced from the start (CQ2).
 8. Code enforces confirmations (built in F5) for concrete hard-to-undo actions, and asks only for these (L3): money,
    account-security changes, permanent deletion, and sending as the owner to someone new unless a standing
-   permission covers it; a command that turns off certificate checks (owner, 2026-10-25, L39); plus the sink rule
+   permission covers it; a command that turns off certificate checks (owner, 2026-10-25, L39); any input on a
+   browser's own pages, chrome://extensions or settings, every time (owner, 2026-10-26); plus the sink rule
    cases (S4) for sends and URLs, e.g. private data going to a new
    destination after outside content was read. Shell and browser reach any site without asking: code records every
    site and lists it in the answer (L2, 2026-10-13; this replaces the sink rule as it applied to shell egress and the

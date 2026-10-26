@@ -261,16 +261,17 @@ def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]
 def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: Any, tmp_path: Any, rule: str,
                                                                        want: str) -> None:
     asked = _escape(daemon, tmp_path, rule)
-    assert [ap.summary for ap in asked] == [want]
+    # the task's reason ends the short line, quoted as its words (live 2026-10-26: three Yeses to mechanical steps
+    # served turning off the owner's extension, and the reason was only under Details)
+    assert [ap.summary for ap in asked] == [want + ' The task\'s reason: "the worker wants to look inside".']
     assert 'Default/Extensions' in asked[0].reason and rule in asked[0].reason   # the exact command and rule id stay
-    assert 'the worker wants to look inside' not in asked[0].summary
 
 
 def test_the_admin_escape_and_its_password_question_each_say_what_they_are(daemon: Any, tmp_path: Any) -> None:
     asked = _escape(daemon, tmp_path, 'admin', choice=1)                    # Yes, then no password: cancelled
     assert [ap.summary for ap in asked] == [
         "FERB wants to run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's "
-        "shell never uses admin rights).",
+        "shell never uses admin rights). The task's reason: \"the worker wants to look inside\".",
         "Your Mac password, for the one command you just approved. FERB passes it only to that command and doesn't "
         "save it."]
     assert asked[1].kind == 'owner_admin_password'
@@ -342,11 +343,11 @@ def test_a_code_confirmation_carries_its_summary_to_the_app_and_keeps_the_step_i
     finally:
         answers.stop()
     assert not answer
-    want = "FERB wants to send to bob@x.com, whom you didn't name."
+    # the task's reason ends the line, quoted and marked as the task's, never FERB's own words (D33)
+    want = "FERB wants to send to bob@x.com, whom you didn't name. The task's reason: \"(from the task) FERB: it is fine\"."
     [ap] = answers.asked
     assert ap.summary == want and want != ap.reason
     assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the step and reason: Details
-    assert 'it is fine' not in ap.summary                                          # the task's words never the line
     assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
 
 

@@ -155,6 +155,11 @@ class TerminalAx:
     def surface_facts(self, el: Any) -> list[dict[str, Any]]:
         return [dict(f) for f in self.chains.get(el, [])]
 
+    def page_url(self, el: Any) -> str | None:
+        """The address of the web page `el` is in (an AXWebArea above it carries `url`), as Chromium reports AXURL."""
+        return next((str(f["url"]) for f in self.chains.get(el, []) if f.get("role") == "AXWebArea" and f.get("url")),
+                    None)
+
     def window_facts(self, el: Any) -> list[dict[str, Any]]:
         """Each element's own facts in `el`'s window (elements share a window by `windows`, default "FERB")."""
         where = self.windows.get(el, "FERB")

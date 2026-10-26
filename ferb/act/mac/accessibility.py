@@ -705,6 +705,28 @@ def surface_facts(el: Any) -> list[dict[str, Any]]:
     return chain
 
 
+def page_url(el: Any) -> str | None:
+    """The address of the web page an element is in, as the browser reports it (Chromium's AXWebArea carries AXURL),
+    from the element up to its window: the first browser-own page (policy/confirm.py `browser_page`) on the way, else
+    the outermost page. Read-only; None when no page above it shows an address."""
+    from ferb.policy.confirm import browser_page
+    found: str | None = None
+    depth = 0
+    while el is not None and depth < SURFACE_DEPTH:
+        role = _attr(el, "AXRole")
+        if role == "AXWebArea":
+            raw = _attr(el, "AXURL")
+            text = str(raw.absoluteString()) if hasattr(raw, "absoluteString") else (str(raw) if raw else "")
+            if browser_page(text):
+                return text
+            found = text or found
+        if role in ("AXWindow", "AXApplication"):
+            break
+        el = _attr(el, "AXParent")
+        depth += 1
+    return found
+
+
 def file_of(el: Any) -> str | None:
     """The file an item stands for (Finder's icons and rows carry AXURL, a file reference URL), on the element or its
     parent, as a path; None when it shows none. Read-only."""

@@ -348,7 +348,13 @@ connected now (usually the profile just isn't running) — FERB's browser tools 
 tab there themselves, nothing to ask"; a refused extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
 identity), the error says so and tells the worker to ask the owner to open that profile once; automatic pairing then
 pairs it (section 16.9). Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
-browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
+browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route.
+Input on a browser's own pages (chrome://, brave://, edge://, arc://: its settings and extensions) asks every time,
+naming the page (`floor:browser_page`, always; live 2026-10-26, task 7c1eca3a: a worker switched off the owner's
+"Check US Visa Slots" extension under a once-per-task screen Yes). The driver finds the page from the address the
+browser reports for the target (`accessibility.page_url`: Chromium's AXWebArea carries AXURL; `MacComputerDriver.
+browser_page`, `pointer_browser_page`), or from an address being typed. Every FERB question's short line now ends
+with the task's reason, quoted as its words (`confirm.summary(needs, why)`). Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. The browser can refuse
 the debugger: Chrome refuses `chrome.debugger.attach` for a whole tab when any frame in it is another extension's
 `chrome-extension://` page, and detaches a session from such a tab when its page navigates (chrome:// pages, the Web
