@@ -48,8 +48,10 @@ showed where FERB stalls or confuses. Commits f9c87a7, 458c5eb, 635d507, 37ba645
   come back from switching on Screen Recording or Input Monitoring; a row still off offers "Show FERB to drag in".
 - **FERB.app.** A virtual notch on Macs without one; "1 active task · 0:42"; Enter submits every field; a part of a
   request ("delete the SDK", "show the breakdown") is told as soon as it is checked, as its own message, and the final
-  answer gives it one line; multi-part requests answered part by part; Settings → Send diagnostics to developer (a Mail draft with the diagnostic file and
-  recent setup, pairing and watcher events).
+  answer gives it one line; multi-part requests answered part by part; Settings → Send diagnostics to developer (a
+  Mail draft with the diagnostic file and recent setup, pairing and watcher events).
+- **Jev.** Once Jev refuses the key (payment or authorization), FERB stops asking until the key changes: it had sent
+  10,366 failing asks in two days. Perception notices stay paused until a Jev-free approach is designed (owner).
 
 ## 0.27.0.dev1 Browser settings pages ask; questions show the reason; a watch run isn't "failed" — 2026-10-26 — owner live check pending
 

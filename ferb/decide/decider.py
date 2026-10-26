@@ -57,6 +57,9 @@ class JevClient:
             raise ValueError("pin a Jev version: calibration differs between versions")
         self.key, self.url, self.model, self.retries, self.backoff_s, self.sleep = key, url, model, retries, backoff_s, sleep
         self._post = post
+        # A key Jev refused for payment or authorization (live 2026-10-25: HTTP 402 to 10,366 asks once the free
+        # credits ran out) isn't asked again by this client; a new key (`ferb setup --jev`) or a restart builds another.
+        self.refused: str | None = None
 
     async def _http(self, headers: dict[str, str], body: dict[str, Any], timeout: float) -> tuple[int, Any]:
         if self._post is not None:
@@ -70,6 +73,8 @@ class JevClient:
                 return r.status_code, None
 
     async def ask(self, state: Any, questions: dict[str, dict[str, Any]], timeout: float = 20.0) -> dict[str, Any]:
+        if self.refused is not None:
+            raise JevUnavailable(f"{self.refused} earlier: not asked again until the key changes (`ferb setup --jev`)")
         key = await self.key()
         if not key:
             raise JevUnavailable("no Jev API key in the Keychain (`ferb setup --jev`)")
@@ -85,6 +90,8 @@ class JevClient:
                 await self.sleep(delay)
                 delay *= 2
                 continue
+            if status in (401, 402, 403):
+                self.refused = f"HTTP {status}"
             if status != 200 or not isinstance(data, dict) or not isinstance(data.get("answers"), dict):
                 raise JevUnavailable(f"HTTP {status}")
             return data

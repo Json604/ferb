@@ -580,6 +580,11 @@ of code redaction. `notification.attention` cannot be enabled; its owner-labelle
 `perception.attention` is an ordinary-activity proposal with source references, never an owner instruction. No task
 authorization or target-routing rule depends on Jev. Since the launch week a Jev yes leads to one consideration per
 app and a chat notice (section 16, L9/L10); typed text is captured again (L17).
+Perception notices are paused (owner 2026-10-27): Jev is paid, and the owner's free credits ran out on 2026-10-25
+(HTTP 402 from 12:39, 10,366 asks in two days); a Jev-free approach (the owner's own small decision engine) is to be
+designed. `JevClient` stops asking once Jev refuses its key (HTTP 401, 402 or 403, `JevClient.refused`) until
+`ferb setup --jev` (`jev.reload`) or a restart builds a new client. Without a key, as on a friend's Mac, nothing is
+asked and nothing is noticed.
 
 The batcher's cost (P1/D10, perf plan 2026-10-23): its decisions are those above, exactly, but a wake works only on
 what is new. `_Unsent` holds the rows `pending()` gives, in seq order, each with its JSON as it stands in the list

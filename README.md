@@ -669,7 +669,8 @@ no automated test proves that the owner experienced no disturbance.
   Recording.
 - A watch checks on the schedule interval (the planner uses every 15 minutes or more): no battery, power or file event
   wakes it sooner.
-- Notices need the optional Jev service; notification triage is shadow only.
+- Perception notices are paused: they need the paid Jev service, and a Jev-free approach is still to be designed.
+  Without a working Jev key FERB still records activity but posts no notices; notification triage is shadow only.
 - A watch only tells you; to have FERB keep something going, ask for a loop ("keep … going", "loop until …"). A loop
   can only watch what an observation tool reads exactly (a field of a tab snapshot, a shell session's state); it adds
   no wake-up of its own, so it does not keep the Mac awake, and it reads every 10 seconds, so a change that reverts

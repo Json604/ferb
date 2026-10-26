@@ -255,3 +255,24 @@ def test_jev_guard_counts_questions_and_does_not_reintroduce_character_cap(jd: A
     monkeypatch.setattr(module, 'count_tokens', lambda text: 32000)
     with pytest.raises(JevUnavailable, match='no partial state'):
         d.daemon.jev._state(state)
+
+
+@pytest.mark.parametrize("status", [401, 402, 403])
+def test_a_refused_key_is_not_asked_again_until_it_changes(status: int) -> None:
+    """Live 2026-10-25 12:39 to 2026-10-27: Jev answered HTTP 402 (the owner's free credits ran out) to 10,366 asks, about
+    four a minute, each sending a redacted activity batch. A key refused for payment or authorization isn't asked again
+    by this client: `ferb setup --jev` (a new key) or a restart builds a new one. Owner 2026-10-27: perception stays
+    paused; a Jev-free approach comes later."""
+    fake = FakeJev()
+    fake.answers = {"memory.worth_keeping": 0.1}
+    fake.status = [status]
+
+    async def key() -> str:
+        return KEY
+    c = JevClient(key, post=fake.post)
+    q = QUESTIONS["memory.worth_keeping"].api()
+    with pytest.raises(JevUnavailable, match=f"HTTP {status}"):
+        asyncio.run(c.ask({"x": 1}, {"q0": q}))
+    with pytest.raises(JevUnavailable, match="not asked again"):
+        asyncio.run(c.ask({"x": 1}, {"q0": q}))
+    assert len(fake.requests) == 1                                  # the second ask never left the Mac
