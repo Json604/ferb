@@ -1900,6 +1900,11 @@ click brings that profile's browser forward instead of the exact tab.
    question "pair your Chrome profile “…” with FERB", and on Yes it pairs and carries on.
    - Owner, live 2026-10-27: "pair my online bits profile" in the chat paired it, but asked first ("why did it ask me
      the question?"). Fixed after: a profile named in your words pairs with no question; to recheck.
+   - Owner, live 2026-10-27, task 4a957731 ("connect all my browser profile of all chrome"): FERB's pairing page in
+     "old" showed "… is blocked, ERR_BLOCKED_BY_CLIENT" (its store copy was off pending the owner's approval, "Action
+     Required"; fixed in 49780f2: a turned-off copy is never sent a page). After the owner approved it the task
+     finished: "task done ferb is paired". `ferb browsers` then showed Kartikey, old, New_Personal, scaler and online
+     bits paired and connected.
 4. A page behind a "Verify you are human" check: **Expected:** the worker reads the browser_verification procedure
    (`ferb trace`: `abilities.read`) and tries the check itself (a click, pictured objects, a slider). If it still
    blocks: one notification "<site> wants to check you're human…"; clicking it brings that exact tab forward
