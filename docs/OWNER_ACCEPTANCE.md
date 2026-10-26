@@ -1419,7 +1419,8 @@ FERB's resource log (plan 2026-10-23 Task 4, L30; pending, checkout tests only s
     --update` restarts it): the day's hours covered should still match that time, the minutes before the restart
     included. `ferb stats --days 1` shows only today.
 
-Automatic pairing (L25, owner 2026-10-24; pending, checkout tests only so far):
+Automatic pairing (L25, owner 2026-10-24; superseded 2026-10-27 by pairing on the owner's click, see "First
+installs" below; kept for the record):
 81. After `ferb setup --update`, quit and reopen Chrome.
     - Reopening Chrome may already pair the last-used unpaired profile: note which, if any.
     - In a profile FERB isn't paired in yet ("Kartikey", "old" or "New_Personal"), turn FERB on when Chrome offers it
@@ -1877,7 +1878,40 @@ New_Personal, item 3 can't pass there.
    **Expected:** the screenshot point names the checkbox (not an unlabeled generic), the click is delivered, and a
    refused press says "nothing was pressed" instead of an unknown outcome. Cloudflare may still reject it; that is
    its call, recorded as seen.
-4. Reinstall the extension in one profile, then open that profile's window. **Expected:** `ferb browsers` shows it
-   paired and connected again within about 30 s, with no command.
+4. Superseded 2026-10-27 (automatic pairing removed): see "First installs" item 3.
 5. Fresh user on the owner's second MacBook (owner's choice, 2026-10-26): install the arm64 DMG built from b1b8d21 and
    go through setup and a first task as a new user would; record everything confusing, slow or broken.
+
+## First installs: questions, pairing, human checks, setup, notch (2026-10-27) — pending live checks
+
+Built in f9c87a7 … a20b720 from two friends' first installs and the Zomato task 400d67fb. Checkout tests pass; nothing
+here has been seen live. Extension 0.15.13 (`show_tab`) needs the store upload; until a profile runs it, item 4's
+click brings that profile's browser forward instead of the exact tab.
+
+1. A Zomato (or any) checkout with a card: **Expected:** one question for the payment ("₹137.39 to zomato.com"), the
+   task's reason on its own small line, and none again for the bank's verification page within 10 minutes; a CVV or
+   OTP question names the page's field ("the page's “CVV …” field — used once, not saved").
+2. A task that sends to someone new: the question offers "Yes, and don't ask for 30 min". Choose it; a second new
+   recipient in the next 30 minutes asks nothing (`ferb trace`: an `owner.ask` span with `allowed_until`); a payment
+   in that time still asks with only Yes / No.
+3. In setup's Browsers step (or Settings → Browsers) with two profiles turned on but unpaired: **Pair all**.
+   **Expected:** a blank FERB tab opens and closes in each, both read "Paired"/"Connected" within a minute, nothing
+   else moves. Then **Pair** on one more profile. Then a task naming an unpaired profile: one question "pair your
+   Chrome profile “…” with FERB", and on Yes it pairs and carries on.
+4. A page behind a Cloudflare "Verify you are human" check that one click doesn't pass: **Expected:** one notification
+   "<site> wants to check you're human…"; clicking it brings that exact tab forward (0.15.13); after you pass the
+   check, FERB carries on by itself with no "done" reply.
+5. Notch on a Mac without a notch (a friend's M1, or an external display set as main): **Expected:** a black pill
+   flush with the top edge, as tall as the menu bar, at the centre; it opens like the real notch.
+6. While a task runs: the work row reads "1 active task · 0:42" and counts up; Enter submits the setup API-key field
+   and Settings' list fields.
+7. Fresh setup (second MacBook or a friend): **Expected:** no keystroke prompt on the first screen; Allow all never
+   stops at the Notifications banner (a hint says where to click Allow); after switching on Screen Recording or Input
+   Monitoring and coming back to FERB, the service restarts by itself and the row ticks; on the newer macOS, record
+   whether FERB is listed in "Device Control and Data Access" and whether "Show FERB to drag in" works; no "Data
+   Access Blocked" banner before Full Disk Access.
+8. Settings → Advanced → Send diagnostics to developer: **Expected:** a new Mail email to ktky.attri@gmail.com with
+   the diagnostic file attached, whose last section lists recent setup and pairing events.
+9. A scheduled run whose model call goes silent: **Expected:** `ferb trace` shows a `model.stall` retry after 3
+   minutes rather than a 15-minute wait; a failed scheduled run shows `schedule.retry_queued` and one retry 10 minutes
+   later.

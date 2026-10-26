@@ -316,7 +316,7 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.12 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.13 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
@@ -325,7 +325,8 @@ reply fields, no protocol change; 0.15.9 adds the pointer's snapshot facts, see 
 snapshot wait up to 300 ms for media it hasn't seen before to move, see section 16.5; 0.15.11 reports web terminals;
 0.15.12 reaches closed shadow roots in snapshots, screenshot points and element adoption, so a frame inside one, like
 Cloudflare's checkbox, is linked and pointed into, and a press whose move never reached the target's frame is a known
-failure, nothing pressed). Task
+failure, nothing pressed; 0.15.13 adds `show_tab`, sent only on the owner's click on a human-check notification, see
+below). Task
 tabs are inactive in an existing FERB window or an explicitly selected window. When neither exists, the bridge
 (`_TabDriver._open_in`, owner 2026-10-26: "if not open once that causes focus shift - ok - but then after opened
 continue using through extension", replacing the 2026-10-06 refusal, 46c0be7) puts the tab in one of the profile's own
@@ -346,8 +347,14 @@ task ended asking the owner to reload it); a listing of every profile skips one 
 in `not_connected` instead of failing. The planner's facts say so in plain words (`Daemon._paired_state`: "not
 connected now (usually the profile just isn't running) — FERB's browser tools start it in the background and open its
 tab there themselves, nothing to ask"; a refused extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
-identity), the error says so and tells the worker to ask the owner to open that profile once; automatic pairing then
-pairs it (section 16.9). Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
+identity), the error says so and names `browser_pair profile=<browser>/<folder>`: FERB's code asks the owner once
+(`floor:pair_profile`), then pairs that exact profile (section 16.9).
+A human check that still blocks after one ordinary click (owner 2026-10-27) goes to `browser_handoff {tab, message}`:
+`Daemon._handoff` posts one urgent notification (category question, target `handoff`), then waits outside the stall
+clock, however long (rule 9), until two looks in a row (`Router.shows`: `list_tabs` plus `find`) no longer find the
+check's quoted words; a closed tab ends it as not passed. The owner's click (`browser.show_handoff`) brings that tab
+forward with 0.15.13's `show_tab` (its window restored and focused), or, for an older extension, the profile's browser
+with a window (`open_known_profile(window=True)`). FERB never solves the check. Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
 browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route.
 Input on a browser's own pages (chrome://, brave://, edge://, arc://: its settings and extensions) asks every time,
 naming the page (`floor:browser_page`, always; live 2026-10-26, task 7c1eca3a: a worker switched off the owner's
@@ -2956,25 +2963,19 @@ protected FERB state (16.9).
 - Discovery, pairing and doctor cover every catalogued browser. A profile that had the unpacked copy also takes the
   store request, so it can hold both: status and pairing use the copy that is turned on, the unpacked one when both
   are (`profiles.extension_entry`); an unpaired copy is refused everything but `hello` and `pair`.
-- **Automatic pairing (owner 2026-10-24).** An unpaired copy's `hello` (`Hub.on_unpaired`), or the owner switching to
-  Chrome or Brave while one is connected (`AppFocusWatcher.on_change`), starts one pass (`Daemon._autopair_pass`;
-  `run_autopair`, off in tests). It pairs the profile the owner is in:
-  - the frontmost app (Accessibility) is Chrome or Brave (`AUTOPAIR_BROWSERS`, where handing a page to one profile is
-    verified), and the profile is its `profile.last_used` in `Local State` ("Default" when the key is missing, as
-    Chromium reads it);
-  - two readings `PREFS_SETTLE_S` (12 s) apart agree, because Chromium writes Local State and Preferences up to 10 s
-    late; the front app is read once more just before the page is handed over;
-  - FERB is turned on there, and the profile isn't paired (or its paired copy isn't connected, the reinstall case,
-    owner 2026-10-26: "this is bad UX"; a connected paired copy is never taken over), unpaired by the owner
-    (`ext_autopair_off`, migration 0046,
-    cleared by any pairing), being paired already (an unexpired token, `Pairings.pending`), FERB's identity profile, or
-    a profile holding FERB's mailbox account;
-  - FERB isn't paused.
-  The pass opens the self-closing pairing page in that profile with an owner token. Its wait ends when that token is
-  used (a stale pairing doesn't end it), and the token is then revoked (`Pairings.revoke`; manual pairings revoke theirs on timeout too). Each
-  profile gets one try per daemon run, journaled as `browsers.autopaired` or `browsers.autopair_failed`.
-  Residuals: a window switch inside the browser during the last ten seconds before the page goes can still bring the
-  previously used profile's window forward; and a daemon restart starts a new try per qualifying profile.
+- **Pairing by the owner's click (owner 2026-10-27, replacing the 2026-10-24 automatic pairing).** Pairing happens
+  only on the owner's click or Yes, never by itself. `Daemon._pair_one` pairs one exact profile (browser and folder:
+  several profiles can share a name): the extension's self-closing pairing page with a one-time token opens in that
+  profile; it is done once that token is used and the profile's extension is connected, else the token is revoked
+  (`Pairings.revoke`). Journal: `browsers.paired`, `browsers.pair_failed`. Its callers:
+  - setup's Browsers step and Settings → Browsers (one view): **Pair all** (`setup.browsers_pair_all`: every profile
+    whose extension is in and unpaired, FERB's own excluded, at once) and **Pair** on each profile that is on but
+    unpaired ("On · not paired yet", `setup.browser_pair`);
+  - a task's `browser_pair profile=<browser>/<folder>`, after the owner's Yes (`floor:pair_profile`, once per profile
+    per task; `Daemon._pair_for_task`);
+  - `ferb browsers pair` (by name, or by exact folder).
+  The unpaired-profile errors, the planner facts and the doctor hint point to `browser_pair` or Settings → Browsers.
+  Migration 0046's `ext_autopair_off` table stays (unused).
 
 **Packaged FERB.app (L27, [`scripts/build-app.sh`](scripts/build-app.sh)).**
 - **Bundle.** `com.ferb.FERB`, "FERB", the notch UI as main executable; one architecture per app (arm64 or x86_64,
@@ -3018,6 +3019,8 @@ protected FERB state (16.9).
 ### 16.10 Journal kinds added in the launch week
 
 L34 Phase G: `update.prepared`. L34 Phase E: `settings.changed` (a Settings write, origin owner) and `diagnostic.built`.
+First installs (2026-10-27, section 16.17): `browsers.paired`, `browsers.pair_failed`, `browser.handoff`,
+`browser.handoff_ended`, `confirm.allow_window`, `schedule.retry_queued`; `diagnostic.built` gained `send`.
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
@@ -3611,7 +3614,8 @@ identity: the agent app `Contents/Helpers/FERB.app`) with `setup.permission_requ
 Access is blocked until containment (CQ5) and revealed in Finder; Automation per running app through
 `automation.request`; FERB.app's own Notifications and Microphone+Speech rows are read and requested by FERB.app;
 FERB Voice's hearing row is probed only on entry. Browsers: `setup.browsers` (`autoinstall.read_states`, read only) and
-`setup.browser_open` (the Web Store page in that profile, on the owner's click). Getting to know you: `setup.persona`
+`setup.browser_open` (the Web Store page in that profile, on the owner's click), with Pair all and Pair
+(`setup.browsers_pair_all`, `setup.browser_pair`; section 16.9). Getting to know you: `setup.persona`
 with `chat.approve`/`chat.answer`. Done: `setup.finish`, then the notch. Sign in with Claude (owner 2026-10-25):
 `runtimes.sign_in` runs `ClaudeSignIn` (`ferb/runtimes/claude_login.py`), the pinned Claude Code's own `auth login
 --claudeai` with `CLAUDE_CONFIG_DIR=~/.ferb/claude-home`; Claude Code writes the credential to the login Keychain
@@ -3684,6 +3688,58 @@ label is FERB's, and the app's Uninstall unregisters macOS's item first.
   chooses Keep FERB Open or Quit and Install (`even_if_busy`).
 - **Rule 10:** the shell sandbox denies `user-preference-write` for `APP_PREFERENCE_DOMAINS` and writes to their plist
   files. A timer due while FERB shuts down stays claimed and fires after the restart.
+
+### 16.17 First installs (2026-10-27), as built
+
+From two friends' first installs (screen recordings, their `ferb-debug.zip` and `ferb.db`) and the owner's Zomato
+task 400d67fb; every item decided by the owner. Checkout only until installed; live checks in OWNER_ACCEPTANCE.
+
+**Questions.**
+- One plain line of what FERB wants, and the task's reason on its own small line: `Approval.why`
+  (`confirm.reason_line`), shown under the line in `ApprovalView`. A payment names its currency (`Target.currency`,
+  `confirm.shown_amount`: "₹137.39") and the merchant's host without "www."; a hidden value names the page's own field
+  ("the page's “CVV digit 1 of 3” field", `secret_summary(field=)`, from the extension's `info.label` or the
+  Accessibility node's label).
+- One Yes per payment (rule 8): a known amount's pay need keys on amount and recipients and lapses after
+  `PAY_WINDOW_S` (600 s, `Need.window_s`, `Confirmations.age_s`, checked in `Gateway._confirmed`), so bank verification
+  in the same checkout asks nothing new.
+- "Yes, and don't ask for 30 min" (rule 9): offered when every need in a question is routine (`confirm.ROUTINE`:
+  floor:foreground, floor:browser_page, floor:new_recipient, floor:pair_profile, and an escape that only reads). The
+  answer sets `Gateway.allow_until` (`ALLOW_WINDOW_S` 1800, journal `confirm.allow_window`); inside it a routine
+  question is answered Yes with an `owner.ask` span whose output carries `allowed_until`, after the unattended check.
+  Payments, account security, permanent deletion, terminal input, certificate checks and sink questions always ask.
+
+**Model calls and schedules.** `worker._run` wraps every model call (`_run_once`) in the stall watchdog
+(`guards.STALL_S`, 180 s of no runtime event; waits on the owner never count): a non-worker call silent from its start
+is retried once (`model.stall` span), else a `ServiceError` names the 180 s silence. A scheduled run that fails is
+queued once more after `SCHEDULE_RETRY_S` (600 s; journal `schedule.retry_queued`, the run's `retry: True`).
+
+**Checking and failure answers.** `verifier.md`: FERB's own safety snapshots and backups are never a task's change;
+a safeguard the owner didn't state is judged on the end state. `Supervisor._stopped_plan_summary` says which step
+stopped and why, replacing "The plan needs attention before I can finish."
+
+**Watchers.** The owner-input tap starts only once Input Monitoring is granted (`OwnerInput(allowed=)`), and the
+notification watcher only with Full Disk Access (`NotificationWatcher(allowed=, recheck_s=30)`), so setup's first
+screen shows no keystroke prompt and no "Data Access Blocked" banner. A failing watcher retries (`Sense._guard`,
+`retry_s` 60 doubling to 900); `ferb doctor` says "failing, trying again".
+
+**Browsers.** Pairing by the owner's click and `browser_pair` (section 16.9), the human-check handoff
+(`browser_handoff`, extension 0.15.13's `show_tab`; section 7).
+
+**FERB.app.**
+- A virtual notch on a display without one: `NotchGeometry.cutoutFrame` begins at the screen's top edge on every
+  display, the camera housing or a 164-point black pill as tall as the menu bar (24 points when it hides itself).
+- The work row's timer, "1 active task · 0:42": `NotchModel.runningSince`, from `chat.status`'s `started_at` (the
+  tasks row), counting from the longest-running active task.
+- Enter submits every text field. `interaction.md`: a request with several parts is answered part by part.
+- Setup permissions (`SetupModel`): Allow all asks Notifications second to last (before Screen Recording, after which
+  macOS may restart FERB) and never waits on its banner (`notificationHint`); after macOS's own request the pane opens
+  `requestSettle` (1.5 s) later, and a row still off after its Grant offers "Not in the list? Show FERB to drag in"
+  (`askedRows`, `showAgentApp`); Input Monitoring joins `permissions.RESTART_TO_CHECK`, and when FERB comes back to the
+  front after such a Grant the service restarts once (`cameBack`, `restartOnReturn`), never while a task runs.
+- Settings → Advanced → Send diagnostics to developer: `reports.diagnostic {send: true}` adds the feedback address and a
+  subject; the file gains "Recent setup, pairing and watcher events" (`reports.SETUP_EVENTS`, the latest 40). FERB.app
+  opens a new email in the owner's Mail app (`FERBWindowStore.sendDiagnostic`), or shows the file in Finder.
 
 ### 16.15 Careful edits (L39)
 

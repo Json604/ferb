@@ -13,6 +13,33 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 First installs: plain questions, pairing on your click, human-check handoff, setup that doesn't stall, a virtual notch — 2026-10-27 — owner live check pending
+
+Two friends' first installs (screen recordings, a debug bundle and their database) and the owner's Zomato checkout
+showed where FERB stalls or confuses. Commits f9c87a7, 458c5eb, 635d507, 37ba645, dcab0d2, 9686aad, 1bc3a1a, fdf554d,
+5e2a68b, 53147b4, c1766a3 and a20b720; every item decided by the owner (ARCHITECTURE section 16.17).
+
+- **Questions.** One plain line of what FERB wants, with the task's reason on a small line below; a payment names its
+  currency and merchant ("₹137.39 to zomato.com"), a hidden value the page's field ("CVV digit 1 of 3"). One Yes per
+  payment covers its checkout, bank verification included, for 10 minutes (the Zomato task asked five times). Routine
+  questions (bringing an app forward, a browser's settings page, a new recipient, pairing, a protected-folder read)
+  offer "Yes, and don't ask for 30 min"; payments, account security, permanent deletion, terminal input, certificate
+  checks and sink questions always ask.
+- **Failures.** FERB's own safety snapshot no longer fails a task "without changing anything" (the friend's storage
+  scan); an unstated safeguard is judged on the end state (the Homebrew cleanup); a stopped plan says which step stopped
+  and why. A model call silent for 3 minutes is stopped and a planner call tried once more (the visa run waited 15); a
+  failed scheduled run retries once after 10 minutes.
+- **Browsers.** Automatic pairing is gone (it gave up silently on 13 unpaired profiles). Setup and Settings → Browsers
+  have **Pair all** and a **Pair** per profile; a task that needs an unpaired profile asks once and pairs it. A human
+  check FERB can't pass with one click becomes one notification that opens the exact tab; FERB carries on by itself
+  once the page lets you through (extension 0.15.13 adds `show_tab` for that click; minimum stays 0.15.11).
+- **Setup.** No keystroke prompt on the first screen and no "Data Access Blocked" banner before Full Disk Access; a
+  watcher that fails retries. Allow all never waits on the Notifications banner; FERB restarts its service when you
+  come back from switching on Screen Recording or Input Monitoring; a row still off offers "Show FERB to drag in".
+- **FERB.app.** A virtual notch on Macs without one; "1 active task · 0:42"; Enter submits every field; multi-part
+  requests answered part by part; Settings → Send diagnostics to developer (a Mail draft with the diagnostic file and
+  recent setup, pairing and watcher events).
+
 ## 0.27.0.dev1 Browser settings pages ask; questions show the reason; a watch run isn't "failed" — 2026-10-26 — owner live check pending
 
 The visa task's last step switched off the owner's "Check US Visa Slots" extension on chrome://extensions, unasked:

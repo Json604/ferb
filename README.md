@@ -30,11 +30,13 @@ disk image, or from source.
    ChatGPT, which opens your browser and keeps the login in FERB's own Codex home `~/.ferb/codex-home`; Sign in with
    Claude, which opens your browser and keeps the login in FERB's own Claude home `~/.ferb/claude-home` (Claude Code
    keeps the credential in your Keychain); or an API key, which goes straight into your Keychain), **Permissions**
-   (each row's **Grant** opens the right System Settings pane and ticks itself when it's on; Full Disk Access shows
-   FERB in Finder to drag into the list; optional rows: Input Monitoring, Paste from Other Apps for what you copy,
-   Notifications, Microphone, Hearing app sound), **Browsers** (**Add to Chrome** opens FERB's Web Store page in that
-   profile; FERB pairs a profile by itself when you're in it), **Getting to know you** (save, edit or skip what FERB
-   found about the apps you use) and **Done**, which opens the notch.
+   (**Allow all** asks for each in turn: Accessibility, Screen Recording, Full Disk Access, Input Monitoring, Paste
+   from Other Apps, Notifications, Microphone and Hearing app sound; each row's **Grant** opens the right System
+   Settings pane and ticks itself when it's on, and FERB restarts its background service by itself when you come back
+   from a switch that needs it; a row FERB's pane doesn't list offers **Show FERB to drag in**; Full Disk Access shows
+   FERB in Finder to drag into the list), **Browsers** (**Add to Chrome** opens FERB's Web Store page in that profile;
+   turn it on there, then **Pair all**, or **Pair** one profile; later, Settings → Browsers or a task asks), **Getting
+   to know you** (save, edit or skip what FERB found about the apps you use) and **Done**, which opens the notch.
 4. Closing the window doesn't stop a service install; **Set Up FERB…** in FERB's menu bar shows the window again. An
    installation set up before this window existed is asked once, at launch, whether FERB may send notifications.
    `ferb setup --codex-login` and `ferb setup --claude-login` sign in from a terminal (the `ferb` command).
@@ -124,17 +126,13 @@ extension path` prints it), enable Developer mode in the browser's extensions pa
 the store request off. `ferb browsers extension package --out DIR` builds the store zip. After pulling a new bundle, run `ferb setup --update` to republish it; a managed install reloads
 it when idle.
 
-Pairing is automatic in Chrome and Brave. Once FERB is turned on in a profile, FERB pairs it when that copy first
-connects, or when you switch to the browser from another app, provided you're in that profile's window. A blank FERB
-page opens there and closes itself. Chrome records which profile you're in about ten seconds late, so FERB waits
-until two readings agree with the browser still in front. It needs FERB's Accessibility permission to see the front
-app. Each profile gets one try per FERB run. FERB never pairs automatically:
-- its own profile, which `ferb setup --identity` pairs, recognised by setting or by FERB's mailbox account;
-- a profile you unpaired with `ferb browsers unpair`, until you pair it by hand;
-- anything while FERB is paused.
+Pairing happens on your click or your Yes, never by itself. Once FERB is turned on in a profile, **Pair all** (setup's
+Browsers step, or Settings → Browsers) pairs every such profile at once, and **Pair** pairs one: a blank FERB page
+opens in that profile and closes itself. Later, a task that needs an unpaired profile asks you once ("pair your Chrome
+profile “Work” with FERB…") and pairs it on your Yes. FERB's own profile is paired by `ferb setup --identity`.
 
-In a profile that holds both copies, switching from the paired copy to the other also needs a pairing by hand. To pair
-one by hand, or after a failed try:
+In a profile that holds both copies, switching from the paired copy to the other also needs a pairing. From a
+terminal:
 
 ```sh
 ferb browsers pair --browser chrome "scaler"
@@ -438,12 +436,14 @@ Settings). The window has a sidebar:
 - **Settings:** General (shortcuts, FERB's pointer, sounds), AI (the setup window's Choose your AI, Check connection,
   Sign out of ChatGPT), Permissions and Browsers (the setup window's steps), Notifications (which kinds FERB posts),
   Privacy (Pause recording, window titles, the apps and sites FERB ignores, how long records are kept) and Advanced
-  (logs, Check FERB, **Export a diagnostic file**, Install command-line tool, Uninstall).
+  (logs, Check FERB, **Export a diagnostic file**, **Send diagnostics to developer**, Install command-line tool,
+  Uninstall).
 
 Settings change `~/.ferb/config.toml` only through the app (or the CLI), never through FERB itself: the protection
 lists, secrets, models and the feedback address stay in `config.toml`. **Export a diagnostic file** writes
-`~/.ferb/reports/FERB-diagnostic-<date>-<time>.txt` with secrets removed and shows it in Finder; FERB sends it
-nowhere.
+`~/.ferb/reports/FERB-diagnostic-<date>-<time>.txt` with secrets removed and shows it in Finder. **Send diagnostics
+to developer** writes the same file (with recent setup, pairing and watcher events) and opens a new email in your Mail
+app with it attached; nothing goes until you press Send there.
 
 ## Privacy and debugging
 
