@@ -309,7 +309,7 @@ def test_generic_inputs_offer_the_effect_and_destination_declaration(daemon: Run
     assert "account_security" in EFFECTS
     act = schemas["browser.act"]
     assert act["effect"]["enum"] == list(EFFECTS)
-    assert set(act["destination"]["properties"]) == {"recipients", "account", "amount", "item"}
+    assert set(act["destination"]["properties"]) == {"recipients", "account", "amount", "currency", "item"}
     assert "destination" not in schemas["browser.open"]
 
 

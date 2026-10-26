@@ -3595,7 +3595,7 @@ class Daemon:
         # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
         status = final.get("status")
         self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
-        if status == "failed" and not retry:
+        if status == "failed" and not retry and s.watch == "none":   # a watch already checks again on its own cadence
             regular = self.schedules.get(sid)
             due = now + timedelta(seconds=SCHEDULE_RETRY_S)
             if regular is not None and regular.state == "active" and (regular.next_run is None or regular.next_run > due):
