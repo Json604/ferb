@@ -4272,8 +4272,15 @@ class Daemon:
         not unpaired by the owner (`ferb browsers unpair` sticks), and no pairing of it already in progress."""
         assert self.pairings is not None
         return ((browser, folder) != self._identity_profile() and (browser, folder) not in self._autopair_tried
-                and self.pairings.for_profile(browser, folder) is None
+                and (self.pairings.for_profile(browser, folder) is None or self._paired_copy_gone(browser, folder))
                 and not self.pairings.autopair_off(browser, folder) and not self.pairings.pending(browser, folder))
+
+    def _paired_copy_gone(self, browser: str, folder: str) -> bool:
+        """The profile is paired, but that copy isn't connected while an unpaired copy is (a reinstall gives the
+        extension a new identity): it is paired again the same way, with the owner in its window (owner 2026-10-26:
+        "i did reinstall it myself... this is bad UX"). A paired copy that is connected is never taken over."""
+        br = self.hub.bridges.get((browser, folder)) if self.hub is not None else None
+        return br is None or br.conn is None
 
     def _autopair_target(self, browser: str, folder: str) -> tuple[str, list[browser_profiles.BrowserProfile]] | None:
         """The FERB copy turned on in that profile, unless the profile holds FERB's own account (its mailbox address:
@@ -4323,19 +4330,21 @@ class Daemon:
             return
         ext, known = target
         self._autopair_tried.add((browser, folder))
+        stale = self.pairings.for_profile(browser, folder)       # a reinstalled copy's old pairing, or None
         token = self.pairings.issue_token(browser, folder)
         kwargs: dict[str, Any] = {"launch": self.browser_launch} if self.browser_launch else {}
         browser_profiles.open_known_profile(browser, folder, f"chrome-extension://{ext}/pair.html#token={token}",
                                             known, background=False, **kwargs)   # its window is the one in front
         end = self.clock.monotonic() + self.pair_timeout_s
         try:
-            while self.clock.monotonic() < end and self.pairings.for_profile(browser, folder) is None:
+            # until this pairing's token is used: a stale pairing of a reinstalled copy must not end the wait
+            while self.clock.monotonic() < end and token not in self.pairings.paired:
                 await asyncio.sleep(0.2)
         finally:
             self.pairings.revoke(token)
         if token in self.pairings.paired:
             self._journal().append("browsers.autopaired", {"browser": browser, "folder": folder})
-        elif self.pairings.for_profile(browser, folder) is None:
+        elif self.pairings.for_profile(browser, folder) == stale:
             self._journal().append("browsers.autopair_failed", {
                 "browser": browser, "folder": folder,
                 "why": "the pairing page's key wasn't used; `ferb browsers pair` pairs it by hand"})

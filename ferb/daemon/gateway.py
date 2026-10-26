@@ -788,7 +788,8 @@ class Gateway:
         if noted is not None:
             extra["destination"] = reaches.model_dump(exclude_defaults=True)
         consequential = spec.kind not in REVERSIBLE or bool(declared)   # a declared purpose only adds
-        if consequential:                                # where each target came from (S3), a fact
+        takes_screen = confirm.foreground_need(name, arguments) is not None   # rule 17: asked even for a reversible click
+        if consequential or takes_screen:                # where each target came from (S3), a fact
             extra["arg_sources"] = self._arg_sources(checked, rec, grant)
         blocked = self._send_blocked(checked)            # test mode: before FERB asks the owner anything
         ident = self._identity(cap, name, spec, action, args, real)
@@ -796,7 +797,7 @@ class Gateway:
             return self._earlier_result(grant, rec, name, arguments, spec, *earlier)
         repeat = None if blocked is not None else self._repeat_refusal(ident, grant)
         covered = Covered()
-        if consequential and blocked is None and repeat is None:
+        if (consequential or takes_screen) and blocked is None and repeat is None:
             # D23 floor, S4: asked by code, before anything is held
             covered = await self._confirmed(grant, rec, name, arguments, checked, why, extra["arg_sources"],
                                             ident if isinstance(ident, tuple) else None)
@@ -1020,6 +1021,9 @@ class Gateway:
                     return Covered(refused={"error": "bulk deletion could not be fully enumerated; inspect the exact target first"})
                 if not confirm.owner_named(sources.get("path", [])):
                     needs.append(confirm.bulk_delete(spec.target.path, facts))
+        fg = confirm.foreground_need(name, arguments)      # rule 17: the owner's screen, asked once per task per app
+        if fg is not None:
+            needs.append(fg)
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped

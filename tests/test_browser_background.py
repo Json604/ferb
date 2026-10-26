@@ -482,10 +482,12 @@ def test_cold_window_choices_survive_gateway_and_exact_window_reaches_extension(
     ext.ferb_window = None
     ext.tabs[7], ext.tab_windows[7], ext.tab_active[7] = 'https://news.example/', 7, True
     created = ext.windows_created
-    missing = call(d,g,'browser.open',url=f'{SHOP}/cold')['content']
-    assert missing['reason'] == 'window_selection_required'
-    assert 7 in [w['id'] for w in missing['windows']]
-    assert ext.windows_created == created and not ext.owned
+    # Owner 2026-10-26: "if not open once that causes focus shift - ok - but then after opened continue using through
+    # extension": with no FERB window, FERB makes its own minimized, unfocused window once and opens the tab there.
+    # An open window in the profile takes a background tab: no new window, no Space change (owner 2026-10-26)
+    first = call(d,g,'browser.open',url=f'{SHOP}/cold')['content']
+    first_id = _chrome_id(d,first['tab'])
+    assert ext.tab_windows[first_id] == 7 and not ext.tab_active[first_id] and ext.windows_created == created
     opened = call(d,g,'browser.open',url=f'{SHOP}/cold',window_id=7)['content']
     cid = _chrome_id(d,opened['tab'])
     assert ext.tab_windows[cid] == 7 and not ext.tab_active[cid]

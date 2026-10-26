@@ -398,12 +398,16 @@ def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
         ext.connect()                                                           # loading the profile starts it
     d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
     g = task(d, "w", OWNER, {"research"})
+    ext.tab_windows.clear()                                                     # the woken profile has no window yet
+    ext.ferb_window = None
+    before = ext.windows_created
     r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
-    assert r["is_error"] and r["content"]["reason"] == "window_selection_required", r
     assert launched[-1] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
-                            "--no-startup-window"]                              # background, no window
-    assert "https://example.com/" not in ext.tabs.values()
-    assert ext.gen is not None  # Transport woke; no hidden window creation followed.
+                            "--no-startup-window"]                              # background, no window at launch
+    # Owner 2026-10-26: a profile with no window at all (just started): FERB makes its own minimized window once, then
+    # works through the extension; the task's tab opens there instead of failing.
+    assert not r["is_error"], r
+    assert ext.windows_created == before + 1 and "https://example.com/" in ext.tabs.values()
 
 
 def test_disconnected_profile_does_not_open_a_visible_wake_tab(
@@ -629,3 +633,30 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
     assert reply["type"] == "refused" and "reload the FERB extension" in reply["reason"]
     assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.15.11"
     assert version_ok("0.15.11") and version_ok("0.15.12") and not version_ok("0.15.10")
+
+
+def test_a_reinstalled_unpaired_extension_says_open_the_profile_once_to_pair(
+        bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live 2026-10-26: New_Personal's extension was reinstalled, so it connected with no pairing; the windowless wake
+    waited for the old install and the worker drove the owner's screen instead. The error now names the cause and the
+    one fix: the owner opens that profile's window once (FERB pairs it there), never a route around it."""
+    import ferb.act.browser.ext_bridge as eb
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
+    d, launched = bd
+    old = pair(d, launched, "Work")
+    old.wait_for(lambda: old.gen is not None)
+    old.kill()
+    old.wait_for(lambda: d.daemon.hub.bridges[('chrome', 'Profile 1')].conn is None)
+    fresh = FakeExtension(d.daemon.home)
+    fresh.connect()
+    fresh.wait_for(lambda: fresh.install_id in d.daemon.hub.unpaired)
+    d.run(_start_wake(d))
+    d.daemon.router.launch = launched.append
+    try:
+        g = task(d, "w", OWNER, "use my Work profile")
+        r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
+    finally:
+        fresh.kill()
+    assert r["is_error"]
+    err = r["content"]["error"]
+    assert "not paired" in err and "open that profile" in err and "Mac tools" in err

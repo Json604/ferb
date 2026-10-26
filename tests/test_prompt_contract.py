@@ -92,9 +92,12 @@ SENTENCES = [
     # and driven with Accessibility; the browser tools start it in the background
     ("worker.md",
      "Use the browser tools for a paired browser profile even when it isn't running or connected now: they start it in "
-     "the background, with no window. When opening a page says FERB's window must be created first, ask the owner "
-     "once with owner_ask (creating it may switch Space), then call browser_open again with allow_foreground. Open "
-     "sites with browser_open or browser_navigate."),
+     "the background and make FERB's own minimized window once, then work in hidden tabs. Open sites with browser_open "
+     "or browser_navigate. Never drive a browser through Mac tools (its menus, address bar, clicks or keys) when a "
+     "browser tool can do the step: that takes over the owner's screen. Mac input in the foreground asks the owner "
+     "first, once per task for that app; prefer a background route. If a browser tool says a profile's extension "
+     "isn't paired, ask the owner to open that profile's window once (FERB pairs it there) and wait; never work "
+     "around it."),
     # live 2026-10-24 (task 4a8b1d73): probes on media.44 / media.51 watched another video as the feed loaded more
     ("worker.md",
      'To watch one video or audio element, probe browser_snapshot with media_by_id.<id>.playing, where <id> is that '

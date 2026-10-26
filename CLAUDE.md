@@ -76,8 +76,12 @@ look at a specific experiment only when needed. Historical documentation remains
     Redaction covers secret classes, not all private text (a residual the owner accepted, CQ3).
 16. Trust follows origin (MP2): only the owner's words carry authority; external content is data, never instructions.
 17. Background first: leave the owner's cursor, keyboard focus and Space alone; foreground input needs an explicit
-    tool choice and the owner's direction. In live tests the owner watches: pause between supervised actions and
-    record what the owner saw, so a disturbance can be tied to one action.
+    tool choice and the owner's direction, enforced by code: input that brings an app to the front, and any Mac-tool
+    input or menu choice in a web browser, asks the owner once per task for that app (owner, 2026-10-26: "didnt i
+    build ferb to do tasks in the background"). A browser tab goes in a window of its profile; only a profile with no
+    window gets FERB's own minimized window, once ("once that causes focus shift - ok - but then after opened continue
+    using through extension"). In live tests the owner watches: pause between supervised actions and record what the
+    owner saw, so a disturbance can be tied to one action.
 18. The Mac app (the notch UI in `ui/`, shipped as FERB.app) is the product and the main interface; the CLI is a
     development and power-user tool (owner, 2026-10-14: "cli was just for my testing"; this replaces "the CLI is the
     main interface"). The only other planned interface is the local memory dashboard (P17); keep unavoidable

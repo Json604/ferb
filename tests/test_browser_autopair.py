@@ -235,3 +235,36 @@ def test_a_missing_last_used_profile_reads_as_default_like_chromium(tmp_path: An
     assert profiles.last_used("chrome", tmp_path) is None
     (tmp_path / "Local State").write_text(json.dumps({"profile": {"last_used": "Profile 3", "info_cache": {}}}))
     assert profiles.last_used("chrome", tmp_path) == "Profile 3"
+
+
+def test_a_reinstalled_copy_is_paired_again_when_the_old_one_is_gone(bd: Any) -> None:  # noqa: F811
+    """Live 2026-10-26: the owner reinstalled FERB in "New_Personal"; the new copy connected unpaired and opening the
+    profile did nothing, because the profile still held the old copy's pairing. Owner: "this is bad UX". A profile
+    whose paired copy isn't connected is paired again the same way, with the owner in its window."""
+    d, launched = bd
+    old = pair(d, launched, "Work")                          # "Work" is Profile 1
+    old.wait_for(lambda: old.gen is not None)
+    old.kill()
+    old.wait_for(lambda: d.daemon.hub.bridges[("chrome", "Profile 1")].conn is None)
+    before = binding(d, "Profile 1").install_id
+    pages = len(pair_pages(launched))                        # the hand pairing's page is already there
+    setup(d, CHROME)
+    ext = unpaired_hello(d)
+    page = until_page(d, launched, pages + 1)
+    assert page[1] == "--profile-directory=Profile 1"
+    ext.pair(page[-1].split("#token=")[1])
+    ext.wait_for(lambda: binding(d, "Profile 1") is not None and binding(d, "Profile 1").install_id != before)
+    assert binding(d, "Profile 1").install_id == ext.install_id
+
+
+def test_a_profile_whose_paired_copy_is_connected_is_never_paired_again(bd: Any) -> None:  # noqa: F811
+    """No hijack: while the paired copy is live, a second unpaired copy never takes the profile over."""
+    d, launched = bd
+    old = pair(d, launched, "Work")
+    old.wait_for(lambda: old.gen is not None)
+    before = len(pair_pages(launched))
+    setup(d, CHROME)
+    unpaired_hello(d)
+    settle(d)
+    assert len(pair_pages(launched)) == before
+    assert binding(d, "Profile 1").install_id == old.install_id

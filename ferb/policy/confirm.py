@@ -51,6 +51,11 @@ BULK = "sink:irreversible_bulk"
 TLS_OFF = "floor:tls_off"                 # L39: a shell command that turns off certificate checks (policy/tls.py)
 TLS_QUESTION = ("Run this with certificate checks turned off? `{command}` — this skips the check that {site}")
 TERMINAL_INPUT = "floor:terminal_input"   # D31, rule 10: any input into a terminal, asked every time (policy/terminal.py)
+FOREGROUND = "floor:foreground"           # rule 17: input that brings an app to the front, once per task per app
+FOREGROUND_TOOLS = frozenset({"mac.act", "mac.click"})
+BROWSER_APPS = frozenset({"google chrome", "com.google.chrome", "brave browser", "com.brave.browser", "arc",
+                          "company.thebrowser.browser", "safari", "com.apple.safari", "microsoft edge",
+                          "com.microsoft.edgemac"})
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
@@ -68,6 +73,34 @@ class Need:
     values: dict[str, str] = field(default_factory=dict)          # what FERB's question names
     always: bool = False                      # SQ1: the Yes covers one run of the call, never a later one
     destinations: tuple[tuple[str, str], ...] = ()                # (kind, value) a Yes makes known (SQ6)
+
+
+def _browser_pid(app_id: str) -> bool:
+    """`pid:N` naming a running web browser (the worker addressed Chrome by pid, live 2026-10-26)."""
+    if not app_id.startswith("pid:"):
+        return False
+    try:
+        from ferb.act.mac.apps import pids_of
+        return int(app_id[4:]) in pids_of(BROWSER_APPS)
+    except Exception:                                # not a Mac, or no such pid: not known as a browser
+        return False
+
+
+def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
+    """Rule 17 (owner 2026-10-26: "didnt i build ferb to do tasks in the background"): a Mac input delivered in the
+    foreground brings its app to the front and can move the owner's Space, so it needs the owner's Yes, once per task
+    for that app. The worker's own allow_foreground flag never stands in for it. Background mechanisms ask nothing."""
+    # In a web browser, any Mac-tool input or menu choice drives the owner's own browser screen, which the extension
+    # does in hidden tabs (live 2026-10-26: the worker switched Chrome profiles through its Profiles menu, moving the
+    # owner's Space). Listing menus (no path) reads only. A where-boundary on the target app, never on the step.
+    app_id = str(args.get("app") or "").strip().casefold()
+    in_browser = (app_id in BROWSER_APPS or _browser_pid(app_id)) and (tool in FOREGROUND_TOOLS
+                                             or (tool == "mac.menu" and bool(str(args.get("path") or "").strip())))
+    if not in_browser and (tool not in FOREGROUND_TOOLS
+                           or not (args.get("allow_foreground") or args.get("mechanism") == "foreground")):
+        return None
+    app = str(args.get("app") or "an app")
+    return Need(FOREGROUND, key(FOREGROUND, app.casefold()), {"app": app})
 
 
 def key(*parts: object) -> str:
@@ -575,6 +608,9 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
     v = n.values
     if n.rule == TLS_OFF:
         return _tls(v)
+    if n.rule == FOREGROUND:
+        return (f"this would bring {v['app']} to the front and use your screen; one Yes covers {v['app']} for the rest "
+                "of this task, and a No keeps FERB in the background")
     if n.rule == TERMINAL_INPUT:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
                 "before every input into a terminal, and this Yes covers this one input only")
@@ -638,6 +674,8 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     v = n.values
     if n.rule == TLS_OFF:
         return _tls(v)
+    if n.rule == FOREGROUND:
+        return f"use your screen in {v['app']} (it comes to the front) for this task"
     if n.rule == TERMINAL_INPUT:
         return _terminal(v)
     if n.rule == "floor:pay":

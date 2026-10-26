@@ -42,7 +42,9 @@ from ferb.sanitize.redact import Redactor
 
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S = 30.0
-WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extension connects by then (spike 19)
+WINDOWLESS_WAIT_S = 35.0         # a profile loaded with no window: a fresh one connects in about a second (tested
+                                 # 2026-10-26); an already loaded one whose connection dropped (FERB restarted)
+                                 # reconnects on the extension's 30 s alarm
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
@@ -770,8 +772,17 @@ class _TabDriver:
             try:
                 await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
             except asyncio.TimeoutError:
-                reason = self.hub.refused.get(br.binding.install_id) or "reload the FERB extension in that profile"
-                raise DriverError(f"{br.name} didn't connect without opening a window; {reason}. "
+                reason = self.hub.refused.get(br.binding.install_id)
+                if reason is None and br.binding.browser in self.hub.unpaired.values():
+                    # Live 2026-10-26: a reinstalled extension connects with a new identity and no pairing, so FERB
+                    # can't tell it is this profile's. Only the owner can pair it, while they are in its window.
+                    raise DriverError(
+                        f"{br.name}'s FERB extension is connected but not paired with FERB (a reinstall gives it a new "
+                        "identity). Ask the owner to open that profile's window once: FERB pairs it while they are "
+                        "there. Never work around this through Mac tools (the browser's menus, address bar or "
+                        "clicks): that takes over the owner's screen.") from None
+                raise DriverError(f"{br.name} didn't connect without opening a window; "
+                                  f"{reason or 'reload the FERB extension in that profile'}. "
                                   "No visible wake tab was opened.") from None
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
@@ -791,6 +802,19 @@ class _TabDriver:
         if allow_foreground:
             args["allow_foreground"] = True
         v = await br.call("open", args, timeout=30)
+        if (v.get("opened") is False and v.get("reason") == "window_selection_required" and window_id is None
+                and not allow_foreground):
+            # No FERB window in this profile (a cold browser, or one woken with no startup window): FERB makes its own
+            # minimized, unfocused window once and works in it through the extension. It stays (a blank tab keeps it),
+            # so later tasks reuse it; a possible Space shift once per browser session is the owner's accepted cost
+            # (owner 2026-10-26: "if not open once that causes focus shift - ok - but then after opened continue using
+            # through extension"; replaces the 2026-10-06 refusal, 46c0be7).
+            # An open window in the profile takes a background tab first (no new window, no Space change); only a
+            # profile with no window at all gets FERB's minimized window.
+            windows = [w for w in v.get("windows") or [] if w.get("type", "normal") == "normal" and not w.get("incognito")]
+            windows.sort(key=lambda w: bool(w.get("focused")))         # an unfocused window first
+            v = await br.call("open", {**args, "window_id": windows[0]["id"]} if windows
+                              else {**args, "allow_foreground": True}, timeout=30)
         if v.get("opened") is False:
             raise DriverError(str(v["detail"]), facts=v)
         self._n += 1
