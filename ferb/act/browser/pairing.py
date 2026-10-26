@@ -1,6 +1,6 @@
 """Owns authenticated extension-to-profile bindings, single-use pairing tokens and anti-replay sequence state.
-Must not choose a browser profile or account: the caller (setup, `ferb browsers pair`, or the daemon's automatic
-pairing of the profile the owner is in) supplies the browser, folder and identity.
+Must not choose a browser profile or account: the caller (setup's and Settings' Pair all / Pair, a task's
+browser_pair after the owner's Yes, or `ferb browsers pair`) supplies the browser, folder and identity.
 Bindings and monotonic counters persist; secret pairing keys never enter model-visible results."""
 
 import base64
@@ -64,7 +64,7 @@ class Pairings:
         return bytes(r["key"]) if r else None
 
     def unpair(self, browser: str, folder: str) -> bool:
-        """The owner unpaired the profile: FERB never pairs it by itself again, until it is paired by hand."""
+        """The owner unpaired the profile (recorded in ext_autopair_off, left from the removed automatic pairing)."""
         self.db.conn.execute("INSERT OR REPLACE INTO ext_autopair_off VALUES (?, ?, ?)",
                              (browser, folder, self.clock.now().isoformat()))
         return self.db.conn.execute("DELETE FROM ext_installs WHERE browser = ? AND folder = ?",

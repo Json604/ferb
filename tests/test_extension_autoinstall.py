@@ -176,7 +176,8 @@ def test_status_per_profile_is_read_from_its_preferences(world: dict[str, Any]) 
     assert "“Work” (Profile 1): installed from the Web Store, waiting for you to turn it on" in lines
     assert "“Brave home” (Default): installed unpacked, enabled, paired" in lines
     assert f"chromewebstore.google.com/detail/{STORE}" in lines
-    assert "FERB pairs a profile by itself" in lines                      # automatic pairing (owner 2026-10-24)
+    assert "Pair all or Pair in FERB's Settings → Browsers" in lines     # pairing on the owner's click (2026-10-27)
+    assert "by itself" not in lines
     unchecked = autoinstall.prepare(world["support"], "", (PINNED,), None)  # FERB isn't running: not checked
     assert all(p.paired is None for s in unchecked for p in s.profiles)
 
