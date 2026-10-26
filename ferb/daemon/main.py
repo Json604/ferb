@@ -328,6 +328,8 @@ class Daemon:
         self.browser_launch: Callable[[list[str]], None] | None = None
         self.pair_load_wait_s = 2.0                          # a profile opened just to pair gets this long to load
         self.pair_timeout_s = 60.0                           # how long a pairing page's key may take (as browsers.pair)
+        self._handoffs: dict[str, Any] = {}                  # a human check's handoff id -> its tab (browser_handoff)
+        self.handoff_poll_s = 2.0                            # how often a handed-off check's page is looked at
         self.pairings: Pairings | None = None
         self.hub: Hub | None = None
         self.router: Router | None = None
@@ -530,6 +532,7 @@ class Daemon:
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
                          ("browsers.pair", self._browsers_pair), ("browsers.installed", self._browsers_installed), ("browsers.unpair", self._browsers_unpair),
                          ("setup.browser_pair", self._setup_browser_pair),
+                         ("browser.show_handoff", self._show_handoff),
                          ("setup.browsers_pair_all", self._setup_browsers_pair_all),
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
                          ("ps.kill", self._ps_kill)):
@@ -4131,6 +4134,7 @@ class Daemon:
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
         self.router.pair_profile = self._pair_for_task       # browser_pair, after the owner's Yes (2026-10-27)
+        self.router.handoff = self._handoff                  # browser_handoff: a human check for the owner (2026-10-27)
         self.router.release_secret = lambda value: self.gateway.release_secret(value)
         if self.mac is not None:
             self.mac.ask_secret = self.router.ask_secret
@@ -4316,6 +4320,66 @@ class Daemon:
     def _profile_display_name(self, browser: str, folder: str) -> str:
         p = next((p for p in self._profiles() if (p.browser, p.folder) == (browser, folder)), None)
         return p.display_name if p is not None else folder
+
+    async def _handoff(self, ref: Any, message: str, ctx: Any) -> dict[str, Any]:
+        """A human check handed to the owner (owner 2026-10-27: one notification opens the exact tab, and FERB carries
+        on by itself once the page passes, with no "done" reply). One notification, whose click brings this tab forward
+        (`browser.show_handoff`); then a wait outside the stall clock, however long (rule 9), until the page no longer
+        shows the check's own words on two looks in a row. FERB never solves the check itself."""
+        import uuid
+        from urllib.parse import urlsplit
+        from ferb.core.errors import DriverError
+        assert self.router is not None
+        first = await self.router.shows(ref, message)
+        if not first.get("open"):
+            return {"passed": False, "error": "that tab isn't open any more"}
+        if first.get("shows") is False:
+            return {"passed": True, "url": first["url"], "title": first["title"],
+                    "next": "the page doesn't show those words now: take a fresh snapshot and carry on"}
+        hid = uuid.uuid4().hex[:12]
+        self._handoffs[hid] = ref
+        host = (urlsplit(first["url"]).hostname or "a page").removeprefix("www.")
+        browser, folder = self.router.tab_profile(ref)
+        await self._notify("FERB needs you for a moment",
+                           f"{host} wants to check you're human. Click to open the tab; FERB carries on by itself "
+                           "once it lets you through.", urgent=True, category="question",
+                           target={"kind": "handoff", "handoff_id": hid, "task_id": ctx.task_id}, ident=f"handoff:{hid}")
+        self._journal().append("browser.handoff", {"task_id": ctx.task_id, "handoff_id": hid, "host": host,
+                                                    "browser": browser, "folder": folder})
+        if self.supervisor is not None:
+            self.supervisor.activity.waiting(ctx.worker_id, True)    # the owner's time never counts as a stall
+        try:
+            clear, now = 0, first
+            while clear < 2:
+                await asyncio.sleep(self.handoff_poll_s)
+                try:
+                    now = await self.router.shows(ref, message)
+                except DriverError:
+                    continue                                  # the extension is reconnecting: look again
+                if not now.get("open"):
+                    self._journal().append("browser.handoff_ended", {"handoff_id": hid, "passed": False})
+                    return {"passed": False, "error": "the tab was closed before the check let the owner through"}
+                clear = clear + 1 if now.get("shows") is False else 0
+            self._journal().append("browser.handoff_ended", {"handoff_id": hid, "passed": True})
+            return {"passed": True, "url": now.get("url", ""), "title": now.get("title", ""),
+                    "next": "the check let the owner through: take a fresh snapshot of this tab and carry on"}
+        finally:
+            if self.supervisor is not None:
+                self.supervisor.activity.waiting(ctx.worker_id, False)
+            self._handoffs.pop(hid, None)
+
+    async def _show_handoff(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner clicked a human check's notification: its tab comes forward (extension 0.15.13 or later), else
+        that profile's browser does, with a window of the profile."""
+        ref = self._handoffs.get(str(params.get("handoff_id") or ""))
+        if ref is None or self.router is None:
+            return {"shown": False, "why": "that check is already over"}
+        if await self.router.show_tab(ref):
+            return {"shown": True, "tab": True}
+        browser, folder = self.router.tab_profile(ref)
+        kwargs: dict[str, Any] = {"launch": self.browser_launch} if self.browser_launch else {}
+        browser_profiles.open_known_profile(browser, folder, None, self._profiles(), window=True, **kwargs)
+        return {"shown": True, "tab": False}
 
     async def _setup_browser_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Setup's or Settings' Pair on one profile (owner 2026-10-27: "single per profile too")."""

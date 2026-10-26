@@ -357,10 +357,10 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
     assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and not version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
-    # the bundle FERB ships is never one its daemon refuses; 0.15.7 to 0.15.12 change no protocol, but the minimum is
+    # the bundle FERB ships is never one its daemon refuses; 0.15.7 to 0.15.13 change no protocol, but the minimum is
     # 0.15.11 (D31 review round 1): an older extension can't report a web terminal, so it is refused
     shipped = json.loads((EXT / "manifest.json").read_text())["version"]
-    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.12", "0.15.11")
+    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.13", "0.15.11")
 
 
 # ---------- the extension's own code, run in node ----------
@@ -471,7 +471,11 @@ def test_dead_ops_are_gone_and_the_op_lists_match() -> None:
     assert not {"attach_debugger", "detach_debugger", "cdp"} & py
     src = (EXT / "background.js").read_text()
     assert "WALKER" not in Path("ferb/act/browser/snapshot.py").read_text()
-    assert 'state: "normal"' not in src and "focused: true" not in src            # never shown, never focused
+    # never shown, never focused, except show_tab: only on the owner's click on a human-check notification (0.15.13)
+    start = src.index("  async show_tab({tab_id}) {")
+    shown, rest = src[start:src.index("\n  },", start)], src[:start] + src[src.index("\n  },", start):]
+    assert 'state: "normal"' not in rest and "focused: true" not in rest
+    assert "focused: true" in shown and "chrome.tabs.create" not in shown and "windows.create" not in shown
     assert 'state: "minimized", focused: false' in src and "active: false" in src
     assert "autoDiscardable: false" in src
 

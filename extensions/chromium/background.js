@@ -1389,6 +1389,15 @@ const commands = {
     await interceptPicker(tab_id, !t.resting);
     return {tab_id, resting: t.resting, file_chooser_intercepted: !t.resting};
   },
+  // 0.15.13: the owner clicked FERB's human-check notification, so this tab comes to the front in its own window
+  // (restored if minimized, focused). Only on that click: FERB never brings a tab forward by itself.
+  async show_tab({tab_id}) {
+    const tab = await chrome.tabs.get(tab_id);
+    const w = await chrome.windows.get(tab.windowId);
+    await chrome.windows.update(tab.windowId, w.state === "minimized" ? {state: "normal", focused: true} : {focused: true});
+    await chrome.tabs.update(tab_id, {active: true});
+    return {tab_id, window_id: tab.windowId, shown: true};
+  },
   async release_tab({tab_id, keep_open = false}) {
     let tab;
     try { tab = await chrome.tabs.get(tab_id); }  // missing tab is not a successful keep-open handoff

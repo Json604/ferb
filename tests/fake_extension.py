@@ -88,6 +88,8 @@ class FakeExtension:
         self.owned: list[dict[str, Any]] = []
         self.kept: set[int] = set()
         self.tabs: dict[int, str] = {}
+        self.page_text: dict[int, str] = {}               # tab -> its page's words, when a test sets them (find)
+        self.shown: list[int] = []                        # tabs show_tab brought forward (0.15.13)
         self.accounts: dict[str, str | None] = {}        # host -> signed-in account shown on the page
         self.acts: list[dict[str, Any]] = []
         self.hold = False                                 # commands hang: they're "in flight"
@@ -609,6 +611,20 @@ class FakeExtension:
     def op_screenshot_part(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         i = a["part"]
         return {"data": self._shot[i * SHOT_PART:(i + 1) * SHOT_PART]}
+
+    def op_find(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        tab = a["tab_id"]
+        if tab not in self.tabs:
+            raise RuntimeError(f"No tab with id: {tab}.")
+        p = page(self.tabs[tab])
+        words = self.page_text.get(tab, " ".join([p["title"], p.get("text", "")] + [e["label"] for e in p["elements"]]))
+        n = words.count(a["text"])
+        return {"count": n, "hits": [{"frame_id": 0, "text": a["text"]}] * n, "lines": 1}
+
+    def op_show_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """Extension 0.15.13: the owner clicked FERB's human-check notification."""
+        self.shown.append(a["tab_id"])
+        return {"tab_id": a["tab_id"], "window_id": self.tab_windows.get(a["tab_id"]), "shown": True}
 
     def op_ping(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.pings += 1

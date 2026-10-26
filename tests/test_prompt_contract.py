@@ -104,12 +104,14 @@ SENTENCES = [
      "element's id in a fresh snapshot's media list: positions in the list shift as a page loads. To watch whether "
      "one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with "
      'tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot.'),
-    # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"
+    # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"; 2026-10-27:
+    # a check that still blocks goes to the owner as one notification that opens the tab, with no "done" reply
     ("worker.md",
      'A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner\'s own browser profile is an '
      "ordinary control: click it once, as the owner would, by the normal input route, then take a fresh snapshot and "
-     "wait for the page to continue; if a further challenge appears or the check still blocks, quote the page's "
-     "message and hand it to the owner as a bounded foreground step."),
+     "wait for the page to continue; if a further challenge appears or the check still blocks, call browser_handoff "
+     "with the page's own words: FERB sends the owner one notification that opens the tab and returns once the page "
+     "lets them through. Never solve a puzzle yourself, and never ask the owner to reply \"done\"."),
     # owner 2026-10-24, visa login: account_security declared on every sign-in step asked five times in four minutes
     ("worker.md",
      "`account_security` only for changing a password, two-factor or recovery settings, or deleting the account. "

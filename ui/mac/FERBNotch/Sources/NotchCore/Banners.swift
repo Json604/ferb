@@ -21,6 +21,7 @@ public enum NotificationTarget: Equatable {
     case question(approvalID: String, taskID: String?)
     case task(String)
     case reminder(String)
+    case handoff(String)        // a human check handed to the owner: the click brings its tab forward (2026-10-27)
     case notch
 
     public init(_ target: [String: Any]) {
@@ -32,6 +33,8 @@ public enum NotificationTarget: Equatable {
             self = .task(id)
         } else if kind == "reminder", let id = target["timer_id"] as? String, !id.isEmpty {
             self = .reminder(id)
+        } else if kind == "handoff", let id = target["handoff_id"] as? String, !id.isEmpty {
+            self = .handoff(id)
         } else {
             self = .notch
         }
@@ -50,6 +53,7 @@ public enum NotificationTarget: Equatable {
         case .question(let id, let task): return ["kind": "question", "approval_id": id, "task_id": task ?? ""]
         case .task(let id): return ["kind": "task", "task_id": id]
         case .reminder(let id): return ["kind": "reminder", "timer_id": id]
+        case .handoff(let id): return ["kind": "handoff", "handoff_id": id]
         case .notch: return ["kind": "notch"]
         }
     }

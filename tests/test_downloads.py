@@ -294,10 +294,10 @@ def test_protocol_and_extension_versions_move_together() -> None:
                         capture_output=True, text=True, timeout=20).stdout.strip()
     # 0.15.7 (another extension's frame no longer blocks act), 0.15.8 (media ids, tab sound), 0.15.9 (the cursor's
     # snapshot facts, instant centring scrolls), 0.15.10 (a first snapshot waits for new media to move), 0.15.11 (an
-    # element's `terminal` fact, D31) and 0.15.12 (closed shadow roots, a press that never started is a known failure)
-    # change no protocol: optional reply fields an older side ignores or misses. The minimum is 0.15.11 (D31 review
+    # element's `terminal` fact, D31), 0.15.12 (closed shadow roots, a press that never started is a known failure)
+    # and 0.15.13 (show_tab, sent only to 0.15.13 or later) change no protocol: optional reply fields an older side ignores or misses. The minimum is 0.15.11 (D31 review
     # round 1): an extension that can't report a web terminal is refused
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.11", "0.15.12")
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.11", "0.15.13")
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 

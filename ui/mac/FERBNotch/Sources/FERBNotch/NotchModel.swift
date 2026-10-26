@@ -566,6 +566,10 @@ final class NotchModel: ObservableObject {
     /// A notification was clicked (L34 D): the notch opens at its item — the question's field, the task in Tasks, or
     /// today's chat for a reminder.
     func open(_ target: NotificationTarget) {
+        if case .handoff(let id) = target {          // the page is the place to act, not the notch
+            Task { _ = try? await rpc.call("browser.show_handoff", params: ["handoff_id": id]) }
+            return
+        }
         if !viewingToday { selectDay(Date()) }
         expand()
         switch target {
@@ -574,7 +578,7 @@ final class NotchModel: ObservableObject {
         case .task(let id):
             showingTasks = taskItems.contains { $0.id == id }
             onPresentationChange?(true)
-        case .reminder, .notch:
+        case .reminder, .handoff, .notch:
             break
         }
     }

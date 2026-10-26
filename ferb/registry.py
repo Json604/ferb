@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserDownloads, BrowserFillOtp, BrowserFillSecret, BrowserMedia, BrowserNavigate,
-                                   BrowserFind, BrowserRead, BrowserDialog, BrowserPair, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
+                                   BrowserFind, BrowserRead, BrowserDialog, BrowserHandoff, BrowserPair, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    BrowserOtpCandidates, OWNER_BROWSER)
 from ferb.act.ask import OwnerAsk
@@ -86,6 +86,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
     r.add(BrowserDialog(router, f))
     r.add(BrowserProfiles(router, f))
     r.add(BrowserPair(router, f))
+    r.add(BrowserHandoff(router, f))
     r.add(BrowserScreenshot(router, f))
     r.add(BrowserPoint(router, f))
     r.add(BrowserAct(router, f))

@@ -59,7 +59,11 @@ it), with the protocol unchanged at 17: an older extension meets the "reload the
 web terminal goes unrecognized; every extension FERB talks to also knows `rest` (REST_VERSION's gate stays as a
 guard). Extension 0.15.12 changes no protocol and no minimum: snapshots, screenshot points and element adoption reach
 closed shadow roots (live 2026-10-26: Cloudflare's checkbox frame sits in one), and a pointer press that never started
-(its move never reached the target's frame) is a known failure with `reason: pointer_did_not_reach_target_frame`."""
+(its move never reached the target's frame) is a known failure with `reason: pointer_did_not_reach_target_frame`.
+Extension 0.15.13 adds one command without a protocol change: `show_tab {tab_id}` brings that tab forward in its own
+window (restored if minimized, focused), sent only when the owner clicks FERB's human-check notification, and only to
+an extension reporting 0.15.13 or later (`ext_bridge.SHOW_VERSION`); for an older one the click brings that profile's
+browser forward instead. The protocol number and the minimum stay."""
 
 import base64
 import hashlib
@@ -78,7 +82,7 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest"]
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:

@@ -307,6 +307,29 @@ class BrowserProfiles(_Base):
         return ToolResult({"profiles": self.driver.profile_candidates()})  # type: ignore[attr-defined]
 
 
+class BrowserHandoff(_Base):
+    """A human check handed to the owner (owner 2026-10-27): one notification opens the exact tab, and FERB carries on
+    by itself once the page lets them through. FERB never solves the check (no puzzle solving, no human mimicry)."""
+    verb = "handoff"
+    on_screen = True                                   # the owner's click on its notification brings the tab forward
+    blurb = ("Hand a human check to the owner when it still blocks after one ordinary click (a \"Verify you are human\" "
+             "page): FERB sends one notification that opens this exact tab, then waits, however long, until the page "
+             "no longer shows `message` (the check's own words, quoted from a fresh snapshot). Then take a fresh "
+             "snapshot and carry on; never ask the owner to reply \"done\".")
+    class Input(_Tab):
+        message: str = Field(min_length=3, max_length=300,
+                             description="the check's own words on the page, quoted exactly from a fresh snapshot")
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(str(args.tab), ctx.task_id)
+        handoff = getattr(self.driver, "handoff", None)
+        if handoff is None:
+            raise Refused("handing a check to the owner isn't available here")
+        result = await handoff(ref, str(args.message), ctx)
+        return ToolResult(result, is_error=not result.get("passed"), read_sources=self._page(ref.tab_id))
+
+
 class BrowserPair(_Base):
     """Pair one of the owner's browser profiles with FERB, on the owner's Yes (owner 2026-10-27: pairing happens on the
     owner's click or yes, never by itself; this replaces automatic pairing and sending the owner to windows or Terminal

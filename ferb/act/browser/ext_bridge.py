@@ -709,6 +709,7 @@ def _read_clipboard() -> tuple[int, str | None, bool]:
 
 
 REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
+SHOW_VERSION = "0.15.13"   # the first extension with `show_tab`: an older one gets its browser brought forward
 SECRET_TERMINAL = ("that's a terminal in the page: FERB puts no password or code into a terminal (D31); it would run "
                    "as the owner's input there")
 
@@ -1398,6 +1399,35 @@ class _TabDriver:
         own = next((qid for qid, i in t.media_ids.items() if i == index), None)
         return ({k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index}
                 | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}))
+
+    async def show_tab(self, tab: TabRef) -> bool:
+        """The owner clicked FERB's human-check notification: this tab comes to the front in its own window. False
+        when the profile's extension is older than SHOW_VERSION (the caller brings the browser forward instead)."""
+        t = self._tab(tab)
+        if t.bridge.conn is None or not version_ok(getattr(t.bridge, "version", "") or "0", SHOW_VERSION):
+            return False
+        await t.bridge.call("show_tab", {"tab_id": t.chrome_id}, timeout=10)
+        return True
+
+    def tab_profile(self, tab: TabRef) -> tuple[str, str]:
+        """(browser, folder) of the profile this tab is in."""
+        b = self._tab(tab).bridge.binding
+        return b.browser, b.folder
+
+    async def shows(self, tab: TabRef, text: str) -> dict[str, Any]:
+        """Facts for a human check's wait: whether the tab is still `open`, its `url` and `title`, and whether its
+        page `shows` the check's own words (None while the page can't be searched, e.g. between documents)."""
+        t = self._tab(tab)
+        listed = await t.bridge.call("list_tabs", {}, timeout=10)
+        row = next((r for r in listed.get("tabs", []) if int(r.get("tab_id", -1)) == t.chrome_id), None)
+        if row is None:
+            return {"open": False}
+        try:
+            found = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=15)
+            shows: bool | None = int(found.get("count", 0)) > 0
+        except DriverError:
+            shows = None
+        return {"open": True, "shows": shows, "url": str(row.get("url") or ""), "title": str(row.get("title") or "")}
 
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool:
         t = self._tab(tab)

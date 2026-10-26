@@ -28,7 +28,7 @@ final class NotificationTests: XCTestCase {
 
     func testAClickedNotificationFindsItsItemAgain() {
         for target in [NotificationTarget.question(approvalID: "a1", taskID: "t1"),
-                       .question(approvalID: "a2", taskID: nil), .task("t9"), .reminder("r1"), .notch] {
+                       .question(approvalID: "a2", taskID: nil), .task("t9"), .reminder("r1"), .handoff("h1"), .notch] {
             let info: [AnyHashable: Any] = target.userInfo.reduce(into: [:]) { $0[$1.key] = $1.value }
             XCTAssertEqual(NotificationTarget(userInfo: info), target)
         }

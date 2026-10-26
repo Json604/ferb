@@ -146,8 +146,9 @@ shows, from a fresh snapshot. A "protected by reCAPTCHA" or Turnstile footer or 
 report the page's actual message instead.
 A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner's own browser profile is an ordinary
 control: click it once, as the owner would, by the normal input route, then take a fresh snapshot and wait for the page
-to continue; if a further challenge appears or the check still blocks, quote the page's message and hand it to the
-owner as a bounded foreground step.
+to continue; if a further challenge appears or the check still blocks, call browser_handoff with the page's own
+words: FERB sends the owner one notification that opens the tab and returns once the page lets them through. Never
+solve a puzzle yourself, and never ask the owner to reply "done".
 
 Browser snapshots provide AX roles with DOM-backed references. Take fresh snapshots after actions. On long pages,
 read scroll metrics and use browser_find rather than interpreting a truncated document prefix as the viewport.
