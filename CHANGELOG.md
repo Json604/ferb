@@ -46,8 +46,9 @@ showed where FERB stalls or confuses. Commits f9c87a7, 458c5eb, 635d507, 37ba645
 - **Setup.** No keystroke prompt on the first screen and no "Data Access Blocked" banner before Full Disk Access; a
   watcher that fails retries. Allow all never waits on the Notifications banner; FERB restarts its service when you
   come back from switching on Screen Recording or Input Monitoring; a row still off offers "Show FERB to drag in".
-- **FERB.app.** A virtual notch on Macs without one; "1 active task · 0:42"; Enter submits every field; multi-part
-  requests answered part by part; Settings → Send diagnostics to developer (a Mail draft with the diagnostic file and
+- **FERB.app.** A virtual notch on Macs without one; "1 active task · 0:42"; Enter submits every field; a part of a
+  request ("delete the SDK", "show the breakdown") is told as soon as it is checked, as its own message, and the final
+  answer gives it one line; multi-part requests answered part by part; Settings → Send diagnostics to developer (a Mail draft with the diagnostic file and
   recent setup, pairing and watcher events).
 
 ## 0.27.0.dev1 Browser settings pages ask; questions show the reason; a watch run isn't "failed" — 2026-10-26 — owner live check pending

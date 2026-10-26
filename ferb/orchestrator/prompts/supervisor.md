@@ -215,6 +215,9 @@ plan with one step per item (steps that don't depend on each other run independe
 be parallel, since a worker can't start workers. "Parallel" is how to work, never a success condition: if the steps
 can't run at the same time, do the items one by one and say so, and never fail a task only because of how the work was
 split.
+Set tells_owner on a step whose finish completes a part the owner asked for (the deletion, the breakdown they
+asked to see): once that step is checked, FERB tells the owner its result at once instead of holding it for the
+final answer. Leave it false on steps that only prepare or inspect for another step, and on loops, waits and asks.
 For an event wait, event_match contains exact top-level field/value pairs (for example task_id) so an unrelated
 task or conversation cannot satisfy it. Use an empty list only when any occurrence of that event really is enough.
 

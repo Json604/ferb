@@ -3037,7 +3037,8 @@ protected FERB state (16.9).
 
 L34 Phase G: `update.prepared`. L34 Phase E: `settings.changed` (a Settings write, origin owner) and `diagnostic.built`.
 First installs (2026-10-27, section 16.17): `browsers.paired`, `browsers.pair_failed`, `browser.handoff`,
-`browser.handoff_ended`, `confirm.allow_window`, `schedule.retry_queued`; `diagnostic.built` gained `send`.
+`browser.handoff_ended`, `confirm.allow_window`, `schedule.retry_queued`, `chat.part`; `diagnostic.built` gained
+`send`.
 
 `chat.ack`, `chat.plan`, `chat.notice`, `chat.summary`, `chat.summary_failed`, `plan.stated`, `standing.revoked`,
 `standing.withheld`, `timer.set`, `task.interrupted`, `progress.failed`, `screen.capture_failed`,
@@ -3730,6 +3731,14 @@ task 400d67fb; every item decided by the owner. Checkout only until installed; l
 (`guards.STALL_S`, 180 s of no runtime event; waits on the owner never count): a non-worker call silent from its start
 is retried once (`model.stall` span), else a `ServiceError` names the 180 s silence. A scheduled run that fails is
 queued once more after `SCHEDULE_RETRY_S` (600 s; journal `schedule.retry_queued`, the run's `retry: True`).
+
+**Parts told as they finish.** A plan step the planner marks `tells_owner` (`Step.tells_owner`: it completes a part
+the owner asked for, never an inspect-first step, a loop, a wait or an ask) is told as soon as it is checked: its
+worker, told so in its step context, writes its answer as that message; `_execute_plan` sends it as a `part` event
+(through `confirm.from_task_lines`, redacted; journal `chat.part`; a map batch never tells), the daemon posts a
+banner while the notch isn't showing it, and FERB.app shows it as a checked bubble under the plan line
+(`ConversationTurn.parts`, saved with the turn). The final answer's context lists `told_owner`: one line each, no
+repeat. A friend's feedback 2026-10-27 (his task 20eb1a75: the SDK deletion checked at 23:37:44, told at 23:40:24).
 
 **Checking and failure answers.** `verifier.md`: FERB's own safety snapshots and backups are never a task's change;
 a safeguard the owner didn't state is judged on the end state. `Supervisor._stopped_plan_summary` says which step

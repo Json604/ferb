@@ -24,6 +24,8 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var ack: String?
     /// The plan line: the planner's words when it returned a task (`plan`, L7).
     public var plan: String?
+    /// Each finished part of the request, told as soon as it was checked (`part`, 2026-10-27), in arrival order.
+    public var parts: [String]?
     /// The outcome's `verified` flag, shown as a small check mark.
     public var verified: Bool?
     /// The one live step line under the plan line (`progress`, L8). Live state only: never saved.
@@ -50,14 +52,14 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
         guard reportID != nil, statusInferred != true else { return false }
         return status == "failed" || (status == "interrupted" && backendTaskID != nil)
     }
-    /// FERB's lines above the answer, in the order shown: the acknowledgement, then the plan line.
-    public var ferbLines: [String] { [ack, plan].compactMap { $0 } }
+    /// FERB's lines above the answer, in the order shown: the acknowledgement, the plan line, then each told part.
+    public var ferbLines: [String] { [ack, plan].compactMap { $0 } + (parts ?? []) }
     /// The request as one line, for a late reply's quote.
     public var quote: String { (taskGoal ?? request).split(whereSeparator: \.isWhitespace).joined(separator: " ") }
 
     enum CodingKeys: String, CodingKey {
         case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
-        case requestID, ack, plan, verified, question, taskGoal, statusInferred
+        case requestID, ack, plan, parts, verified, question, taskGoal, statusInferred
     }
 }
 
@@ -333,6 +335,12 @@ public struct ConversationArchive: Codable, Equatable {
     public mutating func showPlan(id: UUID, text: String) {
         guard !text.isEmpty, let index = turns.firstIndex(where: { $0.id == id }) else { return }
         turns[index].plan = text
+    }
+
+    /// A finished part of the turn's request, told before its final answer (2026-10-27).
+    public mutating func addPart(id: UUID, text: String) {
+        guard !text.isEmpty, let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        turns[index].parts = (turns[index].parts ?? []) + [text]
     }
 
     /// Replaces the turn's one live line while it waits for its answer.

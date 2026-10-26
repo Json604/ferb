@@ -90,6 +90,9 @@ private struct TurnView: View {
                     if let plan = turn.plan { FerbBubble { Text(plan).textSelection(.enabled) } }
                 }
             }
+            ForEach(Array((turn.parts ?? []).enumerated()), id: \.offset) { _, part in    // each checked part
+                FerbBubble(verified: true) { MarkdownContent(part).equatable() }
+            }
             if let live = turn.liveLine { LiveLineView(progress: live) }
             // A question FERB asked stays here unless it was itself shown below.
             if let question = turn.question,

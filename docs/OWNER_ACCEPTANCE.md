@@ -1923,3 +1923,7 @@ click brings that profile's browser forward instead of the exact tab.
 9. A scheduled run whose model call goes silent: **Expected:** `ferb trace` shows a `model.stall` retry after 3
    minutes rather than a 15-minute wait; a failed scheduled run shows `schedule.retry_queued` and one retry 10 minutes
    later.
+10. A request with two parts that take a while, e.g. "delete <a disposable folder> and tell me what's using space in
+    Downloads": **Expected:** each part appears as its own checked message as soon as it's done (no waiting for the
+    other), with a banner if the notch is closed; inspect-first steps say nothing; the final answer gives each told
+    part one line. (A friend's feedback 2026-10-27.)

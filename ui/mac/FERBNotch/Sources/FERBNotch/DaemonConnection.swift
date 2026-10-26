@@ -285,6 +285,11 @@ extension NotchModel {
             preferences.set(id, forKey: "FERBActiveTaskID")
             runningTasks[id] = event["goal"] as? String ?? session.draft
             if pendingStops.remove(localID) != nil { requestDaemonStop() }
+        case "part":
+            // A finished part of the request, told as soon as it was checked (a friend's feedback 2026-10-27)
+            conversation.addPart(id: localID, text: event["text"] as? String ?? "")
+            saveConversation()
+            onBackgroundChange?(true)
         case "progress":
             // Live state only, so it is not saved. The chat shows only the AI service connection's lines (marked
             // `connection`: offline, reconnected); ordinary steps ("opening …") stay out of it (owner, 2026-10-24:

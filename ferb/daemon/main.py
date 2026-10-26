@@ -4887,6 +4887,13 @@ class Daemon:
                     if ev.get("type") == "outcome":
                         await self._task_result(ev, shown=attached["on"])
                         self._attached_trees.discard(ev["task_id"])
+                    elif ev.get("type") == "part" and (self.posters.connected or not attached["on"]):
+                        # a finished part of the request (2026-10-27), told like an answer: a banner while the notch
+                        # isn't showing it
+                        await self._notify("FERB", str(ev.get("text") or ""), category="task_finished",
+                                           target={"kind": "task", "task_id": str(ev["task_id"])},
+                                           when_hidden=self.posters.connected,
+                                           ident=f"part:{ev['task_id']}:{ev.get('step', '')}")
                     await queue.put(ev)
             except FerbError as e:
                 # the turn ended failed, recorded as every turn failure is, so Send to developer works on it (L35)

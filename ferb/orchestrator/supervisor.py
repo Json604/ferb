@@ -2601,7 +2601,11 @@ class Supervisor(WorkerRuns):
                 required_inputs=inputs if ':' in step.id else [],
                 step_context=json.dumps({'step': step.model_dump(), 'inputs': inputs, 'prior': prior,
                     **({'earlier_plan_results': earlier} if (earlier := self.plans.earlier(tree.id)) else {}),
-                    'requirement': 'Write one input_notes entry per input with the complete note and evidence references.'}))
+                    'requirement': 'Write one input_notes entry per input with the complete note and evidence references.',
+                    **({'tells_owner': 'This step completes a part the owner asked for. Once it is checked, your '
+                                       'answer is sent to the owner at once, on its own: write it as that message, '
+                                       "this part's result with its key facts, in a sentence or two."}
+                       if step.tells_owner else {})}))
             self._tree_of[child.id] = member
             self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
             await queue.put({'type': 'subtask', 'id': step.id, 'task_id': child.id, 'status': 'started', 'role': 'worker'})
@@ -2610,6 +2614,15 @@ class Supervisor(WorkerRuns):
                 output = {'status': out.status, 'summary': out.summary, 'answer': member.owner_answer,
                           'artifacts': out.artifacts, 'evidence': out.evidence, 'input_notes': member.input_notes,
                           'conversation_proposals': member.conversation_proposals}
+                told = (step.tells_owner and ':' not in step.id      # one map batch is no part of its own
+                        and out.status == 'done' and member.owner_answer.strip())
+                if told:              # a checked part, told now, not held for the final answer (2026-10-27)
+                    text = confirm.from_task_lines(self.gateway.redact(member.owner_answer.strip()))
+                    output['told_owner'] = True
+                    self.journal.append('chat.part', {'task_id': tree.id, 'step': step.id,
+                                                      'request_id': tree.worker.request_id})
+                    await queue.put({'type': 'part', 'id': step.id, 'step': step.id, 'task_id': tree.id,
+                                     'text': text})
                 directory = Path(self.workspace) / 'task-notes' / tree.id
                 path = directory / (hashlib.sha256(step.id.encode()).hexdigest() + '.json')
                 from ferb.act.fs.files import atomic_text, make_folders
@@ -2656,8 +2669,13 @@ class Supervisor(WorkerRuns):
                                   'error': row['error']})
             self.journal.append('task.send_digest', {'task_id': tree.id, 'sends': sends},
                                 origin=origins_.join({origins_.FERB} | self.spans.tool_origins(tree.id)))
+            told = [{'step': s.id, 'answer': o.get('answer', '')} for s, o in zip(plan.steps, outputs)
+                    if o.get('told_owner')]
             tree.step_context = json.dumps({'step_results': outputs, 'plan_status': result['status'],
                 'message_activity': sends,
+                **({'told_owner': told, 'told_owner_note':
+                    'These parts were already told to the owner as they finished: give each one line in your '
+                    'answer, without repeating its detail.'} if told else {}),
                 'instruction': 'Handle any remaining work under the latest owner correction. Preserve completed steps and '
                                'inspect uncertain actions before continuing. Inspect final artifacts against the complete request. '
                                'Write evidence report and owner answer. '
