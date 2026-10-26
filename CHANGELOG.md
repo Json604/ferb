@@ -13,6 +13,18 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 Browser settings pages ask; questions show the reason; a watch run isn't "failed" — 2026-10-26 — owner live check pending
+
+The visa task's last step switched off the owner's "Check US Visa Slots" extension on chrome://extensions, unasked:
+the owner had said Yes to reading Chrome's settings files, to Chrome's once-per-task screen question and to typing the
+page's address, and no question said what they were for. Now input on a browser's own pages (chrome://, brave://,
+edge://, arc://), found from the address the browser reports for the target or an address being typed, asks every
+time, naming the page (`floor:browser_page`; CLAUDE.md rule 8); `mac.pointer` in a browser asks the screen question
+like `mac.act` and `mac.click`. Every FERB question's short line ends with the task's reason, quoted as its words. The
+same run reported "failed" because its condition was "booked" while every Indian OFC location said "No Slots
+Available"; the planner and scheduled-run rules now make a check-and-act-when-available run's conditions the check
+and its finding, so "not available yet" is a finished check that says when the next one runs.
+
 ## 0.27.0.dev1 Natural steer replies, no window questions — 2026-10-26 — owner live check pending
 
 A correction to a running task now gets the planner's own sentence ("Yes — I'll keep checking until a valid pair is

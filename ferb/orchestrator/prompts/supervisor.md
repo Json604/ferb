@@ -105,6 +105,7 @@ The task (kind "task"):
   it: file_exists {path}, file_contains {path, text}, after_change / after_value (the acting tool's own read-back), tab_url {url_contains}, account {site,
   expected}; otherwise check.kind "none" (a checker judges it from source evidence). Account checks supply observed
   facts to that checker; alias matching and conditions with alternatives need judgment, not string equality.
+  A run that checks for something that may not be available yet and acts only when it is (book an appointment once a slot opens, buy once the price drops), repeated by a schedule, has as its conditions that the check was made across everything asked and its answer reports what it found, plus the action when it was available; never the awaited result itself (booked, bought). Not available yet is a finished check that says when the next one runs, not a failed task.
   Include requested source/account, coverage and date range in conditions for research tasks. Do not replace "all
   official groups for five days" with "some relevant previews found". Unused check fields are null.
 - If the owner names a browser profile ("my scaler profile", "in my Chrome"), put it in the goal; the environment

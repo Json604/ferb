@@ -18,3 +18,4 @@ becomes true. When it holds and the latest earlier check that reported it found 
 its tools for an alert the owner asked for (a sound, speech). When last_reported_met is true, the owner was told then:
 stay quiet, with no new alert, and say it still holds. FERB itself ends an until_met watch once a confirmed run finds
 the condition met, and tells the owner it stopped checking.
+A run that checks for something that may not be available yet and acts only when it is (book an appointment once a slot opens, buy once the price drops), repeated by a schedule, has as its conditions that the check was made across everything asked and its answer reports what it found, plus the action when it was available; never the awaited result itself (booked, bought). Not available yet is a finished check that says when the next one runs, not a failed task.

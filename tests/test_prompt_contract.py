@@ -147,6 +147,12 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
+    # live 2026-10-26 (task 7c1eca3a): every Indian OFC location said "No Slots Available" and the run reported
+    # "failed" because its condition was "booked"; the six-hourly schedule keeps checking
+    ("supervisor.md",
+     'A run that checks for something that may not be available yet and acts only when it is (book an appointment once a slot opens, buy once the price drops), repeated by a schedule, has as its conditions that the check was made across everything asked and its answer reports what it found, plus the action when it was available; never the awaited result itself (booked, bought). Not available yet is a finished check that says when the next one runs, not a failed task.'),
+    ("scheduled.md",
+     'A run that checks for something that may not be available yet and acts only when it is (book an appointment once a slot opens, buy once the price drops), repeated by a schedule, has as its conditions that the check was made across everything asked and its answer reports what it found, plus the action when it was available; never the awaited result itself (booked, bought). Not available yet is a finished check that says when the next one runs, not a failed task.'),
     # live 2026-10-26 (task 7c1eca3a): the worker asked "should this wait until you're idle, should you open that
     # profile now, or should I skip" for a closed Chrome profile, as this file's old window rule told it to; FERB
     # opens a closed profile itself (owner: "if not open once that causes focus shift - ok")
