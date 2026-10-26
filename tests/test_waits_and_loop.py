@@ -336,3 +336,74 @@ def test_the_route_fact_reads_the_routing_table_without_sending_anything() -> No
             pass
     assert network._route(Route) is True
     assert socket.SOCK_DGRAM                              # UDP connect: a route lookup, no packet leaves
+
+
+def _silent_planner(daemon: Any, monkeypatch: Any, silent_calls: int) -> list[str]:
+    """The planner's first `silent_calls` turns never answer (no event at all); later ones answer as scripted."""
+    import time
+    from tests.conftest import FakeRuntime
+    s = daemon.daemon.supervisor
+    s.activity.now = time.monotonic                     # real seconds for liveness in this test
+    s.stall_s, s.heartbeat_poll_s = 0.3, 0.05            # test speed only: production uses STALL_S (180 s)
+    original, calls = FakeRuntime.events, []
+
+    async def events(rt: Any, run: Any) -> Any:
+        if run.state['key'] == 'supervisor':
+            calls.append(run.state['key'])
+            if len(calls) <= silent_calls:
+                while not run.state['cancel']:          # silent until the watchdog stops it
+                    await asyncio.sleep(0.01)
+                return
+        async for event in original(rt, run):
+            yield event
+    monkeypatch.setattr(FakeRuntime, 'events', events)
+    return calls
+
+
+def test_a_silent_planner_call_is_tried_once_more(daemon, monkeypatch):
+    """Live 2026-10-27 00:24: a scheduled visa check's planner call showed no sign of life for 15 minutes, until its
+    900 s limit. Owner: 3 minutes of silence, then cancel and retry once."""
+    calls = _silent_planner(daemon, monkeypatch, 1)
+    install(daemon, [sup('reply', 'Narendra Modi is the Prime Minister of India.')])
+    events = chat(daemon, 'who is the pm of india')
+    replies = [e for e in events if e['type'] == 'reply']
+    assert replies and replies[-1]['text'] == 'Narendra Modi is the Prime Minister of India.', events
+    assert len(calls) == 2
+
+
+def test_a_planner_call_silent_twice_says_so(daemon, monkeypatch):
+    _silent_planner(daemon, monkeypatch, 2)
+    install(daemon, [sup('reply', 'never sent')])
+    events = chat(daemon, 'who is the pm of india')
+    said = ' '.join(str(e.get('text', '')) for e in events)
+    assert 'no sign of life' in said and 'twice' in said, events
+    failed = _journal(daemon, 'chat.failed')
+    assert failed and failed[-1]['why'] == 'ServiceError'
+
+
+def test_a_failed_scheduled_run_tries_once_more_ten_minutes_later(daemon, monkeypatch):
+    """Owner 2026-10-27, after the 00:24 visa check failed and waited six hours for its next run: a failed scheduled run
+    retries once after 10 minutes; the retry's own failure waits for the next regular run."""
+    from datetime import timedelta
+    from ferb.policy.targets import Targets
+    from ferb.runtimes.codex_stream import AccountError
+    from tests.conftest import FakeRuntime
+    from tests.support.schedules import fire, make_schedule
+    install(daemon, [])
+    starts: list[str] = []
+
+    async def unavailable(self, task_, request, token):
+        starts.append(task_.id)
+        raise AccountError('account_unavailable', -32000)
+    monkeypatch.setattr(FakeRuntime, 'start', unavailable)
+    make_schedule(daemon, 'check the visa portal', 'check the visa portal every six hours', Targets.of(),
+                  daemon.daemon.clock.now() + timedelta(minutes=1), )
+    fire(daemon, 61)                                            # the run fails
+    runs = len(_journal(daemon, 'schedule.run'))
+    fire(daemon, 9 * 60)                                        # not yet
+    assert len(_journal(daemon, 'schedule.run')) == runs
+    fire(daemon, 61)                                            # 10 minutes after: the one retry
+    assert len(_journal(daemon, 'schedule.run')) == runs + 1
+    assert _journal(daemon, 'schedule.run')[-1].get('retry') is True
+    fire(daemon, 11 * 60)                                       # its failure queues no second retry
+    assert len(_journal(daemon, 'schedule.run')) == runs + 1

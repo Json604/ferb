@@ -244,6 +244,10 @@ IDLE_PROFILE = "not connected now — FERB connects once that profile is open in
 PREFS_SETTLE_S = 12.0
 
 
+SCHEDULE_RETRY = "retry:"            # a schedule timer's message for a failed run's one retry
+SCHEDULE_RETRY_S = 600.0             # 10 minutes after the failure (owner 2026-10-27)
+
+
 def _front_app() -> str | None:
     """The frontmost app's bundle id (Accessibility, as the app-focus watcher reads it); None when it can't be read."""
     from ferb.sense.watchers.base import focused_app
@@ -2879,7 +2883,9 @@ class Daemon:
             from ferb.clock.timers import mark_handled as handled
             assert self.db is not None
             if handled(self.db, t.id, self.clock.now()):                 # exactly once, even after a crash
-                run = asyncio.create_task(self._run_schedule(t.message, t.overdue_s or 0))
+                retry = t.message.startswith(SCHEDULE_RETRY)            # a failed run's one retry (no new kind)
+                sid = t.message.removeprefix(SCHEDULE_RETRY)
+                run = asyncio.create_task(self._run_schedule(sid, t.overdue_s or 0, retry=retry))
                 self._runs.add(run)
                 run.add_done_callback(self._runs.discard)
             return
@@ -3564,15 +3570,19 @@ class Daemon:
             "AND json_extract(data_json, '$.schedule_id') = ? ORDER BY seq DESC LIMIT 1", (sid,)).fetchone()
         return row is not None and row[0] in ("schedule.pause", "schedule.met")
 
-    async def _run_schedule(self, sid: str, overdue_s: float) -> None:
-        """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""
+    async def _run_schedule(self, sid: str, overdue_s: float, retry: bool = False) -> None:
+        """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts. A
+        failed run retries once, SCHEDULE_RETRY_S later (owner 2026-10-27), unless the next regular run comes first;
+        the retry (`retry`) leaves the regular occurrences alone and is never retried itself."""
         from ferb.orchestrator.schedules import FINISHED, watch_met
         s = self.schedules.get(sid)
         if s is None or s.state != "active":
             return
         now = self.clock.now()
-        nxt = s.rule.next_after(now, s.first_run)
-        if nxt is not None:
+        nxt = None if retry else s.rule.next_after(now, s.first_run)
+        if retry:
+            pass                                         # the regular next run stays as it is
+        elif nxt is not None:
             t = self.timers.add("schedule", nxt, sid)
             self.schedules.set_timer(sid, t.id, nxt)
         else:
@@ -3583,7 +3593,7 @@ class Daemon:
             self._last_runs.discard(sid)
             return
         try:
-            final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s)
+            final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s, retry=retry)
         except Exception as e:                              # a run's failure is reported with its reason, never lost
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
@@ -3595,6 +3605,12 @@ class Daemon:
         # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
         status = final.get("status")
         self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
+        if status == "failed" and not retry:
+            regular = self.schedules.get(sid)
+            due = now + timedelta(seconds=SCHEDULE_RETRY_S)
+            if regular is not None and regular.state == "active" and (regular.next_run is None or regular.next_run > due):
+                self.timers.add("schedule", due, SCHEDULE_RETRY + sid)
+                self._journal().append("schedule.retry_queued", {"schedule_id": sid, "at": due.isoformat()})
         answer = str(final.get("answer") or final.get("summary") or "")
         # A watch (fix wave 6c): a met condition (its check judged the reported condition) is told like a reminder,
         # once per crossing: not when the latest earlier finished check that reported it found it met, an unconfirmed

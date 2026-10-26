@@ -231,7 +231,10 @@ def model_limits(rt: AgentRuntime) -> ModelLimits:
 
 
 class Stalled(Exception):
-    pass
+    """A run showed no sign of life for stall_s. `progressed`: it had produced output before going quiet."""
+    def __init__(self, progressed: bool = True) -> None:
+        super().__init__("no sign of life")
+        self.progressed = progressed
 
 
 class WorkerRuns:
@@ -421,6 +424,32 @@ class WorkerRuns:
                    on_usage: Callable[[dict[str, Any]], None] | None = None,
                    images: tuple[ModelImage, ...] = (),
                    notify: Callable[[dict[str, Any]], None] | None = None) -> str:
+        """A worker's run, once (its tree's orchestrator decides any retry). Any other call (the planner's turn, a
+        dispatch, a question, a summary) is watched for silence too, and one that showed no sign of life for stall_s
+        from its very start is tried once more (owner 2026-10-27, after a scheduled visa check's planner call sat silent
+        for 15 minutes); a second silence, or a call that went quiet after answering in part, fails with that reason."""
+        once = partial(self._run_once, rt, task, system, ctx, token, parent_span, tree, worker_id, on_delta=on_delta,
+                       on_usage=on_usage, images=images, notify=notify)
+        if worker_id:
+            return await once()
+        for attempt in (1, 2):
+            try:
+                return await once()
+            except Stalled as stall:
+                s = self.spans.start("model.stall", task_id=task.id if task.id != task.request_id else None,
+                                     parent_id=parent_span, input={"runtime": rt.name, "attempt": attempt})
+                self.spans.finish(s, error=f"no sign of life for {self.stall_s:g} s")
+                if stall.progressed or attempt == 2:
+                    raise ServiceError(f"the AI service ({rt.name}) showed no sign of life for {self.stall_s:g} s"
+                                       + (" twice" if attempt == 2 else ""), rt.name, network=True) from None
+        raise AssertionError("unreachable")
+
+    async def _run_once(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str,
+                        parent_span: str, tree: "_Tree" | None, worker_id: str, *,
+                        on_delta: Callable[[str], None] | None = None,
+                        on_usage: Callable[[dict[str, Any]], None] | None = None,
+                        images: tuple[ModelImage, ...] = (),
+                        notify: Callable[[dict[str, Any]], None] | None = None) -> str:
         """`notify`: where a chat turn's live line goes (its stream); a task's run tells its tree's live line, and a run
         with neither (a learner, the attention check, the chat summary) tells no one of a lost connection."""
         revision = len(tree.steering.messages) if tree is not None else 0
@@ -469,19 +498,28 @@ class WorkerRuns:
             else:
                 start.cancel()
         # The stall watchdog covers startup too: a worker runtime has no startup timeout, so an app-server that never
-        # answers its account check would otherwise hold the attempt until Stop.
-        watchdog = asyncio.create_task(self._watch(stop, worker_id)) if worker_id else None
+        # answers its account check would otherwise hold the attempt until Stop. Every other call is watched as well,
+        # under its own id (owner 2026-10-27: a planner call sat silent for 15 minutes).
+        watch_id = worker_id or f"call:{parent_span}"
+        if not worker_id:
+            self.activity.start(watch_id)
+        watchdog = asyncio.create_task(self._watch(stop, watch_id))
+        progressed = False
         try:
             run = await start
         except BaseException as exc:
-            if watchdog is not None:
-                watchdog.cancel()
+            watchdog.cancel()
+            if not worker_id:
+                self.activity.end(watch_id)
+            stalled = watch_id in self._stalled
+            if not worker_id:
+                self._stalled.discard(watch_id)
             if isinstance(exc, RuntimeUnavailable):     # a login problem is never the network's
                 raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required") from None
             current = asyncio.current_task()
-            if (isinstance(exc, asyncio.CancelledError) and worker_id in self._stalled
+            if (isinstance(exc, asyncio.CancelledError) and stalled
                     and not (current is not None and current.cancelling())):
-                raise Stalled() from None              # the watchdog's cancellation, not Stop or shutdown
+                raise Stalled(progressed=False) from None   # the watchdog's cancellation, not Stop or shutdown
             raise
         started.append(run)
         # which role held the context's parts (P20, review I3): "developer" for a cached Codex planner turn, which says
@@ -510,9 +548,11 @@ class WorkerRuns:
             async for ev in rt.events(run):
                 # a retry is no sign of life (Codex retries a lost connection without end): a run of only retries
                 # ends as a stall after stall_s, with the last retry as its reason
-                if worker_id and ev.kind != "retrying":
-                    self.activity.beat(worker_id)
-                    self._retrying.pop(worker_id, None)
+                if ev.kind != "retrying":
+                    self.activity.beat(watch_id)
+                    if worker_id:
+                        self._retrying.pop(worker_id, None)
+                    progressed = progressed or ev.kind in ("text_delta", "final", "tool_call", "message")
                 if notice is not None and ev.kind not in ("retrying", "error", "violation"):
                     notice.back()                        # a real event: the connection is back (an error ends the run)
                 if ev.kind == "text_delta":
@@ -553,8 +593,9 @@ class WorkerRuns:
                             "meaning": "tool names observed in provider request traces; not proof of invocation or complete deferred inventory"})
                     final = str(ev.data.get("text", ""))
         finally:
-            if watchdog is not None:
-                watchdog.cancel()
+            watchdog.cancel()
+            if not worker_id:
+                self.activity.end(watch_id)
             async def close() -> None:
                 if tree is not None:
                     applied = tree.steering.delivered.pop(run.id, revision)
@@ -569,8 +610,10 @@ class WorkerRuns:
                     await close()
             else:
                 await close()
-        if worker_id in self._stalled:
-            raise Stalled()
+        if watch_id in self._stalled:
+            if not worker_id:
+                self._stalled.discard(watch_id)
+            raise Stalled(progressed=progressed)
         if not final:
             raise ValueError("runtime finished without an answer")
         try:

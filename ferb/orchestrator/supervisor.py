@@ -827,17 +827,20 @@ class Supervisor(WorkerRuns):
             raise PlanRejected(remaining)               # the owner reads which check failed (owner 2026-10-24)
         return out
 
-    async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
-        """Decide an unattended run from its recorded request; report missing input when the owner is absent."""
+    async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0, retry: bool = False) -> dict[str, Any]:
+        """Decide an unattended run from its recorded request; report missing input when the owner is absent.
+        `retry`: the one retry of a failed run, 10 minutes after it (owner 2026-10-27)."""
         request_id = self.ids.new_id()
         previous = self._previous_run(sched.id)          # before this run's own record
-        self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
+        self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late}
+                            | ({"retry": True} if retry else {}))
         recorded_scopes = [SendScope.model_validate(scope) for scope in sched.targets.get("standing_sends", [])]
         # a watch (fix wave 6c): what its latest finished check that reported the condition found, stored with the
         # schedule (true: the owner was told then)
         watched = {} if sched.watch == "none" else {"last_reported_met": sched.last_reported_met}
         note = "\n\n" + load_prompt(self._approach() + "/scheduled.md") + "\nSchedule facts (data): " + json.dumps({
             "rule": sched.rule.describe(), "watch": sched.watch, "late": late, "overdue_s": overdue_s,
+            **({"retry_of_failed_run": True} if retry else {}),
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
             "standing_sends": [scope.model_dump() for scope in recorded_scopes],
