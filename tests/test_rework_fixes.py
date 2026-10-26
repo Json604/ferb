@@ -124,7 +124,8 @@ def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     from ferb.orchestrator.supervisor import Supervisor
     host = SimpleNamespace(_approach=lambda: 'orchestrator/prompts', facts=lambda: 'FERB profile is available.',
                            availability=lambda: SimpleNamespace(text='Installed actions'),
-                           identity_context=lambda: 'Owner identity and rules.', skills_catalog=lambda: [])
+                           identity_context=lambda: 'Owner identity and rules.', skills_catalog=lambda: [],
+                           abilities_catalog=lambda: [])
     system = ' '.join(Supervisor._system(host, role).split())
     assert 'Shared interaction contract' in system
     assert 'shell' in system and 'AppleScript' in system
