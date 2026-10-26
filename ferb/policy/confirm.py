@@ -69,6 +69,18 @@ def pair_need(name: str, browser: str, folder: str) -> "Need":
     return Need(PAIR, key(PAIR, browser, folder), {"name": name or folder, "browser": browser.capitalize()})
 
 
+# "Allow all for a short time" (owner 2026-10-27): the routine questions a window may answer Yes to. Never payments,
+# account-security changes, permanent deletes, terminal input, certificate checks, or the sink questions that guard
+# against outside content steering a send (S4): those always ask.
+ROUTINE = frozenset({FOREGROUND, BROWSER_PAGE, "floor:new_recipient", PAIR})
+ALLOW_WINDOW_S = 1800.0
+
+
+def routine(n: "Need") -> bool:
+    """Whether a window of "don't ask" may answer this need: the routine rules, and an escape that only reads."""
+    return n.rule in ROUTINE or (n.rule.startswith("escape:") and n.values.get("lift") == "read")
+
+
 def browser_page(address: str | None) -> bool:
     """Whether an address is one of a browser's own pages (scheme only; what is typed or reported, trimmed)."""
     return bool(address) and str(address).strip().casefold().startswith(BROWSER_SCHEMES)

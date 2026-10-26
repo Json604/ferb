@@ -1172,3 +1172,35 @@ def test_a_steer_of_the_running_task_reopens_its_no(daemon: RunningDaemon, monke
     assert owner.rules() == {"floor:new_recipient": 2}                  # asked again, once
     assert not results[1]["is_error"] and send.calls == 1
     assert [r["task_id"] for r in _rows(daemon, "spans") if r["kind"] == "confirmations.reopened"] == [tree]
+
+
+def test_dont_ask_for_30_minutes_covers_routine_questions_only(daemon: RunningDaemon) -> None:
+    """Friend's feedback 2026-10-27: "add an allow all for a short time". Owner: 30 minutes, routine questions only
+    (here: sending to someone new); payments and the other hard-to-undo questions still ask. A question the window
+    answers is still in the trace, marked with the window's end."""
+    send = FakeCap("probe.send", "send", {"probe"})
+    pay = FakeCap("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("tell my friends"), [send, pay])
+
+    def owner_asked() -> list[str]:                  # the questions that reached the owner, not the window's
+        async def go() -> list[str]:
+            return [r[0] for r in daemon.daemon.db.conn.execute(
+                "SELECT output_json FROM spans WHERE kind = 'tool.call' AND json_extract(input_json, '$.tool') = "
+                "'owner.ask' ORDER BY rowid").fetchall()]
+        return [o for o in daemon.run(go()) if "allowed_until" not in (o or "")]
+
+    owner = Answers(daemon, granted=True, choice=3)                 # "Yes, and don't ask for 30 min"
+    r = gateway_tool_call(daemon, grant, "probe.send", to="a@x.com", text="hi")
+    owner.stop()
+    assert not r["is_error"] and _asked(daemon)[0]["args"]["options"] == ["Yes", "No", "Yes, and don't ask for 30 min"]
+    r = gateway_tool_call(daemon, grant, "probe.send", to="b@x.com", text="hi")     # another new recipient: no question
+    assert not r["is_error"] and len(owner_asked()) == 1 and send.calls == 2 and len(_asked(daemon)) == 2
+    owner = Answers(daemon, granted=True, choice=1)
+    gateway_tool_call(daemon, grant, "probe.pay", site="shop.example", amount=5.0)   # a payment still asks
+    assert len(owner_asked()) == 2 and _asked(daemon)[-1]["args"]["options"] == ["Yes", "No"]
+    daemon.call_soon(daemon.daemon.clock.advance, 31 * 60)
+    import time
+    time.sleep(0.05)
+    gateway_tool_call(daemon, grant, "probe.send", to="c@x.com", text="hi")          # the window ended: asks again
+    owner.stop()
+    assert len(owner_asked()) == 3

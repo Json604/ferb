@@ -59,7 +59,11 @@ look at a specific experiment only when needed. Historical documentation remains
    a question never expires while its task waits. A big job's plan (D24) and any standing scope are stated in the
    plan line and work starts at once; the owner corrects by replying, which becomes a steer (L3, 2026-10-13). Besides
    the confirmations, only an escape-hatch command (D31) and a retry of a consequential action with an unknown outcome
-   (P19) wait for the owner; everything else runs and is logged.
+   (P19) wait for the owner; everything else runs and is logged. A routine question (input that brings an app to the
+   front, a browser's own settings page, a new recipient, pairing a profile, a one-command read of a protected
+   folder) also offers "Yes, and don't ask for 30 min": for 30 minutes those questions are answered Yes and traced.
+   Payments, account security, permanent deletion, terminal input, certificate checks and sink questions always ask,
+   and a run nobody attends never uses the window (owner, 2026-10-27).
 10. Nothing, the escape hatch included, lets FERB change its own audit records, protection rules, sandbox profile,
     config or secrets helper, or bypass its network proxy (D31). This governs FERB's own shell; a command FERB approves
     in another agent's prompt runs with that agent's permissions (D36, owner). Typing into any terminal (terminal apps

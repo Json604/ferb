@@ -42,6 +42,7 @@ import asyncio
 import base64
 import dataclasses
 import ipaddress
+from datetime import datetime, timedelta
 import json
 import logging
 import re
@@ -119,6 +120,7 @@ RETRY_STALE = ("the action was tried again while the owner was being asked, so t
                "happened, then ask again with the newest retry_action")
 # D33, S4: FERB's own question about a call, and what the worker is told when it doesn't run.
 YES, NO = "Yes", "No"
+ALLOW_WINDOW = "Yes, and don't ask for 30 min"   # a routine question's third answer (owner 2026-10-27)
 SAID_NO = "the owner said no to this: {line}"
 ALREADY_NO = "the owner already said no to this in this task: {line}"
 NO_ANSWER = "the owner didn't answer FERB's question, so it didn't run: {line}"
@@ -420,6 +422,7 @@ class Gateway:
         self.username_sources: Callable[[], Container[str] | None] = lambda: None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
+        self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
         self.evidence: Any = None                          # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
@@ -1202,8 +1205,10 @@ class Gateway:
         text = self._ferb_line(needs, call, why, typed)
         if self.confirmations is None:
             return Answer(False, error=NOT_RECORDED.format(line=text))
+        routine = all(confirm.routine(n) for n in needs)
+        options = [YES, NO] + ([ALLOW_WINDOW] if routine else [])
         q_span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                  input={"tool": OWNER_ASK, "args": {"question": text, "options": [YES, NO],
+                                  input={"tool": OWNER_ASK, "args": {"question": text, "options": options,
                                                                      "confirm": [{"rule": n.rule, "key": n.key}
                                                                                  for n in needs]},
                                          "ferb_question": True} | ({"for_span": span.id} if span is not None else {}))
@@ -1213,15 +1218,21 @@ class Gateway:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return Answer(False, error=UNATTENDED.format(line=text), next=NEEDS_OWNER_NEXT)
+        if routine and self.allow_until is not None and self.clock.now() < self.allow_until:
+            # the owner's "don't ask for 30 min" answers this routine question: their Yes, recorded and traced
+            ids = [self.confirmations.record(root, n.rule, n.key, True, q_span.id) for n in needs]
+            given = {"answer": YES, "confirmed": ids, "allowed_until": self.allow_until.isoformat()}
+            self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
+            return Answer(True, ids)
         ask = ActionRequest(capability=CONFIRM_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
-        ap, new = self._question(ask, text, [YES, NO], key=text)
+        ap, new = self._question(ask, text, options, key=text)
         if new:
             ap.summary = self._one_line(confirm.summary(needs), any(n.rule == confirm.TERMINAL_INPUT for n in needs))
             ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
-                                                "kind": "owner_question", "reason": text, "options": [YES, NO],
+                                                "kind": "owner_question", "reason": text, "options": options,
                                                 "task_id": grant.task_id, "summary": ap.summary, "why": ap.why})
         self.observer.tool_call(grant, done=False)
         try:
@@ -1232,7 +1243,10 @@ class Gateway:
             raise
         finally:
             self.observer.tool_call(grant, done=True)
-        yes = state == "granted" and ap.choice == YES
+        yes = state == "granted" and ap.choice in (YES, ALLOW_WINDOW)
+        if state == "granted" and ap.choice == ALLOW_WINDOW and routine:   # the owner's window: from now, 30 min
+            self.allow_until = self.clock.now() + timedelta(seconds=confirm.ALLOW_WINDOW_S)
+            self.journal_problem("confirm.allow_window", {"until": self.allow_until.isoformat()})
         if state == "superseded":                        # L3: a correction set it aside; not a No, nothing recorded
             set_aside = {"declined": True, "state": state}
             self._finish_call(q_span, OWNER_ASK, set_aside, False, output=set_aside, origins=ask_origins(set_aside))

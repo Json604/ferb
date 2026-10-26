@@ -336,7 +336,7 @@ def test_the_owners_hidden_input_wait_is_not_ferbs_only_the_fill_is(tmp_path: Pa
     seen: dict[str, Any] = {}
     node = SimpleNamespace(ref="field")
 
-    async def ask_secret(ctx: Any, where: str, handle: Any = None, remember: Any = None, shown: Any = None) -> str:
+    async def ask_secret(ctx: Any, where: str, handle: Any = None, remember: Any = None, shown: Any = None, field: Any = None) -> str:
         seen["waiting"] = attribution.decide(ax)                            # the owner typing into the app meanwhile
         return "424242"
 
