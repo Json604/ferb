@@ -13,6 +13,23 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 Natural steer replies, no window questions — 2026-10-26 — owner live check pending
+
+A correction to a running task now gets the planner's own sentence ("Yes — I'll keep checking until a valid pair is
+booked…") instead of "Got it: <your words>" with the rewritten goal under Details (owner: "it shows this weird long
+message when it updates a plan. it also sounds dumb, make it natural"). The shared interaction rules, the planner's
+profile facts, the tab-listing error and browser_open's allow_foreground description still described the window
+FERB makes for a closed profile as needing the owner's permission, so a worker asked "wait until you're idle, open it
+now, or skip?"; they now say FERB opens it itself and there is nothing to ask, unless the extension isn't paired.
+The same task then listed New_Personal's tabs six times while Chrome had no profile loaded: `browser.tabs` never
+started a closed profile (only `browser.open` did) and its error began "reload the FERB extension", so the task ended
+asking the owner to reload it. Listing a named profile's tabs now starts it with no window first; a listing of every
+profile skips one that isn't connected and names it; the error no longer says "reload" for a profile that just isn't
+running. All browser tools now share one check, the owner's rule: connected, use it; not connected, start it quietly,
+and if that doesn't bring the extension, open the profile's window (the accepted focus shift) and carry on through the
+extension (owner: "didnt i said simply that it should check if its not open, if open then use"). Before, a quiet
+start that failed ended the task, and taking over a listed tab failed when the connection had dropped.
+
 ## 0.27.0.dev1 Background browser fixes — 2026-10-26 — owner live check pending
 
 Live 2026-10-26 the visa task drove the owner's screen: FERB refused to work in a profile with no FERB window, the

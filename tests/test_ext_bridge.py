@@ -410,10 +410,49 @@ def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
     assert ext.windows_created == before + 1 and "https://example.com/" in ext.tabs.values()
 
 
+def test_listing_a_closed_profiles_tabs_starts_it_in_the_background(bd: Any) -> None:
+    """Live 2026-10-26 (task 7c1eca3a): the worker listed New_Personal's tabs six times while Chrome had no profile
+    loaded; the listing never started it, said "reload the FERB extension", and the task ended asking the owner to
+    reload it. Listing a named profile's tabs starts it with no window, as browser.open does."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()                                                                  # the profile isn't running
+    d.run(_start_wake(d))
+
+    def on_launch(args: list[str]) -> None:
+        launched.append(args)
+        ext.connect()                                                           # loading the profile starts it
+    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
+    ext.tabs.clear()
+    ext.tab_windows.clear()                                                     # just started: no window, no tab
+    before = ext.windows_created
+    r = call(d, task(d, "w", OWNER, "use my Work profile"), "browser.tabs", profile="Work")
+    assert not r["is_error"], r
+    assert r["content"]["tabs"] == []
+    assert launched[-1][-1] == "--no-startup-window" and ext.windows_created == before   # no window for a listing
+
+
+def test_listing_every_profile_skips_a_closed_one_and_names_it(bd: Any) -> None:
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()
+    ext.wait_for(lambda: d.daemon.hub.bridges[("chrome", "Profile 1")].conn is None)
+    r = call(d, task(d, "w", OWNER, "what tabs do I have open"), "browser.tabs")
+    assert not r["is_error"], r
+    assert r["content"]["tabs"] == []
+    closed = r["content"]["not_connected"]
+    assert [c["profile"] for c in closed] == ["chrome/Profile 1"] and "browser_open" in closed[0]["why"]
+
+
 def test_disconnected_profile_does_not_open_a_visible_wake_tab(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neither the quiet start nor the profile's window brought its extension: a known failure that names both, and
+    never a visible wake page."""
     import ferb.act.browser.ext_bridge as eb
     monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
+    monkeypatch.setattr(eb, "WINDOW_WAIT_S", 0.05)
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
@@ -423,10 +462,58 @@ def test_disconnected_profile_does_not_open_a_visible_wake_tab(
     d.daemon.router.launch = launched.append
     g = task(d, "w", OWNER, "use my Work profile")
     r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
-    assert r["is_error"] and "reload" in r["content"]["error"]
-    assert len(launched) == before + 1
-    assert launched[-1][-1] == "--no-startup-window"
+    assert r["is_error"] and "even with its window open" in r["content"]["error"]
+    assert len(launched) == before + 2
+    assert launched[before][-1] == "--no-startup-window"
+    assert launched[-1][1:] == ["--profile-directory=Profile 1"]               # the profile's own window, no page
     assert not any("/wake/" in arg for argv in launched[before:] for arg in argv)
+
+
+def test_a_profile_the_quiet_start_cant_reach_gets_its_window_and_the_task_goes_on(
+        bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner's rule (2026-10-26): "see if the browser is closed or open; if open then keep using through the
+    extension; if not open, once that causes focus shift - ok - but then after opened continue using through the
+    extension". The quiet start (no window) is tried first; when it doesn't bring the extension, the profile's window
+    is opened and the task carries on through the extension."""
+    import ferb.act.browser.ext_bridge as eb
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()
+    d.run(_start_wake(d))
+
+    def on_launch(args: list[str]) -> None:
+        launched.append(args)
+        if args[-1] != "--no-startup-window":
+            ext.connect()                                                       # only the window brings it
+    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
+    r = call(d, task(d, "w", OWNER, "use my Work profile"), "browser.open", url="https://example.com/", profile="Work")
+    assert not r["is_error"], r
+    assert launched[-2][-1] == "--no-startup-window" and launched[-1][1:] == ["--profile-directory=Profile 1"]
+    assert "https://example.com/" in ext.tabs.values()
+
+
+def test_taking_over_a_tab_reconnects_its_profile_first(bd: Any) -> None:
+    """A tab listed before FERB's connection to that profile dropped (a restart) is still the owner's open tab: the
+    profile reconnects through the same check before FERB takes it over."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.tabs[41], ext.tab_windows[41] = "https://news.example/", 7
+    g = task(d, "w", OWNER, "use my news tab")
+    listed = call(d, g, "browser.tabs", profile="Work")["content"]["tabs"]
+    ref = next(t["tab_ref"] for t in listed if t["url"] == "https://news.example/")
+    ext.kill()
+    ext.wait_for(lambda: d.daemon.hub.bridges[("chrome", "Profile 1")].conn is None)
+    d.run(_start_wake(d))
+
+    def on_launch(args: list[str]) -> None:
+        launched.append(args)
+        ext.connect()
+    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
+    r = call(d, g, "browser.use_tab", tab_ref=ref)
+    assert not r["is_error"], r
 
 
 async def _start_wake(d: RunningDaemon) -> None:
@@ -555,6 +642,7 @@ def test_browser_wait_preserves_the_owners_new_app(
     monkeypatch.setattr(apps, "activate", activate)
     monkeypatch.setattr(daemon.daemon, "watch_owner_input", True)
     monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.01)
+    monkeypatch.setattr(eb, "WINDOW_WAIT_S", 0.01)
     driver = getattr(daemon.daemon, driver_name)  # retain actual daemon wiring of both browser drivers
 
     async def run() -> None:
@@ -605,12 +693,15 @@ def test_tab_listing_reports_disconnected_pairing_instead_of_empty_tabs(bd):
     result = call(d, grant, 'browser.tabs', profile='Work')
     assert result['is_error']
     assert 'paired but not connected' in result['content']['error']
-    assert 'reload' in result['content']['error']
+    # live 2026-10-26 (task 7c1eca3a): "reload the FERB extension" first made the worker ask the owner to reload it,
+    # when the profile simply wasn't running
+    assert "isn't running" in result['content']['error'] and 'reload' not in result['content']['error']
     # Owner live run 4530ea34: the worker read this as "needs the foreground" and scraped browser data first. The
-    # fact it needs: browser.open loads the profile itself; with no window there, one minimized window needs the
-    # owner's permission once per task.
+    # fact it needs: browser.open loads the profile and opens the tab itself (live 2026-10-26: "may switch Spaces and
+    # so needs the owner's permission" made a worker ask; owner: "if not open once that causes focus shift - ok").
     error = result['content']['error']
-    assert 'browser.open' in error and 'minimized' in error and "owner's permission once per task" in error
+    assert 'browser.open' in error and 'minimized' in error and 'nothing to ask the owner' in error
+    assert 'permission' not in error
 
 
 # ---------- D31 review round 1, finding 6: no web terminal goes unrecognized through an older extension ----------
@@ -652,11 +743,13 @@ def test_a_reinstalled_unpaired_extension_says_open_the_profile_once_to_pair(
     fresh.wait_for(lambda: fresh.install_id in d.daemon.hub.unpaired)
     d.run(_start_wake(d))
     d.daemon.router.launch = launched.append
+    before = len(launched)
     try:
         g = task(d, "w", OWNER, "use my Work profile")
         r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
     finally:
         fresh.kill()
+    assert all(argv[-1] == "--no-startup-window" for argv in launched[before:])   # no window: only the owner pairs
     assert r["is_error"]
     err = r["content"]["error"]
     assert "not paired" in err and "open that profile" in err and "Mac tools" in err

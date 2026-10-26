@@ -171,7 +171,7 @@ def _detached(args: list[str]) -> None:
 
 def open_known_profile(browser: str, folder: str, url: str | None, known: list[BrowserProfile],
                        launch: Launch = _detached, background: bool = True,
-                       is_running: Callable[[str], bool] = running) -> None:
+                       is_running: Callable[[str], bool] = running, window: bool = False) -> None:
     """Hand `url` to that profile — or, with no url, just load the profile with no window. Refuses folders discovery
     didn't return.
 
@@ -185,6 +185,9 @@ def open_known_profile(browser: str, folder: str, url: str | None, known: list[B
     running browser and loaded FERB's profile without bringing anything forward."""
     if not any(p.browser == browser and p.folder == folder for p in known):
         raise ValueError(f"{browser}/{folder} isn't a discovered profile; refusing to create one")
+    if window:          # the profile's own window, no page: the owner's accepted one focus shift (2026-10-26)
+        launch([BROWSERS[browser].binary, f"--profile-directory={folder}"])
+        return
     if background and url is not None:
         raise ValueError("needs_foreground: URL launch requires an explicit foreground setup step")
     if background and url is None and is_running(browser):

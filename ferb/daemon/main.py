@@ -4493,8 +4493,8 @@ class Daemon:
     def _paired_state(self, binding: Any, bridge: Any) -> str:
         """How the planner may use one paired owner profile now, in plain words: a profile that isn't connected is
         usually just not running, and the browser tools start it without a window when the wake service is there
-        (`_TabDriver._connected`, spike 19); its first page needs FERB's minimized window, whose creation may switch
-        Space (background.js `getFerbWindow`). Live 2026-10-24: "extension transport disconnected" read as broken."""
+        (`_TabDriver._connected`, spike 19), then open its tab themselves (`_TabDriver._open_in`). Live 2026-10-24:
+        "extension transport disconnected" read as broken; live 2026-10-26: "may switch Space" made a worker ask."""
         if bridge is not None and bridge.conn:
             return ", connected"
         refused = self.hub.refused.get(binding.install_id) if self.hub is not None else None
@@ -4502,8 +4502,7 @@ class Daemon:
             return f"; its extension was refused: {refused}"
         if self.router is not None and self.router.wake is not None:
             return ("; not connected now (usually the profile just isn't running) — FERB's browser tools start it in "
-                    "the background, with no window; its first page needs FERB's minimized window, whose creation "
-                    "may switch Space")
+                    "the background and open its tab there themselves, nothing to ask")
         return f"; {IDLE_PROFILE}"
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:

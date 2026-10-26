@@ -199,7 +199,7 @@ class BrowserOpen(_Base):
     class Input(BaseModel):
         url: str = Field(description="http(s) URL")
         window_id: int | None = Field(default=None, ge=0, description="Exact existing window id from returned choices or tabs. Never guessed from first/last/focused window.")
-        allow_foreground: bool = Field(default=False, description="Only after task-wide owner permission to create a window that may switch Spaces. No automatic focus restoration.")
+        allow_foreground: bool = Field(default=False, description="Not needed to open a tab: a profile with no window gets FERB's own minimized window by itself. No automatic focus restoration.")
         profile: str | None = Field(default=None, description="Owner browser: select a profile from the task context "
                                    "(name or browser/folder). FERB's own browser does not accept this argument.")
 
@@ -349,7 +349,11 @@ class BrowserTabs(_Base):
         # L31: a probe's read also gets one tab by its ref, for its dot path (`tabs_by_ref.<tab_ref>.audible`; a ref
         # has no dots); a model reads the list (review M5: the map doubled it)
         by_ref = {"tabs_by_ref": {t["tab_ref"]: t for t in tabs}} if ctx.probe else {}
-        return ToolResult({"tabs": tabs} | by_ref, read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
+        # a listing of every profile skips one that isn't connected and names it, instead of failing (live 2026-10-26)
+        closed = getattr(self.driver, "not_connected", None)
+        skipped = closed() if closed is not None and not getattr(args, "profile") else []
+        return ToolResult({"tabs": tabs} | ({"not_connected": skipped} if skipped else {}) | by_ref,
+                          read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
 
 
 class BrowserUseTab(_Base):

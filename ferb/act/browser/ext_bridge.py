@@ -45,6 +45,7 @@ CMD_TIMEOUT_S = 30.0
 WINDOWLESS_WAIT_S = 35.0         # a profile loaded with no window: a fresh one connects in about a second (tested
                                  # 2026-10-26); an already loaded one whose connection dropped (FERB restarted)
                                  # reconnects on the extension's 30 s alarm
+WINDOW_WAIT_S = 15.0             # then the profile's window: a profile it loads connects in about a second
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
@@ -763,15 +764,19 @@ class _TabDriver:
             hub.drivers.append(self)
 
     async def _connected(self, br: Bridge) -> Bridge:
-        """Try loading the profile without a window; never create a visible wake tab to force a connection."""
+        """The one check every browser tool's profile goes through, the owner's rule (2026-10-26): "see if the browser
+        is closed or open; if open then keep using through the extension; if not open, once that causes focus shift -
+        ok - but then after opened continue using through the extension". Connected: used as is. Not connected: the
+        profile starts with no window first (spike 19: nothing moves, and it connects in about a second); if its
+        extension still hasn't come, the profile's own window opens (the accepted focus shift) and FERB carries on
+        through the extension. An unpaired or refused extension stops it: only the owner can fix those. Never a
+        visible wake page."""
         if br.conn is None and self.wake is not None:
             kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
-            kwargs["is_running"] = self.is_running
             # Never restore a previously focused app after this wait: the owner can switch apps meanwhile.
-            open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), **kwargs)
-            try:
-                await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
-            except asyncio.TimeoutError:
+            open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(),
+                               is_running=self.is_running, **kwargs)
+            if not await self._came(br, WINDOWLESS_WAIT_S):
                 reason = self.hub.refused.get(br.binding.install_id)
                 if reason is None and br.binding.browser in self.hub.unpaired.values():
                     # Live 2026-10-26: a reinstalled extension connects with a new identity and no pairing, so FERB
@@ -780,13 +785,26 @@ class _TabDriver:
                         f"{br.name}'s FERB extension is connected but not paired with FERB (a reinstall gives it a new "
                         "identity). Ask the owner to open that profile's window once: FERB pairs it while they are "
                         "there. Never work around this through Mac tools (the browser's menus, address bar or "
-                        "clicks): that takes over the owner's screen.") from None
-                raise DriverError(f"{br.name} didn't connect without opening a window; "
-                                  f"{reason or 'reload the FERB extension in that profile'}. "
-                                  "No visible wake tab was opened.") from None
+                        "clicks): that takes over the owner's screen.")
+                if reason is not None:
+                    raise DriverError(f"{br.name}'s FERB extension was refused: {reason}.")
+                open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), window=True, **kwargs)
+                if not await self._came(br, WINDOW_WAIT_S):
+                    raise DriverError(f"{br.name} didn't connect, even with its window open: its FERB extension may "
+                                      "be turned off there; ask the owner to reload the FERB extension in that "
+                                      "profile.")
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
         return br
+
+    @staticmethod
+    async def _came(br: Bridge, wait: float) -> bool:
+        """Whether that profile's extension connected within `wait` seconds."""
+        try:
+            await asyncio.wait_for(br.connected.wait(), wait)
+        except asyncio.TimeoutError:
+            return br.conn is not None
+        return True
 
     async def _open_in(self, br: Bridge, url: str, owner: str | None, *,
                        window_id: int | None = None, allow_foreground: bool = False,
@@ -1867,23 +1885,33 @@ class Router(_TabDriver):
             out.append(br)
         return out
 
+    def not_connected(self) -> list[dict[str, str]]:
+        """The paired owner profiles a listing of every profile skipped: not connected, usually just not running."""
+        return [{"profile": br.name, "why": self.hub.refused.get(br.binding.install_id) or
+                 "not connected (usually the profile just isn't running): browser_open with this profile starts it in "
+                 "the background"} for br in self._owner_bridges(None, connected_only=False) if br.conn is None]
+
     async def open_tabs(self, profile: str | None = None, task: str | None = None) -> list[dict[str, Any]]:
         """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
         A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
         out = []
         selected = self._owner_bridges(profile, connected_only=False)
+        if profile and self.wake is not None:
+            # A named profile that isn't running starts with no window first, as for browser.open (live 2026-10-26,
+            # task 7c1eca3a: the listing never started New_Personal and said "reload the FERB extension")
+            for br in selected:
+                await self._connected(br)
         missing = [br for br in selected if br.conn is None]
-        if missing:
+        if missing and profile:
             details = "; ".join(f"{br.name}: " + (self.hub.refused.get(br.binding.install_id) or
-                               "paired but not connected; reload the FERB extension in that profile, then retry")
+                               "paired but not connected (usually the profile just isn't running)")
                                for br in missing)
             raise Refused(details + ". No tab inventory is available for these profiles; this is a connection "
                           "problem, not an empty tab list. Preserve the requested profile. browser.open with this "
-                          "profile loads it without a window; when the profile has no window, opening a tab creates "
-                          "one minimized, unfocused window, which may switch Spaces and so needs the owner's "
-                          "permission once per task (allow_foreground). Native background controls may be an "
-                          "alternative if the exact requested window can be identified.")
+                          "profile loads it without a window and opens the tab itself: in one of its open windows "
+                          "or, when it has none, in FERB's own minimized window, made once; nothing to ask the "
+                          "owner.")
         for br in self._owner_bridges(profile):
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):
@@ -1917,8 +1945,9 @@ class Router(_TabDriver):
         except ValueError:
             raise Refused(f"{tab_ref!r} isn't a tab reference from browser.tabs") from None
         br = self.hub.bridge(browser, folder)
-        if br is None or br.conn is None or br.binding.identity is not Identity.OWNER:
-            raise Refused("that profile isn't one of the owner's connected profiles")
+        if br is None or br.binding.identity is not Identity.OWNER:
+            raise Refused("that profile isn't one of the owner's paired profiles")
+        br = await self._connected(br)                     # a profile whose connection dropped reconnects first
         existing = next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == cid and not t.closed), None)
         if existing is not None:
             if not self._accessible(existing, owner):

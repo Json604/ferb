@@ -92,7 +92,8 @@ SENTENCES = [
     # and driven with Accessibility; the browser tools start it in the background
     ("worker.md",
      "Use the browser tools for a paired browser profile even when it isn't running or connected now: they start it in "
-     "the background and make FERB's own minimized window once, then work in hidden tabs. Open sites with browser_open "
+     "the background, or open its window when that doesn't connect (the owner accepted that focus shift), then work in "
+     "hidden tabs. Open sites with browser_open "
      "or browser_navigate. Never drive a browser through Mac tools (its menus, address bar, clicks or keys) when a "
      "browser tool can do the step: that takes over the owner's screen. Mac input in the foreground asks the owner "
      "first, once per task for that app; prefer a background route. If a browser tool says a profile's extension "
@@ -146,6 +147,14 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
+    # live 2026-10-26 (task 7c1eca3a): the worker asked "should this wait until you're idle, should you open that
+    # profile now, or should I skip" for a closed Chrome profile, as this file's old window rule told it to; FERB
+    # opens a closed profile itself (owner: "if not open once that causes focus shift - ok")
+    ("interaction.md",
+     "A browser profile that isn't open is never a reason to ask: the browser tools start it in the background (or "
+     "open its window when that doesn't connect), and browser_open puts the tab in one of its open windows or, when "
+     "it has none, in FERB's own minimized window, made once (the owner accepted that focus shift). Never ask the owner to open a profile window, to wait until they're idle or to "
+     "skip a step for it, unless a browser tool says the profile's extension isn't paired."),
     ("interaction.md",
      'Everything the owner reads (answers, summaries, questions, success conditions, stop reasons, and a check\'s '
      'evidence and how) speaks to them as "you" and "your", never "the owner" or "the user". In a success condition, '
@@ -361,3 +370,7 @@ def test_a_parallel_request_is_one_plan_step_per_item_and_never_a_condition() ->
 def test_questions_about_passwords_offer_options_and_never_ask_for_one(name: str, sentence: str) -> None:
     """Re-review 3 (R1-a, R1-c): a typed answer to a question with a password word is hidden whole."""
     assert " ".join(sentence.split()) in _words(name)
+
+
+def test_the_shared_rules_never_offer_now_idle_or_skip_for_a_closed_profile() -> None:
+    assert "offer now / idle / skip" not in _words("interaction.md")

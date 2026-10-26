@@ -68,8 +68,8 @@ def test_the_planner_facts_say_a_paired_profile_not_running_starts_in_the_backgr
     try:
         facts = daemon.run(_facts(dm))
         assert ("- The owner's brave profile “Work”: paired; not connected now (usually the profile just isn't "
-                "running) — FERB's browser tools start it in the background, with no window; its first page needs "
-                "FERB's minimized window, whose creation may switch Space") in facts
+                "running) — FERB's browser tools start it in the background and open its tab there themselves, "
+                "nothing to ask") in facts
         assert "transport disconnected" not in facts
         dm.hub.refused["install-work"] = "extension 0.15.5 (protocol 16), FERB needs 0.15.6 (protocol 17): reload it"
         facts = daemon.run(_facts(dm))

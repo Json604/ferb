@@ -334,9 +334,18 @@ minimized, unfocused window, once; macOS can switch Spaces while that window is 
 A paired owner profile that isn't connected is usually just not running: the browser tools load it with no window
 (`_TabDriver._connected`, `--no-startup-window`, spike 19) and wait `WINDOWLESS_WAIT_S` (35 s): a profile that wasn't
 loaded connects in about a second (live 2026-10-26), while one already loaded whose connection dropped (FERB restarted)
-reconnects on the extension's 30 s alarm. The planner's facts say so in plain words (`Daemon._paired_state`: "not
-connected now (usually the profile just isn't running) — FERB's browser tools start it in the background …"; a refused
-extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
+reconnects on the extension's 30 s alarm. When the quiet start doesn't bring the extension, the profile's own window
+opens (`open_known_profile(window=True)`, `WINDOW_WAIT_S` 15 s) and FERB carries on through the extension: the
+owner's rule (2026-10-26: "see if the browser is closed or open; if open then keep using through extension; if not
+open, once that causes focus shift - ok - but then after opened continue using through extension"). An unpaired or
+refused extension stops before any window: only the owner can fix it. Every owner-profile route goes through that one
+check (`_TabDriver._connected`): `browser.open`, FERB's identity profile, `browser.use_tab` (a profile whose
+connection dropped reconnects first) and `browser.tabs` for a named profile, which starts it the same way before listing
+(live 2026-10-26, task 7c1eca3a: the listing never started New_Personal and said "reload the FERB extension", and the
+task ended asking the owner to reload it); a listing of every profile skips one that isn't connected and names it
+in `not_connected` instead of failing. The planner's facts say so in plain words (`Daemon._paired_state`: "not
+connected now (usually the profile just isn't running) — FERB's browser tools start it in the background and open its
+tab there themselves, nothing to ask"; a refused extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
 identity), the error says so and tells the worker to ask the owner to open that profile once; automatic pairing then
 pairs it (section 16.9). Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
 browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
