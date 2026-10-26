@@ -978,7 +978,8 @@ def doctor(env: Env) -> int:
                 add(Check("jev", "ok", f"not set (optional): activity notices are off; a key comes from {JEV_KEYS_URL}, "
                                        "then `ferb setup --jev`"))
             for source, why in sense.get("failed", {}).items():
-                add(Check(f"watcher {source}", "warn", f"stopped: {why}", "restart FERB (`ferb setup --update`)"))
+                add(Check(f"watcher {source}", "warn", f"failing, trying again: {why}",
+                          "FERB retries it by itself; if it keeps failing, check its permission in Settings"))
             for problem in sense["folder_problems"]:
                 add(Check("watch folder", "warn", problem, "fix [sense] watch_folders in ~/.ferb/config.toml"))
     did = Config(inst.home).get("device", "id") if (inst.home / "config.toml").exists() else None

@@ -13,9 +13,20 @@ MODIFIER_FLAG = {61: 0x40, 58: 0x20, 54: 0x10, 55: 0x08, 60: 0x04, 56: 0x02, 62:
                  63: 0x800000}   # right/left option, right/left command, right/left shift, right/left control, fn
 
 
+def _input_monitoring_granted() -> bool:
+    from ferb.device.permissions import Status, input_monitoring
+    try:
+        return input_monitoring() == Status.GRANTED
+    except Exception:                                  # no IOKit answer: not known to be granted
+        return False
+
+
 class OwnerInput:
-    def __init__(self, quiet_s: float = 1.5, now: Callable[[], float] = time.monotonic) -> None:
-        self.quiet_s, self.now = quiet_s, now
+    def __init__(self, quiet_s: float = 1.5, now: Callable[[], float] = time.monotonic,
+                 allowed: Callable[[], bool] = _input_monitoring_granted) -> None:
+        """`allowed`: whether Input Monitoring is granted. Creating the tap without it makes macOS ask "would like to
+        receive keystrokes" (live 2026-10-26: on setup's first screen), so it waits for the grant."""
+        self.quiet_s, self.now, self.allowed = quiet_s, now, allowed
         self.last_owner: float | None = None
         self.last_owner_wall: float | None = None       # wall-clock time of the same event (time header, idle)
         self.running = False
@@ -38,6 +49,8 @@ class OwnerInput:
     def start(self) -> bool:
         if self.running:
             return True
+        if not self.allowed():                            # no tap, so macOS never prompts; setup asks for it
+            return False
         import Quartz
         kinds = (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp,
                  Quartz.kCGEventRightMouseDown, Quartz.kCGEventLeftMouseDragged, Quartz.kCGEventKeyDown,

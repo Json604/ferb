@@ -19,7 +19,8 @@ class Sense:
         self.marker = home / "PAUSED"
         self.trail, self.watchers, self.owner_input, self.on_pause = trail, watchers, owner_input, on_pause
         self.on_fail = on_fail
-        self.failed: dict[str, str] = {}                          # source -> why it stopped (doctor shows it)
+        self.failed: dict[str, str] = {}                          # source -> why it last failed (doctor shows it)
+        self.retry_s = 60.0                                      # a failed watcher tries again after this, doubling
         self._stop: asyncio.Event | None = None
         self._tasks: list[asyncio.Task[None]] = []
 
@@ -29,7 +30,8 @@ class Sense:
 
     @property
     def running(self) -> list[str]:
-        return [w.source for w, t in zip(self.watchers, self._tasks) if not t.done()]
+        """Watchers running now: not ended, and not waiting to try again after a failure."""
+        return [w.source for w, t in zip(self.watchers, self._tasks) if not t.done() and w.source not in self.failed]
 
     def emit(self, o: Observation) -> None:
         self.trail.record(o)
@@ -43,16 +45,30 @@ class Sense:
         self._tasks = [asyncio.get_running_loop().create_task(self._guard(w)) for w in self.watchers]
 
     async def _guard(self, w: Watcher) -> None:
+        """Runs a watcher; one that fails tries again later (live 2026-10-27: a watcher stopped by a permission
+        missing at startup stayed stopped after it was granted), pausing retry_s, doubling to 15 minutes. Each new
+        reason is reported once."""
         assert self._stop is not None
-        try:
-            await w.run(self.emit, self._stop)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:                                  # one broken watcher never stops the others
-            why = f"{type(e).__name__}: {e}"
-            self.failed[w.source] = why
-            self.trail.publish("sense.watcher_failed", {"source": w.source, "error": why})
-            self.on_fail(w.source, why)
+        stop, wait, reported = self._stop, self.retry_s, ""
+        while not stop.is_set():
+            try:
+                self.failed.pop(w.source, None)                 # trying (again): running until it fails
+                await w.run(self.emit, stop)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:                              # one broken watcher never stops the others
+                why = f"{type(e).__name__}: {e}"
+                self.failed[w.source] = why
+                if why != reported:
+                    reported = why
+                    self.trail.publish("sense.watcher_failed", {"source": w.source, "error": why})
+                    self.on_fail(w.source, why)
+            try:
+                await asyncio.wait_for(stop.wait(), wait)
+            except asyncio.TimeoutError:
+                pass
+            wait = min(wait * 2, 900.0)
 
     async def stop(self) -> None:
         if self._stop is not None:

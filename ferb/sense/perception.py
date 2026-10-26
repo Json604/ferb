@@ -9,6 +9,14 @@ from ferb.sense.notifications import NotificationPolicy
 from ferb.sense.trail import Observation
 
 
+def _full_disk_access() -> bool:
+    from ferb.device.permissions import Status, full_disk_access
+    try:
+        return full_disk_access() == Status.GRANTED
+    except Exception:
+        return False
+
+
 class Perception:
     source = "jev_batches"
 
@@ -42,7 +50,7 @@ class Perception:
                 TextInputWatcher(d.owner_input, d.redact, excluded,
                                  lambda: d.protection.terminal_apps if d.protection is not None else ()),
                 NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification,
-                                    floor=self.notification_floor),
+                                    floor=self.notification_floor, allowed=_full_disk_access),
                 SoftwareWatcher(self.installed, d.redact)]
 
     def clipboard_access(self, state: str) -> None:

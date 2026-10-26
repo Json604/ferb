@@ -70,12 +70,22 @@ class NotificationWatcher:
 
     def __init__(self, reader: NotificationDatabase, seen: Callable[[str], bool],
                  record: Callable[[Observation], None], interval_s: float = 1.0,
-                 floor: Callable[[list[Observation]], list[Observation]] = lambda observations: observations) -> None:
+                 floor: Callable[[list[Observation]], list[Observation]] = lambda observations: observations,
+                 allowed: Callable[[], bool] = lambda: True, recheck_s: float = 30.0) -> None:
+        """`allowed`: whether Full Disk Access is on. The database is macOS's own, in a protected folder: reading it
+        without access makes newer macOS show "Data Access Blocked" (live 2026-10-27), so nothing is read before."""
         self.reader, self.seen, self.record, self.interval_s = reader, seen, record, interval_s
         self.floor = floor               # I1: what was there at install is marked seen, never recorded
+        self.allowed, self.recheck_s = allowed, recheck_s
 
     async def run(self, emit: Emit, stop: asyncio.Event) -> None:
         while not stop.is_set():
+            if not await asyncio.to_thread(self.allowed):
+                try:
+                    await asyncio.wait_for(stop.wait(), self.recheck_s)
+                except asyncio.TimeoutError:
+                    pass
+                continue
             observations = self.floor(await asyncio.to_thread(self.reader.read))
             for observation in observations:
                 if stop.is_set():
