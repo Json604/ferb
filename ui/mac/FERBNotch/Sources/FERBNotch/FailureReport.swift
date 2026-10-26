@@ -8,12 +8,17 @@ struct FailureReport: Equatable {
     static let note = "The attached file is everything FERB recorded about this task, with secrets removed. "
         + "Open it to see exactly what you're sending."
 
+    /// Send diagnostics to developer's note (2026-10-27).
+    static let diagnosticNote = "The attached file is FERB's diagnostic file: its health check, versions, recent tasks "
+        + "and setup events, with secrets removed. Open it to see exactly what you're sending."
+
     let file: URL
     let subject: String
     let summary: String
     let address: String
+    let note: String
 
-    init?(_ reply: [String: Any]) {
+    init?(_ reply: [String: Any], note: String = FailureReport.note) {
         guard let path = reply["path"] as? String, path.hasPrefix("/"),
               let address = reply["address"] as? String, !address.isEmpty,
               let subject = reply["subject"] as? String else { return nil }
@@ -21,10 +26,11 @@ struct FailureReport: Equatable {
         self.subject = subject
         self.summary = reply["summary"] as? String ?? ""
         self.address = address
+        self.note = note
     }
 
     /// The email's body: FERB's short summary, then what the attached file is.
-    var body: String { summary.isEmpty ? Self.note : summary + "\n\n" + Self.note }
+    var body: String { summary.isEmpty ? note : summary + "\n\n" + note }
 }
 
 /// Where a report stands under its answer.

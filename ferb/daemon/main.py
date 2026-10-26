@@ -4981,11 +4981,16 @@ class Daemon:
         return {"notices": [self.attention_notices.view(r) | {"shown": r["delivered_at"] is not None} for r in rows]}
 
     async def _reports_diagnostic(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Settings → Advanced → Export a diagnostic file: reports.diagnostic writes it; FERB sends nothing (sending it
-        anywhere is a later owner decision). Params: `app_version`, the app's version."""
+        """Settings → Advanced → Export a diagnostic file: reports.diagnostic writes it. With `send`, Send diagnostics to
+        developer (owner 2026-10-27): also the feedback address and a subject for a new email in the owner's own Mail
+        app, as a failure report; FERB itself sends nothing. Params: `app_version`, the app's version; `send`."""
         from ferb.daemon import reports
         if self.db is None:
             raise FerbError("daemon not started")
+        send = params.get("send") is True
+        address = str(self.config.get("feedback", "address", reports.FEEDBACK_ADDRESS) or "").strip()
+        if send and not address:
+            raise FerbError("No feedback address set")
         text = getattr(self.redact, "text", None)
         if not callable(text):                     # never written unredacted
             raise FerbError("FERB couldn't redact the diagnostic file, so it wrote none")
@@ -4994,7 +4999,9 @@ class Daemon:
         built = await asyncio.to_thread(
             reports.diagnostic, self.db.path, health, recording, self._report_facts(), home=self.home,
             now=self.clock.now(), walk=self.redact, text=text, app_version=str(params.get("app_version") or ""))
-        self._journal().append("diagnostic.built", {"file": built["path"]})
+        self._journal().append("diagnostic.built", {"file": built["path"], "send": send})
+        if send:
+            return {**built, "address": address, "subject": f"FERB diagnostics ({built['summary']})"}
         return built
 
     # ---------- updates (L34 Phase G) ----------

@@ -314,7 +314,12 @@ struct AdvancedSettingsPage: View {
                         }
                     }
                 }
-                Text("Written on this Mac with secrets removed; FERB sends it nowhere.")
+                Button("Send diagnostics to developer…") {
+                    Task { await store.sendDiagnostic(appVersion: actions.appVersion) }
+                }
+                if let line = store.diagnosticLine { Text(line).textSelection(.enabled) }
+                Text("Written on this Mac with secrets removed. Send opens a new email in your Mail app with the file "
+                     + "attached; nothing goes until you press Send there.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if actions.runFerb != nil {

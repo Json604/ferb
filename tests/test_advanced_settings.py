@@ -155,3 +155,18 @@ def test_sign_out_without_a_sign_in_changes_nothing(tmp_path: Path) -> None:
     env, out = _env(tmp_path)
     assert setup_cmd.codex_logout(env, run=lambda *a, **k: pytest.fail("ran codex")) == 0
     assert "isn't signed in" in out.getvalue()
+
+
+def test_send_diagnostics_names_the_developer_address_and_shows_setup_events(daemon: RunningDaemon) -> None:
+    """Owner 2026-10-27: Settings → Send diagnostics to developer, emailed like a failure report (a new email in the
+    owner's own Mail app; FERB sends nothing), with the recent setup and pairing events a first install hits."""
+    _fake_health(daemon)
+    _on_loop(daemon, lambda: daemon.daemon._journal().append("browsers.pair_failed", {
+        "browser": "chrome", "folder": "Profile 3", "why": "the pairing page wasn't answered"}))
+    _on_loop(daemon, lambda: daemon.daemon._journal().append("task.created", {"goal": "not a setup event"}))
+    r = _export(daemon, send=True, app_version="0.28.0")
+    assert r["address"] == "ktky.attri@gmail.com" and r["subject"].startswith("FERB diagnostics (FERB ")
+    text = Path(r["path"]).read_text()
+    events = text[text.index("\n## Recent setup, pairing and watcher events\n"):]
+    assert "browsers.pair_failed" in events and "Profile 3" in events and "not a setup event" not in events
+    assert "address" not in _export(daemon)                            # Export alone names no one

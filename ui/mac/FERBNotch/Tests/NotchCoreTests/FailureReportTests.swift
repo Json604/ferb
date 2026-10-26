@@ -236,22 +236,3 @@ private final class ReportRPC: DaemonRPCTransport {
         return AsyncThrowingStream { $0.finish() }
     }
 }
-
-private final class FakeMailer: ReportMailing {
-    struct Mail {
-        let recipients: [String]
-        let subject: String
-        let items: [Any]
-        let failed: @MainActor () -> Void
-    }
-    let composes: Bool
-    var composed: [Mail] = []
-    var revealed: [URL] = []
-    init(composes: Bool) { self.composes = composes }
-    func compose(recipients: [String], subject: String, items: [Any], failed: @escaping @MainActor () -> Void) -> Bool {
-        guard composes else { return false }
-        composed.append(Mail(recipients: recipients, subject: subject, items: items, failed: failed))
-        return true
-    }
-    func reveal(_ file: URL) { revealed.append(file) }
-}

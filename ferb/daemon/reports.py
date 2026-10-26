@@ -40,7 +40,12 @@ SPAN_CONTENT = ("input", "output", "error", "summary")   # a span's recorded con
 SPAN_LABEL = re.compile(r" *\d{2}:\d{2}:\d{2}  ")        # where `render_trace` starts a span's lines
 # Settings → Advanced → Export a diagnostic file (L34 Phase E): FERB's state for debugging, one text file per export
 DIAGNOSTIC = re.compile(r"FERB-diagnostic-\d{4}-\d{2}-\d{2}-\d{6}\.txt")
-DIAGNOSTIC_SECTIONS = ("Summary", "Health", "Recording", "Recent tasks", "FERB's recorded problems")
+DIAGNOSTIC_SECTIONS = ("Summary", "Health", "Recording", "Recent tasks", "FERB's recorded problems",
+                       "Recent setup, pairing and watcher events")
+# What went wrong on a first install, for Send diagnostics to developer (2026-10-27): a permission asked, a pairing
+# page left unanswered, a watcher that keeps failing, a human check handed over, a scheduled run retried
+SETUP_EVENTS = ("setup.%", "browsers.%", "browser.handoff%", "sense.watcher_failed", "schedule.retry_queued")
+SETUP_EVENTS_LAST = 40
 RECENT_TASKS = 20
 
 
@@ -126,6 +131,14 @@ def problems(db: Database, started: str | None, ended: str | None) -> list[tuple
     return [(r["at"], r["kind"], json.loads(r["data_json"])) for _, r in sorted(found.items())]
 
 
+def setup_events(db: Database) -> list[tuple[str, str, Any]]:
+    """The latest SETUP_EVENTS_LAST setup, pairing and watcher journal entries, oldest first, as (at, kind, data)."""
+    where = " OR ".join("kind LIKE ?" for _ in SETUP_EVENTS)
+    rows = db.conn.execute(f"SELECT at, kind, data_json FROM journal WHERE {where} ORDER BY seq DESC LIMIT ?",
+                           (*SETUP_EVENTS, SETUP_EVENTS_LAST)).fetchall()
+    return [(r["at"], r["kind"], json.loads(r["data_json"])) for r in reversed(rows)]
+
+
 def report(db_path: Path, task_id: str, request_id: str, facts: dict[str, Any], *, home: Path, now: datetime,
            clock: Clock, ids: IdSource, walk: Callable[[Any], Any], text: Callable[[str], str],
            app_version: str = "") -> tuple[Failure, dict[str, str]]:
@@ -192,15 +205,17 @@ def diagnostic(db_path: Path, health: dict[str, Any], recording: dict[str, Any],
                home: Path, now: datetime, walk: Callable[[Any], Any], text: Callable[[str], str],
                app_version: str = "") -> dict[str, str]:
     """Settings → Advanced → Export a diagnostic file (L34 Phase E): versions, the daemon's own health check, what it
-    records, its latest tasks by id and status, and its recorded problems, every part redacted as a failure report is
-    (rule 14; never raw stderr). FERB sends nothing. Runs off the event loop on its own connection; diagnostic files
-    older than KEEP_DAYS go first. Returns {path, summary}."""
+    records, its latest tasks by id and status, its recorded problems and its recent setup, pairing and watcher events,
+    every part redacted as a failure report is (rule 14; never raw stderr). FERB sends nothing itself: Send diagnostics
+    to developer opens it in a new email in the owner's own Mail app. Runs off the event loop on its own connection;
+    diagnostic files older than KEEP_DAYS go first. Returns {path, summary}."""
     db = Database(db_path)
     try:
         tasks = [dict(r) for r in db.conn.execute(
             "SELECT id, status, created_at FROM tasks WHERE parent_id IS NULL ORDER BY created_at DESC, rowid DESC "
             "LIMIT ?", (RECENT_TASKS,))]
         rows = problems(db, None, None)
+        events = setup_events(db)
     finally:
         db.close()
     mac = platform.mac_ver()[0] or "unknown"
@@ -221,6 +236,9 @@ def diagnostic(db_path: Path, health: dict[str, Any], recording: dict[str, Any],
              "## FERB's recorded problems",
              f"FERB's own records of requests that failed inside it or answered slowly: the latest {PROBLEMS_LAST}.",
              *([text(f"{at}  {kind}  {json.dumps(walk(data), ensure_ascii=False)}") for at, kind, data in rows]
+               or ["(none recorded)"]), "",
+             "## Recent setup, pairing and watcher events",
+             *([text(f"{at}  {kind}  {json.dumps(walk(data), ensure_ascii=False)}") for at, kind, data in events]
                or ["(none recorded)"]), ""]
     folder = home / FOLDER
     purge(folder, now, names=DIAGNOSTIC)
