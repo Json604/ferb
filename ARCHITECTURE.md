@@ -349,12 +349,14 @@ connected now (usually the profile just isn't running) — FERB's browser tools 
 tab there themselves, nothing to ask"; a refused extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
 identity), the error says so and names `browser_pair profile=<browser>/<folder>`: FERB's code asks the owner once
 (`floor:pair_profile`), then pairs that exact profile (section 16.9).
-A human check that still blocks after one ordinary click (owner 2026-10-27) goes to `browser_handoff {tab, message}`:
+A verification check is the worker's first, through the browser_verification ability's procedure (`abilities.read`,
+followed with the browser tools: clicks, pictured-object clicks, slider drags; no press-and-hold yet). One that
+still blocks (owner 2026-10-27) goes to `browser_handoff {tab, message}`:
 `Daemon._handoff` posts one urgent notification (category question, target `handoff`), then waits outside the stall
 clock, however long (rule 9), until two looks in a row (`Router.shows`: `list_tabs` plus `find`) no longer find the
 check's quoted words; a closed tab ends it as not passed. The owner's click (`browser.show_handoff`) brings that tab
 forward with 0.15.13's `show_tab` (its window restored and focused), or, for an older extension, the profile's browser
-with a window (`open_known_profile(window=True)`). FERB never solves the check. Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
+with a window (`open_known_profile(window=True)`). Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
 browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route.
 Input on a browser's own pages (chrome://, brave://, edge://, arc://: its settings and extensions) asks every time,
 naming the page (`floor:browser_page`, always; live 2026-10-26, task 7c1eca3a: a worker switched off the owner's

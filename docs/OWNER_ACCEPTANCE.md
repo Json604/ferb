@@ -1898,9 +1898,10 @@ click brings that profile's browser forward instead of the exact tab.
    **Expected:** a blank FERB tab opens and closes in each, both read "Paired"/"Connected" within a minute, nothing
    else moves. Then **Pair** on one more profile. Then a task naming an unpaired profile: one question "pair your
    Chrome profile “…” with FERB", and on Yes it pairs and carries on.
-4. A page behind a Cloudflare "Verify you are human" check that one click doesn't pass: **Expected:** one notification
-   "<site> wants to check you're human…"; clicking it brings that exact tab forward (0.15.13); after you pass the
-   check, FERB carries on by itself with no "done" reply.
+4. A page behind a "Verify you are human" check: **Expected:** the worker reads the browser_verification procedure
+   (`ferb trace`: `abilities.read`) and tries the check itself (a click, pictured objects, a slider). If it still
+   blocks: one notification "<site> wants to check you're human…"; clicking it brings that exact tab forward
+   (0.15.13); after you pass the check, FERB carries on by itself with no "done" reply.
 5. Notch on a Mac without a notch (a friend's M1, or an external display set as main): **Expected:** a black pill
    flush with the top edge, as tall as the menu bar, at the centre; it opens like the real notch.
 6. While a task runs: the work row reads "1 active task · 0:42" and counts up; Enter submits the setup API-key field

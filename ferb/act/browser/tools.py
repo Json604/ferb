@@ -309,11 +309,12 @@ class BrowserProfiles(_Base):
 
 class BrowserHandoff(_Base):
     """A human check handed to the owner (owner 2026-10-27): one notification opens the exact tab, and FERB carries on
-    by itself once the page lets them through. FERB never solves the check (no puzzle solving, no human mimicry)."""
+    by itself once the page lets them through. The browser_verification ability's fallback: the worker tries first."""
     verb = "handoff"
     on_screen = True                                   # the owner's click on its notification brings the tab forward
-    blurb = ("Hand a human check to the owner when it still blocks after one ordinary click (a \"Verify you are human\" "
-             "page): FERB sends one notification that opens this exact tab, then waits, however long, until the page "
+    blurb = ("Hand a human check to the owner when it still blocks after the browser_verification procedure (a "
+             "press-and-hold, a puzzle you can't resolve, the site's rejection): FERB sends one notification that opens "
+             "this exact tab, then waits, however long, until the page "
              "no longer shows `message` (the check's own words, quoted from a fresh snapshot). Then take a fresh "
              "snapshot and carry on; never ask the owner to reply \"done\".")
     class Input(_Tab):

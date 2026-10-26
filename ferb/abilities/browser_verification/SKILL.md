@@ -3,11 +3,12 @@
 Saved expertise, fresh perception. This procedure is shipped by FERB, separate from owner-written skills and
 learned site hints. Check the returned version, supported interactions and availability before using it.
 
-**Current availability:** this installation exposes the definition and this procedure only. The resumable workflow
-and held-input lifecycle are not installed. There is no `abilities.run` tool, and no supported ability interactions
-are advertised yet. Continue to follow the worker's current browser instructions and handoff tools. The method
-below is the approved workflow contract for the later implementation, not an instruction to imitate unavailable
-tools or override the current worker rules.
+**Current availability:** FERB has no one-call runner for this ability yet (no `abilities.run` tool, and its held-input
+lifecycle isn't installed), so follow this procedure step by step with your own browser tools (owner 2026-10-27: "we
+are using it now"): `browser_snapshot` and `browser_screenshot` to observe; `browser_point` to turn a point on a fresh
+screenshot into an element; `browser_act` to click (a checkbox, each pictured object) or drag (a slider, within one
+frame); a fresh snapshot or `browser_wait` to verify. A press-and-hold isn't supported yet. When the check still
+blocks, call `browser_handoff` with the check's own words (see the handoff section below).
 
 ## Observe the actual obstacle
 

@@ -105,13 +105,15 @@ SENTENCES = [
      "one of the owner's own tabs (one that browser_tabs lists) plays sound, probe browser_tabs with "
      'tabs_by_ref.<tab_ref>.audible, which is cheaper than a snapshot.'),
     # owner 2026-10-24: "will ferb click on the cloudflare check box??? it should since its just a box"; 2026-10-27:
-    # a check that still blocks goes to the owner as one notification that opens the tab, with no "done" reply
+    # checks go through the browser_verification ability ("we are using it now"), and one that still blocks goes to
+    # the owner as one notification that opens the tab, with no "done" reply
     ("worker.md",
-     'A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner\'s own browser profile is an '
-     "ordinary control: click it once, as the owner would, by the normal input route, then take a fresh snapshot and "
-     "wait for the page to continue; if a further challenge appears or the check still blocks, call browser_handoff "
-     "with the page's own words: FERB sends the owner one notification that opens the tab and returns once the page "
-     "lets them through. Never solve a puzzle yourself, and never ask the owner to reply \"done\"."),
+     "A verification check in the owner's own browser profile (a \"Verify you are human\" checkbox, pictured objects "
+     "to pick, a slider) is handled with FERB's browser_verification ability: read its procedure with abilities_read "
+     "and follow it with your browser tools, as the owner would, checking the page with a fresh snapshot after each "
+     "input. If the check still blocks (a press-and-hold, a puzzle you can't resolve, the site's rejection), call "
+     "browser_handoff with the page's own words: FERB sends the owner one notification that opens the tab and returns "
+     "once the page lets them through. Never ask the owner to reply \"done\"."),
     # owner 2026-10-24, visa login: account_security declared on every sign-in step asked five times in four minutes
     ("worker.md",
      "`account_security` only for changing a password, two-factor or recovery settings, or deleting the account. "

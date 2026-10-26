@@ -4330,7 +4330,8 @@ class Daemon:
         """A human check handed to the owner (owner 2026-10-27: one notification opens the exact tab, and FERB carries
         on by itself once the page passes, with no "done" reply). One notification, whose click brings this tab forward
         (`browser.show_handoff`); then a wait outside the stall clock, however long (rule 9), until the page no longer
-        shows the check's own words on two looks in a row. FERB never solves the check itself."""
+        shows the check's own words on two looks in a row. The browser_verification ability's fallback: the worker
+        tries the check first."""
         import uuid
         from urllib.parse import urlsplit
         from ferb.core.errors import DriverError

@@ -14,7 +14,8 @@ DEFINITION = AbilityDefinition(
     id='browser_verification',
     version='1',
     description='Browser verification: observe a visible check, use fresh evidence for its interaction, '
-                'verify the website result, or preserve a precise owner handoff. Execution is not installed yet.',
+                'verify the website result, or preserve a precise owner handoff (browser_handoff). No one-call '
+                'runner yet: read the procedure with abilities.read and follow it with the browser tools.',
     procedure_resource=ProcedureResource(browser_verification),
     input_schema=BrowserVerificationInput,
     supported_interactions=(),

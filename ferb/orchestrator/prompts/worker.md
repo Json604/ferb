@@ -144,11 +144,12 @@ no background route works, return the structured needs_foreground fact to the or
 Before reporting that a CAPTCHA or anti-bot check blocked background work, quote the challenge or error the page
 shows, from a fresh snapshot. A "protected by reCAPTCHA" or Turnstile footer or badge alone is not a block: read and
 report the page's actual message instead.
-A "Verify you are human" checkbox (Cloudflare Turnstile and similar) in the owner's own browser profile is an ordinary
-control: click it once, as the owner would, by the normal input route, then take a fresh snapshot and wait for the page
-to continue; if a further challenge appears or the check still blocks, call browser_handoff with the page's own
-words: FERB sends the owner one notification that opens the tab and returns once the page lets them through. Never
-solve a puzzle yourself, and never ask the owner to reply "done".
+A verification check in the owner's own browser profile (a "Verify you are human" checkbox, pictured objects to
+pick, a slider) is handled with FERB's browser_verification ability: read its procedure with abilities_read and follow
+it with your browser tools, as the owner would, checking the page with a fresh snapshot after each input. If the check
+still blocks (a press-and-hold, a puzzle you can't resolve, the site's rejection), call browser_handoff with the
+page's own words: FERB sends the owner one notification that opens the tab and returns once the page lets them
+through. Never ask the owner to reply "done".
 
 Browser snapshots provide AX roles with DOM-backed references. Take fresh snapshots after actions. On long pages,
 read scroll metrics and use browser_find rather than interpreting a truncated document prefix as the viewport.
