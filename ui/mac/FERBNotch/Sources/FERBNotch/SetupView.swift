@@ -123,6 +123,10 @@ struct PermissionsStepView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(model.allowingAll)
             }
+            if model.notificationHint {
+                Text("Notifications: click Allow on FERB's banner at the top right of your screen (under Options if "
+                     + "it shows no Allow).").font(.caption).foregroundStyle(.secondary)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.setupRows) { row in PermissionRowView(row: row, model: model) }
@@ -138,6 +142,9 @@ struct PermissionsStepView: View {
                 Text("Full Disk Access: drag FERB from the Finder window into the list.\n\(target)")
                     .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.cameBack() }
         }
     }
 }
@@ -155,7 +162,13 @@ struct PermissionRowView: View {
             }
             Spacer()
             if row.status != .granted {
-                Button("Grant") { Task { await model.grant(row) } }.disabled(!row.blocked.isEmpty)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Button("Grant") { Task { await model.grant(row) } }.disabled(!row.blocked.isEmpty)
+                    if model.askedRows.contains(row.id) && row.id != "full_disk_access" && row.process == "daemon" {
+                        Button("Not in the list? Show FERB to drag in", action: model.showAgentApp)
+                            .buttonStyle(.link).font(.caption)
+                    }
+                }
             }
         }
     }

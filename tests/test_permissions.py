@@ -146,7 +146,9 @@ def test_rows_name_whose_grant_and_the_exact_pane() -> None:
     assert rows["input_monitoring"]["pane"] == PANE + "Privacy_ListenEvent"
     assert [i for i, r in rows.items() if r["required"]] == ["accessibility", "screen_recording", "full_disk_access"]
     assert [i for i, r in rows.items() if r["requestable"]] == ["accessibility", "screen_recording", "input_monitoring"]
-    assert [i for i, r in rows.items() if r["restart_to_check"]] == ["screen_recording", "full_disk_access"]
+    # Input Monitoring too (2026-10-27): a friend's switch never ticked until the service restarted
+    assert [i for i, r in rows.items() if r["restart_to_check"]] == ["screen_recording", "full_disk_access",
+                                                                    "input_monitoring"]
     assert rows["accessibility"]["status"] == "granted" and rows["input_monitoring"]["status"] == "not_determined"
     assert all(r["blocked"] == "" for r in rows.values())
     assert P.rows({}, {"profile_ok": True, "shell": True, "proxy": True})[0]["status"] == "unknown"   # not reported

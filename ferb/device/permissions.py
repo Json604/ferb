@@ -187,8 +187,9 @@ REQUIRED = ("accessibility", "screen_recording", "full_disk_access")      # FERB
 DAEMON_PERMISSIONS = (*REQUIRED, "input_monitoring")
 REQUESTABLE = frozenset({"accessibility", "screen_recording", "input_monitoring", "clipboard", "hearing"})
 # a new grant of these reaches a running process only after it restarts (Screen Recording: CGPreflight… stays false;
-# Full Disk Access may need it too), so the window offers "Restart FERB to check" after a Grant
-RESTART_TO_CHECK = frozenset({"screen_recording", "full_disk_access"})
+# Input Monitoring likewise on a friend's Macs, 2026-10-27; Full Disk Access may need it too): the window restarts the
+# service when FERB comes back to the front after the Grant, and offers "Restart FERB to check"
+RESTART_TO_CHECK = frozenset({"screen_recording", "input_monitoring", "full_disk_access"})
 FDA_WAITS = "FERB's shell sandbox and network proxy must be working first"
 
 

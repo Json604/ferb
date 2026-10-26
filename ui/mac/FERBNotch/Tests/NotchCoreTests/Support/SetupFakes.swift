@@ -40,8 +40,10 @@ final class FakeAppPermissions: AppPermissionsProviding {
     private(set) var requests: [String] = []
 
     func notifications() async -> GrantStatus { notificationStatus }
+    var notificationsHang = false                   // the banner is never answered
     func requestNotifications() async -> GrantStatus {
         requests.append("notifications")
+        if notificationsHang { try? await Task.sleep(for: .seconds(3600)) }
         notificationStatus = .granted
         return .granted
     }
@@ -94,6 +96,7 @@ struct SetupRig {
     func model(_ action: AppSetupAction = .none) -> SetupModel {
         let model = SetupModel(rpc: rpc, runner: runner, app: app, system: opener, keys: keys, service: service)
         model.serviceAction = action
+        model.requestSettle = .zero
         return model
     }
 }

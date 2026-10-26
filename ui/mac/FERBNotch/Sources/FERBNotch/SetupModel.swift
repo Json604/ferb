@@ -18,6 +18,15 @@ final class SetupModel: ObservableObject {
     @Published private(set) var hearingRow: PermissionRow?
     @Published private(set) var appRows: [PermissionRow] = []
     @Published private(set) var askedRestart: Set<String> = []
+    /// Rows a Grant asked for: one still off gets "Show FERB in Finder" to drag it into its pane's list (a friend's
+    /// newer macOS, 2026-10-27: FERB was missing from "Device Control and Data Access").
+    @Published private(set) var askedRows: Set<String> = []
+    /// While macOS's notification request waits on its banner; nothing else waits on it (a friend's Allow all stalled).
+    @Published private(set) var notificationHint = false
+    /// After macOS's own request, the wait before its pane opens, so the pane already lists FERB.
+    var requestSettle: Duration = .milliseconds(1500)
+    /// Grants whose switch applies only after a restart: the service restarts once when FERB comes back to the front.
+    private var restartOnReturn: Set<String> = []
     @Published private(set) var restarting = false
     @Published private(set) var browsers: BrowserSnapshot?
     @Published private(set) var persona: PersonaState = .loading
@@ -52,8 +61,9 @@ final class SetupModel: ObservableObject {
     /// "Allow all" (owner 2026-10-26: "lets just have them all at the start only with the one allow all"): every setup
     /// row not yet on, one-click popups first; Screen Recording last, since macOS restarts FERB after it (setup reopens
     /// on this page). Automation can't be granted ahead (macOS asks per app at first use).
-    static let allowAllSequence = ["notifications", "microphone", "hearing", "clipboard", "input_monitoring",
-                                   "accessibility", "full_disk_access", "screen_recording"]
+    /// Notifications late (2026-10-27): its banner is answered whenever the owner gets to it, and nothing waits on it.
+    static let allowAllSequence = ["microphone", "hearing", "clipboard", "input_monitoring",
+                                   "accessibility", "full_disk_access", "notifications", "screen_recording"]
     /// Answered in macOS's own popup: no wait for a switch afterwards.
     static let answeredInPopup: Set<String> = ["notifications", "microphone", "hearing", "clipboard"]
     static func allowAllOrder(_ rows: [PermissionRow]) -> [String] {
@@ -327,8 +337,15 @@ final class SetupModel: ObservableObject {
         UserDefaults.standard.set(SetupStep.permissions.rawValue, forKey: Self.resumeKey)
         switch row.id {
         case "notifications":
-            if row.status == .notDetermined { _ = await app.requestNotifications() }
-            else if let pane = row.pane { system.open(pane) }
+            if row.status == .notDetermined {
+                notificationHint = true                  // macOS's banner waits at the top right; nothing waits on it
+                Task { [weak self] in
+                    _ = await self?.app.requestNotifications()
+                    self?.notificationHint = false
+                    await self?.refreshPermissions()
+                }
+                return
+            } else if let pane = row.pane { system.open(pane) }
         case "microphone":
             if row.status == .notDetermined { _ = await app.requestMicrophone() }
             else if let pane = row.pane { system.open(pane) }
@@ -341,12 +358,17 @@ final class SetupModel: ObservableObject {
         default:
             if row.requestable {
                 _ = try? await rpc.call("setup.permission_request", params: ["permission": row.id], wait: 120)
+                try? await Task.sleep(for: requestSettle)
             }
             if row.id == "full_disk_access", let target = permissions?.grantTarget, !target.isEmpty {
                 system.reveal(target)
             }
             if let pane = row.pane { system.open(pane) }
-            if row.restartToCheck { askedRestart.insert(row.id) }
+            askedRows.insert(row.id)
+            if row.restartToCheck {
+                askedRestart.insert(row.id)
+                restartOnReturn.insert(row.id)
+            }
         }
         await refreshPermissions()
     }
@@ -360,6 +382,23 @@ final class SetupModel: ObservableObject {
         }
         _ = try? await rpc.call("automation.request", params: ["bundle_ids": [target.bundleID]], wait: 120)
         await refreshPermissions()
+    }
+
+    /// FERB came to the front again, the owner back from System Settings (2026-10-27: a friend's Screen Recording and
+    /// Input Monitoring never ticked): a switch that applies only after a restart is checked by restarting the service,
+    /// once per Grant, and never while a task runs (the "Restart FERB to check" button stays for that).
+    func cameBack() async {
+        let pending = restartOnReturn.filter { id in allRows.contains { $0.id == id && $0.status != .granted } }
+        restartOnReturn.removeAll()
+        guard !pending.isEmpty, !restarting else { return }
+        if let status = try? await rpc.call("chat.status", params: ["peek": true]),
+           let running = status["running"] as? [[String: Any]], !running.isEmpty { return }
+        await restartService()
+    }
+
+    /// The agent app in Finder, to drag into a pane's list that doesn't show FERB.
+    func showAgentApp() {
+        if let target = permissions?.grantTarget, !target.isEmpty { system.reveal(target) }
     }
 
     func restartService() async {

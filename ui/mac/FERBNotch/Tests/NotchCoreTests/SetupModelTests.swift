@@ -96,12 +96,59 @@ final class SetupModelTests: XCTestCase {
         let notifications = model.allRows.first { $0.id == "notifications" }!
         XCTAssertEqual(notifications.process, "app")
         await model.grant(notifications)
-        XCTAssertEqual(rig.app.requests, ["notifications"])
+        await eventually { rig.app.requests == ["notifications"] }       // asked in the background: never awaited
         XCTAssertTrue(rig.opener.opened.isEmpty)
         await model.grant(model.allRows.first { $0.id == "microphone" }!)
         XCTAssertEqual(rig.app.requests, ["notifications"])
         XCTAssertEqual(rig.opener.opened.last?.absoluteString, SetupReplies.pane + "Privacy_SpeechRecognition")
-        XCTAssertEqual(model.allRows.first { $0.id == "notifications" }?.status, .granted)
+        await eventually { model.allRows.first { $0.id == "notifications" }?.status == .granted }
+    }
+
+    func testAllowAllNeverWaitsOnTheNotificationBanner() async {
+        // A friend's Allow all stalled on macOS's notification banner (2026-10-27): it is asked, hinted, never awaited
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(accessibility: "granted", fda: "granted")
+        rig.app.microphoneStatus = .granted
+        rig.app.notificationsHang = true
+        let model = rig.model()
+        await model.refreshPermissions()
+        XCTAssertEqual(SetupModel.allowAllOrder(model.setupRows), ["notifications"])
+        await model.allowAll()                                          // returns though the banner is unanswered
+        XCTAssertTrue(model.notificationHint && !model.allowingAll)
+        XCTAssertEqual(SetupModel.allowAllSequence.suffix(2), ["notifications", "screen_recording"])
+    }
+
+    func testComingBackFromSystemSettingsRestartsOnceToCheckTheSwitch() async {
+        // A friend's Screen Recording never ticked until the service restarted (2026-10-27)
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions(screen: "denied")
+        let model = rig.model()
+        await model.refreshPermissions()
+        await model.cameBack()
+        XCTAssertEqual(rig.service.restarts, 0)                         // nothing asked: no restart
+        await model.grant(model.allRows.first { $0.id == "screen_recording" }!)
+        await model.cameBack()
+        XCTAssertEqual(rig.service.restarts, 1)
+        await model.cameBack()
+        XCTAssertEqual(rig.service.restarts, 1)                         // once per Grant
+        rig.rpc.replies["chat.status"] = ["running": [["task_id": "t1", "goal": "work"]]]
+        await model.grant(model.allRows.first { $0.id == "screen_recording" }!)
+        await model.cameBack()
+        XCTAssertEqual(rig.service.restarts, 1)                         // never while a task runs
+        XCTAssertTrue(model.offersRestart)                              // the button stays for that
+    }
+
+    func testARowStillOffAfterItsGrantOffersFERBToDragIn() async {
+        // A friend's newer macOS didn't list FERB in its pane (2026-10-27): the agent app can be dragged in
+        let rig = SetupRig()
+        rig.rpc.replies["setup.permissions"] = SetupReplies.permissions()
+        let model = rig.model()
+        await model.refreshPermissions()
+        XCTAssertTrue(model.askedRows.isEmpty)
+        await model.grant(model.allRows.first { $0.id == "accessibility" }!)
+        XCTAssertEqual(model.askedRows, ["accessibility"])
+        model.showAgentApp()
+        XCTAssertEqual(rig.opener.revealed, [SetupReplies.agent])
     }
 
     func testHearingIsProbedOnEnteringTheStepAndAskedThroughFERBVoice() async {
