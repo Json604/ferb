@@ -13,6 +13,26 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 
 
+## 0.27.0.dev1 Background browser fixes — 2026-10-26 — owner live check pending
+
+Live 2026-10-26 the visa task drove the owner's screen: FERB refused to work in a profile with no FERB window, the
+reinstalled New_Personal extension stayed unpaired, and the worker switched Chrome profiles through its menu instead.
+Now a profile without FERB's window takes a background tab in one of its own windows, and only a profile with no
+window gets FERB's minimized window, once (owner: "if not open once that causes focus shift - ok"; replaces the
+2026-10-06 refusal). The windowless wake waits 35 s, covering the extension's 30 s reconnect alarm. A reinstalled
+extension is paired again automatically when the owner opens that profile, as a first pairing is; a connected paired
+copy is never taken over. An unpaired copy's error tells the worker to ask the owner to open the profile, never to work
+around it, and any Mac-tool input or menu choice in a browser, like any foreground input, asks the owner once per task
+for that app (`floor:foreground`). `ferb browsers` says to open the profile once instead of naming a command.
+
+The owner's retry the same evening ran two visa runs: the reopened 24 October task and the new six-hourly schedule's
+first run. The reopened one resumed its saved FERB-identity spec although the planner's task named the owner's profile,
+so its worker had no owner browser tools and asked to drive Chrome's window; a continue or retry whose planner task
+changes identity now runs that task. The schedule's run worked in the background but Cloudflare's checkbox click failed
+with `pointer_did_not_reach_target_frame` as an unknown outcome: the checkbox frame sits in a closed shadow root, which
+snapshots and screenshot points never entered. Extension 0.15.12 reaches closed shadow roots there, and a press that
+never started is a known failure (nothing pressed), so the worker may point again.
+
 ## 0.27.0.dev1 FERB for everyone, phase G (L34) — 2026-10-25 — automatic updates; owner live check pending
 
 Phase G, automatic updates (L34): Sparkle 2 in FERB.app checks GitHub's public release feed about daily, verifies each

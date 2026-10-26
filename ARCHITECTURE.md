@@ -316,20 +316,30 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.10 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
+Extension **0.15.12 / protocol 17** uses native messaging, paired sessions and per-tab CDP (protocol 14 adds
 `media` and replaces `window_password` with `window_secrets`; 0.15.3 treats shown passwords as secret fields;
 protocol 15, fix wave 4, makes `window_secrets` tell same-place windows apart by the captured window's title and
 name the matched window's tab; protocols 16–17 let tab captures of pages it can't script use the debugger alone and
 answer for pages it can't read or attach to, see section 16.4; 0.15.8 adds media ids and tab sound facts as optional
 reply fields, no protocol change; 0.15.9 adds the pointer's snapshot facts, see section 16.13; 0.15.10 makes a
-snapshot wait up to 300 ms for media it hasn't seen before to move, see section 16.5). Task
-tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
-open returns all window candidates without creating anything. New-window creation requires explicit foreground
-permission: macOS can switch Spaces before minimized/unfocused creation finishes. A paired owner profile that isn't
-connected is usually just not running: the browser tools load it with no window (`_TabDriver._connected`,
-`--no-startup-window`, spike 19), and the planner's facts say so in plain words (`Daemon._paired_state`: "not connected
-now (usually the profile just isn't running) — FERB's browser tools start it in the background …"; a refused extension
-gives its reason). Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
+snapshot wait up to 300 ms for media it hasn't seen before to move, see section 16.5; 0.15.11 reports web terminals;
+0.15.12 reaches closed shadow roots in snapshots, screenshot points and element adoption, so a frame inside one, like
+Cloudflare's checkbox, is linked and pointed into, and a press whose move never reached the target's frame is a known
+failure, nothing pressed). Task
+tabs are inactive in an existing FERB window or an explicitly selected window. When neither exists, the bridge
+(`_TabDriver._open_in`, owner 2026-10-26: "if not open once that causes focus shift - ok - but then after opened
+continue using through extension", replacing the 2026-10-06 refusal, 46c0be7) puts the tab in one of the profile's own
+windows, an unfocused one first (no new window, no Space change), and only a profile with no window at all gets FERB's
+minimized, unfocused window, once; macOS can switch Spaces while that window is created, the accepted one-time shift.
+A paired owner profile that isn't connected is usually just not running: the browser tools load it with no window
+(`_TabDriver._connected`, `--no-startup-window`, spike 19) and wait `WINDOWLESS_WAIT_S` (35 s): a profile that wasn't
+loaded connects in about a second (live 2026-10-26), while one already loaded whose connection dropped (FERB restarted)
+reconnects on the extension's 30 s alarm. The planner's facts say so in plain words (`Daemon._paired_state`: "not
+connected now (usually the profile just isn't running) — FERB's browser tools start it in the background …"; a refused
+extension gives its reason). When the profile's only connected copy is unpaired (a reinstall gives the extension a new
+identity), the error says so and tells the worker to ask the owner to open that profile once; automatic pairing then
+pairs it (section 16.9). Mac-tool input or a menu choice in a web browser asks the owner first, once per task for that
+browser (`confirm.foreground_need`, `floor:foreground`), as does any foreground Mac input; the extension is the route. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Input is real (CDP `Input.*` through the tab's debugger) unless the agent asks for `page_mode`. The browser can refuse
 the debugger: Chrome refuses `chrome.debugger.attach` for a whole tab when any frame in it is another extension's
 `chrome-extension://` page, and detaches a session from such a tab when its page navigates (chrome:// pages, the Web
@@ -2595,7 +2605,9 @@ protected FERB state (16.9).
   of them joined by blank lines when every part is exactly one owner message within this request's chain of owner
   words (a reminder asked over a clarification; the first part's message is the source).
 - A `continue` with `control.new_goal` re-plans inside the same tree (`PlanStore.replace` for a different plan); a
-  retry stays in its tree.
+  retry stays in its tree. A continue or retry whose planner task names a different identity runs that task the same
+  way (live 2026-10-26: a FERB-identity research task resumed as FERB though the planner's task named the owner's
+  Chrome profile, so its worker had no owner browser tools and drove Chrome's window).
 - A failure is told by its reason, never "something went wrong on my side" (owner, 2026-10-24). `worker.reason(e,
   redact)` classifies by exception type and errno only (R2): the AI service's own sentence and a call FERB didn't send
   as before (`problem_of`, `too_large_problem`); `PermissionError` (EPERM/EACCES) as "macOS didn't let FERB open <path>
@@ -2937,12 +2949,14 @@ protected FERB state (16.9).
     Chromium reads it);
   - two readings `PREFS_SETTLE_S` (12 s) apart agree, because Chromium writes Local State and Preferences up to 10 s
     late; the front app is read once more just before the page is handed over;
-  - FERB is turned on there, and the profile isn't paired, unpaired by the owner (`ext_autopair_off`, migration 0046,
+  - FERB is turned on there, and the profile isn't paired (or its paired copy isn't connected, the reinstall case,
+    owner 2026-10-26: "this is bad UX"; a connected paired copy is never taken over), unpaired by the owner
+    (`ext_autopair_off`, migration 0046,
     cleared by any pairing), being paired already (an unexpired token, `Pairings.pending`), FERB's identity profile, or
     a profile holding FERB's mailbox account;
   - FERB isn't paused.
-  The pass opens the self-closing pairing page in that profile with an owner token. Its wait ends when anyone pairs the
-  profile, and the token is then revoked (`Pairings.revoke`; manual pairings revoke theirs on timeout too). Each
+  The pass opens the self-closing pairing page in that profile with an owner token. Its wait ends when that token is
+  used (a stale pairing doesn't end it), and the token is then revoked (`Pairings.revoke`; manual pairings revoke theirs on timeout too). Each
   profile gets one try per daemon run, journaled as `browsers.autopaired` or `browsers.autopair_failed`.
   Residuals: a window switch inside the browser during the last ten seconds before the page goes can still bring the
   previously used profile's window forward; and a daemon restart starts a new try per qualifying profile.
