@@ -147,6 +147,9 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
+    # owner 2026-10-27: "its every question is too confusing. just ask simply what you want with a small reason below"
+    ("question.md",
+     'Write `display_text` as one short plain line saying what FERB needs from the owner (a choice or the missing input), then on a new line the reason in a few words.'),
     # live 2026-10-27 (a friend's FERB): a storage scan failed because FERB's own safety snapshot counted as a
     # change, and a Homebrew cleanup failed because Homebrew's own removal of five libraries, undone by the
     # worker, broke a safeguard the planner added; both did what was asked

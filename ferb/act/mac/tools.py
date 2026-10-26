@@ -779,7 +779,8 @@ class MacSecret(_Base):
             raise Refused("hidden secret input is unavailable")
         name = getattr(a, "name", None)
         value = await ask(ctx, "app:" + a.bundle_id, handle=args.secret, remember=args.remember,
-                          shown=name if isinstance(name, str) and name else None)
+                          shown=name if isinstance(name, str) and name else None,
+                          field=getattr(node, "label", None) or None)
         if not value:
             return ToolResult({"ok": False, "detail": "secret input declined"}, is_error=True)
         try:

@@ -2024,7 +2024,7 @@ class Router(_TabDriver):
         origin = normalize_origin(str(v.get("origin") or ""))
         if not origin.startswith("https://"):
             raise Refused("secret input requires an HTTPS destination")
-        value = await ask(ctx, origin, handle=handle, remember=remember)
+        value = await ask(ctx, origin, handle=handle, remember=remember, field=getattr(info, "label", None) or None)
         if not value:
             return ActionResult(False, "secret input declined")
         try:

@@ -9,6 +9,9 @@ public struct DaemonApproval: Identifiable, Equatable {
     public let displayText: String?
     /// FERB's own question in one line, written by the daemon's code (P27): shown first, the exact reason under Details.
     public let summary: String?
+    /// The task's reason, shown smaller under the question (owner 2026-10-27: "just ask simply what you want with a small
+    /// reason below").
+    public let why: String?
     public var visibleReason: String {
         summary.flatMap { $0.isEmpty ? nil : $0 } ?? displayText.flatMap { $0.isEmpty ? nil : $0 } ?? reason
     }
@@ -32,6 +35,7 @@ public struct DaemonApproval: Identifiable, Equatable {
         let ordinaryQuestion = kind == "owner_question" && capability == "owner.ask"
         displayText = ordinaryQuestion ? value["display_text"] as? String : nil
         summary = value["summary"] as? String
+        why = (value["why"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         options = value["options"] as? [String] ?? []
         title = value["title"] as? String
         evidence = value["evidence"] as? [String] ?? []

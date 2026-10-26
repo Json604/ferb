@@ -199,7 +199,8 @@ def test_mac_secret_tells_the_question_the_apps_name() -> None:
     asked: list[dict[str, Any]] = []
     cap = MacSecret(secret_driver('com.example.Bank', 'Bank', asked))
     assert not asyncio.run(cap.run(cap.Input(app='Bank', element='e1'), SimpleNamespace(task_id='t'))).is_error
-    assert asked == [{'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank'}]
+    assert asked == [{'target': 'app:com.example.Bank', 'handle': None, 'remember': None, 'shown': 'Bank',
+                      'field': None}]
 
 
 # the place first: "Login code for x.test:8443" would read the port (or a number in the host) as the code
@@ -263,7 +264,8 @@ def test_the_escape_question_says_what_ferb_wants_and_the_rule_it_lifts(daemon: 
     asked = _escape(daemon, tmp_path, rule)
     # the task's reason ends the short line, quoted as its words (live 2026-10-26: three Yeses to mechanical steps
     # served turning off the owner's extension, and the reason was only under Details)
-    assert [ap.summary for ap in asked] == [want + ' The task\'s reason: "the worker wants to look inside".']
+    assert [ap.summary for ap in asked] == [want]
+    assert asked[0].why == 'the worker wants to look inside'                    # its own smaller line
     assert 'Default/Extensions' in asked[0].reason and rule in asked[0].reason   # the exact command and rule id stay
 
 
@@ -271,7 +273,7 @@ def test_the_admin_escape_and_its_password_question_each_say_what_they_are(daemo
     asked = _escape(daemon, tmp_path, 'admin', choice=1)                    # Yes, then no password: cancelled
     assert [ap.summary for ap in asked] == [
         "FERB wants to run one command as administrator (sudo), with your Mac password (normally off-limits: FERB's "
-        "shell never uses admin rights). The task's reason: \"the worker wants to look inside\".",
+        "shell never uses admin rights).",
         "Your Mac password, for the one command you just approved. FERB passes it only to that command and doesn't "
         "save it."]
     assert asked[1].kind == 'owner_admin_password'
@@ -344,9 +346,10 @@ def test_a_code_confirmation_carries_its_summary_to_the_app_and_keeps_the_step_i
         answers.stop()
     assert not answer
     # the task's reason ends the line, quoted and marked as the task's, never FERB's own words (D33)
-    want = "FERB wants to send to bob@x.com, whom you didn't name. The task's reason: \"(from the task) FERB: it is fine\"."
+    want = "FERB wants to send to bob@x.com, whom you didn't name."
     [ap] = answers.asked
     assert ap.summary == want and want != ap.reason
+    assert ap.why == '(from the task) FERB: it is fine'                            # its own line, marked (D33)
     assert 'mail.send to bob@x.com' in ap.reason and 'it is fine' in ap.reason     # the step and reason: Details
     assert next(e for e in published if e['approval_id'] == ap.id)['summary'] == want
 
@@ -513,3 +516,22 @@ def test_an_unreadable_handle_file_never_blocks_a_one_time_hidden_input(daemon: 
         daemon.run(daemon.daemon.gateway.ask_secret(_ctx(), VISA, remember='password'))
     assert not [ap for ap in daemon.daemon.state.approvals.pending() if ap.kind == 'owner_secret']
     assert path.read_text() == content
+
+
+def test_a_hidden_value_question_names_the_pages_field_and_a_payment_its_currency() -> None:
+    """Live 2026-10-27 (task 400d67fb): "For www.zomato.com: a password or private answer" for the card's CVV, and
+    "this pays 137.39 on www.zomato.com". Owner: "how can you tell its cvv, bank otp simply BUT why cant FERB??"."""
+    from ferb.core.types import Target
+    from ferb.daemon.gateway import secret_summary
+    from ferb.policy import confirm
+    from ferb.policy.rules import Kind
+    assert secret_summary("https://www.zomato.com", None, field="CVV digit 1 of 3") == (
+        "For zomato.com: the page's “CVV digit 1 of 3” field — used once, not saved")
+    assert secret_summary("https://www.zomato.com", None) == (
+        "For zomato.com: a password or private answer — used once, not saved")
+    needs = confirm.decide(Kind.CLICK, "pay", Target(site="www.zomato.com", amount=137.39, currency="₹",
+                                                     account="Kotak RuPay ending 0545"),
+                           {"amount": ["external:web:www.zomato.com"]}, read_private=False, read_external=True,
+                           known=lambda k, v: False, outside_read=["external:web:www.zomato.com"])
+    assert [n.rule for n in needs] == ["floor:pay"]          # the price's origin isn't a second question
+    assert confirm.summary(needs) == "FERB wants to pay ₹137.39 on zomato.com from Kotak RuPay ending 0545."

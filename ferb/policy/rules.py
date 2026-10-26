@@ -49,7 +49,7 @@ def declared_of(recorded: Any) -> set[str]:
 
 
 def declare(spec: ActionSpec, effect: str, recipients: tuple[str, ...] = (), account: str | None = None,
-            amount: float | None = None, item: str | None = None) -> ActionSpec:
+            amount: float | None = None, item: str | None = None, currency: str | None = None) -> ActionSpec:
     """W2: a generic input checked as the effect the agent declares for it (send, pay, destroy, account_security),
     with the destination it declares added to its target: the account it posts, sends or pays from, a message's
     recipients, a payment's amount, what a delete removes. A payment or an account-security change declared on any
@@ -65,7 +65,7 @@ def declare(spec: ActionSpec, effect: str, recipients: tuple[str, ...] = (), acc
     target = dataclasses.replace(
         t, recipients=tuple(dict.fromkeys([*t.recipients, *(r.strip() for r in recipients if r.strip())])),
         account=t.account or (account or "").strip() or None, amount=t.amount if t.amount is not None else amount,
-        item=t.item or (item or "").strip() or None)
+        currency=t.currency or (currency or "").strip()[:8] or None, item=t.item or (item or "").strip() or None)
     return dataclasses.replace(spec, effect_kind=kind, target=target)
 
 

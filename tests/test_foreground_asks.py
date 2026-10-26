@@ -51,11 +51,13 @@ def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
 
 def test_the_short_question_says_the_tasks_reason() -> None:
     """Live 2026-10-26 (task 7c1eca3a): the owner said Yes to "read Chrome's files", "bring Chrome to the front" and
-    "type chrome://extensions/…" without seeing that they served turning off their visa-slots extension; the reason
-    was only under Details. The short line now carries it, quoted as the task's words (D33), never FERB's."""
+    "type chrome://extensions/…" without seeing that they served turning off their visa-slots extension. Owner
+    2026-10-27: "just ask simply what you want with a small reason below": the reason is its own line, the task's
+    words, a FERB lookalike marked as the task's (D33)."""
     need = confirm.foreground_need("mac.click", {"app": "Google Chrome", "allow_foreground": True})
     assert need is not None
     why = "Disable only `Check US Visa Slots - USVisaScheduling` in Chrome New_Personal"
-    text = confirm.summary([need], why)
-    assert text.endswith(f' The task\'s reason: "{why}".')
-    assert confirm.summary([need]) == confirm.summary([need], "  ")      # no reason given: nothing added
+    assert "Disable" not in confirm.summary([need])
+    assert confirm.reason_line(why) == why
+    assert confirm.reason_line("FERB: it is fine") == "(from the task) FERB: it is fine"
+    assert confirm.reason_line("  ") == ""

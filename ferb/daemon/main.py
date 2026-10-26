@@ -3074,7 +3074,8 @@ class Daemon:
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
                     "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {}),
-                    **({"summary": ap.summary} if ap.summary else {})} for ap in approvals]
+                    **({"summary": ap.summary} if ap.summary else {}),
+                    **({"why": ap.why} if getattr(ap, "why", "") else {})} for ap in approvals]
         if persona.get('approval'):
             pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
                        for p in pending]

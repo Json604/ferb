@@ -119,6 +119,7 @@ class Target:
     recipients: tuple[str, ...] = ()
     path: str | None = None
     amount: float | None = None
+    currency: str | None = None              # a payment's currency as the page shows it (display only)
     contact: str | None = None               # the exact contact a call / message goes to, as shown
     page: str | None = None                  # the page a browser input acts on, as its tab shows it (a fact)
     item: str | None = None                  # what a declared delete removes, as the agent says it is shown (a note)

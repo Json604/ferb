@@ -223,6 +223,7 @@ class Destination(BaseModel):
     recipients: list[str] = Field(default_factory=list)
     account: str | None = None
     amount: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    currency: str | None = Field(default=None, max_length=8)
     item: str | None = None
 
 
@@ -758,7 +759,8 @@ class Gateway:
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
         # W2: checked as the effect the worker declares, with what it declares the input reaches (`rules.declare`);
         # the call itself (P19's hash, the ledger, the run) stays as the capability described it
-        checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount, reaches.item)
+        checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount, reaches.item,
+                          reaches.currency)
         declared = declared_kinds(checked)
         # a delegated conversation is guarded by what the call itself targets (as the capability describes it), with
         # every declared kind: the worker's declared account or recipient is its note, never compared to the scope
@@ -1212,12 +1214,11 @@ class Gateway:
                             task_scopes=grant.scopes, content=text, effect="navigate")
         ap, new = self._question(ask, text, [YES, NO], key=text)
         if new:
-            reason = quoted(self.redact({"w": why})["w"]) if why.strip() else ""     # redacted, then clipped
-            ap.summary = self._one_line(confirm.summary(needs, reason),
-                                        any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+            ap.summary = self._one_line(confirm.summary(needs), any(n.rule == confirm.TERMINAL_INPUT for n in needs))
+            ap.why = self._one_line(confirm.reason_line(quoted(self.redact({"w": why})["w"]) if why.strip() else ""))
             self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
                                                 "kind": "owner_question", "reason": text, "options": [YES, NO],
-                                                "task_id": grant.task_id, "summary": ap.summary})
+                                                "task_id": grant.task_id, "summary": ap.summary, "why": ap.why})
         self.observer.tool_call(grant, done=False)
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1894,7 +1895,8 @@ class Gateway:
                                          "task_id": grant.task_id, "status": status, "why": action.why})
 
     async def ask_secret(self, ctx: ToolContext, target: str, *, handle: str | None = None,
-                         remember: str | None = None, shown: str | None = None) -> str | None:
+                         remember: str | None = None, shown: str | None = None,
+                         field: str | None = None) -> str | None:
         """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only. `shown`: the
         app's name as macOS reports it, for an `app:` target's one-line question."""
         from ferb.identity.owner_secrets import OwnerSecrets, refuse_whole_browser
@@ -1926,7 +1928,7 @@ class Gateway:
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_secret"
-        ap.summary = self._one_line(secret_summary(target, remember, shown, username, source))
+        ap.summary = self._one_line(secret_summary(target, remember, shown, username, source, field))
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
                      "summary": ap.summary})
@@ -2271,11 +2273,12 @@ def secret_place(target: str, app: str | None = None) -> str:
     the app: its name as macOS reports it, else its bundle id."""
     if target.startswith("app:"):
         return f"the {app} app" if app else f"the app {target[4:]}"
-    return _site(target)
+    site = _site(target)
+    return site[4:] if site.casefold().startswith("www.") else site
 
 
 def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None,
-                   username_place: str | None = None) -> str:
+                   username_place: str | None = None, field: str | None = None) -> str:
     """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
     with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
     bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
@@ -2291,6 +2294,12 @@ def secret_summary(target: str, remember: str | None, app: str | None = None, us
         name = shown_name(remember)
         what = f"“{name}”" if name else "a saved secret"
         return f"For {place} only{account}: {what} · saved in your Mac's Keychain"
+    # live 2026-10-27: "a password or private answer" for a card's CVV and a bank's OTP; the page's own label for the
+    # field says which (page text, quoted as the page's words; display only)
+    label = " ".join((field or "").split())
+    label = label if len(label) <= 60 else label[:59].rstrip() + "…"
+    if label:
+        return f"For {place}{account}: the page's “{label}” field — used once, not saved"
     return f"For {place}{account}: a password or private answer — used once, not saved"
 
 
@@ -2332,11 +2341,12 @@ DESTINATION_SCHEMA = {
     "description": ("With effect send, pay, destroy or account_security: what the action reaches, as the page or "
                     "app shows it. recipients: the people a message or email goes to (none for a public post); "
                     "account: the account it posts, sends or pays from, or whose security it changes; amount: what "
-                    "a payment pays; item: what a delete removes. FERB checks these against the owner's words and "
-                    "any standing permission; they never grant permission."),
+                    "a payment pays, and currency: its currency as the page shows it (₹, $, INR); item: what a "
+                    "delete removes. FERB checks these against the owner's words and any standing permission; they "
+                    "never grant permission."),
     "properties": {"recipients": {"type": "array", "items": {"type": "string"}},
                    "account": {"type": "string"}, "amount": {"type": "number", "minimum": 0},
-                   "item": {"type": "string"}}}
+                   "currency": {"type": "string", "maxLength": 8}, "item": {"type": "string"}}}
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
 

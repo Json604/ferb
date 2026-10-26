@@ -168,10 +168,19 @@ def _counted(n: int, thing: str) -> str:
     return f"{n} {thing}" + ("" if n == 1 else "s")
 
 
-def shown_amount(amount: float | None) -> str:
+def _host(where: str) -> str:
+    """A site as the owner reads it: its host without "www."; an app's name stays as it is."""
+    w = (where or "").strip()
+    return w[4:] if w.casefold().startswith("www.") else w
+
+
+def shown_amount(amount: float | None, currency: str | None = None) -> str:
+    """An amount as the owner reads it, with the currency the page showed: "₹137.39", "INR 137.39", "137.39"."""
     if amount is None:
         return ""
-    return str(int(amount)) if amount == int(amount) else str(amount)
+    number = str(int(amount)) if amount == int(amount) else f"{amount:.2f}"
+    unit = " ".join((currency or "").split())[:8]
+    return (unit + number if len(unit) == 1 else f"{unit} {number}") if unit else number
 
 
 def shown_origin(label: str) -> str:
@@ -471,7 +480,8 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     for k in (Kind.PAY, Kind.ACCOUNT_SECURITY):
         if k in kinds:
             rule = ALWAYS[k]
-            values = {"amount": shown_amount(target.amount), "site": where, "account": target.account or "",
+            values = {"amount": shown_amount(target.amount, target.currency), "site": _host(where),
+                      "account": target.account or "",
                       "recipients": ", ".join(v for _, v in who)}
             if k == Kind.PAY and target.amount is not None:
                 # One Yes per payment (owner 2026-10-27, after one ₹137.39 Zomato order asked five times): its amount
@@ -539,7 +549,9 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
         # covers this exact command or script in the tree
         needs.append(Need(TLS_OFF, key(TLS_OFF, content), {"command": " ".join(content.split()),
                                                           "hosts": " or ".join(off.hosts), "how": ", ".join(off.how)}))
-    values = who + ([("amount", str(target.amount))] if target.amount is not None else [])
+    # A payment's amount is shown and asked in its own question (one Yes per payment): a merchant's price always comes
+    # from its page, so a separate "came from outside content" question only repeated it (live 2026-10-27)
+    values = who + ([("amount", str(target.amount))] if target.amount is not None and Kind.PAY not in kinds else [])
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
         if not outside or _owner(outside):
@@ -746,19 +758,23 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
-def summary(needs: list[Need], why: str = "") -> str:
+def summary(needs: list[Need]) -> str:
     """FERB's question in one line (P27; owner 2026-10-24: "we should have the short version and in details see if
-    you want the raw things"): what FERB wants to do, from the needs' facts, then the task's reason, quoted as its
-    words (D33; live 2026-10-26: the owner said Yes to three mechanical steps without seeing they served turning off
-    their extension). The full question (`line`) stays the approval's reason, shown under Details. Display only: it
-    decides nothing; the caller has redacted and clipped `why`."""
+    you want the raw things"; 2026-10-27: "just ask simply what you want with a small reason below"): what FERB wants
+    to do, from the needs' facts. The task's reason goes on its own smaller line (`reason_line`); the full question
+    (`line`) stays the approval's reason, under Details. Display only: it decides nothing."""
     said = {n.values.get("covers") for n in needs if n.rule == BULK}
     rules = frozenset(n.rule for n in needs)
-    reason = f' The task\'s reason: "{from_task_lines(why.strip())}".' if why.strip() else ""   # D33: never FERB's
     if rules == {TLS_OFF}:                      # L39: the question as the owner reads it, already a question
-        return "; ".join(_tls(n.values) for n in needs) + "." + reason
+        return "; ".join(_tls(n.values) for n in needs) + "."
     parts = [p for n in needs if n.rule not in said and (p := _short(n, rules))]
-    return "FERB wants to " + "; ".join(parts) + "." + reason
+    return "FERB wants to " + "; ".join(parts) + "."
+
+
+def reason_line(why: str) -> str:
+    """The task's reason as the small line under a question: its own words, a line that reads like FERB's own check
+    marked as the task's (D33); empty when it gave none. The caller has redacted and clipped it."""
+    return from_task_lines(" ".join(why.split())) if why.strip() else ""
 
 
 def line(needs: list[Need], call: str, why: str, typed: str = "") -> str:

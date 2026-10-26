@@ -539,7 +539,7 @@ def test_line_reads_in_the_owners_terms() -> None:
     pay = _decide(Kind.PAY, Target(site="shop.example", account="visa:1234", amount=12.5, recipients=("x@y.com",)),
                   {"recipient:0": ["owner_words"], "amount": ["owner_words"]})
     assert confirm.line(pay, "probe.pay to=x@y.com", "") == (
-        "FERB: this pays 12.5 to x@y.com on shop.example from visa:1234. The step: probe.pay to=x@y.com. Go ahead?")
+        "FERB: this pays 12.50 to x@y.com on shop.example from visa:1234. The step: probe.pay to=x@y.com. Go ahead?")
     sec = _decide(Kind.ACCOUNT_SECURITY, Target(site="accounts.example"), {})
     assert confirm.line(sec, "s", "the owner asked") == (
         "FERB: this changes account security (a password, two-factor or recovery setting, or deleting the account) on "

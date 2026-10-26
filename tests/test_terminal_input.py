@@ -322,8 +322,7 @@ def test_the_live_sequence_asks_first_and_a_yes_types_once_and_sends_its_return(
     assert len(asked) == 1 and asked[0]["confirm"][0]["rule"] == confirm.TERMINAL_INPUT and asked[0]["answer"] == YES
     assert owner.summaries[1:] == ['FERB wants to type "codex" into the terminal "Terminal 108, zsh Use ⌥F1 for…" in '
                                    'Code (window "FERB"), then press Return there (it runs as you, outside FERB\'s '
-                                   'sandbox). The task\'s reason: "Enter plain `codex` in the clean FERB terminal for '
-                                   'the final startup check.".']
+                                   'sandbox).']
     assert '"codex"' in asked[0]["question"] and "xterm" in asked[0]["question"]
     assert "this Yes covers this one input only" in asked[0]["question"]
 

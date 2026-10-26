@@ -24,6 +24,10 @@ struct ApprovalView: View {
             } else {
                 MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12))
             }
+            if let why = approval.why {                // the task's reason, its own words, smaller (2026-10-27)
+                Text(verbatim: why).font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    .textSelection(.enabled)
+            }
             if let details = approval.details {
                 DisclosureGroup("Details") {
                     if approval.plainText {
