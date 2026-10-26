@@ -1400,7 +1400,7 @@ class Supervisor(WorkerRuns):
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
                 steered = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
                                               out.task, 'journal:' + entry.id, standing=control.standing_sends,
-                                              supersedes=control.supersedes)
+                                              supersedes=control.supersedes, said=self.gateway.redact(out.text))
                 if steered is not None:
                     reply, restated = steered
                     # the turn's other entries too, once, and code's lines about them end the steer's reply; a

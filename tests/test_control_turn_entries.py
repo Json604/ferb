@@ -43,9 +43,9 @@ def test_a_live_steer_saves_the_planners_memory_entry_once(daemon: Any, monkeypa
         assert [e['type'] for e in events].count('memory') == 1, events
         assert len(_saved(daemon)) == 1
         reply = [e for e in events if e['type'] == 'reply'][-1]
-        # the steer's own reply, then code's line about what was saved, in what the owner reads first too
-        assert reply['text'].startswith('Got it') and reply['text'].endswith(f'Remembered: {SCOPE}')
-        assert reply['display_text'].endswith(f'Remembered: {SCOPE}')
+        # the planner's own sentence, then code's line about what was saved; one text, no Details (owner 2026-10-26:
+        # "make it natural")
+        assert reply['text'] == f'Changing it.\nRemembered: {SCOPE}' and 'display_text' not in reply
         assert len(worker.handles) == 1                           # the same run took the correction
     finally:
         worker.release.set()
@@ -123,7 +123,7 @@ def test_stop_and_steer_replies_reach_the_conversation_record_with_ferbs_lines(d
         worker.release.set()
         thread.join(5)
     replies = _replies(daemon, 'visa')
-    assert any(r.startswith('Got it') and r.endswith(f'Remembered: {SCOPE}') for r in replies), replies
+    assert f'Changing it.\nRemembered: {SCOPE}' in replies, replies
     assert 'Stopped, as you asked.' in replies
 
 

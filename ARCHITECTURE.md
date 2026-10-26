@@ -2623,11 +2623,11 @@ protected FERB state (16.9).
   `task.interrupted`), as do a worker attempt's summary (stopped, stopped responding after N s, report not usable,
   couldn't run), a dispatch failure, a refused reminder or memory (each with code's reason), a scheduled run's
   failure (with `chat.failed`) and a voice turn.
-- A steer replies with one short line in the owner's words, "Got it: <the correction, one line, clipped to
-  `SHOWN_CHARS`>" (+ " I'll apply it at my next step." while no run has taken it, + the restated standing scope), as
-  the reply's `display_text`; its `text` (Details in the app; `ferb chat`; the conversation record when a scope is
-  restated) keeps the whole correction and the planner's "Updated task: <goal>" (`steering.acknowledgement`; owner
-  2026-10-24: "whenever i change something in a task it replies with this big ass message").
+- A steer replies with the planner's own sentence for that turn (its `text`, "Got it." if empty), + " I'll apply it
+  at my next step." while no run has taken it, + the restated standing scope (`steering.acknowledgement`; owner
+  2026-10-26: "it shows this weird long message when it updates a plan. it also sounds dumb, make it natural",
+  replacing "Got it: <the owner's words>" with the updated goal under Details). The updated goal shows in the task
+  list and the trace.
 
 ### 16.4 Seeing (L12, L13)
 

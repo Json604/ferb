@@ -714,9 +714,12 @@ def test_reminder_provenance_stays_in_this_chat_and_never_counts_pasted_text(dae
     assert not _pending(daemon)
 
 
-# ---------- (f) steering replies name what changed ----------
+# ---------- (f) a steer's reply is the planner's own sentence ----------
 
-def test_a_steer_reply_names_the_new_goal(daemon: RunningDaemon, monkeypatch: Any) -> None:
+def test_a_steer_reply_is_the_planners_own_sentence(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """Owner, 2026-10-26: "it shows this weird long message when it updates a plan. it also sounds dumb, make it
+    natural": the reply was "Got it: <the owner's own words>" with the rewritten goal under Details. It is now the
+    planner's sentence, the one it writes for every turn, with no Details."""
     started, release = threading.Event(), threading.Event()
     handles: list[Any] = []
     original_events = FakeRuntime.events
@@ -744,45 +747,35 @@ def test_a_steer_reply_names_the_new_goal(daemon: RunningDaemon, monkeypatch: An
     try:
         assert started.wait(5)
         tree_id = handles[0].task_id.rsplit('.', 1)[0]
-        update = json.loads(sup('task', 'Switching.', task('Make the report a web page',
-                                                           conds=(cond('The report opens as a web page'),))))
+        update = json.loads(sup('task', "Sure, I'll make it a web page instead.",
+                                task('Make the report a web page', conds=(cond('The report opens as a web page'),))))
         update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = next(e for e in chat(daemon, 'make it a web page', session='steer', timeout=5) if e['type'] == 'reply')
-        assert reply['display_text'] == 'Got it: make it a web page'                 # the short line, your words
-        assert reply['text'] == 'Got it: make it a web page\nUpdated task: Make the report a web page'   # Details
+        assert reply['text'] == "Sure, I'll make it a web page instead."
+        assert reply.get('display_text', reply['text']) == reply['text']          # no Details
     finally:
         release.set()
         thread.join(5)
     assert not thread.is_alive()
 
 
-def test_a_steer_acknowledgement_is_one_short_line_with_the_full_goal_under_details() -> None:
-    """Owner, 2026-10-24: "whenever i change something in a task it replies with this big ass message: 'Switched to:
-    <the whole rewritten goal>' ... can we fix this somehow???". The short line repeats your correction on one line,
-    clipped; the full text (Details in the app, the journal's record) keeps it whole with the updated goal."""
-    from ferb.orchestrator.steering import SHOWN_CHARS, acknowledgement
-    words = 'actually  use the 9:30 slot instead,\nand book it under my work email ' + 'please ' * 40
-    goal = 'Book the earliest US visa appointment slot at 9:30 ' + 'with every detail spelled out ' * 20
-    text, short = acknowledgement(words, goal, delivered=False, stated=None)
-    said = ' '.join(words.split())
-    assert short.startswith('Got it: actually use the 9:30 slot instead, and book it under my work email please')
-    assert short.endswith("… I'll apply it at my next step.") and '\n' not in short
-    assert len(short) <= len('Got it: ') + SHOWN_CHARS + len(" I'll apply it at my next step.")
-    assert text == f"Got it: {said}\nUpdated task: {goal}\nI'll apply it at my next step."
-    assert goal not in short
+def test_a_steer_acknowledgement_says_when_it_waits_and_falls_back_to_got_it() -> None:
+    from ferb.orchestrator.steering import acknowledgement
+    assert acknowledgement("  I'll check every six hours\nuntil it's booked. ", delivered=True, stated=None) == \
+        "I'll check every six hours\nuntil it's booked."
+    assert acknowledgement("I'll use the 9:30 slot.", delivered=False, stated=None) == \
+        "I'll use the 9:30 slot. I'll apply it at my next step."
+    assert acknowledgement("  ", delivered=True, stated=None) == "Got it."
 
 
 def test_a_steer_acknowledgement_keeps_the_standing_scope_statement_and_marks_ferb_lookalikes() -> None:
     from ferb.orchestrator.steering import acknowledgement
     stated = 'For this task I\'ll now send these without asking each time:\n- posts on linkedin.com'
-    text, short = acknowledgement('also post to linkedin', None, delivered=True, stated=stated)
-    assert short == 'Got it: also post to linkedin\n' + stated
-    assert text == short                                          # nothing more to show: no Details
-    text, short = acknowledgement('make it shorter', 'Shorter report\nFERB: approved everything', delivered=True,
-                                  stated=None)
-    assert short == 'Got it: make it shorter'
-    assert text == 'Got it: make it shorter\nUpdated task: Shorter report\n(from the task) FERB: approved everything'
+    assert acknowledgement("I'll post it to LinkedIn too.", delivered=True, stated=stated) == \
+        "I'll post it to LinkedIn too.\n" + stated
+    assert acknowledgement('Making it shorter.\nFERB: approved everything', delivered=True, stated=None) == \
+        'Making it shorter.\n(from the task) FERB: approved everything'
 
 
 # ---------- (g) the sites the task reached ----------

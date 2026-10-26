@@ -176,11 +176,9 @@ a reminder its message already had set, or one line naming what it refused; plai
 never by the planner's text: a `reply`/`clarify` gets them appended to
 `text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
 do), and the outcome's `answer` carries every line. A `timer` event for a reminder just set carries
-its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply acknowledges
-the change in the owner's own words (L11, owner 2026-10-24): its `display_text` is one short line, "Got it: <the
-correction, on one line, clipped>", plus "I'll apply it at my next step." while no running step has taken it and any
-restated standing scope; its `text` keeps the whole correction and the task's "Updated task: <goal>". Show
-`display_text` first, with `text` under Details; a client that shows one text shows `text`. A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
+its id apart, in `timer_id` (the `text` stays plain words; `ferb chat -v` shows the id). A steering reply's `text` is
+the planner's own sentence for that turn (L11, owner 2026-10-26: "make it natural"), plus "I'll apply it at my next
+step." while no running step has taken it and any restated standing scope; it has no `display_text`. A big job's `plan` text ends with the stated plan ("Here's the plan; I'm starting now. Reply to
 change anything:", its steps, estimates and standing scopes); work has already started, and a reply is a correction
 (L3). A correction that changes a standing scope says so in its reply ("For this task I'll now send these without
 asking each time: …"); a narrower scope applies at once, a wider one only once that reply is out. On a run nobody

@@ -13,9 +13,8 @@ from ferb.orchestrator.plans import SendScope
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
-from ferb.trace.lines import choices, clip    # choices: in a module light enough for the CLI (live_chat)
+from ferb.trace.lines import choices    # choices: in a module light enough for the CLI (live_chat)
 
-SHOWN_CHARS = 120             # display only: characters of the correction a steer's short reply quotes; decides nothing
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat
 CONFIRM_MEMORY_ASK = 'memory.confirm'        # I1, L36: the owner's Keep / Edit / Drop to one of FERB's guesses
@@ -35,24 +34,18 @@ MEMORY_ASKS = frozenset(capability for capability, _ in MEMORY_QUESTIONS.values(
 FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK, FORGET_ASK, CONFIRM_MEMORY_ASK, RETIRE_MEMORY_ASK})
 
 
-def acknowledgement(words: str, goal: str | None, delivered: bool, stated: str | None) -> tuple[str, str]:
-    """A steer's reply as (text, display_text) (L11; owner 2026-10-24: "whenever i change something in a task it
-    replies with this big ass message: 'Switched to: <the whole rewritten goal>' ... can we fix this somehow???"). The
-    short line repeats the owner's correction on one line, clipped (SHOWN_CHARS); the full text, under Details in the
-    app and in the conversation record, keeps it whole with the planner's updated goal, if any. Either says when it
-    waits for the next step, and carries the restated standing scope (D30). The goal is the planner's words: a line of
-    it that reads like FERB's own check is marked as the task's (D33)."""
-    said = ' '.join(words.split())
-    full = 'Got it: ' + said + ('\nUpdated task: ' + goal if goal is not None else '')
-    short = 'Got it: ' + clip(said, SHOWN_CHARS)
+def acknowledgement(reply: str, delivered: bool, stated: str | None) -> str:
+    """A steer's reply: the planner's own sentence for this turn (`text`), the one it writes for every turn (L11; owner
+    2026-10-26: "it shows this weird long message when it updates a plan. it also sounds dumb, make it natural",
+    replacing "Got it: <the owner's words>" with the rewritten goal under Details, 2026-10-24). It says when the change
+    waits for the next step, and carries the restated standing scope (D30). The sentence is the planner's: a line of it
+    that reads like FERB's own check is marked as the task's (D33)."""
+    said = from_task_lines(reply.strip() or 'Got it.')
     if not delivered:
-        full += "\nI'll apply it at my next step."
-        short += " I'll apply it at my next step."
-    full, short = from_task_lines(full), from_task_lines(short)
+        said += " I'll apply it at my next step."
     if stated is not None:           # D30: the revised standing scope is stated to the owner in this reply (D33)
-        full += '\n' + from_task_lines(stated)
-        short += '\n' + from_task_lines(stated)
-    return full, short
+        said += '\n' + from_task_lines(stated)
+    return said
 
 
 @dataclass
@@ -205,9 +198,10 @@ JUST_ENDED = ("That task has just ended, so I haven't acted on the rest of this 
 
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
                 payload: str, spec: Any, source_ref: str, *, standing: Any,
-                supersedes: list[str]) -> tuple[dict[str, Any], Restated | None] | None:
+                supersedes: list[str], said: str = '') -> tuple[dict[str, Any], Restated | None] | None:
     """Persist first, then steer every live member of the named tree. New members read the same request. `standing`
-    and `supersedes` are the planner's explicit decisions for this correction (L3, D30). The reply, and its standing
+    and `supersedes` are the planner's explicit decisions for this correction (L3, D30); `said` is the planner's
+    sentence for the owner, redacted as every reply is. The reply, and its standing
     scope restatement if any: the caller records the reply and, for a widened scope, grants it (`grant_stated`) only
     after yielding that reply."""
     state = tree.steering
@@ -275,8 +269,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))
         supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal})
-        # L11: the reply names what changed in the owner's own words; the planner's updated goal is its Details
-        text, short = acknowledgement(clean['words'], tree.spec.goal if spec is not None else None,
-                                      bool(active and all(accepted)), stated.text if stated is not None else None)
-        reply = {'type': 'reply', 'task_id': tree.id, 'text': text, 'display_text': short}
+        # L11: the reply is the planner's own sentence for this turn; the updated goal shows in the task list
+        text = acknowledgement(said, bool(active and all(accepted)), stated.text if stated is not None else None)
+        reply = {'type': 'reply', 'task_id': tree.id, 'text': text}
         return reply, stated
