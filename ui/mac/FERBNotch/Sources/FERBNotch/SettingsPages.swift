@@ -260,14 +260,16 @@ struct StringListEditor: View {
             }
         }
         HStack {
-            TextField(placeholder, text: $newItem)
-            Button("Add") {
-                let text = newItem.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty else { return }
-                save(items + [text])
-                newItem = ""
-            }
+            TextField(placeholder, text: $newItem).onSubmit(add)
+            Button("Add", action: add)
         }
+    }
+
+    private func add() {
+        let text = newItem.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        save(items + [text])
+        newItem = ""
     }
 }
 

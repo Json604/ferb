@@ -60,6 +60,11 @@ extension NotchModel {
     /// The chat's work row: shown while a task runs or a loop is kept; its spinner turns only for running work.
     var showsWorkRow: Bool { hasRunningWork || keptGoingCount > 0 }
 
+    /// When the longest-running active task started: the work row's timer counts from it ("1 active task · 0:42").
+    var workSince: Date? {
+        hasRunningWork ? runningSince.values.min() : nil
+    }
+
     var workRowText: String {
         let active = activeTaskCount, kept = keptGoingCount
         var parts: [String] = []

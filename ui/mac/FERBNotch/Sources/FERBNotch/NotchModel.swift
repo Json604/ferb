@@ -103,8 +103,17 @@ final class NotchModel: ObservableObject {
     @Published var promptError: String?
     @Published var sendingAnswer = false
     @Published var runningTasks: [String: String] = [:] {
-        didSet { if runningTasks != oldValue { taskListCache.invalidate() } }
+        didSet {
+            guard runningTasks != oldValue else { return }
+            taskListCache.invalidate()
+            // When each running task started, for the work row's timer (a friend's feedback 2026-10-27): kept for
+            // tasks still running; one first seen here starts now unless the daemon's status says otherwise.
+            var since = runningSince.filter { runningTasks[$0.key] != nil }
+            for id in runningTasks.keys where since[id] == nil { since[id] = Date() }
+            if since != runningSince { runningSince = since }
+        }
     }
+    @Published var runningSince: [String: Date] = [:]
     /// Running loops (L31), keyed by root task id: standing work, shown with its counts until the loop or its task ends.
     @Published var standingWork: [String: StandingWork] = [:] {
         didSet { if standingWork != oldValue { taskListCache.invalidate() } }

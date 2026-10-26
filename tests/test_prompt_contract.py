@@ -148,6 +148,11 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
+    # a friend's feedback 2026-10-27, decided by the owner: multi-part requests are answered part by part
+    ("interaction.md",
+     "A request with several parts (several questions, or several things to do) is answered part by part, in the "
+     "owner's order, one short labelled line or paragraph per part saying what was found or done, or plainly what "
+     "wasn't; never merge the parts into one paragraph or leave one out."),
     # owner 2026-10-27: "its every question is too confusing. just ask simply what you want with a small reason below"
     ("question.md",
      'Write `display_text` as one short plain line saying what FERB needs from the owner (a choice or the missing input), then on a new line the reason in a few words.'),

@@ -87,6 +87,10 @@ extension NotchModel {
                 guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
                 return (id, row["goal"] as? String ?? "Running task")
             }, uniquingKeysWith: { _, last in last })
+            for row in running {
+                if let id = row["task_id"] as? String, runningTasks[id] != nil,
+                   let started = LiveProgress.time(row["started_at"]) { runningSince[id] = started }
+            }
             // Standing work only for a task still running (L31).
             let loops = status["loops"] as? [[String: Any]] ?? []
             standingWork = Dictionary(loops.compactMap { row in

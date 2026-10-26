@@ -263,3 +263,17 @@ def test_chat_status_says_whether_ferb_is_paused_or_stopped(daemon: RunningDaemo
     finally:
         d.sense = original
         client.close()
+
+
+def test_chat_status_gives_each_running_task_its_start_for_the_timer(daemon: RunningDaemon,
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    """A friend's feedback 2026-10-27: an elapsed timer beside "1 active task". The notch counts from the task's
+    start, which survives the app restarting, so chat.status says when each running task started."""
+    from tests.browserkit import OWNER, task
+    task(daemon, "w", OWNER, "do it")
+    monkeypatch.setattr(daemon.daemon.supervisor, "running_trees", lambda watches=False: [("w", "do it")])
+    status = daemon.run(daemon.daemon._chat_status(None, {"peek": True}))
+    async def created() -> str:
+        return str(daemon.daemon.db.conn.execute("SELECT created_at FROM tasks WHERE id = 'w'").fetchone()[0])
+    started = daemon.run(created())
+    assert status["running"] == [{"task_id": "w", "goal": "do it", "started_at": started}]

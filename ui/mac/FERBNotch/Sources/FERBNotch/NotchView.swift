@@ -213,6 +213,10 @@ struct NotchView: View {
                     if model.hasRunningWork { ProgressView().controlSize(.mini) }
                     Text(model.workRowText)
                         .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+                    if let since = model.workSince {
+                        Text("· \(since, style: .timer)")
+                            .font(.system(size: 11).monospacedDigit()).foregroundStyle(Palette.secondary)
+                    }
                     Spacer()
                     Button("View tasks", action: model.toggleTasks)
                         .buttonStyle(.plain).font(.system(size: 11))

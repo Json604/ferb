@@ -3072,6 +3072,10 @@ class Daemon:
                        for p in pending]
         running = [{"task_id": t, "goal": g}                  # a watch check isn't listed: no client adopts it (I3)
                    for t, g in (self.supervisor.running_trees(watches=False) if self.supervisor else [])]
+        for r in running:                                     # the notch's elapsed timer (2026-10-27)
+            started = self.db.conn.execute("SELECT created_at FROM tasks WHERE id = ?", (r["task_id"],)).fetchone()
+            if started is not None:
+                r["started_at"] = started[0]
         results = []
         for row in rows:
             recorded = json.loads(row['outcome_json'] or '{}')

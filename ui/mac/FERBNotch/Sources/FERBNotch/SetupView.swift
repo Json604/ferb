@@ -95,16 +95,18 @@ struct AIStepView: View {
                     ForEach(APIProvider.allCases) { Text($0.label).tag($0) }
                 }
                 .frame(width: 190)
-                SecureField("Paste your key", text: $key)
-                Button("Save") {
-                    let entered = key
-                    key = ""                                   // the field never keeps it
-                    Task { await model.saveAPIKey(provider, key: entered) }
-                }
-                .disabled(key.isEmpty)
+                SecureField("Paste your key", text: $key).onSubmit(saveKey)     // Enter saves (2026-10-27)
+                Button("Save", action: saveKey).disabled(key.isEmpty)
             }
             if let line = model.aiMessage { Text(line).font(.callout) }
         }
+    }
+
+    private func saveKey() {
+        guard !key.isEmpty else { return }
+        let entered = key
+        key = ""                                               // the field never keeps it
+        Task { await model.saveAPIKey(provider, key: entered) }
     }
 }
 
@@ -225,12 +227,10 @@ struct PersonaStep: View {
                 if !proposal.isEmpty { Text(proposal).font(.callout).textSelection(.enabled) }
                 if editing {
                     TextField("How you use this Mac, in your words", text: $words, axis: .vertical).lineLimit(3...6)
+                        .onSubmit(saveWords)
                     HStack {
-                        Button("Save") {
-                            let text = words
-                            Task { await model.editPersona(text) }
-                        }
-                        .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Save", action: saveWords)
+                            .disabled(words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         Button("Cancel") { editing = false }
                     }
                 } else {
@@ -247,6 +247,12 @@ struct PersonaStep: View {
             }
             if let line = model.personaMessage { Text(line).font(.callout) }
         }
+    }
+
+    private func saveWords() {
+        let text = words
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task { await model.editPersona(text) }
     }
 }
 
@@ -284,15 +290,17 @@ struct ClaudeSignInRow: View {
                     Button("Open the sign-in page") { model.openClaudeSignInPage() }
                 }
                 HStack {
-                    SecureField("Code from the page (only if it shows one)", text: $code)
-                    Button("Send") {
-                        let entered = code
-                        code = ""                              // the field never keeps it
-                        Task { await model.sendClaudeCode(entered) }
-                    }
-                    .disabled(code.isEmpty)
+                    SecureField("Code from the page (only if it shows one)", text: $code).onSubmit(sendCode)
+                    Button("Send", action: sendCode).disabled(code.isEmpty)
                 }
             }
         }
+    }
+
+    private func sendCode() {
+        guard !code.isEmpty else { return }
+        let entered = code
+        code = ""                                              // the field never keeps it
+        Task { await model.sendClaudeCode(entered) }
     }
 }
