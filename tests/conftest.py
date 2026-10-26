@@ -553,6 +553,8 @@ class FakeCap:
         to: str = ""
         site: str = ""
         text: str = ""
+        amount: float | None = None                  # a payment's amount, as a declared pay names it
+        account: str = ""
 
     def __init__(self, name: str, kind: str, scopes: set[str], boom: bool = False,
                  reads: tuple[tuple[str, str], ...] = (), content: dict[str, Any] | None = None) -> None:
@@ -560,7 +562,8 @@ class FakeCap:
         self.boom, self.reads, self.content, self.calls = boom, reads, content or {"ok": True}, 0
 
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(self.kind, Target(recipients=(args.to,) if args.to else (), site=args.site or None),
+        return ActionSpec(self.kind, Target(recipients=(args.to,) if args.to else (), site=args.site or None,
+                                            amount=args.amount, account=args.account or None),
                           content=args.text or None)
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:

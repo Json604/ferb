@@ -42,6 +42,7 @@ from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
 ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"}
+PAY_WINDOW_S = 600.0                      # one payment's checkout, bank verification included (owner 2026-10-27)
 # What an account-security change is, as FERB's question names it (the worker prompt's and the effect help's words)
 ACCOUNT_SECURITY = "a password, two-factor or recovery setting, or deleting the account"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
@@ -89,6 +90,7 @@ class Need:
     values: dict[str, str] = field(default_factory=dict)          # what FERB's question names
     always: bool = False                      # SQ1: the Yes covers one run of the call, never a later one
     destinations: tuple[tuple[str, str], ...] = ()                # (kind, value) a Yes makes known (SQ6)
+    window_s: float | None = None             # a Yes covers later calls with this key for that long, then lapses
 
 
 def _browser_pid(app_id: str) -> bool:
@@ -469,9 +471,17 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     for k in (Kind.PAY, Kind.ACCOUNT_SECURITY):
         if k in kinds:
             rule = ALWAYS[k]
-            needs.append(Need(rule, key(rule, target.site, target.account, target.amount, sorted(v for _, v in who)),
-                              {"amount": shown_amount(target.amount), "site": where, "account": target.account or "",
-                               "recipients": ", ".join(v for _, v in who)}, always=True))
+            values = {"amount": shown_amount(target.amount), "site": where, "account": target.account or "",
+                      "recipients": ", ".join(v for _, v in who)}
+            if k == Kind.PAY and target.amount is not None:
+                # One Yes per payment (owner 2026-10-27, after one ₹137.39 Zomato order asked five times): its amount
+                # names it, so the checkout's later clicks, a card chosen, the bank's verification page, are covered
+                # for PAY_WINDOW_S; a different amount is another payment. An unnamed amount asks every click.
+                needs.append(Need(rule, key(rule, target.amount, sorted(v for _, v in who)), values,
+                                  window_s=PAY_WINDOW_S))
+            else:
+                needs.append(Need(rule, key(rule, target.site, target.account, target.amount,
+                                            sorted(v for _, v in who)), values, always=True))
     if Kind.DELETE_PERMANENT in kinds and not _owner(arg_sources.get("path", [])):
         if target.path:
             needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", target.path),

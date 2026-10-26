@@ -140,6 +140,38 @@ def test_a_payment_that_ran_asks_again_and_one_that_failed_carries(daemon: Runni
     assert len(_asked(daemon)) == 2 and flaky.calls == 4
 
 
+def test_one_yes_covers_one_payments_checkout_and_a_new_amount_asks(daemon: RunningDaemon) -> None:
+    """Live 2026-10-27 (task 400d67fb, a Zomato order): one ₹137.39 payment asked five times, once per click of the
+    checkout: proceed, the same button after a refresh, the card choice, Pay, the bank's verification page. Owner:
+    "I agree with the necessary questions, but the redundant was too bad". A Yes covers that payment (its amount) in
+    the task, whatever site or card the checkout moves to; a different amount is another payment and asks."""
+    pay = FakeCap("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food under 200 rupees"), [pay])
+    owner = Answers(daemon, granted=True, choice=1)
+    for site, account in (("www.zomato.com", "Zomato account Kartikey"),
+                          ("www.zomato.com", "Zomato account Kartikey, Kotak RuPay ending 0545"),
+                          ("rupay-fsb.enstage-sas.com", "Zomato account Kartikey, Kotak RuPay ending 0545")):
+        r = gateway_tool_call(daemon, grant, "probe.pay", site=site, amount=137.39, account=account)
+        assert not r["is_error"], r
+    assert len(_asked(daemon)) == 1
+    r = gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=250.0)
+    owner.stop()
+    assert not r["is_error"] and len(_asked(daemon)) == 2 and pay.calls == 4
+
+
+def test_a_payment_yes_lapses_after_ten_minutes(daemon: RunningDaemon) -> None:
+    pay = FakeCap("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [pay])
+    owner = Answers(daemon, granted=True, choice=1)
+    gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=137.39)
+    daemon.call_soon(daemon.daemon.clock.advance, 11 * 60)
+    import time
+    time.sleep(0.05)
+    gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=137.39)
+    owner.stop()
+    assert len(_asked(daemon)) == 2 and pay.calls == 2
+
+
 def test_a_no_refuses_and_is_not_asked_again_in_the_task(daemon: RunningDaemon) -> None:
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
@@ -442,7 +474,10 @@ def test_decide_the_floor() -> None:
     owner = ["owner_words"]
     pay = _decide(Kind.PAY, Target(site="shop.example", amount=5.0, recipients=("x@y.com",)),
                   {"site": owner, "amount": owner, "recipient:0": owner})
-    assert [n.rule for n in pay] == ["floor:pay"] and pay[0].always and "x@y.com" in pay[0].key
+    # a named amount: one Yes per payment, for its checkout's window (owner 2026-10-27); an unnamed one: every run
+    assert [n.rule for n in pay] == ["floor:pay"] and not pay[0].always and pay[0].window_s == 600.0
+    assert "x@y.com" in pay[0].key and "shop.example" not in pay[0].key
+    assert _decide(Kind.PAY, Target(site="shop.example"), {"site": owner})[0].always
     assert _decide(Kind.ACCOUNT_SECURITY, Target(site="mail.example"), {"site": owner})[0].always
     assert _decide(Kind.DELETE_PERMANENT, Target(path="/tmp/a"), {"path": owner}) == []
     assert _decide(Kind.DELETE_PERMANENT, Target(path="/tmp/a"), {"path": ["owner_answer"]}) == []

@@ -130,6 +130,11 @@ class Confirmations:
                               self.clock.now().isoformat()))
         return cid
 
+    def age_s(self, row: dict[str, Any]) -> float:
+        """Seconds since that answer was recorded."""
+        from datetime import datetime
+        return (self.clock.now() - datetime.fromisoformat(str(row["at"]))).total_seconds()
+
     def use(self, cid: str) -> None:
         """A Yes that covers one run only (an escape, a payment, an account-security change) is claimed by the call
         about to run; nothing else is covered by it."""

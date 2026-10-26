@@ -48,7 +48,9 @@ look at a specific experiment only when needed. Historical documentation remains
    cases (S4) for sends and URLs, e.g. private data going to a new
    destination after outside content was read. Shell and browser reach any site without asking: code records every
    site and lists it in the answer (L2, 2026-10-13; this replaces the sink rule as it applied to shell egress and the
-   2026-10-10/11 shell-network questions). Payments and account-security changes always ask. Actions made recoverable
+   2026-10-10/11 shell-network questions). Payments and account-security changes always ask; one Yes covers one
+   payment (its amount), its whole checkout and bank verification included, for 10 minutes (owner, 2026-10-27).
+   Actions made recoverable
    by S1 (Trash plus a backup copy) are not destructive. "Already authorized" is decided by code from provenance (the
    target appears in the owner's own words, or in a standing permission FERB stated in its acknowledgement or plan
    line and the owner didn't correct; a schedule's scope counts only destinations the owner typed); the orchestrator

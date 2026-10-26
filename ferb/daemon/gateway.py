@@ -1043,6 +1043,9 @@ class Gateway:
             try:
                 for need in needs:
                     row = confirmations.find(root, need.key, reopened)
+                    if row is not None and row["granted"] and need.window_s is not None and \
+                            confirmations.age_s(row) > need.window_s:
+                        row = None                       # that payment's Yes has lapsed: asked again
                     standing = getattr(self, 'standing', None)
                     if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination', confirm.BULK) and
                         standing is not None and standing.covers(root, name, grant.identity.value, spec)):
