@@ -96,7 +96,12 @@ async function exactPointer({tab_id, point, end, kind}, commandId) {
   };
   try {
     alive();
-    await readyPoint(tab_id, start, alive);
+    try { await readyPoint(tab_id, start, alive); }
+    catch (e) {                                 // only moves were sent, never a press: a known failure (live 2026-10-26)
+      if (String(e.message || e) !== "pointer_did_not_reach_target_frame") throw e;
+      return {ok: false, reason: "pointer_did_not_reach_target_frame", detail: "the pointer's move never reached the " +
+        "target's frame, so nothing was pressed; take a fresh screenshot and point again"};
+    }
     alive();
     // Hover can expose a different control. Recheck the actual hit before pressing.
     await checkPoint(tab_id, start, visual);

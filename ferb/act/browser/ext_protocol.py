@@ -57,7 +57,9 @@ until it updates, a web terminal reached through browser tools isn't recognized 
 by the DOM classes Accessibility exposes). Review round 1 (D31): the minimum is therefore 0.15.11 (the owner published
 it), with the protocol unchanged at 17: an older extension meets the "reload the FERB extension" refusal at hello, so no
 web terminal goes unrecognized; every extension FERB talks to also knows `rest` (REST_VERSION's gate stays as a
-guard)."""
+guard). Extension 0.15.12 changes no protocol and no minimum: snapshots, screenshot points and element adoption reach
+closed shadow roots (live 2026-10-26: Cloudflare's checkbox frame sits in one), and a pointer press that never started
+(its move never reached the target's frame) is a known failure with `reason: pointer_did_not_reach_target_frame`."""
 
 import base64
 import hashlib

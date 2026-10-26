@@ -1,7 +1,8 @@
 // Owns isolated-world snapshots, exact element references and page events. Must not choose targets or submit implicitly.
 // All source labels/values and visible text are retained; the daemon pages model previews. Secret values remain masked.
-// Hidden file inputs remain addressable for direct upload; no native file picker is required. Open shadow roots and
-// child frame geometry are inventoried. UI visibility, covering elements and scroll containers are observed facts.
+// Hidden file inputs remain addressable for direct upload; no native file picker is required. Shadow roots (closed
+// ones too: content scripts may open them, and Cloudflare's checkbox frame sits in one) and child frame geometry are
+// inventoried. UI visibility, covering elements and scroll containers are observed facts.
 (() => {
   if (window.__ferb) return;
   const SEL = 'a[href],button,input,select,textarea,summary,[role],[contenteditable],h1,h2,h3,h4,h5,h6,[tabindex]';
@@ -51,24 +52,28 @@
   }
   function adopt(gen, token) {
     if (gen !== snapGen) return null;
-    const find = root => {
-      const hit = root.querySelector(`[data-ferb-ax="${token}"]`);
-      if (hit) return hit;
-      for (const host of root.querySelectorAll("*")) if (host.shadowRoot) { const found = find(host.shadowRoot); if (found) return found; }
-    };
-    const el = find(document);
+    const el = findBound(document, token);
     if (!el || !visible(el)) return null;
     const id = els.size;
     els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
     return {...describe(el, id), binding: token};
+  }
+  function findBound(root, token) {                 // the element CDP stamped, inside closed shadow roots too
+    const hit = root.querySelector(`[data-ferb-ax="${token}"]`);
+    if (hit) return hit;
+    for (const host of root.querySelectorAll("*")) {
+      const sr = shadowOf(host);
+      if (sr) { const found = findBound(sr, token); if (found) return found; }
+    }
+    return null;
   }
   function point(gen, x, y) {
     if (gen !== snapGen) return {error: "stale"};
     pinCache.clear(); boxCache.clear(); frameCache.clear();
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return {error: "outside_viewport"};
     let el = document.elementFromPoint(x, y);
-    while (el && el.shadowRoot) {
-      const hit = el.shadowRoot.elementFromPoint(x, y);
+    while (el) {                                   // into shadow roots, closed ones too (live 2026-10-26: Cloudflare)
+      const sr = shadowOf(el), hit = sr && sr.elementFromPoint(x, y);
       if (!hit || hit === el) break;
       el = hit;
     }
@@ -211,12 +216,20 @@
     return ti !== null && Number(ti) >= 0;
   }
 
-  // Every candidate in document order, descending into open shadow roots right after their host.
+  // Every candidate in document order, descending into shadow roots (closed ones too) right after their host.
   function collect(root, out) {
     for (const el of root.querySelectorAll("*")) {
       if (el.matches(SEL) && admits(el)) out.push(el);
-      if (el.shadowRoot) collect(el.shadowRoot, out);
+      const sr = shadowOf(el);
+      if (sr) collect(sr, out);
     }
+  }
+  // Every frame element in document order, inside shadow roots too, so a frame there (Cloudflare's checkbox) is
+  // bound and linked to its child frame like any other.
+  function frameElements() {
+    const out = [];
+    eachElement(document, (el) => { if (el.tagName === "IFRAME" || el.tagName === "FRAME") out.push(el); });
+    return out;
   }
 
   const parentOf = (el) => el.parentElement || (el.getRootNode() instanceof ShadowRoot ? el.getRootNode().host : null);
@@ -537,7 +550,7 @@
                        rect: [round(r.x), round(r.y), round(r.width), round(r.height)], ...scrollState(sc) });
     }
     const iframes = [];
-    for (const f of document.querySelectorAll("iframe,frame")) {
+    for (const f of frameElements()) {
       const r = f.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) continue;
       const meets = r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
