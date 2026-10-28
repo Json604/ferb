@@ -383,7 +383,7 @@ def test_workers_declare_the_true_kind_of_consequential_actions() -> None:
 
 
 def test_prompts_carry_the_install_question_and_never_narrow_to_read_only() -> None:
-    supervisor = (PROMPTS.parents[1] / "abilities/guidance/task_planning.md").read_text()
+    supervisor = (PROMPTS / "supervisor.md").read_text()
     worker = (PROMPTS / "worker.md").read_text()
     question = (PROMPTS / "question.md").read_text()
     for text in (supervisor, worker):
@@ -730,7 +730,7 @@ def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon:
     assert "new@x.com" in _texts(chat(daemon, "you can post to the list without asking", session="s1"))
     script.sup.append(_decision(tree, [], spec=task("Post the update", "owner")))
     assert "ask before each" in _texts(chat(daemon, "actually ask me first", session="s1"))
-    running = [ctx for _, role, ctx, _ in script.contexts if role == "supervisor"][-1].split("running tasks and open questions", 1)[1]
+    running = script.contexts[-1][2].split("running tasks and open questions", 1)[1]
     assert "new@x.com" in running.split("Layer 5", 1)[0]     # the planner saw the scope in force before revising it
     owner = Answers(daemon, granted=True, choice=1)
     proceed.set()
@@ -1311,7 +1311,7 @@ async def _on_loop(fn: Any) -> Any:
 
 
 def test_the_planner_is_told_only_typed_destinations_are_covered() -> None:
-    text = " ".join((PROMPTS.parents[1] / "abilities/guidance/task_planning.md").read_text().split())
+    text = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert "FERB covers a scope only when its site, account and recipients appear in words the owner typed" in text
 
 
@@ -1408,7 +1408,7 @@ def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply
 
 
 def test_the_planner_is_told_an_answer_can_come_with_other_requests() -> None:
-    text = " ".join((PROMPTS.parents[1] / "abilities/guidance/task_planning.md").read_text().split())
+    text = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert "return that too: FERB records the answer first, then does the rest" in text
 
 

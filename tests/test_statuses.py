@@ -24,8 +24,7 @@ def _sql(daemon: RunningDaemon, query: str, *args: Any) -> list[Any]:
 
 
 def _unconfirmed(evidence: str) -> str:
-    return json.dumps({"results": [{"index": 0, "met": None, "evidence": evidence},
-        {"index": 1, "met": None, "evidence": "The completion report cannot be confirmed from the missing source."}]})
+    return json.dumps({"results": [{"index": 0, "met": None, "evidence": evidence}]})
 
 
 def _finish(result: str | None, stop_reason: str = "", instructions: str = "Stop and report.") -> str:

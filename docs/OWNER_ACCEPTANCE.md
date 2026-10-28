@@ -1927,33 +1927,3 @@ click brings that profile's browser forward instead of the exact tab.
     Downloads": **Expected:** each part appears as its own checked message as soon as it's done (no waiting for the
     other), with a banner if the notch is closed; inspect-first steps say nothing; the final answer gives each told
     part one line. (A friend's feedback 2026-10-27.)
-
-## Focused context and faithful outcomes (2026-10-28) — offline validated; owner live acceptance pending
-
-The installed app has not been replaced or restarted for this work. Frozen recorded-task model replays are
-separate from live acceptance: they exercise stored evidence, not current browser behavior or the owner's desktop.
-Source fixes and reviews preceded validation, following the owner's fix-first instruction. The full offline run
-finished with 5,510 passed, 21 failed, 4 skipped and 149 deselected. All failures were corrected; the final rerun
-of every affected file plus context/outcome/security regressions passed 525 tests. The earlier focused batch passed
-190 tests. `mypy ferb/core` passed (10 source files), and `git diff --check` passed. These are separate runs, not
-a claim that the original full invocation was green. No further broad run was needed after the focused corrections.
-The owner subsequently limited validation to unit/offline tests because model credits are insufficient. Final
-recorded-task model replays are deferred; earlier replay results do not establish final model behavior or token savings.
-
-After the owner installs, record task IDs and verdicts for these checks:
-
-1. Ask for the running coding sessions while using other windows normally. The answer should enumerate the
-   sessions; a window change needs evidence tying it to FERB before it can establish a FERB conduct failure.
-2. Run the owner's existing availability check. Conclusive coverage with no availability should report that
-   result; a loading/error screen or incomplete coverage must remain unresolved. Do not replay booking actions
-   just to test a report. Retain the owner's schedule and polling instructions.
-3. Retry a blocked task while unrelated media is present. The final answer should lead with the checked task
-   result, retaining any genuine unresolved conduct issue separately. An unrelated screenshot is not proof of
-   causation or a reason to discard checked findings.
-4. Continue a recent exchange, then refer to an older result. Recent context should be available directly;
-   earlier details should be retrieved by recorded IDs/search, with `planner.context_read` spans and accurate
-   sources. Measure total input over all rounds, not just the first prompt.
-5. State an ordinary durable preference without saying “remember,” then ask about it later. Existing automatic
-   memory behavior must remain intact. Task learning is also unchanged.
-6. Ask for work involving one specialized domain. Inspect the trace for compact initial guidance metadata and
-   relevant body reads; the planner, worker and checker must still apply their permanent authority boundaries.

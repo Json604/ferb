@@ -171,5 +171,4 @@ def test_success_sounding_finish_cannot_hide_unknown_condition(daemon):
     # V4, rule 6: without the orchestrator judging it "unconfirmed", an unconfirmed finish is a failure, never done.
     assert result["status"] == "failed" and not result["verified"]
     assert "All five days covered — unverified: Only one day read." in result["answer"]
-    assert "I checked your messages." not in result["answer"]
-    assert "Recent messages found." in result["answer"]  # checked partial fact survives, not the dispatch claim
+    assert "I checked your messages." not in result["answer"] and "Recent messages found." not in result["answer"]

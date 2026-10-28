@@ -124,8 +124,7 @@ def test_the_planner_fits_chat_to_the_character_cap(daemon, monkeypatch) -> None
     request = [r for _, key, r in script.requests if key == "supervisor"][-1]
     assert len(request.context) <= 30_000
     assert f"message number {turns - 1} " in request.context and "message number 0 " not in request.context
-    assert "Only the latest prior owner-message exchange is attached" in request.context
-    assert "context_read source=history" in request.context
+    assert "older entries not shown" in request.context
 
 
 def _refusals(daemon) -> list[dict[str, Any]]:

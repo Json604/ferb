@@ -2311,8 +2311,8 @@ def test_each_round_after_the_first_is_told_which_tabs_the_loop_holds(bd, monkey
         _wait(d, lambda: sv.loops.digest(tree_id, 'keep')['rounds'] >= 2)
         ext.audible.add(OWNER_TAB)                   # playing again, so round 2's baseline doesn't trip a third round
         first, second = [ctx for _, k, ctx, _ in script.contexts if k == 'loop.keep'][:2]
-        assert '"held_tabs"' not in first
-        held = second.split('"held_tabs"', 1)[1][:400]
+        assert 'held_tabs' not in first
+        held = second.split('held_tabs', 1)[1][:400]
         assert f'"tab": "{seen[0]["tab"]}"' in held.replace('\\"', '"') and 'browser' in held
         d.run(_stop(d, tree_id), timeout=20)
     finally:

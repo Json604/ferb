@@ -307,19 +307,12 @@ class ChatHistory(_PagedFacts):
         if root is None:
             return ToolResult({"error": "no registered conversation for this task"}, is_error=True)
         records = self.continuity.history(root, include_tasks=args.include_tasks or bool(args.task_id))
-        return self.read_records(records, args)
-
-    @classmethod
-    def read_records(cls, records: list[dict[str, Any]], args: Any) -> ToolResult:
-        """Shared pagination for registered tasks and host-confined planner reads."""
         requested = args.entry_id or args.task_id
         if requested:
             found = next((row for row in records if row["id"] == requested), None)
             if found is None:
                 return ToolResult({"error": "entry is not in this task's conversation"}, is_error=True)
-            result = cls.page(found, args.offset, args.max_chars, origin.split(found.get("origin")))
-            result.content["source_refs"] = [("task:" if found["kind"] == "task" else "entry:") + found["id"]]
-            return result
+            return self.page(found, args.offset, args.max_chars, origin.split(found.get("origin")))
         if args.query:                   # the literal search covers what each record holds, not its origin label
             records = [row for row in records if args.query.casefold() in
                        json.dumps({k: v for k, v in row.items() if k != "origin"}, ensure_ascii=False).casefold()]
@@ -328,10 +321,9 @@ class ChatHistory(_PagedFacts):
         selected = [{"id": row["id"], "kind": row["kind"], "at": row.get("at"),
                      "preview": json.dumps(row["data"], ensure_ascii=False)[:500],
                      "preview_truncated": len(json.dumps(row["data"], ensure_ascii=False)) > 500,
-                     "read_full": {"tool": cls.name, "entry_id": row["id"]}} for row in shown]
+                     "read_full": {"tool": self.name, "entry_id": row["id"]}} for row in shown]
         return ToolResult({"records": selected, "next_after": end if end < len(records) else None,
-                           "total_records": len(records),
-                           "source_refs": [("task:" if row["kind"] == "task" else "entry:") + row["id"] for row in shown]},
+                           "total_records": len(records)},
                           read_sources=_passed({o for row in shown for o in origin.split(row.get("origin"))}))
 
 

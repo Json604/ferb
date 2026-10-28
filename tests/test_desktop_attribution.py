@@ -55,7 +55,7 @@ def test_the_gateway_records_whether_a_call_can_change_the_screen(daemon: Runnin
 
 
 def test_agents_are_told_what_a_change_with_no_ferb_on_screen_action_means() -> None:
-    path = Path(__file__).resolve().parents[1] / "ferb" / "abilities" / "guidance" / "background_interfaces.md"
+    path = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts" / "interaction.md"
     text = " ".join(path.read_text().split())
     assert ("A change with no FERB on-screen action in progress says when the last one ended, or that this task made "
             "none: it may come from the owner, another app, a process FERB started (such as a coding agent, which acts "

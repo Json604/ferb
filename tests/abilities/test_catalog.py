@@ -147,80 +147,8 @@ sys.path.insert(0, sys.argv[1])
 import ferb
 from ferb.abilities.catalog import AbilityCatalog
 assert ferb.__file__.startswith(sys.argv[1]), ferb.__file__
-catalog = AbilityCatalog()
-print(json.dumps([catalog.read(item["id"]) for item in catalog.catalog()]))
+print(json.dumps(AbilityCatalog().read("browser_verification")))
 '''
     result = subprocess.run([sys.executable, '-I', '-c', code, str(wheel)], cwd=tmp_path,
                             check=True, capture_output=True, text=True)
-    catalog = AbilityCatalog()
-    assert json.loads(result.stdout) == [catalog.read(item['id']) for item in catalog.catalog()]
-
-
-@pytest.mark.parametrize('name', [
-    'task_planning', 'memory_intake', 'scheduling', 'continuous_work', 'delegated_conversations',
-    'background_interfaces', 'sealed_login', 'media_capture', 'delegated_processes', 'artifact_work',
-    'source_research',
-])
-def test_guidance_is_readable_and_hashed_without_claiming_a_runner(name):
-    import hashlib
-    catalog = AbilityCatalog()
-    metadata = next(item for item in catalog.catalog() if item['id'] == name)
-    assert metadata['readable'] and not metadata['availability']['available']
-    assert 'body' not in metadata and 'sha256' not in metadata
-    read = catalog.read(name)
-    assert read['sha256'] == hashlib.sha256(read['body'].encode('utf-8')).hexdigest()
-    assert read['version'] == '1' and read['origin'] == origin.FERB
-    assert read['supported_interactions'] == []
-
-
-def test_every_ability_including_guidance_refuses_symlink_resources(tmp_path, monkeypatch):
-    from ferb.abilities import catalog as module
-    catalog = AbilityCatalog()
-    names = [item['id'] for item in catalog.catalog()]
-    outside = tmp_path / 'outside.md'
-    outside.write_text('untrusted file')
-    package = tmp_path / 'package'
-    package.mkdir()
-    for name in names:
-        filename = 'SKILL.md' if name == 'browser_verification' else name + '.md'
-        (package / filename).symlink_to(outside)
-    monkeypatch.setattr(module.resources, 'files', lambda _: package)
-    for name in names:
-        with pytest.raises(Refused):
-            catalog.read(name)
-
-
-def test_role_system_discovers_guidance_without_loading_irrelevant_bodies(daemon):
-    supervisor = daemon.daemon.supervisor
-    catalog = AbilityCatalog()
-    async def system_for(role):
-        return supervisor._system(role)
-    for role in ('supervisor.md', 'worker.md', 'verifier.md'):
-        system = daemon.run(system_for(role))
-        assert 'memory_intake' in system and 'source_research' in system
-        assert 'readability does not imply an execution runner' in system
-        for name in ('sealed_login', 'media_capture', 'artifact_work'):
-            assert catalog.read(name)['body'] not in system
-    for role in ('dispatch.md', 'question.md', 'resources.md'):
-        system = daemon.run(system_for(role))
-        assert 'Installed FERB guidance index' not in system
-        assert 'Shared interaction contract' in system
-
-
-def test_structural_guidance_records_the_exact_version_hash_and_origin(daemon):
-    from types import SimpleNamespace
-    tree = SimpleNamespace(id='structural-guidance', context_sources={})
-    supervisor = daemon.daemon.supervisor
-    async def recorded_guidance():
-        block = supervisor._guidance_block(tree, 'artifact_work')
-        record = daemon.daemon.db.conn.execute(
-            "SELECT output_json,origin FROM spans WHERE task_id=? AND kind='context.source'", (tree.id,)).fetchone()
-        return block, dict(record)
-    block, record = daemon.run(recorded_guidance())
-    expected = AbilityCatalog().read('artifact_work')
-    assert block.protected and block.origin == origin.FERB
-    assert block.source_refs == ('ability:artifact_work',)
-    assert json.loads(block.payload) == expected
-    assert expected['sha256'] in block.text
-    assert record['origin'] == origin.FERB
-    assert json.loads(json.loads(record['output_json'])['text']) == expected
+    assert json.loads(result.stdout) == AbilityCatalog().read('browser_verification')

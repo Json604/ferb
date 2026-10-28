@@ -2,9 +2,6 @@
 
 Date: 2026-10-28. Owner authorized implementation after the read-only audit: “do all what you think is good BUT you have to be justifiable ... FINISH ALL”. This is approval to proceed after this plan, without a second approval checkpoint. Learning and memory behavior remain unchanged. Source implementation only; installation/live acceptance remain owner-run.
 
-## Owner workflow override (during implementation)
-The owner explicitly directed: “fix first and only after all fixes done run the real and unit tests. NO TESTS BEFORE ALL THE FIXING”. This supersedes the test-first/per-task execution sequence below and the repository/skill test-first default for this work. Stop the in-flight Task1 final suite. Finish all production changes and source reviews first; regression tests may be updated with the implementation, but execute no unit, real-model or other validation runs until all fixes are complete. Then run combined tests and recorded-task replays, fix any findings, and revalidate the final source. No pushes of unvalidated implementation.
-
 ## Goal
 Reduce unnecessary instruction/history input while preserving capabilities, owner authority and continuity. Correct the inspected coding-session and visa-check failures and preserve concrete checked results in answers.
 
@@ -48,9 +45,3 @@ Update ARCHITECTURE.md, CHANGELOG.md, docs/0.27_PLAN.md, docs/0.27_DECISIONS.tom
 
 ## Self-review
 The main risks are continuity loss and silent policy loss, not just token count. Retrieval must ship before large prompt relocation, and outcome repair must not weaken verification. The existing trace incidents become deterministic integration regressions with scripted models; they prove plumbing, not future model judgment. Live owner acceptance must separately exercise actual model selection, window switches, no-slot/blocked checks, and history follow-up. No private trace payloads or credentials enter committed fixtures.
-## Validation scope update — owner, 2026-10-28
-
-The owner subsequently requested **only unit/offline tests**, because real-model replay credits are insufficient.
-Do not execute the final recorded-task model replays or live model tests. Keep the earlier replay findings as
-historical evidence only; they do not validate the final prompt/history implementation. Report semantic behavior
-and total runtime token savings as unverified until the owner chooses to run those checks later.

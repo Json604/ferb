@@ -910,8 +910,6 @@ class Daemon:
         self.supervisor.on_loop_rest = self._loop_rest
         self.supervisor.skills_catalog = skills.catalog
         self.supervisor.abilities_catalog = self.registry.abilities.catalog
-        self.supervisor.ability_read = self.registry.abilities.read
-        self.supervisor.skill_read = skills.read
         self.supervisor.on_resumed_outcome = lambda event: self._task_result(event, shown=False)
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished

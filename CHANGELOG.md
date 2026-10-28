@@ -23,36 +23,6 @@ parameters in a strict schema (the planner's has 48, and had 46 before 0dd5185: 
 before); a schema past the documented limits now travels in a non-strict final-answer tool, verified with one real
 planner-shaped request (HTTP 200, a valid planner outcome).
 
-## 0.27.0.dev1 Focused context and faithful outcomes — 2026-10-28 — offline validated; live checks pending
-
-P3/P16/P21/L28: the planner stops filling unused input space with older chat. It receives the latest prior owner
-exchange and a compact, versioned continuity map, and reads earlier originals through a host-confined context
-protocol. Existing memory capture, task learning and retention stay unchanged. A missing/stale map is disclosed;
-history is not deleted or silently treated as known. Read results preserve provenance and are redacted before
-pagination. Additional retrieval rounds remain a cost to measure, not free context.
-
-Detailed operational guidance moves into registered abilities with a compact directory and recorded version/body
-hash on read. Permanent role instructions retain authority, source trust, scope, action declarations and truthful
-reporting. Relevant bodies are read as needed; known loop/conversation state and changed-file inspection receive
-their required guidance directly. Reading a procedure does not make an unavailable runner executable.
-
-Result and conduct conditions are distinguished without bypassing either. Checkers can explain a planner proxy
-correction against the original request while preserving both texts. Evidence-only rechecks now receive the
-orchestrator's continuation instructions. A checker-approved answer survives an unrelated unresolved condition;
-rejected reports, later owner steering and invalidating cleanup cannot reuse that approval.
-
-Offline instruction-body estimates (shared contract plus role file, excluding dynamic context and the guidance
-index): planner 10,099 → 3,281 tokens; worker 8,565 → 3,768; checker 5,175 → 3,909. These are initial instruction
-sizes, not measured whole-request savings: retrieved guidance and additional model rounds also cost input.
-
-These changes address recorded coding-session and visa-check incidents. The no-slot cases also contained source
-coverage and retry questions, so they are not represented as simple status-label bugs. The full offline run had
-5,510 passes and 21 failures; after correcting prompt-location expectations, asynchronous test selection and history
-exposure bookkeeping, all 525 tests across the affected files passed. The earlier focused batch passed 190 tests;
-`mypy ferb/core` and `git diff --check` pass. Owner live acceptance remains pending; the installed application has
-not been changed. At the owner's request,
-final validation uses only unit/offline tests; final real-model replays are deferred because of available credits.
-
 ## 0.27.0.dev1 Packaged ability discovery — 2026-10-27 — source only; live checks pending
 
 P21/D32/MP2: FERB now ships an explicit ability catalog under `ferb/abilities/`, with browser verification's saved

@@ -29,15 +29,9 @@ class ConditionResult:
     evidence: str
     how: str = ""                  # how the owner could check it themselves (checker, unconfirmed only)
 
-    category: str = "result"
-    effective_condition: str | None = None
-    correction_reason: str | None = None
-
     def as_dict(self) -> dict[str, Any]:
         d = {"index": self.index, "condition": self.text, "met": self.met, "path": self.path,
-             "evidence": self.evidence, "category": self.category}
-        if self.effective_condition:
-            d.update(effective_condition=self.effective_condition, correction_reason=self.correction_reason)
+             "evidence": self.evidence}
         return {**d, "how": self.how} if self.how else d
 
 
@@ -62,7 +56,7 @@ class Checks:
             try:
                 p = resolve(k.path or "", ctx, must_exist=True)
                 if k.kind == "file_exists":
-                    return ConditionResult(i, c.text, True, "code", f"{p} exists", category=c.category)
+                    return ConditionResult(i, c.text, True, "code", f"{p} exists")
                 needle = k.text or ""
                 found, carry = False, ""
                 if Path(p).is_file():
@@ -74,23 +68,23 @@ class Checks:
                                 break
                             carry = text[-(len(needle) - 1):] if len(needle) > 1 else ""
             except PathRefused as e:
-                return ConditionResult(i, c.text, False, "code", f"{k.path}: {e}", category=c.category)
+                return ConditionResult(i, c.text, False, "code", f"{k.path}: {e}")
             except (OSError, UnicodeError) as e:
                 # One failed observation route must not prevent the checker from inspecting the artifact
                 # another way. Replacement decoding could invent text, so report the unavailable fact.
                 return ConditionResult(i, c.text, None, "code",
-                                       f"{k.path}: literal {k.kind} observation unavailable: {type(e).__name__}: {e}", category=c.category)
+                                       f"{k.path}: literal {k.kind} observation unavailable: {type(e).__name__}: {e}")
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
-                                                           f"the expected text", category=c.category)
+                                                           f"the expected text")
         if k.kind in ("after_change", "after_value"):
             call = self.spans.latest_acting_call(task_id, k.tool) if self.spans is not None else None
             if call is None:
-                return ConditionResult(i, c.text, None, "code", f"no {k.tool or 'acting'} call recorded in this task", category=c.category)
+                return ConditionResult(i, c.text, None, "code", f"no {k.tool or 'acting'} call recorded in this task")
             after = (call["output"] or {}).get("after")     # a call that died has no output: nothing was read back
             if not isinstance(after, dict):
                 return ConditionResult(i, c.text, None, "code",
                                        f"the latest {call['tool']} call recorded no after-read"
-                                       + (f" ({call['error']})" if call["error"] else ""), category=c.category)
+                                       + (f" ({call['error']})" if call["error"] else ""))
             expect = ({"value_contains": k.text or ""} if k.kind == "after_value"
                       else {"changed": (k.expected or "true").strip().lower() != "false"})
             failed = bool(call["error"]) or (call["output"] or {}).get("ok") is False    # as the tool itself reported
@@ -99,13 +93,13 @@ class Checks:
                 # expected (a partial or different effect). Not a confirmation; unknown, for the checker.
                 return ConditionResult(i, c.text, None, "code", f"the latest {call['tool']} call changed the screen "
                                        f"but reported an error ({call['error'] or 'ok: false'}), so the change "
-                                       "isn't confirmed", category=c.category)
+                                       "isn't confirmed")
             got = aftercheck.compare(expect, after)
-            return ConditionResult(i, c.text, got["met"], "code", got["evidence"], category=c.category)
+            return ConditionResult(i, c.text, got["met"], "code", got["evidence"])
         if k.kind == "tab_url":
             urls = self.urls_of(task_id)
             matches = [url for url in urls if (k.url_contains or "") in url]
             import json
             return ConditionResult(i, c.text, bool(matches), "code", json.dumps({
-                "url_contains": k.url_contains, "all_task_urls": urls, "matching_urls": matches}), category=c.category)
-        return ConditionResult(i, c.text, None, "code", "Inspect the requested outcome with current source evidence", category=c.category)
+                "url_contains": k.url_contains, "all_task_urls": urls, "matching_urls": matches}))
+        return ConditionResult(i, c.text, None, "code", "Inspect the requested outcome with current source evidence")

@@ -75,8 +75,7 @@ def test_a_task_s_final_answer_is_the_full_answer(daemon):
 def test_an_unfinished_answer_is_the_full_report_never_the_worker_s_claim(daemon):
     worker = json.dumps({'status': 'done', 'summary': 'Report prepared.', 'answer': 'Everything is ready.',
                          'artifacts': [], 'evidence': []})
-    check = json.dumps({'results': [{'index': 0, 'met': False, 'evidence': 'The requested report is missing.'},
-        {'index': 1, 'met': False, 'evidence': 'Everything ready contradicts the missing report.'}]})
+    check = json.dumps({'results': [{'index': 0, 'met': False, 'evidence': 'The requested report is missing.'}]})
     install(daemon, [sup('task', 'Reviewing.', task('review coding sessions'))],
             {'worker': worker, 'worker.verify': check})
     final = outcome(chat(daemon, 'review coding sessions'))

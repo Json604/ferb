@@ -674,7 +674,7 @@ def test_the_prompts_carry_the_declaration_and_the_campaign_scope() -> None:
     the planner states a browser campaign's scope as the gateway matches it."""
     prompts = Path(__file__).resolve().parents[1] / "ferb" / "orchestrator" / "prompts"
     worker = " ".join((prompts / "worker.md").read_text().split())
-    supervisor = " ".join((prompts.parents[1] / "abilities" / "guidance" / "task_planning.md").read_text().split())
+    supervisor = " ".join((prompts / "supervisor.md").read_text().split())
     for words in ("`send` only when the action delivers the owner's message, post or email to people or a public "
                   "audience", "`pay` only on the final Pay or confirm control", "`account_security` only for changing a password",
                   "Put what it reaches in `destination`", "never only in `why`",

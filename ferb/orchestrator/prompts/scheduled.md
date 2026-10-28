@@ -19,7 +19,3 @@ its tools for an alert the owner asked for (a sound, speech). When last_reported
 stay quiet, with no new alert, and say it still holds. FERB itself ends an until_met watch once a confirmed run finds
 the condition met, and tells the owner it stopped checking.
 A run that checks for something that may not be available yet and acts only when it is (book an appointment once a slot opens, buy once the price drops), repeated by a schedule, has as its conditions that the check was made across everything asked and its answer reports what it found, plus the action when it was available; never the awaited result itself (booked, bought). Not available yet is a finished check that says when the next one runs, not a failed task.
-
-An unavailable portal or incomplete source coverage is inability to check, not evidence of no availability. Do not
-satisfy the check with “or report the blocker”: a truthful blocker report does not establish the requested coverage.
-Keep that gap explicit while preserving the schedule unless the owner authorized stopping it.

@@ -87,7 +87,7 @@ def test_a_planner_condition_in_the_same_words_is_its_own_condition(daemon: Runn
     assert f"0. {REPORT_CONDITION.text}\n1. the email was sent\n2. {REPORT_CONDITION.text}\n" in ctx
     assert out["status"] == "failed"
     assert "- What I reported didn't match the records: FERB sent it, not Codex" in out["answer"]   # index 2 only
-    assert "Confirmed:\n- the planner's copy holds" in out["answer"]       # the planner's copy is shown, not hidden
+    assert f"Confirmed:\n- {REPORT_CONDITION.text}" in out["answer"]       # the planner's copy is shown, not hidden
 
 
 def test_a_check_that_crashes_lists_the_report_still_to_check(daemon: RunningDaemon) -> None:

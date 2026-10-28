@@ -49,7 +49,7 @@ def test_a_progress_question_sees_that_the_task_is_blocked(daemon: RunningDaemon
 
 
 def test_the_planner_answers_progress_only_from_the_status_facts() -> None:
-    words = " ".join((PROMPTS.parents[1] / "abilities/guidance/task_planning.md").read_text().split())
+    words = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert ("Answer a question about progress (\"are the agents working?\", \"how far is it?\") only from the task "
             "status facts: say a task is blocked, waiting or finished when they say so, and never claim work is going "
             "on that they don't show.") in words
@@ -151,6 +151,6 @@ def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemo
 
 
 def test_the_planner_routes_a_reply_to_a_paused_loop_as_a_steer() -> None:
-    words = " ".join((PROMPTS.parents[1] / "abilities/guidance/continuous_work.md").read_text().split())
+    words = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert ("The owner's reply to a paused loop's question (its task's row in the task status facts) is a steer of "
             "that task.") in words

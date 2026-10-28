@@ -70,17 +70,16 @@ def test_failed_answer_keeps_the_deliverable_the_reason_and_the_findings(daemon:
                                      result='failed')})
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'failed' and 'display_text' not in final
-    assert final['answer'].startswith(f"The report is at {REPORT}.\n\nI couldn't confirm the task was complete:")
+    assert final['answer'].startswith("I couldn't confirm the task was complete:")
     assert FINDING in final['answer'] and REPORT in final['answer']
     assert 'Why work stopped: A new tab was required.' in final['answer']
 
 
 def test_an_unfinished_answer_never_states_the_worker_s_unchecked_claim(daemon: RunningDaemon) -> None:
-    script = install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
+    install(daemon, [sup('task', 'Writing it up.', task('write the YouTube report'))], {
         'worker': _worker('Done! The report covers every session.', (REPORT,)),
         'worker.verify': _unconfirmed(False),
         'worker.dispatch': _dispatch('finish', instructions='Stop here.', result='failed')})
-    script.fill_report_verdict = False  # this regression is an unchecked report, never a passed truthfulness check
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'failed'
     assert final['answer'].startswith("I couldn't confirm the task was complete:")
@@ -830,8 +829,7 @@ PROMPTS = Path(__file__).resolve().parents[1] / 'ferb' / 'orchestrator' / 'promp
 
 
 def _prompt(name: str) -> str:
-    path = PROMPTS.parents[1] / 'abilities' / name if name.startswith('guidance/') else PROMPTS / name
-    return ' '.join(path.read_text().split())
+    return ' '.join((PROMPTS / name).read_text().split())
 
 
 @pytest.mark.parametrize('phrase', ['Looking at your storage now.', 'Your coding-agent session review.',
@@ -843,16 +841,16 @@ def test_the_prompts_carry_no_copyable_example_phrasing(phrase: str) -> None:
 
 
 @pytest.mark.parametrize('name, words', [
-    ('interaction.md', "Answer the latest message in its conversational context"),
-    ('interaction.md', "preserve what it refers to"),
-    ('interaction.md', "Keep internal bookkeeping and private deliberation out of it"),
+    ('interaction.md', "It answers the owner's question as they asked it, read in the conversation's"),
+    ('interaction.md', "It keeps the fact the conversation is about"),
+    ('interaction.md', "Never use FERB's internal terms in anything the owner reads"),
     ('dispatch.md', 'what was delivered, with its paths and links;'),
     ('dispatch.md', "FERB lists the findings itself: don't paste them."),
     ('worker.md', "It answers the owner's question as they asked it, in the conversation's context"),
     ('supervisor.md', "`text` answers the owner's message as they asked it"),
-    ('guidance/memory_intake.md', 'FERB adds that line itself'),
-    ('guidance/scheduling.md', 'an earlier one whose reminder was never set'),
-    ('guidance/task_planning.md', 'new_goal'),
+    ('supervisor.md', 'FERB adds that line itself'),
+    ('supervisor.md', 'an earlier one whose reminder was never set'),
+    ('supervisor.md', 'new_goal'),
     ('dispatch.md', 'FERB shows your question on its own line'),
 ])
 def test_the_answer_prompts_require_the_question_as_asked_and_no_internal_terms(name: str, words: str) -> None:
