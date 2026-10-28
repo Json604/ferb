@@ -42,6 +42,31 @@ LIMITS_SOURCE = "https://platform.claude.com/docs/en/about-claude/models/overvie
 WINDOW_EXCEEDED = ("prompt is too long", "input length and `max_tokens` exceed context limit")
 
 
+# Keywords Anthropic's structured outputs reject ("For 'integer' type, property 'minimum' is not supported", live
+# 2026-10-28), from its JSON Schema limitations: numerical and string constraints and complex array constraints.
+# FERB's own Pydantic models check every answer afterwards, so dropping them here loses no check.
+UNSUPPORTED_KEYWORDS = frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                                  "minLength", "maxLength", "maxItems"})
+
+
+def structured_schema(node: Any) -> Any:
+    """A JSON schema as Claude's structured outputs take it: the unsupported keywords (and minItems above 1) dropped,
+    a field merely named like one kept."""
+    if isinstance(node, list):
+        return [structured_schema(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in ("properties", "$defs", "definitions") and isinstance(value, dict):
+            out[key] = {name: structured_schema(sub) for name, sub in value.items()}
+        elif key in UNSUPPORTED_KEYWORDS or (key == "minItems" and isinstance(value, int) and value > 1):
+            continue
+        else:
+            out[key] = structured_schema(value)
+    return out
+
+
 def limits_for(model: str) -> ModelLimits:
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"Anthropic documents no context window FERB knows for model {model!r}; "
@@ -77,7 +102,7 @@ class AnthropicProvider:
             body["tool_choice"] = {"type": "auto"}
         output: dict[str, Any] = {}
         if schema:
-            output["format"] = {"type": "json_schema", "schema": schema}
+            output["format"] = {"type": "json_schema", "schema": structured_schema(schema)}
         if effort and not self.model.startswith(NO_EFFORT):
             output["effort"] = effort
         if output:

@@ -19,6 +19,7 @@ from typing import Any, AsyncIterator, Literal
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import ModelLimitsUnknown, Unsupported
 from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.runtimes.anthropic_api import structured_schema
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.usage import from_anthropic
 
@@ -61,17 +62,17 @@ async def _frames(request: ModelRequest) -> AsyncIterator[dict[str, Any]]:
 
 # L28: with ANTHROPIC_BASE_URL set (FERB's proxy), Claude Code gives recognized models the Anthropic API's window, and its
 # aliases resolve on the Anthropic API to these models (https://code.claude.com/docs/en/model-config, checked
-# 2026-10-14). The limits themselves are Anthropic's documented ones (anthropic_api.LIMITS). No model configured means
-# the account's plan-dependent default, whose window FERB can't know: an explicit error, never a guess.
+# 2026-10-14). The limits themselves are Anthropic's documented ones (anthropic_api.LIMITS). With no model configured
+# FERB names its own default and passes it to Claude Code, never the account's plan-dependent default (whose window FERB
+# can't know): Sonnet 5.5 (owner 2026-10-28, after choosing Claude in the app failed every request).
+DEFAULT_MODEL = "claude-sonnet-5-5"
 ALIASES = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
            "fable": "claude-fable-5-1"}
 
 
 def limits_for(model: str | None) -> ModelLimits:
     from ferb.runtimes.anthropic_api import limits_for as documented
-    if not model:
-        raise ModelLimitsUnknown("the Claude runtime has no model set, so its context window is the account's "
-                                 "plan-dependent default: set [models] claude in config.toml")
+    model = model or DEFAULT_MODEL
     resolved = documented(ALIASES.get(model, model))
     return ModelLimits(model, resolved.context_window, resolved.max_output,
                        resolved.source + "; aliases: https://code.claude.com/docs/en/model-config")
@@ -86,7 +87,7 @@ class ClaudeRuntime:
                  output_schema: dict[str, Any] | None = None, model: str | None = None,
                  effort: str | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
-        self.output_schema, self.model = output_schema, model
+        self.output_schema, self.model = output_schema, model or DEFAULT_MODEL
         self.effort = effort             # L39: the SDK's own effort option when asked for ("high"); None: its default
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:
@@ -121,7 +122,8 @@ class ClaudeRuntime:
             model=self.model, effort=self.effort,   # type: ignore[arg-type]
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
-            output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
+            output_format=({"type": "json_schema", "schema": structured_schema(self.output_schema)}
+                           if self.output_schema else None))
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         from claude_agent_sdk import ClaudeSDKClient

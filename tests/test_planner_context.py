@@ -114,8 +114,10 @@ def test_adapters_report_documented_limits_and_refuse_unknown_models(tmp_path):
         with pytest.raises(ModelLimitsUnknown):
             lookup("a-model-nobody-documented")
     assert ClaudeRuntime("supervisor", None, str(tmp_path), model="opus").limits.context_window == 1_000_000
-    with pytest.raises(ModelLimitsUnknown):
-        ClaudeRuntime("supervisor", None, str(tmp_path), model=None).limits          # the SDK default is plan-dependent
+    # no model set (live 2026-10-28: every request failed after the owner chose Claude in the app): FERB names its own
+    # default, Sonnet 5.5 (owner 2026-10-28), and passes it to Claude Code, so both mean the same window
+    unset = ClaudeRuntime("supervisor", None, str(tmp_path), model=None)
+    assert unset.model == "claude-sonnet-5-5" and unset.limits.context_window == 1_000_000
     assert openai_api.limits_for("gpt-5.6-sol").context_budget == 1_050_000 - 128_000
     home = tmp_path / "ferb"
     (home / "codex-home").mkdir(parents=True)
@@ -134,7 +136,8 @@ def test_doctor_names_a_role_whose_runtime_has_no_documented_window(tmp_path):
     from ferb.runtimes.catalog import CATALOG
     assert CATALOG["anthropic"].limits("claude-opus-5-5", tmp_path).context_window == 1_000_000
     with pytest.raises(ModelLimitsUnknown):
-        CATALOG["claude"].limits(None, tmp_path)
+        CATALOG["claude"].limits("a-model-nobody-documented", tmp_path)
+    assert CATALOG["claude"].limits(None, tmp_path).model == "claude-sonnet-5-5"     # unset: FERB's default (2026-10-28)
 
 
 def test_stable_device_prefix_stays_cacheable_while_focused_exchange_advances(daemon):
