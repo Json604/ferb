@@ -353,7 +353,7 @@ OWN_WORK_WORKER = (
     "watch: it stays your task.")
 
 
-@pytest.mark.parametrize("name, sentence", [("supervisor.md", OWN_WORK_PLANNER), ("worker.md", OWN_WORK_WORKER)])
+@pytest.mark.parametrize("name, sentence", [("guidance/scheduling.md", OWN_WORK_PLANNER), ("guidance/scheduling.md", OWN_WORK_WORKER)])
 def test_watching_work_ferb_started_stays_the_tasks_own_work(name: str, sentence: str) -> None:
     assert " ".join(sentence.split()) in _words(name)
 
@@ -555,7 +555,8 @@ def test_a_watch_and_its_next_check_survive_a_restart(home: Path, monkeypatch: p
 # ---------- the prompts carry the guidance ----------
 
 def _words(name: str) -> str:
-    return " ".join((PROMPTS / name).read_text().split())
+    path = (PROMPTS.parents[1] / "abilities" / name) if name.startswith("guidance/") else PROMPTS / name
+    return " ".join(path.read_text().split())
 
 
 WATCH_PLANNER = (
@@ -588,16 +589,16 @@ NO_LOOP_WORKER = (
     'updates).')
 
 
-@pytest.mark.parametrize("name, sentence", [("supervisor.md", WATCH_PLANNER), ("scheduled.md", WATCH_RUN),
+@pytest.mark.parametrize("name, sentence", [("guidance/scheduling.md", WATCH_PLANNER), ("scheduled.md", WATCH_RUN),
                                             ("scheduled.md", WATCH_RUN_TELLS), ("worker.md", WATCH_WORKER),
-                                            ("worker.md", NO_LOOP_WORKER)])
+                                            ("guidance/scheduling.md", NO_LOOP_WORKER)])
 def test_the_prompts_carry_the_watch_guidance(name: str, sentence: str) -> None:
     assert " ".join(sentence.split()) in _words(name)
 
 
 def test_a_schedule_with_work_now_is_allowed_in_the_same_turn() -> None:
     """The planner's schedule entry once said "No task now", which forbade the live case's task plus watch."""
-    words = _words("supervisor.md")
+    words = _words("guidance/scheduling.md")
     assert "No task now." not in words
     assert ("No task for the scheduled work itself; when the same message also asks for something now, that part is a "
             "task in the same turn.") in words

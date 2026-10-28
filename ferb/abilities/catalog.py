@@ -3,6 +3,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator
 from contextlib import contextmanager
 from importlib import resources
 import os
+import hashlib
 from pathlib import Path
 from typing import Any, IO
 
@@ -13,7 +14,8 @@ from ferb.core.errors import Refused
 
 def builtin_definitions() -> tuple[AbilityDefinition, ...]:
     from ferb.abilities.browser_verification.definition import DEFINITION
-    return (DEFINITION,)
+    from ferb.abilities.guidance.definitions import DEFINITIONS
+    return (DEFINITION, *DEFINITIONS)
 
 
 @contextmanager
@@ -55,10 +57,13 @@ class AbilityCatalog:
         try:
             with _open_procedure(definition.procedure_resource):
                 pass                                  # only check availability; the body stays on demand
+            readable = True
         except Refused as exc:
+            readable = False
             reasons.append(str(exc))
         return {'id': definition.id, 'version': definition.version, 'description': definition.description,
                 'source_kind': 'builtin', 'origin': origin.FERB,
+                'readable': readable,
                 'supported_interactions': list(definition.supported_interactions),
                 'required_capabilities': list(definition.required_capabilities),
                 'availability': {'available': not reasons, 'missing_capabilities': missing,
@@ -73,4 +78,5 @@ class AbilityCatalog:
             raise Refused('Choose an installed ability ID from abilities.list; paths and modules are not accepted.')
         with _open_procedure(definition.procedure_resource) as stream:
             body = stream.read()
-        return {**self._metadata(definition), 'input_schema': definition.input_schema.model_json_schema(), 'body': body}
+        return {**self._metadata(definition), 'sha256': hashlib.sha256(body.encode('utf-8')).hexdigest(),
+                'input_schema': definition.input_schema.model_json_schema(), 'body': body}

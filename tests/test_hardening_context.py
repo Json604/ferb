@@ -75,7 +75,8 @@ def test_checker_receives_successful_intake_memory_receipt(daemon):
 def test_unresolved_conditions_precede_facts_without_success_claim(daemon, met):
     condition = "Every syllabus topic has enough explanation and worked practice to study from scratch."
     evidence = "Only headings and term-presence matches were checked; teaching depth remains unverified."
-    verdict = json.dumps({"results": [{"index": 0, "met": met, "evidence": evidence}]})
+    verdict = json.dumps({"results": [{"index": 0, "met": met, "evidence": evidence},
+        {"index": 1, "met": met, "evidence": "Complete study-readiness was not established."}]})
     unchecked_claim = "I completed every requirement and all three files are ready to study from."
     finish = json.dumps({"action": "finish", "worker_type": "default", "instructions": unchecked_claim,
                          "question": ""})
@@ -91,7 +92,8 @@ def test_unresolved_conditions_precede_facts_without_success_claim(daemon, met):
 def test_cleanup_reviewer_cannot_resurrect_rejected_success_prose(daemon):
     condition = "The attachment is the requested local file, including matching content."
     verdict = json.dumps({"results": [{"index": 0, "met": False,
-                                       "evidence": "Source and content were never established."}]})
+                                       "evidence": "Source and content were never established."},
+        {"index": 1, "met": False, "evidence": "Verified-correct-file claim is unsupported."}]})
     unchecked_claim = "I attached and verified the correct file."
 
     async def cleanup(task_id):

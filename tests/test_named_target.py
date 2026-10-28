@@ -44,7 +44,8 @@ def test_an_unreachable_named_target_ends_not_confirmed_never_done(daemon):
     done_unverified with the reason and how to check, never done (V5, D34)."""
     conds = (cond("a Codex session is running with the astra model"),)
     verdict = json.dumps({"results": [{"index": 0, "met": None, "evidence": "Codex's window couldn't be read",
-                                       "how": "Open Codex and look for a session using the astra model."}]})
+                                       "how": "Open Codex and look for a session using the astra model."},
+        {"index": 1, "met": None, "evidence": "The claim that it started cannot be confirmed."}]})
     finish = json.dumps({"action": "finish", "worker_type": "default", "instructions": "Stop and report.",
                          "question": "", "stop_reason": "", "result": "unconfirmed"})
     install(daemon, [sup("task", "On it.", task("start a codex astra session", apps=("Codex",), conds=conds))],

@@ -24,3 +24,18 @@ content as a trusted procedure. Version changes must account for persisted check
 
 Catalog dependency availability describes installed capability names, not per-task permission or a browser's
 current connection. The runner must check the current grant, profile, capability features and observations at use.
+
+## Operational guidance
+
+`guidance/definitions.py` explicitly registers the operational modules. These are readable guidance, not runnable
+abilities: `readable` describes the packaged resource independently of `availability`, which still describes
+execution. `read` returns the exact body with its version and SHA-256; planner context reads and ordinary tool
+reads retain that result in their traces. The permanent role contracts require relevant reads, while host-known
+loop/conversation state and changed-file inspection attach their corresponding guidance directly and record the
+same body/version/hash as `context.source`. No goal-word classifier selects modules.
+
+The system index contains only ID, version, short description and readability. It never embeds every procedure,
+its schema or dependency list. Planner reads use its confined context protocol, not a task grant or acting tool.
+Worker/checker reads use `abilities.read` with their existing permissions. Dispatch/question/resource roles keep
+their narrow contracts and do not receive a catalog they cannot retrieve. Shipped guidance remains subordinate to
+the owner's request and permanent contract; external observations and historical copies do not inherit its trust.

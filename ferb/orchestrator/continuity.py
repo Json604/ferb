@@ -132,7 +132,10 @@ class Continuity:
         found = self.db.conn.execute("SELECT conversation_id FROM task_context WHERE task_id = ?", (task_id,)).fetchone()
         if found is None:
             return []
-        conversation = found[0]
+        return self.conversation_history(str(found[0]), include_tasks=include_tasks)
+
+    def conversation_history(self, conversation: str, *, include_tasks: bool = False) -> list[dict[str, Any]]:
+        """Host-selected conversation; callers must never accept this ID from a model."""
         tasks = self.task_ids(conversation)
         records = []
         for row in self.db.conn.execute("SELECT * FROM journal ORDER BY seq"):

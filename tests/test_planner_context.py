@@ -55,7 +55,7 @@ def test_long_history_keeps_situation_activity_and_memory_and_summarizes_the_old
         assert layer in context, layer
     assert "message number 0 " not in context                     # the oldest chat did not fit
     assert f"message number {turns - 1} " in context              # the newest always does
-    assert "older entries not shown" in context
+    assert "Earlier exact records remain available" in context
     assert _turn_spans(daemon)[-1]["context_budget_tokens"] == limits.context_window - limits.max_output
 
     async def summarized():
@@ -72,21 +72,22 @@ def test_long_history_keeps_situation_activity_and_memory_and_summarizes_the_old
     chat(daemon, "and now?")
     later = _planner_requests(script)[-1].context
     assert "EARLIER-SUMMARY" in later and "message number 0 " not in later
-    assert later.index("EARLIER-SUMMARY") < later.index(f"message number {turns - 1} ")
+    assert "what next?" in later
+    assert f"message number {turns - 1} " not in later
 
 
-def test_budget_follows_the_runtime_window(daemon, monkeypatch):
+def test_focused_history_is_not_refilled_when_the_runtime_window_grows(daemon, monkeypatch):
     big = "A long earlier owner note. " * 400
     script = install(daemon, [sup("reply", "ok"), sup("reply", "ok"), sup("reply", "ok")])
     chat(daemon, big)
-    _window(monkeypatch, 3000, 1000)
-    chat(daemon, "small window turn")
-    assert big.strip() not in _planner_requests(script)[-1].context
     _window(monkeypatch, 400_000, 100_000)
+    chat(daemon, "next exchange")
+    assert big.strip() in _planner_requests(script)[-1].context  # the latest prior exchange is complete
+    _window(monkeypatch, 1_000_000, 100_000)
     chat(daemon, "large window turn")
-    assert big.strip() in _planner_requests(script)[-1].context
+    assert big.strip() not in _planner_requests(script)[-1].context  # spare room does not refill old history
     budgets = [span["context_budget_tokens"] for span in _turn_spans(daemon)[-2:]]
-    assert budgets == [2000, 300_000]
+    assert budgets == [300_000, 900_000]
 
 
 def test_a_runtime_without_a_documented_window_is_an_explicit_error(daemon, monkeypatch):
@@ -136,17 +137,17 @@ def test_doctor_names_a_role_whose_runtime_has_no_documented_window(tmp_path):
         CATALOG["claude"].limits(None, tmp_path)
 
 
-def test_stable_prefix_is_byte_identical_across_consecutive_turns(daemon):
+def test_stable_device_prefix_stays_cacheable_while_focused_exchange_advances(daemon):
     script = install(daemon, [sup("reply", f"answer {i}") for i in range(4)])
     for words in ("first message", "second message", "third message", "fourth message"):
         chat(daemon, words)
     third, fourth = _planner_requests(script)[-2:]
     assert third.system == fourth.system
-    assert third.cacheable >= 3                                    # Layer 1, the conversation header, its entries
-    assert fourth.parts[:third.cacheable] == third.parts[:third.cacheable]
-    assert fourth.cacheable > third.cacheable
-    assert "Layer 5 — owner's complete new message:\nfourth message" in fourth.parts[fourth.cacheable:][-1] or \
-        any(p.startswith("Layer 5 — owner's complete new message:\nfourth message") for p in fourth.parts[fourth.cacheable:])
+    assert third.cacheable >= 3 and fourth.cacheable >= 3
+    assert third.parts[0] == fourth.parts[0]
+    assert "second message" in third.context and "third message" in fourth.context
+    assert "second message" not in fourth.context
+    assert any(p.startswith("Layer 5 — owner's complete new message:\nfourth message") for p in fourth.parts[fourth.cacheable:])
 
 
 def test_a_card_cites_its_direct_sources_never_the_earlier_tasks_its_planner_saw(daemon):
@@ -256,7 +257,10 @@ def test_the_recent_raw_trail_is_fetch_only_never_in_the_planner_prompt(daemon):
     assert "kettle shopping list" in request.context.split("Layer 3 — today's activity", 1)[1]   # today's match: in
     assert "ZEBRA-XYZZY" not in request.context                           # the last minutes' raw trail: fetch-only
     assert "ZEBRA-XYZZY" not in request.system
-    assert "raw activity of the last minutes" in request.system and "trail.query" in request.system
+    from ferb.abilities.catalog import AbilityCatalog
+    guidance = AbilityCatalog().read('task_planning')['body']
+    assert "task_planning" in request.system
+    assert "raw activity of the last minutes" in guidance and "trail.query" in guidance
 
 
 def test_the_outcome_is_sent_before_episode_capture_and_capture_still_completes(daemon):
@@ -432,25 +436,32 @@ def test_the_conversation_seam_is_the_timeline_only():
     assert not hasattr(Supervisor, "_recent") and not hasattr(Supervisor, "recent")
 
 
-def test_running_summary_refreshes_only_when_uncovered_entries_fall_out(daemon, monkeypatch):
-    """Owner decision 2026-10-14: no fixed step and no new number. A refresh runs only when entries that fell out of
-    the window aren't covered by the latest summary."""
+def test_running_summary_refreshes_for_excluded_uncovered_history_independent_of_window(daemon, monkeypatch):
+    """Semantic exclusion refreshes the continuity map even when the model window could hold the whole chat."""
     sv = daemon.daemon.supervisor
     started: list[tuple[str, int]] = []
 
     async def counted(conversation: str, count: int) -> None:
         started.append((conversation, count))
     monkeypatch.setattr(sv, "_summarize", counted)
-    install(daemon, [sup("reply", "detail " * 600) for _ in range(8)] + [sup("reply", "ok")] * 3)
-    for i in range(8):
-        chat(daemon, f"message {i} " + "filler " * 600)
-    assert started == []                                               # everything fit: nothing to fold
-    _window(monkeypatch, 22_000, 1_000)
-    chat(daemon, "now the window is small")
-    assert len(started) == 1 and started[0][1] > 0                    # uncovered entries fell out: one refresh
+    install(daemon, [sup("reply", "detail") for _ in range(5)])
+    chat(daemon, "first")
+    chat(daemon, "second")
+    assert started == []                 # no earlier exchange excluded yet
+    chat(daemon, "third")
+    assert started == [("s1", 2)]       # first message and answer need indexing
     monkeypatch.setattr(FakeRuntime, "limits", ModelLimits("fake-model", 1_000_000, 100_000, "test double"))
-    chat(daemon, "a large window again")
-    assert len(started) == 1                                           # nothing fell out: no refresh
+    chat(daemon, "fourth")
+    assert started[-1] == ("s1", 4)     # failed/no-op refresh never makes originals disappear
+    async def cover():
+        from ferb.orchestrator.planner_context import SUMMARY_VERSION, focused_exchange
+        entries, _ = sv._timeline("", "s1")
+        _, older = focused_exchange(entries)
+        sv.journal.append("chat.summary", {"session_id": "s1", "text": "Earlier topics indexed.",
+            "version": SUMMARY_VERSION, "covered": [e.handle for e in older]}, origin="ferb")
+        sv._conversation_blocks("", "s1", focused=True)
+        return sv._env[""]["omitted_history"]
+    assert daemon.run(cover()) == 0
 
 
 def test_daily_log_rewrites_wait_for_a_search_in_progress(tmp_path):

@@ -220,7 +220,7 @@ summary = "Drop Jev's trail.sensitive question once code redaction covers the se
 
 [P3]
 milestone = "F6"
-tests = ["tests/test_f6_context.py"]
+tests = ["tests/test_f6_context.py", "tests/test_focused_planner_context.py"]
 summary = "Context layers 1-6 (identity, situation, recent activity, memory, request, task state), stable first"
 
 [P4]
@@ -272,7 +272,7 @@ summary = "Large-input fan-out: inventory, map/reduce, feasibility validation, c
 
 [P16]
 milestone = "F4"
-tests = ["tests/test_evidence_store.py", "tests/test_after_action.py", "tests/test_checker_readonly.py", "tests/test_statuses.py", "tests/test_conditions.py", "tests/test_ledger_recovery.py", "tests/test_report_check.py"]
+tests = ["tests/test_evidence_store.py", "tests/test_after_action.py", "tests/test_checker_readonly.py", "tests/test_statuses.py", "tests/test_conditions.py", "tests/test_ledger_recovery.py", "tests/test_report_check.py", "tests/test_faithful_outcomes.py"]
 note = "V1 media is kept 7 days (D20), not the draft's 30. V7's 'read-only scripts stop creating rows' waits for a declared read-only flag: AppleScript stays ledgered (code can't prove a script only reads, rule 6). V8's record exists (episode verified flag plus stored evidence); its consumer is F8. F4 live fixes (2026-10-09): every check also judges, numbered last, whether the report the owner will see matches the records (REPORT_CONDITION; false fails the task); a done answer is the report the check judged (checked_report), and the review after cleanup may lower the status but never writes new done wording."
 summary = "Verification design V1-V8"
 
@@ -608,9 +608,9 @@ summary = "One packaged FERB.app in a DMG, ad-hoc signed now and signed later; s
 
 [L28]
 milestone = "L"
-tests = ["tests/test_planner_context.py", "tests/test_daily_activity.py", "tests/test_episode_capture.py", "tests/test_attention_understanding.py", "tests/test_input_char_cap.py", "tests/test_learning_calls_visible.py"]
+tests = ["tests/test_planner_context.py", "tests/test_focused_planner_context.py", "tests/test_daily_activity.py", "tests/test_episode_capture.py", "tests/test_attention_understanding.py", "tests/test_input_char_cap.py", "tests/test_learning_calls_visible.py"]
 note = "Owner 2026-10-14: the model's real window (Codex: the catalog's input window, 258,400 tokens for gpt-5.6-sol, FERB's Codex default); the raw last-10-minutes trail dump is fetch-only; the running summary refreshes only when uncovered entries fall out. The hidden 32,768-token cap was never an owner decision. Fix wave 5 (2026-10-20): the runtime's documented per-input character cap is a limit too (Codex 0.157.1: MAX_USER_INPUT_TEXT_CHARS = 1 << 20, openai/codex rust-v0.157.1 codex-rs/protocol/src/user_input.rs:10); every call fits it, and every learning call is a model.learning span."
-summary = "The planner's prompt uses each model's real context window; situation, running tasks, questions, memory and today's activity always go in, then chat newest-first with older chat summarized, ordered for caching"
+summary = "The planner keeps situation, tasks, questions, memory and activity, plus the latest prior owner exchange and a compact continuity map; older originals are retrieved on demand within the real model window (owner 2026-10-28)"
 
 [L29]
 milestone = "L"

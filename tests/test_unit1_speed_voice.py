@@ -86,14 +86,15 @@ def test_ferbs_own_codex_home_once_logged_in(tmp_path: Path) -> None:
     assert codex_home(tmp_path) == tmp_path / "codex-home"
 
 
-def test_earlier_turns_keep_full_owner_words_within_context_budget(daemon: RunningDaemon) -> None:
+def test_latest_exchange_keeps_full_owner_words_without_refilling_older_chat(daemon: RunningDaemon) -> None:
     replies = [sup("reply", f"answer {i}") for i in range(13)]
     script = install(daemon, replies)
     for i in range(12):
         chat(daemon, f"message number {i} " + "x" * 700)
     chat(daemon, "latest")
-    ctx = script.contexts[-1][2]
-    assert "message number 0" in ctx and "message number 11" in ctx
+    ctx = [ctx for _, role, ctx, _ in script.contexts if role == 'supervisor'][-1]
+    assert "message number 0" not in ctx and "message number 11" in ctx
+    assert "context_read source=history" in ctx
     assert "x" * 700 in ctx and "Context budget:" in ctx
 
 

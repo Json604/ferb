@@ -40,6 +40,8 @@ def test_conversation_words_arrive_before_final_validation():
 
 
 @pytest.mark.parametrize('changes', [
+    {'kind': 'context_read', 'context_read': {'source': 'history'}},
+    {'context_read': {'source': 'history'}},
     {'kind': 'task'}, {'control': {'task_id': 'mail', 'action': 'stop', 'standing_sends': 'unchanged', 'supersedes': []}},
     {'remember': [{'text': 'secret'}]}, {'timers': [{'message': 'Ping'}]},
     {'answer_question': {'approval_id': 'mail', 'answer': 'yes'}},

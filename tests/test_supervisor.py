@@ -111,7 +111,7 @@ def test_judgment_conditions_go_to_a_checker_with_observation_tools(daemon: Runn
     out = outcome(evs)
     assert out["status"] == "failed" and out["verified"] is False and "the note sounds friendly" in out["summary"]
     assert "the note sounds friendly — failed: it reads as curt" in out["answer"]
-    assert "wrote todo.md" not in out["answer"]  # unchecked success prose cannot contradict the failure
+    assert "wrote todo.md" in out["answer"]  # checked factual delivery survives the separate quality failure
     vtools = set(next(t for m, k, c, t in script.contexts if k == "worker.verify"))
     assert {"fs.read", "task.evidence"} <= vtools                   # V3, W4: it inspects with observation tools only
     assert not {"fs.write", "mac.act", "shell.run", "browser.act"} & vtools     # enforced by code, not its prompt

@@ -8,7 +8,7 @@ goal in plain words, the identity, the targets the model understood (information
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ferb.clock.when import DAY_WORDS, WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
@@ -37,6 +37,7 @@ TARGETS_SCHEMA = _obj({"apps": _strings(), "sites": _strings(), "paths": _string
 CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
     "owner_text": {"type": "string"},
+    "category": {"type": "string", "enum": ["result", "conduct"]},
     "layer": {"type": "string", "enum": ["outcome", "intake", "artifact", "external"]},
     # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
     "check": _obj({"kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
@@ -106,13 +107,36 @@ SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
                                "quote": {"type": "string"}})
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
+CONTEXT_READ_SCHEMA = _obj({
+    "source": {"type": "string", "enum": ["history", "ability", "skill"]},
+    "id": _nullable("string"), "query": {"type": "string"},
+    "include_tasks": {"type": "boolean"}, "after": {"type": "integer", "minimum": 0},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+    "offset": {"type": "integer", "minimum": 0},
+    "max_chars": {"type": "integer", "minimum": 1000, "maximum": 60000},
+})
+
+
+class ContextRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: Literal["history", "ability", "skill"]
+    id: str | None = None
+    query: str = ""
+    include_tasks: bool = False
+    after: int = Field(0, ge=0)
+    limit: int = Field(20, ge=1, le=100)
+    offset: int = Field(0, ge=0)
+    max_chars: int = Field(12000, ge=1000, le=60000)
+
+
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
-    "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
+    "kind": {"type": "string", "enum": ["reply", "clarify", "task", "context_read"]},
+    "context_read": {"anyOf": [{"type": "null"}, CONTEXT_READ_SCHEMA]},
     "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
                          "answer": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
-                  "action": {"type": "string", "enum": ["stop", "retry", "continue"]},
+                  "action": {"type": "string", "enum": ["stop", "retry", "continue", "steer"]},
                   # continue only: the follow-up asks for a different result than the ended task's goal (L11)
                   "new_goal": {"type": "boolean"},
                   # L3: a correction always decides the stated standing scope and names the open questions it changes
@@ -178,7 +202,9 @@ QUESTION_SCHEMA = _obj({
 VERIFIER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
                                                 "evidence": {"type": "string"},
-                                                "how": {"type": ["string", "null"]}})},
+                                                "how": _nullable("string"),
+                                                "effective_condition": _nullable("string"),
+                                                "correction_reason": _nullable("string")})},
 })
 
 class TargetsSpec(BaseModel):
@@ -214,6 +240,7 @@ class Check(BaseModel):
 class Condition(BaseModel):
     text: str
     owner_text: str = ''
+    category: Literal["result", "conduct"] = "result"
     check: Check
     layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
 
@@ -284,7 +311,8 @@ class TaskControl(BaseModel):
 
 class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
-    kind: Literal["reply", "clarify", "task"]
+    kind: Literal["reply", "clarify", "task", "context_read"]
+    context_read: ContextRead | None = None
     text: str
     answer_question: AnswerQuestion | None = None
     task: TaskSpec | None = None
@@ -296,6 +324,20 @@ class SupervisorOutcome(BaseModel):
     reminder_cancels: list["ReminderCancel"] = []
     conversation_changes: list["ConversationChange"] = []
     notification_rules: list["NotificationRule"] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def context_only(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            if value.get("kind") == "context_read":
+                if not value.get("context_read"):
+                    raise ValueError("context_read requires a read request")
+                for key, item in value.items():
+                    if key not in ("kind", "context_read") and (key not in cls.model_fields or item not in (None, [], "")):
+                        raise ValueError("context_read cannot carry text or actions")
+            elif value.get("context_read") is not None:
+                raise ValueError("a final outcome cannot carry context_read")
+        return value
 
     @model_validator(mode="after")
     def complete_action_plan(self) -> "SupervisorOutcome":
@@ -400,6 +442,16 @@ class VerifierResult(BaseModel):
     index: int
     met: bool | None
     evidence: str
+    effective_condition: str | None = None
+    correction_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _correction_is_explained(self) -> "VerifierResult":
+        if bool(self.effective_condition and self.effective_condition.strip()) != bool(
+                self.correction_reason and self.correction_reason.strip()):
+            raise ValueError("A corrected condition needs both effective_condition and correction_reason")
+        return self
+
     how: str | None = None     # unconfirmed only: one plain sentence on how the owner could check it themselves
 
 

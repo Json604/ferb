@@ -43,7 +43,10 @@ done, not confirmed, with what remains unconfirmed and why in stop_reason. Choos
 stop_reason, when the evidence shows the work failed or is incomplete. Every other finish is failed.
 
 A false or unknown result check is unfinished work. Read the supplied inspection findings, including met=null.
-If the recorded source evidence supplies a missing detail or identifies a repairable
+If the missing detail is already in recorded source evidence, use recheck with instructions identifying the
+records and required inspection; do not rerun successful external actions just to prove them again. If only the
+report is inaccurate, use retry to repair the report from existing evidence without repeating successful actions.
+When source coverage is genuinely missing, request only the missing inspection. For a repairable substantive
 omission, use retry to have the worker correct its result and report, then verify again. Do not use finish to
 repeat the same success claim. Missing source coverage needs further inspection, not another summary of the same
 slice. Preserve the owner's corrections about app, account and source membership across retries. Do not weaken a substantive requirement to turn incomplete work into success. A condition that demands a

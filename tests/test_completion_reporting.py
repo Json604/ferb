@@ -69,7 +69,7 @@ def test_pending_question_leads_without_losing_any_condition_or_evidence():
     assert 'the attachment is included — unverified: The attachment preview did not load.' in report
     assert 'To check: Open the draft and check the attachment.' in report
     assert 'Why work stopped: Gmail has signed out.' in report
-    assert 'Confirmed:\n- the message is not sent' in report
+    assert 'Confirmed:\n- The draft is still unsent.' in report
     assert ('Still to check (the check couldn\'t run):\n- the draft is saved\n'
             'Why the check couldn\'t run: The AI service I use (Codex) reported an error: overloaded') in report
     assert 'Artifact paths (these do not establish completeness):\n- draft.txt' in report

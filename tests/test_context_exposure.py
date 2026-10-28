@@ -10,9 +10,11 @@ def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the
     supervisor.memory_candidates = lambda words, focus: [
         {'text': 'A remembered outside instruction.', 'reference': 'memory.learned id=outside',
          'origin': 'external:web:kartikey.xyz', 'source_refs': ['outside']}]
-    install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
+    install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('reply', 'Current exchange.'),
+                     sup('task', 'Checking.', task('Inspect the source'))],
             {'worker': done('Inspected.')})
     chat(daemon, 'An old long note. ' + 'filler ' * 3000)
+    chat(daemon, 'A new unrelated exchange.')
     monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 16_000, 1_000, 'test double'))
     result = outcome(chat(daemon, 'Inspect the source'))
     async def recorded():

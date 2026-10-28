@@ -178,8 +178,19 @@ pending input. Claude uses UUID user-message replay to keep receiving through st
 adapters append ordered user messages at the next model decision, preserve started tool outcomes and skip stale
 unstarted tool calls. Neither path replaces the runtime to accept a correction.
 
-The planner's context window and order are as built in the launch week (L28, section 16): the budget is the
-model's real window, the situation always goes in, and chat fills the rest newest-first. Resumable attempts
+The planner uses the model's real input window as a physical limit, not a target to fill (owner, 2026-10-28).
+The situation, current request, relevant memory, current task state, latest prior owner-message exchange and a
+compact continuity map go in. Older conversation originals remain in storage and are read on demand. Version-2
+maps replace exhaustive summaries for the planner; an absent or stale map is disclosed with the number of older
+records not yet indexed. Attention retains its existing conversation selection. No learning, memory capture or
+retention policy changes with this selection.
+
+`planner_context.py` selects the exchange and resolves typed `context_read` intermediate responses. The planner
+runtime still has no action tools. The host closes history reads over the current conversation, and guidance reads
+over registered ability/owner-skill IDs; a read response cannot also reply or mutate memory, schedules or tasks.
+Each read and model round is traced, redacted and included in accumulated source exposure. Existing `chat.history`
+pagination is reused. Retrieval can cost another model round; no new message/token or read-round quota is imposed.
+Resumable attempts
 (`ATTEMPTS_TOKENS` 2000) keep their newest entries whole with a note about the older ones. Chat tags count from the
 oldest (`c1`) so earlier lines never change as the conversation grows; the owner's message is last (P20). A task
 result shows its stored origin and its text as one quoted JSON string (`untrusted.as_data`: line breaks and invisible
@@ -189,6 +200,21 @@ content are shown the same way (MP2, security review I4). The
 F1 `HISTORY_TOKENS` 12000 cap and the 32,768-token default budget are gone. The Codex catalog lockdown sets
 `supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
 tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
+
+The shared permanent interaction contract and role prompts retain authority, truthful action declarations,
+background operation and result/report obligations. Detailed domain instructions live in the explicitly registered
+`ferb/abilities/guidance/` resources. The planner, worker and checker see compact ID/version/description/readability
+metadata; no-tool internal roles keep their own required instructions. `abilities.read` returns the body and its
+SHA-256 alongside version and provenance. Readability is separate from execution availability. Known loop and
+conversation state and changed-file inspection attach their specific guidance directly and record the exact body
+as a context source. Owner skills remain separate and learned procedures retain their existing trust rules.
+
+Conditions carry a result/conduct category for interpretation, without changing verdict gating. A checker can
+record `effective_condition` plus `correction_reason` when the planner misstated the original requirement; both
+the original and interpreted requirement remain available. Dispatch's evidence-only `recheck` instructions reach
+the checker without another worker execution. Partial reporting leads with the substantive checked answer only
+when its separate truthfulness check passed and later steering or cleanup has not invalidated it. Other unresolved
+conditions remain visible; no condition is automatically waived by its category.
 
 `task.evidence` pages the full redacted observations, reports, intake and registered task-root context sources.
 `chat.history` and `memory.read` retrieve complete source text and candidate pages. Browser/native snapshots and
