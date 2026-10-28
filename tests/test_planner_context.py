@@ -1428,3 +1428,22 @@ def test_a_slot_check_that_fails_at_the_tasks_start_is_noted_and_never_crashes_t
     query = "SELECT output_json FROM spans WHERE kind='procedure.slots_ignored'"
     notes = on_loop(daemon, lambda: [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(query)])
     assert len(notes) == 1 and "RuntimeError: database is locked" in notes[0]["why"]
+
+
+def test_a_huge_login_url_in_todays_activity_never_stops_a_message(daemon):
+    """Live 2026-10-28 19:22: "I didn't send this to the AI service I use (codex): its context is 1,419,774 characters,
+    over that service's limit of 1,048,576". The visa portal's login had redirected through an address 322,577
+    characters long; two browser-tab rows held it, and today's activity, protected, carried both whole. Addresses in
+    today's activity go to the planner without their query string, and the block yields to the input limit like any
+    optional context instead of failing the message."""
+    url = "https://atlasauth.b2clogin.com/authorize?state=" + "x" * 322_000
+    d = daemon.daemon
+    for n in range(2):
+        d.daily_activity.record({"id": f"tab{n}", "source": "browser_tab", "what": "visa login refresh",
+                                 "where": {"url": url}, "data": {"url": url}, "day": d.clock.now().astimezone().date().isoformat(),
+                                 "when": d.clock.now().isoformat()})
+    activity = d._relevant_context("visa login refresh")[0]
+    assert "atlasauth.b2clogin.com/authorize" in activity and "state=" not in activity and len(activity) < 20_000
+    script = install(daemon, [sup("reply", "Done.")])
+    events = chat(daemon, "the visa login refresh fixes it too")
+    assert [e["text"] for e in events if e["type"] == "reply"] == ["Done."] and _planner_requests(script)

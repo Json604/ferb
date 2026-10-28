@@ -1743,8 +1743,10 @@ class Supervisor(WorkerRuns):
         if "schedule_previous" in env:                    # a recurring run compares with the one before
             situation.append(self._previous_run_block(env["schedule_previous"]))
         images = (env["front_image"],) if env.get("front_image") is not None else ()
+        # optional, not protected (live 2026-10-28): activity too large for one input becomes a fetch reference, never
+        # a failed message
         situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity, "task.evidence query=context.source; memory.read; trail.query",
-                                       protected=True, source_refs=tuple(activity_refs), payload=activity_payload),
+                                       protected=False, source_refs=tuple(activity_refs), payload=activity_payload),
                           origins_.split(activity_origin)))
         # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
         # Memory is recalled for the message and the work it may continue (L36 §3, Ruling 12a), that work's targets

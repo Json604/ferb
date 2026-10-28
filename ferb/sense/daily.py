@@ -31,6 +31,19 @@ class _Index:
     postings: dict[str, "array[int]"] = field(default_factory=dict)
 
 
+def without_queries(node: Any) -> Any:
+    """A row as the planner reads it: every web address without its query string or fragment (live 2026-10-28: a
+    login redirect 322,577 characters long, recorded twice in each of two rows, stopped every matching message). The
+    log keeps the row as recorded."""
+    if isinstance(node, dict):
+        return {key: without_queries(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [without_queries(item) for item in node]
+    if isinstance(node, str) and node.startswith(("http://", "https://")):
+        return node.split("#", 1)[0].split("?", 1)[0]
+    return node
+
+
 class DailyActivity:
     def __init__(self, path: Path, now: Callable[[], datetime]) -> None:
         self.path, self.now = path, now

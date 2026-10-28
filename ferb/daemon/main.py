@@ -3935,6 +3935,8 @@ class Daemon:
         from ferb.sense.tools import trail_sources
         actions = search_actions(dict(self.registry.capabilities), words)   # a copy: this may run off the event loop
         activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
+        from ferb.sense.daily import without_queries
+        activity = without_queries(activity)               # addresses without query strings (live 2026-10-28)
         trail = {str(row['source']) for row in activity if row.get('source')}
         labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
