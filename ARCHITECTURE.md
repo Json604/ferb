@@ -2920,7 +2920,10 @@ protected FERB state (16.9).
   (`claude_sdk.DEFAULT_MODEL`, owner 2026-10-28), passed to Claude Code so both mean the same window; it used to fail
   every request, and the app has no model setting. Both Claude adapters send their structured-output schemas through
   `anthropic_api.structured_schema`, which drops the keywords Anthropic rejects (numerical and string constraints,
-  `maxItems`, `minItems` above 1); FERB's Pydantic models still check the answer.
+  `maxItems`, `minItems` above 1); FERB's Pydantic models still check the answer. On the API runtime a schema past
+  Anthropic's documented strict-schema limits (16 union-typed and 24 optional parameters per request;
+  `anthropic_api.fits_strict`) travels in a non-strict `final_answer` tool instead, whose call `AnthropicProvider.parse`
+  returns as the answer: the planner's schema has 48 union fields, so it always does (live 2026-10-28).
 - **Character cap (fix wave 5).** Codex 0.157.1's app-server refuses a turn whose text input items together hold more
   than `MAX_USER_INPUT_TEXT_CHARS = 1 << 20` characters (Rust `chars()`, i.e. code points), before any model sees it
   ("Input exceeds the maximum length of 1048576 characters."); `codex exec` goes through the same `turn/start`, and
