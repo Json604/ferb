@@ -42,64 +42,6 @@ LIMITS_SOURCE = "https://platform.claude.com/docs/en/about-claude/models/overvie
 WINDOW_EXCEEDED = ("prompt is too long", "input length and `max_tokens` exceed context limit")
 
 
-# Keywords Anthropic's structured outputs reject ("For 'integer' type, property 'minimum' is not supported", live
-# 2026-10-28), from its JSON Schema limitations: numerical and string constraints and complex array constraints.
-# FERB's own Pydantic models check every answer afterwards, so dropping them here loses no check.
-UNSUPPORTED_KEYWORDS = frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-                                  "minLength", "maxLength", "maxItems"})
-
-
-def structured_schema(node: Any) -> Any:
-    """A JSON schema as Claude's structured outputs take it: the unsupported keywords (and minItems above 1) dropped,
-    a field merely named like one kept."""
-    if isinstance(node, list):
-        return [structured_schema(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-    out: dict[str, Any] = {}
-    for key, value in node.items():
-        if key in ("properties", "$defs", "definitions") and isinstance(value, dict):
-            out[key] = {name: structured_schema(sub) for name, sub in value.items()}
-        elif key in UNSUPPORTED_KEYWORDS or (key == "minItems" and isinstance(value, int) and value > 1):
-            continue
-        else:
-            out[key] = structured_schema(value)
-    return out
-
-
-# Anthropic's documented limits for strict schemas (structured outputs), across one request: 16 parameters with union
-# types (anyOf or type arrays, nullable ones included) and 24 optional parameters; non-strict tools don't count. A
-# schema past them travels in a non-strict final-answer tool instead, whose call is the answer (live 2026-10-28: the
-# planner's schema has 48 union fields); FERB's Pydantic models check it, as they check every answer.
-UNION_LIMIT, OPTIONAL_LIMIT = 16, 24
-FINAL_TOOL = "final_answer"
-FINAL_NOTE = (f"Give your final answer by calling the {FINAL_TOOL} tool once, alone, with the answer as its input; "
-              "never as plain text.")
-
-
-def fits_strict(schema: Any) -> bool:
-    """Whether a schema stays within Anthropic's documented union and optional-parameter limits."""
-    unions = optional = 0
-
-    def walk(node: Any) -> None:
-        nonlocal unions, optional
-        if isinstance(node, list):
-            for item in node:
-                walk(item)
-            return
-        if not isinstance(node, dict):
-            return
-        if isinstance(node.get("type"), list) or "anyOf" in node:
-            unions += 1
-        properties = node.get("properties")
-        if isinstance(properties, dict):
-            optional += len(set(properties) - set(node.get("required") or []))
-        for value in node.values():
-            walk(value)
-    walk(schema)
-    return unions <= UNION_LIMIT and optional <= OPTIONAL_LIMIT
-
-
 def limits_for(model: str) -> ModelLimits:
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"Anthropic documents no context window FERB knows for model {model!r}; "
@@ -128,27 +70,19 @@ class AnthropicProvider:
                     for i in request.images]                       # after the text: the cached prefix stays (L12)
         body: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS, "cache_control": CACHE,
                                 "messages": [{"role": "user", "content": content}]}
-        typed = structured_schema(schema) if schema else None
-        carried = typed is not None and not fits_strict(typed)       # the answer travels in the final-answer tool
-        system = "\n\n".join(part for part in (request.system, FINAL_NOTE if carried else "") if part)
-        if system:
-            body["system"] = [{"type": "text", "text": system, "cache_control": CACHE}]
-        listed: list[dict[str, Any]] = [{"name": t.name, "description": t.description, "input_schema": t.schema}
-                                        for t in tools]
-        if carried:
-            listed.append({"name": FINAL_TOOL, "description": "Your final answer, as this tool's input.",
-                           "input_schema": typed})
-        if listed:
-            body["tools"] = listed
+        if request.system:
+            body["system"] = [{"type": "text", "text": request.system, "cache_control": CACHE}]
+        if tools:
+            body["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.schema} for t in tools]
             body["tool_choice"] = {"type": "auto"}
         output: dict[str, Any] = {}
-        if typed is not None and not carried:
-            output["format"] = {"type": "json_schema", "schema": typed}
+        if schema:
+            output["format"] = {"type": "json_schema", "schema": schema}
         if effort and not self.model.startswith(NO_EFFORT):
             output["effort"] = effort
         if output:
             body["output_config"] = output
-        return {"body": body, "carried": carried}
+        return {"body": body}
 
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return URL, {"anthropic-version": VERSION, "content-type": "application/json"}, state["body"]
@@ -174,21 +108,11 @@ class AnthropicProvider:
             raise ProviderError(f"anthropic: the reply stopped early ({stop})",
                                 overflow=stop == "model_context_window_exceeded")
         state["body"]["messages"].append({"role": "assistant", "content": content})
-        usage = from_anthropic(self.model, data.get("usage") or {}, billing="api")
-        if state.get("carried"):
-            finals = [b for b in content if b.get("type") == "tool_use" and b.get("name") == FINAL_TOOL]
-            if finals:
-                if len(finals) > 1 or any(b.get("type") == "tool_use" and b.get("name") != FINAL_TOOL for b in content):
-                    raise ProviderError("anthropic: the final answer came with other tool calls")
-                answer = finals[0].get("input")
-                if not isinstance(answer, dict):
-                    raise ProviderError("anthropic: the final answer was not a JSON object")
-                return Turn([], json.dumps(answer, ensure_ascii=False), usage, stop)
         calls = [ToolCall(b["id"], b["name"], b["input"] if isinstance(b.get("input"), dict) else {},
                           "" if isinstance(b.get("input"), dict) else "not a JSON object")
                  for b in content if b.get("type") == "tool_use"]
         text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
-        return Turn(calls, None if calls else text, usage, stop)
+        return Turn(calls, None if calls else text, from_anthropic(self.model, data.get("usage") or {}, billing="api"), stop)
 
     def add_message(self, state: dict[str, Any], message: str) -> None:
         state["body"]["messages"].append({"role": "user", "content": [{"type": "text", "text": message}]})

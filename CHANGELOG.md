@@ -10,19 +10,6 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
-## 0.27.0.dev1 Claude works again: no rejected schema keywords, Sonnet 5.5 when no model is set — 2026-10-28 — owner live check pending
-
-After the owner switched FERB to Claude on 2026-10-28, every request failed. On the API key runtime: "anthropic HTTP
-400: output_config.format.schema: For 'integer' type, property 'minimum' is not supported", since 0dd5185 gave the
-planner's context-read schema integer bounds that Anthropic's structured outputs reject. On the Claude sign-in runtime:
-"no documented context window: the Claude runtime has no model set", the L28 rule that refused to guess the plan's
-default model, which the app gives no way to set. Both Claude adapters now drop the rejected keywords from the schema
-they send (FERB's own models still check the bounds), and the sign-in runtime uses Claude Sonnet 5.5 when no model is
-set (owner's choice), passing it to Claude Code. The API key runtime then hit Anthropic's limit of 16 union-typed
-parameters in a strict schema (the planner's has 48, and had 46 before 0dd5185: the API runtime had never planned
-before); a schema past the documented limits now travels in a non-strict final-answer tool, verified with one real
-planner-shaped request (HTTP 200, a valid planner outcome).
-
 ## 0.27.0.dev1 Packaged ability discovery — 2026-10-27 — source only; live checks pending
 
 P21/D32/MP2: FERB now ships an explicit ability catalog under `ferb/abilities/`, with browser verification's saved

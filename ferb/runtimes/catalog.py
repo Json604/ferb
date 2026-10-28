@@ -54,8 +54,7 @@ def _claude_limits(model: str | None, home: Path) -> ModelLimits:
 
 CATALOG: dict[str, RuntimeInfo] = {
     "codex": RuntimeInfo("codex", "gpt-5.6-sol", _codex_caps, _codex_available, _codex_limits),   # owner, 2026-10-14
-    "claude": RuntimeInfo("claude", "claude-sonnet-5-5", _claude_caps, lambda home: (True, ""),   # owner 2026-10-28
-                          _claude_limits),
+    "claude": RuntimeInfo("claude", "", _claude_caps, lambda home: (True, ""), _claude_limits),
 }
 
 
