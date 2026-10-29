@@ -150,12 +150,6 @@ SENTENCES = [
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
      "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
      "as a question instead of making it."),
-    # a friend's feedback 2026-10-27 ("when ferb did one it should say so"), owner: "YES BUILD"
-    ("supervisor.md",
-     "Set tells_owner on a step whose finish completes a part the owner asked for (the deletion, the breakdown they "
-     "asked to see): once that step is checked, FERB tells the owner its result at once instead of holding it for the "
-     "final answer. Leave it false on steps that only prepare or inspect for another step, and on loops, waits and "
-     "asks."),
     # a friend's feedback 2026-10-27, decided by the owner: multi-part requests are answered part by part
     ("interaction.md",
      "A request with several parts (several questions, or several things to do) is answered part by part, in the "

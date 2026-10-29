@@ -33,9 +33,6 @@ class Step(BaseModel):
     conversation: ConversationScope | None = None
     question: str = ''
     options: list[str] = Field(default_factory=list)
-    # finishing this step completes a part the owner asked for: its checked answer is told at once, not held for the
-    # final answer (a friend's feedback 2026-10-27: "when ferb did one it should say so")
-    tells_owner: bool = False
 
 
 class SendScope(BaseModel):

@@ -56,7 +56,7 @@ STEP_SCHEMA = _obj({
     "conditions": _strings(), "until": _nullable("string"), "end_when": {"type": "string"}, "event": _nullable("string"),
     "event_match": {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})},
     "question": {"type": "string"}, "options": _strings(),
-    "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]}, "tells_owner": {"type": "boolean"},
+    "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},
 })
 SEND_SCOPE_SCHEMA = _obj({
     "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},

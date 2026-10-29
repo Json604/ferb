@@ -177,33 +177,23 @@ def test_inventory_leaves_out_what_macos_wont_let_ferb_look_at(tmp_path):
     assert [f['path'] for f in facts] == [str((tree / 'a.txt').resolve())]
 
 
-def test_a_part_the_owner_asked_for_is_told_as_soon_as_it_is_checked(daemon):
-    """A friend's feedback 2026-10-27 (his task 20eb1a75): the Android SDK deletion was checked at 23:37:44 and the
-    Homebrew breakdown at 23:39:50, but he heard of either only at 23:40:24, in the final answer. Owner: "when ferb did
-    one it should say so and not wait". A step the planner marks tells_owner sends its checked answer at once; an
-    internal step stays silent; the final answer knows what was already told."""
+def test_a_plan_sends_one_answer_at_the_end_never_part_messages(daemon):
+    """Owner 2026-10-29: "turn off the early part messages completely. better than receiving 2 same messages". The
+    10-27 part messages (dc11e6b) arrived twice in live tasks (9c16fa45's `report` step, 71d365a5's `combine`): the
+    planner marked the final summing-up step as a part, and the final answer repeated the parts in full. A plan now
+    answers once, at the end; an old saved plan step carrying `tells_owner` still loads."""
     import json
     from tests.conftest import chat, install, sup, task
     spec = task('Delete the Android SDK and explain what Homebrew stores')
-    spec['plan'] = Plan(steps=[
-        Step(id='inspect', kind='do', goal='Find the Android SDK and inventory Homebrew'),
-        Step(id='delete', kind='do', goal='Delete the Android SDK', depends_on=['inspect'], tells_owner=True),
-        Step(id='explain', kind='do', goal="Explain Homebrew's storage", depends_on=['inspect'], tells_owner=True),
-    ]).model_dump()
+    spec['plan'] = Plan(steps=[Step(id='delete', kind='do', goal='Delete the Android SDK'),
+                               Step(id='explain', kind='do', goal="Explain Homebrew's storage")]).model_dump()
+    spec['plan']['steps'][0]['tells_owner'] = True                     # as a plan saved before the removal
+    Plan.model_validate(spec['plan'])
 
     def said(text: str) -> str:
         return json.dumps({"status": "done", "summary": text, "answer": text, "artifacts": [], "evidence": []})
-    script = install(daemon, [sup('task', 'On it.', spec)],
-                     {'step.inspect': said('Inventory taken.'),
-                      'step.delete': said('Deleted the Android SDK — 4.2 GB freed.'),
-                      'step.explain': said('Homebrew holds 9 GB, mostly llvm (3 GB).'),
-                      'worker': said('Both done.')})
+    install(daemon, [sup('task', 'On it.', spec)],
+            {'step.delete': said('Deleted the Android SDK.'), 'step.explain': said('Homebrew holds 9 GB.'),
+             'worker': said('Both done.')})
     events = chat(daemon, 'delete the android sdk and tell me what homebrew is storing')
-    parts = [e for e in events if e['type'] == 'part']
-    assert sorted(p['text'] for p in parts) == ['Deleted the Android SDK — 4.2 GB freed.',
-                                                'Homebrew holds 9 GB, mostly llvm (3 GB).']
-    types = [e['type'] for e in events]
-    assert max(i for i, t in enumerate(types) if t == 'part') < types.index('outcome')
-    assert all(p['task_id'] == parts[0]['task_id'] and p['step'] in ('delete', 'explain') for p in parts)
-    final = next(json.dumps(ctx, default=str) for _, role, ctx, _ in script.contexts if role == 'worker')
-    assert 'told_owner' in final
+    assert not [e for e in events if e['type'] == 'part'] and [e['type'] for e in events].count('outcome') == 1
