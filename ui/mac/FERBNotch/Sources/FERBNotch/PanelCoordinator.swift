@@ -123,6 +123,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var presentedExpanded = false
     private var isDocked = false
     private var dockingRevision: UUID?
+    let magneticFieldPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let magneticField = MagneticFieldView(frame: .zero)
+    var magneticAudioOutputEnabled = true { didSet { magneticAudio.outputEnabled = magneticAudioOutputEnabled } }
+    var magneticFieldPresentationEnabled = true
+    private lazy var magneticAudio = MagneticDockingAudio(feedback: model.feedback)
     private var magneticDocking = MagneticDocking()
     private(set) var magneticSample = MagneticDocking.Sample()
     private var magneticClock: CADisplayLink?
@@ -282,7 +287,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return nil
         }) { eventMonitors.append(monitor) }
         updateScreen()
-        overlaySpace.attach([panel, tracerPanel, indicatorPanel])
+        magneticFieldPanel.backgroundColor = .clear
+        magneticFieldPanel.isOpaque = false
+        magneticFieldPanel.hasShadow = false
+        magneticFieldPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        magneticFieldPanel.collectionBehavior = Self.overlayBehavior
+        magneticFieldPanel.contentView = magneticField
+        overlaySpace.attach([panel, tracerPanel, indicatorPanel, magneticFieldPanel])
         NotificationCenter.default.addObserver(self, selector: #selector(updateScreen),
                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screenDidWake),
@@ -400,6 +411,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             guard let self else { return }
             self.hoverTask?.cancel()
             self.dockingRevision = nil
+            self.cancelMagneticEffects()
             self.magneticClock?.invalidate()
             self.magneticClock = nil
             self.magneticDocking.begin(at: CACurrentMediaTime(), tornOut: self.isDocked)
@@ -620,6 +632,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         magneticClock = nil
         magneticDocking.cancel(at: CACurrentMediaTime())
         magneticSample = magneticDocking.current
+        cancelMagneticEffects()
         persistIndicatorAnchor(for: screen)
         indicatorDragPointer = nil
         indicatorDragFrame = nil
@@ -645,7 +658,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             target: notch.hasNotch ? notch.cutoutFrame : nil, at: time,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             pointerVelocity: time-magneticPointerTime < 0.08 ? magneticPointerVelocity : .zero)
-        indicatorFrame = magneticSample.pill
+        indicatorFrame = MagneticFieldGeometry.strainedPill(magneticSample)
+        applyMagneticEffects()
     }
 
     @objc private func tickMagnetic(_ link: CADisplayLink) {
@@ -720,7 +734,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func renderMagneticFusion() {
-        indicatorFrame = magneticSample.pill
+        presentation.backdrop.magneticJoin = magneticSample.fusionProgress
+        indicatorFrame = MagneticFieldGeometry.strainedPill(magneticSample)
         if let start = fusionCardStart, let target = fusionCardTarget, let control = indicatorControl {
             let card = magneticSample.fusionRect(from: start, to: target)
             presentation.backdrop.performUpdates {
@@ -729,6 +744,29 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 attachIndicator()
             }
         } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
+        applyMagneticEffects()
+    }
+
+    private func applyMagneticEffects() {
+        magneticAudio.update(magneticSample)
+        indicatorControl?.setMagneticFusion(magneticSample.fusionProgress)
+        guard let target = magneticSample.target, magneticSample.proximity > 0,
+              magneticSample.phase == .dragging || magneticSample.phase == .fusing else {
+            magneticFieldPanel.orderOut(nil)
+            return
+        }
+        let canvas = indicatorFrame.union(target).insetBy(dx: -8, dy: -8).integral
+        magneticFieldPanel.setFrame(canvas, display: false)
+        magneticField.frame = CGRect(origin: .zero, size: canvas.size)
+        magneticField.update(magneticSample, canvas: canvas)
+        if magneticFieldPresentationEnabled && !magneticFieldPanel.isVisible { magneticFieldPanel.orderFrontRegardless() }
+    }
+
+    func cancelMagneticEffects() {
+        magneticAudio.cancel()
+        magneticFieldPanel.orderOut(nil)
+        indicatorControl?.setMagneticFusion(0)
+        presentation.backdrop.magneticJoin = nil
     }
 
     private func finishMagneticFusion() {
@@ -744,6 +782,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // updateScreen calls present without animation. No transparent reset frame,
         // secondary entrance spring, layer transform, or independent window fade.
         updateScreen()
+        presentation.backdrop.magneticJoin = nil
         updatePointer()
     }
 

@@ -63,6 +63,12 @@ final class FerbIndicatorControl: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func setMagneticFusion(_ progress: CGFloat) {
+        // Content sinks into the same join as the actual black capsule.
+        logo.alphaValue = 1 - progress
+        statusDot.alphaValue = 1 - progress
+    }
+
     func setResting(_ resting: Bool, animated: Bool) {
         let animated = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         guard isResting != resting else { refreshAppearance(); return }

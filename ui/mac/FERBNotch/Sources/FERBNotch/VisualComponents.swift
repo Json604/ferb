@@ -23,13 +23,34 @@ enum Palette {
 struct NotchSurfaceShape: Shape {
     var expansion: CGFloat = 1
     var docked = false
+    var joining: CGFloat? = nil
     var animatableData: CGFloat {
         get { expansion }
         set { expansion = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
-        guard docked else {
+        if let joining, joining < 1 {
+            let t = max(0, joining)
+            let radius = min(rect.height / 2, 18 * (0.75 + 0.25 * expansion))
+            let shoulder = 10 * expansion * t
+            let top = radius * (1-t)
+            let bottom = radius * (1-t) + (12+7*expansion)*t
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX+top, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX-top, y: rect.minY))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX-shoulder, y: rect.minY+top+shoulder),
+                              control: CGPoint(x: rect.maxX-shoulder, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX-shoulder, y: rect.maxY-bottom))
+            path.addQuadCurve(to: CGPoint(x: rect.maxX-shoulder-bottom, y: rect.maxY), control: CGPoint(x: rect.maxX-shoulder, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX+shoulder+bottom, y: rect.maxY))
+            path.addQuadCurve(to: CGPoint(x: rect.minX+shoulder, y: rect.maxY-bottom), control: CGPoint(x: rect.minX+shoulder, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX+shoulder, y: rect.minY+top+shoulder))
+            path.addQuadCurve(to: CGPoint(x: rect.minX+top, y: rect.minY), control: CGPoint(x: rect.minX+shoulder, y: rect.minY))
+            path.closeSubpath()
+            return path
+        }
+        guard docked || joining == 1 else {
             let radius = min(rect.height / 2, 18 * (0.75 + 0.25 * expansion))
             return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
         }

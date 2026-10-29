@@ -93,6 +93,7 @@ struct GeneralSettingsPage: View {
             }
             Section("Sounds") {
                 Toggle("Play feedback sounds", isOn: $feedback.enabled)
+                Toggle("Magnetic docking sound", isOn: $feedback.magneticEnabled).disabled(!feedback.enabled)
                 Slider(value: $feedback.volume, in: 0...0.5) { Text("Volume") }.disabled(!feedback.enabled)
                 Button("Play completion sound") { feedback.play(.completed) }.disabled(!feedback.enabled)
             }

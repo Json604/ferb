@@ -4,6 +4,7 @@ import SwiftUI
 private final class NotchTintView: NSView {
     var expansion: CGFloat = 0
     var docked = false
+    var magneticJoin: CGFloat?
     var cutoutHeight: CGFloat = 32
     private let workspaceNotifications = NSWorkspace.shared.notificationCenter
     private var displayOptionsObserver: NSObjectProtocol?
@@ -29,7 +30,7 @@ private final class NotchTintView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
-        context.addPath(NotchSurfaceShape(expansion: expansion, docked: docked).path(in: bounds).cgPath)
+        context.addPath(NotchSurfaceShape(expansion: expansion, docked: docked, joining: magneticJoin).path(in: bounds).cgPath)
         context.clip()
         if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
             NSColor.black.setFill()
@@ -57,6 +58,7 @@ final class NotchBackdropView: NSVisualEffectView {
     var attachmentRect: CGRect? { didSet { if oldValue != attachmentRect { updateBackground() } } }
     var attachmentEdge: FERBScreenEdge = .left { didSet { if oldValue != attachmentEdge { updateBackground() } } }
     var docked = false { didSet { if oldValue != docked { updateBackground() } } }
+    var magneticJoin: CGFloat? { didSet { if oldValue != magneticJoin { updateBackground() } } }
     private var surfaceSize = CGSize.zero
     private var expansion: CGFloat = 0
     private var lastBounds = CGRect.zero
@@ -68,6 +70,7 @@ final class NotchBackdropView: NSVisualEffectView {
         var attachment: CGRect?
         var edge: FERBScreenEdge
         var docked: Bool
+        var magneticJoin: CGFloat?
     }
     private var renderedBackground: Background?
 
@@ -125,12 +128,12 @@ final class NotchBackdropView: NSVisualEffectView {
         guard updateDepth == 0, bounds.width > 0, bounds.height > 0 else { return }
         let background = Background(bounds: bounds, surface: CGRect(origin: surfaceOrigin, size: surfaceSize),
                                     expansion: expansion, attachment: attachmentRect,
-                                    edge: attachmentEdge, docked: docked)
+                                    edge: attachmentEdge, docked: docked, magneticJoin: magneticJoin)
         guard background != renderedBackground else { return }
         renderedBackground = background
         lastBounds = bounds
         let rect = CGRect(origin: .zero, size: surfaceSize)
-        let cardPath = NotchSurfaceShape(expansion: expansion, docked: docked).path(in: rect)
+        let cardPath = NotchSurfaceShape(expansion: expansion, docked: docked, joining: magneticJoin).path(in: rect)
             .offsetBy(dx: surfaceOrigin.x, dy: surfaceOrigin.y).cgPath
         let attachment = CGMutablePath()
         let shoulder = CGMutablePath()
@@ -143,7 +146,8 @@ final class NotchBackdropView: NSVisualEffectView {
         CATransaction.setDisableActions(true)
         attachmentFill.path = attachment
         shoulderFill.path = shoulder
-        let tintNeedsPaint = tint.frame.size != surfaceSize || tint.docked != docked
+        let tintNeedsPaint = tint.frame.size != surfaceSize || tint.docked != docked || tint.magneticJoin != magneticJoin
+        tint.magneticJoin = magneticJoin
         tint.docked = docked
         let pendingTintPaint = tint.needsDisplay
         if tint.frame != background.surface { tint.frame = background.surface }
