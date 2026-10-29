@@ -2283,3 +2283,44 @@ improvement is claimed from that diagnostic run.
 Owner normal-build verdict (2026-10-29): "ok all fixed" — latest-source hover, drag text
 stability and drag smoothness accepted after diagnostic removal. This resolves the
 remaining Task22 hover check; it does not claim a measured frame rate.
+
+
+## UI branch — magnetic notch fusion (2026-10-30; owner verification pending)
+
+Approved on `ui/ux` with energy concentrated on the pill edge facing the notch and
+in the drawable area beneath it. This replaces the earlier withdrawn proximity
+experiment. Checkout implementation and automated tests are separate from live
+acceptance: no screenshot inspection, audio audition, daemon replacement or
+release-app installation was performed for this change.
+
+Owner checks in FERB's real interaction:
+
+- Approach slowly from below and both sides; pause at several distances, retreat,
+  reverse rapidly and rush past. Edge tension and sound should follow the changing
+  gap smoothly and disappear on departure, without pointer jumps.
+- Release outside and inside the physical notch/lower pull strip. Only the existing
+  target docks. The two surfaces should converge cleanly without a transparent
+  reset, detached logo, text reflow, clipping or excessive bounce.
+- Re-grab early/mid/late in fusion, then click or drag away; tear out and return.
+  No old completion should override the new interaction or replay a sound.
+- Repeat compact, expanded and pinned with a long scrolled conversation. Draft,
+  transcript position, preferred sizes and keyboard focus should remain intact.
+- Cross to a no-notch display, change/remove displays, sleep/wake and explicitly
+  close during approach/fusion. No field, drone or old docking should remain.
+- While resonating, toggle Magnetic docking sound and the master mute, change
+  feedback volume, and toggle macOS Reduce Motion. Audio controls should take effect
+  smoothly; reduced motion should remove pull/strain/ripples/travel and dock exactly.
+- Confirm the restraint and tactile quality of the original hum/resonance/fusion
+  sound and the matching edge tension. These subjective checks belong to the owner.
+
+Offline checkout validation (2026-10-30): complete native Swift suite **509 passed**;
+focused native magnetic lifecycle suite **7 passed**; `mypy ferb/core` passed (10
+files); `git diff --check` passed. The already-completed Python suite was **5506
+passed, 4 skipped, 149 deselected**; no Python code changed in this UI work. These
+results do not establish live appearance, sound quality or hardware acceptance.
+
+Live verdict: **pending**. Installed/running release status is unchanged.
+
+Native development app bundle build succeeded (2026-10-30), with anonymous SwiftPM
+configuration: `ui/mac/FERBNotch/build/FERB Notch.app`. Not launched or installed;
+no visual inspection or sound audition performed.

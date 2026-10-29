@@ -173,12 +173,19 @@ final class FerbIndicatorControl: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard dragBeganAt != nil else { return }
         let point = screenPoint(event)
         if let start = dragBeganAt, hypot(point.x - start.x, point.y - start.y) >= 3 { isDragging = true }
         if isDragging { onDragged?(point) }
     }
 
+    func cancelPointerCapture() {
+        dragBeganAt = nil
+        isDragging = false
+    }
+
     override func mouseUp(with event: NSEvent) {
+        guard dragBeganAt != nil else { return }
         let point = screenPoint(event)
         if isDragging { onDragEnded?(point) } else { onClick?() }
         dragBeganAt = nil

@@ -1,5 +1,14 @@
 # FERB version history
 
+- UI branch: hardware-notch docking now uses continuous magnetic attraction,
+  directional edge tension and a shared fusion clock for the pill/chat surface.
+  Original output-only resonance follows actual proximity and resolves on docking;
+  Settings → Sounds adds Magnetic docking sound under the existing mute/volume.
+  The original physical release target is preserved. Reduced Motion removes the
+  spatial effects. Retreat, re-grab, close, screen changes, sleep and teardown clear
+  effects and revoke stale completion. Native offline tests cover lifecycle and
+  audio/state behavior; owner visual/audio evaluation remains pending.
+
 - UI branch: latest-response source/file hover is reconciled from the existing pointer
   stream when AppKit misses a native enter event. Current clipped geometry and topmost
   window ownership still govern previews; scrolling and entering their popovers keep
@@ -2368,6 +2377,6 @@ Phase 4 of `docs/REWORK_PLAN.md`, as designed in `docs/DESIGN_ONE_WORKER.md`.
 
 ### UI follow-up: four inward chat positions
 
-Dragging now chooses the nearest physical screen edge: chat sits below a top pill, above a bottom pill, right of a left pill, and left of a right pill. Within a state the chat tracks directly; only a state change uses a short interruptible transition. Magnetic feedback stays removed.
+Dragging now chooses the nearest physical screen edge: chat sits below a top pill, above a bottom pill, right of a left pill, and left of a right pill. Within a state the chat tracks directly; only a state change uses a short interruptible transition. Magnetic feedback was removed at this stage; the owner-approved magnetic fusion entry above supersedes that withdrawal.
 
 The accepted four-state layout now eases into and settles out of each state change with a non-bouncy native spring. Interrupted shifts retain their movement velocity rather than starting another abrupt ease-out; ordinary dragging still follows the cursor immediately.

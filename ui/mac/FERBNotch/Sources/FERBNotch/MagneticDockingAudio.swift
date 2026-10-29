@@ -108,6 +108,14 @@ final class MagneticDockingAudio {
         scheduleStop()
     }
 
+    func shutdown() {
+        latest = MagneticDocking.Sample()
+        FERBMagneticSynthCancel(synth)
+        stopTask?.cancel()
+        stopTask = nil
+        FERBStopMagneticOutput(engine)
+    }
+
     deinit {
         stopTask?.cancel()
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }

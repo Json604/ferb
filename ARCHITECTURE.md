@@ -3936,12 +3936,12 @@ storage and selection. The intermittent blank-text symptom awaits owner confirma
 
 ## UI branch — hardware notch docking — 2026-10-29
 
-Dragging the movable pill onto the physical camera notch docks FERB with a brief
-whole-surface swallow transition. Dragging the strip immediately beneath the camera pulls FERB back into a movable
+Dragging the movable pill onto the physical camera notch docks FERB with continuous
+magnetic attraction and shared surface fusion. Dragging the strip immediately beneath the camera pulls FERB back into a movable
 pill. Docking restores the original screen-top notch-hover interface and concave
 shoulders, with header controls kept outside the camera area.
 Docking persists across app launches; displays without a hardware notch retain the
-edge pill. Reduced Motion skips the traveling swallow. Appearance verification is
+edge pill. Reduced Motion skips spatial attraction and traveling fusion. Appearance verification is
 reserved for the owner; implementation and review use code and tests only.
 
 ## UI branch — attached FERB control and task previews — 2026-10-29
@@ -4000,10 +4000,40 @@ card and pill before snap/docking. Native tint/mask and SwiftUI presentation rec
 the same rectangle. The concave shoulder follows the drawn boundary, not the future
 side. Reduced Motion makes these relative placement changes immediate.
 
-The owner withdrew the proximity animation and sound pending a new walkthrough.
-Release docking uses only the physical hardware notch and its existing lower pull
-strip (`NotchDocking.accepts`), with the original swallow transition preserved.
-There is no expanded invisible capture zone, magnetic logo/glow or proximity sound.
+The owner approved magnetic fusion on 2026-10-29, superseding the earlier withdrawal.
+Release docking still uses only the physical hardware notch and its existing lower
+pull strip (`NotchDocking.accepts`). `MagneticDocking` measures continuous influence
+from the unmagnetized pill rectangle, within 150 points, and integrates a separate
+critically damped offset without changing the pointer anchor. Stronger tension
+within 40 points adds subtle directional strain. Tear-out stays unarmed until the
+pill first leaves the influence zone. No-notch displays have no magnetic target.
+
+`PanelCoordinator` samples one magnetic state for native placement, field layers
+and output synthesis. `MagneticFieldView` draws restrained ripples at the pill edge
+facing the target and beneath the hardware cutout. Its noninteractive panel joins
+the notch overlay Space and is reported in the daemon's click-through window set.
+Fusion converges the actual pill and expanded card geometry on that clock before
+persisting docking once; it replaces the independent swallow animations. Re-grab
+revokes the old completion, keeps the visible geometry and adopts a new pointer
+anchor. Sleep, display reconfiguration, explicit close and teardown cancel ownership,
+clock, canvas and field; a late mouse-up or clock tick cannot finish the old join.
+Crossing displays restarts field/clock ownership without the previous display's pull.
+
+`MagneticDockingAudio` feeds proximity, direction and completion to the original
+output-only `MagneticSynth.c` synthesizer. Atomic parameters cross into its allocation-
+free render callback; sample-rate smoothing preserves oscillator phase and ramps
+hum/resonance out on retreat or mute. Completion resolves into a finite descending
+resonance and soft transient, then exact silence. Settings → Sounds → Magnetic
+docking sound is subordinate to the existing feedback mute/volume. Cancellation
+ramps down; sleep and teardown stop output immediately. Engine/route failures do
+not block drag. Reduce Motion, sampled during the interaction, removes spatial
+pull, strain and oscillation and docks immediately while retaining a static
+proximity cue. Audio remains independently controllable.
+
+Offline tests exercise native indicator callbacks and coordinator cancellation,
+compact/expanded fusion interruption, state geometry, field rendering, synthesis
+and silence. They do not establish native appearance, sound quality or live
+acceptance; the owner evaluates those in the running interaction.
 
 `PanelResizeOverlay` registers active-always cursor/enter/move tracking, so the
 non-key panel can show the native resize direction before its first click. Surface
