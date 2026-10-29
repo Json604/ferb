@@ -4009,7 +4009,7 @@ within 40 points adds subtle directional strain. Tear-out stays unarmed until th
 pill first leaves the influence zone. No-notch displays have no magnetic target.
 
 `PanelCoordinator` samples one magnetic state for native placement, field layers
-and haptic output. `MagneticFieldView` draws restrained ripples at the pill edge
+and output synthesis. `MagneticFieldView` draws restrained ripples at the pill edge
 facing the target and beneath the hardware cutout. Its noninteractive panel joins
 the notch overlay Space and is reported in the daemon's click-through window set.
 Fusion converges the actual pill and expanded card geometry on that clock before
@@ -4019,31 +4019,21 @@ anchor. Sleep, display reconfiguration, explicit close and teardown cancel owner
 clock, canvas and field; a late mouse-up or clock tick cannot finish the old join.
 Crossing displays restarts field/clock ownership without the previous display's pull.
 
-`MagneticDockingHaptics` consumes the same proximity/fusion sample. Optional
-MultitouchSupport symbols render low-amplitude whole-cycle trackpad waveforms;
-the serial worker reads a latest-value mailbox, never a queue of display samples.
-Frequency rises from 100 to 125 Hz (one 192–240 tick cycle on the 24 kHz firmware
-grid); amplitude tends to zero at the influence boundary and compresses during
-fusion. Native submission uses no UI-held lock. Cancellation revokes future
-segments; at most the already-committed finite segment can finish, then resources
-close on the worker. Built-in hardware is preferred when enumerated. Missing
-symbols/device or failed waveform playback fall back to sparse public AppKit
-alignment taps; the next interaction reprobes. Completion produces one alignment
-tap. The previous magnetic audio engine/synthesizer has been removed; ordinary
-completion and dictation sounds remain unchanged.
-
-Settings → Notch → Magnetic docking haptics is enabled by default and independent
-of feedback sound mute/volume. Disabling it cancels output without replaying a
-completed join. Reduce Motion still removes spatial pull, strain and oscillation
-and docks immediately while retaining a static proximity cue. Haptics remain
-independently controllable. The private framework is optional and compatibility
-and tactile feel require owner verification on actual hardware.
+`MagneticDockingAudio` feeds proximity, direction and completion to the original
+output-only `MagneticSynth.c` synthesizer. Atomic parameters cross into its allocation-
+free render callback; sample-rate smoothing preserves oscillator phase and ramps
+hum/resonance out on retreat or mute. Completion resolves into a finite descending
+resonance and soft transient, then exact silence. Settings → Sounds → Magnetic
+docking sound is subordinate to the existing feedback mute/volume. Cancellation
+ramps down; sleep and teardown stop output immediately. Engine/route failures do
+not block drag. Reduce Motion, sampled during the interaction, removes spatial
+pull, strain and oscillation and docks immediately while retaining a static
+proximity cue. Audio remains independently controllable.
 
 Offline tests exercise native indicator callbacks and coordinator cancellation,
-compact/expanded fusion interruption, state geometry and field rendering. Injected
-haptic output/actuator tests cover proximity, cancellation, fallback, reconnect,
-serial lifetime and a slow device probe without producing hardware output. They
-do not establish native appearance, tactile quality or live acceptance.
+compact/expanded fusion interruption, state geometry, field rendering, synthesis
+and silence. They do not establish native appearance, sound quality or live
+acceptance; the owner evaluates those in the running interaction.
 
 `PanelResizeOverlay` registers active-always cursor/enter/move tracking, so the
 non-key panel can show the native resize direction before its first click. Surface

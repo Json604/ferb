@@ -17,14 +17,14 @@ final class SoundFeedback: ObservableObject {
     @Published var volume: Double {
         didSet { UserDefaults.standard.set(volume, forKey: "feedback.volume") }
     }
-    @Published var magneticHapticsEnabled: Bool {
-        didSet { UserDefaults.standard.set(magneticHapticsEnabled, forKey: "feedback.magneticHapticsEnabled") }
+    @Published var magneticEnabled: Bool {
+        didSet { UserDefaults.standard.set(magneticEnabled, forKey: "feedback.magneticEnabled") }
     }
     private var currentSound: NSSound?
 
     init() {
         let defaults = UserDefaults.standard
-        magneticHapticsEnabled = defaults.object(forKey: "feedback.magneticHapticsEnabled") as? Bool ?? true
+        magneticEnabled = defaults.object(forKey: "feedback.magneticEnabled") as? Bool ?? true
         enabled = defaults.object(forKey: "feedback.enabled") as? Bool ?? true
         volume = defaults.object(forKey: "feedback.volume") as? Double ?? 0.18
     }

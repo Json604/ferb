@@ -125,9 +125,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var dockingRevision: UUID?
     let magneticFieldPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private let magneticField = MagneticFieldView(frame: .zero)
-    var magneticHapticsOutputEnabled = true { didSet { magneticHaptics.outputEnabled = magneticHapticsOutputEnabled } }
+    var magneticAudioOutputEnabled = true { didSet { magneticAudio.outputEnabled = magneticAudioOutputEnabled } }
     var magneticFieldPresentationEnabled = true
-    private lazy var magneticHaptics = MagneticDockingHaptics(feedback: model.feedback)
+    private lazy var magneticAudio = MagneticDockingAudio(feedback: model.feedback)
     private var magneticDocking = MagneticDocking()
     private(set) var magneticSample = MagneticDocking.Sample()
     private var magneticClock: CADisplayLink?
@@ -780,7 +780,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func applyMagneticEffects() {
-        magneticHaptics.update(magneticSample)
+        magneticAudio.update(magneticSample)
         indicatorControl?.setMagneticFusion(magneticSample.fusionProgress)
         guard let target = magneticSample.target, magneticSample.proximity > 0,
               magneticSample.phase == .dragging || magneticSample.phase == .fusing else {
@@ -819,7 +819,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     func cancelMagneticEffects() {
-        magneticHaptics.cancel()
+        magneticAudio.cancel()
         magneticFieldPanel.orderOut(nil)
         indicatorControl?.setMagneticFusion(0)
         presentation.backdrop.magneticJoin = nil
@@ -944,7 +944,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     @objc func screensDidSleep() {
         cancelMagneticInteraction()
-        magneticHaptics.shutdown()
+        magneticAudio.shutdown()
         model.acknowledgement.dismiss()
         screensAsleep = true
         updateYieldWatch()
@@ -1526,7 +1526,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     func tearDown() {
         isStarted = false
         cancelMagneticInteraction()
-        magneticHaptics.shutdown()
+        magneticAudio.shutdown()
         model.acknowledgement.dismiss()
         closeTaskActivity()
         poster?.stop()

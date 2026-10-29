@@ -2324,36 +2324,3 @@ Live verdict: **pending**. Installed/running release status is unchanged.
 Native development app bundle build succeeded (2026-10-30), with anonymous SwiftPM
 configuration: `ui/mac/FERBNotch/build/FERB Notch.app`. Not launched or installed;
 no visual inspection or sound audition performed.
-
-
-### Trackpad haptic replacement (2026-10-30; owner trial pending)
-
-Owner approved replacing magnetic docking sound with continuous trackpad feedback.
-The prior magnetic sound checks above are superseded; ordinary voice/completion
-sounds remain. No automated hardware haptics or UI audition was performed.
-
-- Drag toward/away from the hardware notch with a finger on the Force Touch
-  trackpad: a restrained vibration should rise with proximity, recede to silence
-  at the edge, tighten during fusion and resolve to one alignment tap.
-- Try quick reversals, release outside the target, re-grab during fusion, explicit
-  close, display change and sleep. No sustained vibration or stale final tap.
-- Settings → Notch → Magnetic docking haptics should stop output when disabled.
-  Sound mute/volume should not affect haptics; no magnetic sound should play.
-- Repeat with Reduce Motion. Existing immediate docking and static proximity cue
-  remain; haptics can be disabled independently.
-- On unsupported/failed private actuator output, expect sparse standard taps,
-  not a continuous vibration. After reconnect, a new interaction should reprobe.
-
-Private actuator compatibility, exact strength and uninterrupted tactile sensation
-remain unverified until the owner's trial. Live verdict: **pending**.
-
-Offline haptic follow-up validation: **508 Swift tests passed**, including **24**
-focused magnetic tests; `mypy ferb/core` passed (10 files), `git diff --check` clean.
-The unchanged Python baseline remains **5506 passed, 4 skipped, 149 deselected**.
-Obsolete magnetic-synth tests were replaced by injected actuator/controller tests;
-field/physics and coordinator interruption coverage is retained. Build/reload and
-owner hardware verdict are recorded separately by the controller.
-
-Haptic candidate built and development notch reloaded2026-10-30 (single process
-PID65027); daemon unchanged. No agent haptic audition or UI inspection. Owner
-trackpad trial pending. Full Swift508 passed; focused24 passed; mypy/diff clean.
