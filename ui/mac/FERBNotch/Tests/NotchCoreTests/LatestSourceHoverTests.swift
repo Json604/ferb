@@ -25,6 +25,110 @@ final class LatestSourceHoverTests: XCTestCase {
         for _ in 0..<5 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(20)) }
     }
 
+    func testRouterClearsOldCursorBeforeEnteringNextAnchor() {
+        final class CursorTracker: PreviewHoverTrackingView {
+            var cursors: ((NSCursor) -> Void)?
+            override func applyPointerCursor(_ cursor: NSCursor) { cursors?(cursor) }
+        }
+        let window = NSWindow(contentRect:CGRect(x:0,y:0,width:300,height:100),styleMask:.borderless,backing:.buffered,defer:false)
+        let root = NSView(frame:CGRect(x:0,y:0,width:300,height:100))
+        window.contentView = root
+        let left = CursorTracker(frame:CGRect(x:0,y:0,width:100,height:30))
+        let right = CursorTracker(frame:CGRect(x:150,y:0,width:100,height:30))
+        var cursors: [NSCursor] = []
+        for view in [left,right] { view.pointingHand = true; view.cursors = { cursors.append($0) }; root.addSubview(view) }
+        func move(_ x: CGFloat) { PreviewHoverRouter.shared.route(point:window.convertPoint(toScreen:NSPoint(x:x,y:15)), frontmostWindowNumber:window.windowNumber) }
+        move(50)
+        for x in [200.0,50,200,50] {
+            cursors.removeAll()
+            move(x)
+            XCTAssertEqual(cursors.count,2)
+            XCTAssertTrue(cursors.first === NSCursor.arrow)
+            XCTAssertTrue(cursors.last === NSCursor.pointingHand)
+            move(x)
+            XCTAssertEqual(cursors.count,2,"An unchanged anchor must not reset the cursor each sample")
+        }
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testPointerMonitorReconcilesLastSourceWithoutNativeEnterDelivery() async throws {
+        var turn = ConversationTurn(id: UUID(), createdAt: Date(), request: "Explain", sources: [])
+        turn.answer = String(repeating: "A long answer paragraph.\n\n", count: 35) + "Sites contacted: in.usembassy.gov, travel.state.gov"
+        turn.status = "done"
+        let entries = Entries([.turn(turn, answeredBelow: false)])
+        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let host = NSHostingView(rootView: Chat(entries: entries, model: model))
+        host.frame = CGRect(x:0,y:0,width:440,height:model.chatTranscriptHeight+44)
+        let window = NSWindow(contentRect:host.frame,styleMask:.borderless,backing:.buffered,defer:false)
+        window.contentView = host
+        try await settle(host)
+        let tracker = try XCTUnwrap(descendants(host).compactMap { $0 as? PreviewHoverTrackingView }.first)
+        var transitions: [Bool] = []
+        tracker.changed = { transitions.append($0) }
+        let center = window.convertPoint(toScreen:tracker.convert(NSPoint(x:tracker.bounds.midX,y:tracker.bounds.midY),to:nil))
+        // Owner trace: pointer over the actual latest pill and own topmost window,
+        // full clipped bounds + native tracking area, but no native enter delivered.
+        PreviewHoverRouter.shared.route(point:center, frontmostWindowNumber:window.windowNumber)
+        XCTAssertEqual(transitions,[true])
+        PreviewHoverRouter.shared.route(point:center, frontmostWindowNumber:window.windowNumber)
+        XCTAssertEqual(transitions,[true], "Repeated pointer samples must not reopen the preview")
+        PreviewHoverRouter.shared.route(point:center, frontmostWindowNumber:window.windowNumber+1)
+        XCTAssertEqual(transitions,[true,false], "A popover covering the source owns the pointer")
+        PreviewHoverRouter.shared.route(point:center, frontmostWindowNumber:window.windowNumber)
+        let scroll = try XCTUnwrap(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        scroll.contentView.scroll(to:.zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try await settle(host)
+        PreviewHoverRouter.shared.route(point:center, frontmostWindowNumber:window.windowNumber)
+        XCTAssertEqual(transitions.last,false, "Scrolling the source out clears hover without a native exit")
+        XCTAssertFalse(window.isVisible)
+    }
+
+    func testTranscriptOffsetStaysFixedWhileCardTranslatesWithinDragCanvas() async throws {
+        let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        let id = UUID()
+        model.conversation.begin(id: id, request: "Explain", sources: [])
+        model.conversation.finish(id: id, answer: String(repeating: "Long answer paragraph here. More words make a sentence.\n\n", count: 35) + "Sites contacted: constitution.congress.gov, congress.gov", status: "done", artifacts: [])
+        model.resizePanel(width: 427, transcriptHeight: 306.5)
+        model.expand()
+        let presentation = NotchPresentation()
+        let size = model.surfaceSize
+        presentation.backdrop.frame = CGRect(origin: .zero, size: size)
+        presentation.present(size: size, expanded: true, bodyVisible: true, animate: false) {}
+        let host = TrackingHostingView(rootView: NotchView(model: model, presentation: presentation))
+        host.sizingOptions = []
+        host.frame = CGRect(origin: .zero, size: size)
+        let window = NotchPanel(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.contentView = presentation.backdrop
+        host.autoresizingMask = [.width, .height]
+        presentation.backdrop.addSubview(host)
+        let control = NSView()
+        presentation.backdrop.addSubview(control)
+        try await settle(host)
+        let scroll = try XCTUnwrap(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        let tracker = try XCTUnwrap(descendants(host).compactMap { $0 as? PreviewHoverTrackingView }.first)
+        let original = scroll.contentView.bounds.origin
+        let originalHeight = scroll.documentView!.frame.height
+        for index in 0..<60 {
+            let y = 100 + sin(Double(index) / 4) * 20.321
+            let card = CGRect(x: 350 + cos(Double(index) / 3) * 30.321, y: y, width: size.width, height: size.height)
+            model.availableSurfaceSize = card.size
+            DragSurfaceCanvas.place(window: window, presentation: presentation, control: control,
+                pill: CGRect(x: 500,y: y + size.height-8,width:58,height:30), card: card,
+                canvas: CGRect(x:0,y:0,width:1400,height:1000), bodyVisible:true)
+            let scale = window.backingScaleFactor
+            XCTAssertEqual(presentation.surfaceOrigin.x * scale, (presentation.surfaceOrigin.x * scale).rounded(), accuracy: 0.000001)
+            XCTAssertEqual(presentation.surfaceOrigin.y * scale, (presentation.surfaceOrigin.y * scale).rounded(), accuracy: 0.000001)
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(16))
+            XCTAssertEqual(scroll.contentView.bounds.width, size.width - 50, accuracy: 0.01)
+            XCTAssertEqual(scroll.contentView.bounds.origin.y, original.y, accuracy: 0.5)
+            XCTAssertEqual(scroll.documentView!.frame.height, originalHeight, accuracy: 0.5)
+            XCTAssertFalse(tracker.hoverRect.isEmpty)
+        }
+        XCTAssertFalse(window.isVisible)
+    }
+
     func testFullNotchSourceUsesNativeAutomaticClippingAcrossScrollAndReopen() async throws {
         let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
         let id = UUID()

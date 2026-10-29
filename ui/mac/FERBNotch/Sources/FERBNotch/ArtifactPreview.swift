@@ -97,6 +97,40 @@ struct NativePreviewHover: NSViewRepresentable {
     }
 }
 
+/// SwiftUI can leave AppKit's automatic tracking region stale at the last row of
+/// a scroll view. Reconcile the same native anchors from FERB's existing pointer
+/// monitors, using their current geometry rather than waiting for a missed enter.
+@MainActor
+final class PreviewHoverRouter {
+    static let shared = PreviewHoverRouter()
+    private let anchors = NSHashTable<PreviewHoverTrackingView>.weakObjects()
+    private var scheduled = false
+
+    func register(_ view: PreviewHoverTrackingView) { anchors.add(view); schedule() }
+    func unregister(_ view: PreviewHoverTrackingView) { anchors.remove(view) }
+    func routeCurrentPointer() {
+        let point = NSEvent.mouseLocation
+        route(point: point,
+              frontmostWindowNumber: NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0))
+    }
+    func route(point: NSPoint, frontmostWindowNumber: Int) {
+        let hits = anchors.allObjects.map { ($0, $0.containsPointer(point: point, frontmostWindowNumber: frontmostWindowNumber)) }
+        // Clear the previous hand before a new anchor claims it. Weak-table order
+        // is undefined, so interleaving exits and enters can leave the arrow set.
+        for (view, hit) in hits where !hit { view.clearHover() }
+        for (view, hit) in hits where hit { view.acceptHover() }
+    }
+    func schedule() {
+        guard !scheduled, anchors.allObjects.contains(where: { $0.window?.isVisible == true }) else { return }
+        scheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scheduled = false
+            self.routeCurrentPointer()
+        }
+    }
+}
+
 class PreviewHoverTrackingView: NSView {
     var changed: ((Bool) -> Void)?
     var pointingHand = false {
@@ -104,6 +138,7 @@ class PreviewHoverTrackingView: NSView {
     }
     private var inside = false
     private var area: NSTrackingArea?
+    private var clipObserver: NSObjectProtocol?
     // SwiftUI's platform host can return the entire scroll viewport here, with
     // an origin outside this small representable. Normalize the NSView contract
     // itself so AppKit can maintain an automatic inVisibleRect tracking area as
@@ -128,10 +163,12 @@ class PreviewHoverTrackingView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         window?.invalidateCursorRects(for: self)
+        PreviewHoverRouter.shared.schedule()
     }
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         window?.invalidateCursorRects(for: self)
+        PreviewHoverRouter.shared.schedule()
     }
     override func cursorUpdate(with event: NSEvent) { updatePointer(with: event) }
     override func mouseMoved(with event: NSEvent) { updatePointer(with: event) }
@@ -143,20 +180,36 @@ class PreviewHoverTrackingView: NSView {
         let point = window.convertPoint(toScreen: event.locationInWindow)
         return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0) == window.windowNumber
     }
+    func containsPointer(point: NSPoint, frontmostWindowNumber: Int) -> Bool {
+        guard let window, window.windowNumber == frontmostWindowNumber, !isHiddenOrHasHiddenAncestor else { return false }
+        return hoverRect.contains(convert(window.convertPoint(fromScreen: point), from: nil))
+    }
     private func updatePointer(with event: NSEvent) {
+        if window?.isVisible == true {
+            // Queued enter/exit coordinates can refer to an earlier scroll position.
+            // A stale exit must not undo the monitor's current hit result.
+            PreviewHoverRouter.shared.routeCurrentPointer()
+            return
+        }
         guard hoverRect.contains(convert(event.locationInWindow, from: nil)),
               pointerBelongsToWindow(event) else { clearHover(); return }
+        acceptHover()
+    }
+    func acceptHover() {
+        guard !inside else { return }
         applyCursor()
-        if !inside { inside = true; changed?(true) }
+        inside = true
+        changed?(true)
     }
     private func applyCursor() {
-        if pointingHand, window?.isVisible == true { NSCursor.pointingHand.set() }
+        if pointingHand { applyPointerCursor(.pointingHand) }
+    }
+    func applyPointerCursor(_ cursor: NSCursor) {
+        if window?.isVisible == true, cursor !== NSCursor.arrow || NSCursor.current == .pointingHand { cursor.set() }
     }
     func clearHover() {
         guard inside else { return }
-        if inside, pointingHand, window?.isVisible == true, NSCursor.current == .pointingHand {
-            NSCursor.arrow.set()
-        }
+        if inside, pointingHand { applyPointerCursor(.arrow) }
         inside = false
         changed?(false)
         window?.invalidateCursorRects(for: self)
@@ -176,24 +229,45 @@ class PreviewHoverTrackingView: NSView {
             clearHover()
         }
         super.updateTrackingAreas()
+        PreviewHoverRouter.shared.schedule()
     }
     override func mouseEntered(with event: NSEvent) { updatePointer(with: event) }
-    override func mouseExited(with event: NSEvent) { clearHover() }
+    override func mouseExited(with event: NSEvent) {
+        if window?.isVisible == true { updatePointer(with: event) }
+        else { clearHover() }
+    }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if window !== newWindow, inside {
             let changed = changed
             self.changed = nil
             clearHover()
             self.changed = changed
-            DispatchQueue.main.async { changed?(false) }
+            DispatchQueue.main.async { [weak self] in
+                guard self?.inside != true else { return }
+                changed?(false)
+            }
         }
         super.viewWillMove(toWindow: newWindow)
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
+        clipObserver = nil
+        if window == nil { PreviewHoverRouter.shared.unregister(self) }
+        else {
+            PreviewHoverRouter.shared.register(self)
+            if let clip = enclosingScrollView?.contentView {
+                clip.postsBoundsChangedNotifications = true
+                clipObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                    object: clip, queue: .main) { _ in
+                        MainActor.assumeIsolated { PreviewHoverRouter.shared.schedule() }
+                    }
+            }
+        }
         if window == nil { clearHover() }
         else { window?.invalidateCursorRects(for: self) }
     }
+    deinit { if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) } }
 }
 
 struct ArtifactRow: View {

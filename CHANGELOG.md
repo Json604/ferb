@@ -1,5 +1,15 @@
 # FERB version history
 
+- UI branch: latest-response source/file hover is reconciled from the existing pointer
+  stream when AppKit misses a native enter event. Current clipped geometry and topmost
+  window ownership still govern previews; scrolling and entering their popovers keep
+  the existing crossing behavior. Native cursor transitions clear exits before entries.
+  During dragging, only the chat origin aligns to backing pixels, preventing half-point
+  width oscillation from rewrapping history. The pill retains exact cursor motion.
+  Owner-driven numeric diagnostics established both causes and confirmed stable width
+  and working hover after the fix; the owner confirmed both issues resolved. Temporary
+  diagnostic tracing was removed from the normal build.
+
 - UI branch: source/file hover restores AppKit’s automatic visible-rectangle tracking
   while constraining each native view’s visible rectangle to its own clipped bounds.
   Scroll/reveal updates no longer depend on a snapshot of the anchor rectangle; cursor

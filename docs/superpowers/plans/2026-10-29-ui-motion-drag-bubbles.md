@@ -332,3 +332,22 @@ review; anonymous focused/full Swift tests and diff check. Parent builds/reloads
 changes, commits or live screen inspection. Supplied recording is explicitly authorized.
 Self-review: do not claim unordered tests reproduce WindowServer event delivery; report
 that remaining live validation separately from geometry/tracking regression coverage.
+
+### Task 23 — Diagnose drag transcript shifts and missed last-source hover
+Owner reports text shifts during pill movement and last-response sources still miss hover.
+Inspect only the supplied recording; no live visual inspection. Numeric owner-driven
+instrumentation is authorized for current native geometry and pointer delivery, without
+text or screenshots. First reproduce actual paths, then add regressions and fix the cause.
+Evidence: local pointer events occur within the last source's finite clipped screen bounds
+with the correct topmost window and one tracking area, but native enter is not delivered;
+clicked popover tracking does deliver normally. Reconcile the registered native anchors
+from the existing pointer monitor, preserving topmost ownership, hover crossing, clipping,
+and cleanup. Avoid arbitrary padding or another tracking-rectangle-only patch.
+Drag: compare actual native clip/document geometry during movement before changing motion;
+settled and display-rate pure translations currently remain stable in unordered tests.
+Files: ArtifactPreview.swift, PanelCoordinator.swift, relevant native integration tests;
+additional drag files only once its cause is demonstrated. Temporary diagnostic code must
+be removed before final build. Fresh independent review, focused/full anonymous Swift tests
+and diff check; no daemon changes or commit/merge. Parent owns reload and owner verification.
+Self-review: passing synthetic native callbacks do not establish real event delivery;
+report owner-driven numeric evidence, unordered test results and remaining live checks apart.

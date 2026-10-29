@@ -313,9 +313,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         // The physical camera has no visible app surface. Watch its screen coordinates
         // as well as the panel so hovering the real notch can open FERB.
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] _ in
+            PreviewHoverRouter.shared.routeCurrentPointer()
             self?.updatePointer(revealPinnedHeader: true)
         }) { eventMonitors.append(monitor) }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
+            PreviewHoverRouter.shared.routeCurrentPointer()
             self?.updatePointer(revealPinnedHeader: true)
             return event
         }) { eventMonitors.append(monitor) }

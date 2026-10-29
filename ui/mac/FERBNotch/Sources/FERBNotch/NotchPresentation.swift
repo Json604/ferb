@@ -125,8 +125,14 @@ final class NotchPresentation: NSObject, ObservableObject {
 
     func placeDuringDrag(size: CGSize, origin: CGPoint, bodyVisible: Bool) {
         stop()
-        surfaceOrigin = origin
-        destination = origin
+        // SwiftUI snaps native scroll-view edges independently at fractional
+        // display coordinates. Translating an unchanged card can therefore
+        // alternate its text width by one backing pixel and rewrap the history.
+        // Align only the chat canvas; the grabbed pill retains exact pointer motion.
+        let scale = backdrop.window?.backingScaleFactor ?? 1
+        surfaceOrigin = CGPoint(x: (origin.x * scale).rounded() / scale,
+                                y: (origin.y * scale).rounded() / scale)
+        destination = surfaceOrigin
         apply(Vector(AnimatablePair(size.width, size.height), AnimatablePair(1, bodyVisible ? 1 : 0)))
     }
 

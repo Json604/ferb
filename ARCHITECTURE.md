@@ -4091,4 +4091,18 @@ clipped geometry. Frame-origin changes invalidate cursor rectangles too. Empty, 
 or nonfinite geometry normalizes to zero and registers neither native cursor rectangles
 nor tracking areas; clipping clears stale hover until visibility returns. The full
 unordered NotchPanel/NotchView regression covers scroll clipping and retained close/reopen.
-Actual WindowServer pointer delivery remains an owner acceptance check.
+An owner-driven numeric trace then showed valid last-row bounds but missing native enter
+notifications. `PreviewHoverRouter` weakly registers these native anchors and reconciles
+current clipped geometry from the existing local/global pointer stream, with one topmost
+window lookup. It clears old hover owners before entering new ones; a queued native exit
+cannot override the current pointer. Clip bounds and geometry changes coalesce a pointer
+recheck, including stationary pointers after scroll/reveal. Source/popover crossing grace
+and native event tracking remain in place; no new polling timer is introduced.
+
+Held-drag chat origins are aligned to the window's backing-pixel grid in
+`NotchPresentation.placeDuringDrag`. The owner's numeric drag trace found unchanged scroll
+offset but native content width alternating by half a point, rewrapping history by30points.
+Pixel alignment keeps that layout width stable while only translation changes. The pill's
+native control continues to follow the exact pointer coordinates; the accepted orientation
+spring and durations are unchanged. Unordered integration tests check stable transcript
+width/content/offset during fractional moves; owner verification remains distinct.

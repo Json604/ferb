@@ -2259,3 +2259,27 @@ Pending owner check: immediately hover every part of the latest pill before send
 new message; confirm hand/highlight/disclosure match the capsule, cross into and scroll
 the list, leave both, then repeat after chat close/reopen and transcript scrolling.
 Only the supplied recording was viewed; no live screen or ordered test window inspected.
+
+
+### Drag reflow and last-source native delivery — 2026-10-29 (Task 23)
+Owner reports both still fail after Task22. Supplied recording viewed; no live screen
+inspection. Owner-driven numeric diagnostics prove two separate causes:
+- Latest source: dozens of pointer samples inside finite visible bounds and correct
+  topmost FERB window, with a tracking area, but no native enter delivery. Clicked
+  popovers deliver normally. Current geometry reconciliation now supplements tracking.
+- Dragging:378 samples retain scroll y8008.5 while width alternates377/376.5 and document
+  height8315.5/8345.5. The30-point reflow hides/reveals the source row. Chat origins now
+  align to backing pixels; pill coordinates remain exact and motion timing is unchanged.
+Offline:485 Swift tests pass, including pointer routing without a native enter, cross-anchor
+cursor ordering, occlusion/clipping, and full native transcript geometry while translating.
+The unordered integration host did not reproduce live width oscillation; the owner trace
+is the evidence for that failure. A separate alignment regression failed before the fix.
+Owner candidate verdict: "no issue is there" — both fixes confirmed. Candidate numeric
+capture contains442 drag samples with width377/documentheight8315.5 throughout, versus the
+previous oscillation, and43 in-bounds source samples all hovered. The owner noticed low
+frame rate in the diagnostic build. That build wrote roughly28MB of numeric view geometry;
+all temporary tracing is removed before the normal build. No FPS measurement or performance
+improvement is claimed from that diagnostic run.
+Owner normal-build verdict (2026-10-29): "ok all fixed" — latest-source hover, drag text
+stability and drag smoothness accepted after diagnostic removal. This resolves the
+remaining Task22 hover check; it does not claim a measured frame rate.
