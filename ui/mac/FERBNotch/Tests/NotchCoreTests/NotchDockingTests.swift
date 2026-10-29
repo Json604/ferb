@@ -57,23 +57,6 @@ final class NotchDockingTests: XCTestCase {
         XCTAssertFalse(backdrop.hitTest(CGPoint(x: 80, y: 25)) === control)
     }
 
-    func testSwallowScalesEntireCanvasIntoNotchWithoutClippingEitherEdge() {
-        let canvas = CGSize(width: 504, height: 620)
-        for anchor in [CGPoint(x: 0.5, y: 0.5), .zero, CGPoint(x: 0, y: 1), CGPoint(x: 0.3, y: 0.8)] {
-            let anchored = CGRect(x: -anchor.x * canvas.width, y: -anchor.y * canvas.height,
-                                  width: canvas.width, height: canvas.height)
-            for flipped in [true, false] {
-                let transformed = anchored.applying(NotchDocking.swallowTransform(
-                    canvas: canvas, target: notch.size, flipped: flipped, anchor: anchor))
-                XCTAssertEqual(transformed.width, notch.width, accuracy: 0.001)
-                XCTAssertEqual(transformed.height, notch.height, accuracy: 0.001)
-                XCTAssertEqual(transformed.minX, anchored.minX, accuracy: 0.001)
-                XCTAssertEqual(flipped ? transformed.minY : transformed.maxY,
-                               flipped ? anchored.minY : anchored.maxY, accuracy: 0.001)
-            }
-        }
-    }
-
     func testDockedPanelUsesScreenTopRatherThanBottomOfCamera() {
         let frame = NotchDocking.panelFrame(cutout: notch, size: CGSize(width: 456, height: 500))
         XCTAssertEqual(frame.maxY, notch.maxY)

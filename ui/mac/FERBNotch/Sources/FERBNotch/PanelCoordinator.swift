@@ -123,6 +123,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var presentedExpanded = false
     private var isDocked = false
     private var dockingRevision: UUID?
+    private var magneticDocking = MagneticDocking()
+    private(set) var magneticSample = MagneticDocking.Sample()
+    private var magneticClock: CADisplayLink?
+    private var magneticRawPill = CGRect.zero
+    private var magneticPointerVelocity = CGPoint.zero
+    private var magneticPointerTime: TimeInterval = 0
+    private var magneticLastPointer = CGPoint.zero
+    private var fusionCardStart: CGRect?
+    private var fusionCardTarget: CGRect?
+    private var fusionCanvas = CGRect.zero
     private var pointerIsInside = false
     private var cutoutFrame = CGRect.zero
     private var indicatorFrame = CGRect.zero
@@ -136,7 +146,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private var dragMotion: DragChatMotion?
     private var dragCanvasActive = false
     private var dragPreferredSize = CGSize.zero
-    private var dragClock: CADisplayLink?
     private var eventMonitors: [Any] = []
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
@@ -390,21 +399,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         control.onDragBegan = { [weak self] point in
             guard let self else { return }
             self.hoverTask?.cancel()
-            if self.dockingRevision != nil {
-                self.dockingRevision = nil
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0
-                    for window in [self.panel as NSWindow, self.indicatorPanel] {
-                        window.animator().setFrame(window.frame, display: true)
-                        CATransaction.begin()
-                        CATransaction.setDisableActions(true)
-                        window.contentView?.layer?.removeAnimation(forKey: "ferb.swallow")
-                        window.contentView?.layer?.transform = CATransform3DIdentity
-                        CATransaction.commit()
-                        window.animator().alphaValue = 1
-                    }
-                }
-            }
+            self.dockingRevision = nil
+            self.magneticClock?.invalidate()
+            self.magneticClock = nil
+            self.magneticDocking.begin(at: CACurrentMediaTime(), tornOut: self.isDocked)
+            self.magneticPointerTime = CACurrentMediaTime()
+            self.magneticLastPointer = point
+            self.magneticPointerVelocity = .zero
             self.setIndicatorResting(false, animated: false)
             self.presentation.stop()
             self.model.acknowledgement.dismiss()
@@ -515,9 +516,19 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return
         }
         let previous = indicatorFrame
-        indicatorFrame = PanelLayout.draggedFrame(start: start, grabbedAt: origin, pointer: point)
+        let now = CACurrentMediaTime()
+        let dt = now - magneticPointerTime
+        if dt > 0 {
+            magneticPointerVelocity = CGPoint(x: (point.x-magneticLastPointer.x)/dt,
+                                             y: (point.y-magneticLastPointer.y)/dt)
+        }
+        magneticPointerTime = now
+        magneticLastPointer = point
+        magneticRawPill = PanelLayout.draggedFrame(start: start, grabbedAt: origin, pointer: point)
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? indicatorScreen else { return }
         indicatorScreen = screen
+        sampleMagneticDrag(at: now)
+        startMagneticClock(on: screen)
         if model.expanded {
             let preferred = dragPreferredSize
             let target = LiveDragLayout.resolve(pill: indicatorFrame, screen: screen.frame,
@@ -532,24 +543,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 at:CACurrentMediaTime(), reduceMotion:NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                 visibleCard:dragCard)
             renderDragCard()
-            if dragMotion?.isAnimating == true, dragClock == nil {
-                let clock = screen.displayLink(target: self, selector: #selector(tickDrag(_:)))
-                dragClock = clock
-                clock.add(to: .main, forMode: .common)
-            }
 
         } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
         pointerIsInside = true
-    }
-
-    @objc private func tickDrag(_ link: CADisplayLink) {
-        guard indicatorDragPointer != nil else { stopDragLayout(); return }
-        dragCard = dragMotion?.sample(at:CACurrentMediaTime())
-        renderDragCard()
-        if dragMotion?.isAnimating != true {
-            dragClock?.invalidate()
-            dragClock = nil
-        }
     }
 
     private func renderDragCard() {
@@ -587,8 +583,6 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
                 pill: indicatorFrame, card: card, canvas: card.union(indicatorFrame), bodyVisible: !model.isHeaderOnly)
             attachIndicator()
         }
-        dragClock?.invalidate()
-        dragClock = nil
         dragCard = nil
         dragMotion = nil
         dragCanvasActive = false
@@ -622,12 +616,67 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         case .left, .right:
             indicatorFraction = min(1, max(0, (point.y - frame.minY - size.height / 2) / max(frame.height - size.height, 1)))
         }
+        magneticClock?.invalidate()
+        magneticClock = nil
+        magneticDocking.cancel(at: CACurrentMediaTime())
+        magneticSample = magneticDocking.current
         persistIndicatorAnchor(for: screen)
         indicatorDragPointer = nil
         indicatorDragFrame = nil
         pointerIsInside = false
         updateScreen()
         updatePointer()
+    }
+
+    private func startMagneticClock(on screen: NSScreen) {
+        guard magneticClock == nil else { return }
+        let clock = screen.displayLink(target: self, selector: #selector(tickMagnetic(_:)))
+        magneticClock = clock
+        clock.add(to: .main, forMode: .common)
+    }
+
+    private func sampleMagneticDrag(at time: TimeInterval) {
+        guard let screen = indicatorScreen else { return }
+        let notch = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
+            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
+            rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
+            menuBarHeight: screen.frame.maxY-screen.visibleFrame.maxY)
+        magneticSample = magneticDocking.update(pill: magneticRawPill,
+            target: notch.hasNotch ? notch.cutoutFrame : nil, at: time,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            pointerVelocity: time-magneticPointerTime < 0.08 ? magneticPointerVelocity : .zero)
+        indicatorFrame = magneticSample.pill
+    }
+
+    @objc private func tickMagnetic(_ link: CADisplayLink) {
+        let time = CACurrentMediaTime()
+        if dockingRevision != nil {
+            magneticSample = magneticDocking.sample(at: time,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            renderMagneticFusion()
+            if magneticSample.completed { finishMagneticFusion() }
+        } else if indicatorDragPointer != nil {
+            let previous = indicatorFrame
+            sampleMagneticDrag(at: time)
+            if model.expanded {
+                if let card = dragCard {
+                    let delta = CGPoint(x: indicatorFrame.minX-previous.minX, y: indicatorFrame.minY-previous.minY)
+                    // Translate the orientation spring too, preserving its velocity.
+                    if let screen = indicatorScreen {
+                        let target = LiveDragLayout.resolve(pill: indicatorFrame, screen: screen.frame,
+                            preferred: dragPreferredSize, previous: indicatorEdge)
+                        dragCard = dragMotion?.update(target: target.card, edge: target.edge, delta: delta,
+                            at: time, reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                            visibleCard: card) ?? card.offsetBy(dx: delta.x, dy: delta.y)
+                        indicatorEdge = target.edge
+                    }
+                }
+                renderDragCard()
+            } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
+        } else {
+            magneticClock?.invalidate()
+            magneticClock = nil
+        }
     }
 
     private func dockIndicator(on screen: NSScreen, cutout: CGRect) {
@@ -637,63 +686,65 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         indicatorRestTask?.cancel()
         indicatorRestTask = nil
         indicatorScreen = screen
-        persistIndicatorAnchor(for: screen)
-        let revision = UUID()
-        dockingRevision = revision
+        dockingRevision = UUID()
         presentation.stop()
-        let window: NSWindow = model.expanded ? panel : indicatorPanel
-        let finish = { [weak self] in
-            guard let self, self.dockingRevision == revision else { return }
-            self.dockingRevision = nil
-            self.isDocked = true
-            NotchDocking.save(true, in: .standard)
-            self.indicatorControl?.isDocked = true
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            for surface in [self.panel as NSWindow, self.indicatorPanel] {
-                surface.contentView?.layer?.removeAnimation(forKey: "ferb.swallow")
-                surface.contentView?.layer?.transform = CATransform3DIdentity
-            }
-            CATransaction.commit()
-            self.panel.alphaValue = 1
-            self.indicatorPanel.alphaValue = 1
-            self.presentedExpanded = false
-            self.updateScreen()
-            if self.model.expanded {
-                self.presentedExpanded = false
-                self.present(animate: true, requestFocus: false)
-            }
-            self.updatePointer()
-        }
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            finish()
+        // Keep the expanded conversation mounted and visible throughout the join.
+        // Both surfaces reach their final docked rectangles on this same clock.
+        if model.expanded {
+            fusionCardStart = CGRect(x: panel.frame.minX+presentation.surfaceOrigin.x,
+                y: panel.frame.maxY-presentation.surfaceOrigin.y-presentation.size.height,
+                width: presentation.size.width, height: presentation.size.height)
+            let budget = PanelLayout.surfaceBudget(screen: screen.frame, edge: .top, docked: true)
+            model.availableSurfaceSize = budget
+            let size = model.surfaceSize
+            fusionCardTarget = CGRect(x: cutout.midX-size.width/2, y: cutout.maxY-size.height,
+                                      width: size.width, height: size.height)
+            fusionCanvas = fusionCardStart!.union(fusionCardTarget!).union(indicatorFrame).union(cutout)
         } else {
-            // Preserve the full canvas while scaling its whole backing layer. Resizing
-            // the window itself would crop the card and leave the pill behind.
-            let start = window.frame
-            let curve = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
-            if let layer = window.contentView?.layer {
-                let transform = CATransform3DMakeAffineTransform(NotchDocking.swallowTransform(
-                    canvas: start.size, target: cutout.size, flipped: layer.isGeometryFlipped, anchor: layer.anchorPoint))
-                let animation = CABasicAnimation(keyPath: "transform")
-                animation.fromValue = layer.presentation()?.transform ?? layer.transform
-                animation.toValue = transform
-                animation.duration = 0.24
-                animation.timingFunction = curve
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                layer.transform = transform
-                layer.add(animation, forKey: "ferb.swallow")
-                CATransaction.commit()
-            }
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.24
-                context.timingFunction = curve
-                window.animator().setFrame(CGRect(x: cutout.minX, y: cutout.maxY - start.height,
-                                                  width: start.width, height: start.height), display: true)
-                window.animator().alphaValue = 0
-            } completionHandler: { Task { @MainActor in finish() } }
+            fusionCardStart = nil
+            fusionCardTarget = nil
         }
+        magneticDocking.release(to: model.expanded ? NotchDocking.dragRegion(cutout: cutout) : cutout,
+                                at: CACurrentMediaTime())
+        // The velocity contribution t*(1-t/T)^3 peaks at T*27/256.
+        // Reserve its complete excursion once; keep WindowServer and children
+        // on a stable canvas throughout even a very fast release.
+        let excursion = CGFloat(MagneticDocking.fusionDuration) * 27 / 256
+        fusionCanvas = fusionCanvas.insetBy(dx: -abs(magneticDocking.current.velocity.x) * excursion,
+                                           dy: -abs(magneticDocking.current.velocity.y) * excursion).integral
+        magneticSample = magneticDocking.sample(at: CACurrentMediaTime(),
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        renderMagneticFusion()
+        if magneticSample.completed { finishMagneticFusion() }
+        else { startMagneticClock(on: screen) }
+    }
+
+    private func renderMagneticFusion() {
+        indicatorFrame = magneticSample.pill
+        if let start = fusionCardStart, let target = fusionCardTarget, let control = indicatorControl {
+            let card = magneticSample.fusionRect(from: start, to: target)
+            presentation.backdrop.performUpdates {
+                DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
+                    pill: indicatorFrame, card: card, canvas: fusionCanvas, bodyVisible: !model.isHeaderOnly)
+                attachIndicator()
+            }
+        } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
+    }
+
+    private func finishMagneticFusion() {
+        guard dockingRevision != nil else { return }
+        dockingRevision = nil
+        magneticClock?.invalidate()
+        magneticClock = nil
+        isDocked = true
+        NotchDocking.save(true, in: .standard)
+        if let screen = indicatorScreen { persistIndicatorAnchor(for: screen) }
+        fusionCardStart = nil
+        fusionCardTarget = nil
+        // updateScreen calls present without animation. No transparent reset frame,
+        // secondary entrance spring, layer transform, or independent window fade.
+        updateScreen()
+        updatePointer()
     }
 
     private func distance(_ point: CGPoint, to rect: CGRect) -> CGFloat {

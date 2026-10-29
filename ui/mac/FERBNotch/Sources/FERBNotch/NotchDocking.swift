@@ -20,13 +20,6 @@ enum NotchDocking {
             && point.y >= region.minY && point.y <= region.maxY
     }
 
-    /// Applied around the actual AppKit layer anchor; top-left remains fixed.
-    static func swallowTransform(canvas: CGSize, target: CGSize, flipped: Bool, anchor: CGPoint) -> CGAffineTransform {
-        CGAffineTransform(a: target.width / canvas.width, b: 0, c: 0, d: target.height / canvas.height,
-                          tx: -anchor.x * (canvas.width - target.width),
-                          ty: (flipped ? -anchor.y : 1 - anchor.y) * (canvas.height - target.height))
-    }
-
     /// Original notch UI starts at the physical screen edge and expands around the camera.
     static func panelFrame(cutout: CGRect, size: CGSize) -> CGRect {
         CGRect(x: cutout.midX - size.width / 2, y: cutout.maxY - size.height,
