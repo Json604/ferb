@@ -18,30 +18,44 @@ enum SettingsTab: Hashable, CaseIterable, Identifiable {
         case .advanced: return "Advanced"
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .ai: return "sparkles"
+        case .permissions: return "lock.shield"
+        case .browsers: return "globe"
+        case .notifications: return "bell"
+        case .privacy: return "hand.raised"
+        case .advanced: return "slider.horizontal.3"
+        }
+    }
 }
 
 struct SettingsView: View {
     @ObservedObject var store: FERBWindowStore
     @ObservedObject var selection: FERBWindowSelection
     let actions: FERBAppActions
+    // Keep commands and drafts alive when their category leaves the detail column.
+    @StateObject private var aiOutput = FerbOutput()
+    @StateObject private var advancedOutput = FerbOutput()
+    @StateObject private var privacyDraft = PrivacySettingsDraft()
 
     var body: some View {
-        TabView(selection: $selection.settingsTab) {
-            GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems, updates: actions.updates)
-                .tabItem { Text(SettingsTab.general.title) }.tag(SettingsTab.general)
-            AISettingsPage(store: store, actions: actions)
-                .tabItem { Text(SettingsTab.ai.title) }.tag(SettingsTab.ai)
-            PermissionsSettingsPage(actions: actions)
-                .tabItem { Text(SettingsTab.permissions.title) }.tag(SettingsTab.permissions)
-            BrowsersSettingsPage(actions: actions)
-                .tabItem { Text(SettingsTab.browsers.title) }.tag(SettingsTab.browsers)
-            NotificationsSettingsPage(store: store)
-                .tabItem { Text(SettingsTab.notifications.title) }.tag(SettingsTab.notifications)
-            PrivacySettingsPage(store: store)
-                .tabItem { Text(SettingsTab.privacy.title) }.tag(SettingsTab.privacy)
-            AdvancedSettingsPage(store: store, actions: actions)
-                .tabItem { Text(SettingsTab.advanced.title) }.tag(SettingsTab.advanced)
+        Group {
+            switch selection.settingsTab {
+            case .general:
+                GeneralSettingsPage(feedback: actions.feedback, cursor: actions.cursor, loginItems: actions.loginItems,
+                                    updates: actions.updates, onHoverEnabledChange: actions.setHoverEnabled)
+            case .ai: AISettingsPage(store: store, actions: actions, output: aiOutput)
+            case .permissions: PermissionsSettingsPage(actions: actions)
+            case .browsers: BrowsersSettingsPage(actions: actions)
+            case .notifications: NotificationsSettingsPage(store: store)
+            case .privacy: PrivacySettingsPage(store: store, draft: privacyDraft)
+            case .advanced: AdvancedSettingsPage(store: store, actions: actions, output: advancedOutput)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -53,6 +67,8 @@ struct GeneralSettingsPage: View {
     var loginItems: LoginItemController? = nil
     var updates: UpdateCoordinator? = nil
     @AppStorage("cursor.enabled") private var cursorEnabled = true
+    @AppStorage("notch.hoverEnabled") private var hoverEnabled = true
+    var onHoverEnabledChange: ((Bool) -> Void)?
 
     var body: some View {
         Form {
@@ -66,6 +82,10 @@ struct GeneralSettingsPage: View {
                 LabeledContent("Open / close FERB", value: "Double-tap right Option, or Control–Option–Space")
                 LabeledContent("Dictation", value: "Hold right Command + Option")
                 LabeledContent("Submit / new line", value: "Return / Shift–Return")
+                Toggle("Open when I hover over FERB", isOn: $hoverEnabled)
+                    .onChange(of: hoverEnabled) { _, enabled in onHoverEnabledChange?(enabled) }
+                Text("You can change this any time here, or ask FERB to turn hover opening on or off.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("FERB's pointer") {
                 Toggle("Show FERB's pointer when it acts on screen", isOn: $cursorEnabled)
@@ -132,7 +152,13 @@ private struct OnlyInTheApp: View {
 struct AISettingsPage: View {
     @ObservedObject var store: FERBWindowStore
     let actions: FERBAppActions
-    @StateObject private var output = FerbOutput()
+    @ObservedObject var output: FerbOutput
+
+    init(store: FERBWindowStore, actions: FERBAppActions, output: FerbOutput? = nil) {
+        self.store = store
+        self.actions = actions
+        self.output = output ?? FerbOutput()
+    }
 
     var body: some View {
         if let setup = actions.setup {
@@ -209,10 +235,20 @@ struct NotificationsSettingsPage: View {
 }
 
 /// Settings → Privacy: what FERB records, the apps and sites it ignores, how long it keeps records, Pause recording.
+@MainActor
+final class PrivacySettingsDraft: ObservableObject {
+    @Published var newApp = ""
+    @Published var newSite = ""
+}
+
 struct PrivacySettingsPage: View {
     @ObservedObject var store: FERBWindowStore
-    @State private var newApp = ""
-    @State private var newSite = ""
+    @ObservedObject var draft: PrivacySettingsDraft
+
+    init(store: FERBWindowStore, draft: PrivacySettingsDraft? = nil) {
+        self.store = store
+        self.draft = draft ?? PrivacySettingsDraft()
+    }
 
     var body: some View {
         Form {
@@ -225,12 +261,12 @@ struct PrivacySettingsPage: View {
             Section("Apps FERB ignores") {
                 StringListEditor(items: store.settings.strings("privacy.exclude_apps"),
                                  placeholder: "Bundle id or app name, e.g. com.1password.1password",
-                                 newItem: $newApp) { list in Task { await store.set("privacy.exclude_apps", .strings(list)) } }
+                                 newItem: $draft.newApp) { list in Task { await store.set("privacy.exclude_apps", .strings(list)) } }
             }
             Section("Sites FERB ignores") {
                 StringListEditor(items: store.settings.strings("privacy.exclude_domains"),
                                  placeholder: "Site, e.g. bank.example.com",
-                                 newItem: $newSite) { list in Task { await store.set("privacy.exclude_domains", .strings(list)) } }
+                                 newItem: $draft.newSite) { list in Task { await store.set("privacy.exclude_domains", .strings(list)) } }
             }
             Section("How long FERB keeps records") {
                 DaysStepper(title: "Activity trail", key: "sense.trail_retention_days", store: store)
@@ -290,11 +326,17 @@ struct DaysStepper: View {
 struct AdvancedSettingsPage: View {
     @ObservedObject var store: FERBWindowStore
     let actions: FERBAppActions
-    @StateObject private var output = FerbOutput()
+    @ObservedObject var output: FerbOutput
     @State private var confirmUninstall = false
 
     private var logs: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ferb/logs", isDirectory: true)
+    }
+
+    init(store: FERBWindowStore, actions: FERBAppActions, output: FerbOutput? = nil) {
+        self.store = store
+        self.actions = actions
+        self.output = output ?? FerbOutput()
     }
 
     var body: some View {

@@ -36,6 +36,23 @@ final class ContinuousChatTests: XCTestCase {
         model.disconnectDaemon()
     }
 
+    func testFirstStreamedAnswerReopensFERBAndShowsAttentionWithoutTakingFocus() {
+        let model = NotchModel(rpc: ChatRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        model.session.draft = "First task"
+        model.startWork()
+        let turnID = model.conversation.turns[0].id
+        model.collapse()
+        let focusRequest = model.focusRequest
+
+        model.receiveChatEvent(["type": "reply_delta", "text": "First words"], localID: turnID)
+
+        XCTAssertTrue(model.expanded)
+        XCTAssertTrue(model.showsTraceGlow)
+        XCTAssertEqual(model.focusRequest, focusRequest)
+        XCTAssertEqual(model.conversation.turns[0].answer, "First words")
+        model.disconnectDaemon()
+    }
+
     private func describe(_ entry: TranscriptEntry) -> String {
         switch entry {
         case let .turn(turn, answeredBelow): return turn.request + (answeredBelow ? " (answered below)" : "")
@@ -44,12 +61,13 @@ final class ContinuousChatTests: XCTestCase {
         }
     }
 
-    func testTranscriptHasReadableMinimumAndCapsLongConversations() {
+    func testTranscriptStartsRoomyAndUsesTheSavedResizableHeight() {
         let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
-        model.measuredTranscriptHeight = 40
-        XCTAssertEqual(model.chatTranscriptHeight, 240)
-        model.measuredTranscriptHeight = 800
-        XCTAssertEqual(model.chatTranscriptHeight, 320)
+        XCTAssertEqual(model.bodyWidth, 440)
+        XCTAssertEqual(model.chatTranscriptHeight, 300)
+        model.resizePanel(width: 520, transcriptHeight: 380, persist: true)
+        XCTAssertEqual(model.bodyWidth, 520)
+        XCTAssertEqual(model.chatTranscriptHeight, 380)
     }
 
     func testReturnIsConsumedOnceAndShiftReturnInsertsNewline() {

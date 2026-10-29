@@ -33,7 +33,7 @@ struct ApprovalView: View {
                     if approval.plainText {
                         Text(verbatim: details).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     } else {
-                        MarkdownContent(details).equatable().font(.system(size: 11))
+                        MarkdownContent(details, size: 11).equatable().font(.system(size: 11))
                     }
                 }.font(.system(size: 11))
             }

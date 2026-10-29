@@ -40,7 +40,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "reminders.unseen", "chat.status", "results.ack", "chat.attach", "task.stop", "schedules.list", "schedules.change",
                          "voice.reload", "voice.switch", "verdict.set", "recovery.list", "recovery.restore",
                          "conversations.list", "conversations.change", "notifications.rules", "notifications.label", "attention.ack",
-                         "reports.build", "ui.click_through",
+                         "reports.build", "ui.click_through", "tasks.preview",
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "setup.permissions", "setup.permission_request", "setup.finish",}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),

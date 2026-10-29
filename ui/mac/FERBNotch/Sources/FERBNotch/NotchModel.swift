@@ -37,7 +37,30 @@ struct QuestionFocus: Equatable {
 final class NotchModel: ObservableObject {
     // The task list's inputs (TaskList.swift): each change drops the list built from them, so it is built again once.
     @Published var session = NotchSession() { didSet { taskListSessionChanged(from: oldValue) } }
+    @Published private(set) var textRenderGeneration = 0
+    private var textPresentationExpanded = false
+    private var textRevealPending = false
+
+    /// Repeated presentation requests can replace an opening animation. Keep the
+    /// pending glyph refresh until the winning completion; already-open updates do none.
+    func noteTextPresentation(expanded: Bool) {
+        if expanded && !textPresentationExpanded { textRevealPending = true }
+        if !expanded { textRevealPending = false }
+        textPresentationExpanded = expanded
+    }
+
+    func completeTextReveal() {
+        guard textPresentationExpanded, textRevealPending else { return }
+        textRevealPending = false
+        textRenderGeneration += 1
+    }
+
     @Published var measuredTranscriptHeight: CGFloat = 0
+    @Published var preferredPanelWidth: CGFloat = 440
+    @Published var preferredTranscriptHeight: CGFloat = 300
+    @Published var localSettingReply: String?
+    @Published var indicatorEdge = "right"
+    @Published var isNotchDocked = false
     var workSessions: [UUID: NotchSession] = [:] { didSet { taskListCache.invalidate() } }
     var taskListCache = TaskListCache()
     var submissions: [UUID: Task<Void, Never>] = [:]
@@ -46,7 +69,7 @@ final class NotchModel: ObservableObject {
     @Published var followsToday = true
     @Published var selectedDay = Calendar.current.startOfDay(for: Date())
     @Published var handleWidth: CGFloat = 180
-    @Published var cutoutHeight: CGFloat = 32
+    @Published var cutoutHeight: CGFloat = 40
     @Published var hasHardwareNotch = true
     @Published var isDropTarget = false
     @Published var showingSources = false
@@ -69,6 +92,7 @@ final class NotchModel: ObservableObject {
     @Published private(set) var attentionStartedAt: Date?
     var announcedAttentionIDs = Set<String>()
     var refreshingStatus = false
+    @Published var acknowledgedIndicatorSignal: String?
     var taskStateRevision = 0
     var reconciledMissingTasks = Set<String>()
     @Published private(set) var isPinned = false
@@ -113,6 +137,24 @@ final class NotchModel: ObservableObject {
             if since != runningSince { runningSince = since }
         }
     }
+    private var taskPreviews: [String: TaskPreview] = [:]
+    func preview(for item: TaskItem) -> TaskPreview {
+        let id = item.backendID ?? item.id
+        if let existing = taskPreviews[id] { return existing }
+        let created = TaskPreview(rpc: rpc, taskID: id)
+        taskPreviews[id] = created
+        return created
+    }
+    func discardFinishedPreviews() {
+        let active = Set(taskItems.filter(\.isRunning).map { $0.backendID ?? $0.id })
+        for id in Array(taskPreviews.keys) where !active.contains(id) {
+            taskPreviews.removeValue(forKey: id)?.stop()
+        }
+    }
+
+    @Published var taskActivities: [String: [TaskActivity]] = [:] {
+        didSet { taskListCache.invalidate() }
+    }
     @Published var runningSince: [String: Date] = [:]
     /// Running loops (L31), keyed by root task id: standing work, shown with its counts until the loop or its task ends.
     @Published var standingWork: [String: StandingWork] = [:] {
@@ -137,6 +179,8 @@ final class NotchModel: ObservableObject {
         self.rpc = rpc
         self.clickThrough = ClickThroughReport(rpc: rpc)
         self.preferences = preferences
+        preferredPanelWidth = max(360, CGFloat((preferences.object(forKey: "notch.panelWidth") as? NSNumber)?.doubleValue ?? 440))
+        preferredTranscriptHeight = max(260, CGFloat((preferences.object(forKey: "notch.transcriptHeight") as? NSNumber)?.doubleValue ?? 300))
         if let data = preferences.data(forKey: "FERBConversationArchive") {
             if let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
                 conversation = saved
@@ -155,10 +199,23 @@ final class NotchModel: ObservableObject {
         }
         conversationID = preferences.string(forKey: "FERBConversationID")
         announcedAttentionIDs = Set(preferences.stringArray(forKey: "FERBAnnouncedAttentionIDs") ?? [])
+        acknowledgement.changed = { [weak self] text in
+            guard let self else { return }
+            let wasVisible = self.surfaceVisible
+            let previousSize = self.surfaceSize
+            self.compactPlanText = text
+            if let text { self.compactPlanDisplayText = text }
+            if self.expanded { self.compactPlanDisplayText = nil }
+            // Text within the same measured lines does not restart the native reveal spring.
+            if !self.expanded && (wasVisible != self.surfaceVisible || previousSize != self.surfaceSize) {
+                self.onBackgroundChange?(true)
+            }
+        }
     }
 
     var onPresentationChange: ((Bool) -> Void)?
     var onBackgroundChange: ((Bool) -> Void)?
+    let acknowledgement = AcknowledgementNotice()
     var onAttentionArrival: (() -> Void)?
     var onOpenDocument: ((URL) -> Void)?
     var onQuickLook: ((URL) -> Void)?
@@ -167,6 +224,7 @@ final class NotchModel: ObservableObject {
     var onInteractionEnded: (() -> Void)?
     var onInteraction: (() -> Void)?
     var onPinChange: ((Bool) -> Void)?
+    var onDetachTaskActivity: ((String) -> Void)?
     private var completionTask: Task<Void, Never>?
     private var attentionTask: Task<Void, Never>?
     private var pendingPinnedFold = false
@@ -181,10 +239,29 @@ final class NotchModel: ObservableObject {
     var onYieldChange: ((Bool) -> Void)?
     private var heldVoiceSnapshot: (session: NotchSession, sources: Bool, history: Bool, activity: Bool, headerOnly: Bool)?
 
+    @Published private(set) var compactPlanText: String?
+    /// Retain the compact content while the same native surface closes; never expose transcript mid-collapse.
+    @Published private(set) var compactPlanDisplayText: String?
+    func finishCompactPreviewDismissal() {
+        if compactPlanText == nil { compactPlanDisplayText = nil }
+    }
+    var surfaceVisible: Bool { expanded || compactPlanText != nil }
+    var compactPlanHeight: CGFloat {
+        guard let compactPlanText else { return 0 }
+        let text = (compactPlanText as NSString).boundingRect(
+            with: CGSize(width: max(1, bodyWidth - 50), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: NSFont.systemFont(ofSize: 13)])
+        let cameraSpace = isNotchDocked ? cutoutHeight : 0
+        return min(availableSurfaceSize.height, ceil(text.height) + 34 + cameraSpace)
+    }
     var expanded: Bool { session.isExpanded }
     var bodyVisible: Bool { expanded && !isHeaderOnly }
     var isYielded: Bool { yielding.isActive }
-    var bodyWidth: CGFloat { max(360, handleWidth + 164) }
+    @Published var availableSurfaceSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    var bodyWidth: CGFloat { min(availableSurfaceSize.width, max(360, preferredPanelWidth)) }
+    var hoverEnabled: Bool { preferences.object(forKey: "notch.hoverEnabled") as? Bool ?? true }
+    var indicatorHeaderAtBottom: Bool { indicatorEdge == "bottom" }
     var showsCompletionGlow: Bool { completionTraceVisible }
     var showsTraceGlow: Bool { attentionTraceVisible || showsCompletionGlow }
     /// Whether the camera-edge light may show. It never takes a click, so while FERB yields it still shows for a
@@ -204,17 +281,69 @@ final class NotchModel: ObservableObject {
         return height
     }
     private var composerMeasure: (draft: String, width: CGFloat, height: CGFloat)?
-    var chatTranscriptHeight: CGFloat { min(320, max(240, measuredTranscriptHeight)) }
+    /// One horizontal card strip, independent of the number of attachments.
+    var attachmentStripHeight: CGFloat { session.attachments.isEmpty ? 0 : 100 }
+    var conversationChromeHeight: CGFloat {
+        composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0)
+            + (promptError == nil ? 0 : 48) + attachmentStripHeight
+    }
+    var chatTranscriptHeight: CGFloat {
+        min(max(260, preferredTranscriptHeight), max(0, availableSurfaceSize.height - cutoutHeight - conversationChromeHeight))
+    }
 
-    var bodyHeight: CGFloat {
+    func resizePanel(width: CGFloat, transcriptHeight: CGFloat, persist: Bool = false) {
+        preferredPanelWidth = max(360, width)
+        preferredTranscriptHeight = max(260, transcriptHeight)
+        if persist {
+            preferences.set(Double(preferredPanelWidth), forKey: "notch.panelWidth")
+            preferences.set(Double(preferredTranscriptHeight), forKey: "notch.transcriptHeight")
+        }
+        onBackgroundChange?(false)
+    }
+
+    func setHoverEnabled(_ enabled: Bool) {
+        preferences.set(enabled, forKey: "notch.hoverEnabled")
+    }
+
+    func noteTaskActivity(taskID: String, title: String, symbol: String = "ellipsis") {
+        guard !taskID.isEmpty else { return }
+        var activity = taskActivities[taskID] ?? []
+        guard activity.last?.title != title else { return }
+        activity.append(TaskActivity(title: title, symbol: symbol))
+        taskActivities[taskID] = activity
+    }
+
+    /// The notch can handle this one explicit local preference command without sending it to the daemon.
+    /// Pasted text is never interpreted as a command.
+    func handleLocalNotchCommand(_ text: String) -> Bool {
+        guard pasteProvenance.pastes.isEmpty, !pasteProvenance.isUnclear else { return false }
+        let normalized = text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
+        let prefixes = ["", "ferb ", "please ", "can you ", "could you ", "ferb can you ",
+                        "ferb could you ", "please ferb "]
+        let enabledCommands = ["turn hover back on", "turn hover on", "turn hover to open on", "enable hover opening", "enable hover to open"]
+        let disabledCommands = ["turn hover off", "turn hover to open off", "disable hover opening", "disable hover to open"]
+        let enabled = prefixes.contains { prefix in enabledCommands.contains { normalized == prefix + $0 } }
+        let disabled = prefixes.contains { prefix in disabledCommands.contains { normalized == prefix + $0 } }
+        guard enabled || disabled else { return false }
+        setHoverEnabled(enabled)
+        localSettingReply = enabled ? "Hover opening is on." : "Hover opening is off."
+        session.draft = ""
+        pasteProvenance = PasteProvenance()
+        onInteraction?()
+        onBackgroundChange?(true)
+        return true
+    }
+
+    var bodyHeight: CGFloat { min(requestedBodyHeight, max(0, availableSurfaceSize.height - cutoutHeight)) }
+    private var requestedBodyHeight: CGFloat {
         if showingTasks { return 320 }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
-            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (showsWorkRow ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
+            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? min(31, chatTranscriptHeight) : chatTranscriptHeight) + conversationChromeHeight
         }
         if showingActivity { return 204 }
         switch session.phase {
-        case .ready, .draft: return composerHeight + 26 + 31 + (session.attachments.isEmpty ? 0 : 30)
+        case .ready, .draft: return composerHeight + 26 + 31 + attachmentStripHeight
         case .listening: return 124
         case .working: return 118
         case .result: return 220
@@ -223,9 +352,11 @@ final class NotchModel: ObservableObject {
     }
     /// The drawn surface: header, plus the body when it shows. The panel adds a transparent margin around it.
     var surfaceSize: CGSize {
-        CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
+        if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth, height: compactPlanHeight) }
+        return CGSize(width: expanded ? bodyWidth : handleWidth, height: cutoutHeight + (bodyVisible ? bodyHeight : 0))
     }
     var panelSize: CGSize {
+        if compactPlanText != nil && !expanded { return CGSize(width: bodyWidth + 16, height: compactPlanHeight + 12) }
         if expanded { return CGSize(width: bodyWidth + 16, height: cutoutHeight + (bodyVisible ? bodyHeight : 0) + 12) }
         // The independent, mouse-transparent tracer owns its own glow margin.
         return CGSize(width: handleWidth, height: cutoutHeight)
@@ -235,10 +366,13 @@ final class NotchModel: ObservableObject {
         cancelPinnedFold()
         isHeaderOnly = false
         session.expand()
+        acknowledgement.dismiss()
         onPresentationChange?(!keyboard)
     }
 
     func collapse(keyboard: Bool = false) {
+        acknowledgement.dismiss()
+        dismissPreviewPopovers()
         cancelPinnedFold()
         isPinned = false
         isHeaderOnly = false
@@ -249,6 +383,7 @@ final class NotchModel: ObservableObject {
             voiceIsHeld = false
             session.finishVoicePreview()
         }
+        acknowledgedIndicatorSignal = indicatorSignal
         session.collapse()
         showingSources = false
         showingHistory = false
@@ -258,6 +393,20 @@ final class NotchModel: ObservableObject {
         endYield(.activeAppUnderPinnedChat)
     }
 
+    var onPreviewWindowChange: ((UUID, NSWindow, Bool) -> Void)?
+    private var previewPopoverIDs: Set<UUID> = []
+    var previewPopoverCount: Int { previewPopoverIDs.count }
+    @Published private(set) var previewDismissalRevision = 0
+
+    func setPreviewPopover(_ id: UUID, presented: Bool) {
+        if presented { previewPopoverIDs.insert(id) }
+        else if previewPopoverIDs.remove(id) != nil { onInteractionEnded?() }
+    }
+
+    func dismissPreviewPopovers() { previewDismissalRevision &+= 1 }
+
+    // A preview is a hover surface, not a modal interaction. The coordinator checks
+    // its actual window bounds; merely being presented must never pin chat open.
     var blocksAutomaticDismissal: Bool { isPinned || profileMenuOpen || filePickerOpen || session.phase == .listening }
 
     func dismissAutomatically() {
@@ -428,6 +577,8 @@ final class NotchModel: ObservableObject {
     func startWork() {
         guard canCompose else { return }
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if handleLocalNotchCommand(session.draft) { return }
+        localSettingReply = nil
         let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
         let draft = session.draft
         let sources = session.attachments
@@ -638,6 +789,7 @@ final class NotchModel: ObservableObject {
         showingHistory = false
         showingActivity = false
         session.expand()
+        acknowledgement.dismiss()
         attentionStartedAt = Date()
         attentionTraceVisible = true
         attentionTask?.cancel()
@@ -647,6 +799,47 @@ final class NotchModel: ObservableObject {
             self?.onStatusChange?()
         }
         feedback.play(.attention)
+        onAttentionArrival?()
+        onBackgroundChange?(true)
+        onStatusChange?()
+    }
+
+    /// Fresh terminal results reveal the chat independently of the temporary glow, without taking focus.
+    func presentTerminalAnswer() {
+        cancelPinnedFold()
+        isHeaderOnly = false
+        showingTasks = false
+        showingSources = false
+        showingHistory = false
+        showingActivity = false
+        session.expand()
+        acknowledgement.dismiss()
+        attentionStartedAt = Date()
+        followsToday = true
+        selectedDay = Date()
+        onAttentionArrival?()
+        onBackgroundChange?(true)
+        onStatusChange?()
+    }
+
+    /// The first streamed answer chunk is visible attention, but keeps the owner's active app and keyboard focus.
+    func presentIncomingAnswer() {
+        cancelPinnedFold()
+        isHeaderOnly = false
+        showingTasks = false
+        showingSources = false
+        showingHistory = false
+        showingActivity = false
+        session.expand()
+        acknowledgement.dismiss()
+        attentionStartedAt = Date()
+        attentionTraceVisible = true
+        attentionTask?.cancel()
+        attentionTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(CompletionGlow.duration)) } catch { return }
+            self?.attentionTraceVisible = false
+            self?.onStatusChange?()
+        }
         onAttentionArrival?()
         onBackgroundChange?(true)
         onStatusChange?()

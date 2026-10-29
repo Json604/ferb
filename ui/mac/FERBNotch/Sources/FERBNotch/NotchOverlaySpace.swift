@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 
 /// AppKit's all-Spaces windows still participate in the desktop swipe transform.
-/// Put only our two notch windows in an unmanaged WindowServer space instead.
+/// Put our notch windows in an unmanaged WindowServer space instead.
 ///
 /// API sequence adapted from SkyLightWindow (MIT, Lakr Aream):
 /// https://github.com/Lakr233/SkyLightWindow
@@ -104,6 +104,27 @@ final class NotchOverlaySpace {
         guard space != 0, let moveWindows, windows.contains(where: { $0 === window }) else { return }
         let status = moveWindows(connection, space, [NSNumber(value: window.windowNumber)] as CFArray, 7)
         if status != 0 { NSLog("FERB Notch: %@ could not rejoin the fixed overlay space (%d).", window.title, status) }
+    }
+
+    /// Add an independently detached UI panel to FERB's fixed overlay when that space is available.
+    func include(_ window: NSWindow) {
+        guard space != 0, let moveWindows, !windows.contains(where: { $0 === window }) else { return }
+        let status = moveWindows(connection, space, [NSNumber(value: window.windowNumber)] as CFArray, 7)
+        guard status == 0 else {
+            NSLog("FERB Notch: %@ could not join the fixed overlay space (%d).", window.title, status)
+            return
+        }
+        windows.append(window)
+    }
+
+    /// Return a detached panel to AppKit's ordinary all-Spaces behavior before releasing it.
+    func remove(_ window: NSWindow) {
+        guard space != 0, let removeWindows, windows.contains(where: { $0 === window }) else { return }
+        removeWindows(connection, [NSNumber(value: window.windowNumber)] as CFArray, [NSNumber(value: space)] as CFArray)
+        windows.removeAll { $0 === window }
+        let behavior = window.collectionBehavior
+        window.collectionBehavior = []
+        window.collectionBehavior = behavior
     }
 
     /// FERB yields: the panel leaves the space for the ordinary window stack, so another app's window or menu can

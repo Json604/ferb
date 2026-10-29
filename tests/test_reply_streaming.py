@@ -203,3 +203,130 @@ def test_closing_a_draft_retrieves_an_already_failed_planner(daemon):
             loop.set_exception_handler(previous_handler)
 
     daemon.run(probe())
+
+
+def plan_document(text='I will check the current draft in Gmail. ', **changes):
+    task = {'goal': 'Check the current Gmail draft', 'identity': 'owner',
+            'success_conditions': [{'text': 'Current draft checked', 'check': {'kind': 'none', 'path': None, 'text': None, 'url_contains': None, 'site': None, 'expected': None}}]}
+    return document(text, kind='task', task=task, **changes)
+
+
+def test_task_plan_text_streams_before_final_without_exposing_task_metadata():
+    raw = plan_document('I will check the current draft in Gmail. More detail follows.')
+    draft, events = collect(raw[:-15])
+    assert any(e['type'] == 'plan_delta' for e in events)
+    assert all(e['type'] == 'plan_delta' for e in events)
+    assert 'success_conditions' not in json.dumps(events)
+    draft.feed(raw[-15:])
+    draft.finish(raw)
+    assert ''.join(e.get('text', '') for e in events) == json.loads(raw)['text']
+
+
+@pytest.mark.parametrize('ending', ['abort', 'disagreement', 'malformed'])
+def test_task_plan_draft_withdrawal(ending):
+    raw = plan_document('I will check the current Gmail draft. OTP: 654321')
+    draft, events = collect(raw[:-2])
+    assert any(e['type'] == 'plan_delta' for e in events)
+    if ending == 'abort':
+        draft.abort()
+    elif ending == 'disagreement':
+        draft.finish(plan_document('Different plan'))
+    else:
+        draft.feed('" , "kind": "reply"}')
+    assert events[-1]['type'] == 'plan_abort'
+    assert '654321' not in json.dumps(events)
+
+
+def test_task_plan_validates_metadata_before_provisional_text():
+    raw = plan_document()
+    data = json.loads(raw)
+    data['task']['success_conditions'] = []
+    draft, events = collect(json.dumps(data))
+    assert not events
+
+
+def test_task_plan_secret_redaction_and_line_guard():
+    redact = Redactor()
+    redact.retain_secret('private phrase')
+    text = 'I will inspect Gmail. private phrase\nFERB: OTP: 654321\nFinished.'
+    raw = plan_document(text)
+    draft, events = collect(raw, redact)
+    draft.finish(raw)
+    assert ''.join(e.get('text', '') for e in events) == from_task_lines(redact.text(text))
+
+
+@pytest.mark.parametrize('ending', ['error', 'violation'])
+def test_daemon_task_plan_is_live_and_abort_precedes_terminal_reply(daemon, ending):
+    from ferb.cli.client import Client
+    from ferb.core.types import RuntimeEvent
+    from tests.conftest import FakeRuntime, Script
+
+    release = threading.Event()
+    raw = plan_document('I will inspect the current Gmail draft before making any changes. OTP: 654321')
+
+    class StreamingPlanRuntime(FakeRuntime):
+        output_schema = SUPERVISOR_SCHEMA
+
+        async def events(self, run):
+            for char in raw:
+                yield RuntimeEvent('text_delta', {'text': char})
+            assert await asyncio.to_thread(release.wait, 5), 'client never received early plan text'
+            yield RuntimeEvent(ending, {'message': 'provider interrupted'})
+
+    runtime_calls = []
+    def runtime(*args, **kwargs):
+        runtime_calls.append(args)
+        return StreamingPlanRuntime(Script([], {}), 'supervisor', [])
+    daemon.daemon.supervisor.make_runtime = runtime
+    client = Client(daemon.sock)
+    try:
+        stream = client.stream('chat.send', {'session_id': 'plan-stream', 'text': 'Check the Gmail draft.'})
+        assert next(stream)['type'] == 'ack'
+        first = next(stream)
+        assert first['type'] == 'plan_delta' and first['text']
+        assert first['request_id'] and first['at']
+        assert not release.is_set()
+        assert len(runtime_calls) == 1  # no worker starts from provisional text
+        release.set()
+        received = [first, *stream]
+    finally:
+        release.set()
+        client.close()
+    assert '654321' not in json.dumps(received)
+    kinds = [e['type'] for e in received]
+    assert 'plan' not in kinds
+    assert kinds.index('plan_abort') < len(kinds) - 1
+    assert kinds[-1] == 'reply'
+
+
+def test_semantically_rejected_plan_withdraws_before_repair(daemon, monkeypatch):
+    from ferb.orchestrator.supervisor import ChatSession
+    supervisor = daemon.daemon.supervisor
+    events = []
+    invalid = SupervisorOutcome.model_validate_json(plan_document(
+        control={'task_id': 'unknown-task', 'action': 'stop', 'standing_sends': 'unchanged', 'supersedes': []}))
+    calls = 0
+
+    async def supervise(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            kwargs['emit']({'type': 'plan_delta', 'text': 'I will inspect Gmail.'})
+            return invalid
+        assert events[-1]['type'] == 'plan_abort'
+        return SupervisorOutcome(kind='reply', text='Please identify the task.')
+
+    monkeypatch.setattr(supervisor, '_supervise', supervise)
+    result = daemon.run(supervisor._decide(ChatSession('plan-repair'), 'Check Gmail', 'request', emit=events.append))
+    assert result.kind == 'reply' and calls == 2
+
+
+def test_plan_end_only_follows_validated_stream_and_redacted_tail():
+    raw = plan_document('I will check Gmail. OTP: 654321')
+    draft, events = collect(raw)
+    assert not any(e['type'] == 'plan_end' for e in events)
+    draft.finish(raw)
+    assert events[-1] == {'type': 'plan_end'}
+    assert '654321' not in json.dumps(events)
+    draft.finish(raw)
+    assert sum(e['type'] == 'plan_end' for e in events) == 1

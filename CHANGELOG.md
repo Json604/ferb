@@ -1,5 +1,59 @@
 # FERB version history
 
+- UI branch: source/file hover restores AppKit’s automatic visible-rectangle tracking
+  while constraining each native view’s visible rectangle to its own clipped bounds.
+  Scroll/reveal updates no longer depend on a snapshot of the anchor rectangle; cursor
+  regions also invalidate when the anchor moves. Full native-panel offscreen tests cover
+  clipping and close/reopen; the recorded pointer symptom needs owner live verification.
+
+- UI branch: clipped source/file anchors no longer register empty or nonfinite native cursor
+  and tracking rectangles. This fixes the startup AppKit cursor assertion when restored
+  conversation sources are offscreen; tracking resumes when those anchors become visible.
+
+- UI branch: source/file hover tracking and hand cursors are bounded to the actual visible
+  anchor. SwiftUI scroll hosting can report the whole transcript as a small pill’s
+  visible rectangle; that no longer lets its tracking area claim neighboring content.
+  Latest-reply sources beside the composer, follow-up messages, resize and scroll
+  clipping are covered offscreen; owner pointer verification remains pending.
+
+- UI branch: message text now uses an owned native selectable glyph renderer for plans,
+  owner messages, notices and Markdown. Reveal refreshes glyph display while preserving
+  text storage and selection; movement does not redraw text. Inline styles, safe links,
+  compact bubble widths and wrapped list baselines remain supported. Offline native
+  lifecycle/layout tests pass; the recurring missing-pixel symptom still needs owner verification.
+
+- UI branch: substantive pre-worker text now streams inside the connected FERB notch/pill surface,
+  showing only the small response rather than the full chat or a detached caption. It closes three seconds
+  after streaming finishes; opening chat cancels that timer. Provisional text uses the existing secret redactor
+  and metadata validation, with malformed/interrupted plans withdrawn. Canned acknowledgements remain
+  archived but hidden and silent.
+  File/source hover uses a native pointing hand and accent highlight. Sources stay open while crossing
+  into and scrolling their popover; leaving both regions dismisses after a short grace. Native window
+  occlusion prevents underlying file hover from taking over. Keyboard disclosure remains readable.
+
+- UI branch: visited sites use a compact first-host +N pill with a separated full-list popover. Files use
+  native Quick Look on click and inactive-window hover tracking. Composer attachments are removable cards
+  inside the input, with horizontal scrolling and shared hover previews. Fresh completion/failure events open chat without taking keyboard focus;
+  repeated or historical results stay quiet.
+
+- UI branch: the regular FERB window now has a single native sidebar with Settings categories, a unified toolbar
+  and page title, readable sidebar labels, and grouped forms without the nested tab frame. Tasks actions move to
+  the toolbar; settings deep links, command progress and draft text remain available across category changes.
+
+- UI branch: floating chat batches the card/pill blur mask into one update per
+  drag frame, skips identical rendering state, and lets AppKit schedule tint paint
+  and SwiftUI layout instead of forcing them repeatedly during mouse movement.
+  The approved four-state spring and cursor attachment are unchanged.
+
+- UI branch: resize cursors now track non-key border hover before the first click
+  and refresh as the opening surface changes size. During dragging, the native
+  canvas stays stationary while chat changes sides around the cursor-locked pill;
+  the temporary canvas contracts immediately on release.
+
+- UI branch: open chat chooses and fits the available side while the grabbed pill
+  tracks the pointer. The provisional magnetic proximity animation and sound were
+  removed at the owner's request; physical-notch release docking remains.
+
 Versions use three numbers, `MAJOR.MINOR.PATCH`:
 
 - **MAJOR** stays `0` until FERB leaves Block 1 (the personal, single-Mac version).
@@ -9,6 +63,57 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 `0.0.x` is the pre-release foundation, ending at the §21 safety suite. `PROGRESS.md` called that milestone "v0.1".
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
+
+## UI branch — motion, messages and preview hover — 2026-10-29
+
+Dragging samples the global cursor and moves the attached chat from its original
+frame, avoiding queued window-coordinate feedback and cumulative drift. Expanded
+layout now budgets the transcript and surface against the selected display's physical
+bounds, including attachment and transparent margins. Saved larger preferences return
+on larger displays; resize begins from the currently visible size. Corner resizing
+uses Apple's public frame-resize cursors on macOS 15+, with native axis cursors on
+macOS 14. Notch detection requires valid reported auxiliary-area geometry.
+
+Opening and closing keep the chat contents stationary while the surface folds,
+matching the original notch behavior; reversing a fold continues from its current
+geometry. The entire camera footprint plus its lower lip tears out the pill, taking
+priority over resize hits and cursors. Short response bubbles fit their text, while
+long prose wraps and rich fields remain constrained by the chosen panel width.
+
+Video popovers participate in actual pointer hover regions instead of permanently
+blocking notch dismissal. Leaving both surfaces closes them after a short crossing
+grace; detaching and finishing tasks clear the source popover. Reopening also requests
+a redraw of retained selectable text after the transition finishes, preserving text
+storage and selection. The intermittent blank-text symptom awaits owner confirmation.
+
+## UI branch — hardware notch docking — 2026-10-29
+
+Dragging the movable pill onto the physical camera notch docks FERB with a brief
+whole-surface swallow transition. Dragging the strip immediately beneath the camera pulls FERB back into a movable
+pill. Docking restores the original screen-top notch-hover interface and concave
+shoulders, with header controls kept outside the camera area.
+Docking persists across app launches; displays without a hardware notch retain the
+edge pill. Reduced Motion skips the traveling swallow. Appearance verification is
+reserved for the owner; implementation and review use code and tests only.
+
+## UI branch — attached FERB control and task previews — 2026-10-29
+
+The idle indicator is a thinner bar using the system window color, with a flat
+screen-facing edge and rounded inward corners; its length is half the display notch.
+The pill joins the conversation with filled concave shoulders. While open, the pill
+is a subview of the chat window, so dragging moves one native window. Opening chat
+acknowledges the indicator status to white until another task/status event arrives. Expanded task previews and the overflow
+ring use independent popovers to avoid the transcript's mask.
+
+Owner-approved supporting daemon change: `tasks.preview` supplies fresh masked frames
+from the task's actual browser tab or exact app window. Captures share tool resource
+locks, pass image redaction, and are neither journaled nor persisted. The thumbnail,
+popover and detached player share one demand-driven client per task. Late frames are
+discarded on target changes and completion. The development daemon was restarted from this checkout after its running tasks
+finished, and the new endpoint was checked live. Verified preview targets now persist between actions, including exact element windows
+and the window actually returned by a snapshot. Ambiguous targets still withhold
+frames. The owner saw WhatsApp frames in the previous build, but they were intermittent;
+continuous playback acceptance remains pending.
 
 ## 0.27.0.dev1 Packaged ability discovery — 2026-10-27 — source only; live checks pending
 
@@ -2250,3 +2355,9 @@ Phase 4 of `docs/REWORK_PLAN.md`, as designed in `docs/DESIGN_ONE_WORKER.md`.
 - Added before-plan candidates, read-only full memory retrieval, daily pending identity digest and a local dashboard.
 - Added pinned local embedding preparation and owner-history retrieval evaluation; adoption remains off until
   measured improvement. Added paired with/without-memory report support without manufactured verdicts.
+
+### UI follow-up: four inward chat positions
+
+Dragging now chooses the nearest physical screen edge: chat sits below a top pill, above a bottom pill, right of a left pill, and left of a right pill. Within a state the chat tracks directly; only a state change uses a short interruptible transition. Magnetic feedback stays removed.
+
+The accepted four-state layout now eases into and settles out of each state change with a non-bouncy native spring. Interrupted shifts retain their movement velocity rather than starting another abrupt ease-out; ordinary dragging still follows the cursor immediately.

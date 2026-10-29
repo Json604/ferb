@@ -14,6 +14,7 @@ public struct NotchGeometry {
     public init(screen: CGRect, topInset: CGFloat, leftAreaMaxX: CGFloat?,
                 rightAreaMinX: CGFloat?, menuBarHeight: CGFloat) {
         hasNotch = topInset > 0 && leftAreaMaxX != nil && rightAreaMinX != nil
+            && rightAreaMinX! > leftAreaMaxX!
         if hasNotch, let left = leftAreaMaxX, let right = rightAreaMinX, right > left {
             centerX = (left + right) / 2
             handleWidth = right - left

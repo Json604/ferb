@@ -10,27 +10,31 @@ struct NotchView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            NotchSurfaceShape(expansion: presentation.expansion)
+            NotchSurfaceShape(expansion: presentation.expansion, docked: model.isNotchDocked)
                 .fill(Palette.green.opacity(model.isDropTarget ? 0.1 : 0))
                 .frame(width: presentation.size.width, height: presentation.size.height)
+                .offset(x: presentation.surfaceOffset.x, y: presentation.surfaceOffset.y)
             VStack(spacing: 0) {
-                header
-                content
-                    .id(contentID)
-                    .transition(contentTransition)
-                    .padding(.horizontal, 25)
-                    .padding(.top, 9)
-                    .padding(.bottom, 17)
-                    .frame(height: model.bodyHeight)
-                    .animation(presentation.animates ? .easeOut(duration: 0.16) : nil, value: contentID)
-                    .scaleEffect(reduceMotion ? 1 : 0.975 + 0.025 * presentation.expansion, anchor: .top)
-                    .blur(radius: reduceMotion ? 0 : 2 * (1 - presentation.expansion))
-                    .offset(y: reduceMotion ? 0 : -model.bodyHeight * (1 - presentation.bodyExpansion))
-                    .opacity(presentation.bodyExpansion)
-                    .frame(height: model.bodyHeight, alignment: .top)
-                    .clipped()
-                    .allowsHitTesting(model.bodyVisible)
-                    .accessibilityHidden(!model.bodyVisible)
+                if let text = model.compactPlanDisplayText, !model.expanded {
+                    ScrollView {
+                        Text(text)
+                            .font(.system(size: 13))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 25)
+                            .padding(.vertical, 17)
+                    }
+                    .padding(.top, model.isNotchDocked ? model.cutoutHeight : 0)
+                    .frame(height: presentation.size.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.expand() }
+                    .accessibilityLabel("FERB is planning. Open chat.")
+                } else if model.indicatorHeaderAtBottom {
+                    bodyContent
+                    header
+                } else {
+                    header
+                    bodyContent
+                }
             }
             // Keep the full body mounted without letting its minimum height
             // recenter the header when AppKit trims the canvas after a fold.
@@ -38,22 +42,25 @@ struct NotchView: View {
             .frame(width: model.bodyWidth, height: presentation.size.height, alignment: .top)
             .opacity(presentation.expansion)
             .mask(alignment: .top) {
-                NotchSurfaceShape(expansion: presentation.expansion)
+                NotchSurfaceShape(expansion: presentation.expansion, docked: model.isNotchDocked)
                     .frame(width: presentation.size.width, height: presentation.size.height)
             }
-            .allowsHitTesting(model.expanded)
-            .accessibilityHidden(!model.expanded)
-            if !model.expanded {
+            .offset(x: presentation.surfaceOffset.x, y: presentation.surfaceOffset.y)
+            .allowsHitTesting(presentation.expansion > 0.001 && model.surfaceVisible)
+            .accessibilityHidden(!model.surfaceVisible)
+            if presentation.expansion < 0.001 {
                 Button { model.toggle() } label: {
                     Color.clear.frame(width: model.handleWidth, height: model.cutoutHeight)
                         .contentShape(Rectangle())
                 }
+                .offset(x: presentation.surfaceOffset.x, y: presentation.surfaceOffset.y)
                 .buttonStyle(.plain)
                 .accessibilityLabel(model.session.phase == .working && !model.isStanding(model.session)
                                     ? "FERB is working. Open activity." : "Open FERB")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .environment(\.selectableTextGeneration, model.textRenderGeneration)
         .foregroundStyle(Palette.ink)
         .preferredColorScheme(.dark)
         .ignoresSafeArea()
@@ -82,6 +89,25 @@ struct NotchView: View {
             && model.canCompose && model.questionFocus == nil
     }
 
+    private var bodyContent: some View {
+        content
+            .id(contentID)
+            .transition(contentTransition)
+            .padding(.horizontal, 25)
+            .padding(.top, 9)
+            .padding(.bottom, 17)
+            .frame(height: model.bodyHeight)
+            .animation(presentation.animates ? .easeOut(duration: 0.16) : nil, value: contentID)
+            .scaleEffect(reduceMotion ? 1 : 0.975 + 0.025 * presentation.expansion, anchor: .top)
+            .blur(radius: reduceMotion ? 0 : 2 * (1 - presentation.expansion))
+            .offset(y: reduceMotion ? 0 : -model.bodyHeight * (1 - presentation.bodyExpansion))
+            .opacity(presentation.bodyExpansion)
+            .frame(height: model.bodyHeight, alignment: .top)
+            .clipped()
+            .allowsHitTesting(model.bodyVisible)
+            .accessibilityHidden(!model.bodyVisible)
+    }
+
     private var contentID: String {
         if model.showingTasks { return "tasks" }
         if model.showingSources { return "sources" }
@@ -107,41 +133,26 @@ struct NotchView: View {
     }
 
     private var header: some View {
-        let wing = (model.bodyWidth - model.handleWidth) / 2
-        return HStack(spacing: 0) {
-            HStack {
-                Text("ferb\(Text(".").foregroundColor(Palette.taskColor(model.displayPhase)))")
-                    .font(.system(size: 12, weight: .semibold)).tracking(-0.4)
-                    .accessibilityLabel("FERB")
-                    .accessibilityValue(statusLabel)
-                    .help(statusLabel)
+        HStack(spacing: 0) {
+            Text("ferb\(Text(".").foregroundColor(model.indicatorPhase == .ready ? .white : Palette.taskColor(model.indicatorPhase)))")
+                .font(.system(size: 12, weight: .semibold)).tracking(-0.4)
+                .accessibilityLabel("FERB")
+                .accessibilityValue(statusLabel)
+                .help(statusLabel)
+                .frame(width: model.isNotchDocked ? max(0, (model.bodyWidth - model.handleWidth) / 2 - 18) : nil,
+                       alignment: .leading)
+            Spacer(minLength: 0)
+            if model.isNotchDocked {
+                // Keep the original camera safe area clear; title and account live in its wings.
+                Color.clear.frame(width: model.handleWidth).accessibilityHidden(true)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 25)
-            .frame(width: wing)
-            Color.clear.frame(width: model.handleWidth)
-                .overlay { if !model.hasHardwareNotch { SeamShape().fill(.black) } }
-                .accessibilityHidden(true)
-            HStack(spacing: 5) {
-                Spacer(minLength: 0)
-                Button(action: model.togglePin) {
-                    Image(systemName: model.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 10.8, weight: .regular))
-                        .foregroundStyle(model.isPinned ? Palette.ink : Palette.secondary)
-                        .frame(width: 24, height: 26)
-                        .background(.white.opacity(model.isPinned ? 0.12 : 0), in: RoundedRectangle(cornerRadius: 7))
-                }
-                .buttonStyle(.plain)
-                .help(model.isPinned ? "Unpin FERB" : "Keep FERB open")
-                .accessibilityLabel(model.isPinned ? "Unpin FERB" : "Pin FERB open")
-                .accessibilityValue(model.isPinned ? "Pinned" : "Not pinned")
-                ProfileMenuButton(model: model)
-                    .frame(width: 26, height: 26)
-            }
-            .padding(.trailing, 20)
-            .frame(width: wing)
+            ProfileMenuButton(model: model).frame(width: 26, height: 26)
+                .frame(width: model.isNotchDocked ? max(0, (model.bodyWidth - model.handleWidth) / 2 - 18) : nil,
+                       alignment: .trailing)
         }
-        .frame(height: model.cutoutHeight)
+        .padding(.horizontal, 18)
+        .frame(height: max(38, model.cutoutHeight))
     }
 
     @ViewBuilder private var content: some View {
@@ -198,6 +209,11 @@ struct NotchView: View {
                     }
                 }.frame(height: 28)
             }
+            if let localSettingReply = model.localSettingReply {
+                Label(localSettingReply, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11)).foregroundStyle(Palette.green)
+                    .textSelection(.enabled)
+            }
             if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
                 ConversationTranscript(entries: model.visibleEntries, questions: model.inlineQuestions, model: model)
             } else if !model.viewingToday {
@@ -217,6 +233,7 @@ struct NotchView: View {
                         Text("· \(since, style: .timer)")
                             .font(.system(size: 11).monospacedDigit()).foregroundStyle(Palette.secondary)
                     }
+                    if model.hasRunningWork { TaskActivityBubble(model: model) }
                     Spacer()
                     Button("View tasks", action: model.toggleTasks)
                         .buttonStyle(.plain).font(.system(size: 11))
@@ -236,59 +253,59 @@ struct NotchView: View {
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }
-            HStack(alignment: .bottom, spacing: 3) {
-                Button(action: model.chooseFiles) {
-                    Image(systemName: "paperclip").frame(width: 24, height: 30)
-                }
-                .buttonStyle(.plain).foregroundStyle(Palette.secondary)
-                .help("Attach files").accessibilityLabel("Attach files")
-                ChatInput(model: model)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: model.composerHeight - 6)
-                    .overlay(alignment: .topLeading) {
-                        if model.session.draft.isEmpty {
-                            Text("Message FERB…")
-                                .font(.system(size: 14)).foregroundStyle(Palette.secondary)
-                                .padding(.top, 6).allowsHitTesting(false)
-                        }
+            VStack(spacing: 0) {
+                if !model.session.attachments.isEmpty { attachedContext }
+                HStack(alignment: .bottom, spacing: 3) {
+                    Button(action: model.chooseFiles) {
+                        Image(systemName: "paperclip").frame(width: 24, height: 30)
                     }
-                Button(action: model.startDictation) {
-                    Image(systemName: "mic").font(.system(size: 15)).frame(width: 27, height: 30)
-                }
-                .buttonStyle(.plain)
-                .help("Dictate · hold right ⌘ + ⌥").accessibilityLabel("Start dictation")
-                if !model.session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button(action: model.startWork) {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)).frame(width: 28, height: 30)
+                    .buttonStyle(.plain).foregroundStyle(Palette.secondary)
+                    .help("Attach files").accessibilityLabel("Attach files")
+                    ChatInput(model: model)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: model.composerHeight - 6)
+                        .overlay(alignment: .topLeading) {
+                            if model.session.draft.isEmpty {
+                                Text("Message FERB…")
+                                    .font(.system(size: 14)).foregroundStyle(Palette.secondary)
+                                    .padding(.top, 6).allowsHitTesting(false)
+                            }
+                        }
+                    Button(action: model.startDictation) {
+                        Image(systemName: "mic").font(.system(size: 15)).frame(width: 27, height: 30)
                     }
                     .buttonStyle(.plain)
-                    .help("Submit · Return. New line · Shift–Return").accessibilityLabel("Submit request")
+                    .help("Dictate · hold right ⌘ + ⌥").accessibilityLabel("Start dictation")
+                    if !model.session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button(action: model.startWork) {
+                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)).frame(width: 28, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Submit · Return. New line · Shift–Return").accessibilityLabel("Submit request")
+                    }
                 }
+                .padding(.horizontal, 7)
+                .frame(minHeight: 36)
             }
-            .padding(.horizontal, 7)
-            .frame(minHeight: 36)
-            .background(.white.opacity(composerFocused ? 0.085 : 0.055), in: RoundedRectangle(cornerRadius: 12))
-            if !model.session.attachments.isEmpty { attachedContext }
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.white.opacity(composerFocused ? 0.065 : 0.04))
+                    .allowsHitTesting(false)
+            }
         }
     }
 
     private var attachedContext: some View {
-        HStack(spacing: 6) {
-            Button(action: model.toggleSources) {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.on.doc").font(.system(size: 11))
-                    Text(model.session.attachments.count == 1 ? model.session.attachments[0].lastPathComponent
-                         : "\(model.session.attachments.count) attached files")
-                        .font(.system(size: 11)).lineLimit(1).truncationMode(.middle)
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(model.session.attachments, id: \.self) { url in
+                    ComposerAttachmentCard(url: url, model: model)
                 }
-            }
-            .buttonStyle(.plain).help("Review attached context")
-            Spacer(minLength: 0)
-            Text("Shared with FERB").font(.system(size: 10))
+            }.padding(8)
         }
-        .foregroundStyle(Palette.secondary)
-        .padding(.horizontal, 6)
-        .frame(height: 23)
+        .scrollIndicators(.hidden)
+        .frame(height: model.attachmentStripHeight)
     }
 
     private var listening: some View {

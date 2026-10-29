@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appSetup.onFinished = { [weak self] in self?.coordinator?.showFromMenu() }   // Done: into the notch
         if let coordinator {
             var actions = FERBAppActions(feedback: coordinator.model.feedback, cursor: coordinator.cursor)
+            actions.setHoverEnabled = { [weak model = coordinator.model] enabled in model?.setHoverEnabled(enabled) }
             let loginItems = LoginItemController.installed(available: appSetup.isPackaged)
             self.loginItems = loginItems
             actions.loginItems = loginItems

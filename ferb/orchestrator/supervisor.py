@@ -823,6 +823,8 @@ class Supervisor(WorkerRuns):
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
+        if emit is not None and out.kind == 'task':
+            emit({'type': 'plan_abort', 'reason': 'The provisional plan needs correction.'})
         out = await self._supervise(session, message, request_id, recalled, repair=problems, notify=emit)
         if remaining := await problems_for(out):
             self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair",

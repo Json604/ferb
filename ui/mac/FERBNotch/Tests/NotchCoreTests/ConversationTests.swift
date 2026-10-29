@@ -55,7 +55,7 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.first?.answer, "Hello!")
     }
 
-    @MainActor func testTaskCompletionKeepsPinnedHeaderTuckedWithoutRequestingKeyboardFocus() {
+    @MainActor func testTaskCompletionRevealsTuckedHeaderWithoutRequestingKeyboardFocus() {
         let model = NotchModel(preferences: UserDefaults(suiteName: UUID().uuidString)!)
         model.session.draft = "Find notes"
         let id = model.session.beginWork()!
@@ -67,12 +67,12 @@ final class ConversationTests: XCTestCase {
         var foregroundRequests = 0
         model.onPresentationChange = { _ in foregroundRequests += 1 }
         model.receiveOutcome(["task_id": "task-1", "status": "done", "answer": "Found them"])
-        XCTAssertFalse(model.bodyVisible)
+        XCTAssertTrue(model.bodyVisible)
         XCTAssertTrue(model.isPinned)
         XCTAssertEqual(foregroundRequests, 0)
     }
 
-    @MainActor func testReplyKeepsCollapsedPanelClosedAndPersistsOnlyOnce() {
+    @MainActor func testReplyOpensCollapsedPanelAndPersistsOnlyOnce() {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let model = NotchModel(preferences: defaults)
         model.session.draft = "Hello"
@@ -84,7 +84,7 @@ final class ConversationTests: XCTestCase {
         model.onBackgroundChange = { _ in backgroundChanges += 1 }
         model.receiveChatEvent(["type": "reply", "text": "Hi"], localID: id)
         model.receiveChatEvent(["type": "reply", "text": "Hi"], localID: id)
-        XCTAssertFalse(model.bodyVisible)
+        XCTAssertTrue(model.bodyVisible)
         XCTAssertEqual(model.conversation.turns.count, 1)
         XCTAssertEqual(model.conversation.turns.first?.answer, "Hi")
         XCTAssertEqual(model.session.draft, "")

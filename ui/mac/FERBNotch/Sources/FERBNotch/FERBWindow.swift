@@ -2,10 +2,31 @@ import AppKit
 import SwiftUI
 import NotchCore
 
+/// One sidebar route, derived from the existing menu/deep-link selection.
+enum FERBWindowDestination: Hashable {
+    case section(FERBSection)
+    case settings(SettingsTab)
+}
+
 @MainActor
 final class FERBWindowSelection: ObservableObject {
     @Published var section: FERBSection? = .tasks
     @Published var settingsTab: SettingsTab = .general
+
+    var destination: FERBWindowDestination? {
+        get { section == .settings ? .settings(settingsTab) : .section(section ?? .tasks) }
+        set {
+            guard let newValue else { return }
+            switch newValue {
+            case .section(let next): section = next
+            case .settings(let tab):
+                settingsTab = tab
+                section = .settings
+            }
+        }
+    }
+
+    var title: String { section == .settings ? settingsTab.title : (section ?? .tasks).title }
 }
 
 /// What Settings needs from the rest of the app. Plan C's setup model and its `ferb` runner exist only in the installed
@@ -14,6 +35,7 @@ final class FERBWindowSelection: ObservableObject {
 struct FERBAppActions {
     let feedback: SoundFeedback
     let cursor: CursorController
+    var setHoverEnabled: ((Bool) -> Void)?
     var appVersion: String? = NotchModel.appVersion
     /// Plan C's: Settings → AI, Permissions and Browsers embed its step views on this model.
     var setup: SetupModel?
@@ -56,6 +78,7 @@ final class FERBWindowController: NSObject, NSWindowDelegate {
                                    styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                    backing: .buffered, defer: false)
             created.title = "FERB"
+            created.toolbarStyle = .unified
             created.isReleasedWhenClosed = false
             created.delegate = self
             created.contentView = NSHostingView(rootView: FERBWindowView(store: store, selection: selection,
@@ -76,21 +99,53 @@ struct FERBWindowView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(FERBSection.allCases, selection: $selection.section) { section in
-                Label(section.title, systemImage: section.symbol)
+            List(selection: $selection.destination) {
+                Section("FERB") {
+                    ForEach(FERBSection.allCases.filter { $0 != .settings }) { section in
+                        sidebarLabel(section.title, symbol: section.symbol)
+                            .tag(FERBWindowDestination.section(section))
+                    }
+                }
+                Section("Settings") {
+                    ForEach(SettingsTab.allCases) { tab in
+                        sidebarLabel(tab.title, symbol: tab.symbol)
+                            .tag(FERBWindowDestination.settings(tab))
+                    }
+                }
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240)
         } detail: {
-            VStack(alignment: .leading, spacing: 8) {
-                if let problem = store.problem { Text(problem).foregroundStyle(.red).textSelection(.enabled) }
-                if let note = store.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
+            VStack(alignment: .leading, spacing: 0) {
+                if store.problem != nil || store.note != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let problem = store.problem {
+                            Label(problem, systemImage: "exclamationmark.circle")
+                                .foregroundStyle(.red).textSelection(.enabled)
+                        }
+                        if let note = store.note { Text(note).foregroundStyle(.secondary).textSelection(.enabled) }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 page
             }
-            .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .navigationTitle(selection.title)
             .task(id: selection.section) { await store.refresh(selection.section ?? .tasks) }
         }
+        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 760, minHeight: 480)
+    }
+
+    private func sidebarLabel(_ title: String, symbol: String) -> some View {
+        Label {
+            Text(title).fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: symbol).symbolRenderingMode(.hierarchical)
+        }
+        .padding(.vertical, 3)
     }
 
     @ViewBuilder private var page: some View {

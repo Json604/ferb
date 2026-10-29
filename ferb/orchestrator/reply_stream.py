@@ -1,14 +1,15 @@
-"""Provisional owner text from a pure conversational planner response: its full `text`, the one answer the owner
-sees (owner, 2026-10-24), written last.
+"""Provisional public planner text, written last after validated metadata.
 
-Raw structured fragments stay in memory. Action-bearing and reordered responses
-remain final-only; malformed drafts are withdrawn. Worker reports and reasoning never enter this path.
+Pure conversational answers keep their reply channel. Task plans use a separate
+pre-worker channel; raw structured fragments stay in memory. Actions and reordered
+responses remain final-only. Malformed drafts are withdrawn; worker reports and
+reasoning never enter this path.
 """
 import json
 import unicodedata
 from typing import Any, Callable
 
-from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
+from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, SupervisorOutcome
 from ferb.policy.confirm import from_task
 from ferb.sanitize.redact import Redactor
 
@@ -76,17 +77,29 @@ class ReplyDraft:
         self.key = ''
         self.visible = False
         self.closed = False
+        self.channel = 'reply'
 
     def _emit_text(self, text: str, *, final: bool = False) -> None:
         safe = self.redaction.feed(text.encode('utf-8'), final=final).decode('utf-8')
         guarded = self.lines.feed(safe, final=final)
         if guarded:
             self.visible = True
-            self.emit({'type': 'reply_delta', 'text': guarded})
+            self.emit({'type': self.channel + '_delta', 'text': guarded})
 
     def _eligible(self) -> bool:
         expected = set(SUPERVISOR_SCHEMA['properties']) - {'text'}
-        return (set(self.metadata) == expected and self.metadata.get('kind') in ('reply', 'clarify')
+        if set(self.metadata) != expected:
+            return False
+        if self.metadata.get('kind') == 'task':
+            # Only the public text streams. Validate the complete preceding metadata
+            # exactly as a final outcome; never publish nested plans or execute them.
+            try:
+                SupervisorOutcome.model_validate({**self.metadata, 'text': ''})
+            except ValueError:
+                return False
+            self.channel = 'plan'
+            return True
+        return (self.metadata.get('kind') in ('reply', 'clarify')
                 and all(value is None or value == [] for key, value in self.metadata.items() if key != 'kind'))
 
     def feed(self, fragment: str) -> None:
@@ -174,9 +187,11 @@ class ReplyDraft:
             self.abort()
             return
         self._emit_text('', final=True)
+        if self.channel == 'plan':
+            self.emit({'type': 'plan_end'})
         self.closed = True
 
     def abort(self) -> None:
         if not self.closed and self.visible:
-            self.emit({'type': 'reply_abort', 'reason': 'The draft was interrupted; wait for the final reply.'})
+            self.emit({'type': self.channel + '_abort', 'reason': 'The draft was interrupted; wait for the final reply.'})
         self.closed = True

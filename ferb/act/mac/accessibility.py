@@ -317,6 +317,11 @@ def raise_window(pid: int, bounds: tuple[float, float, float, float]) -> bool:
     return bool(AX.AXUIElementPerformAction(win, "AXRaise") == 0)
 
 
+def element_window(element: Any) -> Any:
+    """The exact AX window containing this observed control, without focus fallback."""
+    return element if role_of(element) == "AXWindow" else _attr(element, "AXWindow")
+
+
 def window_title(win: Any) -> str:
     return str(_attr(win, "AXTitle") or "").strip("‎ ") if win is not None else ""
 

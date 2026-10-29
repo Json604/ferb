@@ -3906,3 +3906,189 @@ listed and read a new file's sibling only through checked fds (P1).
   content, even when the step made it; the owner bringing an app forward during a FERB on-screen call reads as FERB's;
   an app launched inside another app's AppleScript isn't recorded; a follow-up run on the same task keeps the earlier
   run's copies.
+
+## UI branch — response details — 2026-10-29
+`VisitedSitesView` keeps the complete site list and presents the first host plus +N in a compact source pill;
+hover or click opens separated full-list rows.
+`ArtifactRow` opens native Quick Look on click and embeds it on hover. Passive AppKit activeAlways
+tracking supports non-key notch windows without intercepting file drag or click. It clears preview items on dismantle and uses
+`TaskPreviewWindow` for existing Space and hover ownership. Closing/collapsing/dragging dismisses
+these popovers. Explicit Open in default app, drag and Finder actions remain available. Composer files
+share the preview behavior and appear as removable cards in a horizontally scrolling strip inside the input;
+the strip height is included in conversation sizing and is zero for an empty draft.
+Fresh terminal chat/outcome events call `presentTerminalAnswer` independently of glow expiry;
+known outcome IDs and non-announcing historical recovery suppress repeat opening. The reveal
+uses background presentation and preserves the owner's draft/keyboard focus.
+
+## UI branch — motion, messages and preview hover — 2026-10-29
+
+Opening and closing keep the chat contents stationary while the surface folds,
+matching the original notch behavior; reversing a fold continues from its current
+geometry. The entire camera footprint plus its lower lip tears out the pill, taking
+priority over resize hits and cursors. Short response bubbles fit their text, while
+long prose wraps and rich fields remain constrained by the chosen panel width.
+
+Video popovers participate in actual pointer hover regions instead of permanently
+blocking notch dismissal. Leaving both surfaces closes them after a short crossing
+grace; detaching and finishing tasks clear the source popover. Reopening also requests
+a redraw of retained selectable text after the transition finishes, preserving text
+storage and selection. The intermittent blank-text symptom awaits owner confirmation.
+
+## UI branch — hardware notch docking — 2026-10-29
+
+Dragging the movable pill onto the physical camera notch docks FERB with a brief
+whole-surface swallow transition. Dragging the strip immediately beneath the camera pulls FERB back into a movable
+pill. Docking restores the original screen-top notch-hover interface and concave
+shoulders, with header controls kept outside the camera area.
+Docking persists across app launches; displays without a hardware notch retain the
+edge pill. Reduced Motion skips the traveling swallow. Appearance verification is
+reserved for the owner; implementation and review use code and tests only.
+
+## UI branch — attached FERB control and task previews — 2026-10-29
+
+The idle indicator is a thinner bar using the system window color, with a flat
+screen-facing edge and rounded inward corners; its length is half the display notch.
+The pill joins the conversation with filled concave shoulders. While open, the pill
+is a subview of the chat window, so dragging moves one native window. Opening chat
+acknowledges the indicator status to white until another task/status event arrives. Expanded task previews and the overflow
+ring use independent popovers to avoid the transcript's mask.
+
+Owner-approved supporting daemon change: `tasks.preview` supplies fresh masked frames
+from the task's actual browser tab or exact app window. Captures share tool resource
+locks, pass image redaction, and are neither journaled nor persisted. The thumbnail,
+popover and detached player share one demand-driven client per task. Late frames are
+discarded on target changes and completion. The development daemon was restarted from this checkout after its running tasks
+finished, and the new endpoint was checked live. Verified preview targets now persist between actions, including exact element windows
+and the window actually returned by a snapshot. Ambiguous targets still withhold
+frames. The owner saw WhatsApp frames in the previous build, but they were intermittent;
+continuous playback acceptance remains pending.
+- UI branch (2026-10-29): the regular window uses one native sidebar for app pages and Settings categories,
+  with a unified toolbar and selected-page title. Sidebar routes derive from the existing section/tab state, preserving
+  menu/deep links and the remembered Settings category. Grouped forms own their native insets; Tasks actions live in
+  the toolbar. Settings retains command output models and privacy drafts across category switches; only the active
+  page is mounted, so Permissions polling still starts/stops with visibility. Floating chat is unchanged.
+
+### Display-bounded notch layout and pointer drag (UI branch, 2026-10-29)
+
+`PanelLayout` derives the surface budget from the active display's physical frame,
+subtracting native window margins and the pill attachment gutter. Physical rather
+than visibleFrame bounds preserve the owner's direct screen-perimeter attachment,
+including edges occupied by the menu bar or Dock. `NotchModel` applies this budget to
+width and transcript height while retaining preferred sizes; conversation chrome is
+reserved before assigning scroll height. The coordinator clamps the resulting window
+frame to that display. Hardware docking additionally requires a positive reported
+camera gap; no-notch displays keep the movable pill.
+
+Indicator and resize gestures sample `NSEvent.mouseLocation`, avoiding conversion of
+queued local events using a window origin that has already moved. Indicator dragging
+uses the initial frame and total global delta, and stops any ongoing presentation
+spring at grab time. The pill is still a native subview of the same expanded window.
+`PanelResizeOverlay` uses AppKit frame-resize cursors on macOS 15+; macOS 14 uses native
+axis cursors because its public API has no diagonal equivalent.
+
+### Live drag placement (UI branch, 2026-10-29)
+
+During a pill/notch drag, `LiveDragLayout` reevaluates the display under the global
+pointer and the room on each side. Hysteresis avoids side chatter; the effective
+card budget shrinks to the available side without rewriting saved preferred sizes.
+The grabbed pill remains at its original global pointer offset. One display clock
+interpolates only the relative card rectangle. While the pointer is captured,
+`DragSurfaceCanvas` holds the native canvas at the current display's frame and moves
+the card and pill within it. This avoids independently presented WindowServer moves
+and counter-moving child layers. Release immediately restores the tight union of
+card and pill before snap/docking. Native tint/mask and SwiftUI presentation receive
+the same rectangle. The concave shoulder follows the drawn boundary, not the future
+side. Reduced Motion makes these relative placement changes immediate.
+
+The owner withdrew the proximity animation and sound pending a new walkthrough.
+Release docking uses only the physical hardware notch and its existing lower pull
+strip (`NotchDocking.accepts`), with the original swallow transition preserved.
+There is no expanded invisible capture zone, magnetic logo/glow or proximity sound.
+
+`PanelResizeOverlay` registers active-always cursor/enter/move tracking, so the
+non-key panel can show the native resize direction before its first click. Surface
+frame size/origin changes invalidate cursor rectangles throughout the reveal.
+Explicit updates use the same edge/corner hit regions and exclude the attached
+pill/camera control; interior motion does not override text cursors.
+
+The held-drag layout uses `LiveDragLayout.resolve` to select the nearest screen edge (previous edge wins an exact tie), then fits the inward card. `DragChatMotion` animates only orientation changes with a zero-bounce native spring (300 ms perceptual duration, stopped at its settling duration); pointer movement translates endpoints directly and does not restart a chase timer. Reversals start at the currently fitted visible card and retain sampled position/size velocity. Reduced motion changes state immediately. `dragCanvasActive` tracks the display-sized event canvas independently of the finite animation clock, so release always compacts it.
+
+
+Floating rendering batches `renderDragCard` background mutations in
+`NotchBackdropView.performUpdates`. One final card/pill/shoulder union replaces
+several intermediate full-canvas mask images. The backdrop caches its last geometry;
+identical assignments do not rebuild it. The tint uses an explicit layer redraw
+policy, invalidating for local size/shape/gradient changes and workspace accessibility
+display-option changes. Origin-only movement preserves pending paint; no background
+update calls `displayIfNeeded`. `NotchPresentation.apply` likewise leaves subtree
+layout to AppKit's display pass. It publishes when geometry, origin, or canvas changes
+(the latter two are necessary to keep SwiftUI content aligned), but not for identical
+samples. Pill appearance and resize exclusion updates skip unchanged values. The
+stationary display-sized capture canvas, native frost, and union clipping remain;
+no live GPU frame-rate claim follows from the offscreen setup-work regression.
+
+
+Pre-worker text has a separate provisional `plan_delta` / `plan_end` / `plan_abort` channel.
+`ReplyDraft` accepts it only after all preceding metadata validates as a task outcome;
+only its final public `text` field passes through streaming redaction and the D33 line
+guard. Raw JSON, nested task fields and reasoning stay private. Final schema validation
+and execution order are unchanged. Interrupted, malformed, mismatched or semantically
+rejected drafts withdraw before any repair. The canonical `plan` event remains the
+archive/task-binding authority; reordered responses fall back to that final event.
+Pure conversational `reply_delta` behavior is unchanged.
+
+`receiveChatEvent` updates `AcknowledgementNotice` after `withWorkSession` restores the
+foreground session. The first applied plan delta reveals the existing connected notch
+or pill surface, containing only compact text, without making the session expanded or
+requesting focus. Later chunks update that text; equal measured sizes do not restart the
+native spring. A validated `plan_end` starts a three-second expiry when streaming finishes. The
+canonical plan replaces provisional wording without restarting it; a final-only plan
+starts its expiry on arrival. Duplicate plans, archive hydration and old turn timers cannot replay or dismiss
+new text. Canned acknowledgements remain archived but hidden and silent. User opening
+promotes to full chat and cancels expiry; terminal results/questions still open full chat.
+Abort, explicit close, drag, display/Space changes, sleep and teardown dismiss the preview.
+Compact render text stays mounted through the closing surface animation, then clears
+after order-out, so the full transcript cannot flash during that transition. There is no
+separate caption window. The shared backdrop, attachment geometry, display budget and
+Reduce Motion handling are the same as normal chat.
+
+`NativePreviewHover` installs passive active-always tracking and native pointing-hand
+cursor rectangles for artifact rows, composer cards and the source chip. Cursor exit
+and removal clear ownership, without hit-testing or new drag/resize routing. Observable
+removal callbacks defer outside SwiftUI graph teardown. File previews retain their
+200ms cross-gap grace. `SitesHoverState` also treats trigger and popover as one
+hover region, dismissing after leaving both. Keyboard activation stays available for
+list reading/scrolling until dismissal. Native hover checks the topmost window at the
+event location so an obscured file anchor cannot replace the source disclosure. Hover accents follow trigger hover rather than popover visibility.
+
+
+Message bodies use `NativeMessageText`, an owned TextKit1 `NSTextView`/storage/layout
+manager/container, instead of SwiftUI's private selectable NSTextField renderer.
+Plain plans, owner messages and notices remain literal; Markdown blocks map their
+inline intents into explicit native fonts, colors and safe links. Lists retain a
+first-line baseline, table cells retain alignment, code scrolls horizontally, and
+short bubbles measure actual glyph width rather than the text container's full width.
+Measurement preserves line/extra-line height and restores the final native container.
+
+`NotchModel.noteTextPresentation` retains a pending reveal generation across replacement
+opening requests; the winning completion consumes it. Native message views consume
+that generation as a glyph-display invalidation, not a view replacement. Unchanged
+content retains text storage, selected ranges and native identities across reopening.
+Width changes relayout; geometry-only movement does not dirty glyph display. Content
+changes preserve the selection's valid range. The existing native refresh traversal
+now reaches the actual message glyph renderers. Surface masking/motion stays unchanged.
+Tests exercise production transcript and Markdown renderers, narrow/reveal transitions,
+glyph geometry, selection, inline attributes and no-op movement. The owner's missing
+pixels were not independently reproduced: these are numerical rendering/lifecycle
+checks, and live visual acceptance remains the owner's check.
+
+Source and artifact native hover views normalize their `visibleRect` override to
+finite `bounds.intersection(super.visibleRect)`: SwiftUI scroll hosting can expose
+the whole viewport as a tiny representable’s visible rectangle. AppKit then owns an
+`.inVisibleRect` tracking area and updates its region automatically as scrolling and
+reveal move the anchor; native cursor rectangles and incoming events use the same
+clipped geometry. Frame-origin changes invalidate cursor rectangles too. Empty, null
+or nonfinite geometry normalizes to zero and registers neither native cursor rectangles
+nor tracking areas; clipping clears stale hover until visibility returns. The full
+unordered NotchPanel/NotchView regression covers scroll clipping and retained close/reopen.
+Actual WindowServer pointer delivery remains an owner acceptance check.

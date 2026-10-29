@@ -1927,3 +1927,335 @@ click brings that profile's browser forward instead of the exact tab.
     Downloads": **Expected:** each part appears as its own checked message as soon as it's done (no waiting for the
     other), with a banner if the notch is closed; inspect-first steps say nothing; the final answer gives each told
     part one line. (A friend's feedback 2026-10-27.)
+### UI branch follow-up — 2026-10-29: pill attachment and task preview
+
+Development notch rebuilt; development daemon starts this checkout (launchd working
+directory changed, existing data retained). Restart occurred only after no running
+task or question remained. `tasks.preview` responded `waiting` for an unbound task;
+this confirms endpoint activation, not live image delivery.
+
+Owner checks pending: pill touches chat with no bridge or outline; both move together
+while dragging; idle bar is thin/dark in Dark Mode and follows appearance changes;
+hover/click on a running task shows actual captured frames outside chat bounds;
+detach keeps playback visible and draggable; task completion closes it. Verify on
+an owner-controlled browser task, including a masked secret field. Native previews
+require a validated shot or explicit window; element-only targets currently withhold
+frames rather than select a different window. No owner playback verdict recorded.
+
+Checkout validation for this follow-up: full Python suite 5,487 passed, 4 skipped,
+149 deselected; current focused preview/auth tests 11 passed; Swift suite 392 passed;
+mypy passed for `ferb/core` and `ferb/daemon/task_preview.py`; `git diff --check` clean.
+The scoped fresh review passed after fixing Mac window selection and switching browser
+previews to `record_frame` so worker action references remain intact. These are offline
+results, separate from the pending owner playback/appearance/drag checks above.
+
+
+Follow-up after owner playback feedback (2026-10-29, early morning):
+Owner saw WhatsApp briefly, establishing image delivery but reporting intermittent
+playback. The next revision retains verified targets between actions. Expanded pill
+and chat now share one NSWindow; the pill is a subview, with concave shoulders painted
+into the backdrop union. Idle line length is half the display notch. Opening chat
+acknowledges current status to white; a later task/status event rearms it.
+394 Swift tests pass, including opening/closing acknowledgment and a subsequent task.
+Live inspection of the rebuilt UI showed the top-edge concave join and white dot;
+the accessibility tree placed the pill under the same FERB Notch window as the chat.
+Owner acceptance of dragging and sustained video remains pending.
+
+Owner instruction after that inspection: no further visual inspection or UI
+interaction unless explicitly requested; the owner verifies appearance and playback.
+The updated daemon was reloaded after chat.status reported zero running tasks and
+zero approvals; its tasks.preview endpoint returned waiting for an unbound check.
+Scoped reviewer cleared the snapshot-result race, stable-source frame retention,
+and mask winding fixes. Latest focused preview/recording checks: 35 passed.
+
+Owner subsequently said “great, looks good” and requested hardware-notch docking
+and drag-out. This records acceptance of the current appearance, not a separate
+sustained-preview playback verdict. Docking implementation is on the same UI branch;
+owner-only visual verification remains in force.
+
+Hardware-notch docking follow-up:
+Development notch rebuilt/reloaded after 398 Swift tests passed. Fresh code review
+cleared pointer anchoring, full-surface swallow (rather than window clipping),
+actual layer-anchor geometry, and interruption cancellation. No screenshots or UI
+interaction were used for this follow-up.
+Owner checks pending: drop pill directly onto the hardware camera notch; confirm
+swallow/docked expansion; drag below camera or empty central header to tear out;
+repeat while chat is open; check reduced motion and persistence after relaunch.
+All changes remain on ui/ux; no merge to main.
+
+Owner correction on docking: screenshot showed a card below the camera; owner wants
+the original actual screen-top notch-hover mode restored when docked, not a floating
+card beneath it. Docking acceptance remains pending; implementation reopened.
+Earlier preview regression completed: 5,495 Python tests passed, 4 skipped,
+149 deselected. This is offline validation, not a sustained-frame playback verdict.
+
+Original-notch mode correction rebuilt after 400 Swift tests passed. Fresh scoped
+review confirmed screen-top anchoring, camera-local expansion/collapse, consistent
+native/SwiftUI concave masks, camera-safe header wings and a 12pt pull strip that
+does not cover navigation. No visual tools used. Development app reloaded; owner
+still verifies the restored notch hover and pill-to-notch transition.
+
+2026-10-29 follow-up: single-flow folding, camera drag, compact bubbles, preview hover,
+and retained-text redraw. Development UI rebuilt/reloaded on ui/ux after 413 Swift
+tests passed and fresh read-only reviews cleared all four implementation tasks.
+No daemon change/full Python rerun was required for these native UI-only changes.
+No visual inspection or UI interaction was performed.
+
+Owner clarified blank reply text occurs after closing/reopening FERB. New redraw
+tests preserve native storage, content, selection and TextKit2 identity, but do not
+reproduce intermittent blank pixels. Owner still checks that reopening no longer
+requires double-clicking a reply. Also verify one-flow open/close, dragging anywhere
+on the physical notch, compact greeting bubbles, and leaving video previews closes
+the notch while detaching keeps only the detached player open.
+
+### UI drag, display fit and resize cursors — 2026-10-29
+
+Owner reported cursor drift and a panel larger than the MacBook display, and disliked
+the custom corner cursors. The UI branch now uses global pointer coordinates and
+absolute drag origins, display-derived width/transcript budgets and Apple's public
+frame-resize cursors (macOS 15+). Physical display bounds preserve direct perimeter
+attachment. A display without valid hardware-notch geometry cannot dock and uses the
+pill. Offline regression coverage includes oversized saved dimensions, all four edges,
+offset displays, direction reversals and varying/invalid notch geometry.
+
+Validation: 423 Swift tests pass (`/tmp/ferb-drag-fit-swift.log`); no screen inspection,
+visual capture or UI interaction was performed. Fresh read-only Task6 review passed with no Critical/Important findings. Development
+UI rebuilt and reloaded, including Task5 shoulder/whole-camera hover changes. Owner checks pending: pointer stays at grab point for pill and notch tear-out;
+large panel fits screen and composer remains reachable; native corner cursors;
+notch/pill behavior on other Mac models/displays. Offline geometry coverage does not
+constitute verification on every MacBook model.
+
+### Live dragging and magnetic docking (UI branch, 2026-10-29)
+
+Owner requested live chat repositioning while dragging and magnetic animation/sound
+near the real notch. Implemented side-aware, display-bounded card placement around
+the pointer-locked pill; relative placement transitions share the native/SwiftUI
+geometry clock. Preferred sizes are retained. Magnetic proximity lifts the internal
+mark and glows; one original short synthesized cue uses existing mute/volume settings.
+Releasing inside the indicated approach region docks; leaving cancels. Notch tear-out
+does not immediately replay the entry cue. Reduced Motion skips deformation/placement
+interpolation. No-notch displays have no magnetic target.
+
+Offline tests cover side changes, all edges, smaller/offset displays, pointer offset,
+intermediate frame bounds, actual rounded-shape corner contact, entry/exit noise,
+no-notch suppression, WAV decoding and mute/volume gates. No visual inspection,
+screen capture, UI interaction or audio audition was performed. Owner acceptance is
+pending for motion feel, continued attachment during fast reversals, crossing displays,
+magnetic sound/volume, capture/release and reduced-motion behavior.
+
+Task7 final validation: fresh review passed after rounded-contact and tear-out
+re-entry fixes; 431 Swift tests passed. Development UI rebuilt and reloaded on ui/ux.
+No visual inspection, audio audition, or daemon restart. Owner verifies live side
+transitions, proximity cue/sound and release-to-dock feel.
+
+### UI follow-up: first border hover and chat-around-pill drag — 2026-10-29
+
+Owner reports the resize hit works before its cursor appears and clarifies that
+chat should reposition around the pill while the pill follows the pointer. Native
+non-key tracking now updates directional cursors on first enter/move; animated frame
+changes invalidate cursor rectangles. A stationary native drag canvas avoids moving
+the whole window while interpolating only the card; it contracts on release.
+Offscreen tests cover first non-key hover, a changed border, drag-target exclusions,
+interior cursor preservation, and real NSWindow/control screen conversions during
+card interpolation and pointer translation. These do not establish rendered frame
+synchronization or cursor delivery on hardware. Owner to verify first hover after
+reopen, all edges/corners, pill tracking through side changes, and notch docking.
+No screen capture, visual inspection, UI interaction or audio audition performed.
+
+Owner subsequently withdrew the magnetic proximity animation and sound pending
+a new walkthrough. Removed both and the wider invisible capture region; release
+docking again accepts the hardware camera/lower pull strip only. Existing swallow
+animation remains. Earlier magnetic acceptance entries are superseded.
+
+Task8 final: fresh review passed; 431 Swift tests pass. Development UI rebuilt and
+reloaded on ui/ux with first-hover cursor/stable-drag fixes and magnetic feature
+removed. No visual inspection or audio audition. Owner verifies live cursor delivery
+and chat motion around the grabbed pill; magnetic replacement awaits walkthrough.
+
+UI follow-up 2026-10-29: owner requested four direct inward-facing chat states, replacing the continuous following behavior. Offline coverage checks nearest-edge selection independent of available room, immediate same-state movement, interruption from the fitted surface, existing rounded contact/bounds and native canvas coordinates. Visual verification remains owner-only; no UI inspection performed. Confirm top/bottom/left/right dragging and smooth state shifts after reload.
+
+Task9 final: four direct inward-facing states rebuilt and reloaded on ui/ux after
+435 Swift tests and fresh review passed. No visual inspection performed. Owner
+verifies nearest-edge state selection and short direct transitions between states.
+
+Task9 owner verdict: “GREAT. exactly what i wanted.” Four-state placement accepted.
+Owner requests softer, more natural transition motion only; Task10 preserves the
+accepted positioning and direct tracking.
+
+Task10: owner approved the four-state placements and requested softer movement only. Replaced the abrupt 180 ms ease-out with a non-bouncy native spring; offline regression checks gentle acceleration, monotonic rest-to-rest settling, velocity-preserving reversal from visible geometry, and immediate reduced-motion tracking. No visual inspection performed; animation feel remains owner-verification pending reload.
+
+Task10 final: 438 tests and fresh review passed. Development UI rebuilt/reloaded
+with gentler spring state shifts; accepted four-state placement unchanged. No visual
+inspection performed; owner verifies the movement feel.
+
+
+### UI floating rendering follow-up — 2026-10-29
+Owner accepts the four-state motion but reports uneven floating animation FPS.
+Removed repeated per-frame mask preparation and synchronous tint paint/subtree
+layout. Offscreen regression uses the real native backdrop over 120 drag updates:
+before, 480 mask replacements; after, 120. Timing measures CPU setup work only,
+not native mask rasterization, compositor load, screen FPS, or physical-device
+smoothness. Native blur and display-sized capture canvas are retained. No screenshots,
+visual inspection, UI interaction, or sound audition were performed. Owner still
+needs to verify floating drag/state-transition fluidity and absence of tint/text lag.
+Offline validation: 442 Swift tests pass (`/tmp/ferb-floating-swift.log`); final
+120-frame setup measurement was 0.890 ms versus baseline 10.309 ms (480→120 mask
+replacements). Fresh review passed. Controller built (`/tmp/ferb-task11-build.log`)
+and reloaded the development UI; live visual acceptance remains with the owner.
+
+
+### UI regular-window finish — 2026-10-29
+Native sidebar categories replace the nested Settings tabs. Selected-page titles and Tasks actions use the native
+toolbar; full sidebar labels wrap and grouped forms use their native insets and semantic colors. Owner should check
+General through Advanced, narrow/wide window sizing, light/dark appearance, keyboard sidebar navigation, menu
+Settings deep links, and switching away/back during a command or with an unfinished Privacy entry. Floating chat
+is unchanged. No visual inspection or live UI interaction was performed; appearance acceptance is the owner's.
+Offline validation: 445 Swift tests pass (`/tmp/ferb-native-window-swift.log`), including sidebar/deep-link
+routing and retained command/draft models. Build/reload and fresh review are pending controller completion.
+
+Task 12 validation: 445 Swift tests passed; independent code review passed; development
+UI rebuilt and reloaded. Owner visual and keyboard checks remain pending; no agent
+visual inspection performed. All changes remain on `ui/ux`, unmerged.
+
+
+### UI response details — 2026-10-29
+Owner checks: long visited-site lists show three plus +N; click +N to read/select the complete list.
+Hover response files (including Markdown, image/PDF and unavailable files); previews should fit in
+an independent small popover, close after leaving, and dismiss with chat/Escape/drag. Existing
+file click, drag, Finder and Quick Look actions remain. Finish/fail a task while chat is closed;
+chat should reveal without taking focus, while historical/repeated results stay quiet. Questions
+and first streamed text keep their existing opening. No visual inspection performed by agent.
+
+Task 13 validation: 450 Swift tests passed; fresh review passed; dev UI build/reload
+completed. Owner checks +N disclosure, artifact hover preview rendering/focus and
+completion/failure/question opening. No agent visual inspection; ui/ux unmerged.
+
+
+### UI file previews, source pill and composer cards — 2026-10-29
+Task 14 supersedes the three-site row with the first host +N source pill. Owner checks hover and click
+show the complete separated list and leaving/Escape closes it. File click now uses Quick Look; explicit
+Open in default app retains macOS's existing association. Check file hover while another app is active,
+preview crossing/exit, missing files, file drag and chat closure. Composer attachments should appear as
+removable cards inside the rounded input above text, scroll horizontally without a count cap, preview
+on hover/click, and release their height when the last file is removed. No visual/live UI inspection
+was performed; offscreen tests do not establish live popover appearance or event delivery.
+
+Task14 validation:454 Swift tests passed, fresh review passed; development UI built
+and reloaded. Owner checks real hover delivery, native preview click, source pill
+and composer cards; no agent visual inspection. Changes stay on ui/ux unmerged.
+
+
+### UI acknowledgement caption and hover feedback — 2026-10-29
+Task15 owner check pending: submit and close chat before ack; a brief text-only
+caption should appear inward from docked notch or floating pill without taking focus
+or opening the transcript. Ack in open chat appears immediately and remains archived.
+Check replacement, answer/question/failure arrival, drag, sleep and Space changes.
+Check native hand cursor plus accent on files/cards/source chip in inactive FERB;
+source popover closes as soon as the pointer leaves its chip (even after mouse click).
+Keyboard disclosure can remain open to read/scroll; files retain cross-gap preview
+grace. No live visual/event delivery verification performed by agent.
+
+Task15 implementation validation: 463 Swift tests passed, diff-check clean. Fresh
+review pending final scoped sign-off. Build/reload held for concurrent blank-text
+investigation; owner live checks remain pending.
+
+
+### UI recurring blank replies — 2026-10-29
+Task16 owner check: close and reopen a chat containing a multi-paragraph formatted
+answer, including the reported blank upper paragraph/later visible paragraph case.
+All paragraphs should paint immediately without double-clicking. Repeat after scroll,
+resize and floating side changes. Copy/select/link handling during open chat must
+remain normal; hidden text selection ends on reopening. Transcript/composer state
+should remain stable. Agent used unordered offscreen native fields only: actual
+Markdown field identities, attributed text/style/links and nonempty cell layout are
+verified, but the missing-pixel symptom was not reproduced or visually inspected.
+
+Tasks15–16 combined validation:465 Swift tests passed; both fresh code reviews passed.
+Development UI built/reloaded; no daemon restart or agent visual inspection. Owner
+checks immediate ack caption, hand/highlight and source exit, and recurring blank
+reply after reopen. Native-field replacement tested; missing-pixel symptom not
+reproduced offscreen. All changes on ui/ux unmerged.
+
+### UI planner caption and source-popover hover correction — 2026-10-29
+Task17 supersedes Task15's canned-ack caption and strict source-chip exit behavior.
+Submit and close FERB: the model's substantive response before worker execution should
+appear briefly beside FERB; canned “Sure, starting now” acknowledgements should neither
+appear nor sound. Open chat still shows the substantive plan. Move from the source chip
+into its list and scroll, including when a file row lies underneath; it must stay open
+and not switch to a file preview. Leave both chip and popover: it should dismiss after
+200ms crossing grace. Keyboard disclosure remains open until dismissed. Agent checks
+are offscreen only; actual pointer delivery and pixels remain owner verification.
+
+
+### UI Task18 — shared native message rendering (2026-10-29)
+Owner reported blank text again after Task16, including an acknowledgement capsule.
+The Markdown-only remount did not cover plain plans/acknowledgements. Replaced message
+body rendering with owned TextKit1 native views; removed Markdown remount identity.
+Canned acknowledgements are hidden separately by Task17. Native message content,
+selection, glyph geometry, formatting, list baselines and unchanged-movement display
+invalidation are checked offscreen. No windows ordered, pixels inspected or screenshots
+captured; no independent visual reproduction is claimed.
+
+Owner check: reopen and move FERB repeatedly, read earlier and new substantive plans
+and long/short answers, select/copy text, inspect formatted lists/code/tables, and confirm
+that no message text disappears. Verify the approved floating motion remains smooth.
+Status: awaiting owner live acceptance; no daemon changes.
+
+Tasks17–18 validation:471 Swift tests passed; fresh code reviews passed. Development
+UI built/reloaded. Owner checks sites-list scrolling without underlying file takeover,
+substantiveplan-only preview (short cannedack hidden/silent), and missing text across
+reopen/resize. Controllednative glyph layout/content/selection tested; no independent
+visual reproduction claimed. No visualinspection, daemonrestart or merge into main.
+
+### UI Task19 — latest-response sources hover (2026-10-29)
+Offscreen actual transcript measured a 174.5×21 pt source anchor whose AppKit
+visibleRect spanned the 440×300 pt scroll viewport. Tracking and cursor rectangles
+now intersect those bounds; out-of-anchor events cannot claim hover. No composer
+spacing change was needed. Regression covers no following owner message, subsequent
+owner message, narrower resize, and sources scrolled offscreen. 472 Swift tests pass.
+Owner check: hover the latest answer’s sites immediately above the composer, enter
+and scroll its list, leave both regions, then repeat after sending a message and
+resizing. No pixels or real pointer delivery independently verified; pending live
+acceptance. No agent screenshots or ordered test windows.
+
+
+### Connected streaming pre-worker response — 2026-10-29 (Task 20)
+Supersedes the detached five-second caption in Tasks 15/17. Owner approved the supporting
+live daemon stream on `ui/ux`. Pending owner live verification (no visual inspection by agent):
+- With chat closed, request a task: the model's substantive pre-worker text should appear
+  as it streams inside the connected notch/pill surface, without header/transcript/composer
+  or changing keyboard focus. Canned transport acknowledgements stay hidden and silent.
+- It remains throughout streaming, then closes three seconds after the validated stream ends. A long
+  response fits the display; floating edges and docked notch retain their existing shape.
+- Open/hover/click FERB during the preview: full chat takes over and the old timer never
+  closes it. Already-open chat stays open. Completion, failure and questions still open it.
+- Interrupt the provider or close the preview: provisional text clears; an old abort/timer
+  cannot dismiss a newer task preview. Closing preview must not briefly show the transcript.
+Offline coverage checks incremental redaction, metadata/schema rejection, semantic repair,
+transport delivery before provider completion, no provisional worker execution, request gating,
+foreground restoration, final wording, replacement/expiry, promotion and close render state.
+No live rendering or timing result is claimed from offscreen tests.
+
+
+### Restored-chat startup cursor crash — 2026-10-29 (Task 21)
+Owner reported FERB launched then exited. Crash evidence identified AppKit's finite
+cursor-rectangle assertion from a clipped source/file hover anchor. Offline regression
+uses the real transcript: scroll source outside viewport, update tracking and cursor
+rectangles, then restore visibility. Invalid/null/empty geometry also registers nothing.
+Pending owner live check: relaunch with existing history, confirm it stays running and
+source/file hover resumes after scrolling. No visual inspection or live result claimed.
+
+
+### Bottom source hover alignment — 2026-10-29 (Task 22)
+Owner’s supplied recording explicitly authorized viewing: latest pill does not highlight
+at its visible location and disclosure appears after moving lower. Older pills also
+sometimes show the hand below the capsule. Offscreen full native NotchPanel/NotchView
+geometry agrees between settled native and SwiftUI layout; no composer padding changed.
+Failing regression identifies the native view’s oversized visibleRect (390×300 viewport
+for a 174.5×21 pill). The correction bounds visibleRect itself and restores automatic
+AppKit `.inVisibleRect` tracking, including safe clipped geometry and moved cursors.
+Full-host scroll/reopen tests do not reproduce actual WindowServer event delivery.
+Pending owner check: immediately hover every part of the latest pill before sending any
+new message; confirm hand/highlight/disclosure match the capsule, cross into and scroll
+the list, leave both, then repeat after chat close/reopen and transcript scrolling.
+Only the supplied recording was viewed; no live screen or ordered test window inspected.

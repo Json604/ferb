@@ -546,6 +546,7 @@ class Daemon:
         self.server.unary['attention.ack'] = self._attention_ack
         self.server.unary['reports.build'] = self._reports_build
         self.server.unary['tasks.list'] = self._tasks_list
+        self.server.unary['tasks.preview'] = self._task_preview
         self.server.unary['update.prepare'] = self._update_prepare
         self.server.unary['reports.diagnostic'] = self._reports_diagnostic
         self.server.unary['notices.list'] = self._notices_list
@@ -5068,6 +5069,22 @@ class Daemon:
             if matches:
                 return str(matches[0]['id'])
         return task_id
+
+    async def _task_preview(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Owner-only, backpressured frame delivery; one fresh masked capture per request."""
+        import base64
+        if self.gateway is None:
+            return {"state": "unavailable"}
+        task_id = str(params.get("task_id") or "")
+        try:
+            frame = await self.gateway.previews.frame(task_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return {"state": "unavailable"}
+        if frame is None:
+            return {"state": "waiting"}
+        return {"state": "frame", "image": base64.b64encode(frame).decode("ascii")}
 
     async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "last")

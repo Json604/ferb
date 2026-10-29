@@ -22,27 +22,34 @@ enum Palette {
 /// Concave shoulders join the screen edge; the lower corners echo the camera cutout.
 struct NotchSurfaceShape: Shape {
     var expansion: CGFloat = 1
+    var docked = false
     var animatableData: CGFloat {
         get { expansion }
         set { expansion = newValue }
     }
 
     func path(in rect: CGRect) -> Path {
+        guard docked else {
+            let radius = min(rect.height / 2, 18 * (0.75 + 0.25 * expansion))
+            return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+        }
+        // Original FERB notch silhouette: concave shoulders meet the screen edge.
         let shoulder: CGFloat = 10 * expansion
         let bottom: CGFloat = 12 + 7 * expansion
         var path = Path()
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addLine(to: CGPoint(x: rect.maxX, y: 0))
-        path.addQuadCurve(to: CGPoint(x: rect.maxX - shoulder, y: shoulder),
-                          control: CGPoint(x: rect.maxX - shoulder, y: 0))
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - shoulder, y: rect.minY + shoulder),
+                          control: CGPoint(x: rect.maxX - shoulder, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - shoulder, y: rect.maxY - bottom))
         path.addQuadCurve(to: CGPoint(x: rect.maxX - shoulder - bottom, y: rect.maxY),
                           control: CGPoint(x: rect.maxX - shoulder, y: rect.maxY))
-        path.addLine(to: CGPoint(x: shoulder + bottom, y: rect.maxY))
-        path.addQuadCurve(to: CGPoint(x: shoulder, y: rect.maxY - bottom),
-                          control: CGPoint(x: shoulder, y: rect.maxY))
-        path.addLine(to: CGPoint(x: shoulder, y: shoulder))
-        path.addQuadCurve(to: .zero, control: CGPoint(x: shoulder, y: 0))
+        path.addLine(to: CGPoint(x: rect.minX + shoulder + bottom, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + shoulder, y: rect.maxY - bottom),
+                          control: CGPoint(x: rect.minX + shoulder, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + shoulder, y: rect.minY + shoulder))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY),
+                          control: CGPoint(x: rect.minX + shoulder, y: rect.minY))
         path.closeSubpath()
         return path
     }

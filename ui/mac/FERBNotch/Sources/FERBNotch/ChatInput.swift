@@ -43,7 +43,13 @@ struct ChatInput: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? ChatTextView else { return }
-        if view.string != model.session.draft { view.string = model.session.draft; view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0)) }
+        if view.string != model.session.draft {
+            let previousSelection = view.selectedRange()
+            view.string = model.session.draft
+            let end = view.string.utf16.count
+            let location = min(previousSelection.location, end)
+            view.setSelectedRange(NSRange(location: location, length: min(previousSelection.length, end - location)))
+        }
         view.isEditable = model.canCompose
         if context.coordinator.focusRequest != model.focusRequest {
             context.coordinator.focusRequest = model.focusRequest

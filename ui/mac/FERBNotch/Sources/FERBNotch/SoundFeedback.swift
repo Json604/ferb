@@ -25,12 +25,16 @@ final class SoundFeedback: ObservableObject {
         volume = defaults.object(forKey: "feedback.volume") as? Double ?? 0.18
     }
 
+    var playbackVolume: Float { enabled ? Float(min(1, max(0, volume))) : 0 }
+
     func play(_ cue: Cue) {
-        guard enabled, volume > 0 else { return }
+        guard playbackVolume > 0 else { return }
         currentSound?.stop()
-        guard let sound = NSSound(named: NSSound.Name(cue.rawValue))?.copy() as? NSSound else { return }
-        sound.volume = Float(min(1, max(0, volume)))
+        let candidate = NSSound(named: NSSound.Name(cue.rawValue))?.copy() as? NSSound
+        guard let sound = candidate else { return }
+        sound.volume = playbackVolume
         currentSound = sound
         sound.play()
     }
+
 }

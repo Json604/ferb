@@ -817,8 +817,32 @@ class MacComputerDriver:
         if shot is None or shot.id != shot_id or shot.pid != a.pid or time.monotonic() - shot.at > 30:
             raise Refused('take a fresh mac_screenshot to select the recording window')
 
+        return self._window_source(a, shot.window)
+
+    def preview_source(self, name: str, *, window: str | None = None,
+                       element: str | None = None) -> tuple[dict[str, Any], Any]:
+        """Resolve only an explicit window or an observed element's exact containing window."""
+        a = self.app(name)
+        if window and window.isdigit():
+            w = self.shots.window(int(window))
+        else:
+            if element:
+                win = self.ax.element_window(self.node(a.bundle_id, element).ref)
+            elif window:
+                win = self.ax.window_named(a.pid, window)
+            else:
+                win = None
+            bounds = self.ax.frame(win) if win is not None else None
+            if bounds is None:
+                raise Refused('preview needs an exact observed window')
+            w = self.shots.front_window(a.pid, bounds)
+        if w is None or w.pid != a.pid:
+            raise Refused('preview window closed or ambiguous')
+        return self._window_source(a, w.id)
+
+    def _window_source(self, a: Any, window_id: int) -> tuple[dict[str, Any], Any]:
         async def current() -> Any:
-            w = await asyncio.to_thread(self.shots.window, shot.window)
+            w = await asyncio.to_thread(self.shots.window, window_id)
             if w is None or w.pid != a.pid or self.app(a.bundle_id).pid != a.pid:
                 raise Refused('recording window closed or changed owner')
             return w
@@ -833,7 +857,7 @@ class MacComputerDriver:
             masks, note = window_masks(first, await self._look(a, w, first), browser)   # moved: OCR only
             frame = await painted(image, masks, w.bounds, (width, height))
             return (frame, note) if note else frame
-        return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture
+        return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': window_id}, capture
 
     async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,
                          end: tuple[float, float] | None = None, holder: str = "", *,

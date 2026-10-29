@@ -25,7 +25,7 @@ final class TaskPresentationTests: XCTestCase {
         XCTAssertEqual(selections, [NSRange(location: 7, length: 8)])
     }
 
-    func testBackgroundReplyAndProgressNeverReopenDismissedWindow() {
+    func testBackgroundReplyReopensDismissedWindowButProgressDoesNot() {
         let model = makeModel()
         model.session.draft = "First task"
         let first = model.session.beginWork()!
@@ -40,7 +40,7 @@ final class TaskPresentationTests: XCTestCase {
         model.receiveChatEvent(["type": "subtask", "summary": "Progress"], localID: first)
         XCTAssertFalse(model.bodyVisible)
         model.receiveChatEvent(["type": "reply", "text": "Done"], localID: first)
-        XCTAssertFalse(model.bodyVisible)
+        XCTAssertTrue(model.bodyVisible)
         XCTAssertEqual(model.session.activeTaskID, second)
     }
 

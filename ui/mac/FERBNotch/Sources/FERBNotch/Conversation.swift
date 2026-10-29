@@ -11,6 +11,14 @@ extension NotchModel {
         if hasRunningWork && session.phase != .attention { return .working }
         return session.phase == .working && isStanding(session) ? .ready : session.phase
     }
+    /// A newly created background task takes precedence over an older approval/result color on the compact marker.
+    var indicatorSignal: String {
+        "\(taskStateRevision):\(hasRunningWork ? SessionPhase.working : displayPhase):\(runningTasks.keys.sorted())"
+    }
+    var indicatorPhase: SessionPhase {
+        if expanded || acknowledgedIndicatorSignal == indicatorSignal { return .ready }
+        return hasRunningWork ? .working : displayPhase
+    }
     var workStatus: String {
         let active = workSessions.values.filter { $0.activeTaskID != nil && !isStanding($0) }
         if active.count > 1 { return "\(active.count) requests running" }

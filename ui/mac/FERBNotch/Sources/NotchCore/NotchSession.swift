@@ -9,6 +9,11 @@ public struct TaskActivity: Identifiable, Equatable {
     public let title: String
     public let symbol: String
     public let createdAt = Date()
+
+    public init(title: String, symbol: String = "ellipsis") {
+        self.title = title
+        self.symbol = symbol
+    }
 }
 
 public struct WorkReceipt: Identifiable, Equatable {

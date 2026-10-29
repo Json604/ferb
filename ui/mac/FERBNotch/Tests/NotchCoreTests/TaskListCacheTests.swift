@@ -214,9 +214,9 @@ final class TaskListCacheTests: XCTestCase {
         model.session.draft = long
         let tall = model.composerHeight
         XCTAssertGreaterThan(tall, 36)
-        XCTAssertEqual(tall, freshComposerHeight(draft: long, handleWidth: model.handleWidth))
-        model.handleWidth = 400                      // wider: fewer lines
-        XCTAssertEqual(model.composerHeight, freshComposerHeight(draft: long, handleWidth: 400))
+        XCTAssertEqual(tall, freshComposerHeight(draft: long, panelWidth: model.bodyWidth))
+        model.resizePanel(width: model.bodyWidth + 100, transcriptHeight: model.preferredTranscriptHeight)
+        XCTAssertEqual(model.composerHeight, freshComposerHeight(draft: long, panelWidth: model.bodyWidth))
         XCTAssertLessThan(model.composerHeight, tall)
         model.session.draft = ""
         XCTAssertEqual(model.composerHeight, 36)
@@ -250,9 +250,9 @@ final class TaskListCacheTests: XCTestCase {
                        file: file, line: line)
     }
 
-    private func freshComposerHeight(draft: String, handleWidth: CGFloat) -> CGFloat {
+    private func freshComposerHeight(draft: String, panelWidth: CGFloat) -> CGFloat {
         let model = makeModel()
-        model.handleWidth = handleWidth
+        model.resizePanel(width: panelWidth, transcriptHeight: model.preferredTranscriptHeight)
         model.session.draft = draft
         return model.composerHeight
     }

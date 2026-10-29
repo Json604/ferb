@@ -8,22 +8,26 @@ struct TasksPage: View {
     @ObservedObject var store: FERBWindowStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Tasks").font(.title2)
-                Spacer()
+        List {
+            if store.tasks.isEmpty { Text("No tasks yet.").foregroundStyle(.secondary) }
+            ForEach(store.tasks) { row in TaskHistoryRowView(row: row, store: store) }
+            if store.moreTasks { Button("Show older tasks") { Task { await store.loadTasks(more: true) } } }
+        }
+        .listStyle(.inset)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
                 if store.stopped {
                     Text("FERB is stopped").foregroundStyle(.secondary)
                     Button("Resume FERB") { Task { await store.resumeEverything() } }
                 } else {
                     Button("Stop everything") { Task { await store.stopEverything() } }
                 }
-                Button("Refresh") { Task { await store.loadTasks() } }
-            }
-            List {
-                if store.tasks.isEmpty { Text("No tasks yet.").foregroundStyle(.secondary) }
-                ForEach(store.tasks) { row in TaskHistoryRowView(row: row, store: store) }
-                if store.moreTasks { Button("Show older tasks") { Task { await store.loadTasks(more: true) } } }
+                Button {
+                    Task { await store.loadTasks() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .help("Refresh tasks")
             }
         }
     }

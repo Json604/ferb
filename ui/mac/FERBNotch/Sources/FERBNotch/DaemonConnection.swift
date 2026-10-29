@@ -244,6 +244,7 @@ extension NotchModel {
     func finishSubmission(localID: UUID) {
         withWorkSession(localID) {
             guard session.backendTaskID == nil else { return }
+            acknowledgement.abort(turn: localID)
             let notice = conversation.turns.first(where: { $0.id == localID })?.responseNotice
                 ?? "The response ended before FERB confirmed it. Check tasks before resubmitting."
             conversation.abortReply(id: localID, reason: notice)
@@ -254,8 +255,25 @@ extension NotchModel {
     }
 
     func receiveChatEvent(_ event: [String: Any], localID: UUID) {
+        let previousPlan = conversation.turns.first(where: { $0.id == localID })?.plan
         var applied = false
         withWorkSession(localID) { applied = handleChatEvent(event, localID: localID) }
+        // Presentation uses the restored foreground session, never a background task snapshot.
+        if applied {
+            switch event["type"] as? String {
+            case "plan_delta":
+                if expanded { acknowledgement.suppress(turn: localID) }
+                else { acknowledgement.append(event["text"] as? String ?? "", turn: localID) }
+            case "plan_abort": acknowledgement.abort(turn: localID)
+            case "plan_end": acknowledgement.complete(turn: localID)
+            case "plan":
+                if expanded { acknowledgement.suppress(turn: localID) }
+                else if let text = event["text"] as? String, text != previousPlan {
+                    acknowledgement.finish(text, turn: localID)
+                }
+            default: break
+            }
+        }
         // An event the request gate dropped was never this turn's, so it can't be its follow-up either.
         if applied, event["type"] as? String == "clarify", conversation.turns.contains(where: { $0.id == localID && $0.status == "done" }) {
             followsToday = true
@@ -271,8 +289,12 @@ extension NotchModel {
         if let requestID = event["request_id"] as? String, !requestID.isEmpty,
            !conversation.bindRequest(id: localID, requestID: requestID) { return false }
         switch event["type"] as? String {
+        case "plan_delta", "plan_abort", "plan_end":
+            // Provisional presentation only; the canonical plan owns archive and task binding.
+            guard session.backendTaskID == nil else { return false }
         case "ack":
-            conversation.acknowledge(id: localID, text: event["text"] as? String ?? "", message: event["message"] as? String)
+            let acknowledgement = event["text"] as? String ?? ""
+            conversation.acknowledge(id: localID, text: acknowledgement, message: event["message"] as? String)
             saveConversation()
         case "plan":
             guard let id = event["task_id"] as? String else { return false }
@@ -300,9 +322,14 @@ extension NotchModel {
             }
         case "reply_delta":
             guard session.backendTaskID == nil else { return false }
-            conversation.append(id: localID, delta: event["text"] as? String ?? "")
+            let delta = event["text"] as? String ?? ""
+            if !delta.isEmpty, conversation.turns.first(where: { $0.id == localID })?.answer.isEmpty ?? true {
+                presentIncomingAnswer()
+            }
+            conversation.append(id: localID, delta: delta)
         case "reply_abort":
             guard session.backendTaskID == nil else { return false }
+            acknowledgement.abort(turn: localID)
             conversation.abortReply(id: localID, reason: event["reason"] as? String ?? "")
             saveConversation()
         case "reply", "clarify":
@@ -310,6 +337,7 @@ extension NotchModel {
             let status = event["status"] as? String ?? "done"
             _ = session.finishBackendWork(taskID: nil, status: status, answer: event["text"] as? String ?? "", artifacts: [])
             if status == "done" { feedback.play(.completed); showCompletionTrace() } else { feedback.play(.attention) }
+            presentTerminalAnswer()
             recordAnswer(announce: true, displayText: event["display_text"] as? String)
         case "outcome": receiveOutcome(event)
         case "error":
@@ -317,13 +345,19 @@ extension NotchModel {
             conversation.finish(id: localID, answer: message, status: "failed", artifacts: [])
             saveConversation()
             session.requireAttention(message)
+            presentTerminalAnswer()
             promptError = message
             feedback.play(.attention)
             onBackgroundChange?(true)
         case "subtask":
             let text = event["summary"] as? String ?? event["status"] as? String ?? "Task updated"
+            if let taskID = session.backendTaskID { noteTaskActivity(taskID: taskID, title: text) }
             session.noteBackendActivity(text)
-        case "verification": session.noteBackendActivity("Checking the result", symbol: "checkmark.shield")
+        case "verification":
+            if let taskID = session.backendTaskID {
+                noteTaskActivity(taskID: taskID, title: "Checking the result", symbol: "checkmark.shield")
+            }
+            session.noteBackendActivity("Checking the result", symbol: "checkmark.shield")
         case "memory", "timer": session.noteBackendActivity(event["text"] as? String ?? "Task updated")
         case "event":
             if event["topic"] as? String == "approval.requested" { receiveBusEvent(event) }
@@ -370,12 +404,14 @@ extension NotchModel {
         case "task.created":
             if let taskID {
                 runningTasks[taskID] = data["goal"] as? String ?? "Running task"
+                taskActivities[taskID] = []
                 knownCompletedTasks.remove(taskID)
                 reconciledMissingTasks.remove(taskID)
             }
         case "task.result":
             var result = data
             if let taskID, let goal = runningTasks.removeValue(forKey: taskID), result["goal"] == nil { result["goal"] = goal }
+            if let taskID { taskActivities.removeValue(forKey: taskID) }
             if result["at"] == nil { result["at"] = event["at"] }
             receiveOutcome(result)
             if let taskID { cursor?.end(taskID: taskID) }
@@ -395,6 +431,12 @@ extension NotchModel {
                 return taskID == root || taskID.hasPrefix(root + ".")
             }
             let title = data["tool"] as? String ?? "Working"
+            var roots = Set(runningTasks.keys)
+            roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
+            if let current = session.backendTaskID { roots.insert(current) }
+            let activityID = roots.filter { taskID == $0 || taskID.hasPrefix($0 + ".") }
+                .max(by: { $0.count < $1.count }) ?? taskID
+            noteTaskActivity(taskID: activityID, title: title, symbol: "globe")
             if matches(session.backendTaskID) { session.noteBackendActivity(title) }
             else if let local = workSessions.first(where: { matches($0.value.backendTaskID) })?.key {
                 withWorkSession(local) { session.noteBackendActivity(title) }
@@ -423,10 +465,16 @@ extension NotchModel {
         if recordEvent { taskStateRevision += 1 }
         // The task ended, so its loops did too (L31).
         standingWork.removeValue(forKey: taskID)
-        if session.backendTaskID == taskID, session.activeTaskID != nil { handleOutcome(event, announce: announce); return }
+        if session.backendTaskID == taskID, session.activeTaskID != nil {
+            handleOutcome(event, announce: announce)
+            taskActivities.removeValue(forKey: taskID)
+            return
+        }
         if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
             withWorkSession(localID) { handleOutcome(event, announce: announce) }
+            taskActivities.removeValue(forKey: taskID)
         } else if let status = event["status"] as? String {
+            let fresh = !knownCompletedTasks.contains(taskID)
             let artifacts = (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
             if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
                 ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
@@ -444,7 +492,9 @@ extension NotchModel {
                     verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
             }
             knownCompletedTasks.insert(taskID)
+            if announce && fresh && ["done", "failed", "needs_user"].contains(status) { presentTerminalAnswer() }
             runningTasks.removeValue(forKey: taskID)
+            taskActivities.removeValue(forKey: taskID)
             saveConversation()
         }
     }
@@ -608,6 +658,7 @@ extension NotchModel {
         stoppingTaskIDs.remove(id)
         if announce && !alreadyAnnounced && status == "done" { feedback.play(.completed); showCompletionTrace() }
         else if announce && !alreadyAnnounced && status != "cancelled" { feedback.play(.attention) }
+        if announce && !alreadyAnnounced && ["done", "failed", "needs_user"].contains(status) { presentTerminalAnswer() }
         let verified = event["verified"] as? Bool ?? false
         recordAnswer(announce: announce, displayText: event["display_text"] as? String, verified: verified)
         for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {
@@ -618,6 +669,7 @@ extension NotchModel {
     }
 
     func requestDaemonStop() {
+        acknowledgement.dismiss()
         guard let taskID = session.backendTaskID else {
             if let localID = session.activeTaskID { pendingStops.insert(localID) }
             else { return }

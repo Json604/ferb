@@ -36,6 +36,32 @@ final class NotchLayoutTests: XCTestCase {
         model.collapse()
     }
 
+    func testOpeningFromCompactDoesNotSlideBodySeparatelyFromSurface() {
+        let presentation = NotchPresentation()
+        presentation.backdrop.frame = CGRect(x: 0, y: 0, width: 456, height: 500)
+        presentation.present(size: CGSize(width: 440, height: 480), expanded: true,
+                             bodyVisible: true, anchor: CGPoint(x: 228, y: 15), animate: true) {}
+        XCTAssertEqual(presentation.bodyExpansion, 1)
+        presentation.stop()
+    }
+
+    func testReopeningDuringCloseKeepsCurrentSurfaceInsteadOfRestartingAtPill() throws {
+        guard NSScreen.main != nil else { throw XCTSkip("A display is required for the presentation clock") }
+        let presentation = NotchPresentation()
+        presentation.backdrop.frame = CGRect(x: 0, y: 0, width: 456, height: 500)
+        presentation.present(size: CGSize(width: 440, height: 480), expanded: true,
+                             bodyVisible: true, animate: false) {}
+        presentation.present(size: CGSize(width: 58, height: 30), expanded: false,
+                             bodyVisible: true, anchor: CGPoint(x: 228, y: 15), animate: true) {}
+        let visibleSize = presentation.size
+        let visibleOrigin = presentation.surfaceOrigin
+        presentation.present(size: CGSize(width: 440, height: 480), expanded: true,
+                             bodyVisible: true, anchor: CGPoint(x: 228, y: 15), animate: true) {}
+        XCTAssertEqual(presentation.size, visibleSize)
+        XCTAssertEqual(presentation.surfaceOrigin, visibleOrigin)
+        presentation.stop()
+    }
+
     private func profileButton(in view: NSView) -> NSButton? {
         if let button = view as? NSButton, button.toolTip == "Profile and options" { return button }
         return view.subviews.lazy.compactMap { self.profileButton(in: $0) }.first

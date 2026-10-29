@@ -31,8 +31,8 @@ final class NotchPanel: NSPanel {
     }
 }
 
-/// The notch's glow: a click-through window, reported to the daemon as one (ClickThroughReport, D31 fix round 4).
-final class NotchLightPanel: NSPanel {
+/// The notch's glow: click-through windows reported to the daemon (ClickThroughReport, D31 fix round 4).
+class NotchLightPanel: NSPanel {
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType,
                   defer flag: Bool) {
         super.init(contentRect: contentRect, styleMask: style, backing: backingStoreType, defer: flag)
@@ -56,6 +56,31 @@ final class TrackingHostingView<Content: View>: NSHostingView<Content> {
     var entered: (() -> Void)?
     var exited: (() -> Void)?
     private var tracking: NSTrackingArea?
+    private var textRefreshQueued = false
+
+    /// The transcript stays mounted while its window is hidden and compacted.
+    /// Refresh retained selectable text after the reveal has finished, without
+    /// replacing native views, text storage, or the owner's selected ranges.
+    func scheduleTextDisplayRefresh() {
+        guard !textRefreshQueued else { return }
+        textRefreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.textRefreshQueued = false
+            self.layoutSubtreeIfNeeded()
+            self.invalidateRetainedText(in: self)
+        }
+    }
+
+    private func invalidateRetainedText(in view: NSView) {
+        // Reading layoutManager on a TextKit 2 view switches it to compatibility
+        // mode. Leave that renderer intact; its view invalidation below suffices.
+        if let text = view as? NSTextView, text.textLayoutManager == nil, let storage = text.textStorage {
+            text.layoutManager?.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: storage.length))
+        }
+        view.needsDisplay = true
+        for child in view.subviews { invalidateRetainedText(in: child) }
+    }
 
     override func updateTrackingAreas() {
         if let tracking { removeTrackingArea(tracking) }
@@ -73,6 +98,7 @@ final class TrackingHostingView<Content: View>: NSHostingView<Content> {
 final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preconcurrency QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     let model = NotchModel()
     private let presentation = NotchPresentation()
+    private weak var hostingView: TrackingHostingView<NotchView>?
     private let shortcuts = NotchShortcutMonitor()
     private let overlaySpace = NotchOverlaySpace()
     private static let overlayBehavior: NSWindow.CollectionBehavior = [
@@ -84,11 +110,33 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     private let panel: NotchPanel
     private let tracerPanel = NotchLightPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                               backing: .buffered, defer: false)
+    private let indicatorPanel = FerbIndicatorPanel(contentRect: CGRect(x: 0, y: 0, width: 58, height: 30),
+                                                    styleMask: [.borderless, .nonactivatingPanel],
+                                                    backing: .buffered, defer: false)
+    private var activityPanel: TaskActivityPanel?
+    private var activityTaskID: String?
     private var geometry: NotchGeometry?
     private var statusItem: NSStatusItem?
     private var hoverTask: Task<Void, Never>?
+    private var indicatorRestTask: Task<Void, Never>?
+    private weak var indicatorControl: FerbIndicatorControl?
+    private var presentedExpanded = false
+    private var isDocked = false
+    private var dockingRevision: UUID?
     private var pointerIsInside = false
     private var cutoutFrame = CGRect.zero
+    private var indicatorFrame = CGRect.zero
+    private var indicatorEdge: FERBScreenEdge = .right
+    private var indicatorScreen: NSScreen?
+    private var indicatorFraction: CGFloat = 0.5
+    private var indicatorDragPointer: CGPoint?
+    private var indicatorDragFrame: CGRect?
+    private var panelDragFrame: CGRect?
+    private var dragCard: CGRect?
+    private var dragMotion: DragChatMotion?
+    private var dragCanvasActive = false
+    private var dragPreferredSize = CGSize.zero
+    private var dragClock: CADisplayLink?
     private var eventMonitors: [Any] = []
     private var hotKey: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
@@ -132,6 +180,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         cursor.onPanelsChange = { [weak self] numbers in self?.model.clickThrough.set("cursor", windows: numbers) }
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
+        configureIndicator()
         model.onPresentationChange = { [weak self] animate in self?.present(animate: animate) }
         model.onAttentionArrival = { [weak self] in self?.hoverTask?.cancel() }
         model.onBackgroundChange = { [weak self] animate in self?.present(animate: animate, requestFocus: false) }
@@ -140,6 +189,21 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             self.pointerExited()
         }
         model.onInteraction = { [weak self] in self?.beginInteraction() }
+        model.onPreviewWindowChange = { [weak self] id, window, attached in
+            guard let self else { return }
+            if attached {
+                self.previewWindows[id] = window
+                window.level = NSWindow.Level(rawValue: self.panel.level.rawValue + 1)
+                self.overlaySpace.include(window)
+            } else {
+                self.previewWindows.removeValue(forKey: id)
+                if !self.previewWindows.values.contains(where: { $0 === window }) {
+                    self.overlaySpace.remove(window)
+                }
+            }
+            self.updatePointer()
+        }
+        model.onDetachTaskActivity = { [weak self] taskID in self?.showTaskActivity(taskID) }
         model.onYieldChange = { [weak self] yielded in self?.applyYield(yielded) }
         model.onOpenDocument = { [weak self] url in
             if NSWorkspace.shared.open(url) { self?.model.dismissAutomatically() }
@@ -209,7 +273,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
             return nil
         }) { eventMonitors.append(monitor) }
         updateScreen()
-        overlaySpace.attach([panel, tracerPanel])
+        overlaySpace.attach([panel, tracerPanel, indicatorPanel])
         NotificationCenter.default.addObserver(self, selector: #selector(updateScreen),
                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(screenDidWake),
@@ -276,6 +340,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.animationBehavior = .none
         panel.onEscape = { [weak self] in self?.model.collapse(keyboard: true) }
         let hosting = TrackingHostingView(rootView: NotchView(model: model, presentation: presentation))
+        hostingView = hosting
         hosting.sizingOptions = []
         hosting.entered = { [weak self] in self?.updatePointer() }
         hosting.exited = { [weak self] in self?.updatePointer() }
@@ -284,6 +349,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         panel.contentView = backdrop
         hosting.frame = backdrop.bounds
         backdrop.addSubview(hosting)
+        let resizeOverlay = PanelResizeOverlay(model: model)
+        resizeOverlay.frame = backdrop.bounds
+        backdrop.addSubview(resizeOverlay)
 
         // This window never resizes with the dialog and never captures a click.
         // Its larger transparent canvas keeps the light outside the camera cutout.
@@ -302,13 +370,398 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         tracerPanel.contentView = tracerHosting
     }
 
+    private func configureIndicator() {
+        indicatorPanel.title = "FERB edge indicator"
+        indicatorPanel.backgroundColor = .clear
+        indicatorPanel.isOpaque = false
+        indicatorPanel.hasShadow = false
+        indicatorPanel.hidesOnDeactivate = false
+        indicatorPanel.canBecomeVisibleWithoutLogin = false
+        indicatorPanel.isReleasedWhenClosed = false
+        indicatorPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+        indicatorPanel.collectionBehavior = Self.overlayBehavior
+        indicatorPanel.animationBehavior = .none
+        indicatorPanel.acceptsMouseMovedEvents = true
+        let control = FerbIndicatorControl(model: model)
+        indicatorControl = control
+        control.onPointerChanged = { [weak self] in self?.updatePointer() }
+        control.onDragBegan = { [weak self] point in
+            guard let self else { return }
+            self.hoverTask?.cancel()
+            if self.dockingRevision != nil {
+                self.dockingRevision = nil
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    for window in [self.panel as NSWindow, self.indicatorPanel] {
+                        window.animator().setFrame(window.frame, display: true)
+                        CATransaction.begin()
+                        CATransaction.setDisableActions(true)
+                        window.contentView?.layer?.removeAnimation(forKey: "ferb.swallow")
+                        window.contentView?.layer?.transform = CATransform3DIdentity
+                        CATransaction.commit()
+                        window.animator().alphaValue = 1
+                    }
+                }
+            }
+            self.setIndicatorResting(false, animated: false)
+            self.presentation.stop()
+            self.model.acknowledgement.dismiss()
+            self.indicatorDragPointer = point
+            self.indicatorDragFrame = self.indicatorFrame
+            self.dragPreferredSize = self.model.surfaceSize
+            self.panelDragFrame = self.panel.frame
+            self.dragCard = CGRect(x: self.panel.frame.minX + self.presentation.surfaceOrigin.x,
+                y: self.panel.frame.maxY - self.presentation.surfaceOrigin.y - self.presentation.size.height,
+                width: self.presentation.size.width, height: self.presentation.size.height)
+        }
+        control.onDragged = { [weak self] point in self?.moveIndicator(with: point) }
+        control.onDragEnded = { [weak self] point in self?.snapIndicator(at: point) }
+        control.onClick = { [weak self] in
+            guard let self else { return }
+            self.indicatorDragPointer = nil
+            self.indicatorDragFrame = nil
+            self.beginInteraction()
+            self.model.toggle()
+        }
+        indicatorPanel.contentView = control
+    }
+
+    private func showTaskActivity(_ taskID: String) {
+        guard model.taskItems.contains(where: { $0.id == taskID && $0.isRunning }) else { return }
+        if activityTaskID == taskID, let activityPanel {
+            activityPanel.orderFrontRegardless()
+            return
+        }
+        closeTaskActivity()
+        let window = TaskActivityPanel(model: model, taskID: taskID) { [weak self] in self?.closeTaskActivity() }
+        activityTaskID = taskID
+        activityPanel = window
+        overlaySpace.include(window)
+        window.orderFrontRegardless()
+    }
+
+    private func closeTaskActivity() {
+        guard let window = activityPanel else { return }
+        activityPanel = nil
+        activityTaskID = nil
+        overlaySpace.remove(window)
+        window.orderOut(nil)
+    }
+
+    /// The expanded control is a subview of the chat window: one WindowServer move.
+    private func attachIndicator() {
+        guard let control = indicatorControl else { return }
+        if control.superview !== presentation.backdrop {
+            indicatorPanel.contentView = nil
+            control.removeFromSuperview()
+            presentation.backdrop.addSubview(control)
+        }
+        control.autoresizingMask = []
+        control.isAttached = true
+        control.frame = CGRect(x: indicatorFrame.minX - panel.frame.minX,
+                               y: panel.frame.maxY - indicatorFrame.maxY,
+                               width: indicatorFrame.width, height: indicatorFrame.height)
+        control.isDocked = isDocked
+        // The camera and its reachable lower lip belong to tear-out, never resize.
+        for case let resize as PanelResizeOverlay in presentation.backdrop.subviews {
+            resize.dragExclusionRect = control.frame
+        }
+        presentation.backdrop.attachmentRect = isDocked ? nil : control.frame
+        presentation.backdrop.attachmentEdge = indicatorEdge
+        indicatorPanel.orderOut(nil)
+    }
+
+    private func detachIndicator() {
+        guard let control = indicatorControl, control.isAttached else { return }
+        control.removeFromSuperview()
+        control.isAttached = false
+        presentation.backdrop.attachmentRect = nil
+        indicatorPanel.contentView = control
+        indicatorPanel.setFrame(indicatorFrame, display: true)
+    }
+
+    private func moveIndicator(with point: CGPoint) {
+        guard let origin = indicatorDragPointer, let start = indicatorDragFrame else { return }
+        if isDocked {
+            // The first real drag tears out; a click still just opens/closes chat.
+            isDocked = false
+            model.isNotchDocked = false
+            presentation.backdrop.docked = false
+            NotchDocking.save(false, in: .standard)
+            indicatorControl?.isDocked = false
+            indicatorEdge = .top
+            model.indicatorEdge = "top"
+            indicatorFrame = CGRect(x: origin.x - 29, y: origin.y - 15, width: 58, height: 30)
+            indicatorDragFrame = indicatorFrame
+            if model.expanded {
+                // The pill emerges under the grabbed point, including a grab farther
+                // down the empty header. Subsequent motion translates one window.
+                let old = panel.frame
+                panel.setFrame(CGRect(x: old.minX, y: origin.y + 15 - old.height - 28,
+                                      width: old.width, height: old.height + 28), display: true)
+                presentation.destination = CGPoint(x: 8, y: 28)
+                presentation.present(size: model.surfaceSize, expanded: true, bodyVisible: model.bodyVisible,
+                                     anchor: nil, animate: false, completion: {})
+                indicatorFrame = CGRect(x: origin.x - 29, y: origin.y - 15, width: 58, height: 30)
+                indicatorDragFrame = indicatorFrame
+                attachIndicator()
+                panelDragFrame = panel.frame
+            } else {
+                indicatorPanel.setFrame(indicatorFrame, display: true)
+            }
+            moveIndicator(with: point)
+            return
+        }
+        let previous = indicatorFrame
+        indicatorFrame = PanelLayout.draggedFrame(start: start, grabbedAt: origin, pointer: point)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? indicatorScreen else { return }
+        indicatorScreen = screen
+        if model.expanded {
+            let preferred = dragPreferredSize
+            let target = LiveDragLayout.resolve(pill: indicatorFrame, screen: screen.frame,
+                preferred: preferred, previous: indicatorEdge)
+            if dragMotion == nil {
+                dragMotion = DragChatMotion(card: dragCard ?? target.card, edge: indicatorEdge)
+            }
+            indicatorEdge = target.edge
+            // Content order stays stable while held; only the four attachment states change.
+            dragCard = dragMotion?.update(target:target.card, edge:target.edge,
+                delta:CGPoint(x:indicatorFrame.minX-previous.minX,y:indicatorFrame.minY-previous.minY),
+                at:CACurrentMediaTime(), reduceMotion:NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                visibleCard:dragCard)
+            renderDragCard()
+            if dragMotion?.isAnimating == true, dragClock == nil {
+                let clock = screen.displayLink(target: self, selector: #selector(tickDrag(_:)))
+                dragClock = clock
+                clock.add(to: .main, forMode: .common)
+            }
+
+        } else { indicatorPanel.setFrame(indicatorFrame, display: true) }
+        pointerIsInside = true
+    }
+
+    @objc private func tickDrag(_ link: CADisplayLink) {
+        guard indicatorDragPointer != nil else { stopDragLayout(); return }
+        dragCard = dragMotion?.sample(at:CACurrentMediaTime())
+        renderDragCard()
+        if dragMotion?.isAnimating != true {
+            dragClock?.invalidate()
+            dragClock = nil
+        }
+    }
+
+    private func renderDragCard() {
+        guard var card = dragCard else { return }
+        if let screen = indicatorScreen {
+            card = LiveDragLayout.connectedCard(card, pill: indicatorFrame, screen: screen.frame)
+        }
+        dragCard = card
+        if model.availableSurfaceSize != card.size { model.availableSurfaceSize = card.size }
+        // Keep the native window stationary while the pointer is captured. Only
+        // the chat moves relative to the pill; restore a tight canvas on release.
+        guard let control = indicatorControl, let screen = indicatorScreen else { return }
+        dragCanvasActive = true
+        presentation.backdrop.performUpdates {
+            DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
+                pill: indicatorFrame, card: card, canvas: screen.frame, bodyVisible: !model.isHeaderOnly)
+            attachIndicator()
+            // Follow the currently drawn boundary through a reversal rather than
+            // switching the concave shoulder to the eventual side ahead of the card.
+            if card.minX > indicatorFrame.midX { presentation.backdrop.attachmentEdge = .left }
+            else if card.maxX < indicatorFrame.midX { presentation.backdrop.attachmentEdge = .right }
+            else if card.minY > indicatorFrame.midY { presentation.backdrop.attachmentEdge = .bottom }
+            else if card.maxY < indicatorFrame.midY { presentation.backdrop.attachmentEdge = .top }
+        }
+    }
+
+    private func stopDragLayout() {
+        // Shrink before docking or ordinary placement: never retain a transparent
+        // display-sized event surface after mouse-up.
+        if dragCanvasActive, let control = indicatorControl, model.expanded {
+            let card = CGRect(x: panel.frame.minX + presentation.surfaceOrigin.x,
+                y: panel.frame.maxY - presentation.surfaceOrigin.y - presentation.size.height,
+                width: presentation.size.width, height: presentation.size.height)
+            DragSurfaceCanvas.place(window: panel, presentation: presentation, control: control,
+                pill: indicatorFrame, card: card, canvas: card.union(indicatorFrame), bodyVisible: !model.isHeaderOnly)
+            attachIndicator()
+        }
+        dragClock?.invalidate()
+        dragClock = nil
+        dragCard = nil
+        dragMotion = nil
+        dragCanvasActive = false
+    }
+
+    private func snapIndicator(at point: CGPoint) {
+        stopDragLayout()
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ??
+            NSScreen.screens.min(by: { distance(point, to: $0.frame) < distance(point, to: $1.frame) })
+        guard let screen else { return }
+        let targetGeometry = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
+            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX, rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
+            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
+        if NotchDocking.accepts(point, cutout: targetGeometry.cutoutFrame, hasHardwareNotch: targetGeometry.hasNotch) {
+            dockIndicator(on: screen, cutout: targetGeometry.cutoutFrame)
+            return
+        }
+        let frame = screen.frame
+        let edge = LiveDragLayout.nearestEdge(pill:indicatorFrame,screen:frame,previous:indicatorEdge)
+        indicatorScreen = screen
+        indicatorEdge = edge
+        model.indicatorEdge = edge.rawValue
+        let size = CGSize(width: 58, height: 30)
+        switch edge {
+        case .top:
+            let x = safeTopIndicatorX(point.x - size.width / 2, size: size, screen: screen)
+            indicatorFraction = min(1, max(0, (x - frame.minX) / max(frame.width - size.width, 1)))
+        case .bottom:
+            let x = min(frame.maxX - size.width, max(frame.minX, point.x - size.width / 2))
+            indicatorFraction = min(1, max(0, (x - frame.minX) / max(frame.width - size.width, 1)))
+        case .left, .right:
+            indicatorFraction = min(1, max(0, (point.y - frame.minY - size.height / 2) / max(frame.height - size.height, 1)))
+        }
+        persistIndicatorAnchor(for: screen)
+        indicatorDragPointer = nil
+        indicatorDragFrame = nil
+        pointerIsInside = false
+        updateScreen()
+        updatePointer()
+    }
+
+    private func dockIndicator(on screen: NSScreen, cutout: CGRect) {
+        indicatorDragPointer = nil
+        indicatorDragFrame = nil
+        hoverTask?.cancel()
+        indicatorRestTask?.cancel()
+        indicatorRestTask = nil
+        indicatorScreen = screen
+        persistIndicatorAnchor(for: screen)
+        let revision = UUID()
+        dockingRevision = revision
+        presentation.stop()
+        let window: NSWindow = model.expanded ? panel : indicatorPanel
+        let finish = { [weak self] in
+            guard let self, self.dockingRevision == revision else { return }
+            self.dockingRevision = nil
+            self.isDocked = true
+            NotchDocking.save(true, in: .standard)
+            self.indicatorControl?.isDocked = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for surface in [self.panel as NSWindow, self.indicatorPanel] {
+                surface.contentView?.layer?.removeAnimation(forKey: "ferb.swallow")
+                surface.contentView?.layer?.transform = CATransform3DIdentity
+            }
+            CATransaction.commit()
+            self.panel.alphaValue = 1
+            self.indicatorPanel.alphaValue = 1
+            self.presentedExpanded = false
+            self.updateScreen()
+            if self.model.expanded {
+                self.presentedExpanded = false
+                self.present(animate: true, requestFocus: false)
+            }
+            self.updatePointer()
+        }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            finish()
+        } else {
+            // Preserve the full canvas while scaling its whole backing layer. Resizing
+            // the window itself would crop the card and leave the pill behind.
+            let start = window.frame
+            let curve = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0, 1)
+            if let layer = window.contentView?.layer {
+                let transform = CATransform3DMakeAffineTransform(NotchDocking.swallowTransform(
+                    canvas: start.size, target: cutout.size, flipped: layer.isGeometryFlipped, anchor: layer.anchorPoint))
+                let animation = CABasicAnimation(keyPath: "transform")
+                animation.fromValue = layer.presentation()?.transform ?? layer.transform
+                animation.toValue = transform
+                animation.duration = 0.24
+                animation.timingFunction = curve
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.transform = transform
+                layer.add(animation, forKey: "ferb.swallow")
+                CATransaction.commit()
+            }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.24
+                context.timingFunction = curve
+                window.animator().setFrame(CGRect(x: cutout.minX, y: cutout.maxY - start.height,
+                                                  width: start.width, height: start.height), display: true)
+                window.animator().alphaValue = 0
+            } completionHandler: { Task { @MainActor in finish() } }
+        }
+    }
+
+    private func distance(_ point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(max(rect.minX - point.x, 0), point.x - rect.maxX)
+        let dy = max(max(rect.minY - point.y, 0), point.y - rect.maxY)
+        return hypot(dx, dy)
+    }
+
+    private func displayID(_ screen: NSScreen) -> UInt32? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
+    private func persistIndicatorAnchor(for screen: NSScreen) {
+        let defaults = UserDefaults.standard
+        defaults.set(indicatorEdge.rawValue, forKey: "notch.indicatorEdge")
+        defaults.set(Double(indicatorFraction), forKey: "notch.indicatorFraction")
+        if let id = displayID(screen) { defaults.set(Int(id), forKey: "notch.indicatorDisplayID") }
+    }
+
+    private func indicatorFrame(on screen: NSScreen) -> CGRect {
+        let bounds = screen.frame
+        let size = CGSize(width: 58, height: 30)
+        switch indicatorEdge {
+        case .top:
+            let requestedX = bounds.minX + indicatorFraction * (bounds.width - size.width)
+            return CGRect(x: safeTopIndicatorX(requestedX, size: size, screen: screen),
+                          y: bounds.maxY - size.height, width: size.width, height: size.height)
+        case .bottom:
+            return CGRect(x: bounds.minX + indicatorFraction * (bounds.width - size.width),
+                          y: bounds.minY, width: size.width, height: size.height)
+        case .left:
+            return CGRect(x: bounds.minX, y: bounds.minY + indicatorFraction * (bounds.height - size.height),
+                          width: size.width, height: size.height)
+        case .right:
+            return CGRect(x: bounds.maxX - size.width,
+                          y: bounds.minY + indicatorFraction * (bounds.height - size.height),
+                          width: size.width, height: size.height)
+        }
+    }
+
+    private func safeTopIndicatorX(_ proposedX: CGFloat, size: CGSize, screen: NSScreen) -> CGFloat {
+        let bounds = screen.frame
+        let notch = NotchGeometry(screen: bounds, topInset: screen.safeAreaInsets.top,
+            leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
+            rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
+            menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY).cutoutFrame
+        return IndicatorPlacement.safeTopX(proposedX: proposedX, size: size.width, screen: bounds, notch: notch)
+    }
+
     @objc private func updateScreen() {
-        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        model.acknowledgement.dismiss()
+        let defaults = UserDefaults.standard
+        let savedDisplay = defaults.object(forKey: "notch.indicatorDisplayID") as? NSNumber
+        let preferred = savedDisplay.flatMap { saved in NSScreen.screens.first { displayID($0) == saved.uint32Value } }
+        guard let screen = preferred ?? NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        indicatorScreen = screen
+        indicatorEdge = FERBScreenEdge(rawValue: defaults.string(forKey: "notch.indicatorEdge") ?? "right") ?? .right
+        indicatorFraction = defaults.object(forKey: "notch.indicatorFraction") == nil
+            ? 0.5 : min(1, max(0, CGFloat(defaults.double(forKey: "notch.indicatorFraction"))))
         let current = NotchGeometry(screen: screen.frame, topInset: screen.safeAreaInsets.top,
                                     leftAreaMaxX: screen.auxiliaryTopLeftArea?.maxX,
                                     rightAreaMinX: screen.auxiliaryTopRightArea?.minX,
                                     menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
         geometry = current
+        isDocked = NotchDocking.isSaved(in: .standard) && current.hasNotch
+        model.isNotchDocked = isDocked
+        presentation.backdrop.docked = isDocked
+        indicatorControl?.isDocked = isDocked
+        if isDocked { indicatorEdge = .top }
+        model.indicatorEdge = indicatorEdge.rawValue
         screenFrame = screen.frame
         // The strip whose windows are always-present chrome (menu bar, status items), never something to yield to.
         menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top,
@@ -316,8 +769,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         model.handleWidth = current.handleWidth
         model.hasHardwareNotch = current.hasNotch
         // The camera housing, or a virtual notch over the menu bar's centre: both begin at the screen's top edge.
-        model.cutoutHeight = current.cutoutFrame.height
+        model.cutoutHeight = max(40, current.cutoutFrame.height)
         cutoutFrame = current.cutoutFrame
+        indicatorFrame = isDocked ? NotchDocking.dragRegion(cutout: cutoutFrame) : indicatorFrame(on: screen)
+        indicatorPanel.setFrame(indicatorFrame, display: true)
+        if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
         tracerPanel.setFrame(frame(for: CGSize(width: model.handleWidth + 40,
                                                height: model.cutoutHeight + 24)), display: true)
         pointerIsInside = false
@@ -328,10 +784,13 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         screensAsleep = false
         updateScreen()
         windowYield.showPanel()
+        if !model.expanded { indicatorPanel.orderFrontRegardless() }
+        panel.resetCursorRects()
         updateTracerVisibility()
     }
 
     @objc private func screensDidSleep() {
+        model.acknowledgement.dismiss()
         screensAsleep = true
         updateYieldWatch()
     }
@@ -346,11 +805,22 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     @objc private func activeSpaceChanged() {
+        model.acknowledgement.dismiss()
         // Space changes are not display changes. Keep the same geometry, draft,
         // pin state, running spring and current text responder. In particular,
         // do not resignKey here: that discarded input focus on every swipe.
         hoverTask?.cancel()
-        if !overlaySpace.isAttached {
+        if overlaySpace.isAttached {
+            // macOS can drop unmanaged overlay windows during a desktop swipe without detaching our space handle.
+            // Re-add the persistent indicator and light, and the chat unless it is intentionally yielding.
+            overlaySpace.rejoin(tracerPanel)
+            overlaySpace.rejoin(indicatorPanel)
+            if let activityPanel { overlaySpace.rejoin(activityPanel) }
+            if !model.isYielded { overlaySpace.rejoin(panel) }
+            if indicatorPanel.isVisible { indicatorPanel.orderFrontRegardless() }
+            if tracerPanel.isVisible { tracerPanel.orderFrontRegardless() }
+            if !model.isYielded && panel.isVisible { panel.orderFrontRegardless() }
+        } else {
             windowYield.showPanel()
             updateTracerVisibility()
         }
@@ -358,35 +828,81 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func present(animate: Bool, requestFocus: Bool = true) {
-        guard geometry != nil else { return }
+        guard geometry != nil, indicatorDragPointer == nil, dockingRevision == nil else { return }
+        presentation.compactSize = isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30)
+        model.noteTextPresentation(expanded: model.surfaceVisible)
+        let wasExpanded = presentedExpanded
+        presentedExpanded = model.surfaceVisible
         let isOpening = model.bodyVisible && !presentedBodyVisible
         presentedBodyVisible = model.bodyVisible
         // The owner opened or revealed FERB (background updates don't request focus): stay over the windows
         // already there rather than stepping aside right after taking focus.
         if isOpening && requestFocus { yieldController.ownerOpened() }
+        guard model.surfaceVisible else {
+            presentedBodyVisible = false
+            updateTracerVisibility()
+            updateYieldWatch()
+            setIndicatorResting(false)
+            indicatorRestTask?.cancel()
+            indicatorRestTask = nil
+            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            if animate && panel.isVisible && !reduceMotion, let screen = indicatorScreen {
+                let anchor = CGPoint(x: indicatorFrame.midX - panel.frame.minX,
+                                     y: isDocked ? cutoutFrame.height / 2 : panel.frame.maxY - indicatorFrame.midY)
+                let revision = UUID()
+                presentationRevision = revision
+                presentation.animates = true
+                presentation.present(size: isDocked ? cutoutFrame.size : CGSize(width: 58, height: 30), expanded: false,
+                                     bodyVisible: !model.isHeaderOnly, anchor: anchor, animate: true) { [weak self] in
+                    guard let self, self.presentationRevision == revision else { return }
+                    self.detachIndicator()
+                    self.panel.setFrame(self.isDocked ? NotchDocking.dragRegion(cutout: self.cutoutFrame) : self.indicatorFrame(on: screen), display: true)
+                    self.panel.orderOut(nil)
+                    self.model.finishCompactPreviewDismissal()
+                    self.indicatorPanel.orderFrontRegardless()
+                    self.scheduleIndicatorRest()
+                }
+                return
+            }
+            detachIndicator()
+            panel.orderOut(nil)
+            model.finishCompactPreviewDismissal()
+            scheduleIndicatorRest()
+            if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
+            return
+        }
+        indicatorRestTask?.cancel()
+        indicatorRestTask = nil
+        setIndicatorResting(false)
+        if let screen = indicatorScreen {
+            model.availableSurfaceSize = PanelLayout.surfaceBudget(screen: screen.frame, edge: indicatorEdge, docked: isDocked)
+        }
         let targetFrame = frame(for: model.panelSize)
         let targetSize = model.surfaceSize
-        let shouldAnimate = animate && panel.isVisible
+        let shouldAnimate = animate && (indicatorPanel.isVisible || panel.isVisible)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let revision = UUID()
         presentationRevision = revision
         presentation.animates = shouldAnimate
 
         presentation.cutoutHeight = model.cutoutHeight
-        if shouldAnimate && !reduceMotion {
-            let canvas = CGSize(width: max(panel.frame.width, targetFrame.width),
-                                height: max(panel.frame.height, targetFrame.height))
-            panel.setFrame(frame(for: canvas), display: true)
-        } else {
-            panel.setFrame(targetFrame, display: true)
-        }
-        presentation.present(size: targetSize, expanded: model.expanded,
+        panel.setFrame(targetFrame, display: true)
+        attachIndicator()
+        presentation.destination = CGPoint(x: indicatorEdge == .left ? 56 : 8,
+                                            y: isDocked ? 0 : (indicatorEdge == .top ? 28 : (indicatorEdge == .bottom ? 12 : 0)))
+        let anchor = CGPoint(x: indicatorFrame.midX - panel.frame.minX,
+                             y: isDocked ? cutoutFrame.height / 2 : panel.frame.maxY - indicatorFrame.midY)
+        presentation.present(size: targetSize, expanded: model.surfaceVisible,
                              bodyVisible: !model.isHeaderOnly,
+                             anchor: wasExpanded ? nil : anchor,
                              animate: shouldAnimate && !reduceMotion) { [weak self] in
             guard let self, self.presentationRevision == revision else { return }
-            self.panel.setFrame(targetFrame, display: true)
+            if self.indicatorDragPointer == nil { self.panel.setFrame(targetFrame, display: true) }
+            self.model.completeTextReveal()
+            self.hostingView?.scheduleTextDisplayRefresh()
         }
         windowYield.showPanel()
+        panel.resetCursorRects()
         updateTracerVisibility()
         updateYieldWatch()
         if !model.bodyVisible {
@@ -407,13 +923,63 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func frame(for size: CGSize) -> CGRect {
-        CGRect(x: cutoutFrame.midX - size.width / 2, y: cutoutFrame.maxY - size.height,
-               width: size.width, height: size.height)
+        if model.surfaceVisible, let screen = indicatorScreen {
+            return PanelLayout.frame(size: size, screen: screen.frame, indicator: indicatorFrame,
+                                     edge: indicatorEdge, docked: isDocked, cutout: cutoutFrame)
+        }
+        return CGRect(x: cutoutFrame.midX - size.width / 2, y: cutoutFrame.maxY - size.height,
+                      width: size.width, height: size.height)
+    }
+
+    /// After three idle seconds the pill settles into a home-indicator line. Both
+    /// states share the same center, so hovering unfolds it in place.
+    private func setIndicatorResting(_ resting: Bool, animated: Bool = true) {
+        let animated = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard !isDocked, indicatorControl?.isAttached != true, let screen = indicatorScreen else { return }
+        let pill = indicatorFrame(on: screen)
+        let length = cutoutFrame.width / 2
+        let target: CGRect
+        if resting {
+            switch indicatorEdge {
+            case .top:
+                target = CGRect(x: safeTopIndicatorX(pill.midX - length / 2, size: CGSize(width: length, height: 5), screen: screen), y: screen.frame.maxY - 5, width: length, height: 5)
+            case .bottom:
+                target = CGRect(x: min(screen.frame.maxX - length, max(screen.frame.minX, pill.midX - length / 2)), y: screen.frame.minY, width: length, height: 5)
+            case .left:
+                target = CGRect(x: screen.frame.minX, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
+            case .right:
+                target = CGRect(x: screen.frame.maxX - 5, y: min(screen.frame.maxY - length, max(screen.frame.minY, pill.midY - length / 2)), width: 5, height: length)
+            }
+        } else {
+            target = pill
+        }
+        indicatorControl?.setResting(resting, animated: animated)
+        if indicatorPanel.frame != target {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = animated ? 0.38 : 0
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+                indicatorPanel.animator().setFrame(target, display: true)
+            }
+        }
+        if indicatorControl?.isAttached != true { indicatorPanel.orderFrontRegardless() }
+    }
+
+    private func scheduleIndicatorRest() {
+        guard !isDocked, indicatorRestTask == nil, !model.surfaceVisible,
+              !model.taskItems.contains(where: \.isRunning) else { return }
+        indicatorRestTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            guard let self else { return }
+            self.indicatorRestTask = nil
+            guard !self.model.expanded, !self.pointerIsInside,
+                  !self.model.taskItems.contains(where: \.isRunning) else { return }
+            self.setIndicatorResting(true)
+        }
     }
 
     private func updateTracerVisibility() {
         model.clickThrough.set("tracer", windows: [tracerPanel.windowNumber])
-        windowYield.updateTracer(glowing: model.showsTraceGlow, lightShows: model.tracerLightShows)
+        tracerPanel.orderOut(nil)
     }
 
     /// The notch windows sit in an unmanaged overlay space above every ordinary window and other apps' menus, so
@@ -424,6 +990,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     /// another app meanwhile.
     private func applyYield(_ yielded: Bool) {
         if yielded {
+            model.acknowledgement.dismiss()
             hoverTask?.cancel()
             yieldController.yieldBegan(pointer: windowServerPoint(NSEvent.mouseLocation))
             windowYield.yield(behind: yieldController.coveringWindow())
@@ -445,7 +1012,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         func server(_ rect: CGRect) -> CGRect { NotchOverlap.windowServerRect(rect, primaryDisplayHeight: height) }
         // FERB's drawn surface, not the panel window: its transparent margins pass clicks through.
         var occupied: [CGRect] = []
-        if model.expanded { occupied.append(frame(for: model.surfaceSize)) }
+        if model.surfaceVisible { occupied.append(frame(for: model.surfaceSize)) }
         // On a notched display the collapsed pill sits inside the camera housing, where nothing can be drawn.
         else if !model.hasHardwareNotch { occupied.append(cutoutFrame) }
         if model.showsTraceGlow { occupied.append(tracerPanel.frame) }
@@ -516,25 +1083,39 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     private func beginInteraction() {
+        if model.compactPlanText != nil { model.expand() }
         // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the pinned chat
         // and show FERB over the windows now over it.
         yieldController.summon()
         hoverTask?.cancel()
+        indicatorRestTask?.cancel()
+        indicatorRestTask = nil
+        setIndicatorResting(false)
         if model.bodyVisible, !model.isYielded { panel.makeKey() }
     }
 
+    private var previewWindows: [UUID: NSWindow] = [:]
+
     private var pointerIsOverSurface: Bool {
         let point = NSEvent.mouseLocation
-        let inCutout = cutoutFrame.insetBy(dx: 0, dy: -2).contains(point)
-        let visibleSize = model.expanded ? model.panelSize : presentation.size
-        // CGRect.contains excludes maxY. Include the physical screen edge over
-        // the entire header, not just the narrow camera cutout.
-        let hoverFrame = frame(for: visibleSize).insetBy(dx: 0, dy: -2)
-        let inSurface = (model.expanded || presentation.expansion > 0.01) && hoverFrame.contains(point)
-        return inCutout || inSurface
+        if model.expanded, previewWindows.values.contains(where: { $0.isVisible && $0.frame.contains(point) }) {
+            return true
+        }
+        if isDocked, NotchDocking.accepts(point, cutout: cutoutFrame, hasHardwareNotch: model.hasHardwareNotch) {
+            return true
+        }
+        let indicatorHitFrame = isDocked ? cutoutFrame.union(indicatorFrame) : indicatorFrame.insetBy(dx: 0, dy: -2)
+        guard model.surfaceVisible else { return indicatorHitFrame.contains(point) || indicatorPanel.frame.contains(point) }
+        let panelFrame = panel.frame.insetBy(dx: 0, dy: -2)
+        if panelFrame.contains(point) { return true }
+        // Keep the hover trigger hot as the compact indicator is handed off to the
+        // expanding surface. This also prevents an edge coordinate conversion from
+        // folding FERB while the pointer is still at its origin.
+        return indicatorHitFrame.contains(point)
     }
 
     private func updatePointer(revealPinnedHeader: Bool = false) {
+        guard indicatorDragPointer == nil, dockingRevision == nil else { return }
         // While FERB yields it is ordered out: hover must not open, reveal, fold or dismiss it. Entering the notch
         // brings it back, and like any hover that focuses the visible input.
         var broughtBack = false
@@ -559,27 +1140,40 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
 
     private func pointerEntered() {
         hoverTask?.cancel()
+        indicatorRestTask?.cancel()
+        indicatorRestTask = nil
+        setIndicatorResting(false)
         if model.isPinned {
             model.revealPinnedBody()
             return
         }
-        guard !model.expanded else { return }
+        guard model.hoverEnabled,
+              !model.expanded else { return }
         hoverTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            self?.model.expand()
+            guard let self else { return }
+            self.model.expand()
         }
     }
 
     private func pointerExited() {
+        guard indicatorDragPointer == nil, dockingRevision == nil else { return }
         hoverTask?.cancel()
         if model.isPinned {
             model.foldPinnedBody()
             return
         }
-        guard !model.blocksAutomaticDismissal, model.expanded else { return }
+        guard !model.blocksAutomaticDismissal, model.expanded else {
+            scheduleIndicatorRest()
+            return
+        }
+        // Allow the pointer to cross the popover arrow/gap without folding either
+        // surface. Once outside both windows, a preview must close with the chat.
+        let delay = previewWindows.isEmpty ? 60 : 250
         hoverTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
-            self?.model.dismissAutomatically()
+            do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
+            guard let self, !self.pointerIsOverSurface, !self.model.blocksAutomaticDismissal, self.model.expanded else { return }
+            self.model.dismissAutomatically()
         }
     }
 
@@ -600,7 +1194,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     /// The notch is in front of the owner: open, not stepped back, and the displays awake.
-    private var notchShowing: Bool { model.bodyVisible && !model.isYielded && !screensAsleep }
+    private var notchShowing: Bool { (model.bodyVisible || model.compactPlanText != nil) && !model.isYielded && !screensAsleep }
 
     /// A clicked notification: the owner reached for FERB, so it comes forward at that item.
     func open(_ target: NotificationTarget) {
@@ -614,6 +1208,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         DispatchQueue.main.async { [weak self] in        // objectWillChange fires before the change lands
             guard let self else { return }
             self.statusRefreshQueued = false
+            self.model.discardFinishedPreviews()
             self.updateStatusItem()
         }
     }
@@ -767,6 +1362,8 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
     }
 
     func tearDown() {
+        model.acknowledgement.dismiss()
+        closeTaskActivity()
         poster?.stop()
         statusRefresh = nil
         model.disconnectDaemon()
@@ -775,9 +1372,11 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, NSMenuDelegate, @preco
         presentation.stop()
         panel.orderOut(nil)
         tracerPanel.orderOut(nil)
+        indicatorPanel.orderOut(nil)
         overlaySpace.stop()
         presentationRevision = UUID()
         hoverTask?.cancel()
+        indicatorRestTask?.cancel()
         yieldWatch?.cancel()
         yieldWatch = nil
         yieldController.stop()

@@ -133,7 +133,8 @@ extension NotchModel {
                 ?? work.result?.request ?? work.draft
             rows[id] = TaskItem(id: id, backendID: work.backendTaskID, localID: local,
                 title: title.isEmpty ? (work.backendTaskID == nil ? "New request" : "A task from earlier") : title,
-                status: work.phase == .attention ? "needs_user" : "working", activity: work.activity)
+                status: work.phase == .attention ? "needs_user" : "working",
+                activity: work.backendTaskID.flatMap { taskActivities[$0] } ?? work.activity)
         }
         let now = Date()
         for (id, title) in runningTasks where !id.isEmpty {
@@ -141,7 +142,7 @@ extension NotchModel {
             let status = pendingApprovals.contains(where: { $0.taskID == id }) ? "needs_user"
                 : standingWork[id].map { $0.state == "acting" ? "working" : "standing" } ?? "working"
             rows[id] = TaskItem(id: id, backendID: id, localID: old?.localID, title: title, status: status,
-                activity: old?.activity ?? [], standing: standingLine(id, now: now))
+                activity: taskActivities[id] ?? old?.activity ?? [], standing: standingLine(id, now: now))
         }
         // Each row's place is worked out once, not in every comparison.
         let sorted = rows.values.map { ($0, $0.isRunning, $0.isOngoing, asked[$0.id] ?? Int.max) }.sorted {

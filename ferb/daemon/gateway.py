@@ -400,6 +400,8 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
+        from ferb.daemon.task_preview import TaskPreviews
+        self.previews = TaskPreviews()
         # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds
         # the tasks that were given an item (re-review a3); the daemon records it in task_memory_refs
         self.memory_read: Callable[[str, list[str]], None] = lambda task_id, refs: None
@@ -583,6 +585,7 @@ class Gateway:
                              for kind, h in KnownDestinations.from_words(text) if kind == "host"}
 
     def cancel_tasks(self, task_ids: set[str]) -> None:
+        self.previews.remove(task_ids)
         self._cancelled_tasks.update(task_ids)
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
@@ -604,6 +607,7 @@ class Gateway:
     def forget_tasks(self, task_ids: set[str]) -> None:
         """A task tree ended. A first look still being taken for it finishes in the background (its own 10 s bound);
         only a stop (`cancel_tasks`) or shutdown cancels one."""
+        self.previews.remove(task_ids)
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
             self._outside.pop(task_id, None)
@@ -879,17 +883,93 @@ class Gateway:
         self.observer.tool_call(grant, done=False)
         try:
             async with self.locks.hold(lock_keys, grant.worker_id):
+                await self._preview_target(cap, name, args, grant, rec)
                 await self._point(cap, args, grant)
                 if self.disturbance is not None:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
-                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                               escape, terminal)
+                    result = await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
+                                                 escape, terminal)
+                    if name == "mac.snapshot" and not result.get("is_error"):
+                        await self._preview_target(cap, name, args, grant, rec, result.get("content"))
+                    return result
                 finally:
                     if self.disturbance is not None:
                         await self.disturbance.after_action(span.id)
         finally:
             self.observer.tool_call(grant, done=True)
+
+    async def _preview_target(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any,
+                              observed: dict[str, Any] | None = None) -> None:
+        """Keep the verified surface between steps; never choose the owner's front window."""
+        root = rec.tree_id or grant.task_id
+        driver = getattr(cap, "driver", None)
+        if driver is None:
+            return
+        token = self.previews.resolving(root)
+        source: Callable[[], Awaitable[Any]]
+        if name.startswith(("browser.", "ferb_browser.")) and getattr(args, "tab", None):
+            scope = "tab:" + str(args.tab)
+            self.previews.retain_scope(root, scope)
+            token = self.previews.resolving(root)
+            try:
+                tab = driver.owned_by(args.tab, grant.task_id)
+                target, source = await asyncio.to_thread(driver.recording_source, tab, grant.task_id)
+            except Exception:
+                if self.previews.is_current(root, token):
+                    self.previews.remove({root})
+                return
+        elif name.startswith("mac.") and getattr(args, "app", None):
+            try:
+                app = await asyncio.to_thread(driver.app, args.app) if hasattr(driver, "app") else None
+                scope = "app:" + (f"{app.bundle_id}:{app.pid}" if app is not None else args.app)
+            except Exception:
+                if self.previews.is_current(root, token):
+                    self.previews.remove({root})
+                return
+            if not self.previews.is_current(root, token):
+                return
+            self.previews.retain_scope(root, scope)
+            token = self.previews.resolving(root)
+            window, shot = getattr(args, "window", None), getattr(args, "shot", None)
+            element = getattr(args, "element", None)
+            if observed is not None:
+                windows = [w for w in observed.get("windows", []) if w.get("current") is True]
+                if len(windows) != 1:
+                    return
+                window = str(windows[0]["id"])
+            if name == "mac.act" and getattr(args, "action", None) == "key":
+                element = None  # keys go to app focus, not the optional element (driver.acts_on)
+            if not (window or shot or element or observed):
+                return
+            try:
+                if shot:
+                    target, source = await asyncio.to_thread(driver.recording_source, args.app, shot)
+                else:
+                    target, source = await asyncio.to_thread(driver.preview_source, args.app, window=window,
+                                                             element=element)
+            except Exception:
+                # A stale explicit window/shot cannot stand in for a different surface.
+                if (window or shot) and self.previews.is_current(root, token):
+                    self.previews.remove({root})
+                return
+        else:
+            return
+
+        async def sanitized() -> bytes:
+            from ferb.sanitize.images import ImageRedactor
+            keys = cap.locks(args) if hasattr(cap, "locks") else []
+            async with self.locks.hold(keys, "preview:" + root):
+                frame = await source()
+                image = frame[0] if isinstance(frame, tuple) else frame
+            redactor = self.redact if isinstance(self.redact, Redactor) else Redactor()
+            return await asyncio.to_thread(ImageRedactor(redactor), image)
+
+        if self.previews.is_current(root, token):
+            identity = json.dumps(target, sort_keys=True) if target else ""
+            if scope.startswith("tab:"):
+                identity += ":" + grant.task_id  # a retained source checks this tab's exact task owner
+            self.previews.bind(root, sanitized, scope, identity=identity)
 
     async def _point(self, cap: Any, args: Any, grant: RunGrant) -> None:
         """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`), named by
