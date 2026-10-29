@@ -7,7 +7,7 @@ final class MagneticLifecycleTests: XCTestCase {
     private func coordinator() -> PanelCoordinator {
         _ = NSApplication.shared
         let coordinator = PanelCoordinator()
-        coordinator.magneticAudioOutputEnabled = false
+        coordinator.magneticHapticsOutputEnabled = false
         coordinator.magneticFieldPresentationEnabled = false
         return coordinator
     }
@@ -106,15 +106,6 @@ final class MagneticLifecycleTests: XCTestCase {
             XCTAssertEqual(NotchDocking.isSaved(in: .standard), savedDocking)
             coordinator.tearDown()
         }
-    }
-
-    func testAudioShutdownCancelsPendingFadeStop() {
-        let audio = MagneticDockingAudio(feedback: SoundFeedback())
-        audio.outputEnabled = false
-        audio.cancel()
-        XCTAssertTrue(audio.hasPendingStop)
-        audio.shutdown()
-        XCTAssertFalse(audio.hasPendingStop)
     }
 
     func testClickAfterRegrabAndTeardownLeaveNoInteraction() {

@@ -47,29 +47,3 @@ NSError *FERBResetMicrophoneEngine(AVAudioEngine *engine) {
     @try { [engine reset]; return nil; }
     @catch (NSException *exception) { return CaptureError(); }
 }
-
-static NSError *MagneticOutputError(void) {
-    return [NSError errorWithDomain:@"FERBMagneticOutput" code:1 userInfo:@{
-        NSLocalizedDescriptionKey: @"Magnetic docking audio output is unavailable."
-    }];
-}
-NSError *FERBConfigureMagneticOutput(AVAudioEngine *engine, AVAudioSourceNode *source) {
-    @try {
-        [engine attachNode:source];
-        [engine connect:source to:engine.mainMixerNode format:[[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:2]];
-        return nil;
-    } @catch (NSException *exception) { return MagneticOutputError(); }
-}
-NSError *FERBStartMagneticOutput(AVAudioEngine *engine) {
-    @try {
-        NSError *error = nil;
-        if (![engine startAndReturnError:&error]) return error ?: MagneticOutputError();
-        return nil;
-    } @catch (NSException *exception) { return MagneticOutputError(); }
-}
-void FERBStopMagneticOutput(AVAudioEngine *engine) {
-    @try { [engine stop]; } @catch (NSException *exception) {}
-}
-void FERBDetachMagneticOutput(AVAudioEngine *engine, AVAudioSourceNode *source) {
-    @try { [engine disconnectNodeOutput:source]; [engine detachNode:source]; } @catch (NSException *exception) {}
-}

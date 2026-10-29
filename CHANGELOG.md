@@ -2,12 +2,14 @@
 
 - UI branch: hardware-notch docking now uses continuous magnetic attraction,
   directional edge tension and a shared fusion clock for the pill/chat surface.
-  Original output-only resonance follows actual proximity and resolves on docking;
-  Settings → Sounds adds Magnetic docking sound under the existing mute/volume.
+  Trackpad resonance follows actual proximity and resolves in one docking tap,
+  replacing the original magnetic sound (owner, 2026-10-30). Optional native
+  waveforms fall back to discrete AppKit taps on unsupported/failed hardware.
+  Settings → Notch adds Magnetic docking haptics, independent of sound mute/volume.
   The original physical release target is preserved. Reduced Motion removes the
   spatial effects. Retreat, re-grab, close, screen changes, sleep and teardown clear
   effects and revoke stale completion. Native offline tests cover lifecycle and
-  audio/state behavior; owner visual/audio evaluation remains pending.
+  haptic/state behavior; owner visual/tactile evaluation remains pending.
 
 - UI branch: latest-response source/file hover is reconciled from the existing pointer
   stream when AppKit misses a native enter event. Current clipped geometry and topmost
