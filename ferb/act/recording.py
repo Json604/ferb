@@ -443,7 +443,7 @@ async def inspect_video(path: Path, times: list[float] | None = None) -> tuple[d
 
 def _review_sheet(frames: list[bytes], times: list[float]) -> tuple[bytes, int, int]:
     import Quartz as Q
-    from ferb.act.mac.screenshot import _jpeg, _draw_marks
+    from ferb.act.mac.screenshot import _jpeg
     width, height = min(2,len(frames))*640, math.ceil(len(frames)/2)*360
     ctx = Q.CGBitmapContextCreate(None,width,height,8,0,Q.CGColorSpaceCreateDeviceRGB(),Q.kCGImageAlphaPremultipliedLast)
     marks = []
@@ -453,7 +453,37 @@ def _review_sheet(frames: list[bytes], times: list[float]) -> tuple[bytes, int, 
         x, y = (i%2)*640, (i//2)*360
         Q.CGContextDrawImage(ctx,Q.CGRectMake(x,height-y-360,640,360),image)
         marks.append((f'{times[i]:.2f}s',(x,y,640,360)))
-    return _jpeg(_draw_marks(Q.CGBitmapContextCreateImage(ctx),marks)),width,height
+    return _jpeg(_label_frames(Q.CGBitmapContextCreateImage(ctx),marks)),width,height
+
+
+def _label_frames(image: Any, marks: list[tuple[str, tuple[float, float, float, float]]]) -> Any:
+    """Each frame's box outlined and its time on a small tag at the box's top-left (CoreGraphics, in memory)."""
+    import CoreText  # type: ignore[import-untyped]
+    import Quartz  # type: ignore[import-untyped]
+    from AppKit import NSColor, NSFont  # type: ignore[import-untyped]
+    from Foundation import NSAttributedString  # type: ignore[import-untyped]
+    iw, ih = Quartz.CGImageGetWidth(image), Quartz.CGImageGetHeight(image)
+    ctx = Quartz.CGBitmapContextCreate(None, iw, ih, 8, 0, Quartz.CGColorSpaceCreateDeviceRGB(),
+                                       Quartz.kCGImageAlphaPremultipliedLast)
+    Quartz.CGContextDrawImage(ctx, Quartz.CGRectMake(0, 0, iw, ih), image)
+    font = NSFont.boldSystemFontOfSize_(max(11.0, ih / 70))
+    for label, (x, y, w, h) in marks:
+        cy = ih - y - h                                         # CoreGraphics' origin is bottom-left
+        Quartz.CGContextSetRGBStrokeColor(ctx, 0.95, 0.15, 0.35, 0.9)
+        Quartz.CGContextSetLineWidth(ctx, 2.0)
+        Quartz.CGContextStrokeRect(ctx, Quartz.CGRectMake(x, cy, w, h))
+        text = NSAttributedString.alloc().initWithString_attributes_(
+            label, {"NSFont": font, "NSColor": NSColor.whiteColor()})
+        line = CoreText.CTLineCreateWithAttributedString(text)
+        bounds = CoreText.CTLineGetTypographicBounds(line, None, None, None)
+        tw = float(bounds[0] if isinstance(bounds, tuple) else bounds)   # pyobjc: (width, ascent, descent, leading)
+        th = font.pointSize() + 4
+        tag_y = min(ih - th, cy + h - th)                         # the tag sits at the box's top-left corner
+        Quartz.CGContextSetRGBFillColor(ctx, 0.95, 0.15, 0.35, 0.95)
+        Quartz.CGContextFillRect(ctx, Quartz.CGRectMake(x, tag_y, tw + 6, th))
+        Quartz.CGContextSetTextPosition(ctx, x + 3, tag_y + 3)
+        CoreText.CTLineDraw(line, ctx)
+    return Quartz.CGBitmapContextCreateImage(ctx)
 
 
 class RecordingStop:

@@ -1,9 +1,9 @@
 """Enumerate running processes and launch or explicitly activate one app. Must not resolve ambiguity by order or restore focus."""
 
-import threading
-import time
 from dataclasses import dataclass
 from typing import Any
+
+from ferb.act.mac import browsers
 
 
 @dataclass(frozen=True)
@@ -42,8 +42,8 @@ def candidates(name_or_bundle: str) -> list[RunningApp]:
         except ValueError:
             return []
         return [a for a in apps if a.pid == pid]
-    q = name_or_bundle.casefold().strip("\u200e")
-    return [a for a in apps if a.bundle_id.casefold() == q or a.name.casefold().strip("\u200e") == q]
+    q = browsers.clean(name_or_bundle)                  # invisible marks aside (WhatsApp's name starts with U+200E)
+    return [a for a in apps if a.bundle_id.casefold() == q or browsers.clean(a.name) == q]
 
 
 def find(name_or_bundle: str) -> RunningApp | None:
@@ -51,55 +51,9 @@ def find(name_or_bundle: str) -> RunningApp | None:
     return matches[0] if len(matches) == 1 else None
 
 
-HANDLERS_TTL_S = 60.0     # how long the https-handler list is reused before Launch Services is asked again (speed)
-_clock = time.monotonic
-_handlers: tuple[float, frozenset[str]] | None = None    # (when enumerated, bundle ids casefolded)
-_handlers_lock = threading.Lock()
-
-
-def _enumerate_handlers() -> frozenset[str]:
-    """Every app Launch Services lists as opening https links, by bundle id (casefolded). Read-only; nothing opens."""
-    from AppKit import NSWorkspace
-    from Foundation import NSURL, NSBundle
-    link = NSURL.URLWithString_("https://example.com")                   # only its scheme is looked up
-    found: set[str] = set()
-    for url in NSWorkspace.sharedWorkspace().URLsForApplicationsToOpenURL_(link) or ():
-        bundle = NSBundle.bundleWithURL_(url)
-        ident = bundle.bundleIdentifier() if bundle is not None else None
-        if ident:
-            found.add(str(ident).casefold())
-    return frozenset(found)
-
-
-def _fresh() -> frozenset[str] | None:
-    with _handlers_lock:
-        if _handlers is not None and _clock() - _handlers[0] < HANDLERS_TTL_S:
-            return _handlers[1]
-    return None
-
-
-def opens_web_links(bundle_id: str) -> bool:
-    """Whether Launch Services lists this app among those that open https links: a web browser, or an app that shows
-    web pages like one (D12: mac.secret binds no secret to it). Enumerates at most once per HANDLERS_TTL_S; it blocks,
-    so async code calls it off the event loop. False when Launch Services can't be asked (nothing is kept): FERB's own
-    browser list (`profiles.is_web_browser`) still applies."""
-    global _handlers
-    handlers = _fresh()
-    if handlers is None:
-        try:
-            handlers = _enumerate_handlers()
-        except Exception:
-            return False
-        with _handlers_lock:
-            _handlers = (_clock(), handlers)
-    return bundle_id.strip().casefold() in handlers
-
-
-def known_opens_web_links(bundle_id: str) -> bool:
-    """`opens_web_links` from a list enumerated within HANDLERS_TTL_S, never enumerating (for synchronous checks on
-    the event loop); False without one."""
-    handlers = _fresh()
-    return handlers is not None and bundle_id.strip().casefold() in handlers
+# The one browser list's Launch Services check (ferb/act/mac/browsers.py), here too so a driver's `apps` can be faked.
+opens_web_links = browsers.opens_web_links
+known_opens_web_links = browsers.known_opens_web_links
 
 
 # D31: what an app's Info.plist declares about running programs. Terminal.app declares the Shell role for executables

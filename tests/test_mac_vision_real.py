@@ -276,37 +276,3 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_masked(lab:
     loads = [r for r in rd.run(tab_rows()) if r["host"] == "127.0.0.1"]
     assert loads and all(r["actor"] == "owner" and r["profile"] == "Default" and r["browser"] == "chrome"
                          for r in loads), loads
-
-
-def _rgb(jpeg: bytes) -> tuple[int, int, bytes]:
-    import Quartz
-    from Foundation import NSData
-    src = Quartz.CGImageSourceCreateWithData(NSData.dataWithBytes_length_(jpeg, len(jpeg)), None)
-    img = Quartz.CGImageSourceCreateImageAtIndex(src, 0, None)
-    w, h = Quartz.CGImageGetWidth(img), Quartz.CGImageGetHeight(img)
-    ctx = Quartz.CGBitmapContextCreate(None, w, h, 8, w * 4, Quartz.CGColorSpaceCreateDeviceRGB(),
-                                       Quartz.kCGImageAlphaPremultipliedLast)
-    Quartz.CGContextDrawImage(ctx, Quartz.CGRectMake(0, 0, w, h), img)
-    return w, h, bytes(Quartz.CGBitmapContextGetData(ctx).as_buffer(w * h * 4))
-
-
-def test_a_mark_is_drawn_where_its_control_is(probe: Probe) -> None:
-    """The image with the tree (owner request, 2026-10-01): a control's number sits on its box in the real capture."""
-    d = MacComputerDriver("dev", RealInput(lambda: False, GuiLock()), excluded=frozenset)
-    d.apps = ProbeApps(probe)
-    _, shot, plain = asyncio.run(d.screenshot("FERB Probe"))
-    _, _, marked = asyncio.run(d.screenshot("FERB Probe", [("7", (450.0, 400.0, 120.0, 60.0))]))   # screen points
-    w, h, a = _rgb(plain)
-    _, _, b = _rgb(marked)
-    k = w / 600
-
-    def changed(x0: float, y0: float, x1: float, y1: float) -> int:
-        n = 0
-        for y in range(int(y0 * k), int(y1 * k)):
-            for x in range(int(x0 * k), int(x1 * k)):
-                i = (y * w + x) * 4
-                n += sum(abs(a[i + c] - b[i + c]) for c in range(3)) > 60
-        return n
-    near = changed(245, 195, 375, 265)                     # the box: window coords (450-200, 400-200) ± a few points
-    far = changed(420, 300, 560, 380)                      # well away from it
-    assert near > 50 and far < 5, (near, far)

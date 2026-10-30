@@ -151,8 +151,9 @@ redact, image redaction, origins).
 - [ ] Move non-authorization features out of `_call`/`_execute` into post-call hooks.
 - [ ] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
 - [ ] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
-      ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6.)
-- [ ] P19 stable identity; failed-before-acting is not unknown.
+      ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6. 5b: Mac tools report theirs.)
+- [ ] P19 stable identity; failed-before-acting is not unknown. (5b: Mac identity via a capability's `ledger_args`
+      in `hashed_args`; browser 5c; failed-before-acting is step 6.)
 - [ ] One payment, one question (decision 4): page-read amount and merchant; tab-chain scope; bank-page amount check;
       final-click check where there is no bank page; remove the separate outside-value question on a page amount.
 - [ ] Known destinations (decision 5): mentioned sites known except for private-data sends after outside reads.
@@ -160,7 +161,9 @@ redact, image redaction, origins).
 - [ ] Redaction rebuild (target 4).
 - [ ] Run tokens expire with the task (the Claude token file is owned by notes/runtimes.md).
 - [ ] Conversation-guard Yes release (G:1588-1594).
-- [ ] Browser app list, U+200E, extension/about pages; terminal fail-closed; TLS cases.
+- [ ] Browser app list, U+200E, extension/about pages; terminal fail-closed; TLS cases. (5b: all but the TLS cases:
+      browsers.py, `confirm.browser_page` covers extension schemes and about: pages except about:blank/srcdoc,
+      `terminal.surface(unread=)`.)
 - [ ] Window Yeses record destinations like normal Yeses; the 30-minute window stays daemon-wide (owner rule 9).
 - [ ] Keep the test-mode send allowlist step (live send tests, CLAUDE.md rule 22), set through config; no CLI command.
 - [ ] Remove dead code listed above.

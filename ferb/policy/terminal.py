@@ -22,6 +22,8 @@ A terminal is recognized, strongest fact first (`surface`):
    console, Nova's terminal). A label is weak evidence, so this errs toward asking: a false match costs one question,
    a miss would type unasked. Window titles (documents' names) are not read.
 5. An app whose terminal panel exposes no Accessibility facts (Zed, NO_FACTS_HOSTS): any typing or key there asks.
+6. Fails closed: in an app that can host a terminal (a terminal app, NO_FACTS_HOSTS, an editor in EDITOR_APPS), input
+   whose receiving element FERB can't read (`unread`) counts as terminal input and asks.
 Limit: a custom terminal panel that exposes none of these facts, in an app not listed, is not recognized."""
 
 import json
@@ -95,11 +97,22 @@ def _names(value: Any) -> bool:
     return isinstance(value, str) and bool(_WORD.search(_CAMEL.sub(" ", value)))
 
 
+def can_host(bundle_id: str, owner_apps: Collection[str] = (), shell_app: bool = False) -> bool:
+    """Whether an app can hold a terminal somewhere in it: a terminal app (built-in, the owner's, or one whose
+    Info.plist declares the Shell role), an app whose terminal panel shows no facts (NO_FACTS_HOSTS), or an editor
+    (`editor_app`: their terminal panels)."""
+    bid = bundle_id.casefold()
+    return (bid in TERMINAL_APPS or bid in {a.casefold() for a in owner_apps} or shell_app or bid in NO_FACTS_HOSTS
+            or editor_app(bundle_id))
+
+
 def surface(bundle_id: str, chain: Sequence[Mapping[str, Any]], owner_apps: Collection[str] = (),
-            shell_app: bool = False) -> str | None:
+            shell_app: bool = False, unread: bool = False) -> str | None:
     """Why code counts this a terminal, in words for the owner's question and the trace, else None. `chain`: the
     element's facts then its ancestors' (accessibility.surface_facts; empty when no element can be read); `owner_apps`:
-    the owner's [protection] terminal_apps; `shell_app`: the app's Info.plist declares the Shell role."""
+    the owner's [protection] terminal_apps; `shell_app`: the app's Info.plist declares the Shell role; `unread`: the
+    element input would reach couldn't be read (no focused element, no facts), so in an app that can host a terminal
+    it counts as one (fails closed)."""
     bid = bundle_id.casefold()
     if bid in TERMINAL_APPS or bid in {a.casefold() for a in owner_apps}:
         return f"a terminal app ({bundle_id})"
@@ -107,6 +120,9 @@ def surface(bundle_id: str, chain: Sequence[Mapping[str, Any]], owner_apps: Coll
         return f"an app whose Info.plist declares it a shell ({bundle_id})"
     if bid in NO_FACTS_HOSTS:
         return f"{NO_FACTS_HOSTS[bid]}, whose terminal panel Accessibility can't show, so any typing there asks"
+    if unread and not chain and editor_app(bundle_id):
+        return (f"an editor ({bundle_id}) whose focused element FERB couldn't read: it could be the editor's terminal, "
+                "so FERB asks rather than type unchecked")
     web = any(f.get("dom_classes") or f.get("dom_identifier") for f in chain)
     for f in chain:
         hit = TERMINAL_CLASSES & {str(c).casefold() for c in f.get("dom_classes") or ()}

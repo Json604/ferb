@@ -11,13 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# mechanism names the driver records; the probe's result keys that seed them
-PROBE_KEYS = {"ax_press_ok": "ax_press", "ax_set_value_ok": "ax_value", "ax_selected_text_ok": "ax_selected_text",
-              "ax_focus_ok": "ax_focus", "ax_post_key_ok": "ax_keyboard", "pid_keys_ok": "pid_keys",
-              "pid_keycode_ok": "pid_keycodes", "pid_mouse_click_ok": "pid_mouse", "pid_scroll_ok": "pid_scroll",
-              "menu_press_ok": "menu_press", "app_hit_test_ok": "hit_test"}
-
-
 @dataclass
 class Mechanism:
     landed: int = 0
@@ -58,13 +51,6 @@ class Profiles:
         m = self.get(bundle).mechanisms.get(mechanism)
         return m.last if m else None
 
-    def prefers(self, bundle: str, mechanism: str) -> bool:
-        """The profile says this mechanism works in this app (its last outcome was a success)."""
-        return self.status(bundle, mechanism) == "landed"
-
-    def untried(self, bundle: str, mechanism: str) -> bool:
-        return self.status(bundle, mechanism) is None
-
     # ---- writing
 
     def record(self, bundle: str, mechanism: str, landed: bool) -> None:
@@ -77,25 +63,6 @@ class Profiles:
             m.failed, m.streak, m.last = m.failed + 1, m.streak + 1, "failed"
         p.updated = _now()
         self._save(p)
-
-    def seed(self, bundle: str, probe_result: dict[str, Any]) -> list[str]:
-        """Seed from a probe's JSON profile: each known key with a True/False result counts as one landed / failed
-        outcome (None = not applicable: untouched). Returns the mechanisms written."""
-        p = self.get(bundle)
-        written = []
-        for key, mech in PROBE_KEYS.items():
-            v = probe_result.get(key)
-            if v is None:
-                continue
-            m = p.mech(mech)
-            if v:
-                m.landed, m.streak, m.last = m.landed + 1, 0, "landed"
-            else:
-                m.failed, m.streak, m.last = m.failed + 1, m.streak + 1, "failed"
-            written.append(mech)
-        p.updated, p.seeded_from = _now(), "probe"
-        self._save(p)
-        return written
 
     def as_dict(self, bundle: str) -> dict[str, Any]:
         p = self.get(bundle)

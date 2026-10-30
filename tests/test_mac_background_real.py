@@ -249,8 +249,8 @@ def test_textedit_and_calculator_are_driven_in_the_background_and_the_front_app_
                      if e["label"].strip().lower() in ("all clear", "clear", "ac", "c"))
         assert run(d.act("Calculator", ComputerAction("press", clear))).ok
         # the profile learned what landed
-        assert d.profiles.prefers(TEXTEDIT, "pid_keys") and d.profiles.prefers(TEXTEDIT, "ax_selected_text")
-        assert d.profiles.prefers(TEXTEDIT, "pid_keycodes") and d.profiles.prefers(CALC, "ax_press")
+        assert d.profiles.status(TEXTEDIT, "pid_keys") == "landed" and d.profiles.status(TEXTEDIT, "ax_selected_text") == "landed"
+        assert d.profiles.status(TEXTEDIT, "pid_keycodes") == "landed" and d.profiles.status(CALC, "ax_press") == "landed"
         assert (tmp_path / "apps" / "com.apple.TextEdit.json").exists()
     finally:
         # close the documents this test made: the window's close button, then the sheet's Delete (both from snapshots)

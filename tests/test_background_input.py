@@ -26,7 +26,7 @@ def test_typing_and_keys_go_to_the_app_in_the_background(monkeypatch: pytest.Mon
     assert r.ok and "background" in r.detail
     assert posted == ["type 'on my way' to pid", "key tab to pid"]
     assert apps.activated == []                                    # the owner's screen never moved
-    assert d.profiles.prefers(CHAT, "pid_keys") and d.profiles.prefers(CHAT, "pid_keycodes")   # learned
+    assert d.profiles.status(CHAT, "pid_keys") == "landed" and d.profiles.status(CHAT, "pid_keycodes") == "landed"   # learned
 
 
 def test_unobserved_background_input_needs_an_explicit_next_method(monkeypatch):
@@ -152,12 +152,15 @@ def test_nothing_is_typed_while_a_dialog_holds_the_keyboard_focus(monkeypatch: p
 
 
 def test_background_delivery_does_not_add_app_activation(monkeypatch):
+    """Owner decision 2: screen-wide combinations are refused, and ⌘Q reaches only an app FERB opened for the task:
+    none of them is sent, and nothing comes forward."""
     from ferb.act.mac import applescript
     d, _, posted = setup(monkeypatch, Ax(focused="button"))
     ids(d)
     for combo in ("cmd+tab", "ctrl+left", "cmd+q"):
-        asyncio.run(d.act("WhatsApp", ComputerAction("key", None, combo)))
-    assert not d.apps.activated
+        with pytest.raises(Refused):
+            asyncio.run(d.act("WhatsApp", ComputerAction("key", None, combo), task="t1"))
+    assert not d.apps.activated and posted == []
     assert "activate" in applescript.wrap(CHAT, "activate")
 
 
@@ -197,14 +200,17 @@ def test_electron_apps_are_asked_for_their_tree_and_slow_windows_are_waited_for(
     assert ax.calls.count("expose") == 1 and apps.activated == []
 
 
-def test_ax_keyboard_is_an_explicit_background_method(monkeypatch):
+def test_the_ax_keyboard_route_is_gone(monkeypatch):
+    """Item 9 (notes/hands.md): the Accessibility keyboard route dropped 8-character chunks on any non-US character,
+    knew US keycodes only and always reported success (live: 23 uses, none confirmed). It is refused, never ignored."""
     ax = Ax(takes_background=False, focused='button', box_has_focus=True, ax_keys=True)
     d, apps, posted = setup(monkeypatch, ax)
     e = ids(d)
-    result = asyncio.run(d.act('WhatsApp', ComputerAction('type', e['Message'], 'syllabus', mechanism='ax_keyboard')))
-    assert result.ok and result.facts['method'] == 'ax_keyboard' and ax.box == 'syllabus'
-    assert 'ax keys syllabus' in ax.calls and posted == [] and apps.activated == []
-    assert d.profiles.prefers(CHAT, 'ax_keyboard')
+    for action in (ComputerAction('type', e['Message'], 'hello wörld', mechanism='ax_keyboard'),  # type: ignore[arg-type]
+                   ComputerAction('key', None, 'return', mechanism='ax_keyboard')):            # type: ignore[arg-type]
+        with pytest.raises(Refused, match='not ax_keyboard'):
+            asyncio.run(d.act('WhatsApp', action))
+    assert not [c for c in ax.calls if c.startswith('ax key')] and posted == [] and ax.box == ''
 
 
 def test_unknown_focus_never_clicks_a_different_control_then_types(monkeypatch):
@@ -261,7 +267,7 @@ def test_edit_replaces_or_inserts_exactly_the_range_through_selected_text(monkey
     assert r.ok and ax.box == "ALPHA bravo charlie " and "inserted" in r.detail
     r = asyncio.run(d.act("WhatsApp", ComputerAction("edit", e["Message"], None, select="all")))
     assert r.ok and ax.selection == (0, len(ax.box)) and "selected" in r.detail
-    assert posted == [] and apps.activated == [] and d.profiles.prefers(CHAT, "ax_selected_text")
+    assert posted == [] and apps.activated == [] and d.profiles.status(CHAT, "ax_selected_text") == "landed"
     ax.range_ok = False                                                        # no selection API: value rewritten
     r = asyncio.run(d.act("WhatsApp", ComputerAction("edit", e["Message"], "X", select=(0, 5), mechanism="ax_value")))
     assert r.ok and ax.box == "X bravo charlie " and "rewriting" in r.detail

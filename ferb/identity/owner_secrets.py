@@ -55,8 +55,8 @@ def refuse_whole_browser(target: str) -> None:
     """A secret is bound to the exact place it is filled: a web page's HTTPS origin, or a native app. A web browser
     as an app (`app:com.google.Chrome`) is every site it shows, so no handle is bound to one (owner 2026-10-24: "at
     places only ive approved")."""
-    from ferb.act.browser.profiles import is_web_browser
-    if target.startswith('app:') and is_web_browser(target[4:]):
+    from ferb.act.mac.browsers import is_browser
+    if target.startswith('app:') and is_browser(target[4:]):
         raise Refused('a secret is never bound to a whole web browser; a web page\'s secret is bound to its HTTPS '
                       'address through the browser connection')
 

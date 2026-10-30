@@ -147,8 +147,6 @@ def test_an_explicit_ax_hit_test_never_falls_back(monkeypatch: pytest.MonkeyPatc
     d, ax, shots, apps, posted = vision(monkeypatch)
     _, shot, _ = asyncio.run(d.screenshot("Notes"))
     ax.hit_el = "Export"
-    import ferb.act.mac.driver as drv
-    monkeypatch.setattr(drv.axm, "_attr", lambda el, name: "win")
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, mechanism="ax"))
     assert r.ok and r.facts["method"] == "ax"
     assert posted == [] and apps.activated == [] and ax.calls[-1] == "ax.press"
@@ -241,13 +239,20 @@ def _evidence_files(d: RunningDaemon) -> list[Path]:
 
 
 def test_native_browser_controls_do_not_need_a_fallback_permission(daemon, monkeypatch):
+    """A click on a browser's own controls needs no foreground permission; like any Mac-tool input in a browser it
+    asks the owner once per task (rule 17; "Brave" is a browser by the one list's names, which the old list missed)."""
+    from ferb.policy import confirm
+    from tests.support.confirm import FerbAnswers
     shots, _ = _fake_mac(daemon, monkeypatch)
     shots.top = 120
     g = task(daemon, "e", Identity.OWNER, {"screen", "mac:act", "browser:read"}, {"use_app"})
     r = call(daemon, g, "mac.screenshot", app="Brave")
     assert not r["is_error"], r
-    r = call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5)
-    assert not r["is_error"], r
+    with FerbAnswers(daemon) as ferb:
+        ferb.expect(confirm.FOREGROUND)
+        r = call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5)
+        assert not r["is_error"], r
+        ferb.verify()
 
 
 async def _span_inputs(d: RunningDaemon) -> list[str]:
@@ -255,14 +260,6 @@ async def _span_inputs(d: RunningDaemon) -> list[str]:
 
 
 # ---------- the image with the tree (owner request, 2026-10-01) ----------
-
-def test_marks_map_controls_onto_the_image() -> None:
-    from ferb.act.mac.screenshot import to_pixels
-    bounds, size = (100.0, 50.0, 400.0, 300.0), (800, 600)                  # a window captured at 2x
-    got = to_pixels([("7", (110, 60, 100, 30)), ("9", (450, 300, 100, 100)), ("off", (2000, 0, 10, 10)),
-                     ("flat", (150, 100, 0, 20))], bounds, size)
-    assert got == [("7", (20.0, 20.0, 200.0, 60.0)), ("9", (700.0, 500.0, 100.0, 100.0))]   # clipped to the window
-
 
 def _tree_with_controls(ax: Any) -> None:
     from ferb.act.mac.accessibility import AxNode, AxTree
@@ -279,7 +276,7 @@ def test_first_snapshot_with_screen_scope_carries_target_image_without_replacing
     r = call(daemon, g, "mac.snapshot", app="Notes")
     assert not r["is_error"] and base64.b64decode(r["image"]["data"]) == shots.jpeg
     ids = [e["id"] for e in r["content"]["elements"]]
-    assert len(ids) == 2 and shots.marks is None
+    assert len(ids) == 2
     assert r['content']['initial_image']['window_id'] == 110
     assert daemon.daemon.mac._state['com.apple.Notes'].shot is None
     assert all(daemon.daemon.mac.node('com.apple.Notes', eid) for eid in ids)

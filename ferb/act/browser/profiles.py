@@ -46,31 +46,7 @@ BROWSERS: dict[str, Browser] = {
     "arc": Browser("Arc", "Arc/User Data", "company.thebrowser.Browser", "Arc"),
     "opera": Browser("Opera", "com.operasoftware.Opera", "com.operasoftware.Opera", "Opera"),
 }
-# The other web browsers FERB knows by bundle id (Safari, Firefox and others FERB doesn't pair with). With BROWSERS and
-# BROWSER_VENDORS they are what `is_web_browser` names: an app that shows any site, so an owner secret is never bound
-# to all of it (mac.secret, OwnerSecrets, Gateway.ask_secret; D12, D28). Bundle ids are data for a destination
-# boundary (rule 5), never an intent list. An id no installed app has never matches; mac.secret also asks Launch
-# Services which apps open https links (`apps.opens_web_links`), for a browser missing here.
-OTHER_BROWSERS = frozenset({
-    "com.apple.Safari", "com.apple.SafariTechnologyPreview",
-    "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly",
-    "com.kagi.kagimacOS", "com.duckduckgo.macos.browser", "io.gitlab.librewolf-community", "ai.perplexity.comet",
-    "ru.yandex.desktop.yandex-browser", "one.ablaze.floorp", "net.mullvad.mullvadbrowser",
-})
-# Makers whose every app is a web browser, by bundle-id prefix (Opera GX, Arc and Dia, Thorium and other Chromium
-# builds, Tor, Zen, Waterfox, SigmaOS).
-BROWSER_VENDORS = frozenset({"com.operasoftware", "com.vivaldi", "company.thebrowser", "org.chromium", "org.torproject",
-                             "app.zen-browser", "net.waterfox", "com.sigmaos"})
-WEB_BROWSERS = frozenset({b.bundle_id.casefold() for b in BROWSERS.values()} | {b.casefold() for b in OTHER_BROWSERS})
-_FAMILIES = WEB_BROWSERS | {v.casefold() for v in BROWSER_VENDORS}
-
-
-def is_web_browser(bundle_id: str) -> bool:
-    """Whether a bundle id is a web browser FERB knows: a browser above, any app under one (a channel, or a web app's
-    shim: `com.google.Chrome.app.<id>`, `com.apple.Safari.WebApp.<id>`), or any app of a browser maker. Bundle ids
-    compare without case, as macOS compares them."""
-    b = bundle_id.strip().casefold()
-    return any(b == f or b.startswith(f + ".") for f in _FAMILIES)
+# Which apps are web browsers at all (these and every other) is ferb/act/mac/browsers.py, the one browser list.
 
 
 def data_dir(browser: str, support: Path | None = None) -> Path:

@@ -341,7 +341,7 @@ def test_mac_click_points_at_where_its_pixels_land(monkeypatch):
     from ferb.act.mac import tools
     from ferb.act.mac.driver import MacComputerDriver
     from ferb.act.mac.screenshot import Window
-    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
+    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400), at=time.monotonic())
     d = MacComputerDriver.__new__(MacComputerDriver)
     d.app = lambda name: SimpleNamespace(bundle_id='com.x', pid=3, name='X')
     d._state = {'com.x': SimpleNamespace(shot=shot)}
@@ -370,7 +370,7 @@ def test_mac_click_points_nowhere_once_its_window_moved(monkeypatch):
     from ferb.act.mac import tools
     from ferb.act.mac.driver import MacComputerDriver
     from ferb.act.mac.screenshot import Window
-    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400))
+    shot = SimpleNamespace(id='shot1', window=5, bounds=(100.0, 50.0, 400.0, 200.0), size=(800, 400), at=time.monotonic())
     d = MacComputerDriver.__new__(MacComputerDriver)
     d.app = lambda name: SimpleNamespace(bundle_id='com.x', pid=3, name='X')
     d._state = {'com.x': SimpleNamespace(shot=shot)}

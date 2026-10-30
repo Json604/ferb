@@ -7,7 +7,7 @@ exclusions apply (a title alone can't be checked against them)."""
 import asyncio
 from typing import Any, Callable
 
-from ferb.act.mac.ax_browser import is_browser
+from ferb.act.mac.browsers import is_browser
 from ferb.sense.trail import Observation
 from ferb.sense.watchers.base import Emit, Focused, focused_app, focused_title, poll
 

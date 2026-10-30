@@ -10,18 +10,14 @@ import plistlib
 from datetime import datetime
 from pathlib import Path
 
+from ferb.act.browser.profiles import BROWSERS as PAIRED
+from ferb.act.mac import browsers as browser_list
 from ferb.device.profile import AppInfo, BrowserInfo, DeviceProfile
 
 APP_ROOTS = [Path("/Applications"), Path("/Applications/Utilities"), Path("/System/Applications"),
              Path("/System/Applications/Utilities"), Path.home() / "Applications"]
 
-BROWSERS = {
-    "com.google.Chrome": ("chrome", {"ext:chrome": "FERB extension, per paired profile (`ferb browsers`)",
-                                     "ax:chrome": "Accessibility read fallback"}),
-    "com.brave.Browser": ("brave", {"ext:brave": "FERB extension, per paired profile (`ferb browsers`)",
-                                    "ax:brave": "Accessibility read fallback"}),
-    "com.apple.Safari": ("safari", {"applescript_read": "watch-only (Block 1), when Automation is granted"}),
-}
+WEB_SCHEMES = frozenset({"http", "https"})
 
 
 def read_app(bundle: Path) -> AppInfo | None:
@@ -58,12 +54,35 @@ def scan_apps(roots: list[Path] = APP_ROOTS) -> list[AppInfo]:
     return sorted(seen.values(), key=lambda a: a.bundle_id)
 
 
+def registers_web(bundle: Path) -> bool:
+    """Whether an app's Info.plist registers it for http or https links (CFBundleURLTypes): how macOS knows an app
+    as a web browser."""
+    try:
+        with open(bundle / "Contents" / "Info.plist", "rb") as f:
+            info = plistlib.load(f)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return False
+    types = info.get("CFBundleURLTypes") if isinstance(info, dict) else None
+    return any(isinstance(t, dict) and WEB_SCHEMES & {str(x).casefold() for x in t.get("CFBundleURLSchemes") or ()}
+               for t in types or ())
+
+
 def browsers_from(apps: list[AppInfo]) -> list[BrowserInfo]:
+    """The installed web browsers (the one list, ferb/act/mac/browsers.py: known bundle ids, or an app whose
+    Info.plist registers it for web links), each with the transports FERB has for it: the extension for the Chromium
+    browsers it pairs with, AppleScript reads for Safari, Accessibility for every one."""
     out = []
     for app in apps:
-        if app.bundle_id in BROWSERS:
-            name, drivers = BROWSERS[app.bundle_id]
-            out.append(BrowserInfo(name, app.bundle_id, app.path, dict(drivers)))
+        if not (browser_list.known(app.bundle_id) or registers_web(Path(app.path))):
+            continue
+        name = browser_list.pair_key(app.bundle_id)
+        name = name if name != app.bundle_id else app.name.casefold()
+        drivers = {f"ax:{name}": "Accessibility read fallback"}
+        if any(b.bundle_id.casefold() == app.bundle_id.casefold() for b in PAIRED.values()):
+            drivers[f"ext:{name}"] = "FERB extension, per paired profile (`ferb browsers`)"
+        if name == "safari":
+            drivers = {"applescript_read": "watch-only (Block 1), when Automation is granted"}
+        out.append(BrowserInfo(name, app.bundle_id, app.path, drivers))
     return sorted(out, key=lambda b: b.name)
 
 

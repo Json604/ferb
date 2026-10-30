@@ -114,7 +114,13 @@ class Ax:
         return "pane"
 
     def frame(self, el: Any) -> Any:
-        return self.pane if el == "pane" else None
+        return self.pane if el == "pane" else self.frames.get(CODE.pid) if el == "win" else None
+
+    def element_window(self, el: Any) -> Any:
+        return "win"
+
+    def window_with_frame(self, pid: int, bounds: Any, title: Any = None, current_title: Any = None) -> Any:
+        return "win"
 
 
 def _driver(monkeypatch: pytest.MonkeyPatch, front: RunningApp = CODE) -> tuple[MacComputerDriver, Ax, list[str]]:
@@ -295,9 +301,7 @@ def test_background_input_goes_on_while_the_notch_holds_the_keyboard(monkeypatch
     asyncio.run(d.snapshot("TextEdit"))
     assert asyncio.run(d.act("TextEdit", ComputerAction("type", "s1e1", "hello", mechanism="pid"), "w1", "t1")).ok
     assert asyncio.run(d.act("TextEdit", ComputerAction("key", None, "return", mechanism="pid"), "w1", "t1")).ok
-    assert asyncio.run(d.act("TextEdit", ComputerAction("type", "s1e1", "there", mechanism="ax_keyboard"), "w1",
-                             "t1")).ok
-    assert posted == ["type hello", "key return"] and ax.posted == [f"ax {TEXTEDIT.pid} there"]
+    assert posted == ["type hello", "key return"]
     posted.clear()
     asyncio.run(d.snapshot("Code"))
     for action in (ComputerAction("type", "s1e1", "yes", mechanism="foreground", allow_foreground=True),
@@ -338,7 +342,7 @@ def _code_shot(d: MacComputerDriver, ax: Ax, layered: list[Window] | None) -> No
     d._state[CODE.bundle_id] = _AppState(pid=CODE.pid, shot=Shot("s1", 4115, CODE_WIN.bounds, (1512, 900),
                                                                    pid=CODE.pid, signature=signature))
     d.shots = SimpleNamespace(window=lambda wid: CODE_WIN, window_at=lambda x, y, max_layer=0: CODE_WIN,
-                              on_screen=lambda wid: True,
+                              on_screen=lambda wid: True, front_window=lambda pid, like=None, title=None: CODE_WIN,
                               windows_at=lambda x, y: None if layered is None else list(layered))
 
 
@@ -427,14 +431,15 @@ def test_input_posted_to_another_apps_process_skips_the_point_check(monkeypatch:
         _code_shot(d, ax, None)
         asyncio.run(d.pointer_at("Code", "s1", *APPROVE, kind))
     _code_shot(d, ax, None)
-    asyncio.run(d.pointer_at("Code", "s1", *FAR, "drag", APPROVE))             # a drop at the Approve point
-    _code_shot(d, ax, None)
+    with pytest.raises(Refused, match="couldn't read"):                        # a drop where FERB can't read what is
+        asyncio.run(d.pointer_at("Code", "s1", *FAR, "drag", APPROVE))         # there, in an editor: it could be its
+    _code_shot(d, ax, None)                                                    # terminal (fails closed)
     asyncio.run(d.click_at("Code", "s1", *APPROVE, mechanism="pointer"))
     _code_shot(d, ax, None)
     r = asyncio.run(d.click_at("Code", "s1", *APPROVE, mechanism="ax"))       # the app's own hit test: no element
     assert not r.ok and "AX hit test unavailable" in r.detail
     assert [w for w, _ in sent] == ["pointer click", "pointer dblclick", "pointer rightclick", "pointer hover",
-                                    "scroll", "pointer drag", "pointer click"]
+                                    "scroll", "pointer click"]
     assert {pid for _, pid in sent} == {CODE.pid}
     with pytest.raises(Refused, match=OWN):
         asyncio.run(d.pointer_at("FERB", "s1", *FAR, "click"))

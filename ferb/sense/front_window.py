@@ -32,7 +32,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from ferb.act.mac.ax_browser import is_browser
+from ferb.act.mac.browsers import is_browser
 from ferb.act.mac.screenshot import Window
 from ferb.core import origin as origins
 from ferb.core.errors import Refused

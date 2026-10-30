@@ -29,6 +29,12 @@ from ferb.core.errors import FerbError
 
 MAX_DEPTH = 40
 MAX_ELEMENTS = 5000  # response page; every later node is retrievable with offset
+# Responsiveness (one hung app must not stall the daemon): how long one Accessibility message waits for the app's
+# answer (macOS's default is 6 s), and what one walk may read before it stops and says it was cut short. A walk cut
+# short can't tell whether a password field is in the rest, so captures fall back to text recognition (L13).
+AX_MESSAGE_TIMEOUT_S = 2.0
+WALK_BUDGET_S = 8.0
+WALK_MAX_NODES = 60000
 
 ROLES = {"AXButton": "button", "AXLink": "link", "AXTextField": "textbox", "AXTextArea": "textbox",
          "AXSecureTextField": "textbox", "AXCheckBox": "checkbox", "AXRadioButton": "radio",
@@ -68,6 +74,19 @@ class AxNode:
     selected: bool | None = None
     expanded: bool | None = None
     container: str | None = None       # "sheet" / "menu" / "dialog" / "popover" when it sits in one
+    subrole: str = ""                  # the raw AX subrole, a fact
+    path: tuple[str, ...] = ()         # the AX roles above it, from the window (or menu, popover) down
+    index: int = 0                     # its place among its parent's children
+
+    def identity(self) -> dict[str, Any]:
+        """What this element is, independent of the snapshot that found it (P19's stable identity): the roles
+        above it, its own role, subrole and label; its place among its siblings only when it has no label (a list's
+        unlabelled rows). Never its value (it changes as the app is used)."""
+        out: dict[str, Any] = {"path": "/".join(self.path), "role": self.ax_role, "subrole": self.subrole,
+                               "label": self.label}
+        if not self.label:
+            out["index"] = self.index
+        return out
 
 
 @dataclass
@@ -94,6 +113,8 @@ class AxTree:
     next_offset: int | None = None
     repeated_nodes: int = 0
     _visited: dict[int, list[Any]] = field(default_factory=dict, repr=False)
+    _deadline: float = field(default=0.0, repr=False)     # 0: no budget (a synthetic tree)
+    _reads: int = field(default=0, repr=False)
 
     def signature(self) -> tuple[Any, ...]:
         """What the window shows, to tell whether an action did anything (element ids untouched)."""
@@ -107,6 +128,38 @@ def _attr(el: Any, name: str) -> Any:
         return None
     err, v = AX.AXUIElementCopyAttributeValue(el, name, None)
     return v if err == 0 else None
+
+
+_timeout_set = False
+
+
+def _set_timeout(el: Any) -> None:
+    import ApplicationServices as AX
+    setter = getattr(AX, "AXUIElementSetMessagingTimeout", None)
+    if callable(setter):
+        setter(el, AX_MESSAGE_TIMEOUT_S)
+
+
+def _system() -> Any:
+    """The system-wide element, with FERB's messaging timeout set on it once: macOS applies that timeout to every
+    element that has none of its own, so no Accessibility read waits the default 6 s on an app that hangs."""
+    import ApplicationServices as AX
+    global _timeout_set
+    el = AX.AXUIElementCreateSystemWide()
+    if not _timeout_set:
+        _set_timeout(el)
+        _timeout_set = True
+    return el
+
+
+def _app(pid: int) -> Any:
+    """An app's element, with FERB's messaging timeout set on it (and globally, `_system`, once)."""
+    import ApplicationServices as AX
+    if not _timeout_set and hasattr(AX, "AXUIElementCreateSystemWide"):
+        _system()
+    el = AX.AXUIElementCreateApplication(pid)
+    _set_timeout(el)
+    return el
 
 
 def _point(v: Any, kind: int) -> tuple[float, float]:
@@ -171,6 +224,23 @@ def role_of(el: Any) -> str:
     return str(_attr(el, "AXRole") or "")
 
 
+def subrole_of(el: Any) -> str:
+    return str(_attr(el, "AXSubrole") or "")
+
+
+def parent_of(el: Any) -> Any:
+    return _attr(el, "AXParent")
+
+
+def secure_element(el: Any) -> bool:
+    """A secure (password-class) text field by its own facts: AXSecureTextField as its role or subrole, or a text
+    field whose own metadata names it a password field (`password_element`). Never its value."""
+    if el is None:
+        return False
+    role = role_of(el)
+    return "AXSecureTextField" in (role, subrole_of(el)) or password_element(role, el)
+
+
 # ---------- windows ----------
 
 def app_window(pid: int) -> Any:
@@ -182,8 +252,7 @@ def app_window(pid: int) -> Any:
 def ax_windows(pid: int) -> list[Any]:
     """Every window object Accessibility will hand over, deduplicated: AXWindows plus the focused / main window and
     the focused element's window (the only routes to a window on another Space)."""
-    import ApplicationServices as AX
-    app = AX.AXUIElementCreateApplication(pid)
+    app = _app(pid)
     out: list[Any] = []
     for w in [_attr(app, "AXFocusedWindow"), _attr(app, "AXMainWindow"),
               _attr(_attr(app, "AXFocusedUIElement"), "AXWindow")] + list(_attr(app, "AXWindows") or []):
@@ -196,8 +265,7 @@ def main_window_frame(pid: int) -> tuple[float, float, float, float] | None:
     """The frame of the app's main window, else its focused window (Accessibility), top-left origin; None when it
     can't say. A tooltip, tab preview or pop-up is never an app's main window."""
     try:
-        import ApplicationServices as AX
-        app = AX.AXUIElementCreateApplication(pid)
+        app = _app(pid)
         for name in ("AXMainWindow", "AXFocusedWindow"):
             w = _attr(app, name)
             if w is not None and role_of(w) == "AXWindow" and (f := frame(w)) is not None:
@@ -266,6 +334,8 @@ def window_named(pid: int, which: str) -> Any:
             return None
         matches = [w for w in reach if (f := frame(w)) is not None and
                    all(abs(a - b) <= 2 for a, b in zip(f, cg[0]["bounds"]))]
+        if len(matches) > 1 and cg[0]["title"]:    # maximized windows share a frame: the window server's title
+            matches = [w for w in matches if window_title(w) == cg[0]["title"].strip("\u200e ")]
         return matches[0] if len(matches) == 1 else None
     matches = [w for w in reach if window_title(w) == want]
     return matches[0] if len(matches) == 1 else None
@@ -336,7 +406,7 @@ def hit(x: float, y: float) -> tuple[int, tuple[float, float, float, float] | No
     """What a real click at this screen point would reach: (pid, frame of its window), or None if Accessibility can't
     tell. The system's own hit test, so click-through overlays (screen tools, the Dock's layer) don't count."""
     import ApplicationServices as AX
-    err, el = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateSystemWide(), x, y, None)
+    err, el = AX.AXUIElementCopyElementAtPosition(_system(), x, y, None)
     if err != 0 or el is None:
         return None
     err, pid = AX.AXUIElementGetPid(el, None)
@@ -350,18 +420,10 @@ def hit_element(pid: int, x: float, y: float) -> Any:
     """The app's own element under a screen point (AXUIElementCopyElementAtPosition on the app element). Works for
     windows on the current Space; for a window on another Space it answers the menu bar, which doesn't count."""
     import ApplicationServices as AX
-    err, el = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateApplication(pid), x, y, None)
+    err, el = AX.AXUIElementCopyElementAtPosition(_app(pid), x, y, None)
     if err != 0 or el is None or role_of(el) in ("AXMenuBar", "AXApplication", "AXMenuBarItem", ""):
         return None
     return el
-
-
-def describe(el: Any) -> str:
-    """A short description of an element for action results: role and label."""
-    role = role_of(el)
-    label = _attr(el, "AXTitle") or _attr(el, "AXDescription") or _attr(el, "AXValue") or ""
-    kind = ROLES.get(role) or (role[2:].lower() if role.startswith("AX") else role) or "element"
-    return f"{kind} “{_text(label)}”" if label else kind
 
 
 # ---------- the walk ----------
@@ -369,12 +431,12 @@ def describe(el: Any) -> str:
 def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
     """One walk of the exact window (or sole reachable window), its sheet, the app's open menus,
     popovers and dialogs. For a browser whose window shows no web area yet, or an empty one, re-read for ~2 s."""
-    import ApplicationServices as AX
     deadline = time.monotonic() + (2.0 if browser else 0.0)
     while True:
-        app = AX.AXUIElementCreateApplication(pid)
+        app = _app(pid)
         win = window if window is not None else app_window(pid)
-        tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None else "", window=win, offset=offset)
+        tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None else "", window=win, offset=offset,
+                      _deadline=time.monotonic() + WALK_BUDGET_S)
         texts: list[str] = []
         seen = [0]
         if win is not None:
@@ -390,6 +452,8 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
                 continue
             tree.containers.append(kind)
             _walk(child, tree, texts, 1, kind, seen)
+        if tree.truncated_by and "budget" in tree.truncated_by:
+            tree.secure = None                                 # the rest wasn't read: a password field could be there
         tree.text = _text(" ".join(texts))
         tree.truncated = bool(tree.truncated_by)
         tree.windows = windows(pid, win)
@@ -401,6 +465,18 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
 def _mark(tree: AxTree, why: str) -> None:
     if why not in tree.truncated_by:
         tree.truncated_by = ", ".join(x for x in (tree.truncated_by, why) if x)
+
+
+def _over_budget(tree: AxTree) -> bool:
+    """One more element read: True once the walk's time or element budget is spent (marked "budget"). A synthetic
+    tree (no deadline) has none."""
+    if not tree._deadline:
+        return False
+    tree._reads += 1
+    if tree._reads > WALK_MAX_NODES or time.monotonic() > tree._deadline:
+        _mark(tree, "budget")
+        return True
+    return False
 
 
 def _repeated(el: Any, tree: AxTree) -> bool:
@@ -438,6 +514,8 @@ def _inventory_below(children: list[Any], tree: AxTree) -> None:
     stack = list(reversed(children))
     while stack:
         el = stack.pop()
+        if _over_budget(tree):
+            return
         if _repeated(el, tree):
             continue
         role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
@@ -446,8 +524,9 @@ def _inventory_below(children: list[Any], tree: AxTree) -> None:
         stack.extend(reversed(kids))
 
 
-def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int]) -> None:
-    if _repeated(el, tree):
+def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int],
+          path: tuple[str, ...] = (), index: int = 0) -> None:
+    if _over_budget(tree) or _repeated(el, tree):
         return
     role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
     children = _attr(el, "AXChildren") or []
@@ -462,10 +541,10 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
         _mark(tree, "depth")                          # the node list stops; the masking inventory doesn't
         _inventory_below(children, tree)
         return
-    index = seen[0]
+    order = seen[0]
     seen[0] += 1
     capped = len(tree.nodes) >= MAX_ELEMENTS
-    if index >= tree.offset and not capped:
+    if order >= tree.offset and not capped:
         if role in TEXT_ROLES:
             v = _attr(el, "AXValue") or _attr(el, "AXTitle")
             if v:
@@ -474,12 +553,12 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
                     tree.headings.append(_text(v))
         acts = actions(el)
         if role or subrole or acts:
-            tree.nodes.append(_node(el, role, subrole, secret, acts, container, children))
-    elif index >= tree.offset and capped:
+            tree.nodes.append(_node(el, role, subrole, secret, acts, container, children, path, index))
+    elif order >= tree.offset and capped:
         _mark(tree, "elements")
         tree.next_offset = tree.offset + len(tree.nodes)
-    for child in children:
-        _walk(child, tree, texts, depth + 1, container, seen)
+    for i, child in enumerate(children):
+        _walk(child, tree, texts, depth + 1, container, seen, path + (role,), i)
 
 
 def password_element(role: str, el: Any) -> bool:
@@ -527,7 +606,7 @@ def outermost(areas: list[tuple[float, float, float, float]]) -> list[tuple[floa
 
 
 def _node(el: Any, role: str, subrole: str, secret: bool, acts: list[str], container: str | None,
-          children: list[Any]) -> AxNode:
+          children: list[Any], path: tuple[str, ...] = (), index: int = 0) -> AxNode:
     import ApplicationServices as AX
     if subrole == "AXSearchField":
         kind = "searchbox"
@@ -557,17 +636,7 @@ def _node(el: Any, role: str, subrole: str, secret: bool, acts: list[str], conta
                   bool(enabled) if enabled is not None else True, role,
                   tuple(ACTION_NAMES.get(a, a) for a in acts if a in ACTION_NAMES),
                   None if selected is None else bool(selected), None if expanded is None else bool(expanded),
-                  container)
-
-
-def has_secure_field(win: Any, browser: bool = False) -> bool | None:
-    """True if the window holds a password field, False if the walk (the whole tree) found none, None without a
-    window."""
-    if win is None:
-        return None
-    tree = AxTree()
-    _walk(win, tree, [], 0, None, [0])
-    return tree.secure
+                  container, subrole, path, index)
 
 
 def value(el: Any) -> str | None:
@@ -582,7 +651,7 @@ def expose_tree(pid: int) -> bool:
     Chromium browsers included (Brave 1.97 and Chrome 155 don't know it: they build their web tree when a client
     asks, `read_tree`). AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on."""
     import ApplicationServices as AX
-    return bool(AX.AXUIElementSetAttributeValue(AX.AXUIElementCreateApplication(pid), "AXManualAccessibility",
+    return bool(AX.AXUIElementSetAttributeValue(_app(pid), "AXManualAccessibility",
                                                 True) == 0)
 
 
@@ -594,8 +663,7 @@ def _title(el: Any) -> str:
 
 def menus(pid: int) -> list[dict[str, Any]]:
     """The app's menu bar, read in the background: each menu and its items (submenus one level deep, "A > B")."""
-    import ApplicationServices as AX
-    bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    bar = _attr(_app(pid), "AXMenuBar")
     out = []
     for top in (_attr(bar, "AXChildren") or [])[1:]:             # skip the Apple menu
         items: list[str] = []
@@ -612,8 +680,7 @@ def menus(pid: int) -> list[dict[str, Any]]:
 
 def press_menu(pid: int, path: list[str]) -> bool:
     """Press a menu item by its path ("File", "Search"), through Accessibility: the app stays in the background."""
-    import ApplicationServices as AX
-    level = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    level = _attr(_app(pid), "AXMenuBar")
     el = None
     for i, name in enumerate(path):
         kids = _attr(level, "AXChildren") or []
@@ -630,11 +697,10 @@ def press_menu(pid: int, path: list[str]) -> bool:
 def menu_item_for_shortcut(pid: int, key: str, modifiers: list[str]) -> tuple[Any, str, bool] | None:
     """The menu item a ⌘ shortcut maps to (AXMenuItemCmdChar + AXMenuItemCmdModifiers), as (item, "Edit > Select
     All", enabled). None when no item carries that key equivalent."""
-    import ApplicationServices as AX
     want_mods = sum(MENU_MODIFIER_BITS[m] for m in modifiers if m in MENU_MODIFIER_BITS)
     if "cmd" not in modifiers:
         want_mods |= 8
-    bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    bar = _attr(_app(pid), "AXMenuBar")
     stack = [(m, [_title(top)]) for top in (_attr(bar, "AXChildren") or []) for m in (_attr(top, "AXChildren") or [])]
     matches = []
     while stack:
@@ -653,8 +719,7 @@ def menu_item_for_shortcut(pid: int, key: str, modifiers: list[str]) -> tuple[An
 
 def open_menus(pid: int) -> list[Any]:
     """Menus open right now (an AXMenu under the app element: a pop-up button's list, a contextual menu)."""
-    import ApplicationServices as AX
-    return [c for c in _attr(AX.AXUIElementCreateApplication(pid), "AXChildren") or [] if role_of(c) == "AXMenu"]
+    return [c for c in _attr(_app(pid), "AXChildren") or [] if role_of(c) == "AXMenu"]
 
 
 def popup_menu(el: Any, pid: int) -> Any:
@@ -749,8 +814,7 @@ def file_of(el: Any) -> str | None:
 
 def selected_items(pid: int) -> list[Any]:
     """The items selected in the app's focused container (AXSelectedChildren), e.g. Finder's selected files."""
-    import ApplicationServices as AX
-    focus = _attr(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    focus = _attr(_app(pid), "AXFocusedUIElement")
     return list(_attr(focus, "AXSelectedChildren") or []) if focus is not None else []
 
 
@@ -763,8 +827,7 @@ ACTIVE_EDITOR_MAX = 4000                   # elements read at most looking for i
 def active_editor(pid: int) -> Any:
     """The active editor's text element in the app's front window: Monaco's input inside the editor group VS Code marks
     active (DOM classes), whatever has the keyboard focus; None when the window shows none. Read-only, bounded."""
-    import ApplicationServices as AX
-    app = AX.AXUIElementCreateApplication(pid)
+    app = _app(pid)
     win = _attr(app, "AXFocusedWindow") or _attr(app, "AXMainWindow")
     stack: list[tuple[Any, bool]] = [(win, False)] if win is not None else []
     read = 0
@@ -831,8 +894,7 @@ def place_of(el: Any) -> tuple[str, str]:
 def menu_item_shortcut(pid: int, path: list[str]) -> tuple[str, int] | None:
     """The key equivalent of the menu item at `path` ("Edit", "Paste"), as (AXMenuItemCmdChar, AXMenuItemCmdModifiers),
     found as `press_menu` finds the item. Read-only; None when the item has none or isn't uniquely there."""
-    import ApplicationServices as AX
-    level = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    level = _attr(_app(pid), "AXMenuBar")
     el = None
     for i, name in enumerate(path):
         kids = _attr(level, "AXChildren") or []
@@ -853,8 +915,7 @@ def item_shortcut(item: Any) -> tuple[str, int] | None:
 
 
 def focused_element(pid: int) -> Any:
-    import ApplicationServices as AX
-    return _attr(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    return _attr(_app(pid), "AXFocusedUIElement")
 
 
 def has_focus(pid: int, el: Any) -> bool | None:
@@ -887,14 +948,6 @@ def set_value(el: Any, text: str) -> bool:
     if code == AX_CANNOT_COMPLETE:
         raise NoAnswer("AXValue", code)
     return bool(code == 0)
-
-
-def settable(el: Any, attr: str) -> bool:
-    import ApplicationServices as AX
-    if el is None:
-        return False
-    err, ok = AX.AXUIElementIsAttributeSettable(el, attr, None)
-    return err == 0 and bool(ok)
 
 
 def _range(v: Any) -> tuple[int, int] | None:
@@ -1017,62 +1070,6 @@ def scroll_position(area: Any, content: Any = None) -> tuple[Any, ...]:
     v, h = _attr(scroll_bar(area, True), "AXValue"), _attr(scroll_bar(area, False), "AXValue")
     return (_scroll_fraction(v), _scroll_fraction(h),
             visible_range(content) if content is not None else None, _visible_scroll_items(area))
-
-
-# ---------- the Accessibility keyboard (deprecated API, app-dependent) ----------
-
-# US keyboard: character -> (virtual key code, shift). For the Accessibility keyboard API, which needs real key codes.
-_US = {**{c: (k, False) for c, k in zip("asdfhgzxcvbqweryt123465=97-80]ou[ip", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12,
-       13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35])},
-       **{c: (k, False) for c, k in zip("lj'k;\\,/nm.` ", [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 50, 49])}}
-_SHIFTED = dict(zip("!@#$%^&*()_+{}|:\"<>?~", "1234567890-=[]\\;',./`"))
-_MODS = {"cmd": 55, "shift": 56, "alt": 58, "ctrl": 59}
-
-
-def _keycode(ch: str) -> tuple[int, bool] | None:
-    if ch in _US:
-        return _US[ch]
-    if ch.isupper() and ch.lower() in _US:
-        return _US[ch.lower()][0], True
-    if ch in _SHIFTED and _SHIFTED[ch] in _US:
-        return _US[_SHIFTED[ch]][0], True
-    return None
-
-
-def post_text(pid: int, text: str) -> bool:
-    """Type into the app's focused control through the Accessibility keyboard API — the app stays in the background
-    (spike 20: WhatsApp's search box took these, while keystrokes posted to its process never arrived; TextEdit and
-    Calculator ignore them). False if a character has no key on the US layout (nothing is typed then)."""
-    import ApplicationServices as AX
-    import time as _t
-    codes = [_keycode(c) for c in text]
-    if any(c is None for c in codes):
-        return False
-    app = AX.AXUIElementCreateApplication(pid)
-    for ch, code in zip(text, codes):
-        kc, shift = code                                         # type: ignore[misc]
-        if shift:
-            AX.AXUIElementPostKeyboardEvent(app, 0, _MODS["shift"], True)
-        AX.AXUIElementPostKeyboardEvent(app, ord(ch), kc, True)
-        AX.AXUIElementPostKeyboardEvent(app, ord(ch), kc, False)
-        if shift:
-            AX.AXUIElementPostKeyboardEvent(app, 0, _MODS["shift"], False)
-        _t.sleep(0.02)
-    return True
-
-
-def post_key(pid: int, keycode: int, modifiers: list[str]) -> bool:
-    """One key (with modifiers) to the app's focused control through the Accessibility keyboard API."""
-    import ApplicationServices as AX
-    app = AX.AXUIElementCreateApplication(pid)
-    mods = [_MODS[m] for m in modifiers if m in _MODS]
-    for m in mods:
-        AX.AXUIElementPostKeyboardEvent(app, 0, m, True)
-    AX.AXUIElementPostKeyboardEvent(app, 0, keycode, True)
-    AX.AXUIElementPostKeyboardEvent(app, 0, keycode, False)
-    for m in reversed(mods):
-        AX.AXUIElementPostKeyboardEvent(app, 0, m, False)
-    return True
 
 
 def focus(el: Any) -> bool:

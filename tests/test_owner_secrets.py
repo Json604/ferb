@@ -129,7 +129,8 @@ def test_a_handle_bound_to_a_whole_browser_is_never_revealed_or_saved(tmp_path: 
 
 
 def test_every_browser_ferb_pairs_with_counts_as_a_web_browser() -> None:
-    from ferb.act.browser.profiles import BROWSERS, is_web_browser
+    from ferb.act.browser.profiles import BROWSERS
+    from ferb.act.mac.browsers import known as is_web_browser
     assert all(is_web_browser(b.bundle_id) for b in BROWSERS.values())
     assert is_web_browser('com.apple.Safari') and is_web_browser('org.mozilla.firefox')
     assert not is_web_browser('com.apple.Notes') and not is_web_browser('com.apple.mail')
@@ -142,14 +143,14 @@ def test_every_browser_ferb_pairs_with_counts_as_a_web_browser() -> None:
                                     'one.ablaze.floorp', 'net.mullvad.mullvadbrowser', 'org.chromium.Thorium',
                                     'com.operasoftware.OperaCryptoBrowser', 'company.thebrowser.dia'])
 def test_browser_channels_web_app_shims_and_browser_vendors_count_as_browsers(bundle: str) -> None:
-    from ferb.act.browser.profiles import is_web_browser
+    from ferb.act.mac.browsers import known as is_web_browser
     assert is_web_browser(bundle)
 
 
 @pytest.mark.parametrize('bundle', ['com.apple.mail', 'com.apple.Notes', 'org.mozilla.thunderbird',
                                     'com.google.ChromeRemoteDesktopHost', 'com.google.drivefs'])
 def test_other_apps_of_a_browser_maker_are_not_browsers(bundle: str) -> None:
-    from ferb.act.browser.profiles import is_web_browser
+    from ferb.act.mac.browsers import known as is_web_browser
     assert not is_web_browser(bundle)
 
 
@@ -178,30 +179,32 @@ def test_launch_services_lists_safari_as_opening_https_links_and_not_notes() -> 
 
 
 def test_the_https_handler_list_is_enumerated_once_per_ttl_and_an_error_is_not_kept(monkeypatch) -> None:
-    from ferb.act.mac import apps
+    from ferb.act.mac import apps, browsers
     now, calls = [100.0], []
 
     def enumerate_handlers():
         calls.append(now[0])
-        return frozenset({'com.example.newbrowser'})
-    monkeypatch.setattr(apps, '_handlers', None)
-    monkeypatch.setattr(apps, '_clock', lambda: now[0])
-    monkeypatch.setattr(apps, '_enumerate_handlers', enumerate_handlers)
+        return frozenset({'com.example.newbrowser'}), frozenset({'new browser'})
+    monkeypatch.setattr(browsers, '_handlers', None)
+    monkeypatch.setattr(browsers, '_clock', lambda: now[0])
+    monkeypatch.setattr(browsers, '_enumerate', enumerate_handlers)
     assert not apps.known_opens_web_links('com.example.NewBrowser')      # nothing enumerated yet: never enumerates
+    assert not browsers.is_browser('com.example.NewBrowser')
     assert calls == []
     assert apps.opens_web_links('com.example.NewBrowser') and not apps.opens_web_links('com.apple.Notes')
-    assert apps.known_opens_web_links('com.example.NewBrowser')
+    assert apps.known_opens_web_links('com.example.NewBrowser') and browsers.is_browser('com.example.NewBrowser')
     assert calls == [100.0]                                              # two calls within the TTL: one enumeration
-    now[0] += apps.HANDLERS_TTL_S + 1
+    now[0] += browsers.HANDLERS_TTL_S + 1
     assert not apps.known_opens_web_links('com.example.NewBrowser')      # stale: the sync check uses the list only
+    assert browsers.is_browser('com.example.NewBrowser')                 # the one list keeps the last one it got
     assert apps.opens_web_links('com.example.NewBrowser') and len(calls) == 2
 
     def broken():
         raise OSError('Launch Services unavailable')
-    monkeypatch.setattr(apps, '_handlers', None)
-    monkeypatch.setattr(apps, '_enumerate_handlers', broken)
+    monkeypatch.setattr(browsers, '_handlers', None)
+    monkeypatch.setattr(browsers, '_enumerate', broken)
     assert not apps.opens_web_links('com.example.NewBrowser')           # any error: FERB's list alone applies
-    assert apps._handlers is None                                       # and nothing is kept
+    assert browsers._handlers is None                                   # and nothing is kept
 
 
 def test_mac_secret_asks_launch_services_off_the_event_loop() -> None:

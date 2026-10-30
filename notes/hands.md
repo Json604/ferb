@@ -149,6 +149,32 @@ from installed apps, terminal detection fails closed)*
   each result still states that no snapshot was taken.
 - `shell.send` into a command started with a lift is refused.
 
+## Rulings (step 5b, technical)
+- Secure fields: a key press is refused only when it would put text into the focused password field (a character
+  key without ⌘/⌃, Space, or a paste ⌘V, by key or by the Paste menu item); Return, Tab, Escape, arrows and other
+  shortcuts still go (submitting a login FERB didn't type isn't typing a password).
+- Shortcut guard: ⌥⌘H (hide others) hides the owner's apps, so it is refused like the screen-wide combos; ⌘M stays an
+  in-app shortcut. The guard also covers a menu item whose key equivalent is ⌘Q/⌘H (mac.menu, a press on the item, a
+  click on it). Screen-wide also: ⌃Space, ⌃⌘Q (lock), ⇧⌘Q (log out).
+- `ax_keyboard` removed (live: 23 uses, none confirmed a change; nothing needs it); `focus`/`select` take `ax` only.
+- P19 identity (Mac): `mac.act` = the snapshot window's window-server id + the element's AX role path, role,
+  subrole, label (its sibling index only when unlabelled), never the snapshot id or the value; `mac.click` /
+  `mac.pointer` = the shot's window id + the element the capture's walk found under the point; with no element there
+  or one larger than 400 pt, the point on a 24 pt grid of the window. Window titles are left out (a chat window's
+  title changes after a send, which would let a repeat escape); a collision only asks the owner.
+- Staleness (pointer route): window id + bounds, then the element the app's hit test finds at the point against the
+  one the capture's walk found there (same, inside it, or same role at the same frame); when either is unknown, the
+  captured window's own walk is compared. `ax` and `foreground` clicks keep their own right-before checks (the hit
+  element bound to the window; the point reaching the window), not this content gate.
+- Responsiveness numbers: AX messaging timeout 2 s (macOS default 6 s), set globally and on each app element; a walk
+  stops after 8 s or 60,000 elements, marked `budget`, and then can't tell about password fields (captures fall back
+  to text recognition, L13).
+- Foreground element input (press, scroll) is refused when FERB can't tell which window holds the element (no
+  window, or two at one place with one title); the point is checked for FERB windows before that.
+- ScreenCaptureKit: captures are serialized in-process and a capture failing to start (SCStreamErrorDomain -3811)
+  is tried once more after 0.3 s (a read). Live data: the 38 failures came singly, between successes on the same
+  window seconds apart, with no other FERB capture span overlapping; the cause isn't visible from code.
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -173,25 +199,39 @@ from installed apps, terminal detection fails closed)*
       were all contained at command start, plus pinned ports; anything later only through the proxy, which now
       checks contained listeners too and gets NO_PROXY empty; `(deny signal)(allow signal (target same-sandbox))`,
       measured: own children/setsid descendants yes, other programs and other FERB commands no.)
-- [ ] Mac: PID typing releases the GUI lock between chunks.
+- [x] Mac: PID typing releases the GUI lock between chunks. (5b: `RealInput.to_process(release_every=8)`; every
+      post runs off the event loop.)
 - [ ] Browser: remove page-detectable markers (`ferb-armed` event, `data-ferb-*` attributes) where possible.
 - [ ] Investigate the top failure causes: profile not matched/connected (110), ScreenCaptureKit "Failed to start
-      stream" (38).
-- [ ] One browser list from installed apps (bundle ids) used by Mac sources, policy, profiles and AX re-read.
+      stream" (38). (5b: ScreenCaptureKit part done, see Rulings; live check in step 13 whether -3811 survives the
+      retry. Profile matching is the browser's, 5c.)
+- [x] One browser list from installed apps (bundle ids) used by Mac sources, policy, profiles and AX re-read.
+      (5b: `ferb/act/mac/browsers.py`: known bundle ids/vendors/names + Launch Services http/https handlers, cached
+      60 s; replaces ax_browser, confirm.BROWSER_APPS, profiles' list and scan.py's table; names compared without
+      invisible marks. sense/batches.py's name→bundle map is not a browser test and stays.)
 - [ ] Secret-field rule (password, one-time-code, cc-number/cc-csc/cc-exp) applied to type, press and fill, in the
-      browser and Mac; secret values never captured; boxes masked.
+      browser and Mac; secret values never captured; boxes masked. (5b: Mac done: key presses that enter text and
+      the Paste item refuse into a secure field, `accessibility.secure_element`; browser part is 5c.)
 - [ ] Structural facts reported: form submit + action host/method, field types, focused element/app that received
       input, secure field, page URL; best-effort page amounts. (5a: the shared shape `ActionFacts` in
-      ferb/core/types.py, recorded on the call's span; fs tools report writes/deletes. Browser/Mac reporting: 5b/5c.)
-- [ ] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path.
+      ferb/core/types.py, recorded on the call's span; fs tools report writes/deletes. Browser/Mac reporting: 5b/5c.
+      5b: Mac tools report target role/subrole, secure field, received_by (read after input), terminal_target and
+      page URL in a browser: `ActionResult.observed` → `ToolResult.facts`; new ActionFacts fields target_role,
+      target_subrole, page_url.)
+- [ ] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path. (5b: Mac
+      done, capability `ledger_args` read by gateway `hashed_args`, see Rulings; browser is 5c.)
 - [ ] Browser: connection-independent tab identity (no orphans); outbox flushed after welcome; read errors = failed;
       mask `list_tabs`/dialog URLs; remember the chosen window; closed-shadow `deepActive`; sign daemon→extension and
       accept `paired` only during pairing.
-- [ ] Mac: staleness check by window id + bounds + hit element (fixes multi-window); AX messaging timeout and time
+- [x] Mac: staleness check by window id + bounds + hit element (fixes multi-window); AX messaging timeout and time
       budget; AX calls off the event loop; terminal detection fails closed; key presses check secure fields; one
       foreground path that raises the window and checks the hit target; remove the ax_keyboard route or fix it;
-      mechanism honoured or rejected for select/focus; fix `ferb watch`; remove marks and dead helpers.
-- [ ] Key-combo guard (decision 2).
+      mechanism honoured or rejected for select/focus; fix `ferb watch`; remove marks and dead helpers. (5b: see
+      Rulings; `observed_change`/`ensure_window`/`window_named` fixed for 2+ windows; `ferb watch`'s step was already
+      gone; removed marks, `has_secure_field`, `settable`, `describe`, AX keyboard, `Profiles.prefers/untried/seed`.)
+- [x] Key-combo guard (decision 2). (5b: `input.screen_wide`/`quit_or_hide` in `driver._guarded_combo` for every
+      route; ⌘Q/⌘H through `LaunchedApps.quit_now/hide_now`, only the task tree's own launched app, quit only with no
+      unsaved work.)
 - [ ] Tab groups (decision 3), replacing connection-scoped tab ownership.
 - [x] Per-task folder read lift (decision 1), shared by the escape hatch and file tools. (5a: one key per rule per
       tree, `confirm.read_lift_key`; gateway `_file_lifts` and `_escape`.)

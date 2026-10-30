@@ -33,10 +33,10 @@ def test_learned_input_failures_are_observations_not_permissions() -> None:
     from ferb.act.mac.profile import Profiles
     p = Profiles()
     for _ in range(4):
-        p.record("example.app", "ax_keyboard", False)
-    assert p.status("example.app", "ax_keyboard") == "failed"
-    p.record("example.app", "ax_keyboard", True)
-    assert p.prefers("example.app", "ax_keyboard")
+        p.record("example.app", "pid_keys", False)
+    assert p.status("example.app", "pid_keys") == "failed"
+    p.record("example.app", "pid_keys", True)
+    assert p.status("example.app", "pid_keys") == "landed"
 
 
 def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> None:

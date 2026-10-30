@@ -43,8 +43,9 @@ def test_a_menu_choice_asks_and_listing_menus_does_not() -> None:
 
 
 def test_a_browser_addressed_by_pid_still_asks(monkeypatch) -> None:
-    from ferb.act.mac import apps
-    monkeypatch.setattr(apps, "pids_of", lambda ids: {1302} if "com.google.chrome" in ids else set())
+    from ferb.act.mac import browsers
+    monkeypatch.setattr(browsers, "_running_bundles",
+                        lambda pid=None, name=None: ["com.google.Chrome"] if pid == 1302 else [])
     assert confirm.foreground_need("mac.click", {"app": "pid:1302", "mechanism": "pointer"}) is not None
     assert confirm.foreground_need("mac.click", {"app": "pid:999", "mechanism": "pointer"}) is None
 

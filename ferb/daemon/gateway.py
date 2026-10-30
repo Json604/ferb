@@ -320,9 +320,13 @@ def hashed_args(cap: Any, args: Any) -> dict[str, Any]:
     fs `path`, shell `cwd`, a mac tool's `app`, whose bundle is Target.site), so "notes.txt" and "./notes.txt", or
     "Chat" and its bundle id, are one action; and how the call is delivered (`method_args`: a mechanism, page_mode,
     background), since another method for the same action is exactly the retry P19 forbids. A key named path elsewhere
-    (mac.menu's menu item) stays."""
+    (mac.menu's menu item) stays. A capability whose arguments name a target only for one observation (a snapshot's
+    element id, a screenshot's pixels) gives its stable form (`ledger_args`: notes/gateway.md target 3), so a fresh
+    look after an unknown outcome doesn't make the same action look new."""
     dropped = set(getattr(cap, "target_args", ())) | set(getattr(cap, "method_args", ()))
-    return {k: v for k, v in args.model_dump(mode="json").items() if k not in dropped}
+    hashed = {k: v for k, v in args.model_dump(mode="json").items() if k not in dropped}
+    stable = getattr(cap, "ledger_args", None)
+    return stable(args, hashed) if callable(stable) else hashed
 
 
 def ledger_identity(cap: Any, name: str, action: ActionRequest, args: Any,

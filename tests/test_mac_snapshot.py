@@ -1,7 +1,6 @@
 """Rework phase 3, offline: the one-walk snapshot (ferb.act.mac.accessibility) on a fake element tree — controls by
 available actions, not by a role list; roles and states as facts; sheets / menus / dialogs included; truncation
-reported with its reason; password fields found without their value; the learned profile seeded from a probe; the
-full key table."""
+reported with its reason; password fields found without their value; the learned profile; the full key table."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,7 +107,8 @@ def test_password_fields_are_found_but_never_read(monkeypatch: pytest.MonkeyPatc
     assert t.secure is True
     pw = next(n for n in t.nodes if n.secret)
     assert pw.value == "filled" and "hunter2" not in str(t.signature())
-    assert ax.has_secure_field(win) is True
+    assert pw.subrole == "AXSecureTextField" and ax.secure_element(win.children[1])   # the key-press rule's check
+    assert not ax.secure_element(win.children[0])
 
 
 def test_truncation_says_why_and_the_password_scan_goes_on_past_the_element_cap(
@@ -141,24 +141,18 @@ def test_all_secret_boxes_survive_paging_with_a_secret_on_each_side(monkeypatch)
     assert first.secret_rects == later.secret_rects == [(1.0, 2.0, 30.0, 10.0), (40.0, 2.0, 30.0, 10.0)]
 
 
-def test_the_profile_is_seeded_from_a_probe_and_learns_from_outcomes(tmp_path: Path) -> None:
+def test_the_profile_learns_from_outcomes(tmp_path: Path) -> None:
     p = Profiles(tmp_path / "apps")
-    probe = {"bundle": "com.apple.TextEdit", "ax_press_ok": False, "ax_set_value_ok": True, "ax_selected_text_ok": True,
-             "ax_post_key_ok": False, "pid_keys_ok": True, "pid_keycode_ok": True, "pid_mouse_click_ok": False,
-             "pid_scroll_ok": False, "menu_press_ok": True, "app_hit_test_ok": False, "ax_focus_ok": True,
-             "pid_mouse_drag_ok": None}
-    written = p.seed("com.apple.TextEdit", probe)
-    assert "ax_keyboard" in written and "pid_mouse" in written and "pid_drag" not in written
-    assert p.prefers("com.apple.TextEdit", "pid_keys") and p.status("com.apple.TextEdit", "ax_keyboard") == "failed"
-    for _ in range(2):
-        p.record("com.apple.TextEdit", "ax_keyboard", False)
-    assert p.get("com.apple.TextEdit").mechanisms["ax_keyboard"].streak == 3
-    p.record("com.apple.TextEdit", "ax_keyboard", True)                 # a later success forgets the streak
-    assert p.get("com.apple.TextEdit").mechanisms["ax_keyboard"].streak == 0
+    for _ in range(3):
+        p.record("com.apple.TextEdit", "pid_keys", False)
+    assert p.get("com.apple.TextEdit").mechanisms["pid_keys"].streak == 3
+    assert p.status("com.apple.TextEdit", "pid_keys") == "failed"
+    p.record("com.apple.TextEdit", "pid_keys", True)                    # a later success forgets the streak
+    assert p.get("com.apple.TextEdit").mechanisms["pid_keys"].streak == 0
     again = Profiles(tmp_path / "apps")
-    assert again.get("com.apple.TextEdit").seeded_from == "probe"
-    assert again.get("com.apple.TextEdit").mechanisms["ax_keyboard"].failed == 3
-    assert Profiles(None).untried("x", "y")                             # memory only: still answers
+    assert again.get("com.apple.TextEdit").mechanisms["pid_keys"].failed == 3
+    assert again.status("com.apple.TextEdit", "pid_keys") == "landed"
+    assert Profiles(None).status("x", "y") is None                      # memory only: still answers
 
 
 def test_the_key_table_covers_letters_digits_function_and_navigation_keys() -> None:
@@ -168,8 +162,4 @@ def test_the_key_table_covers_letters_digits_function_and_navigation_keys() -> N
     assert inp.normalize("Cmd+Shift+S") == ["cmd", "shift", "s"] and inp.normalize("pgdn") == ["pagedown"]
     assert inp.normalize("Option+Return") == ["alt", "return"]
     assert not inp.valid_combo("hyper+a") and not inp.valid_combo("f99") and not inp.valid_combo("")
-    assert inp.is_shortcut("cmd+a") and not inp.is_shortcut("shift+a")
-    assert inp.switches_apps("cmd+tab") and inp.switches_apps("ctrl+right") and inp.switches_apps("cmd+space")
-    assert inp.quits_or_hides("cmd+q") and inp.quits_or_hides("alt+cmd+h") and not inp.quits_or_hides("cmd+shift+m")
-    assert inp.is_arrow("shift+left") and inp.is_enter("return") and not inp.is_enter("cmd+return")
     assert all(0 <= k < 128 for k in inp.KEYCODES.values())

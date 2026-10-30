@@ -58,7 +58,9 @@ FOREGROUND_TOOLS = frozenset({"mac.act", "mac.click", "mac.pointer"})
 # 2026-10-26: a worker switched off the owner's extension on chrome://extensions under a once-per-task screen Yes).
 # A where-boundary by the page's address, as the browser reports it, never by what the input is meant to do.
 BROWSER_PAGE = "floor:browser_page"
-BROWSER_SCHEMES = ("chrome://", "brave://", "edge://", "arc://", "vivaldi://", "opera://")
+BROWSER_SCHEMES = ("chrome://", "brave://", "edge://", "arc://", "vivaldi://", "opera://", "chrome-extension://",
+                   "extension://", "moz-extension://", "safari-web-extension://", "about:")
+NOT_BROWSER_PAGES = ("about:blank", "about:srcdoc")     # empty documents, not a browser's own pages
 
 
 PAIR = "floor:pair_profile"     # a task's browser_pair: the owner's Yes pairs that profile (owner 2026-10-27)
@@ -88,17 +90,16 @@ def routine(n: "Need") -> bool:
 
 
 def browser_page(address: str | None) -> bool:
-    """Whether an address is one of a browser's own pages (scheme only; what is typed or reported, trimmed)."""
-    return bool(address) and str(address).strip().casefold().startswith(BROWSER_SCHEMES)
+    """Whether an address is one of a browser's own pages: its settings, extensions and other internal pages
+    (scheme only; what is typed or reported, trimmed). An empty document (about:blank) isn't one."""
+    text = str(address or "").strip().casefold()
+    return text.startswith(BROWSER_SCHEMES) and not text.startswith(NOT_BROWSER_PAGES)
 
 
 def browser_page_need(app: str, page: str) -> "Need":
     """Every input on that browser page asks (always): one Yes covers one input."""
     return Need(BROWSER_PAGE, key(BROWSER_PAGE, app.casefold(), page.strip()), {"app": app, "page": page.strip()},
                 always=True)
-BROWSER_APPS = frozenset({"google chrome", "com.google.chrome", "brave browser", "com.brave.browser", "arc",
-                          "company.thebrowser.browser", "safari", "com.apple.safari", "microsoft edge",
-                          "com.microsoft.edgemac"})
 SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
                                           # paths); the rest are counted. It decides nothing.
 QUOTED_CHARS = 200                        # display only: a page or item quoted in FERB's question is clipped to
@@ -119,17 +120,6 @@ class Need:
     window_s: float | None = None             # a Yes covers later calls with this key for that long, then lapses
 
 
-def _browser_pid(app_id: str) -> bool:
-    """`pid:N` naming a running web browser (the worker addressed Chrome by pid, live 2026-10-26)."""
-    if not app_id.startswith("pid:"):
-        return False
-    try:
-        from ferb.act.mac.apps import pids_of
-        return int(app_id[4:]) in pids_of(BROWSER_APPS)
-    except Exception:                                # not a Mac, or no such pid: not known as a browser
-        return False
-
-
 def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
     """Rule 17 (owner 2026-10-26: "didnt i build ferb to do tasks in the background"): a Mac input delivered in the
     foreground brings its app to the front and can move the owner's Space, so it needs the owner's Yes, once per task
@@ -137,14 +127,16 @@ def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
     # In a web browser, any Mac-tool input or menu choice drives the owner's own browser screen, which the extension
     # does in hidden tabs (live 2026-10-26: the worker switched Chrome profiles through its Profiles menu, moving the
     # owner's Space). Listing menus (no path) reads only. A where-boundary on the target app, never on the step.
-    app_id = str(args.get("app") or "").strip().casefold()
-    in_browser = (app_id in BROWSER_APPS or _browser_pid(app_id)) and (tool in FOREGROUND_TOOLS
-                                             or (tool == "mac.menu" and bool(str(args.get("path") or "").strip())))
+    # Which apps are browsers: the one list (ferb/act/mac/browsers.py: known bundle ids, installed http handlers,
+    # names without invisible marks, `pid:N` by its running app).
+    from ferb.act.mac.browsers import clean, is_browser_app
+    acts = tool in FOREGROUND_TOOLS or (tool == "mac.menu" and bool(str(args.get("path") or "").strip()))
+    in_browser = acts and is_browser_app(str(args.get("app") or ""))
     if not in_browser and (tool not in FOREGROUND_TOOLS
                            or not (args.get("allow_foreground") or args.get("mechanism") == "foreground")):
         return None
     app = str(args.get("app") or "an app")
-    return Need(FOREGROUND, key(FOREGROUND, app.casefold()), {"app": app})
+    return Need(FOREGROUND, key(FOREGROUND, clean(app)), {"app": app})       # "\u200eWhatsApp" is "WhatsApp"
 
 
 def key(*parts: object) -> str:

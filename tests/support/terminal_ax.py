@@ -143,6 +143,15 @@ class TerminalAx:
     def app_window(self, pid: int) -> Any:
         return "win"
 
+    def element_window(self, el: Any) -> Any:
+        return "win"
+
+    def frame(self, el: Any) -> Any:                                 # the window's frame; elements report none
+        return WINDOW_BOUNDS if el == "win" else None
+
+    def raise_window(self, pid: int, bounds: Any) -> bool:
+        return True
+
     def window_title(self, win: Any) -> str:
         return "FERB"
 
@@ -264,6 +273,31 @@ def vscode_ax(focus: str | None = "term57") -> TerminalAx:
                       shortcuts={"Edit > Paste": PASTE, "ctxpaste": PASTE, "Terminal > New Terminal": NEW_TERMINAL})
 
 
+WINDOW_BOUNDS = (0.0, 0.0, 1200.0, 800.0)
+
+
+class _Shots:
+    """The window server as these fakes see it: the app's one window, on screen and topmost everywhere."""
+    def __init__(self, pid: int) -> None:
+        from ferb.act.mac.screenshot import Window
+        self.win = Window(pid * 10, pid, WINDOW_BOUNDS, "FERB")
+
+    def front_window(self, pid: int, like: Any = None, title: Any = None) -> Any:
+        return self.win if pid == self.win.pid else None
+
+    def window(self, wid: int) -> Any:
+        return self.win if wid == self.win.id else None
+
+    def window_at(self, x: float, y: float, max_layer: int = 0) -> Any:
+        return self.win
+
+    def windows_at(self, x: float, y: float) -> Any:
+        return [self.win]
+
+    def on_screen(self, wid: int) -> bool:
+        return wid == self.win.id
+
+
 class TerminalApps:
     def __init__(self, *apps: RunningApp, shells: frozenset[str] = frozenset()) -> None:
         self.apps = list(apps) or [RunningApp(CODE, "Code", 41154, False)]
@@ -311,8 +345,9 @@ def terminal_mac(mp: pytest.MonkeyPatch, ax: TerminalAx, apps: TerminalApps | No
     mp.setattr(drv, "key_steps", keyed)
     mp.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("click", lambda: ax.landed.append((ax.focused, "click")))])
     mp.setattr(drv, "SETTLE_S", 0)
-    d = MacComputerDriver("dev", RealInput(lambda: False, GuiLock(), sleep=no_sleep), ax=ax,
-                          apps=apps or TerminalApps())
+    apps = apps or TerminalApps()
+    shots = _Shots(apps.apps[0].pid)
+    d = MacComputerDriver("dev", RealInput(lambda: False, GuiLock(), sleep=no_sleep), ax=ax, apps=apps, shots=shots)
     board = [clipboard]
     d.clipboard = lambda: board[0]
     d.board = board                                           # type: ignore[attr-defined]   (a test copies anew)

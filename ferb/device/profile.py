@@ -24,7 +24,7 @@ class AppInfo:
 
 @dataclass(frozen=True)
 class BrowserInfo:
-    name: str                                # "chrome" | "brave" | "safari"
+    name: str                                # "chrome", "brave", "safari"… (browsers.pair_key) or the app name
     bundle_id: str
     path: str
     drivers: dict[str, str] = field(default_factory=dict)   # driver -> status

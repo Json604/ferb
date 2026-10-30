@@ -48,7 +48,7 @@ class RealInput:
             for i, step in enumerate(steps):
                 if self.owner_active():
                     raise Yielded(i, len(steps), what)
-                step.post()
+                await asyncio.to_thread(step.post)      # its checks read Accessibility / Quartz: off the event loop
                 await self.sleep(STEP_S)
         return len(steps)
 
@@ -67,17 +67,26 @@ class RealInput:
         finally:
             self.on_wait(holder, False)
 
-    async def to_process(self, steps: list[Step], holder: str, cleanup: Callable[[], None] | None = None) -> int:
+    async def to_process(self, steps: list[Step], holder: str, cleanup: Callable[[], None] | None = None,
+                         release_every: int | None = None) -> int:
         """Events posted to one app's process in the background: no owner wait (they can't collide), still under
-        the GUI lock so two workers' keystrokes don't interleave."""
-        async with self.gui.hold(holder):
-            try:
-                for step in steps:
-                    step.post()
-                    await self.sleep(STEP_S)
-            finally:
-                if cleanup is not None:
-                    cleanup()
+        the GUI lock so two workers' events don't interleave. Each post (and the checks around it) runs off the event
+        loop. `release_every`: steps that are each complete on their own (typed characters) give the lock up between
+        groups of that many, so a long text doesn't hold every other worker's input for its whole length; a gesture
+        (a held button, a drag) never passes it."""
+        size = release_every if release_every and release_every > 0 else max(1, len(steps))
+        starts = list(range(0, len(steps), size)) or [0]
+        for start in starts:
+            async with self.gui.hold(holder):
+                finished = False
+                try:
+                    for step in steps[start:start + size]:
+                        await asyncio.to_thread(step.post)
+                        await self.sleep(STEP_S)
+                    finished = True
+                finally:
+                    if cleanup is not None and (not finished or start == starts[-1]):
+                        cleanup()                       # once: at the end, or where it stopped
         return len(steps)
 
 
@@ -243,43 +252,61 @@ def key_steps(combo: str, pid: int | None = None) -> list[Step]:
 
 
 ARROWS = {"left", "right", "up", "down"}
+SCREEN_WIDE = ("this key combination acts on the owner's whole Mac (switching apps or desktops, Spotlight, Mission "
+               "Control, Force Quit, locking or logging out), not on one app, so FERB doesn't press it: work in the "
+               "app itself (notes/hands.md decision 2)")
 
 
-def switches_apps(combo: str) -> bool:
-    """⌘Tab and Control+arrows act on the owner's whole Mac (switch apps / desktops), not on one app; so do the
-    Mission Control / Spotlight keys."""
+def screen_wide(combo: str) -> bool:
+    """A key combination that acts on the owner's whole Mac rather than one app (owner decision 2, 2026-10-30):
+    ⌘Tab / ⇧⌘Tab (switch apps), ⌘Space and ⌃Space (Spotlight, input source), ⌃ with an arrow (Spaces, Mission Control,
+    App Exposé), ⌥⌘Esc (Force Quit), F3 / F4 alone (Mission Control, Launchpad), ⌃⌘Q (lock screen), ⇧⌘Q / ⌥⇧⌘Q (log
+    out). Keys, never a judgement of what the worker meant."""
     parts = normalize(combo)
     if not parts:
         return False
     key, mods = parts[-1], set(parts[:-1])
-    return (key == "tab" and "cmd" in mods) or (key in ARROWS and "ctrl" in mods) \
-        or (key == "space" and "cmd" in mods) or (key in ("f3", "f4") and not mods)
+    return ((key == "tab" and "cmd" in mods) or (key == "space" and bool(mods & {"cmd", "ctrl"}))
+            or (key in ARROWS and "ctrl" in mods) or (key == "escape" and {"cmd", "alt"} <= mods)
+            or (key in ("f3", "f4") and not mods) or (key == "q" and {"cmd", "ctrl"} <= mods)
+            or (key == "q" and {"cmd", "shift"} <= mods))
 
 
-def quits_or_hides(combo: str) -> bool:
-    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet),
-    ⌘H / ⌥⌘H hide it and ⌘M minimises its window: the owner's screen, not FERB's."""
+def quit_or_hide(combo: str) -> str | None:
+    """"quit" for ⌘Q, "hide" for ⌘H, "hide_others" for ⌥⌘H (owner decision 2: they go through FERB's safe quit/hide,
+    never straight to the app), else None."""
+    parts = normalize(combo)
+    if not parts:
+        return None
+    key, mods = parts[-1], set(parts[:-1])
+    if key == "q" and mods == {"cmd"}:
+        return "quit"
+    if key == "h" and mods == {"cmd"}:
+        return "hide"
+    if key == "h" and mods == {"cmd", "alt"}:
+        return "hide_others"
+    return None
+
+
+def shortcut_combo(char: str, modifiers: int) -> str:
+    """A menu item's key equivalent (AXMenuItemCmdChar, AXMenuItemCmdModifiers: bits shift 1, option 2, control 4,
+    8 = no ⌘) as a combo ("cmd+alt+h"), for the same guards as a key press."""
+    mods = [] if modifiers & 8 else ["cmd"]
+    mods += [name for bit, name in ((1, "shift"), (2, "alt"), (4, "ctrl")) if modifiers & bit]
+    return "+".join(mods + [char.lower()])
+
+
+def enters_text(combo: str) -> bool:
+    """A key press that puts text into the focused field: a character key (a letter, digit, punctuation or Space)
+    with no ⌘/⌃, or a paste (⌘V). Return, Tab, Escape, arrows, Delete and other shortcuts don't (secure-field rule)."""
     parts = normalize(combo)
     if not parts:
         return False
     key, mods = parts[-1], set(parts[:-1])
-    return (key == "q" and mods == {"cmd"}) or (key == "h" and "cmd" in mods) or (key == "m" and mods == {"cmd"})
-
-
-def is_arrow(combo: str) -> bool:
-    parts = normalize(combo)
-    return bool(parts) and parts[-1] in ARROWS
-
-
-def is_enter(combo: str) -> bool:
-    parts = normalize(combo)
-    return bool(parts) and parts[-1] == "return" and not parts[:-1]
-
-
-def is_shortcut(combo: str) -> bool:
-    """A key equivalent (⌘ with a key): in a background app it goes through the menu item it maps to."""
-    parts = normalize(combo)
-    return bool(parts) and "cmd" in parts[:-1]
+    if key == "v" and "cmd" in mods:
+        return True
+    return (len(key) == 1 or key == "space" or key.startswith("keypad") and key != "keypadenter") \
+        and not mods & {"cmd", "ctrl"}
 
 
 def valid_combo(combo: str) -> bool:

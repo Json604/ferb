@@ -153,6 +153,9 @@ class ActionFacts:
     received_by: ReceivedBy | None = None    # the app / window / element that received the input
     secure_field: bool | None = None         # the element receiving input is a secure (password-class) field
     terminal_target: bool | None = None      # the input reaches a terminal (ferb/policy/terminal.py's facts)
+    target_role: str | None = None           # the target element's role (AXButton, AXTextField…), as the app states it
+    target_subrole: str | None = None        # its subrole (AXSecureTextField, AXSearchField…)
+    page_url: str | None = None              # the address of the page the input acts on, where the app reports one
     deletes: tuple[str, ...] = ()            # paths the call takes away from where they are (Trash or deleted)
     writes: tuple[str, ...] = ()             # paths the call creates or changes
 
@@ -401,6 +404,7 @@ class ActionResult:
     ok: bool
     detail: str = ""
     facts: dict[str, Any] = field(default_factory=dict)
+    observed: ActionFacts | None = None      # structural facts code read around the action (gateway decision 1)
 
 
 @dataclass(frozen=True)
@@ -456,4 +460,4 @@ class ComputerAction:
     amount: int | None = None                # scroll: pages (keys) or steps (slider / scroll bar)
     window: str | None = None                # scroll with no element: the window (title or id) to scroll
     allow_foreground: bool = False           # task-authorized permission, not a fallback instruction
-    mechanism: Literal['ax', 'pid', 'ax_keyboard', 'ax_value', 'foreground'] | None = None
+    mechanism: Literal['ax', 'pid', 'ax_value', 'foreground'] | None = None

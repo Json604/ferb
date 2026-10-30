@@ -17,6 +17,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from ferb.core.errors import Refused
+
 KEPT_OWNER = "you used it during the task"
 KEPT_UNSAVED = "it has unsaved changes"
 KEPT_UNKNOWN = "FERB couldn't tell whether it has unsaved changes"
@@ -80,6 +82,15 @@ def _ask_to_quit(pid: int, bundle_id: str) -> bool:
     return bool(app.terminate())
 
 
+def _ask_to_hide(pid: int, bundle_id: str) -> bool:
+    """Hide exactly that process (NSRunningApplication hide: the app's own hide, as ⌘H)."""
+    from AppKit import NSRunningApplication
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    if app is None or str(app.bundleIdentifier() or "") != bundle_id:
+        return False
+    return bool(app.hide())
+
+
 def _tree(task_id: str) -> str:
     return task_id.partition(".")[0]
 
@@ -93,8 +104,9 @@ class LaunchedApps:
 
     def __init__(self, running: Callable[[], list[Any]], owner_used: Callable[[str, Launched], bool],
                  unsaved: Callable[[int], bool | None] = unsaved,
-                 quit: Callable[[int, str], bool] = _ask_to_quit, now: Callable[[], str] | None = None) -> None:
-        self.running, self.owner_used, self.unsaved, self.quit = running, owner_used, unsaved, quit
+                 quit: Callable[[int, str], bool] = _ask_to_quit, now: Callable[[], str] | None = None,
+                 hide: Callable[[int, str], bool] = _ask_to_hide) -> None:
+        self.running, self.owner_used, self.unsaved, self.quit, self.hide = running, owner_used, unsaved, quit, hide
         self.now = now or (lambda: __import__("datetime").datetime.now().astimezone().isoformat())
         self._by_tree: dict[str, list[Launched]] = {}
 
@@ -109,6 +121,37 @@ class LaunchedApps:
 
     def of(self, task_id: str) -> list[Launched]:
         return list(self._by_tree.get(_tree(task_id), []))
+
+    def _own(self, task_id: str, app: Any, verb: str) -> Launched:
+        """The task tree's launch record for this exact process (bundle id and pid), else Refused: FERB quits or
+        hides only an app it opened for this task (owner decision 2, notes/hands.md)."""
+        mine = [x for x in self.of(task_id) if x.pid == app.pid and x.bundle_id == app.bundle_id]
+        if not mine:
+            raise Refused(f"{app.name} isn't an app FERB opened for this task, so FERB doesn't {verb} it: the "
+                          "owner's apps stay as they are (notes/hands.md decision 2)")
+        return mine[0]
+
+    async def quit_now(self, task_id: str, app: Any) -> str:
+        """⌘Q, the safe way (decision 2): only an app this task tree launched, and only when it reads as having no
+        unsaved changes (as at release); then the app is asked to quit, as ⌘Q does, and is no longer the task's. Else
+        Refused, saying why (nothing was sent)."""
+        mine = self._own(task_id, app, "quit")
+        state = await asyncio.to_thread(self.unsaved, mine.pid)
+        if state is not False:
+            raise Refused(f"FERB didn't quit {mine.name}: {KEPT_UNSAVED if state else KEPT_UNKNOWN}")
+        if not await asyncio.to_thread(self.quit, mine.pid, mine.bundle_id):
+            raise Refused(f"{mine.name} didn't accept FERB's request to quit")
+        tree = self._by_tree.get(_tree(task_id), [])
+        if mine in tree:
+            tree.remove(mine)
+        return f"asked {mine.name} to quit (FERB opened it for this task; it shows no unsaved changes)"
+
+    async def hide_now(self, task_id: str, app: Any) -> str:
+        """⌘H, the safe way (decision 2): only an app this task tree launched is hidden (nothing is lost by hiding)."""
+        mine = self._own(task_id, app, "hide")
+        if not await asyncio.to_thread(self.hide, mine.pid, mine.bundle_id):
+            raise Refused(f"{mine.name} didn't hide when FERB asked")
+        return f"hid {mine.name} (FERB opened it for this task)"
 
     async def release(self, task_id: str) -> list[dict[str, Any]]:
         """At the tree's own task's release (`<tree>.worker`): each app the tree launched, quit or left running with

@@ -112,7 +112,7 @@ def _grant(inp: TerminalInput | None, cid: str = "c1") -> TerminalGrant:
 
 
 @pytest.mark.parametrize("kind,mechanism,extra", [
-    ("type", "pid", {}), ("type", "ax_keyboard", {}), ("set_value", "ax", {}), ("set_value", "ax_value", {}),
+    ("type", "pid", {}), ("set_value", "ax", {}), ("set_value", "ax_value", {}),
     ("edit", "ax", {}), ("type", "foreground", {"allow_foreground": True})])
 def test_text_into_a_terminal_without_the_owners_yes_is_refused_on_every_mechanism(monkeypatch: Any, kind: str,
                                                                                     mechanism: str, extra: Any) -> None:
@@ -125,7 +125,7 @@ def test_text_into_a_terminal_without_the_owners_yes_is_refused_on_every_mechani
     assert ax.landed == []                                                        # nothing typed
 
 
-@pytest.mark.parametrize("combo,mechanism", [("ENTER", "pid"), ("return", "ax_keyboard"), ("ctrl+c", "pid"),
+@pytest.mark.parametrize("combo,mechanism", [("ENTER", "pid"), ("return", "ax"), ("ctrl+c", "pid"),
                                              ("cmd+v", "ax"), ("cmd+v", "pid"), ("up", "foreground")])
 def test_keys_into_a_focused_terminal_without_the_owners_yes_are_refused(monkeypatch: Any, combo: str,
                                                                          mechanism: str) -> None:
@@ -548,19 +548,13 @@ def test_the_question_names_the_terminal_and_its_window(monkeypatch: Any) -> Non
         "press Return there (it runs as you, outside FERB's sandbox).")
 
 
-@pytest.mark.parametrize("mechanism", ["pid", "ax_keyboard"])
+@pytest.mark.parametrize("mechanism", ["pid"])
 def test_typing_stops_when_the_keyboard_focus_moves_mid_text(monkeypatch: Any, mechanism: str) -> None:
     """Typing into the editor; after two characters the owner's Claude terminal takes the focus. The focus is checked
     again before each chunk, so nothing more is typed (into the terminal or anywhere) and the outcome is uncertain."""
     from ferb.act.mac.input import PointerInterrupted
     ax = vscode_ax(focus="editor")
     d = terminal_mac(monkeypatch, ax)
-    if mechanism == "ax_keyboard":
-        def post_text(pid: int, text: str) -> bool:
-            for ch in text:
-                ax.typed(ch)
-            return True
-        ax.post_text = post_text                                                # type: ignore[method-assign]
     monkeypatch.setattr("ferb.act.mac.driver.TYPE_CHUNK", 2)
     ax.on_char = lambda a: setattr(a, "focused", "term57") if len(a.landed[-1][1]) == len("type co") else None
     with pytest.raises(PointerInterrupted, match="focus moved"):
@@ -1027,11 +1021,11 @@ def test_a_shortcut_that_presses_a_run_menu_item_asks_on_every_mechanism(monkeyp
     """⇧⌘B is Terminal > Run Build Task… (it runs the default task in the terminal): a key that the app's menus map to
     a run command asks like the menu press itself, whatever the mechanism (2a)."""
     d, ax, ids = _run_routes(monkeypatch)
-    for mechanism in ("ax", "pid", "ax_keyboard"):
+    for mechanism in ("ax", "pid", "foreground"):
         inp = d.terminal_input("Code", ComputerAction("key", None, "cmd+shift+b", mechanism=mechanism), "t1")
         assert inp is not None and inp.menu == "Terminal > Run Build Task…", mechanism
         with pytest.raises(Refused, match=UNASKED):
-            _act(d, "key", text="cmd+shift+b", mechanism=mechanism)
+            _act(d, "key", text="cmd+shift+b", mechanism=mechanism, allow_foreground=True)
     assert ax.landed == []
     assert d.terminal_input("Code", ComputerAction("key", None, "cmd+s", mechanism="ax"), "t1") is None
 

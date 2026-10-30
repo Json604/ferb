@@ -230,7 +230,7 @@ class Desktop:
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
         mac = self.mac
         # L39: apps a task's calls launch are its resources, quit at its release unless the owner used them
-        self.mac.launched = LaunchedApps(  # type: ignore[attr-defined]
+        self.mac.launched = LaunchedApps(
             lambda: list(mac.apps.running()),
             lambda task, app: self._owner_used_app(task, app),
             now=lambda: self.clock.now().isoformat())      # FERB's clock, as the desktop records use (M7)

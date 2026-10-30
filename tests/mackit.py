@@ -106,6 +106,16 @@ class FakeAx:
     def center(self, n: AxNode) -> tuple[float, float]:
         return 10.0, 10.0
 
+    def frame(self, el: Any) -> Any:                             # a window's frame; elements report none
+        return BOUNDS if el == "win" else None
+
+    def element_window(self, el: Any) -> Any:
+        return "win"
+
+    def raise_window(self, pid: int, bounds: Any) -> bool:
+        self.calls.append("ax.raise")
+        return True
+
 
 class FakeApps:
     def __init__(self) -> None:
@@ -140,7 +150,7 @@ def mac(mp: pytest.MonkeyPatch, press_ok: bool = True) -> tuple[MacComputerDrive
     async def no_sleep(s: float) -> None:
         return None
     ri = RealInput(lambda: False, GuiLock(), sleep=no_sleep)
-    d = MacComputerDriver("dev", ri, excluded=lambda: {"com.secret.Vault"}, ax=ax, apps=apps)
+    d = MacComputerDriver("dev", ri, excluded=lambda: {"com.secret.Vault"}, ax=ax, apps=apps, shots=FakeShots())
     import ferb.act.mac.driver as drv
     mp.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("click", lambda: posted.append(f"click {x},{y}"))])
     mp.setattr(drv, "type_steps", lambda t, pid=None: [Step("type", lambda: posted.append(f"type {t}"))])
@@ -165,7 +175,7 @@ class FakeShots:
     on_capture: Any = None
     takes_pid_clicks: bool = True                  # a click posted to the app's process changes something
 
-    def front_window(self, pid: int, like: Any = None) -> Window | None:
+    def front_window(self, pid: int, like: Any = None, title: Any = None) -> Window | None:
         return Window(pid * 10, pid, self.bounds, "w")
 
     def window(self, wid: int) -> Window | None:
@@ -180,9 +190,8 @@ class FakeShots:
     def windows_at(self, x: float, y: float) -> list[Window] | None:
         return [w for w in [self.window_at(x, y)] if w is not None]     # every level: no FERB window here
 
-    def capture(self, w: Window, marks: Any = None) -> tuple[bytes, int, int]:
+    def capture(self, w: Window, max_edge: Any = None) -> tuple[bytes, int, int]:
         self.captured.append(w.id)
-        self.marks = marks
         if self.on_capture:
             self.on_capture()
         return self.jpeg, *IMG
@@ -221,8 +230,8 @@ class VisionAx(FakeAx):
     def hit_element(self, pid: int, x: float, y: float) -> Any:
         return self.hit_el
 
-    def describe(self, el: Any) -> str:
-        return f"button “{el}”"
+    def element_window(self, el: Any) -> Any:
+        return "win"
 
     def raise_window(self, pid: int, bounds: Any) -> bool:
         self.raised = getattr(self, "raised", 0) + 1
