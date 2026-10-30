@@ -15,12 +15,11 @@ import json
 from typing import Any
 
 from ferb.core.errors import ModelLimitsUnknown
-from ferb.core.types import Capabilities, ModelLimits, ModelRequest
+from ferb.core.types import ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.usage import from_openai
 
 URL = "https://api.openai.com/v1/responses"
-DEFAULT_MODEL = "gpt-6.1-sol"
 EXPLICIT_CACHE = ("gpt-6", "gpt-5.6")
 BREAKPOINT = {"mode": "explicit"}
 # L28: each model's documented limits (context window, max output tokens), checked 2026-10-14 on
@@ -45,18 +44,13 @@ def limits_for(model: str) -> ModelLimits:
     return ModelLimits(model, window, output, LIMITS_SOURCE)
 
 
-def capabilities_for(model: str) -> Capabilities:
-    explicit = model.startswith(EXPLICIT_CACHE)
-    return Capabilities("direct", "markers" if explicit else "prefix", True, "native", True, True, True, True, "api")
-
-
 class OpenAIProvider:
     name = "openai"
 
-    def __init__(self, model: str = DEFAULT_MODEL) -> None:
-        self.model = model
-        self.capabilities = capabilities_for(model)
-        self.explicit = model.startswith(EXPLICIT_CACHE)
+    def __init__(self, model: str | None = None) -> None:
+        from ferb.runtimes.catalog import CATALOG
+        self.model = model or CATALOG["openai"].default_model
+        self.explicit = self.model.startswith(EXPLICIT_CACHE)    # FERB marks the cacheable prefix; else implicit
 
     @property
     def limits(self) -> ModelLimits:

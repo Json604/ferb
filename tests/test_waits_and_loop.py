@@ -13,7 +13,10 @@ from ferb.cli.client import Client
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.plans import Plan, Step
-from ferb.runtimes.codex_exec import MODEL, CodexRuntime
+from ferb.runtimes.catalog import CATALOG
+from ferb.runtimes.codex_exec import CodexRuntime
+
+MODEL = CATALOG['codex'].default_model
 from ferb.store.db import Database
 from tests.conftest import chat, done, install, outcome, sup, task
 from tests.support.runtime_fakes import Process

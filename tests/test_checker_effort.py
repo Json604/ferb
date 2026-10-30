@@ -11,6 +11,7 @@ from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.codex_exec import CodexRuntime
 from tests.support.runtime_fakes import FakeBridge, FakeProvider, Scripted
 from ferb.runtimes.api import ApiRuntime
+from tests.support.claude_home import signed_in_home
 
 REQUEST = ModelRequest("instructions", ("context",), 0)
 
@@ -42,11 +43,11 @@ async def test_api_runtime_sends_the_effort_asked_for() -> None:
 
 
 def test_claude_runtime_options_carry_the_effort_asked_for() -> None:
-    rt = ClaudeRuntime("worker", None, "/unused", shim_cmd=["ferb", "mcp"], effort="high")    # type: ignore[arg-type]
+    rt = ClaudeRuntime("worker", None, signed_in_home(), shim_cmd=["ferb", "mcp"], effort="high")    # type: ignore[arg-type]
     rt.proxy = type("P", (), {"base_url": lambda self, run: "http://127.0.0.1:1"})()        # type: ignore[assignment]
-    assert rt._options("run-1", "tok").effort == "high"
-    plain = ClaudeRuntime("worker", rt.proxy, "/unused", shim_cmd=["ferb", "mcp"])
-    assert plain._options("run-1", "tok").effort is None
+    assert rt._options("run-1", Path("/tok")).effort == "high"
+    plain = ClaudeRuntime("worker", rt.proxy, rt.ferb_home, shim_cmd=["ferb", "mcp"])
+    assert plain._options("run-1", Path("/tok")).effort is None
 
 
 def test_the_daemons_runtime_factory_passes_the_effort_to_worker_runs(daemon) -> None:

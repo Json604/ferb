@@ -38,7 +38,8 @@ def home_dir(ferb_home: Path) -> Path:
 
 
 def claude_home(ferb_home: Path) -> Path | None:
-    """FERB's own Claude home once a sign-in there finished; None: runs use Claude Code's default login, as before."""
+    """FERB's own Claude home once a sign-in there finished; None: FERB's Claude runtime isn't available (it never
+    falls back to the owner's own ~/.claude login)."""
     home = home_dir(ferb_home)
     return home if (home / SIGNED_IN).is_file() else None
 
@@ -63,6 +64,10 @@ def login_argv(cli: Path) -> list[str]:
     return [str(cli), "auth", "login", "--claudeai"]
 
 
+def logout_argv(cli: Path) -> list[str]:
+    return [str(cli), "auth", "logout"]
+
+
 def status_argv(cli: Path) -> list[str]:
     return [str(cli), "auth", "status", "--json"]
 
@@ -82,6 +87,11 @@ def signed_in(status_output: str) -> bool:
 def mark(ferb_home: Path) -> None:
     (prepare(ferb_home) / SIGNED_IN).write_text(
         "FERB's own Claude sign-in finished; Claude Code keeps the credential in the login Keychain.\n")
+
+
+def unmark(ferb_home: Path) -> None:
+    """A sign-out: the marker goes, so FERB stops offering Claude until the owner signs in again."""
+    (home_dir(ferb_home) / SIGNED_IN).unlink(missing_ok=True)
 
 
 def ferb_command() -> str:

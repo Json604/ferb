@@ -354,11 +354,11 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         await self._build_jev()
         self._build_timers()
         self._register_rpc()
-        await self._dump_codex_catalog()
+        await self._prepare_codex()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
         # L28: an unknown window is said, never guessed. The catalog shipped with the pinned binary was dumped before
-        # serving (`_dump_codex_catalog`), so a fresh install knows each model's window before Codex has ever fetched
+        # serving (`_prepare_codex`), so a fresh install knows each model's window before Codex has ever fetched
         # a catalog for FERB's login.
         for role, problem in self._runtime_limits().items():
             if "problem" in problem:

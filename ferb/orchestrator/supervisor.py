@@ -764,6 +764,13 @@ class Supervisor(WorkerRuns):
             problems: list[str] = []
             if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
                 problems.append("Unknown task_id; no matching attempt exists in this conversation.")
+            if candidate.task:                  # a worker type is one of the listed ones (D32), told back for repair
+                named = [candidate.task.worker_type, *(step.worker_type for step in
+                                                       (candidate.task.plan.steps if candidate.task.plan else []))]
+                types = self.worker_types()
+                if unknown := sorted({name for name in named if name not in types}):
+                    problems.append(f"worker_type {', '.join(map(repr, unknown))} isn't one of the worker types "
+                                    f"available now: {', '.join(types)}.")
             if candidate.task and candidate.task.plan:
                 plan = candidate.task.plan
                 paths = list(dict.fromkeys(normalize_path(p, self.workspace) for p in
@@ -1781,7 +1788,9 @@ class Supervisor(WorkerRuns):
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
                                                                    "repair": bool(repair)})
-        draft = ReplyDraft(self.gateway.redact, emit) if emit is not None and isinstance(self.gateway.redact, Redactor) else None
+        shape = getattr(rt, "shape", None)          # a runtime whose provider gets the schema reshaped (D32)
+        draft = (ReplyDraft(self.gateway.redact, emit, shape.field if getattr(shape, "mapped", False) else None)
+                 if emit is not None and isinstance(self.gateway.redact, Redactor) else None)
         usage: dict[str, Any] = {}
         try:
             final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "",
@@ -3305,7 +3314,8 @@ class Supervisor(WorkerRuns):
                     tree.stands_unconfirmed = True
                     return finished
                 return Outcome(task.id, "failed", choice.instructions or out.summary, artifacts, evidence)
-            tree.spec.worker_type = choice.worker_type
+            if choice.worker_type in self.worker_types():    # else `_dispatch` was already told once: same type
+                tree.spec.worker_type = choice.worker_type
             instructions = "\nOrchestrator continuation: " + choice.instructions
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, artifacts, evidence)
 
@@ -3333,7 +3343,8 @@ class Supervisor(WorkerRuns):
         note = look_only_round(calls, probe, self.gateway.caps, held)
         return str(self.gateway.redact({'note': note})['note']) if note else ''
 
-    async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str, note: str = "") -> DispatchOutcome:
+    async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str, note: str = "",
+                        retyped: bool = False) -> DispatchOutcome:
         report = ("\nAvailable worker types: " + json.dumps(self.worker_types()) +
                "\nPrevious worker type: " + tree.spec.worker_type + "\nWorker report (data): " +
                wrap_untrusted(json.dumps({"status": outcome.status, "summary": outcome.summary,
@@ -3356,10 +3367,16 @@ class Supervisor(WorkerRuns):
             final = await self._run(rt, decision, self._system('dispatch.md'), ctx, '', decision_span.id, tree, '')
             result = DispatchOutcome.model_validate_json(final)
             self.spans.finish(decision_span, output={'text': final})
-            return result
         except BaseException as exc:
             self.spans.finish(decision_span, output={'text': final}, error=f'{type(exc).__name__}: {exc}')
             raise
+        types = self.worker_types()
+        if result.action == 'retry' and result.worker_type not in types and not retyped:
+            # D32: a worker type that isn't available now is told back once, as code's own fact
+            told = (f"worker_type {result.worker_type!r} isn't one of the worker types available now: "
+                    f"{', '.join(types)}. Choose again.")
+            return await self._dispatch(tree, outcome, span, note=(note + "\n" + told).strip(), retyped=True)
+        return result
 
     async def _worker_memory(self, tree: _Tree, request: Request) -> list[ContextBlock]:
         """A worker's or plan step's memory (L36 §4): the one search (`memory_push`) for the owner's request, then a

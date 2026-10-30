@@ -282,11 +282,11 @@ class Rpc:
 
     def _report_facts(self) -> dict[str, Any]:
         """The runtimes and extension versions a failure report (L35) and a diagnostic file (L34 Phase E) name."""
-        from ferb.runtimes.catalog import CATALOG, ROLES
+        from ferb.runtimes.catalog import ROLES, model_for
         runtimes = []
         for role in ROLES:
             name = self._runtime_for(role)
-            model = self._model_for(name) or (CATALOG[name].default_model if name in CATALOG else "")
+            model = model_for(self.config, name)
             runtimes.append(f"{role}: {name} {model}".rstrip())
         bridges = self.hub.bridges.items() if self.hub is not None else []
         return {"runtimes": runtimes,

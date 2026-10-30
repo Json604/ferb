@@ -4,12 +4,20 @@ ClaudeRuntime over the Claude Agent SDK — supervisor and worker modes.
 
 Lockdown (spike 2): tools=[] (no built-in tools), permission_mode="dontAsk" (anything not pre-allowed is denied),
 setting_sources=[] (None would load ~/.claude user + project settings), strict MCP, no plugins/agents/skills.
-Telemetry off. Subscription login only: a run whose init reports an API key is refused (an inherited
-ANTHROPIC_API_KEY would otherwise silently take over). The tool list the API actually receives is checked through
-the local tool-list proxy after every turn."""
+Telemetry off. FERB's own subscription sign-in only (`claude_login`, CLAUDE_CONFIG_DIR=~/.ferb/claude-home): without it
+no run starts (never the owner's own ~/.claude login and billing), and a run whose init reports an API key is refused (an
+inherited ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN would otherwise silently take over; both are blanked). The run
+token reaches FERB's MCP shim through a 0600 file, never the MCP config Claude Code receives on its command line. The
+tool list the API actually receives is checked through the local tool-list proxy after every turn. Typed answers use
+Anthropic's structured outputs (Claude Code's StructuredOutput tool), so the schema is reshaped for Anthropic's limits
+(schema_shape.for_anthropic) and the answer mapped back."""
 
 import asyncio
+import json
+import os
 import secrets
+import shutil
+import tempfile
 import uuid
 from dataclasses import asdict
 from pathlib import Path
@@ -18,8 +26,9 @@ from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import ModelLimitsUnknown, Unsupported
-from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
+from ferb.runtimes.schema_shape import Shape, for_anthropic
 from ferb.runtimes.usage import from_anthropic
 
 SDK_VERSION = "0.2.160"
@@ -77,17 +86,29 @@ def limits_for(model: str | None) -> ModelLimits:
                        resolved.source + "; aliases: https://code.claude.com/docs/en/model-config")
 
 
+def write_token_file(run_token: str) -> Path:
+    """The run token in a fresh owner-only folder, as a 0600 file the shim reads (`FERB_RUN_TOKEN_FILE`)."""
+    folder = Path(tempfile.mkdtemp(prefix="ferb-claude-run-"))          # 0700
+    path = folder / "run-token"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as file:
+        file.write(run_token)
+    return path
+
+
 class ClaudeRuntime:
     name = "claude"
-    capabilities = Capabilities("direct", "markers", False, "native", False, True, True, True, "subscription")
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
                  output_schema: dict[str, Any] | None = None, model: str | None = None,
-                 effort: str | None = None) -> None:
+                 effort: str | None = None, limit_s: float | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
         self.output_schema, self.model = output_schema, model
+        # what Claude Code receives, and how its answers come back to FERB's form (schema_shape)
+        self.shape: Shape | None = for_anthropic(output_schema) if output_schema else None
         self.effort = effort             # L39: the SDK's own effort option when asked for ("high"); None: its default
+        self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:
             self.allowed.add(STRUCTURED_OUTPUT)        # the SDK's carrier for typed output (inert)
@@ -96,24 +117,29 @@ class ClaudeRuntime:
     def limits(self) -> ModelLimits:
         return limits_for(self.model)
 
-    def _options(self, run_id: str, run_token: str) -> Any:
+    def _options(self, run_id: str, token_file: Path | None) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
+        from ferb.runtimes.claude_login import claude_home
+        own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
+        if own is None:                               # never the owner's own ~/.claude login and billing
+            raise Unsupported("Claude isn't signed in for FERB: sign in to Claude in FERB's settings, or run "
+                              "`ferb setup --claude-login`")
         # CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0: Claude Code otherwise aborts a tool call that is silent for 30 minutes;
         # an owner question waits as long as the owner takes (§8.1). "0 disables" is Claude Code's own wording.
         env = {"ANTHROPIC_BASE_URL": self.proxy.base_url(run_id), "DISABLE_TELEMETRY": "1",
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_ERROR_REPORTING": "1",
-               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0",
-               **CACHE_TTL_ENV}
-        from ferb.runtimes.claude_login import claude_home
-        own = claude_home(Path(self.ferb_home))       # L34 C: FERB's own Claude sign-in, once it finished
-        if own is not None:
-            env["CLAUDE_CONFIG_DIR"] = str(own)
+               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_OAUTH_TOKEN": "",
+               "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0", "CLAUDE_CONFIG_DIR": str(own), **CACHE_TTL_ENV}
         mcp: dict[str, Any] = {}
         if self.mode == "worker":
             if not self.shim_cmd:
                 raise ValueError("worker mode needs the ferb mcp shim")
+            if token_file is None:
+                raise ValueError("worker mode needs a run token file")
+            # the token itself never goes into the MCP config, which Claude Code receives on its command line (visible
+            # in `ps` to every local process): the shim reads it from a file only the owner can read
             mcp = {"ferb": {"type": "stdio", "command": self.shim_cmd[0], "args": self.shim_cmd[1:],
-                            "env": {"FERB_RUN_TOKEN": run_token, "FERB_HOME": self.ferb_home}}}
+                            "env": {"FERB_RUN_TOKEN_FILE": str(token_file), "FERB_HOME": self.ferb_home}}}
         return ClaudeAgentOptions(
             tools=[], allowed_tools=sorted(self.allowed - {STRUCTURED_OUTPUT}), permission_mode="dontAsk",
             setting_sources=[],
@@ -121,32 +147,44 @@ class ClaudeRuntime:
             model=self.model, effort=self.effort,   # type: ignore[arg-type]
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
-            output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
+            output_format={"type": "json_schema", "schema": self.shape.wire} if self.shape else None)
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         from claude_agent_sdk import ClaudeSDKClient
         run_id = "run-" + secrets.token_hex(6)
-        client = ClaudeSDKClient(options=self._options(run_id, run_token))
+        deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
+        token_file = write_token_file(run_token) if self.mode == "worker" else None
+        client = None
         try:
-            await client.connect()
-            await client.query(_frames(request))
+            client = ClaudeSDKClient(options=self._options(run_id, token_file))
+            async with asyncio.timeout_at(deadline):
+                await client.connect()
+                await client.query(_frames(request))
         except BaseException:
-            with suppress(Exception):
-                await client.disconnect()
+            if client is not None:
+                with suppress(Exception):
+                    await client.disconnect()
             if self.proxy is not None:
                 self.proxy.forget(run_id)
+            _remove_token(token_file)
             raise
-        return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False})
+        return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False,
+                                                      "token_file": token_file, "deadline": deadline})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         client = run.state["client"]
         if client is None or run.state.get("closed"):
             return
+        inner = self._events(run, client)
         try:
-            async for event in self._events(run, client):
-                yield event
+            async with asyncio.timeout_at(run.state.get("deadline")):
+                async for event in inner:
+                    yield event
+        except TimeoutError:
+            yield RuntimeEvent("error", {"message": "Claude runtime timed out"})
         finally:
             run.state["closed"] = True
+            await inner.aclose()
 
     async def _events(self, run: RunHandle, client: Any) -> AsyncIterator[RuntimeEvent]:
         from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock, UserMessage
@@ -192,9 +230,14 @@ class ClaudeRuntime:
                     elif hasattr(b, "text") and b.text:
                         yield RuntimeEvent("message", {"text": b.text})
             elif isinstance(m, ResultMessage):
+                # Claude Code's total_cost_usd is cumulative across the turns of one streaming-input session ("each
+                # result carries the running total so far": its own field description, Claude Code 2.1.283), while
+                # usage is per turn: a steered run's later results report only the cost added since the last one
+                cost = m.total_cost_usd
+                if cost is not None:
+                    cost, run.state["cost_so_far"] = max(cost - run.state.get("cost_so_far", 0.0), 0.0), cost
                 yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
-                                                                  billing="subscription",
-                                                                  provider_cost=m.total_cost_usd)))
+                                                                  billing="subscription", provider_cost=cost)))
                 if getattr(m, "is_error", False):
                     run.state["closed"] = True
                     detail = m.result or str(getattr(m, "errors", None)) or m.subtype
@@ -214,8 +257,9 @@ class ClaudeRuntime:
                 structured = getattr(m, "structured_output", None) or run.state.get("structured")
                 text = m.result or ""
                 if structured is not None:
-                    import json
-                    text = json.dumps(structured)
+                    text = json.dumps(self.shape.value(structured) if self.shape else structured)
+                elif self.shape is not None:
+                    text = self.shape.answer_text(text)
                 run.state["closed"] = True
                 yield RuntimeEvent("final", {"text": text, "tools_seen": sorted(self.proxy.seen(run.id))})
                 return
@@ -246,9 +290,17 @@ class ClaudeRuntime:
     async def cancel(self, run: RunHandle) -> None:
         run.state["closed"] = True
         client = run.state.get("client")
-        if client is not None:
-            try:
-                await client.disconnect()
-            finally:
-                self.proxy.forget(run.id)
-                run.state["client"] = None
+        try:
+            if client is not None:
+                try:
+                    await client.disconnect()
+                finally:
+                    self.proxy.forget(run.id)
+                    run.state["client"] = None
+        finally:
+            _remove_token(run.state.pop("token_file", None))
+
+
+def _remove_token(path: Path | None) -> None:
+    if path is not None:
+        shutil.rmtree(path.parent, ignore_errors=True)

@@ -51,11 +51,14 @@ async def test_request_carries_the_cacheable_prefix_and_role_key() -> None:
 
 
 @pytest.mark.anyio
-async def test_unoffered_tool_is_a_violation() -> None:
-    script = Scripted([(200, {"calls": [["c1", "shell_run", {"command": "id"}]]})])
+async def test_unoffered_tool_gets_a_tool_error_not_a_violation() -> None:
+    script = Scripted([(200, {"calls": [["c1", "shell_run", {"command": "id"}]]}), (200, {"text": "ok"})])
     bridge = FakeBridge()
     events = await run_all(runtime(script, bridge=bridge))
-    assert events[-1].kind == "violation" and bridge.calls == [] and len(script.requests) == 1
+    assert events[-1].kind == "final" and bridge.calls == [] and len(script.requests) == 2
+    assert not any(e.kind in ("violation", "tool_call") for e in events)
+    result = script.requests[1][1]["results"][0][0]
+    assert result[0] == "c1" and result[2] is True and "no tool named 'shell_run' was offered" in result[1]
 
 
 @pytest.mark.anyio
@@ -218,11 +221,14 @@ async def _collect(rt, run) -> list:
 
 
 @pytest.mark.anyio
-async def test_one_unoffered_tool_blocks_the_whole_turn() -> None:
-    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}], ["c2", "shell_run", {}]]})])
+async def test_one_unoffered_tool_is_refused_alone_in_its_turn() -> None:
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}], ["c2", "shell_run", {}]]}),
+                       (200, {"text": "ok"})])
     bridge = FakeBridge()
     events = await run_all(runtime(script, bridge=bridge))
-    assert events[-1].kind == "violation" and bridge.calls == []
+    assert events[-1].kind == "final" and bridge.calls == [("fs.list", {"path": "/"})]
+    results = script.requests[1][1]["results"][0]
+    assert [r[0] for r in results] == ["c1", "c2"] and results[0][2] is False and results[1][2] is True
 
 
 @pytest.mark.anyio

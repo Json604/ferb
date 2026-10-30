@@ -4,7 +4,7 @@ Verified 2026-10-07 (https://ai.google.dev/api/generate-content, /gemini-api/doc
 /structured-output, /thinking, /caching, /thought-signatures):
 - function declarations use parametersJsonSchema (JSON Schema; mutually exclusive with the OpenAPI-subset `parameters`);
 - typed answers: responseMimeType application/json + responseJsonSchema; together with tools this works on Gemini 3 only
-  (gemini-3.8-flash, gemini-3.1-pro-preview), so DEFAULT_MODEL is a Gemini 3 model;
+  (gemini-3.8-flash, gemini-3.1-pro-preview), so the default model (ferb/runtimes/catalog.py) is a Gemini 3 model;
 - function-call parts carry a thoughtSignature that must go back exactly: FERB appends the model's whole content unchanged;
 - caching is implicit (Gemini 3: at least 4,096 tokens), helped by the stable-first order (P20); hits are reported in
   usageMetadata.cachedContentTokenCount;
@@ -15,12 +15,15 @@ Google now also promotes a newer Interactions API; generateContent remains docum
 from typing import Any
 
 from ferb.core.errors import ModelLimitsUnknown
-from ferb.core.types import Capabilities, ModelLimits, ModelRequest
+from ferb.core.types import ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
+from ferb.runtimes.schema_shape import Shape, for_gemini
 from ferb.runtimes.usage import from_gemini
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-3.8-flash"
+# A function call Gemini sent without an id gets FERB's own (this prefix, the call's place in the turn, its name), so
+# parallel calls to one tool stay apart; only Gemini's own ids are sent back with the results
+LOCAL_ID = "ferb-local:"
 # L28: each model's documented input and output token limits, checked 2026-10-14 on
 # https://ai.google.dev/gemini-api/docs/models/<model code>. Google documents the input limit itself, with the reply
 # counted apart, so the whole input limit is FERB's room. Facts, not FERB choices.
@@ -41,10 +44,14 @@ def limits_for(model: str) -> ModelLimits:
 
 class GoogleProvider:
     name = "google"
-    capabilities = Capabilities("direct", "prefix", False, "native", True, True, True, True, "api")
 
-    def __init__(self, model: str = DEFAULT_MODEL) -> None:
-        self.model = model
+    def __init__(self, model: str | None = None) -> None:
+        from ferb.runtimes.catalog import CATALOG
+        self.model = model or CATALOG["google"].default_model
+
+    def shape(self, schema: dict[str, Any]) -> Shape:
+        """Gemini's documented schema form (schema_shape.for_gemini): the same values, nothing to map back."""
+        return for_gemini(schema)
 
     @property
     def limits(self) -> ModelLimits:
@@ -96,15 +103,15 @@ class GoogleProvider:
         content = first.get("content") or {"role": "model", "parts": []}
         state["body"]["contents"].append(content)        # thought signatures go back exactly as received
         parts = content.get("parts") or []
-        calls = []
+        calls: list[ToolCall] = []
         for p in parts:
             fc = p.get("functionCall")
             if not fc:
                 continue
             args = fc.get("args")
             ok = isinstance(args, dict) or args is None
-            calls.append(ToolCall(str(fc.get("id") or fc["name"]), str(fc["name"]), (args or {}) if ok else {},
-                                  "" if ok else "not a JSON object"))
+            ident = str(fc.get("id") or f"{LOCAL_ID}{len(calls)}:{fc['name']}")
+            calls.append(ToolCall(ident, str(fc["name"]), (args or {}) if ok else {}, "" if ok else "not a JSON object"))
         text = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
         return Turn(calls, None if calls else text, from_gemini(self.model, data.get("usageMetadata") or {}, billing="api"),
                     finish)
@@ -122,7 +129,7 @@ class GoogleProvider:
         parts = []
         for r in results:
             response: dict[str, Any] = {"name": r.call.name, "response": {"error" if r.is_error else "result": r.text}}
-            if r.call.id != r.call.name:
+            if not r.call.id.startswith(LOCAL_ID):         # Gemini's own id; results otherwise pair by order
                 response["id"] = r.call.id
             if r.image:
                 response["parts"] = [{"inlineData": {"mimeType": r.image["mime"], "data": r.image["data"]}}]

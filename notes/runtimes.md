@@ -71,6 +71,11 @@ cites 68dc95b for the same files).
   worker runs; Claude steering replay order and usage double-count across steered turns; Gemini parallel same-tool
   calls collide.
 
+## Rulings (step 4, technical)
+- Codex workers keep Codex's automatic compaction (long tool loops need it); only supervisor runs have it off.
+- `worker_type` is validated per call rather than an enum, so the planner schema stays stable for the P20 cache.
+- A Claude sign-out button in the app is UI-side work; `ferb setup --claude-logout` exists meanwhile.
+
 ## Target design
 1. One small runtime table (name, factory, limits, price, key or sign-in) replacing the five lists and the
    `Capabilities` display record; availability means "model set and signed in".
@@ -81,26 +86,99 @@ cites 68dc95b for the same files).
 4. All adapters kept and fixed (decision 1), behind the one runtime table and the same gateway path.
 
 ## Fix list
-- [ ] Remove the Codex exec path, `workdir`, `model_instructions_file`, duplicate MODEL constant, duplicate `check_final`.
-      (Step 3: exec path (`_cmd`, exec branches of start/events/cancel, `_reap`, `_watch_trace`, `model_instructions_file`) and the `workdir` parameter removed; every run is an app-server run. Left: duplicate MODEL constant, duplicate `check_final`.)
-- [ ] Explicit `tool_timeout_sec` and `startup_timeout_sec` in the Codex MCP config.
-- [ ] Remove the doubled 900 s start/events timeouts: the planner call gets 90 s (notes/orchestration.md
+- [x] Remove the Codex exec path, `workdir`, `model_instructions_file`, duplicate MODEL constant, duplicate `check_final`.
+      (Step 3: exec path and `workdir` removed. Step 4: `codex_exec.MODEL` and the providers' `DEFAULT_MODEL` gone,
+      defaults live only in the runtime table; codex_stream no longer runs `check_final`, every caller's one check
+      in core/structured.py does.)
+- [x] Explicit `tool_timeout_sec` and `startup_timeout_sec` in the Codex MCP config. (Step 4: 120 s start, 7 days per
+      call, codex_exec.MCP_*_TIMEOUT_S with the reasons; FERB's stall watchdog and stop end hangs.)
+- [x] Remove the doubled 900 s start/events timeouts: the planner call gets 90 s (notes/orchestration.md
       decision 11); other non-worker calls keep the 180 s silence guard and one overall limit; workers none.
-- [ ] Version check and locked catalog once at daemon start.
-- [ ] Item gate records the tool and server; server→client request reported as a violation; stderr drained always.
-- [ ] Claude run token via the 0600 token file (`FERB_RUN_TOKEN_FILE`).
-- [ ] Claude available only with a model and FERB sign-in; `runtimes.check` reads limits; remove the stale marker on
-      sign-out; blank `CLAUDE_CODE_OAUTH_TOKEN` in runs.
-- [ ] `worker_type` as an enum of available runtimes in the planner schema; clear error otherwise.
-- [ ] `ferb runtimes use` validates the model; the RPC can set one.
-- [ ] ApiRuntime: unknown tool → tool error, not a violation.
-- [ ] Remove `native_tools_contained`, `Registry.unregistered`, the doctor's dead "unregistered" check (or enforce).
-- [ ] haiku-5-5 price entry.
-- [ ] Investigate: concurrent auth.json refresh (token rotation race); disable Codex auto-compaction; give workers
-      FERB's base instructions instead of Codex's coding-agent prompt.
-- [ ] One runtime table.
-- [ ] Provider-neutral core schemas (Anthropic union-parameter limit; SUPERVISOR_SCHEMA ~46 nullable fields).
-- [ ] Fix each adapter: Claude SDK (token file, availability, model, steering replay order, usage across steered
+      (Step 4: catalog.call_limit, 90 s / 900 s / none, one deadline across start and answer; applied by every
+      adapter (Codex, Claude, direct APIs), not only Codex. The plain reply on a planner timeout is step 8.)
+- [x] Version check and locked catalog once at daemon start. (Step 4: `_prepare_codex` at start; a run checks only if
+      that didn't happen; the locked catalog is rewritten only when Codex's own catalog file changes.)
+- [x] Item gate records the tool and server; server→client request reported as a violation; stderr drained always.
+      (Step 4: violation data `item` {kind, tool, server} / {kind: serverRequest, method}; the stderr reader reads
+      to EOF whatever happens, an unreadable line fails the catalog check closed.)
+- [x] Claude run token via the 0600 token file (`FERB_RUN_TOKEN_FILE`). (Step 4: owner-only temp folder, removed on
+      cancel.)
+- [x] Claude available only with a model and FERB sign-in; `runtimes.check` reads limits; remove the stale marker on
+      sign-out; blank `CLAUDE_CODE_OAUTH_TOKEN` in runs. (Step 4: no fallback to ~/.claude; `ferb setup
+      --claude-logout` runs Claude Code's `auth logout` in FERB's home and removes the marker; the app has no
+      button for it yet (ui/ untouched).)
+- [x] `worker_type` as an enum of available runtimes in the planner schema; clear error otherwise. (Step 4: validated,
+      not an enum: the planner's repair loop is told "worker_type 'x' isn't one of the worker types available now:
+      …"; the dispatcher is told once and asked again; nothing blames config.toml. Worker types moved into the
+      planner's fixed Layer 1. An enum would change SUPERVISOR_SCHEMA per call, which P20 keys on.)
+- [x] `ferb runtimes use` validates the model; the RPC can set one. (Step 4: against the runtime's documented limits.)
+- [x] ApiRuntime: unknown tool → tool error, not a violation. (Step 4: the other calls of the turn still run.)
+- [x] Remove `native_tools_contained`, `Registry.unregistered`, the doctor's dead "unregistered" check (or enforce).
+      (Step 4: removed with the whole `Capabilities` record.)
+- [x] haiku-5-5 price entry. (Step 4: $0.10/$0.01/$0.125/$0.50, 5x for prompts over 100k tokens, pricing page
+      2026-10-30.)
+- [x] Investigate: concurrent auth.json refresh (token rotation race); disable Codex auto-compaction; give workers
+      FERB's base instructions instead of Codex's coding-agent prompt. (Step 4, see "Step 4 findings".)
+- [x] One runtime table. (Step 4: ferb/runtimes/catalog.py: name, factory, limits, billing, sign-in kind,
+      availability = model set AND signed in / key present; every former list reads it, `ferb setup --key` too.
+      Prices stay per model in prices.py, shared by Codex and the OpenAI API.)
+- [x] Provider-neutral core schemas (Anthropic union-parameter limit; SUPERVISOR_SCHEMA ~46 nullable fields).
+      (Step 4: ferb/runtimes/schema_shape.py. Core schemas unchanged. Anthropic API and Claude SDK: nullable object →
+      list of at most one item, nested nullable scalar → optional property while the 24-optional budget lasts,
+      the rest stay unions (≤ 16); answers mapped back before FERB's check; SUPERVISOR_SCHEMA 42 unions → 11 unions
+      + 24 optional. Gemini: an enum holding null → anyOf. Offline test over every core schema.)
+- [x] Fix each adapter: Claude SDK (token file, availability, model, steering replay order, usage across steered
       turns, sign-in marker), Anthropic/OpenAI/Gemini API (unknown tool → tool error; Gemini call ids; prices).
+      (Step 4: all listed; Claude cost across steered turns fixed; Gemini calls without ids get FERB-local ids,
+      only Gemini's own ids are sent back. Replay order: see findings.)
 - [ ] Live test each adapter on real calls, one by one (OpenAI offline only).
 - [ ] P20 planner cache: owner runs the injection eval; on if it passes.
+
+## Step 4 findings (2026-10-30)
+- **auth.json refresh race: not confirmed, not changed.** Live DB (read-only): 0 `auth_required` / `refresh_token_reused`
+  / `invalid_grant` errors in ~9,500 Codex runs; 3 `account_unavailable (code -32603)` planner turns (10-15 02:42,
+  10-16 02:42, 10-19 03:08 local), a Codex internal error on `account/read` with `refreshToken: false`, not a rotated
+  token. `_save_refresh` already writes a refreshed copy back only when the source is unchanged. If it ever shows,
+  the fix is one shared refresh under a lock before a run starts.
+- **Auto-compaction: disabled for supervisor runs** (`model_auto_compact_token_limit` set out of reach; the key is in
+  the pinned 0.157.1 binary). FERB already fits those one-turn prompts to the window, so compaction could only
+  rewrite FERB's context. Workers keep Codex's default (a long tool loop compacts rather than fails): owner's call
+  whether workers should fail on overflow instead.
+- **Worker base prompt: replaced.** thread/start's `baseInstructions` is FERB's worker system prompt for workers too
+  (was Codex's coding-agent prompt plus FERB's text as developer instructions). Needs the live check below.
+- **Claude usage across steered turns: confirmed and fixed.** Claude Code 2.1.283's own field descriptions:
+  `total_cost_usd` is the running total across turns of a streaming-input session ("read the latest result rather
+  than summing"); `usage` is per turn (main loop only). FERB summed the running total; it now reports the
+  difference per result. Tokens were already per turn.
+- **Claude steering replay order: no bug found offline.** FERB waits for the replay (by UUID) of every correction
+  before it accepts a result, so a stale result before or after the replay is skipped, and merged corrections need
+  one result (tests/test_claude_steering.py). Claude Code also reports `queued_turn_count` on results ("> 0 means at
+  least one more result follows"), but the pinned SDK 0.2.160 drops that field when it parses a result, so FERB can't
+  read it. Unknown offline: whether Claude Code replays a queued message when it receives it or when its turn
+  starts; if on receipt mid-turn, a result for a turn that didn't see the correction could be accepted. Live check.
+- **Gemini parallel same-tool calls: no collision inside FERB's loop** (results are paired by position), but both got
+  the same id (the tool name). Now FERB-local unique ids; only Gemini's own ids go back.
+- **Claude SDK structured output and Anthropic's limits.** The bundled Claude Code marks tools strict when a request
+  carries structured outputs (`requestCarriesStructuredOutputs` in its code), so the Anthropic reshaping is applied
+  to Claude runs too. Open: whether FERB's MCP tool schemas then count toward the 24-optional/16-union limits in a
+  Claude worker run with an output schema.
+
+## Live checks for step 13, per adapter (from step 4)
+- **Codex:** (1) a worker run with FERB's base instructions in place of Codex's: FERB tools listed and called, typed
+  answer returned, no `instructionSources`; compare one task's quality and tokens with before. (2) A planner prompt
+  over ~245k tokens shows no `contextCompaction` item (compaction really off) and an over-window prompt comes back as
+  an overflow. (3) An owner confirmation left unanswered for > 60 s in a worker: the call is not abandoned
+  (`tool_timeout_sec`). (4) Daemon start journals no `runtime.codex_problem`; a run starts without a `codex --version`
+  process. (5) A planner turn is cut at 90 s (step 8 words the reply).
+- **Claude SDK (owner's subscription, FERB's own sign-in):** (1) without a model set, `ferb runtimes` shows Claude
+  unusable and the planner isn't offered it; `runtimes.check` fails naming the model. (2) Planner turn on
+  SUPERVISOR_SCHEMA (reshaped) answers and a task plan streams. (3) A worker with an output schema and many FERB tools
+  runs (MCP tool schemas vs the optional/union limits). (4) `ps` during a worker run shows no run token. (5) Steer a
+  worker twice: one result, the cost of the run equals Claude's final `total_cost_usd`. (6) `ferb setup
+  --claude-logout` signs out and Claude becomes unusable.
+- **Anthropic API (owner's key):** (1) planner turn on SUPERVISOR_SCHEMA accepted (no "too many parameters with union
+  types"), answer mapped back, a plan streams. (2) A worker calling a made-up tool name gets the tool error and goes
+  on. (3) Prices on `claude-haiku-5-5` usage spans.
+- **Gemini API (owner's free key):** (1) planner turn on SUPERVISOR_SCHEMA and a worker on WORKER_SCHEMA accepted
+  (no "too many states"); (2) a worker making two parallel calls to one tool gets both results paired correctly.
+- **OpenAI API:** offline only (no key).

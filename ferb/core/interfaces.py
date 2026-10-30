@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator, Literal, Protocol
 from pydantic import BaseModel
 
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ComputerAction, DriverFeatures, ElementRef, Identity,
-                             ModelRequest, PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, Capabilities, SecretRef, SecretSpec,
+                             ModelRequest, PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, SecretRef, SecretSpec,
                              TabRef, Task, ToolContext, ToolResult, WaitCondition)
 
 
@@ -24,8 +24,9 @@ class IdSource(Protocol):
 
 
 class AgentRuntime(Protocol):
+    """One model call for one role. Built from FERB's runtime table (ferb/runtimes/catalog.py), which also holds what
+    `ferb runtimes` shows about it; everything model-specific lives in its adapter."""
     name: str
-    capabilities: Capabilities                 # native_tools_contained must be True to be registered
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle: ...
     def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]: ...
     async def continue_(self, run: RunHandle, message: str) -> None: ...   # same-run input accepted, or Unsupported if closed

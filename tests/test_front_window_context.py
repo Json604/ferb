@@ -1008,10 +1008,12 @@ async def test_codex_app_server_planner_turn_carries_the_image(tmp_path: Path, m
 
 
 @pytest.mark.anyio
-async def test_codex_app_server_reports_a_schema_mismatch_as_an_invalid_answer(tmp_path: Path,
-                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fix round 3 (1b): the model answered; FERB's adapter check found the answer outside the schema. That is its
-    own event kind (repair, image kept), not a protocol error (which would read as a refused image)."""
+async def test_codex_app_server_hands_a_schema_mismatch_to_ferbs_one_check(tmp_path: Path,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 3 (1b): the model answered outside the schema. The adapter hands the answer on (no protocol error,
+    which would read as a refused image); FERB's one check (core/structured.check_final, run by every caller) names
+    the problem, which the caller treats as repair with the image kept."""
+    from ferb.core.structured import check_final
     import ferb.runtimes.codex_stream as stream
     home = tmp_path / "codex-home"
     home.mkdir()
@@ -1028,8 +1030,9 @@ async def test_codex_app_server_reports_a_schema_mismatch_as_an_invalid_answer(t
     events = stream.events(rt, run)
     proc.complete()
     got = [ev async for ev in events]
-    assert [ev.kind for ev in got if ev.kind in ("error", "final", "invalid_answer")] == ["invalid_answer"]
-    assert "answer_question" in got[-1].data["message"]
+    assert [ev.kind for ev in got if ev.kind in ("error", "final", "invalid_answer")] == ["final"]
+    with pytest.raises(ValueError, match="answer_question"):
+        check_final(got[-1].data["text"], rt.output_schema)
 
 
 @pytest.mark.anyio

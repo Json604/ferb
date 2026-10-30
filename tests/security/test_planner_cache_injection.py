@@ -46,7 +46,7 @@ class PlannerOnCodex(PlannerRoute):
         login.mkdir()
         (login / "auth.json").write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
         (login / "models_cache.json").write_text(json.dumps({"models": [
-            {"slug": cx.MODEL, "context_window": 272000, "effective_context_window_percent": 95}]}))
+            {"slug": cx.default_model(), "context_window": 272000, "effective_context_window_percent": 95}]}))
 
         async def no_version(binary: Path) -> None:
             return None

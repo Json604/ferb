@@ -44,7 +44,7 @@ def test_pinned_codex_app_server_sends_no_skills_message() -> None:
         try:
             server.initialize()
             thread = server.rpc("thread/start", {
-                "model": cx.MODEL, "modelProvider": "openai", "cwd": str(work), "approvalPolicy": "never",
+                "model": cx.default_model(), "modelProvider": "openai", "cwd": str(work), "approvalPolicy": "never",
                 "sandbox": "read-only", "baseInstructions": "FERB-SYSTEM-MARKER", "developerInstructions": "",
                 "ephemeral": True, "dynamicTools": [], "environments": [], "selectedCapabilityRoots": [],
                 "allowProviderModelFallback": False, "experimentalRawEvents": False})["result"]
@@ -413,7 +413,7 @@ def _pinned_turn(resume: bool) -> list[dict[str, Any]]:
 
 def test_pinned_cached_turn_request_shape() -> None:
     warm_up, body = _pinned_turn(resume=True)
-    key = stream.cache_thread_id("planner", cx.MODEL)
+    key = stream.cache_thread_id("planner", cx.default_model())
     assert body["prompt_cache_key"] == key == warm_up["prompt_cache_key"]          # the fixed key reaches the service
     # tools, developer (FERB's system prompt), developer (the stable context), user (what changes this turn)
     assert lb.roles(body) == ["additional_tools:developer", "message:developer", "message:developer", "message:user"]

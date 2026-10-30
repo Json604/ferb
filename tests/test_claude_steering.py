@@ -8,6 +8,7 @@ from claude_agent_sdk import ResultMessage, UserMessage
 from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
 from ferb.runtimes.claude_sdk import ClaudeRuntime
+from tests.support.claude_home import signed_in_home
 
 
 def result(text):
@@ -41,7 +42,7 @@ class Client:
 def setup():
     client = Client()
     proxy = SimpleNamespace(seen=lambda ident: set(), forget=lambda ident: None)
-    rt = ClaudeRuntime('worker', proxy, '/unused', shim_cmd=['ferb', 'mcp'])
+    rt = ClaudeRuntime('worker', proxy, signed_in_home(), shim_cmd=['ferb', 'mcp'])
     run = RunHandle('same-run', 'claude', 'task', {'client': client, 'checked_auth': True})
     return rt, run, client
 
@@ -127,6 +128,7 @@ async def test_claude_failed_input_write_reports_failure_and_closes(monkeypatch)
 def test_claude_requests_replay_acknowledgements_without_persisting_sessions():
     rt, _, _ = setup()
     rt.proxy.base_url = lambda run_id: 'http://unused'
-    assert rt._options('run', 'token').extra_args == {
+    from pathlib import Path
+    assert rt._options('run', Path('/tmp/x/run-token')).extra_args == {
         'no-session-persistence': None, 'replay-user-messages': None,
     }

@@ -107,11 +107,13 @@ async def test_image_results_reach_the_model(case) -> None:
 
 
 @pytest.mark.anyio
-async def test_unoffered_tool_is_a_violation(case) -> None:
+async def test_unoffered_tool_gets_a_tool_error_and_the_run_goes_on(case) -> None:
     bridge = FakeBridge()
-    script = Scripted([(200, case["tool"]("shell_run", {"command": "id"}))])
+    script = Scripted([(200, case["tool"]("shell_run", {"command": "id"})), (200, case["final"])])
     events = await run(make(case, script, bridge=bridge))
-    assert events[-1].kind == "violation" and bridge.calls == [] and len(script.requests) == 1
+    assert events[-1].kind == "final" and not any(e.kind == "violation" for e in events)
+    assert bridge.calls == [] and len(script.requests) == 2              # nothing ran; the model was told why
+    assert "no tool named 'shell_run' was offered" in json.dumps(script.requests[1][1])
 
 
 @pytest.mark.anyio
@@ -370,4 +372,3 @@ async def test_owner_updates_are_native_user_messages_after_prior_turn(case, ini
     else:
         assert 'ok' in json.dumps(history[-3])
     assert len([event for event in events if event.kind == 'final']) == 1
-    assert rt.capabilities.continuation and rt.capabilities.live_messaging

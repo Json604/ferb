@@ -3,9 +3,10 @@ run token doesn't cover.
 
 One loop for every provider: ask the model, run each tool call through FERB's gateway (GatewayBridge, the same path as the
 MCP shim), send the results back, until the model answers. A small Provider class per API translates requests, responses,
-cache markers, typed output and usage. A tool the run wasn't offered stops the run (violation), as with Codex and Claude.
-No turn or token budget; stop and the stall watchdog end a run. Keys come from the Keychain at start and never appear in
-errors. Provider-hosted tools are never enabled."""
+cache markers, typed output (its `shape` of FERB's schema, ferb/runtimes/schema_shape.py) and usage. A call to a tool the
+run wasn't offered gets a tool error back and nothing runs (no provider-hosted tool is ever enabled, so it can only be a
+made-up name). No turn or token budget; stop, the stall watchdog and the call's own time limit (none for a worker) end a
+run. Keys come from the Keychain at start and never appear in errors."""
 
 import asyncio
 import json
@@ -17,7 +18,8 @@ import httpx
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import FerbError, Unsupported
-from ferb.core.types import Capabilities, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.runtimes.schema_shape import Shape, same
 from ferb.runtimes.usage import Usage
 
 RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
@@ -67,7 +69,8 @@ class Turn:
 class Provider(Protocol):
     name: str
     model: str
-    capabilities: Capabilities
+    # FERB's output schema in the form this provider accepts, and its answers back (optional: as is when absent)
+    # def shape(self, schema: dict[str, Any]) -> Shape: ...
     def begin(self, request: ModelRequest, tools: list[ToolSpec], schema: dict[str, Any] | None, effort: str | None,
               cache_key: str) -> dict[str, Any]: ...
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]: ...
@@ -131,6 +134,7 @@ class _Run:
     closed: bool = False
     updates: list[str] = field(default_factory=list)
     inflight: "asyncio.Future[Any] | None" = None
+    deadline: float | None = None               # the call's one overall limit (loop time), None for none
 
 
 class ApiRuntime:
@@ -138,10 +142,14 @@ class ApiRuntime:
                  tool_names: list[str] | None, output_schema: dict[str, Any] | None, bridge: Bridge | None,
                  key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
-                 timeout_s: float = 600.0, effort: str | None = None) -> None:
-        self.provider, self.name, self.capabilities = provider, provider.name, provider.capabilities
+                 timeout_s: float = 600.0, effort: str | None = None, limit_s: float | None = None) -> None:
+        self.provider, self.name = provider, provider.name
         self.effort = effort             # L39: a worker run's effort when asked for ("high"); supervisor runs stay low
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
+        reshape = getattr(provider, "shape", None)
+        self.shape: Shape | None = ((reshape(output_schema) if reshape is not None else same(output_schema))
+                                    if output_schema else None)
+        self.limit_s = limit_s           # one overall limit on this call (catalog.call_limit); None for a worker
         self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
         self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
 
@@ -167,14 +175,29 @@ class ApiRuntime:
                     t = offered[capability]
                     tools.append(ToolSpec(mcp_name(capability), str(t["description"]), inline_refs(t["input_schema"])))
                     names[mcp_name(capability)] = capability
-        state = self.provider.begin(request, tools, self.output_schema,
+        state = self.provider.begin(request, tools, self.shape.wire if self.shape else None,
                                     "low" if self.mode == "supervisor" else self.effort,
                                     f"ferb:{self.role.partition(':')[0]}:{self.mode}")
         client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
+        deadline = asyncio.get_running_loop().time() + self.limit_s if self.limit_s is not None else None
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
-                         {"run": _Run(state, key, run_token, names, client)})
+                         {"run": _Run(state, key, run_token, names, client, deadline=deadline)})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+        r: _Run = run.state["run"]
+        inner = self._events(run)
+        try:
+            async with asyncio.timeout_at(r.deadline):
+                async for event in inner:
+                    yield event
+        except TimeoutError:
+            if not r.cancelled:
+                yield RuntimeEvent("error", {"message": f"{self.name}: the call took longer than its "
+                                                        f"{self.limit_s:g} s limit"})
+        finally:
+            await inner.aclose()              # its own clean-up runs now, not when it is garbage-collected
+
+    async def _events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         r: _Run = run.state["run"]
         try:
             while True:
@@ -214,15 +237,16 @@ class ApiRuntime:
                         yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
                         return
                     r.closed = True  # No update may be accepted while the final event is handled.
-                    yield RuntimeEvent("final", {"text": turn.final})
-                    return
-                unoffered = [c.name for c in turn.calls if c.name not in r.names]
-                if unoffered:
-                    r.closed = True
-                    yield RuntimeEvent("violation", {"unexpected_tools": unoffered})
+                    yield RuntimeEvent("final", {"text": self.shape.answer_text(turn.final) if self.shape
+                                                 else turn.final})
                     return
                 results = []
                 for call in turn.calls:
+                    if call.name not in r.names:
+                        # a name this run was never offered: nothing runs, and the model is told so and goes on
+                        results.append(ToolOutcome(call, f"FERB refused: no tool named {call.name!r} was offered to "
+                                                         "this run; use one of the tools listed for it.", True))
+                        continue
                     if not r.updates:
                         yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
                     if r.cancelled:

@@ -143,21 +143,6 @@ class ActionSpec:
 # ---------- runtimes ----------
 
 @dataclass(frozen=True)
-class Capabilities:
-    """What a model runtime supports (D32's capability table): facts for planning and for `ferb runtimes`."""
-    tools: Literal["direct", "deferred", "none"]      # how FERB's gateway tools reach the model
-    cache: Literal["prefix", "markers"]               # automatic on an identical start, or FERB marks the cacheable prefix
-    cache_key: bool                                   # FERB keeps one cache-routing key per role
-    structured_output: Literal["native", "tool"]      # the provider enforces the schema, or a final-answer tool carries it
-    reasoning_effort: bool
-    image_input: bool                                 # image tool results reach the model
-    continuation: bool
-    live_messaging: bool
-    billing: Literal["subscription", "api"]
-    native_tools_contained: bool = True               # must be True to be registered
-
-
-@dataclass(frozen=True)
 class ModelImage:
     """A picture handed to a model with its request (L12): bytes already redacted (rule 14), sent to the model only,
     never into a span, the journal or a log. `ref` names its evidence-store row, which the trace records instead."""

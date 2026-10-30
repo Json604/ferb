@@ -20,6 +20,7 @@ from ferb.core.types import Identity, ModelImage, ModelRequest, Task
 from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from tests.support.model_loopback import ModelLoopback
+from tests.support.claude_home import signed_in_home
 
 CLAUDE_START = ClaudeRuntime.start          # saved before the no_real_models fixture patches it
 PINNED_CLAUDE_CODE = "2.1.283"
@@ -94,9 +95,8 @@ def test_claude_codes_own_breakpoints_are_pinned_to_one_hour() -> None:
     # Unset, Claude Code picks 5 minutes once a subscription is past its usage limits; a 5-minute marker before FERB's
     # 1-hour one is refused (TTL order), so FERB's turn would fail there
     proxy = type("P", (), {"base_url": lambda self, run_id: "http://unused"})()
-    rt = ClaudeRuntime("supervisor", proxy, "/unused", output_schema={"type": "object"})   # type: ignore[arg-type]
-    assert rt._options("run", "").env["CLAUDE_CODE_PROMPT_CACHE_TTL"] == "1h"
-    assert ClaudeRuntime.capabilities.cache == "markers"          # `ferb runtimes`: FERB marks the cacheable prefix
+    rt = ClaudeRuntime("supervisor", proxy, signed_in_home(), output_schema={"type": "object"})   # type: ignore[arg-type]
+    assert rt._options("run", None).env["CLAUDE_CODE_PROMPT_CACHE_TTL"] == "1h"
 
 
 # ---------- pinned to Claude Code 2.1.283: what the bundled CLI sends ----------
@@ -152,12 +152,12 @@ async def test_pinned_claude_code_request_keeps_ferbs_breakpoint_valid(monkeypat
     loopback = ModelLoopback()
     config_dir = tempfile.TemporaryDirectory(prefix="ferb-claude-shape-")
     proxy = _LoopbackProxy(loopback.url)
-    rt = ClaudeRuntime("supervisor", proxy, "/unused", tool_names=[], output_schema=SUPERVISOR_SCHEMA,  # type: ignore[arg-type]
+    rt = ClaudeRuntime("supervisor", proxy, signed_in_home(), tool_names=[], output_schema=SUPERVISOR_SCHEMA,  # type: ignore[arg-type]
                        model="opus")
     real_options = rt._options
 
-    def loopback_options(run_id: str, run_token: str) -> Any:
-        options = real_options(run_id, run_token)
+    def loopback_options(run_id: str, token_file: Any) -> Any:
+        options = real_options(run_id, token_file)
         # Loopback only: a fake key and an empty config directory, never the owner's login or settings
         options.env.update(ANTHROPIC_API_KEY="sk-ant-loopback-test", CLAUDE_CONFIG_DIR=config_dir.name)
         return options

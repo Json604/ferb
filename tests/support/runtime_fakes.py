@@ -7,7 +7,6 @@ from typing import Any
 
 import httpx
 
-from ferb.core.types import Capabilities
 from ferb.runtimes.api import ProviderError, ToolCall, Turn
 from ferb.runtimes.usage import Usage
 
@@ -52,7 +51,6 @@ class FakeProvider:
     """A provider whose wire format is FERB-made: {"calls": [[id, name, args]], "text": ..., "usage": n}."""
     name = "fake"
     model = "fake-model"
-    capabilities = Capabilities("direct", "prefix", True, "native", True, True, False, False, "api")
 
     def begin(self, request, tools, schema, effort, cache_key) -> dict[str, Any]:
         return {"body": {"system": request.system, "parts": list(request.parts), "cacheable": request.cacheable,

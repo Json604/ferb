@@ -12,6 +12,7 @@ from ferb.runtimes.api import ApiRuntime
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.google_api import GoogleProvider
 from ferb.runtimes.openai_api import OpenAIProvider
+from tests.support.claude_home import signed_in_home
 
 TASK = Task('t', None, 'reply', 'dev', Identity.OWNER, set(), 'mixed', 'r', [], None)
 SCHEMA = {'type': 'object', 'properties': {'text': {'type': 'string'}}, 'required': ['text']}
@@ -235,8 +236,8 @@ async def test_claude_streams_only_the_structured_output_tool_payload():
             pass
 
     proxy = SimpleNamespace(seen=lambda ident: set(), base_url=lambda ident: 'http://unused', forget=lambda ident: None)
-    rt = ClaudeRuntime('supervisor', proxy, '/unused', output_schema=SCHEMA)
-    assert rt._options('run', '').include_partial_messages is True
+    rt = ClaudeRuntime('supervisor', proxy, signed_in_home(), output_schema=SCHEMA)
+    assert rt._options('run', None).include_partial_messages is True
     events = rt.events(RunHandle('run', 'claude', 't', {'client': Client(), 'checked_auth': False}))
     try:
         early = await asyncio.wait_for(anext(events), 1)

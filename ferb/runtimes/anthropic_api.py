@@ -16,13 +16,13 @@ import json
 from typing import Any
 
 from ferb.core.errors import ModelLimitsUnknown
-from ferb.core.types import Capabilities, ModelLimits, ModelRequest
+from ferb.core.types import ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
+from ferb.runtimes.schema_shape import Shape, for_anthropic
 from ferb.runtimes.usage import from_anthropic
 
 URL = "https://api.anthropic.com/v1/messages"
 VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-sonnet-5-5"
 MAX_TOKENS = 32000
 NO_EFFORT = ("claude-haiku-4-5",)
 CACHE = {"type": "ephemeral"}
@@ -52,10 +52,14 @@ def limits_for(model: str) -> ModelLimits:
 
 class AnthropicProvider:
     name = "anthropic"
-    capabilities = Capabilities("direct", "markers", False, "native", True, True, True, True, "api")
 
-    def __init__(self, model: str = DEFAULT_MODEL) -> None:
-        self.model = model
+    def __init__(self, model: str | None = None) -> None:
+        from ferb.runtimes.catalog import CATALOG
+        self.model = model or CATALOG["anthropic"].default_model
+
+    def shape(self, schema: dict[str, Any]) -> Shape:
+        """Within the API's union and optional-parameter limits for typed output (schema_shape.for_anthropic)."""
+        return for_anthropic(schema)
 
     @property
     def limits(self) -> ModelLimits:

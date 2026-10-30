@@ -8,11 +8,10 @@ import subprocess
 
 from ferb.identity.secrets import SERVICE
 
-PROVIDERS = ("anthropic", "openai", "google")
-
 
 def account(provider: str) -> str:
-    if provider not in PROVIDERS:
+    from ferb.runtimes.catalog import api_providers
+    if provider not in api_providers():
         raise ValueError(f"unknown provider {provider!r}")
     return f"api/{provider}"
 

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from ferb.core.types import ModelLimits
 from ferb.runtimes.api import ApiRuntime
 from ferb.runtimes.catalog import CATALOG
 from tests.conftest import RunningDaemon
@@ -11,15 +12,17 @@ from tests.conftest import RunningDaemon
 
 def test_catalog_lists_all_five_runtimes() -> None:
     assert set(CATALOG) == {"codex", "claude", "anthropic", "openai", "google"}
-    assert CATALOG["openai"].capabilities("gpt-5.5").cache == "prefix"
-    assert CATALOG["openai"].capabilities("gpt-6.1-sol").cache == "markers"
+    from ferb.runtimes.openai_api import OpenAIProvider
+    assert OpenAIProvider("gpt-5.5").explicit is False and OpenAIProvider("gpt-6.1-sol").explicit is True
 
 
-def test_catalog_defaults_match_the_provider_modules() -> None:
-    from ferb.runtimes import anthropic_api, google_api, openai_api
-    assert CATALOG["anthropic"].default_model == anthropic_api.DEFAULT_MODEL
-    assert CATALOG["openai"].default_model == openai_api.DEFAULT_MODEL
-    assert CATALOG["google"].default_model == google_api.DEFAULT_MODEL
+def test_provider_defaults_come_from_the_table() -> None:
+    from ferb.runtimes.anthropic_api import AnthropicProvider
+    from ferb.runtimes.google_api import GoogleProvider
+    from ferb.runtimes.openai_api import OpenAIProvider
+    assert AnthropicProvider().model == CATALOG["anthropic"].default_model
+    assert OpenAIProvider().model == CATALOG["openai"].default_model
+    assert GoogleProvider().model == CATALOG["google"].default_model
 
 
 def test_api_runtime_is_built_for_its_role(daemon: RunningDaemon) -> None:
@@ -79,6 +82,9 @@ def test_runtimes_check_reports_a_non_json_answer(daemon: RunningDaemon, monkeyp
 
     def fake(text):
         class RT:
+            name = "openai"
+            limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
+
             async def start(self, *a):
                 return "run"
 
@@ -96,9 +102,24 @@ def test_runtimes_check_reports_a_non_json_answer(daemon: RunningDaemon, monkeyp
     assert daemon.run(d._runtimes_check(None, {"runtime": "openai"}))["ok"] is True
 
 
+def test_runtimes_check_fails_for_a_model_without_documented_limits(daemon: RunningDaemon, monkeypatch) -> None:
+    """A Claude with no model (or any model FERB knows no window for) fails the check before any call (L28), instead
+    of passing the check and failing every real call."""
+    from ferb.runtimes.claude_login import mark
+    d = daemon.daemon
+    mark(d.home)
+    started = []
+    monkeypatch.setattr("ferb.runtimes.claude_sdk.ClaudeRuntime.start", lambda *a, **k: started.append(a))
+    out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
+    assert out["ok"] is False and "no model set" in out["detail"] and not started
+    d.config.set("models", "claude", "claude-sonnet-9")
+    out = daemon.run(d._runtimes_check(None, {"runtime": "claude"}))
+    assert out["ok"] is False and "context window" in out["detail"] and not started
+
+
 def test_offline_daemons_never_ask_the_real_keychain(daemon: RunningDaemon) -> None:
     d = daemon.daemon
-    assert [n for n in d.registry.runtimes if d._runtime_available(n)] == ["codex", "claude"]
+    assert d._worker_types() == ["default", "codex", "claude"]
 
 
 def test_codex_without_ferbs_own_login_is_refused_with_the_fix(daemon: RunningDaemon) -> None:

@@ -1,5 +1,5 @@
-"""Own building model runtimes per role (D32) and the runtime RPCs. Must not pick a model the owner's config doesn't
-name."""
+"""Own building model runtimes per role (D32) from FERB's runtime table (ferb/runtimes/catalog.py) and the runtime RPCs.
+Must not pick a model the owner's config doesn't name (a runtime's own default aside)."""
 
 import asyncio
 import json
@@ -12,17 +12,6 @@ from ferb.core.errors import FerbError
 from ferb.core.types import Identity
 from ferb.daemon.server import Session
 from ferb.runtimes.proxy import ToolListProxy
-
-
-def _provider(name: str, model: str) -> Any:
-    if name == "anthropic":
-        from ferb.runtimes.anthropic_api import AnthropicProvider
-        return AnthropicProvider(model)
-    if name == "openai":
-        from ferb.runtimes.openai_api import OpenAIProvider
-        return OpenAIProvider(model)
-    from ferb.runtimes.google_api import GoogleProvider
-    return GoogleProvider(model)
 
 
 def mcp_shim_command() -> list[str]:
@@ -48,8 +37,15 @@ class Runtimes:
         return str(self.config.get("runtimes", "checker", worker)) if role == "checker" else worker
 
     def _model_for(self, name: str) -> str | None:
-        model = self.config.get("models", name) or (self.config.get("runtimes", "claude_model") if name == "claude" else None)
-        return str(model) if model else None
+        """The model the owner set for a runtime; None when they set none (the runtime's default applies)."""
+        from ferb.runtimes.catalog import configured_model
+        return configured_model(self.config, name)
+
+    def _worker_types(self) -> list[str]:
+        """What the planner may name as a worker type: the role's own runtime ("default"), then every runtime that can
+        run here (a model set and signed in), in the table's order."""
+        from ferb.runtimes.catalog import CATALOG
+        return ["default", *[name for name in CATALOG if self._runtime_available(name)]]
 
     def _make_runtime(self, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
                       effort: str | None = None) -> Any:
@@ -58,47 +54,36 @@ class Runtimes:
 
     def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any],
                        effort: str | None = None) -> Any:
-        """One runtime for a role (D32). `effort`: the reasoning effort a worker-mode run asks for (L39: "high" for the
-        checker of a step that changed files), each adapter's own setting; None keeps the runtime's default."""
-        if name not in self.registry.runtimes:
-            raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]")
-        model = self._model_for(name)
-        shim = mcp_shim_command()
-        if name == "codex":
-            from ferb.device.install import repo_root
-            from ferb.core.errors import Unsupported
-            from ferb.runtimes.codex_exec import MODEL, CodexRuntime, codex_binary, codex_home
-            if codex_home(self.home) is None:
-                raise Unsupported("Codex isn't signed in for FERB: choose Sign in to Codex… in FERB's menu bar, "
-                                  "or run `ferb setup --codex-login`")
-            return CodexRuntime(codex_binary(self.home, repo_root()), mode, self.home,  # type: ignore[arg-type]
-                                shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
-                                timeout_s=None if mode == 'worker' else 900, on_abandoned=self.server.abandon,
-                                redact=self.redact, cache_role=self._codex_cache_role(role, mode, schema),
-                                cache_scope=str(self.config.get("device", "id", "unknown-device")),
-                                cache_allowed=self._codex_cache_turn, on_cache_fallback=self._codex_cache_fallback,
-                                effort=effort if mode == "worker" else None)
-        if name in ("anthropic", "openai", "google"):
-            from ferb.runtimes.api import ApiRuntime, GatewayBridge
-            from ferb.runtimes.catalog import CATALOG
-            provider = _provider(name, model or CATALOG[name].default_model)
-            return ApiRuntime(provider, mode=mode, role=role, tool_names=tool_names,  # type: ignore[arg-type]
-                              output_schema=schema, bridge=GatewayBridge(self.gateway, self.tokens), key=self._api_key,
-                              effort=effort if mode == "worker" else None)
-        from ferb.runtimes.claude_sdk import ClaudeRuntime
+        """One runtime for a role (D32), through its factory in the runtime table. `effort`: the reasoning effort a
+        worker-mode run asks for (L39: "high" for the checker of a step that changed files), each adapter's own
+        setting; None keeps the runtime's default. The call's time limit: the planner's chat turn 90 s, another
+        non-worker call CALL_LIMIT_S, a worker none (catalog.call_limit)."""
+        from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
+        from ferb.runtimes.catalog import CATALOG, Build, call_limit, model_for
+        entry = CATALOG.get(name)
+        if entry is None:
+            if role.startswith("worker:"):          # the planner's choice of worker type, not the owner's config
+                raise FerbError(f"there is no worker type {name!r}; the worker types are "
+                                f"{', '.join(self._worker_types())}")
+            raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]; runtimes: {', '.join(CATALOG)}")
+        planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
+        return entry.build(Build(self.home, role, mode, tool_names, schema,  # type: ignore[arg-type, attr-defined]
+                                 model_for(self.config, name), self._runtime_deps(), effort, planner,
+                                 call_limit(mode, planner)))
+
+    def _runtime_deps(self) -> Any:
+        from ferb.runtimes.api import GatewayBridge
+        from ferb.runtimes.catalog import RuntimeDeps
+        return RuntimeDeps(config=self.config, shim_cmd=mcp_shim_command(), redact=self.redact,
+                           bridge=lambda: GatewayBridge(self.gateway, self.tokens), api_key=self._api_key,
+                           proxy=self._claude_proxy, on_abandoned=self.server.abandon,
+                           cache_allowed=self._codex_cache_turn, cache_fallback=self._codex_cache_fallback,
+                           device_id=str(self.config.get("device", "id", "unknown-device")))
+
+    def _claude_proxy(self) -> ToolListProxy:
         if self._proxy is None:
             self._proxy = ToolListProxy()
-        return ClaudeRuntime(mode, self._proxy, str(self.home), shim_cmd=shim, tool_names=tool_names,  # type: ignore[arg-type]
-                             output_schema=schema, model=model, effort=effort if mode == "worker" else None)
-
-    def _codex_cache_role(self, role: str, mode: str, schema: dict[str, Any]) -> str | None:
-        """P20 (owner, 2026-10-25): "planner" for the planner's chat turn (the orchestrator's SUPERVISOR_SCHEMA call) when
-        `[runtimes] codex_planner_cache = true`, so its stable context goes in Codex's developer role under a fixed cache
-        key; None otherwise, today's path. Off by default until the owner passes the live injection eval
-        (tests/security/test_planner_injection_real.py); only the boolean true turns it on."""
-        from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
-        planner = role == "orchestrator" and mode == "supervisor" and schema is SUPERVISOR_SCHEMA
-        return "planner" if planner and self.config.get("runtimes", "codex_planner_cache", False) is True else None
+        return self._proxy
 
     async def _sweep_stale_runs(self) -> None:
         """Review M1: Codex run folders a crash left in the temporary directory (each holds a copy of FERB's Codex
@@ -143,11 +128,13 @@ class Runtimes:
         return key
 
     def _runtime_available(self, name: str) -> bool:
-        from ferb.runtimes.catalog import CATALOG
+        """The runtime table's availability (a model set and signed in), read at most once a minute per runtime."""
+        from ferb.runtimes.catalog import CATALOG, model_for
         now = time.monotonic()
         hit = self._available_cache.get(name)
         if hit is None or now - hit[0] > 60:
-            hit = (now, name in CATALOG and CATALOG[name].available(self.home)[0])
+            entry = CATALOG.get(name)
+            hit = (now, entry is not None and entry.available(self.home, model_for(self.config, name))[0])
             self._available_cache[name] = hit
         return hit[1]
 
@@ -181,20 +168,25 @@ class Runtimes:
         self._journal().append("runtimes.sign_in_finished", {"runtime": "claude", "signed_in": ok})
 
     async def _runtimes_use(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """L34 C: the owner's choice of AI service for the roles named (all three by default), from its next call;
-        journaled. One that can't run here yet is set anyway and says so, as `ferb runtimes use` does."""
+        """L34 C: the owner's choice of AI service for the roles named (all three by default), and optionally its
+        model (`model`, checked against the runtime's documented models), from its next call; journaled. One that
+        can't run here yet is set anyway and says so, as `ferb runtimes use` does."""
         from ferb.cli import runtimes as runtimes_cli
         from ferb.runtimes.catalog import CATALOG, ROLES
         runtime = str(params.get("runtime", ""))
         chosen = params.get("roles", list(ROLES))
+        model = params.get("model")
         if not isinstance(chosen, list) or not all(isinstance(role, str) for role in chosen):
             raise FerbError("roles must be a list of role names")
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise FerbError("model must be a model name")
         try:
-            assigned = runtimes_cli.assign(self.home, runtime, chosen)
+            assigned = await asyncio.to_thread(runtimes_cli.assign, self.home, runtime, chosen, model)
         except ValueError as e:
             raise FerbError(str(e)) from None
         self._available_cache.pop(runtime, None)
-        self._journal().append("runtimes.changed", {"runtime": runtime, "roles": chosen})
+        self._journal().append("runtimes.changed", {"runtime": runtime, "roles": chosen,
+                                                    **({"model": model} if model else {})})
         usable, fix = await asyncio.to_thread(CATALOG[runtime].available, self.home)
         return {"roles": assigned, "usable": usable, "fix": fix}
 
@@ -207,6 +199,8 @@ class Runtimes:
                   "additionalProperties": False}
         try:
             rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema)
+            from ferb.orchestrator.worker import model_limits
+            model_limits(rt)                # a model without documented limits fails here, before any call (L28)
             device = str(self.config.get("device", "id", "unknown-device"))
             task = Task("runtime-check", None, "chat", device, Identity.OWNER, set(), "mixed", "runtime-check", [], None)
             run = await rt.start(task, ModelRequest('Answer {"ok": true}.', ("Check.",), 0), "")
@@ -229,14 +223,23 @@ class Runtimes:
             await rt.cancel(run)
         return {"ok": False, "detail": detail or "no answer"}
 
-    async def _dump_codex_catalog(self) -> None:
-        """L28, final review M8: when a role runs on Codex, the catalog shipped with the pinned binary is dumped (once
-        per Codex version; `codex debug models --bundled` is a process) in a worker thread before the daemon serves,
-        so no limits read on the event loop ever runs it. A failure leaves the window unknown, which is said."""
+    async def _prepare_codex(self) -> None:
+        """Before the daemon serves, when a role runs on Codex or Codex is signed in for FERB (a worker type): the catalog
+        shipped with the pinned binary is dumped (L28, final review M8: once per Codex version, in a worker thread, so
+        no limits read on the event loop runs a process), then the pinned version is checked and FERB's locked model
+        catalog written, once for the daemon's life instead of on every call. A failure is journaled; a run checks again
+        and fails loudly."""
+        from ferb.core.errors import Unsupported
+        from ferb.device.install import repo_root
         from ferb.runtimes.catalog import ROLES
-        from ferb.runtimes.codex_exec import bundled_catalog
-        if any(self._runtime_for(role) == "codex" for role in ROLES):
-            await asyncio.to_thread(bundled_catalog, self.home)
+        from ferb.runtimes.codex_exec import bundled_catalog, codex_binary, codex_home, prepare
+        if not (any(self._runtime_for(role) == "codex" for role in ROLES) or codex_home(self.home) is not None):
+            return
+        await asyncio.to_thread(bundled_catalog, self.home)
+        try:
+            await prepare(self.home, codex_binary(self.home, repo_root()))
+        except (Unsupported, OSError) as e:
+            self._journal().append("runtime.codex_problem", {"detail": self._redact_text(f"{type(e).__name__}: {e}")})
 
     def _runtime_limits(self) -> dict[str, dict[str, Any]]:
         """Each role's runtime and model with its documented context window, reply limit and per-input character cap
@@ -247,7 +250,8 @@ class Runtimes:
         for role in ROLES:
             name = self._runtime_for(role)
             model = self._model_for(name)
-            entry: dict[str, Any] = {"runtime": name, "model": model or (CATALOG[name].default_model if name in CATALOG else "")}
+            entry: dict[str, Any] = {"runtime": name,
+                                     "model": model or (CATALOG[name].default_model if name in CATALOG else "")}
             try:
                 if name not in CATALOG:
                     raise ModelLimitsUnknown(f"unknown runtime {name!r}")
@@ -267,8 +271,7 @@ class Runtimes:
         from ferb.runtimes.codex_exec import CODEX_VERSION, check_version, codex_binary
         status: dict[str, Any] = {
             "orchestrator": self.config.get("runtimes", "orchestrator", "codex"),
-            "worker": self.config.get("runtimes", "worker", "codex"),
-            "unregistered": dict(self.registry.unregistered)}
+            "worker": self.config.get("runtimes", "worker", "codex")}
         try:
             binary = codex_binary(self.home, repo_root())
             await check_version(binary)

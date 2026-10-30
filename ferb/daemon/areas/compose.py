@@ -129,7 +129,7 @@ class Compose:
                 running_apps=self._running_apps,
                 pasted_is_data=lambda: bool(self.config.get("policy", "pasted_text_is_data", True)),
                 relevant_context=self._relevant_context,           # its fourth element: the search's source refs
-                worker_types=lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]],
+                worker_types=self._worker_types,
                 signals=self.signals, skills_catalog=skills.catalog,
                 abilities_catalog=self.registry.abilities.catalog),
             desktop=ports.DesktopPort(

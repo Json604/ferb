@@ -529,6 +529,29 @@ def claude_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     return 0
 
 
+def claude_logout(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """Sign out FERB's own Claude: Claude Code's `auth logout` with FERB's Claude home only (the owner's personal Claude
+    Code login is never touched), then the sign-in marker goes once Claude Code no longer reports a login there, so
+    FERB stops offering Claude instead of failing every call."""
+    from ferb.runtimes import claude_login as cl
+    if cl.claude_home(env.inst.home) is None:
+        env.say("FERB's Claude isn't signed in; nothing to sign out of.")
+        return 0
+    try:
+        cli = cl.cli_binary()
+    except Exception as e:
+        env.say(f"FERB's pinned Claude Code isn't installed: {e}")
+        return 1
+    run(cl.logout_argv(cli), env=cl.env(env.inst.home))
+    status = run(cl.status_argv(cli), env=cl.env(env.inst.home), capture_output=True, text=True)
+    if cl.signed_in(status.stdout or ""):
+        env.say("Claude didn't sign out; nothing changed.")
+        return 1
+    cl.unmark(env.inst.home)
+    env.say("Signed out: FERB can't use Claude until you sign in again.")
+    return 0
+
+
 def codex_logout(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     """Settings → AI → Sign out of ChatGPT (L34 Phase E): `codex logout` in FERB's own Codex home only; the owner's
     personal Codex login is never touched."""
@@ -809,9 +832,6 @@ def doctor(env: Env) -> int:
             add(context_window_check(role, lim))
         if rs:
             add(Check("roles", "ok", f"supervisor {rs.get('orchestrator')}, worker {rs.get('worker')}"))
-        for name, why in rs.get("unregistered", {}).items():
-            add(Check(f"runtime {name} unregistered", "fail", why, "a run showed a tool outside the allowlist; "
-                                                                   "restart the daemon after investigating"))
         try:
             c = env.connect()
             ident = c.call("identity.check", {"session": False})

@@ -2,7 +2,8 @@
 
 CodexRuntime: isolated app-server for steerable workers and typed supervisor output streaming.
 
-Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
+Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and the model in FERB's runtime table
+(ferb/runtimes/catalog.py), run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
 every disableable native tool off, read-only sandbox (makes the non-removable apply_patch inert),
 approval_policy=never. Worker mode's only tool source is `ferb mcp` (pre-approved); supervisor mode has none.
@@ -23,16 +24,16 @@ import json
 import os
 import platform
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, Unsupported
-from ferb.core.types import ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.sanitize.redact import Redactor
 
 CODEX_VERSION = "0.157.1"
-MODEL = "gpt-5.6-sol"                 # owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
 # L28: Codex refuses a turn whose text input items together hold more characters (Unicode scalar values) than this,
 # before any model sees it ("Input exceeds the maximum length of 1048576 characters."). It counts per turn/start (and
 # per turn/steer), the instructions FERB gives thread/start apart.
@@ -72,6 +73,20 @@ SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_envi
 # FERB's instructions, naming the run's random temporary CODEX_HOME, so nothing after FERB's system prompt repeats
 # across runs: ~611 tokens and 1-3 s per run (measured 2026-10-25, Codex 0.157.1). FERB loads no Codex skills.
 SKILLS_OFF = ["-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
+# A supervisor run is one turn on a context FERB already fitted to the model's window (L28): Codex's automatic
+# compaction could only rewrite that context (36 planner prompts went over the 244.8k-token point where it starts), so
+# its threshold is put out of reach. Codex 0.157.1 reads `model_auto_compact_token_limit` (strings of the pinned binary,
+# 2026-10-30); an input still too large comes back as Codex's contextWindowExceeded, which FERB handles. Worker runs keep
+# Codex's default: a long tool loop may compact rather than fail (the owner's call, notes/runtimes.md).
+NO_AUTO_COMPACT = ["-c", "model_auto_compact_token_limit=1000000000000"]
+# How long Codex waits for FERB's MCP shim (Codex 0.157.1 `mcp_servers.<name>`; its defaults are 10 s to start and 60 s
+# per call). Start: the shim is a Python process that imports FERB's MCP code and asks the daemon for the worker's tools;
+# 10 s on a busy Mac can leave a worker with no FERB tools (seen 2026-10-13), so 120 s. A call: a FERB tool can wait on
+# the owner (a confirmation never expires while its task waits) or run a long shell command, so 7 days, longer than any
+# wait FERB means to make; a hang is ended by FERB's own stall watchdog and stop, never by Codex giving up the call. A call
+# Codex does abandon is still released (`on_abandoned`), and an identical retry gets the owner's answer.
+MCP_STARTUP_TIMEOUT_S = 120
+MCP_TOOL_TIMEOUT_S = 7 * 24 * 3600
 # Codex finds the owner's personal skills through HOME (~/.agents/skills), even with skill_search disabled and its own
 # CODEX_HOME. An empty, owner-only HOME of its own keeps them out (verified 2026-10-07: no skill loads, auth unaffected,
 # because auth lives in CODEX_HOME). FERB's MCP shim is unaffected: it gets FERB_HOME explicitly.
@@ -157,7 +172,38 @@ def _models(data: Any) -> list[Any] | None:
     return models if isinstance(models, list) else None
 
 
+_locked: dict[Path, tuple[tuple[Any, ...], Path | None]] = {}
+_locked_guard = threading.Lock()
+
+
+def _catalog_stamp(ferb_home: Path) -> tuple[Any, ...]:
+    """What the locked catalog was written from: each source file's modification time and size (None when missing)."""
+    home = codex_home(ferb_home)
+    paths = ([home / "models_cache.json"] if home is not None else []) + [_bundled_path(ferb_home)]
+    stamp: list[Any] = []
+    for path in paths:
+        try:
+            info = path.stat()
+            stamp.append((str(path), info.st_mtime_ns, info.st_size))
+        except OSError:
+            stamp.append((str(path), None))
+    return tuple(stamp)
+
+
 def locked_catalog(ferb_home: Path) -> Path | None:
+    """FERB's model catalog for Codex (`write_locked_catalog`), written once and again only when Codex's own catalog
+    changed: the daemon writes it at start, and a run reads the path (one stat per source, no rewrite per call)."""
+    stamp = _catalog_stamp(ferb_home)
+    with _locked_guard:
+        known = _locked.get(ferb_home)
+        if known is not None and known[0] == stamp and (known[1] is None or known[1].exists()):
+            return known[1]
+        path = write_locked_catalog(ferb_home)
+        _locked[ferb_home] = (stamp, path)
+        return path
+
+
+def write_locked_catalog(ferb_home: Path) -> Path | None:
     """FERB's model catalog for Codex: Codex's own catalog (`_catalog`) with CATALOG_LOCKDOWN applied to every model,
     so Codex runs with exactly the catalog FERB reads each model's window from. None when Codex has none (then nothing
     changes; a model that brings extra tools is still caught and stopped)."""
@@ -235,14 +281,41 @@ async def check_version(binary: Path) -> None:
                           "rerun spike 1's tests before changing the pin")
 
 
+_checked: set[Path] = set()
+_checking = threading.Lock()
+
+
+async def ensure_version(binary: Path) -> None:
+    """`check_version` once per binary for this process: the daemon checks at start (`prepare`), a run only when that
+    didn't happen yet. A mismatch is never remembered, so a fixed install is seen on the next call."""
+    if binary in _checked:
+        return
+    await check_version(binary)
+    with _checking:
+        _checked.add(binary)
+
+
+async def prepare(ferb_home: Path, binary: Path) -> None:
+    """At daemon start: the pinned version checked and FERB's locked model catalog written, once, off the event loop for
+    the file work (both used to run on every call)."""
+    await ensure_version(binary)
+    await asyncio.to_thread(locked_catalog, ferb_home)
+
+
+def default_model() -> str:
+    from ferb.runtimes.catalog import CATALOG
+    return CATALOG["codex"].default_model
+
+
 class CodexRuntime:
     name = "codex"
-    # image_input True: verified live 2026-10-08 — a PNG returned by an MCP tool in FERB's shim format reached the model
-    capabilities = Capabilities("direct", "prefix", False, "native", True, True, True, True, "subscription")
+    # Images in tool results reach the model: verified live 2026-10-08 (a PNG returned by an MCP tool in FERB's shim
+    # format reached Codex 0.157.1)
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900,
+                 output_schema: dict[str, Any] | None = None, model: str | None = None,
+                 timeout_s: float | None = None,
                  on_abandoned: Callable[[str, str], None] | None = None,
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
                  cache_scope: str = "", cache_allowed: Callable[[Task], bool] | None = None,
@@ -254,7 +327,10 @@ class CodexRuntime:
         # Codex's own error text passes through this before it is raised or reported (rule 14): the daemon's redactor,
         # which knows the values the owner stored, else the secret pattern classes
         self.redact = redact or Redactor()
-        self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
+        # timeout_s: the one overall limit on this call, start and answer together (catalog.call_limit: the planner's
+        # 90 s, another non-worker call's limit, None for a worker)
+        self.shim_cmd, self.output_schema, self.timeout_s = shim_cmd, output_schema, timeout_s
+        self.model = model or default_model()
         # Told (task id, "<thread>/<call id>") when Codex gives up a FERB tool call on its own: it sends the shim no
         # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
         self.on_abandoned = on_abandoned
@@ -283,13 +359,15 @@ class CodexRuntime:
         return ["-c", f"mcp_servers.ferb.command={json.dumps(self.shim_cmd[0])}",
                 "-c", f"mcp_servers.ferb.args={json.dumps(self.shim_cmd[1:])}",
                 "-c", f"mcp_servers.ferb.env={env}",
-                "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"']
+                "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"',
+                "-c", f"mcp_servers.ferb.startup_timeout_sec={MCP_STARTUP_TIMEOUT_S}",
+                "-c", f"mcp_servers.ferb.tool_timeout_sec={MCP_TOOL_TIMEOUT_S}"]
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         """Every run is an app-server run (codex_stream): the instructions go apart in thread/start, so Codex counts
         the context alone."""
         check_input(request.context)
-        await check_version(self.binary)
+        await ensure_version(self.binary)
         from ferb.runtimes.codex_stream import start
         return await start(self, task, request, run_token)
 

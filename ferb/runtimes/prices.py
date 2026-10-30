@@ -36,6 +36,10 @@ PRICES: dict[str, list[Price]] = {
     "claude-fable-5-1": [Price(10.00, 0.25, 12.50, 50.00)],
     "claude-opus-5-5": [Price(4.00, 0.20, 5.00, 20.00)],
     "claude-sonnet-5-5": [Price(2.00, 0.20, 2.50, 10.00)],
+    # https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-30): prompts up to 100,000 tokens $0.10
+    # input, $0.125 5-minute cache write, $0.01 cache hit, $0.50 output; a prompt over 100,000 tokens (cache reads and
+    # writes counted) pays 5x on all of them ($0.50 / $0.625 / $0.05 / $2.50) for the whole request
+    "claude-haiku-5-5": [Price(0.10, 0.01, 0.125, 0.50, 100_000, 5.0, 5.0)],
     "claude-haiku-4-5": [Price(1.00, 0.10, 1.25, 5.00)],
     "claude-haiku-4-5-20251001": [Price(1.00, 0.10, 1.25, 5.00)],
     "gemini-3.8-flash": [Price(0.75, 0.075, 0.75, 3.75), Price(1.50, 0.15, 1.50, 7.50, since="2027-01-01")],

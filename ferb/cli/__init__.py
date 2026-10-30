@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("reminders", help="pending reminders and timers (cancel <id> to cancel one)")
     rp.add_argument("action", nargs="?", choices=["list", "cancel"], default="list")
     rp.add_argument("id", nargs="?")
-    rp = sub.add_parser("runtimes", help="model runtimes: capability table, what each role uses; `use` switches a role")
+    rp = sub.add_parser("runtimes", help="model runtimes: the runtime table, what each role uses; `use` switches a role")
     rsub = rp.add_subparsers(dest="rcmd")
     ru = rsub.add_parser("use", help="make a role (orchestrator, worker, checker) use a runtime, from its next call")
     ru.add_argument("role")
@@ -131,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--identity", action="store_true",
                     help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
     sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
-    sp.add_argument("--key", choices=["anthropic", "openai", "google"],
+    from ferb.runtimes.catalog import api_providers
+    sp.add_argument("--key", choices=list(api_providers()),
                     help="store a provider's API key in the Keychain and check it answers (direct-API runtimes)")
     sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sp.add_argument("--codex-login", action="store_true",
@@ -142,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="link the `ferb` command at ~/.local/bin to this FERB.app (Settings → Advanced)")
     sp.add_argument("--claude-login", action="store_true",
                     help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
+    sp.add_argument("--claude-logout", action="store_true",
+                    help="sign out FERB's own Claude (your personal Claude Code login is never touched)")
     sp.add_argument("--service", action="store_true",
                     help="FERB.app's setup window: install (with --update, update) the background service with no "
                          "questions and wait until it answers")
@@ -239,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.codex_login(env)
             if args.cmd == "setup" and args.claude_login:
                 return setup_cmd.claude_login(env)
+            if args.cmd == "setup" and args.claude_logout:
+                return setup_cmd.claude_logout(env)
             if args.cmd == "setup" and args.identity:
                 return setup_cmd.identity_setup(env, args.profile)
             if args.cmd == "setup" and args.persona:

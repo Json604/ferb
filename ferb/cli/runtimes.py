@@ -1,11 +1,11 @@
-"""`ferb runtimes`: the capability table, what each role uses, and switching a role's runtime or model (D32).
+"""`ferb runtimes`: FERB's runtime table, what each role uses, and switching a role's runtime or model (D32).
 Reads and writes config.toml directly (the daemon reads it on every call); no daemon needed."""
 
 from pathlib import Path
 from typing import Any, Iterable, TextIO
 
 from ferb.config import Config
-from ferb.runtimes.catalog import CATALOG, ROLES
+from ferb.runtimes.catalog import CATALOG, ROLES, model_for
 
 
 def roles(cfg: Config) -> dict[str, str]:
@@ -15,32 +15,35 @@ def roles(cfg: Config) -> dict[str, str]:
             "checker": str(cfg.get("runtimes", "checker", worker))}
 
 
-def _signed_in(name: str, home: Path, usable: bool) -> bool:
-    """FERB's own Codex or Claude sign-in finished, or (a direct API) the provider's key is in the Keychain."""
-    if name == "codex":
-        from ferb.runtimes.codex_exec import codex_home
-        return codex_home(home) is not None
-    if name == "claude":
-        from ferb.runtimes.claude_login import claude_home
-        return claude_home(home) is not None
-    return usable
-
-
 def status(home: Path) -> dict[str, Any]:
     """Each runtime with whether it can run on this Mac (and the fix when not), and what each role uses: the setup
     window's Choose your AI (L34 C) and `ferb runtimes`. Presence checks only: no key is read."""
     cfg = Config(home)
     rows = []
-    for name, info in CATALOG.items():
-        ok, fix = info.available(home)
-        rows.append({"name": name, "usable": ok, "fix": fix, "signed_in": _signed_in(name, home, ok),
-                     "model": str(cfg.get("models", name) or info.default_model or "")})
+    for name, entry in CATALOG.items():
+        model = model_for(cfg, name)
+        signed, _ = entry.signed_in(home)
+        ok, fix = entry.available(home, model)
+        rows.append({"name": name, "usable": ok, "fix": fix, "signed_in": signed, "model": model})
     return {"roles": roles(cfg), "runtimes": rows}
+
+
+def check_model(home: Path, runtime: str, model: str) -> None:
+    """ValueError when FERB knows no documented limits for `model` on `runtime` (L28: it couldn't size a call for
+    it), naming the runtime's own reason."""
+    from ferb.core.errors import ModelLimitsUnknown
+    if runtime == "codex":                  # Codex's windows come from its catalog: dumped once per pinned version
+        from ferb.runtimes.codex_exec import bundled_catalog
+        bundled_catalog(home)
+    try:
+        CATALOG[runtime].limits(model, home)
+    except ModelLimitsUnknown as e:
+        raise ValueError(f"FERB can't use {model!r} with {runtime}: {e}") from None
 
 
 def assign(home: Path, runtime: str, chosen: Iterable[str] = ROLES, model: str | None = None) -> dict[str, str]:
     """Point the chosen roles at `runtime` (and its model, when given) from their next call. ValueError names an
-    unknown role or runtime; nothing is written then."""
+    unknown role or runtime, or a model the runtime documents no limits for; nothing is written then."""
     chosen = list(chosen)
     if not chosen:
         raise ValueError(f"Name at least one role; roles: {', '.join(ROLES)}.")
@@ -49,6 +52,8 @@ def assign(home: Path, runtime: str, chosen: Iterable[str] = ROLES, model: str |
         raise ValueError(f"Unknown role {unknown[0]!r}; roles: {', '.join(ROLES)}.")
     if runtime not in CATALOG:
         raise ValueError(f"Unknown runtime {runtime!r}; runtimes: {', '.join(CATALOG)}.")
+    if model:
+        check_model(home, runtime, model)
     cfg = Config(home)
     for role in chosen:
         cfg.set("runtimes", role, runtime)
@@ -58,16 +63,18 @@ def assign(home: Path, runtime: str, chosen: Iterable[str] = ROLES, model: str |
 
 
 def show(home: Path, out: TextIO) -> int:
+    from ferb.core.errors import ModelLimitsUnknown
     cfg = Config(home)
-    print(f"{'runtime':<10}{'usable':<8}{'model':<20}{'tools':<9}{'cache':<9}{'cache key':<11}{'typed':<8}{'effort':<8}"
-          f"{'images':<8}billing", file=out)
-    for name, info in CATALOG.items():
-        model = str(cfg.get("models", name) or info.default_model or "(default)")
-        ok, fix = info.available(home)
-        c = info.capabilities(model)
-        print(f"{name:<10}{'yes' if ok else 'no':<8}{model:<20}{c.tools:<9}{c.cache:<9}{'yes' if c.cache_key else 'no':<11}"
-              f"{c.structured_output:<8}{'yes' if c.reasoning_effort else 'no':<8}{'yes' if c.image_input else 'no':<8}"
-              f"{c.billing}" + (f"   ({fix})" if fix else ""), file=out)
+    print(f"{'runtime':<11}{'usable':<8}{'model':<22}{'billing':<14}{'sign-in':<9}window", file=out)
+    for name, entry in CATALOG.items():
+        model = model_for(cfg, name)
+        ok, fix = entry.available(home, model)
+        try:
+            window = f"{entry.limits(model, home).context_window:,}"
+        except ModelLimitsUnknown:
+            window = "unknown"
+        print(f"{name:<11}{'yes' if ok else 'no':<8}{model or '(none)':<22}{entry.billing:<14}{entry.sign_in:<9}"
+              f"{window}" + (f"   ({fix})" if fix else ""), file=out)
     uses = roles(cfg)
     print("\n" + "\n".join(f"{role}: {uses[role]}" for role in ROLES), file=out)
     return 0

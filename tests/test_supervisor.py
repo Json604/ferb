@@ -35,7 +35,6 @@ def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon
     assert evs[0] == {"type": "reply", "status": "failed",
                       "text": "I couldn't start that: the AI runtime (fake) broke one of FERB's rules: it used tools "
                               "FERB didn't offer it: shell."}
-    assert "fake" not in daemon.daemon.registry.unregistered
 
 
 # ---------- the identity floor: one repair, then a question ----------

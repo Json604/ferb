@@ -39,6 +39,8 @@ class Environment:
         if alignment:
             live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in alignment])
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
+        # in the planner's fixed Layer 1 (never dropped for room, unlike today's activity): what worker_type may name
+        stable += '\nWorker types: ' + json.dumps(self._worker_types())
         return {"stable": stable, "live": live}
 
     def _environment_files(self, paired: set[tuple[str, str]]) -> tuple[list[Any], list[tuple[str, str]], set[str], str,
@@ -105,7 +107,7 @@ class Environment:
                 + json.dumps(tabs)) if tabs else ""
 
     def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
-        """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
+        """Installed actions (FERB's own) and today's matching activity, with its origin (S3):
         recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
         from ferb.act.catalog import search_actions
         from ferb.core import origin
@@ -118,8 +120,7 @@ class Environment:
         trail = {str(row['source']) for row in activity if row.get('source')}
         labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
-                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
-                '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n',
+                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) + '\n',
                 origin.join({origin.FERB} | labels),
                 json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False),
                 ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])

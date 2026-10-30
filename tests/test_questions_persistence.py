@@ -9,6 +9,8 @@ from ferb.cli.client import Client
 from ferb.core.types import Identity
 from ferb.device.persona import persona_proposal
 from tests.conftest import RunningDaemon, gateway_request, gateway_setup
+from pathlib import Path
+from tests.support.claude_home import signed_in_home
 
 LONGER_THAN_THE_OLD_EXPIRY = 601          # seconds: the removed 600 s question lifetime, plus one
 
@@ -300,8 +302,8 @@ def test_a_claude_worker_never_gives_up_a_silent_tool_call() -> None:
     from ferb.runtimes.claude_sdk import ClaudeRuntime
     proxy = SimpleNamespace(base_url=lambda run_id: "http://unused")
     for mode in ("worker", "supervisor"):
-        rt = ClaudeRuntime(mode, proxy, "/tmp/ferb-home", shim_cmd=["ferb", "mcp"])   # type: ignore[arg-type]
-        assert rt._options("run", "token").env["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] == "0"
+        rt = ClaudeRuntime(mode, proxy, signed_in_home(), shim_cmd=["ferb", "mcp"])   # type: ignore[arg-type]
+        assert rt._options("run", Path("/token")).env["CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] == "0"
 
 
 # ---------- review round 2: a call the runtime dropped silently (Codex), reworded asks, released callers ----------

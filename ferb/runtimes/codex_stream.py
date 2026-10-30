@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from ferb.core.errors import RuntimeUnavailable, Unsupported
-from ferb.core.structured import check_final
 from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.tooltrace import tools_in
 from ferb.runtimes.usage import from_codex
@@ -194,13 +193,13 @@ def _save_refresh(state: dict[str, Any]) -> None:
 
 
 def _command(runtime: CodexRuntime, catalog: Path | None, token_file: Path | None = None) -> list[str]:
-    from ferb.runtimes.codex_exec import DISABLED, SKILLS_OFF, SUPERVISOR_SETTINGS
+    from ferb.runtimes.codex_exec import DISABLED, NO_AUTO_COMPACT, SKILLS_OFF, SUPERVISOR_SETTINGS
     cmd = [str(runtime.binary), 'app-server', '--stdio', '--strict-config']
     for feature in DISABLED:
         cmd += ['--disable', feature]
     cmd += SKILLS_OFF
     if runtime.mode == "supervisor":
-        cmd += SUPERVISOR_SETTINGS
+        cmd += SUPERVISOR_SETTINGS + NO_AUTO_COMPACT
     else:
         cmd += runtime._mcp_settings(token_file)
     for key, value in {'model_provider': 'openai', 'approval_policy': 'never', 'sandbox_mode': 'read-only',
@@ -235,7 +234,10 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'notifications': asyncio.Queue(), 'waiters': {}, 'reader': None, 'closed': False,
         'turn_completed': False, 'request_id': 0, 'auth_source': home / 'auth.json',
         'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False, 'redact': runtime.redact,
-        'lock': lock}
+        'lock': lock, 'violation_item': None,
+        # the one overall limit on this call, start and answer together (runtime.timeout_s; None: no limit)
+        'deadline': (asyncio.get_running_loop().time() + runtime.timeout_s
+                     if runtime.timeout_s is not None else None)}
     run = RunHandle('run-' + secrets.token_hex(6), runtime.name, task.id, state)
     checking_account = False
     try:
@@ -244,7 +246,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             token_file = root / 'run-token'
             _private_write(token_file, run_token.encode())
             state['token_file'] = token_file
-        async with asyncio.timeout(runtime.timeout_s):
+        async with asyncio.timeout_at(state['deadline']):
             state['auth_original'] = state['auth_source'].read_bytes()
             _private_write(state['auth_copy'], state['auth_original'])
             user_home = runtime.ferb_home / CODEX_USER
@@ -312,11 +314,11 @@ def _isolated(thread: dict[str, Any], runtime: CodexRuntime) -> bool:
 
 
 def _start_params(runtime: CodexRuntime, request: ModelRequest, workdir: Path) -> dict[str, Any]:
-    """An ephemeral thread with FERB's instructions: the system prompt replaces Codex's own for a supervisor, and is the
-    developer instructions for a worker."""
+    """An ephemeral thread with FERB's instructions in place of Codex's own base instructions, for every run: a worker
+    is FERB's Mac worker, not Codex's coding agent (its base prompt about repositories, patches and approvals was sent
+    with every worker run before 2026-10-30)."""
     return {'model': runtime.model, 'modelProvider': 'openai', 'cwd': str(workdir), 'approvalPolicy': 'never',
-            'sandbox': 'read-only', 'baseInstructions': request.system if runtime.mode == 'supervisor' else None,
-            'developerInstructions': request.system if runtime.mode == 'worker' else '', 'ephemeral': True,
+            'sandbox': 'read-only', 'baseInstructions': request.system, 'developerInstructions': '', 'ephemeral': True,
             'dynamicTools': [], 'environments': [], 'selectedCapabilityRoots': [],
             'allowProviderModelFallback': False, 'experimentalRawEvents': False}
 
@@ -389,8 +391,13 @@ async def _read(run: RunHandle) -> dict[str, Any]:
     if not isinstance(obj, dict):
         raise ProtocolError('Codex runtime returned an invalid protocol message')
     if 'id' in obj and 'method' in obj:
+        # A server-to-client request (an approval, user input, a client tool): FERB answers none. Recorded as the run's
+        # violation, naming the request, so the trace says what Codex asked for
+        method = str(obj.get('method'))
+        run.state['violation'] = {f'client request {method}'}
+        run.state['violation_item'] = {'kind': 'serverRequest', 'method': method}
         await _write(run, {'id': obj['id'], 'error': {'code': -32601, 'message': 'FERB exposes no client tools'}})
-        raise ProtocolError('Codex runtime requested a disallowed client action')
+        raise ProtocolError(f'Codex runtime requested a disallowed client action ({method})')
     return obj
 
 
@@ -424,6 +431,8 @@ async def _dispatch(run: RunHandle) -> None:
                         if not future.done():
                             future.set_exception(ProtocolError('Codex turn completed before RPC acknowledgement'))
                 state['notifications'].put_nowait(obj)
+    except ProtocolError as exc:         # its own words (a disallowed client request, a malformed message)
+        _close_transport(run, exc)
     except Exception:
         _close_transport(run, ProtocolError('Codex protocol transport closed or failed'))
     except asyncio.CancelledError:
@@ -479,9 +488,24 @@ async def steer(run: RunHandle, message: str) -> None:
 
 
 async def _watch_catalog(runtime: CodexRuntime, run: RunHandle) -> None:
+    """The only stderr reader. It reads to the end whatever happens (an unreadable line, a violation already found):
+    under RUST_LOG=trace a stderr pipe nobody empties fills and blocks Codex until the stall watchdog fires."""
     state, proc = run.state, run.state['proc']
     try:
-        async for raw in proc.stderr:
+        while True:
+            try:
+                raw = await proc.stderr.readline()
+            except ValueError:
+                # a line over the reader's limit: it may have held the tool array, so the catalog counts as unobserved
+                # (the run fails closed), and reading goes on
+                state['catalog_unreadable'] = True
+                state['catalog_observed'] = False
+                state['catalog_checked'].set()
+                continue
+            if not raw:
+                break
+            if state['violation']:
+                continue                     # the run is ending; the pipe is still emptied
             # Only parse the request's tool array. No trace output/content is persisted or forwarded.
             text = raw.decode(errors='replace')
             marker = text.find('"tools":[')
@@ -495,16 +519,15 @@ async def _watch_catalog(runtime: CodexRuntime, run: RunHandle) -> None:
                 continue
             seen = {n.removeprefix('functions.') for n in tools_in(text)}
             state['seen'] |= seen
-            state['catalog_observed'] = True
+            if not state.get('catalog_unreadable'):
+                state['catalog_observed'] = True
             if extra := seen - runtime.allowed:
                 state['violation'] = extra
+                state['violation_item'] = {'kind': 'toolCatalog', 'tools': sorted(extra)}
                 if proc.returncode is None:
                     proc.kill()
-                await proc.wait()
             state['catalog_checked'].set()
-            if state['violation']:
-                return
-    except (ValueError, OSError):
+    except OSError:
         state['catalog_observed'] = False
     finally:
         state['catalog_checked'].set()
@@ -537,7 +560,7 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
     pending_text: list[str] = []
     reading: asyncio.Task[dict[str, Any]] | None = None
     try:
-        async with asyncio.timeout(runtime.timeout_s):
+        async with asyncio.timeout_at(state.get('deadline')):
             while not state['cancelled']:
                 if pending_text and state['catalog_checked'].is_set():
                     await _check_catalog(run)
@@ -570,11 +593,7 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     if turn.get('status') != 'completed' or turn.get('error') or not final:
                         raise _codex_failure('Codex runtime did not complete its final answer', turn.get('error'),
                                              runtime.redact)
-                    try:
-                        check_final(final, runtime.output_schema)
-                    except ValueError as exc:      # the model answered outside the schema: repair, not a failed call
-                        yield RuntimeEvent('invalid_answer', {'message': str(exc)})
-                        return
+                    # the answer is checked against the schema once, by FERB's caller (core/structured.check_final)
                     for text in pending_text:
                         yield RuntimeEvent('text_delta', {'text': text})
                     pending_text.clear()
@@ -589,7 +608,10 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                         and item.get('server') == 'ferb'
                         and f"mcp__ferb.{item.get('tool')}" in runtime.allowed)
                     if kind not in {'agentMessage', 'userMessage', 'reasoning', 'plan', 'contextCompaction'} and not mcp_allowed:
-                        state['violation'] = {str(kind)}
+                        # what Codex tried, for the trace: the item kind and, for a tool, which tool on which server
+                        tool, server = item.get('tool'), item.get('server')
+                        state['violation'] = {f'{server}.{tool}' if tool else str(kind)}
+                        state['violation_item'] = {'kind': str(kind), 'tool': tool, 'server': server}
                         raise ProtocolError('Codex runtime attempted a disallowed action')
                     if mcp_allowed and method == 'item/completed':
                         # A call Codex ended without its result (its own per-call timeout: it sends the MCP server no
@@ -624,7 +646,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
                     raise _codex_failure('Codex runtime reported an error', params.get('error'), runtime.redact)
     except (ProtocolError, TimeoutError) as exc:
         if state['violation']:
-            yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])})
+            yield RuntimeEvent('violation', {'unexpected_tools': sorted(state['violation'])} |
+                               ({'item': state['violation_item']} if state.get('violation_item') else {}))
         elif not state['cancelled']:
             message = 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)
             yield RuntimeEvent('error', {'message': message} | ({'overflow': True} if getattr(exc, 'overflow', False)

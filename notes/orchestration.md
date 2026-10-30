@@ -114,6 +114,7 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [ ] Pause / resume (decision 8): a control action; paused status; resume = continue in place.
 - [ ] Restart the planner turn on a new message in the same chat (decision 10).
 - [ ] Planner call time limit 90 s; a timeout replies plainly instead of hanging (decision 11).
+      (Step 4: the 90 s limit is enforced by every adapter, ferb/runtimes/catalog.call_limit; the plain reply is left.)
 - [ ] Outcome-based done and the answer-first format (decision 9); rewrite `_report` (S:4097-4139); disturbance and
       tool-record facts to the checker.
 - [ ] Loops on the plan path as a repeat rule; remove LoopRunner's separate pause (loops.py:446-464).

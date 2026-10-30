@@ -20,9 +20,8 @@ from ferb.abilities.catalog import AbilityCatalog
 
 @dataclass
 class Registry:
+    """FERB's tools. Model runtimes are in their own table, ferb/runtimes/catalog.py."""
     capabilities: dict[str, Capability] = field(default_factory=dict)
-    runtimes: dict[str, str] = field(default_factory=dict)            # name -> module path (built on demand)
-    unregistered: dict[str, str] = field(default_factory=dict)        # runtime -> why it was unregistered
     abilities: AbilityCatalog = field(init=False)
 
     def __post_init__(self) -> None:
@@ -50,12 +49,6 @@ def build() -> Registry:
     r.add(FsEdit())
     r.add(FsTrash())
     r.add(OwnerAsk())                 # a worker's question to the owner (every identity, no scopes)
-    # runtimes implement AgentRuntime; config chooses per role
-    r.runtimes["codex"] = "ferb.runtimes.codex_exec"
-    r.runtimes["claude"] = "ferb.runtimes.claude_sdk"
-    r.runtimes["anthropic"] = "ferb.runtimes.anthropic_api"
-    r.runtimes["openai"] = "ferb.runtimes.openai_api"
-    r.runtimes["google"] = "ferb.runtimes.google_api"
     return r
 
 

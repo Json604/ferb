@@ -1,23 +1,25 @@
-"""A capability table per runtime; the orchestrator, worker and checker each pick their runtime and model (D32)."""
+"""One runtime table; the orchestrator, worker and checker each pick their runtime and model (D32)."""
 import io
 from pathlib import Path
 
 from ferb.cli import runtimes as runtimes_cli
 from ferb.config import Config
-from ferb.core.types import Capabilities
 from ferb.runtimes.catalog import CATALOG, ROLES
 from tests.conftest import RunningDaemon
 
 
-def test_every_catalog_runtime_declares_its_capabilities() -> None:
-    for name, info in CATALOG.items():
-        caps = info.capabilities(info.default_model)
-        assert isinstance(caps, Capabilities) and caps.native_tools_contained, name
+def test_every_runtime_in_the_table_has_a_factory_limits_and_a_sign_in() -> None:
+    for name, entry in CATALOG.items():
+        assert entry.name == name and callable(entry.build) and entry.sign_in in ("codex", "claude", "key"), name
+        assert entry.billing in ("subscription", "api"), name
 
 
-def test_codex_catalog_default_matches_the_adapter() -> None:
-    from ferb.runtimes.codex_exec import MODEL
-    assert CATALOG["codex"].default_model == MODEL
+def test_codex_adapter_takes_its_default_model_from_the_table() -> None:
+    from ferb.runtimes.codex_exec import CodexRuntime
+    rt = CodexRuntime(Path("/fake/codex"), "supervisor", Path("/nonexistent"))
+    assert rt.model == CATALOG["codex"].default_model
+    import ferb.runtimes.codex_exec as cx
+    assert not hasattr(cx, "MODEL")                           # one place for the default: the runtime table
 
 
 def test_checker_role_falls_back_to_the_worker_runtime(daemon: RunningDaemon) -> None:
@@ -76,18 +78,16 @@ def test_use_warns_when_the_runtime_is_not_usable_yet(tmp_path: Path, monkeypatc
     assert "isn't usable" not in out.getvalue()
 
 
-def test_show_names_the_cache_routing_column(tmp_path: Path) -> None:
+def test_show_lists_each_runtimes_model_billing_sign_in_and_window(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("ferb.runtimes.keys.has_api_key", lambda provider: False)
     out = io.StringIO()
     runtimes_cli.show(tmp_path / "home", out)
-    header = out.getvalue().splitlines()[0]
-    assert "cache key" in header and " key " not in header.replace("cache key", "")
-
-
-def test_codex_receives_image_tool_results() -> None:
-    """Verified live 2026-10-08: an MCP tool returning a PNG through FERB's shim format reached Codex 0.157.1 (it named
-    the picture's colour), so screenshots taken by FERB's tools are visible to Codex workers."""
-    from ferb.runtimes.codex_exec import CodexRuntime
-    assert CodexRuntime.capabilities.image_input is True
+    lines = out.getvalue().splitlines()
+    assert lines[0].split() == ["runtime", "usable", "model", "billing", "sign-in", "window"]
+    anthropic = next(line for line in lines if line.startswith("anthropic "))
+    assert "claude-sonnet-5-5" in anthropic and "api" in anthropic and "1,000,000" in anthropic
+    claude = next(line for line in lines if line.startswith("claude "))
+    assert "(none)" in claude and "unknown" in claude and "subscription" in claude
 
 
 def test_live_tests_use_ferbs_own_codex_login() -> None:
@@ -114,10 +114,18 @@ def test_status_lists_each_runtime_and_what_each_role_uses(tmp_path: Path, monke
     assert set(rows) == set(CATALOG)
     assert rows["codex"]["usable"] is False and "codex-login" in rows["codex"]["fix"]   # FERB's own Codex not signed in
     assert rows["openai"]["usable"] is True and rows["anthropic"]["usable"] is False
-    assert rows["claude"]["usable"] is True and rows["codex"]["model"] == CATALOG["codex"].default_model
+    assert rows["codex"]["model"] == CATALOG["codex"].default_model
+    # Claude: only with FERB's own sign-in AND a model (no default, no fallback to the owner's ~/.claude)
+    assert rows["claude"]["usable"] is False and "claude-login" in rows["claude"]["fix"]
     (tmp_path / "codex-home").mkdir()
     (tmp_path / "codex-home" / "auth.json").write_text("{}")
-    assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["codex"]["usable"] is True
+    from ferb.runtimes.claude_login import mark
+    mark(tmp_path)
+    rows = {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}
+    assert rows["codex"]["usable"] is True
+    assert rows["claude"]["usable"] is False and rows["claude"]["signed_in"] is True and "--model" in rows["claude"]["fix"]
+    Config(tmp_path).set("models", "claude", "opus")
+    assert {r["name"]: r for r in runtimes_cli.status(tmp_path)["runtimes"]}["claude"]["usable"] is True
 
 
 def test_assign_points_the_roles_at_one_runtime_or_names_what_is_unknown(tmp_path: Path) -> None:

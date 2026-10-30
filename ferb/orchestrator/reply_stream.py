@@ -66,8 +66,12 @@ def _character(raw: str, pos: int) -> tuple[str, int] | None:
 
 
 class ReplyDraft:
-    def __init__(self, redactor: Redactor, emit: Callable[[dict[str, Any]], None]) -> None:
+    def __init__(self, redactor: Redactor, emit: Callable[[dict[str, Any]], None],
+                 field: Callable[[str, Any], Any] | None = None) -> None:
         self.emit = emit
+        # the runtime's mapping of one top-level property to FERB's own answer form, when its provider receives the
+        # schema reshaped (ferb/runtimes/schema_shape.py); None: the stream is already in that form
+        self.field = field
         self.redaction = redactor.stream()
         self.lines = _LineGuard()
         self.raw = ''
@@ -90,17 +94,20 @@ class ReplyDraft:
         expected = set(SUPERVISOR_SCHEMA['properties']) - {'text'}
         if set(self.metadata) != expected:
             return False
-        if self.metadata.get('kind') == 'task':
+        field = self.field
+        metadata = ({key: field(key, value) for key, value in self.metadata.items()} if field is not None
+                    else self.metadata)
+        if metadata.get('kind') == 'task':
             # Only the public text streams. Validate the complete preceding metadata
             # exactly as a final outcome; never publish nested plans or execute them.
             try:
-                SupervisorOutcome.model_validate({**self.metadata, 'text': ''})
+                SupervisorOutcome.model_validate({**metadata, 'text': ''})
             except ValueError:
                 return False
             self.channel = 'plan'
             return True
-        return (self.metadata.get('kind') in ('reply', 'clarify')
-                and all(value is None or value == [] for key, value in self.metadata.items() if key != 'kind'))
+        return (metadata.get('kind') in ('reply', 'clarify')
+                and all(value is None or value == [] for key, value in metadata.items() if key != 'kind'))
 
     def feed(self, fragment: str) -> None:
         if self.closed:

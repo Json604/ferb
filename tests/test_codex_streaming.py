@@ -374,20 +374,22 @@ async def test_worker_only_accepts_registered_ferb_mcp_calls(tmp_path, monkeypat
 
 
 @pytest.mark.anyio
-async def test_worker_completion_validates_schema_and_closed_run_rejects_steering(tmp_path, monkeypatch):
+async def test_worker_answer_is_checked_once_by_ferb_and_closed_run_rejects_steering(tmp_path, monkeypatch):
     from ferb.core.errors import Unsupported
+    from ferb.core.structured import check_final
     proc = SteeringProcess()
     rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
     rt.output_schema = {'type': 'object', 'required': ['missing']}
     proc.complete()
     got = [event async for event in rt.events(run)]
-    # the model answered outside the schema: its own kind (format repair), not a protocol error (L12 fix round 3)
-    assert got[-1].kind == 'invalid_answer' and 'schema' in got[-1].data['message']
-    assert not any(event.kind in ('error', 'final') for event in got)
+    # the adapter hands the answer on; FERB's one check (core/structured.check_final, run by every caller) finds it
+    # outside the schema, which the caller treats as format repair (L12 fix round 3)
+    assert got[-1].kind == 'final' and not any(event.kind == 'error' for event in got)
+    with pytest.raises(ValueError, match='schema'):
+        check_final(got[-1].data['text'], rt.output_schema)
     with pytest.raises(Unsupported):
         await rt.continue_(run, 'new correction')
     assert not any(m['method'] == 'turn/steer' for m in proc.requests)
-    assert rt.capabilities.continuation and rt.capabilities.live_messaging
 
 class AccountProcess(Process):
     def __init__(self, error=None, hold=False):

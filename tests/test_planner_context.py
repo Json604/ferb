@@ -330,7 +330,7 @@ def test_codex_default_is_gpt_5_6_sol():
     """Owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins."""
     import ferb.runtimes.codex_exec as cx
     from ferb.runtimes.catalog import CATALOG
-    assert cx.MODEL == "gpt-5.6-sol" and CATALOG["codex"].default_model == "gpt-5.6-sol"
+    assert cx.default_model() == "gpt-5.6-sol" and CATALOG["codex"].default_model == "gpt-5.6-sol"
 
 
 def _fake_codex(tmp_path, monkeypatch, catalog: dict):
