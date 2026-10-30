@@ -119,5 +119,5 @@ def test_a_schedule_shows_its_latest_finished_run(daemon: RunningDaemon) -> None
 def test_only_the_owners_connection_may_read_the_lists() -> None:
     for method in ("tasks.list", "notices.list"):
         assert auth.allowed(auth.Role.CLI, method)
-        for role in (auth.Role.MCP_SHIM, auth.Role.VOICE, auth.Role.NATIVE_HOST):
+        for role in (auth.Role.MCP_SHIM, auth.Role.NATIVE_HOST):
             assert not auth.allowed(role, method), (role, method)

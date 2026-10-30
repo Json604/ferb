@@ -14,7 +14,7 @@ from tests.conftest import FakeRuntime, RunningDaemon, Script
 def planner_answer(kind: str, text: str, task: dict[str, Any] | None = None) -> str:
     return json.dumps({"kind": kind, "answer_question": None, "task": task, "control": None, "remember": [],
                        "timers": [], "schedule": None, "schedule_changes": [], "reminder_cancels": [], "forget": [],
-                       "conversation_changes": [], "notification_rules": [], "text": text})
+                       "conversation_changes": [], "text": text})
 
 
 def planner_task(goal: str, recipients: list[str] | None = None) -> dict[str, Any]:
@@ -23,7 +23,7 @@ def planner_task(goal: str, recipients: list[str] | None = None) -> dict[str, An
     return {"goal": goal, "identity": "owner", "worker_type": "default",
             "targets": {"apps": [], "sites": [], "paths": [], "recipients": recipients or []},
             "success_conditions": [{"text": goal, "owner_text": "", "layer": "outcome", "check": check}],
-            "plan": None, "procedure_id": None, "procedure_slots": []}
+            "plan": None}
 
 
 class PlannerRoute:

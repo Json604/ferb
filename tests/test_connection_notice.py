@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from ferb.cli.chat import render
+from tests.support.chat_text import render
 from ferb.cli.client import Client
 from ferb.core.types import RunHandle, RuntimeEvent
 from tests.conftest import FakeRuntime, RunningDaemon, done, install, outcome, sup, task, tool, turn_events

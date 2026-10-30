@@ -197,7 +197,7 @@ def service_setup(env: Env, update: bool = False) -> int:
     if not update:                                # the app list behind the Permissions step's Automation rows
         ProfileStore(inst.home).save(scan(device_id(Config(inst.home))), "setup scan")
     if inst.bundle is not None or (inst.home / "FERB.app").exists():
-        _voice_helper(env)                        # pins FERB Voice for hearing and push-to-talk; never a prompt
+        _voice_helper(env)                        # pins FERB Voice for hearing; never a prompt
     extension_setup(env)
     env.say("FERB's background service is running.")
     return 0
@@ -213,21 +213,13 @@ def setup(env: Env, update: bool = False) -> int:
         client = wait_for_daemon(env)
         config = Config(inst.home)
         health = client.call("doctor.check", {"selftest": False})
-        grants = health.get("permissions", {})
-        missing = [f"{name}={grants.get(name, 'unknown')}" for name in SETUP_PERMISSIONS
-                   if grants.get(name) != "granted"]
-        if missing:
-            again = "Run `ferb setup`" + (" (or Set Up FERB… in FERB's menu bar)" if inst.bundle else "")
-            env.say(f"Permission setup deferred: {', '.join(missing)}. {again} when you want its permission dialogs.")
-        if not missing:
-            config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
-            env.say("All macOS permissions are granted (checked by the running daemon).")
+        _permissions_state(env, config, health.get("permissions", {}))
         _review_persona(env, client)
         client.close()
         if codex_needed(inst.home):           # C2: an update never asks; it says how
             env.say(f"FERB's own Codex isn't signed in, so FERB can't answer yet: {CODEX_LOGIN_HOW}.")
         if inst.bundle is not None or (inst.home / "FERB.app").exists():
-            _voice_helper(env)        # L26: its new modes; L27: the new app's own helper; no permission dialog either way
+            _voice_helper(env)        # L26: hearing's helper; L27: the new app's own helper; no permission dialog
         extension_setup(env)
         env.say("Done.")
         return 0
@@ -257,18 +249,9 @@ def setup(env: Env, update: bool = False) -> int:
     env.say(f"     {s['apps']} apps, {s['scriptable']} scriptable; browsers: {', '.join(s['browsers']) or 'none'}")
 
     env.say("3/4  Permissions (checked by the daemon itself)")
-    for perm in SETUP_PERMISSIONS:
-        if perm == "full_disk_access":
-            containment = client.call("doctor.check", {"selftest": False}).get("containment", {})
-            if not permissions.fda_ready(containment):
-                env.say("Full Disk Access setup deferred: containment must report a working shell profile and proxy first.")
-                continue
-            env.say("Full Disk Access is part of FERB's full-access setup; containment is active before this grant.")
-        client = _grant(env, client, perm, binary, required=perm in REQUIRED_PERMISSIONS)
-    _automation(env, client, profile)
-    hearing_setup(env, client)
-    clipboard_setup(env, client)
-    config.set('setup', 'permissions_version', 27)
+    if _voice_helper(env) is None:            # hearing's helper (L26): built or pinned, never a permission dialog
+        env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
+    _permissions_state(env, config, client.call("doctor.check", {"selftest": False}).get("permissions", {}))
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
@@ -280,6 +263,18 @@ def setup(env: Env, update: bool = False) -> int:
     env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
+
+
+def _permissions_state(env: Env, config: Config, grants: dict[str, Any]) -> None:
+    """The macOS permissions as the running daemon reports them. FERB's setup window asks for them (the CLI has no
+    permission walkthrough); setup is recorded as done (`permissions_version`) only once every one is granted."""
+    missing = [f"{name}={grants.get(name, 'unknown')}" for name in SETUP_PERMISSIONS if grants.get(name) != "granted"]
+    if missing:
+        env.say(f"     Not granted yet: {', '.join(missing)}. Grant them in FERB's setup window (Set Up FERB… in "
+                "FERB's menu bar); `ferb doctor` lists them.")
+        return
+    config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
+    env.say("     All macOS permissions are granted (checked by the running daemon).")
 
 
 # ---------- the store's one-time clean-out (plan 2026-10-23 Task 1; L28, C1) ----------
@@ -399,7 +394,7 @@ def _clean_store(env: Env, stop: Callable[[], bool], state: str) -> None:
 
 
 def _app_installed(env: Env) -> None:
-    """After installing from FERB.app: say where `ferb` is. Hearing and push-to-talk are pinned to this app's own
+    """After installing from FERB.app: say where `ferb` is. Hearing is pinned to this app's own
     voice helper by `_voice_helper` (an update replaces it, and an ad-hoc signature pins the exact code)."""
     inst = env.inst
     if inst.bundle is None:
@@ -419,7 +414,7 @@ def persona_setup(env: Env) -> int:
 
 
 def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
-    from ferb.cli.chat import printable
+    from ferb.sanitize.terminal import printable
     result = client.call('setup.persona', {'refresh': refresh})
     if result['state'] == 'scanning':
         env.say('Getting to know this Mac from local app-use metadata…')
@@ -454,57 +449,6 @@ def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
         client.call('chat.answer', {'approval_id': approval['approval_id'], 'text': answer})
         env.say('Saved your confirmed profile.')
     return 0
-
-
-def _status(client: Client, perm: str) -> str:
-    return str(client.call("doctor.check", {"selftest": False})["permissions"][perm])
-
-
-def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: bool) -> Client:
-    label = perm.replace("_", " ").title()
-    requested = False
-    while _status(client, perm) != "granted":
-        if not requested and perm in permissions.REQUESTABLE:     # macOS lists FERB in that pane (L34 C)
-            requested = True
-            try:
-                client.call("setup.permission_request", {"permission": perm})
-            except FerbError:
-                pass                                              # an older daemon: the pane still opens
-        if env.inst.bundle:
-            env.say(f"     {label}: not granted. In the System Settings pane that just opened, switch on FERB ({binary});")
-            env.say("     if it isn't listed, click +, press ⌘⇧G, paste that path, click Open and switch it on.")
-        else:
-            env.say(f"     {label}: not granted. In the System Settings pane that just opened, click +, press ⌘⇧G,")
-            env.say(f"     paste {binary}, click Open and switch it on.")
-        env.open_pane(perm)
-        answer = env.ask(f"     Press Enter when done{'' if required else ' (or type skip)'}, or 'skip' to continue "
-                         "without it: ").strip().lower()
-        if answer == "skip":
-            env.say(f"     Skipped {label}. {'FERB cannot act on the Mac without it; ' if required else ''}"
-                    "`ferb doctor` will keep reminding you.")
-            return client
-        if perm == "screen_recording":          # macOS applies a new Screen Recording grant only after a restart
-            client.close()
-            env.inst.restart()
-            client = wait_for_daemon(env)
-    env.say(f"     {label}: granted ✓")
-    return client
-
-
-def _automation(env: Env, client: Client, profile: Any) -> None:
-    running = env.running_apps()
-    candidates = permissions.automation_candidates(profile.apps if profile else [], running)
-    if not candidates:
-        env.say("     No scriptable apps are running. Rerun setup to grant Automation for additional apps.")
-        return
-    for i, (name, bundle) in enumerate(candidates, 1):
-        env.say(f"     {i:>2}. {name} ({bundle})")
-    picked = env.ask("     Numbers to request now, comma-separated (Enter for none): ").strip()
-    chosen = [candidates[int(n) - 1][1] for n in picked.replace(" ", "").split(",") if n.isdigit()
-              and 1 <= int(n) <= len(candidates)]
-    if chosen:
-        for bundle, status in client.call("automation.request", {"bundle_ids": chosen})["results"].items():
-            env.say(f"     {bundle}: {status}")
 
 
 def _print_selftest(env: Env, report: dict[str, Any]) -> bool:
@@ -658,31 +602,9 @@ def clipboard_check(state: str | None) -> Check | None:
         return Check("clipboard", "ok", "FERB may read what you copy (kept on this Mac for 7 days)")
     why = {"default": "macOS hasn't asked you yet", "ask": "macOS would ask you every time",
            "deny": "you set FERB to Deny"}.get(state, f"macOS reports {state}")
-    fix = (f"run `ferb setup` to let macOS ask once, then set FERB to Allow in {PASTE_PANE}" if state == "default"
+    fix = (f"let macOS ask once from FERB's setup window, then set FERB to Allow in {PASTE_PANE}" if state == "default"
            else f"set FERB to Allow in {PASTE_PANE}")
     return Check("clipboard", "warn", f"FERB doesn't record what you copy: {why}", fix)
-
-
-def clipboard_setup(env: Env, client: Any) -> None:
-    """I3: on macOS 15.4+, an app reading the clipboard makes macOS ask unless it's set to Allow; an app that never
-    asked isn't even listed in that pane. With the owner's yes, the daemon reads it once now, so macOS asks here (an
-    alert the owner expects) instead of never, and the owner can then set FERB to Allow."""
-    state = client.call("doctor.check", {"selftest": False}).get("clipboard")
-    if state not in ("default", "ask"):
-        return
-    env.say("     Clipboard: FERB records text you copy (kept on this Mac for 7 days) only if macOS lets it read the "
-            "clipboard without asking.")
-    if state == "default":
-        if env.ask("     Let macOS ask now whether FERB may read the clipboard? You'll see its alert once [y/N] "
-                   ).strip().lower() not in (
-                "y", "yes"):
-            env.say("     Clipboard capture stays off; `ferb doctor` says how to turn it on.")
-            return
-        state = client.call("clipboard.request").get("access", state)
-    if state in ("allow", "unrestricted"):
-        env.say("     Clipboard: allowed ✓")
-        return
-    env.say(f"     To let FERB record what you copy without asking each time, set FERB to Allow in {PASTE_PANE}.")
 
 
 def protection_check(home: Path) -> Check:
@@ -863,15 +785,6 @@ def doctor(env: Env) -> int:
         add_hearing_check(add, report.get("hearing"))
         if (clipboard := clipboard_check(report.get("clipboard"))) is not None:
             add(clipboard)
-        voice = report.get("voice", {})
-        if voice.get("push_to_talk"):
-            perms = voice.get("permissions", {})
-            ok = voice.get("connected") and perms.get("microphone") == "granted" and perms.get("speech") == "granted"
-            add(Check("push-to-talk", "ok" if ok else "warn",
-                      "FERB.app connected, microphone + speech allowed" if ok else
-                      ("FERB.app not connected" if not voice.get("connected") else
-                       f"microphone: {perms.get('microphone')}, speech: {perms.get('speech')}"),
-                      "" if ok else "run `ferb setup --voice`"))
         if "tokenizer" in report:                  # how the daemon counts tokens (its budgets depend on it)
             exact = str(report["tokenizer"]).startswith("o200k")
             add(Check("tokenizer", "ok" if exact else "warn",
@@ -1145,7 +1058,7 @@ def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
         env.say("Certificate Assistant → Create a Certificate (name it exactly that, type Code Signing), then run this again.")
         return None
     app = env.inst.home / "FERB.app"
-    env.say("Building FERB.app (on-device speech recognition and push-to-talk's microphone; no windows, no Dock icon)…")
+    env.say("Building FERB.app (on-device speech recognition for hearing; no windows, no Dock icon)…")
     built = run([str(repo_root() / "macapp" / "FERB" / "build.sh"), str(app)], capture_output=True, text=True)
     if built.returncode != 0:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
@@ -1176,9 +1089,9 @@ def _shipped_app(env: Env) -> str | None:
 
 
 def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None:
-    """FERB's voice/speech app (hearing, L26; push-to-talk): built from a checkout, or the packaged FERB.app's shipped
-    helper (L27). Records its signature for the daemon's checks: hearing always, push-to-talk when it is set up (the
-    same app). Returns the requirement, or None (said why)."""
+    """FERB's voice/speech app (hearing, L26): built from a checkout, or the packaged FERB.app's shipped helper (L27).
+    Records its signature for the daemon's checks (`[voice] requirement` from an older push-to-talk setup follows it).
+    Returns the requirement, or None (said why)."""
     req = _shipped_app(env) if env.inst.bundle is not None else _build_app(env, run or env.run)
     if req is None:
         return None
@@ -1192,72 +1105,6 @@ def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None
 def _voice_name(env: Env) -> str:
     """The name macOS shows for the voice/speech app in permission prompts."""
     return "FERB Voice" if env.inst.bundle is not None else "FERB"
-
-
-def hearing_setup(env: Env, client: Any) -> None:
-    """L26: FERB hears app sound during tasks. Set up FERB's voice/speech app (built from a checkout, shipped in the
-    packaged FERB.app) and ask once for Speech Recognition only (never the microphone: that is `ferb setup --voice`).
-    Speech is recognized on this Mac only; without it FERB can't turn sound into text, but setup still finishes."""
-    env.say("     Hearing: FERB turns an app's sound into text during a task, on this Mac only.")
-    if _voice_helper(env) is None:
-        env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
-        return
-    app = voice_app(env.inst.home, env.inst.bundle)
-    name = _voice_name(env)
-    env.say(f"     macOS will ask once for Speech Recognition for {name} — allow it.")
-    env.run(permissions.speech_request_argv(app))
-    hearing = client.call("doctor.check", {"selftest": False, "hearing": True}).get("hearing", {})
-    speech = hearing.get("speech")
-    if speech == "granted":
-        line = "on this Mac" if hearing.get("on_device") else \
-            f"but on-device recognition isn't available for {hearing.get('locale')}, so FERB won't transcribe"
-        env.say(f"     Speech Recognition: granted ✓ ({line})")
-    else:
-        env.say(f"     Speech Recognition: {speech or 'not checked'}. Allow {name} in System Settings → Privacy & "
-                "Security → Speech Recognition, then run `ferb setup` again. Until then FERB can't turn sound into text.")
-
-
-def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
-    """Push-to-talk: build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
-    survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
-    turn push-to-talk on. The daemon is not restarted. From the packaged FERB.app, its own signed voice helper is
-    used as shipped: nothing is built and no local certificate is needed."""
-    req = _voice_helper(env, run)
-    if req is None:
-        env.say("Push-to-talk stays off.")
-        return 1
-    app = voice_app(env.inst.home, env.inst.bundle)
-    config = Config(env.inst.home)
-    config.set("voice", "requirement", req)
-    env.say(f"macOS will ask once for Microphone and Speech Recognition for {_voice_name(env)} — allow both.")
-    run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request"])
-    config.set("voice", "push_to_talk", True)
-    if config.get("voice", "mic") is None:
-        config.set("voice", "mic", "auto")
-    try:
-        c = env.connect()
-        c.call("voice.reload")
-        report: dict[str, Any] = {}
-        for _ in range(20):                                   # FERB.app loads its speech model, then connects
-            report = c.call("doctor.check", {"selftest": False}).get("voice", {})
-            if report.get("connected"):
-                break
-            env.sleep(1)
-        c.close()
-    except (NotRunning, FerbError) as e:
-        env.say(f"Push-to-talk is on, but the daemon couldn't start it yet: {e}")
-        return 1
-    perms = report.get("permissions", {})
-    if not report.get("connected"):
-        env.say("Push-to-talk is on, but FERB.app didn't connect. `ferb doctor` shows more.")
-        return 1
-    if perms.get("microphone") != "granted" or perms.get("speech") != "granted":
-        env.say(f"FERB.app is connected but lacks permission (microphone: {perms.get('microphone')}, speech: "
-                f"{perms.get('speech')}). Allow FERB in System Settings → Privacy & Security, then run this again.")
-        return 1
-    env.say("Push-to-talk is ready: hold Right Option, speak, let go. A tap or a shortcut (Right Option + a key) is ignored.")
-    env.say("It uses the built-in mic whenever your default input is a Bluetooth headset (it never opens a headset's mic).")
-    return 0
 
 
 def key_setup(env: Env, provider: str) -> int:

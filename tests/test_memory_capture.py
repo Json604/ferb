@@ -155,23 +155,23 @@ def test_drop_while_the_owners_forget_question_waits_leaves_the_guess_to_that_fo
 
 def test_drop_while_a_forget_of_another_version_waits_leaves_the_guess_to_that_forget(daemon: Any) -> None:
     """Fix round 1 (Important 1): the owner's "Forget for good?" about their own version of the fact lists every
-    version, the guess and the chat message it came from included. Dropping the guess first cut that link, so the Yes
-    left the message the question named. While such a question waits, Drop retracts the guess."""
+    version, the guess included. While such a question waits, Drop retracts the guess, so the Yes still deletes it; the
+    owner's chat message stays (simple forget)."""
     added = journal(daemon, "memory.added", {"content": "My dentist is Dr. Mehta"})
     mine = run(daemon, lambda: daemon.daemon.memory.propose("person", "owner", "dentist", "My dentist is Dr. Mehta",
                                                             "owner_stated", [("journal", added)], 1.0))
     q, it = guess(daemon)
     message = it.source_ids[0].split(":", 1)[1]
     told = run(daemon, lambda: daemon.daemon._chat_forget(mine.id, "r-forget"))
-    assert "Your dentist is Dr. Rao" in told and "chat.message" in told
+    assert "Your dentist is Dr. Rao" in told and "messages stay" in told
     [forget] = pending(daemon, "memory.forget")
     run(daemon, lambda: daemon.daemon._resolve_approval(q.id, True, 3))
     assert run(daemon, lambda: daemon.daemon.memory.get(it.id)).status == "retracted"
     assert [p.id for p in pending(daemon, "memory.forget")] == [forget.id]
     run(daemon, lambda: daemon.daemon._resolve_approval(forget.id, True, 1))
     daemon.run(daemon.daemon._settle_forgets())
-    assert run(daemon, lambda: [e.id for e in daemon.daemon._journal().entries_of("chat.message")]) == []
-    assert run(daemon, lambda: [daemon.daemon.memory.get(i) for i in (it.id, mine.id, message)]) == [None] * 3
+    assert run(daemon, lambda: [e.id for e in daemon.daemon._journal().entries_of("chat.message")]) == [message]
+    assert run(daemon, lambda: [daemon.daemon.memory.get(i) for i in (it.id, mine.id)]) == [None] * 2   # every version
 
 
 def test_drop_deletes_the_guess_s_index_node(daemon: Any) -> None:
@@ -554,23 +554,6 @@ def test_ferbs_which_is_it_names_a_checks_own_options() -> None:
         "Is that Keep, Edit or Drop for this? Keep this? “x”")
     assert _plain_choice(SimpleNamespace(options=("Yes", "No"), reason="Forget for good?")) == (
         "Is that a Yes or a No to this? Forget for good?")
-
-
-def test_the_terminal_names_a_guess_questions_options() -> None:
-    """`ferb chat`: the reply hint and the prompt name Keep, Edit or Drop; Enter (skipping) is Drop (ruling 5)."""
-    import threading
-
-    from ferb.cli.chat import question
-    from ferb.cli.live_chat import LiveChat
-    ask = {"approval_id": "ap-guess", "kind": "owner_question", "capability": "memory.confirm",
-           "reason": "Keep this? “x”", "options": ["Keep", "Edit", "Drop"]}
-    said: list[str] = []
-    chat_ = LiveChat.__new__(LiveChat)
-    chat_.pending, chat_._lock = {}, threading.RLock()
-    chat_.say = said.append                                            # type: ignore[method-assign]
-    chat_.answer_approval(ask)
-    assert said[-1].strip() == "Reply Keep, Edit or Drop."
-    assert question(ask).endswith("number or your answer (Enter = Drop): ")
 
 
 @pytest.mark.parametrize("typed, status, edits", [("keep", "active", 0), ("Drop", None, 0), ("1", "active", 0),

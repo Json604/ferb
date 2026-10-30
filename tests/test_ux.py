@@ -47,16 +47,12 @@ def test_an_app_the_owner_named_is_no_surprise(daemon: RunningDaemon) -> None:
 # ---------- continuity ----------
 
 def test_ferb_knows_what_it_was_doing_across_chat_sessions(daemon: RunningDaemon) -> None:
-    import io
-    from ferb.cli.chat import Chat
     script = install(daemon, [sup("reply", "Sure, I'll look into your storage."), sup("reply", "We talked about it.")])
-    first = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
-    first.opening()
-    first.turn("can you analyse my mac storage?")
-    second = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
-    second.opening()                                  # a new CLI connection resumes the durable conversation
-    second.turn("what were you doing before?")
-    assert first.session_id == second.session_id
+    first = Client(daemon.sock).call("chat.attach", {})["session_id"]
+    chat(daemon, "can you analyse my mac storage?", session=first)
+    second = Client(daemon.sock).call("chat.attach", {})["session_id"]   # a new connection resumes the conversation
+    chat(daemon, "what were you doing before?", session=second)
+    assert first == second
     ctx = script.contexts[1][2]
     assert "analyse my mac storage" in ctx and "I'll look into your storage" in ctx
 
@@ -107,6 +103,11 @@ def test_ctrl_c_stops_the_task_as_stopped_by_you(daemon: RunningDaemon) -> None:
     tid = next(e for e in stream if e["type"] == "plan")["task_id"]
     c2 = Client(daemon.sock)
     try:
+        # notes/daemon.md decision 1: no ids is refused (it once stopped every running tree, scheduled runs and other
+        # chats included); stopping everything is stop.engage
+        with pytest.raises(Exception, match="needs the ids"):
+            c2.call("task.stop", {})
+        assert tid in [t for t, _ in daemon.daemon.supervisor.running_trees()]
         assert c2.call("task.stop", {"task_ids": [tid]})["stopped"] == [tid]
     finally:
         c2.close()

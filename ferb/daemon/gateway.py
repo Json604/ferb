@@ -255,8 +255,6 @@ def quoted(text: str, limit: int = REASON_CHARS) -> str:
     return lines.clip(" ".join(printable(text).split()).replace('"', "'"), limit)
 
 
-
-
 def short_target(target: dict[str, Any]) -> str:
     """One readable target from a recorded one, for FERB's question, keeping every consequential identifier: who it
     went to (every recipient, else the contact), else the file, else the place; then the amount and the account. The
@@ -389,9 +387,6 @@ class GatewayDeps:
     proc_task: Callable[[str], str | None]
     # the daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None
     app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None
-    # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds the
-    # tasks that were given an item (re-review a3)
-    memory_read: Callable[[str, list[str]], None]
     journal_problem: Callable[[str, dict[str, Any]], None]   # where a fault the gateway survives is journaled
     profile_name: Callable[[str, str], str]             # browser_pair's question names the profile
     disturbance: Any                                    # the desktop sentinel (P26)
@@ -438,9 +433,6 @@ class Gateway:
         self.locks = ResourceLocks()
         from ferb.daemon.task_preview import TaskPreviews
         self.previews = TaskPreviews()
-        # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds
-        # the tasks that were given an item (re-review a3); the daemon records it in task_memory_refs
-        self.memory_read: Callable[[str, list[str]], None] = deps.memory_read
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
         self.profile_name: Callable[[str, str], str] = deps.profile_name
@@ -468,7 +460,6 @@ class Gateway:
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = deps.app_window
         self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
-        self.looks: dict[asyncio.Task[None], str] = {}     # first looks still being taken, by task (D26)
         self.recovery: recovery.Recovery | None = deps.recovery      # S1: copies before a change, the Trash record
         self.snapshots: recovery.Snapshots | None = deps.snapshots   # S1: before a permanent delete or shell work
         self.changes: file_changes.Changes | None = deps.changes     # L39: copies before a step changes files
@@ -518,10 +509,6 @@ class Gateway:
             props["why"] = {"type": "string", "description": WHY_HELP}
             out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
-
-    def tools_for_task(self, task: Any) -> list[str]:
-        """Tool names covered by the task's runtime scopes."""
-        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes) and task.identity in c.identities]
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         job = asyncio.current_task()
@@ -645,23 +632,9 @@ class Gateway:
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
                 job.cancel()
-        self._stop_looks(task_ids)
-
-    def _stop_looks(self, task_ids: set[str]) -> None:
-        for job, tid in list(self.looks.items()):
-            if tid in task_ids:
-                job.cancel()
-
-    async def looks_settled(self) -> None:
-        """Wait until the first looks being taken have ended (tests; shutdown drains `looks` itself). Only jobs still
-        running are awaited: a gather of finished ones completes without yielding, so their done callbacks couldn't
-        run."""
-        while pending := [job for job in self.looks if not job.done()]:
-            await asyncio.wait(pending)
 
     def forget_tasks(self, task_ids: set[str]) -> None:
-        """A task tree ended. A first look still being taken for it finishes in the background (its own 10 s bound);
-        only a stop (`cancel_tasks`) or shutdown cancels one."""
+        """A task tree ended: what the gateway kept for it goes."""
         self.previews.remove(task_ids)
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
@@ -1946,75 +1919,6 @@ class Gateway:
             self._looked_at(grant).add(spec.target.site.lower())    # worker's first look at that app
         return {"evidence": eid}
 
-    def _look_later(self, name: str, spec: Any, grant: RunGrant, rec: Any, after: str) -> None:
-        """D26, D29: when a worker starts on a Mac app (its first mac.* call there that worked), FERB keeps one picture
-        of that app's window as evidence, unless the call itself returned one. Taken after the call has answered, as
-        its own job, never inside the call's resource lock: a slow capture (up to 10 s) never delays the call or holds
-        the app, and its failure never touches the call. Stopping the task or shutdown cancels it; the task ending
-        doesn't (a fast task's check may come before the picture)."""
-        app = spec.target.site
-        if self.app_window is None or self.evidence is None or not name.startswith("mac.") or not app:
-            return
-        looked = self._looked_at(grant)
-        if app.lower() in looked:
-            return
-        looked.add(app.lower())                          # now, so a quick next call doesn't take a second look
-        job = asyncio.get_running_loop().create_task(self._first_look(app, name, grant, rec, after, looked))
-        self.looks[job] = grant.task_id
-        job.add_done_callback(self._look_done)
-
-    def _look_done(self, job: "asyncio.Task[None]") -> None:
-        """A look records its own failures on its span; one that still escapes (the span store itself failed) goes to
-        the daemon's log, by type only. Never the call's."""
-        self.looks.pop(job, None)
-        if job.cancelled():
-            return
-        e = job.exception()
-        if e is not None:
-            logging.getLogger(__name__).warning("FERB first look failed: %s", error_name(e))
-
-    async def _first_look(self, app: str, name: str, grant: RunGrant, rec: Any, after: str, looked: set[str]) -> None:
-        """One picture of the app's window (`_look_later`). Background only: one window, never the desktop, never
-        brought forward, never the worker's shot. Best effort: a failure is recorded on its own span, and a cancel
-        (a stop, shutdown) finishes the span as "cancelled". Nothing to take (no screen scope, images off, a browser)
-        records nothing; no window yet (NoTarget) records nothing and leaves the first look to a later call. A
-        withheld picture (its secret fields couldn't be painted over, L13) counts. `looked` is the worker's set, kept
-        even after its task ended."""
-        window = self.app_window
-        if window is None:
-            return
-        shot, eid, error = None, None, None
-        try:
-            shot = await asyncio.wait_for(window(app, grant.scopes), APP_WINDOW_TIMEOUT_S)
-        except asyncio.CancelledError:
-            raise
-        except NoTarget:
-            looked.discard(app.lower())
-            return
-        except Exception as e:                                      # a refusal's text is FERB's own and safe to show
-            error = f"{type(e).__name__}: {e}" if isinstance(e, Refused) else error_name(e)
-        if shot is None and error is None:
-            return
-        span = self.spans.start("evidence.app_window", task_id=grant.task_id, parent_id=rec.span_id,
-                                device_id=self.device_id, input={"app": app, "after": name, "after_span": after})
-        try:
-            if shot is not None:
-                origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ),
-                                                 self.excluded_host)
-                facts, image = dict(shot.facts), shot.image
-                if image is not None:
-                    from ferb.sanitize.images import ImageRedactor
-                    image = await asyncio.to_thread(ImageRedactor(self.redact), image, shot.rects)
-                eid = await self.evidence.put_async(grant.task_id, span.id, "app_window", image=image, data=facts,
-                                                    rects=shot.rects if image is not None else None,
-                                                    origin=origin.join(origins))
-        except asyncio.CancelledError:                              # the store left no file without its row
-            self.spans.finish(span, error="cancelled")
-            raise
-        except Exception as e:
-            error = error_name(e)
-        self.spans.finish(span, output={"evidence": eid} if eid else None, error=error)
-
     def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,
                      output: dict[str, Any] | None = None, error: str | None = None,
                      origins: set[str] | None = None) -> None:
@@ -2022,8 +1926,6 @@ class Gateway:
         summary only; `output` is what the span records (None on error paths). No origins: none is recorded. The event
         carries only the arguments a step line shows (`lines.ARG_KEYS`), redacted then clipped; the span keeps all."""
         args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
-        if name in ("memory.read", "memory.learned") and not is_error and isinstance(output, dict) and span.task_id:
-            self._record_memory_read(str(span.task_id).split(".", 1)[0], name, args, output)
         summary = lines.summarize(name, args, self.redact(content), is_error)   # redact before clip cuts a secret
         self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins is not None else None,
                           summary=summary)
@@ -2032,22 +1934,6 @@ class Gateway:
                                        if span.ended_at else None,
                                        "error": self.redact({"e": error})["e"] if error else None,
                                        "args": _shown_args(self.redact(args)), "why": self.redact({"w": why})["w"]})
-
-    def _record_memory_read(self, root: str, name: str, args: dict[str, Any], output: dict[str, Any]) -> None:
-        """Tell the memory what a finished memory read returned (re-review a3). Recording it never costs the read its
-        result or its span: a failure is journaled, redacted, and the call answers as it would have (re-review R4)."""
-        from ferb.memory.lineage import call_sources
-        try:
-            read = sorted(r for r in call_sources({"tool": name, "args": args}, output) if r.startswith(("memory:", "m-")))
-            if read:
-                self.memory_read(root, read)
-        except Exception as e:
-            problem = {"task_id": root, "tool": name, "error": self.redact({"e": f"{type(e).__name__}: {e}"})["e"]}
-            try:
-                self.journal_problem("memory.read_unrecorded", problem)
-            except Exception as again:
-                logging.getLogger(__name__).warning("FERB memory read unrecorded: %s; %s", error_name(e),
-                                                    error_name(again))
 
     def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",

@@ -70,10 +70,6 @@ class Pairings:
         return self.db.conn.execute("DELETE FROM ext_installs WHERE browser = ? AND folder = ?",
                                     (browser, folder)).rowcount > 0
 
-    def autopair_off(self, browser: str, folder: str) -> bool:
-        return self.db.conn.execute("SELECT 1 FROM ext_autopair_off WHERE browser = ? AND folder = ?",
-                                    (browser, folder)).fetchone() is not None
-
     def pending(self, browser: str, folder: str) -> bool:
         """A pairing of the profile is in progress: an unexpired token for it is still unused."""
         now = self.clock.monotonic()

@@ -24,7 +24,7 @@ chat notice (section 16); it never authorizes a task or a send.
 
 | Responsibility | Source |
 |---|---|
-| CLI, streaming presentation, reconnect | [`ferb/cli/chat.py`](ferb/cli/chat.py), [`client.py`](ferb/cli/client.py) |
+| Developer CLI (no chat: the app is the interface), RPC client | [`ferb/cli/`](ferb/cli/), [`client.py`](ferb/cli/client.py) |
 | Composition and daemon lifecycle | [`ferb/daemon/main.py`](ferb/daemon/main.py) |
 | Authentication and RPC | [`server.py`](ferb/daemon/server.py), [`auth.py`](ferb/daemon/auth.py); [client contract](docs/RPC.md) |
 | Planning, attempts, questions, recovery, final answer | [`supervisor.py`](ferb/orchestrator/supervisor.py), [`schemas.py`](ferb/orchestrator/schemas.py) |

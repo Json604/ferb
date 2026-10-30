@@ -111,7 +111,8 @@ redact, image redaction, origins).
 - Non-authorization features inside the authorization path: previews, cursor point, disturbance, initial image,
   evidence, memory lineage, change record, Jev shadow, hidden-input asks.
 - Dead: `_look_later`/`_first_look`/`_look_done` and the `looks` machinery, `tools_for_task`, the DELETE_PERMANENT
-  branches (G:1103-1111, 1571; confirm.py:516-518), legacy confirmation rules in the DB.
+  branches (G:1103-1111, 1571; confirm.py:516-518), legacy confirmation rules in the DB. (Step 3: the looks machinery
+  and `tools_for_task` removed; the rest left.)
 
 ## Target design
 1. **One pipeline, one Need loop.** Admission → validate → tool-reported facts → `needs(facts)` (protection, pay,

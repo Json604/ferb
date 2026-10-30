@@ -4,7 +4,6 @@ import json
 import pytest
 
 from ferb.core.structured import check_final
-from ferb.memory.consolidate import PROPOSAL_SCHEMA
 from ferb.memory.distill import DISTILL_SCHEMA
 from ferb.orchestrator import schemas
 from tests.conftest import install, sup
@@ -32,7 +31,6 @@ def test_every_ferb_output_schema_is_strict_compatible() -> None:
     """OpenAI strict mode and Anthropic output_config need additionalProperties false and every property required."""
     found = {n: strict_problems(getattr(schemas, n)) for n in dir(schemas) if n.endswith("_SCHEMA")}
     found["DISTILL_SCHEMA"] = strict_problems(DISTILL_SCHEMA)
-    found["PROPOSAL_SCHEMA"] = strict_problems(PROPOSAL_SCHEMA)
     assert not {n: p for n, p in found.items() if p}
 
 

@@ -11,7 +11,7 @@ def stub_deps(**overrides: Any) -> GatewayDeps:
     store = SimpleNamespace()
     values: dict[str, Any] = dict(
         evidence=None, recovery=store, snapshots=None, changes=None, confirmations=store, destinations=store,
-        proc_task=lambda proc_id: None, app_window=None, memory_read=lambda task_id, refs: None,
+        proc_task=lambda proc_id: None, app_window=None,
         journal_problem=lambda kind, data: None, profile_name=lambda browser, folder: folder, disturbance=None,
         username_sources=lambda: None, on_path=lambda path, task_id: None, route_question=None,
         shadow_action=None, test_send_allowlist=None)

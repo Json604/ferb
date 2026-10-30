@@ -4,7 +4,6 @@ that is stated, not just this vague message"). The live case: a turn ended with 
 side. Could you try that again?" while the journal held `PermissionError: [Errno 1] Operation not permitted:
 '/private/var/folders/…/com.apple.LaunchServices.dv'`."""
 
-import asyncio
 import json
 from typing import Any
 
@@ -211,33 +210,3 @@ def test_an_attempt_that_raises_reports_the_reason(daemon: RunningDaemon) -> Non
 
 
 # ---------- voice ----------
-
-def test_voice_speaks_the_reason() -> None:
-    from ferb.voice.controller import Voice
-
-    class Speaker:
-        def __init__(self) -> None:
-            self.said: list[str] = []
-
-        def say(self, words: str) -> None:
-            self.said.append(words)
-
-        def wait(self) -> None:
-            return None
-
-    class Journal:
-        def __init__(self) -> None:
-            self.rows: list[tuple[str, dict[str, Any]]] = []
-
-        def append(self, kind: str, data: dict[str, Any]) -> None:
-            self.rows.append((kind, data))
-
-    async def run_turn(text: str) -> Any:
-        raise PermissionError(1, "Operation not permitted", LOCKED)
-        yield {}                                                        # an async generator, as the daemon's is
-
-    speaker, journal = Speaker(), Journal()
-    voice = Voice(run_turn, lambda: [], speaker, journal, lambda: None, redact=Redactor())
-    asyncio.run(voice._turn("clean my temp folders"))
-    assert speaker.said == [f"I couldn't do that: macOS didn't let FERB open {LOCKED} (Operation not permitted)."]
-    assert journal.rows and journal.rows[0][0] == "voice.failed"

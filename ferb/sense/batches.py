@@ -296,15 +296,24 @@ class EventBatcher:
         self._unsent = held
         return held
 
-    async def run(self, stop: asyncio.Event) -> None:
-        # A process can die while a batch is in flight; release its receipts so the surviving source is retried.
-        self.db.conn.execute("DELETE FROM perception_receipts WHERE batch_id IN (SELECT id FROM perception_batches WHERE state='pending')")
+    def _release(self) -> None:
+        """A process can die while a batch is in flight; release its receipts so the surviving source is retried."""
+        self.db.conn.execute("DELETE FROM perception_receipts WHERE batch_id IN "
+                             "(SELECT id FROM perception_batches WHERE state='pending')")
         self._unsent = None                   # released receipts make rows unsent again: read them all
+
+    async def run(self, stop: asyncio.Event) -> None:
+        released = self.jev() is not None     # None: switched off, no key, or the key refused: no work at all
+        if released:
+            self._release()
         while not stop.is_set():
             self.wakes += 1
             self.wake.clear()
             deadline = None
             if self.jev() is not None:
+                if not released:              # switched on since the start
+                    self._release()
+                    released = True
                 held = self._sync()
                 reason = ""
                 if held.interrupts:
@@ -408,9 +417,6 @@ class EventBatcher:
         if event["source"] == "notification" and event.get("actor") == "ferb":
             return {"ferb_banner": True}, []   # FERB's own banner read back (L10): FERB's words, never an arrival
         if event["source"] == "notification":
-            data = event["data"]
-            if self.policy.muted(str(data.get("bundle_id", "")), str(data.get("conversation", ""))):
-                return {"muted": True}, []
             state = self.policy.context(event)
             _trim(state)
             return state, [Ask("notification.attention", "no", "trail:" + event["id"])]

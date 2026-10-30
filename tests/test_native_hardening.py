@@ -1,7 +1,6 @@
 """Regression evidence for explicit native mechanisms, stable targets and uncapped file delivery."""
 
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -136,27 +135,6 @@ def test_doctor_never_posts_a_global_mouse_event(monkeypatch):
     assert posted == []
 
 
-def test_voice_cannot_answer_the_first_of_two_pending_questions():
-    """L3: with two questions open, what was said is a chat turn; the planner routes it by question id."""
-    from ferb.voice.controller import Voice
-    turns, said = [], []
-
-    async def run_turn(text):
-        turns.append(text)
-        yield {'type': 'reply', 'text': 'ok'}
-    voice = Voice(run_turn,
-                  lambda: [SimpleNamespace(id='q1', kind='owner', question='Which file?'),
-                           SimpleNamespace(id='q2', kind='owner', question='Which recipient?')],
-                  SimpleNamespace(say=said.append, wait=lambda: None),
-                  SimpleNamespace(append=lambda *args: None), lambda: None)
-
-    async def go():
-        out = await voice.transcript('the second one')
-        await asyncio.sleep(0.05)
-        return out
-    assert asyncio.run(go()) == {'handled': 'request'} and turns == ['the second one']
-
-
 def test_explicit_foreground_has_no_restore_and_stops_on_owner_input(monkeypatch):
     from ferb.act.mac.input import Yielded, Step
     ax = Ax()
@@ -235,12 +213,6 @@ def test_ax_graph_cycles_never_duplicate_candidates(monkeypatch):
     ax._walk(win, tree, [], 0, None, [0])
     assert len([n for n in tree.nodes if n.label == '7']) == 1
     assert not tree.truncated_by and tree.repeated_nodes == 2
-
-
-def test_multiple_builtin_microphones_never_select_first():
-    from ferb.voice.mic import InputDevice, choose
-    devices=[InputDevice('a','A','bltn'),InputDevice('b','B','bltn')]
-    assert choose(devices) is None
 
 
 def test_applescript_does_not_raise_a_permission_dialog(monkeypatch,tmp_path):

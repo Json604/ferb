@@ -1,7 +1,7 @@
 /* Curated architecture explanations, not a live trace replay. No personal message bodies or credentials. */
 (function (root) {
 const nodes = [
- ['owner','Owner / CLI','Your request and the final answer. Chat can disconnect while a task continues.','ferb/cli/chat.py','interface'],
+ ['owner','Owner / app','Your request and the final answer. Chat can disconnect while a task continues.','ferb/daemon/areas/chat.py','interface'],
  ['rpc','Daemon / RPC','Authenticates local calls and delivers progress, questions, stop and results.','ferb/daemon/main.py','code'],
  ['supervisor','Supervisor','Builds context, invokes decision models, owns attempts and reconciles the result.','ferb/orchestrator/supervisor.py','code'],
  ['context','Context / registry','Full owner request, token-budgeted optional history with fetch markers, intake receipts and full app inventory.','ferb/registry.py','data'],

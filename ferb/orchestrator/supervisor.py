@@ -16,7 +16,6 @@ from pathlib import Path
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
-from functools import partial
 from typing import Any, AsyncIterator, Awaitable, Callable
 from urllib.parse import urlsplit
 
@@ -38,8 +37,7 @@ from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer, observes
 from ferb.memory.items import query_terms, whole_clauses
 from ferb.memory.journal import Journal, JournalEntry
-from ferb.memory.learning import ProcedurePart
-from ferb.memory.lineage import ENTRY, PROCEDURE_LABEL, REQUEST_REFERENCE, TASK
+from ferb.memory.lineage import ENTRY, REQUEST_REFERENCE, TASK
 from ferb.orchestrator.context_layers import target_words
 from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
@@ -263,11 +261,11 @@ def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _carries_more(out: SupervisorOutcome) -> bool:
-    """Whether a planner turn carries anything besides an answer: a control (stop, steer, retry, continue), a new
-    task, or a side output (memory, reminders, schedules, conversation or notification changes)."""
+    """Whether a planner turn carries anything besides an answer: a control (stop, retry, continue), a new
+    task, or a side output (memory, reminders, schedules, conversation changes)."""
     return bool(out.control is not None or (out.kind == "task" and out.task is not None) or out.remember or
                 out.forget or out.timers or out.schedule is not None or out.schedule_changes or out.reminder_cancels or
-                out.conversation_changes or out.notification_rules)
+                out.conversation_changes)
 
 
 @dataclass
@@ -545,7 +543,6 @@ class Supervisor(WorkerRuns):
         from ferb.orchestrator.conversations import ConversationStore
         self.conversations = ConversationStore(journal.db, clock, gateway.redact, publish)
         self.gateway.conversation_guard = self.conversations.guard
-        self.notification_rule: Callable[[Any, str], str] = notify.notification_rule
         self.on_conversation_resume: Callable[[], None] = notify.on_conversation_resume
         self.gateway.standing = self.standing
         self._plan_runs: dict[str, PlanExecutor] = {}
@@ -565,17 +562,10 @@ class Supervisor(WorkerRuns):
         self._answer_focus: dict[str, _Focus] = {}
         self._suspending = False
         # Memory and learning (MemoryPort; L28, L29, L36 §4)
-        self.procedure_context: Callable[[str], str] = memory.procedure_context
         self.memory_candidates: Callable[[str, str], Any] | None = memory.memory_candidates
         self.memory_push: Callable[[str, str], Any] | None = memory.memory_push
-        self.procedure_details: Callable[[str, Task, dict[str, Any] | None], list[ProcedurePart]] = \
-            memory.procedure_details
-        self.procedure_problem: Callable[[str], str | None] = memory.procedure_problem
         self.identity_context: Callable[[], str] = memory.identity_context
         self.on_episode: Callable[[str], Any] = memory.on_episode
-        self.procedure_outcome: Callable[[str, str, dict[str, Any] | None], None] = memory.procedure_outcome
-        self.slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None] = memory.slot_values
-        self.slot_problem: Callable[[str, list[dict[str, Any]]], str | None] = memory.slot_problem
         self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
         self.abilities_catalog: Callable[[], list[dict[str, Any]]] = environment.abilities_catalog
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = notify.on_resumed_outcome
@@ -903,7 +893,7 @@ class Supervisor(WorkerRuns):
                              payload=text), origins_.split(entry.origin))
 
     def stop_tree(self, tree_id: str) -> bool:
-        """Ctrl-C in ferb chat: stop this request's task; it's recorded as stopped by the owner."""
+        """The owner's stop of this task (`task.stop`); it's recorded as stopped by the owner."""
         tree = self._tree_of.get(tree_id)
         if tree is None:
             return False
@@ -1396,7 +1386,7 @@ class Supervisor(WorkerRuns):
                     self._env.pop(request_id, None)
                 return
             active = self._tree_of.get(control.task_id)
-            if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
+            if control.action == 'continue' and active is not None and not active.stop and active.accepting_updates:
                 named = frozenset(active.spec.targets.sites)    # the sites the task named before this steer (L36 §5)
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
                 steered = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
@@ -1422,7 +1412,7 @@ class Supervisor(WorkerRuns):
                     if restated is not None and restated.widened:   # a new or wider scope covers sends only once stated
                         grant_stated(self, active, restated)
                     return
-            if control.action in ('steer', 'continue') and active is not None and not active.accepting_updates:
+            if control.action == 'continue' and active is not None and not active.accepting_updates:
                 # Work already completed; let its normal finalization finish, without requesting cancellation.
                 await active.finished.wait()
             # A correction racing natural completion becomes an ordinary continuation of that saved task.
@@ -1462,7 +1452,7 @@ class Supervisor(WorkerRuns):
             # - any other continue, or a retry without a task: the saved goal and plan resume, unfinished steps again;
             # - a retry with the planner's task: the saved plan reopens when that task leaves it as it was (a generic
             #   retry task); otherwise the planner's task is the fresh attempt, with the earlier goal and result.
-            action = 'continue' if control.action == 'steer' else control.action
+            action = control.action
             # Whose account acts is the planner's call each turn (live 2026-10-26, task 0a5fbe31: a FERB-identity
             # research task resumed as FERB though the planner's task named the owner's profile, so its worker had no
             # owner browser tools and drove Chrome's window): a changed identity runs the planner's task.
@@ -1642,8 +1632,6 @@ class Supervisor(WorkerRuns):
                 events.append({'type': 'reply', 'text': 'Conversation ' + change.action + ': ' + change.id})
             except ValueError as exc:
                 events.append({'type': 'reply', 'text': str(exc)})
-        for rule in out.notification_rules:
-            events.append({'type': 'reply', 'text': self.notification_rule(rule, typed)})
         # Quotes are checked against what the owner typed (never against pasted text)
         receipts: list[str] = []
         saved: list[str] = []                # code's lines: what was saved, in the words it was saved in (I1)
@@ -1706,7 +1694,6 @@ class Supervisor(WorkerRuns):
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         conversation, ages = self._conversation_blocks(request_id, session.id)
         mem_text, mem_ages = self.recall_items(remembered)
-        procedures = self.procedure_context(message) if self.memory_candidates is None else ''
         # today's activity: one search, off the event loop, shared by its text and its source refs
         activity_source = await asyncio.to_thread(self.relevant_context, message)
         activity, activity_origin = _labeled(activity_source)
@@ -1747,7 +1734,7 @@ class Supervisor(WorkerRuns):
         # also ranked alone (L36 §4 fix round)
         task_words, task_targets = self._chat_task_words(session)
         recall_for = "\n".join(part for part in (message, task_words) if part.strip())
-        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, procedures, focus=task_targets))
+        situation.extend(await self._memory_blocks(recall_for, remembered, mem_text, focus=task_targets))
         state: list[tuple[ContextBlock, set[str]]] = []
         # A scheduled run starts fresh: its earlier runs are its conversation and its previous-run block, never
         # attempts to continue.
@@ -1854,29 +1841,20 @@ class Supervisor(WorkerRuns):
                                 payload=e.payload),
                    e.origins) for e in entries]], ages
 
-    async def _memory_blocks(self, message: str, remembered: Any, mem_text: str, procedures: str, *,
-                             choosing: bool = True, focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
-        """Relevant memory, always included (L28): the recalled items and every ranked learned item. The procedures the
-        planner may choose (L29: the items whose fold route is `PROCEDURES_ROUTE`) are optional instead, the most
-        recently used intent first, and those that can't all fit fold into one counted note (spec §5: fitted to the
-        window). `choosing` False, for a call that doesn't choose a procedure: without them. `focus`: the target words
-        of the tasks the turn is shown, also ranked alone (none for attention)."""
-        if self.memory_candidates is None:
-            return [self._memory_block(mem_text, procedures, remembered)]
-        from ferb.orchestrator.context_layers import PROCEDURES_ROUTE, ranked_memory_blocks
-        found = self.memory_candidates(message, focus)
+    async def _memory_blocks(self, message: str, remembered: Any, mem_text: str, *,
+                             focus: str = '') -> list[tuple[ContextBlock, set[str]]]:
+        """Relevant memory, always included (L28): the recalled items and every ranked learned item. `focus`: the target
+        words of the tasks the turn is shown, also ranked alone (none for attention)."""
+        from ferb.orchestrator.context_layers import ranked_memory_blocks
+        found = self.memory_candidates(message, focus) if self.memory_candidates is not None else []
         if inspect.isawaitable(found):
             found = await found
-        if not choosing:
-            found = [item for item in found if item.get('fold') != PROCEDURES_ROUTE]
-        return ([self._memory_block(mem_text, procedures, remembered)] if mem_text else []) + \
-            [(block if block.fold == PROCEDURES_ROUTE else dataclasses.replace(block, protected=True), made)
-             for block, made in ranked_memory_blocks(found)]
+        return ([self._memory_block(mem_text, remembered)] if mem_text else []) + \
+            [(dataclasses.replace(block, protected=True), made) for block, made in ranked_memory_blocks(found)]
 
-    def _memory_block(self, mem_text: str, procedures: str, remembered: Any) -> tuple[ContextBlock, set[str]]:
-        return (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text + '\n' + wrap_untrusted(procedures), "memory.read",
-                             protected=True, payload=mem_text + "\n" + procedures),
-                {self.recall_origin(remembered)} | ({origins_.external('procedure')} if procedures else set()))
+    def _memory_block(self, mem_text: str, remembered: Any) -> tuple[ContextBlock, set[str]]:
+        return (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text, "memory.read", protected=True,
+                             payload=mem_text), {self.recall_origin(remembered)})
 
     def _timeline(self, current_request: str, conversation: str | None,
                   summary: Any = None) -> tuple[list["_Entry"], dict[str, datetime]]:
@@ -2109,17 +2087,32 @@ class Supervisor(WorkerRuns):
             fitting.append(entry)
         return fitting
 
-    def forget_summaries(self, entry_ids: set[str]) -> int:
-        """Explicit owner forget: a running summary that folded a forgotten entry (or a summary built on one) goes too;
-        the next turn that needs one builds it again from what remains."""
-        doomed: set[str] = set()
-        for row in self.journal.of_kind(SUMMARY_KIND):
-            cited = {r.partition(":")[2] for r in row.data.get("source_refs", []) if str(r).startswith(ENTRY)}
-            if cited & (entry_ids | doomed):
-                doomed.add(row.id)
-        for ident in doomed:
-            self.journal.db.conn.execute("DELETE FROM journal WHERE id = ? AND kind = ?", (ident, SUMMARY_KIND))
-        return len(doomed)
+    def forget_pending(self, texts: list[str]) -> list[str]:
+        """A forget (notes/memory.md): a chat whose pending clarifying question still holds a forgotten item's words
+        (the owner's request FERB asked about, its question or the pasted payload) drops that pending question, so the
+        next message doesn't carry the forgotten fact back into a turn. Compared word for word, case and spacing aside.
+        Returns the chats whose pending question was cleared."""
+        wanted = [" ".join(t.split()).casefold() for t in texts if t.strip()]
+        if not wanted:
+            return []
+
+        def holds(*parts: str) -> bool:
+            joined = " ".join(" ".join(p.split()) for p in parts if p).casefold()
+            return any(w in joined for w in wanted)
+        cleared = []
+        for row in self.journal.db.conn.execute(
+                "SELECT id, pending, asked, pending_payload FROM conversations WHERE pending != '' OR asked != ''"
+                ).fetchall():
+            if holds(str(row["pending"] or ""), str(row["asked"] or ""), str(row["pending_payload"] or "")):
+                self.continuity.save_pending(row["id"], "", "")
+                cleared.append(str(row["id"]))
+        for sid, session in self.sessions.items():
+            if sid in cleared or holds(session.pending, session.asked, session.payload):
+                session.pending = session.asked = session.payload = ""
+                if sid not in cleared:
+                    self.continuity.save_pending(sid, "", "")
+                    cleared.append(sid)
+        return cleared
 
     def _sink_origins_for_new_schedule(self, request_id: str) -> set[str]:
         """The sink rule's request origins a schedule made in this turn records for its runs (S4, L4): what the
@@ -2244,16 +2237,6 @@ class Supervisor(WorkerRuns):
                 known.record(kind, value, "named", request_id=request_id)
         # The worker sees the whole request payload in a protected block: derived labels inherit its origins (MP2).
         self.spans.set_origin(root_span.id, origins_.join(origins or {origins_.external("unlabeled")}))
-        if spec.procedure_id and (why := self.procedure_problem(spec.procedure_id)):
-            # I5: a procedure id that isn't a usable procedure is noted and left out; the task runs without the hint
-            self._ignore_procedure(tree, root_span.id, why)
-        elif spec.procedure_id and (why := self._slot_problem(spec)):
-            # L29: values the procedure's slots refuse are noted and left out; the procedure is used without them
-            note = self.spans.start("procedure.slots_ignored", task_id=tree.id, parent_id=root_span.id,
-                                    input={"procedure_id": spec.procedure_id,
-                                           "procedure_slots": [s.model_dump() for s in spec.procedure_slots]})
-            self.spans.finish(note, output={"why": why})
-            spec.procedure_slots = []
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
@@ -2382,39 +2365,15 @@ class Supervisor(WorkerRuns):
                 # gets its record and capture when its resumed run ends.
                 if not suspended:
                     episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                    self._capture_after_outcome(tree_id, spec.procedure_id, self._planner_slots(tree_id, spec))
+                    self._capture_after_outcome(tree_id)
         if not suspended:                    # no outcome for a suspended plan: no result, no "while you were away"
             yield final
 
-    def _slot_problem(self, spec: TaskSpec) -> str | None:
-        """Why the chosen procedure's slots refuse the planner's values, or None (L29). A check that fails is a reason
-        too: it never crashes the task's start."""
-        try:
-            return self.slot_problem(str(spec.procedure_id), [s.model_dump() for s in spec.procedure_slots])
-        except Exception as exc:
-            return f'the slot values could not be checked: {type(exc).__name__}: {exc}'
-
-    def _planner_slots(self, tree_id: str, spec: TaskSpec) -> dict[str, Any] | None:
-        """The planner's values for its chosen procedure's slots, typed against the procedure (L29); None without a
-        procedure, or when they don't name exactly its slots with their JSON types. Never raises (it runs as the task
-        ends, before its capture): a failed read is journaled and the receipt goes without slot values."""
-        if not spec.procedure_id:
-            return None
-        try:
-            return self.slot_values(spec.procedure_id, [s.model_dump() for s in spec.procedure_slots])
-        except Exception as exc:
-            with suppress(Exception):
-                self.journal.append('memory.slot_values_failed', {'task_id': tree_id, 'procedure_id': spec.procedure_id,
-                                                                  'error': f'{type(exc).__name__}: {exc}'})
-            return None
-
-    def _capture_after_outcome(self, tree_id: str, procedure_id: str | None,
-                               slots: dict[str, Any] | None = None) -> None:
-        """The task's learning capture (its episode card, whose lineage resolution reads every entry and task the
-        planner was shown, and the procedure receipt that needs the card, with the planner's slot values) runs after
-        the owner has the outcome (L28): a tracked job; a failure is journaled, never raised. At shutdown it is
-        cancelled (`stop_episodes`), or refused (`Deferred`), and journaled as deferred with the slot values: the hourly
-        consolidator captures the card again, and the daemon then records the procedure receipt."""
+    def _capture_after_outcome(self, tree_id: str) -> None:
+        """The task's episode card (whose lineage resolution reads every entry and task the planner was shown) runs
+        after the owner has the outcome (L28): a tracked job; a failure is journaled, never raised. At shutdown it is
+        cancelled (`stop_episodes`), or refused (`Deferred`), and journaled as deferred: the hourly pass captures the
+        card again."""
         async def capture() -> None:
             try:
                 await asyncio.sleep(0)               # the outcome goes out first
@@ -2422,13 +2381,8 @@ class Supervisor(WorkerRuns):
                     done = self.on_episode(tree_id)  # the daemon's capture reads in a process of its own (off the loop)
                     if inspect.isawaitable(done):
                         await done
-                    if procedure_id:
-                        self.procedure_outcome(procedure_id, tree_id, slots)
             except (asyncio.CancelledError, Deferred) as exc:
-                # The daemon replays the procedure receipt once the card is captured again (receipts drive the
-                # procedure's state: a lost failure could leave a failing procedure learned).
-                self.journal.append('memory.episode_deferred', {'task_id': tree_id, 'procedure_id': procedure_id,
-                                                                'slots': slots})
+                self.journal.append('memory.episode_deferred', {'task_id': tree_id})
                 if isinstance(exc, asyncio.CancelledError):
                     raise
             except Exception as exc:
@@ -2467,7 +2421,6 @@ class Supervisor(WorkerRuns):
             self._source_block(tree, "planner-context", planner_sources, origins_.join(held),
                                tuple(sorted({ref for item in items for ref in item.get("source_refs", [])})))
         for exposure in env.get('context_exposures', []):
-            self._given_memory(tree.id, exposure['source_refs'])
             captured = self.spans.start('context.exposure', task_id=tree.id, parent_id=root_span,
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
             self.spans.finish(captured, output=_exposure_output(exposure), origin=exposure['origin'])
@@ -2704,7 +2657,7 @@ class Supervisor(WorkerRuns):
         words = ' '.join(str(v) for row in observations for v in (row.get('data') or {}).values() if isinstance(v, str))
         remembered: Any = ''
         mem_text = self.recall_items(remembered)[0]
-        memory = (await self._memory_blocks(words, remembered, mem_text, '', choosing=False)
+        memory = (await self._memory_blocks(words, remembered, mem_text)
                   if self.memory_candidates is not None or mem_text else [])
         conversation, _ = self._conversation_blocks('', self.continuity.current(), since_last_notice=True)
         notices = json.dumps({'already_told': already_told})     # each told notice keeps its JSON "text" (the purge)
@@ -3424,9 +3377,8 @@ class Supervisor(WorkerRuns):
 
     async def _context(self, tree: _Tree, *, learned: bool = False) -> list[ContextBlock]:
         """The task's context for a role that runs or judges it. `learned`: a worker run's (a plan step's too), which
-        alone gets memory (L36 §4) and its procedure's lessons and verified earlier runs (L29); every other role (the
-        checker, the next-attempt and question choices, the resource reconcile) gets the procedure block alone and no
-        memory, so a checker judges fresh observations and never sees another task's successful calls as evidence for
+        alone gets memory (L36 §4); every other role (the checker, the next-attempt and question choices, the resource
+        reconcile) gets no memory, so a checker judges fresh observations and never sees another task's successful calls as evidence for
         this one (review I1). A plan step's task block opens with its parent task's goal."""
         spec = tree.spec
         request = self.state.requests.get(tree.worker.request_id)
@@ -3480,14 +3432,6 @@ class Supervisor(WorkerRuns):
         if tree.step_context:
             parts.append(ContextBlock('Layer 6 — current plan step and handed results (data):\n' +
                          wrap_untrusted(tree.step_context), 'task.evidence', protected=True))
-        if spec.procedure_id:
-            slots = self._planner_slots(tree.id, spec)      # None without values its slots accept: steps keep {slot}
-            try:
-                details = self.procedure_details(spec.procedure_id, tree.worker, slots)
-            except Exception as exc:          # forgotten or rolled back since the plan (I5): run without it
-                self._ignore_procedure(tree, None, f"{type(exc).__name__}: {exc}")
-            else:
-                parts.extend(self._procedure_blocks(tree, details if learned else details[:1]))
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
@@ -3513,39 +3457,6 @@ class Supervisor(WorkerRuns):
         if attempts is not None:     # this task's own attempts rank above every other optional block, runs too (M2)
             parts[attempts] = dataclasses.replace(parts[attempts], priority=1 + max(b.priority for b in parts))
         return parts
-
-    def _procedure_blocks(self, tree: _Tree, details: list[ProcedurePart]) -> list[ContextBlock]:
-        """The blocks for the selected procedure's parts it is given (L29: a worker run's are all of them; another
-        role's the procedure alone), each with the procedure's origins and its own, citing what it shows: the procedure
-        first, always shown and recorded as its source (PROCEDURE_LABEL: the card capture cites what that block cites);
-        then its intent's lessons, always shown, and its verified earlier runs, each in FERB's data wrapper. The runs
-        are optional blocks above the activity and memory layers, newest first, so the newest stay whole when space
-        runs out; one left out is read by its card's id, and the oldest runs' markers fold into one counted note
-        (PROCEDURE_RUNS_ROUTE) when they can't all fit, or to make room for a block of higher priority (this task's
-        previous attempts)."""
-        from ferb.orchestrator.context_layers import PROCEDURE_RUNS_ROUTE
-        if not details:
-            return []
-        first, rest = details[0], details[1:]
-        labels = set(first.origins) | {origins_.external('procedure')}
-        blocks = [dataclasses.replace(self._source_block(tree, PROCEDURE_LABEL, first.text, origins_.join(labels),
-                                                         first.refs), protected=first.protected)]
-        priority = 2 + sum(not part.protected for part in rest)       # the oldest run 3: above memory (2), activity (1)
-        for part in rest:
-            blocks.append(ContextBlock(part.label + ':\n' + wrap_untrusted(part.text), part.reference,
-                                       protected=part.protected, priority=0 if part.protected else priority,
-                                       origin=origins_.join(labels | part.origins), source_refs=part.refs,
-                                       payload=part.text, fold='' if part.protected else PROCEDURE_RUNS_ROUTE))
-            priority -= not part.protected
-        return blocks
-
-    def _ignore_procedure(self, tree: _Tree, parent: str | None, why: str) -> None:
-        """A selected procedure that can't be used: a note in the task's trace, and the task goes on without it (I5)."""
-        note = self.spans.start("procedure.ignored", task_id=tree.id, parent_id=parent,
-                                input={"procedure_id": tree.spec.procedure_id})
-        self.spans.finish(note, output={"why": why})
-        tree.spec.procedure_id = None
-        tree.spec.procedure_slots = []
 
     def _saved_plan(self, tree_id: str) -> dict[str, Any]:
         """This task's saved plan and its step states, when it has one."""
@@ -3586,17 +3497,9 @@ class Supervisor(WorkerRuns):
             env['assembly'] = assembly
             return
         for record in records:
-            self._given_memory(tree.id, record['source_refs'])
             span = self.spans.start('context.exposure', task_id=tree.id,
                                    input={'source_refs': record['source_refs'], 'reference': record['reference']})
             self.spans.finish(span, output=_exposure_output(record), origin=record['origin'])
-
-    def _given_memory(self, tree_id: str, refs: list[str]) -> None:
-        """Record on the task the memory items and learned nodes it was given, so a forget finds the tasks that were
-        given an item directly (fix round, review Q1). Ids only."""
-        rows = sorted({(tree_id, str(r)) for r in refs if str(r).startswith(('memory:', 'm-'))})
-        if rows:
-            self.journal.db.conn.executemany('INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)', rows)
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
                       source_refs: tuple[str, ...] = (), *, payload: str | None = None) -> ContextBlock:

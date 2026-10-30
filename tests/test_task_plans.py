@@ -52,7 +52,7 @@ def test_restart_retains_completed_steps_and_durable_wait(tmp_path):
         while store.steps('tree')['wait']['status'] != 'waiting':
             await asyncio.sleep(0)
         assert store.steps('tree')['wait']['status'] == 'waiting'
-        engine.notify('ci.finished', {'repository': 'other', 'state': 'passed'})
+        engine.store.event('ci.finished', {'repository': 'other', 'state': 'passed'}); engine.wake()
         await asyncio.sleep(0)
         assert not job.done()
         job.cancel()
@@ -60,7 +60,7 @@ def test_restart_retains_completed_steps_and_durable_wait(tmp_path):
             await job
         assert store.load('tree')['status'] == 'suspended'
         restarted = PlanExecutor(PlanStore(db, lambda value: value), worker, lambda: False)
-        restarted.notify('ci.finished', {'repository': 'FERB', 'state': 'passed'})
+        restarted.store.event('ci.finished', {'repository': 'FERB', 'state': 'passed'}); restarted.wake()
         result = await asyncio.wait_for(restarted.run('tree'), 2)
         assert result['status'] == 'done'
     asyncio.run(run())

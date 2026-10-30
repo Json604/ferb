@@ -56,7 +56,6 @@ def test_preview_is_owner_only():
     assert allowed(Role.CLI, 'tasks.preview')
     assert not allowed(Role.MCP_SHIM, 'tasks.preview')
     assert not allowed(Role.NATIVE_HOST, 'tasks.preview')
-    assert not allowed(Role.VOICE, 'tasks.preview')
 
 
 def test_gateway_preview_uses_task_owned_tab_and_sanitizes(monkeypatch):

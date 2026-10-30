@@ -66,8 +66,6 @@ PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_pat
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
                     "cost_estimate": {"type": "string"},
                     "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA}})
-# L29: the planner's value for one of its chosen procedure's slots, as JSON text ("paneer" with its quotes)
-PROCEDURE_SLOT_SCHEMA = _obj({"name": {"type": "string"}, "value": {"type": "string"}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -75,8 +73,6 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
-    "procedure_id": _nullable("string"),
-    "procedure_slots": {"type": "array", "items": PROCEDURE_SLOT_SCHEMA},
 })
 
 # L36 §6: a remembered item's last day in the owner's own date words; code works out the date
@@ -128,9 +124,6 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "forget": {"type": "array", "items": _obj({"item_id": {"type": "string"}, "quote": {"type": "string"}})},
     "conversation_changes": {"type": "array", "items": _obj({"id": {"type": "string"},
         "action": {"type": "string", "enum": ["pause", "resume", "takeover", "close"]}, "quote": {"type": "string"}})},
-    "notification_rules": {"type": "array", "items": _obj({"app": {"type": "string"},
-        "conversation": _nullable("string"), "topic": _nullable("string"), "until_at": _nullable("string"),
-        "exceptions": _strings(), "quote": {"type": "string"}})},
     # the owner's answer, shown in full and streamed: last, so a pure reply streams after every action field
     "text": {"type": "string"},
 })
@@ -218,13 +211,6 @@ class Condition(BaseModel):
     layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
 
 
-class ProcedureSlot(BaseModel):
-    """The planner's value for one slot of its chosen procedure, as JSON text (L29); typed against the procedure's
-    slots by code (`Learning.slot_values`)."""
-    name: str
-    value: str
-
-
 class TaskSpec(BaseModel):
     goal: str
     identity: Literal["owner", "ferb"]
@@ -232,8 +218,6 @@ class TaskSpec(BaseModel):
     targets: TargetsSpec = TargetsSpec()
     success_conditions: list[Condition] = []
     plan: Plan | None = None
-    procedure_id: str | None = None
-    procedure_slots: list[ProcedureSlot] = []
 
 
 class Until(BaseModel):
@@ -274,7 +258,7 @@ class TaskControl(BaseModel):
     (no default, rule 6) the task's stated standing scope, "unchanged" or the revised scopes (D30), and names the open
     question ids the correction changes, which alone are set aside (L3)."""
     task_id: str
-    action: Literal["stop", "retry", "continue", "steer"]
+    action: Literal["stop", "retry", "continue"]
     # continue on an ended task: the planner's judgment that the follow-up asks for a different result (a new goal),
     # so FERB plans it afresh inside the same task; false resumes the saved goal and plan (L11, ef9e5d75)
     new_goal: bool = False
@@ -295,7 +279,6 @@ class SupervisorOutcome(BaseModel):
     schedule_changes: list["ScheduleChange"] = []
     reminder_cancels: list["ReminderCancel"] = []
     conversation_changes: list["ConversationChange"] = []
-    notification_rules: list["NotificationRule"] = []
 
     @model_validator(mode="after")
     def complete_action_plan(self) -> "SupervisorOutcome":
@@ -341,15 +324,6 @@ class TimerRequest(BaseModel):
 class ConversationChange(BaseModel):
     id: str
     action: Literal['pause', 'resume', 'takeover', 'close']
-    quote: str
-
-
-class NotificationRule(BaseModel):
-    app: str
-    conversation: str | None = None
-    topic: str | None = None
-    until_at: str | None = None
-    exceptions: list[str] = []
     quote: str
 
 

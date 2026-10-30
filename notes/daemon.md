@@ -158,12 +158,16 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       every FERB Keychain item; CLI errors shown plainly.
 - [x] Signal handlers before `start`; `start` failure runs `shutdown`.
 - [ ] Disturbance sampler around acting tools; owner cursor ignored; facts to the checker; race fixed (decision 5).
-- [ ] Remove CLI chat; `task.stop` requires ids (decision 1).
+- [x] Remove CLI chat; `task.stop` requires ids (decision 1).
+      (Step 3: cli/chat.py, live_chat.py removed; `task.stop` without ids is refused (test_ux).)
 - [ ] SMAppService registration (decision 2); rule-10 protection of the service definition follows.
-- [ ] CLI trim (decisions 3, 4); `ferb uninstall` stays in the toolbox. Remove the `voice` and `decide` commands.
-- [ ] Remove the daemon push-to-talk stack together with CLI chat (they share CLI rendering; notes/voice.md decision 3).
+- [x] CLI trim (decisions 3, 4); `ferb uninstall` stays in the toolbox. Remove the `voice` and `decide` commands.
+      (Step 3: removed chat, voice, decide, conversations, notifications, test-mode, regress, watch and the Mac probe/watch harness (probe.py, watch.py, detector.py, watch_ext, watch_page.html), the permission walkthrough (`_grant`, `_automation`, `hearing_setup`, `clipboard_setup`, `voice_setup`; `ferb setup` records setup only when every permission is granted) and `trace --steps` (`render.steps`). Still in the CLI: schedules, reminders, timeline, pause/resume, stop/resume-tasks, kill, attach, device, baseline, release-checklist, setup --key/--jev/--identity/--persona/--claude-login.)
+- [x] Remove the daemon push-to-talk stack together with CLI chat (they share CLI rendering; notes/voice.md decision 3).
+      (Step 3: see notes/voice.md.)
 - [ ] Identity-profile setup moves into the app (owner's UI side); `identity.check`/`identity.pair` RPCs stay.
-- [ ] Test-mode send allowlist kept in config for live send tests (CLAUDE.md rule 22); no CLI command.
+- [x] Test-mode send allowlist kept in config for live send tests (CLAUDE.md rule 22); no CLI command.
+      (Step 3: the `test.mode` RPC and config stay; the CLI command is gone.)
 - [ ] "About FERB" source and worker lookup tool (decision 6).
 - [ ] FERB email setup in the app (decision 7); identity RPCs for the app.
 - [ ] `ferb logs --policy` filter fixed; main.py's raw SQL moved into the stores; investigate the 2.2-2.4 GB footprint.

@@ -710,24 +710,6 @@ def test_the_agent_runs_only_with_the_owners_ferb_home(agent_stub: Path, tmp_pat
         assert seen["ferb_home"] == str(owner)
 
 
-def test_the_detector_runs_as_a_ferb_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import ferb.device.watch as watch
-    started: list[list[str]] = []
-
-    class Proc:
-        def __init__(self, argv: list[str], **kw: object) -> None:
-            started.append(argv)
-
-        def terminate(self) -> None:
-            pass
-    monkeypatch.setattr(watch.subprocess, "Popen", Proc)
-    det = watch.Detector(tmp_path / "e.jsonl")
-    det.stop()
-    assert started == [[sys.executable, "-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")]]
-    import ferb.device.detector as detector
-    assert callable(detector.main)
-
-
 def test_codex_binary_is_the_pinned_package_for_each_architecture() -> None:
     """The daemon starts the Codex binary of its own architecture (an Intel FERB.app's Python reports x86_64, also
     under Rosetta), and package-lock.json pins that architecture's package at FERB's Codex version."""

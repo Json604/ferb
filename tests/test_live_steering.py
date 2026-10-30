@@ -9,7 +9,7 @@ from ferb.core.types import RuntimeEvent
 from tests.conftest import FakeRuntime, chat, cond, done, install, outcome, sup, task
 
 
-@pytest.mark.parametrize('action', ['steer', 'continue'])
+@pytest.mark.parametrize('action', ['continue'])
 def test_correction_reaches_same_active_run_without_stop_or_replacement(daemon, monkeypatch, action):
     started, release = threading.Event(), threading.Event()
     received, handles, cancelled = [], [], []

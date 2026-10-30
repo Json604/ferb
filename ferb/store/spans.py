@@ -447,68 +447,15 @@ class SpanStore:
 Held = tuple[str, str | None]                   # a span's recorded input and output, as stored
 
 
-class SpanWatch:
-    """The spans a scrub of recorded text must see as they end up (fix wave 6a): those not finished when it starts,
-    each with the input and output the scrub last read or wrote. A finished span's recorded text never changes again
-    (`SpanStore.finish` writes it once; `update_input` runs on running spans), so only these can change under a scrub;
-    a span started after the scrub began is a later capture, not watched. `again`: this pass runs because one moved."""
-
-    def __init__(self, db: Any) -> None:
-        self.held: dict[str, Held] = {str(r[0]): (r[1], r[2]) for r in db.conn.execute(
-            "SELECT id, input_json, output_json FROM spans WHERE ended_at IS NULL")}
-        self.moved = self.again = False
-
-    def seen(self, ident: str, held: Held) -> None:
-        """The scrub read this span: holding anything else than when it last read or wrote it, it took a live write
-        meanwhile (a rule this pass already applied to it saw the older text)."""
-        if ident in self.held:
-            self.moved |= self.held[ident] != held
-            self.held[ident] = held
-
-    def wrote(self, ident: str, held: Held) -> None:
-        if ident in self.held:
-            self.held[ident] = held
-
-    def still(self, db: Any) -> bool:
-        """After a pass: whether no watched span took a live write since the scrub last read or wrote it (it finished,
-        or measured input was added). A span finished, and read as the scrub left it, is watched no longer."""
-        moved, self.moved = self.moved, False
-        for ident, held in list(self.held.items()):
-            row = db.conn.execute("SELECT input_json, output_json, ended_at FROM spans WHERE id = ?",
-                                  (ident,)).fetchone()
-            if row is None:
-                del self.held[ident]
-            elif (row[0], row[1]) != held:
-                moved, self.held[ident] = True, (row[0], row[1])
-            elif row[2] is not None:
-                del self.held[ident]
-        return not moved
-
-
-def rewrite_until_still(db: Any, one_pass: Callable[[SpanWatch], None]) -> None:
-    """A scrub's pass over recorded span text, run again while a span it watches took a live write during the last
-    pass (`SpanWatch`), until a pass sees none: a span finishing during the scrub is scrubbed as it finished. Each
-    further pass needs a write to a span that was running when the scrub started: its own (it finishes once; its input
-    is measured a bounded number of times) or another scrub's, which only removes text and is idempotent (rewriting
-    what it already scrubbed changes nothing), so this ends with no time or count cap."""
-    watch = SpanWatch(db)
-    one_pass(watch)
-    while not watch.still(db):
-        watch.again = True
-        one_pass(watch)
-
-
 def rewrite_recorded(db: Any, ident: str, change: Callable[[Any, Any], tuple[Any, Any]], *,
-                     watch: SpanWatch | None = None, needles: Any = None, held: Held | None = None) -> bool:
+                     needles: Any = None, held: Held | None = None) -> bool:
     """One span's recorded input and output (decoded) rewritten through `change(input, output)`, written only while
-    the span still holds what was read (`swap`): a live write landing in between (the span finishing, measured input,
-    another scrub) makes it read and change the span again, so its new output is never overwritten with an old one.
+    the span still holds what was read (`swap`): a live write landing in between (the span finishing, measured input)
+    makes it read and change the span again, so its new output is never overwritten with an old one.
     `held`: the span as the caller already read it. `needles`: a span whose stored text (lowercased) holds none of them
     can't change, and isn't decoded. A side `change` leaves alone keeps its stored text. Returns whether it wrote."""
     def step(stored: tuple[Any, ...]) -> tuple[Any, ...]:
         inp, out = stored
-        if watch is not None:
-            watch.seen(ident, (inp, out))
         if needles is not None and not any(n in (inp + (out or "")).lower() for n in needles):
             return stored
         before_in, before_out = json.loads(inp), json.loads(out or "null")
@@ -518,8 +465,6 @@ def rewrite_recorded(db: Any, ident: str, change: Callable[[Any, Any], tuple[Any
         return (inp if new_in == before_in else json.dumps(new_in),
                 out if new_out == before_out else None if new_out is None else json.dumps(new_out))
     written = swap(db, "spans", "id", ident, ("input_json", "output_json"), step, held)
-    if written is not None and watch is not None:
-        watch.wrote(ident, (written[0], written[1]))
     return written is not None
 
 

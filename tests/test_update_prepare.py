@@ -185,5 +185,5 @@ def test_a_timer_that_fires_during_shutdown_is_kept_for_after_the_restart(daemon
 
 def test_only_the_owners_connection_may_stop_ferb_for_an_update() -> None:
     assert auth.allowed(auth.Role.CLI, "update.prepare")
-    for role in (auth.Role.MCP_SHIM, auth.Role.VOICE, auth.Role.NATIVE_HOST):
+    for role in (auth.Role.MCP_SHIM, auth.Role.NATIVE_HOST):
         assert not auth.allowed(role, "update.prepare")

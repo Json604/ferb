@@ -1,6 +1,5 @@
 import asyncio
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 from ferb.clock.clock import FakeClock
@@ -19,22 +18,6 @@ def test_bursts_split_by_app_and_oversize_event_has_retrievable_excerpt() -> Non
     assert batches[0][0]["excerpt"] and batches[0][0]["source_ref"] == "trail:0"
     assert events[0]["data"]["text"] == "x " * 300
     assert all(len(json.dumps(batch, ensure_ascii=False)) <= 500 for batch in batches)
-
-
-def test_notification_scope_mute_requires_owner_quote_and_keeps_topic_rules_for_jev(tmp_path: Path) -> None:
-    db = Database(tmp_path / "ferb.db")
-    db.migrate()
-    policy = NotificationPolicy(db, FakeClock(), SequentialIds("n"), Redactor())
-    import pytest
-    with pytest.raises(ValueError, match="owner"):
-        policy.add("com.whatsapp.WhatsApp", "self", None, "ignore them", "different words")
-    policy.add("com.whatsapp.WhatsApp", "self", None, "mute this chat", "please mute this chat")
-    assert policy.muted("com.whatsapp.WhatsApp", "self")
-    assert not policy.muted("com.whatsapp.WhatsApp", "other")
-    policy.add("com.whatsapp.WhatsApp", "other", "football", "not football", "not football")
-    assert not policy.muted("com.whatsapp.WhatsApp", "other")
-    assert policy.context({"id": "e", "data": {"bundle_id": "com.whatsapp.WhatsApp", "conversation": "other"}})["rules"]
-    db.close()
 
 
 def test_batch_receipts_prevent_replay_and_notification_stays_shadow(tmp_path: Path) -> None:

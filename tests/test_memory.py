@@ -258,9 +258,8 @@ def test_updates_keep_history_and_recall_sees_only_what_is_valid(daemon: Running
                                        [("journal", s2)], 1.0))
     old, new = run(daemon, lambda: (m.get(v1.id), m.get(v2.id)))
     assert old.valid_to is not None and new.supersedes == v1.id
-    assert [h.item.content for h in run(daemon, lambda: m.recall("dentist"))] == ["Dentist is Dr. Mehta"]
-    assert [h.item.content for h in run(daemon, lambda: m.recall("dentist", at=t1 + timedelta(seconds=1)))] == \
-        ["Dentist is Dr. Rao"]
+    assert [i.content for i in run(daemon, lambda: m.items(subject="owner"))] == ["Dentist is Dr. Mehta"]
+    assert old.valid_from <= t1 < old.valid_to                           # Dr. Rao held until the newer version
     assert [i.content for i in run(daemon, lambda: m.history(v2.id))] == ["Dentist is Dr. Rao", "Dentist is Dr. Mehta"]
 
 
@@ -276,13 +275,13 @@ def test_a_non_owner_version_never_overrides_what_the_owner_said_until_they_keep
     seen = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code daily", "observed",
                                          [("trail", r) for r in rows]))
     assert seen.status == "active"
-    hits = run(daemon, lambda: m.recall("editor"))
-    assert [h.item.content for h in hits] == ["Uses Zed", "Uses VS Code daily"] and all(h.conflict for h in hits)
+    held = run(daemon, lambda: [m.get(zed.id).valid_to, m.get(seen.id).valid_to])
+    assert held == [None, None]                                           # both hold: the owner's isn't ended
     inf = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred", [("journal", s)]))
     run(daemon, lambda: m.confirm(inf.id))
     ended = run(daemon, lambda: [m.get(zed.id).valid_to, m.get(seen.id).valid_to])
     assert None not in ended
-    assert [h.item.content for h in run(daemon, lambda: m.recall("editor"))] == ["Uses VS Code"]
+    assert run(daemon, lambda: m.get(inf.id)).status == "active"
 
 
 def test_keep_never_ends_a_version_made_after_the_guess(daemon: RunningDaemon) -> None:
@@ -337,55 +336,97 @@ def test_keep_ends_an_older_version_of_another_kind_with_the_same_subject_and_ke
     assert run(daemon, lambda: (m.get(mehta.id).valid_to is not None, m.get(rao.id).supersedes)) == (True, mehta.id)
 
 
-# ---------- forget = purge (safety test 17) ----------
+# ---------- forget (safety test 17; notes/memory.md decision 2: simple forget) ----------
 
-def test_forget_purges_everything_and_nothing_comes_back(daemon: RunningDaemon) -> None:
+def test_forget_deletes_the_item_its_versions_and_its_trail_rows_and_nothing_comes_back(daemon: RunningDaemon) -> None:
+    """The item, its versions, their source links and the watcher-captured trail rows they came from go; the day's
+    summary is rebuilt without them; the fingerprint stops it being learned again. The owner's chat message stays, and
+    so does another fact stated in the same message (once, forgetting one deleted every fact sharing its message)."""
     m, home = mem(daemon), daemon.daemon.home
     day = "2026-09-05"
     secret = "zebrafinchclub.example"
     rows = [trail_row(daemon, day, data={"host": secret, "browser": "chrome", "profile": "Default",
-                                         "url": f"https://{secret}/"}, hour=h) for h in (9, 10, 11)]
+                                         "url": f"https://{secret}/"}, hour=h) for h in (9, 10)]
     keep = trail_row(daemon, day, data={"host": "news.example", "browser": "chrome", "profile": "Default",
                                         "url": "https://news.example/"}, hour=12)
-    chat_src = journal(daemon, "chat.message", {"text": f"I'm a member of {secret}"})
+    chat_src = journal(daemon, "chat.message", {"text": f"I'm a member of {secret} and I like tea"})
     run(daemon, lambda: daemon.daemon._journal().append(summary.SUMMARY_KIND, summary.build(daemon.daemon.db, day).digest))
-    run(daemon, lambda: daemon.daemon._journal().append(summary.NARRATIVE_KIND, {"day": day, "text": f"visited {secret}"}))
-    obs = run(daemon, lambda: m.propose("preference", "owner", "club", f"Visits {secret}", "observed",
-                                        [("trail", r) for r in rows]))
+    old = run(daemon, lambda: m.propose("fact", "owner", "club_member", f"Was a member of {secret}", "owner_stated",
+                                        [("journal", chat_src)], 1.0))
     inf = run(daemon, lambda: m.propose("fact", "owner", "club_member", f"Member of {secret}", "inferred",
-                                        [("journal", chat_src), ("trail", rows[0])]))
-    n_src = journal(daemon, "memory.added", {"content": "n"})
-    other = run(daemon, lambda: m.propose("fact", "owner", "news", "Reads news", "owner_stated",
-                                          [("journal", n_src)], 1.0))
+                                        [("journal", chat_src)] + [("trail", r) for r in rows]))
     run(daemon, lambda: m.confirm(inf.id))
+    tea = run(daemon, lambda: m.propose("preference", "owner", "drink", "Likes tea", "owner_stated",
+                                        [("journal", chat_src)], 1.0))
+    run(daemon, lambda: daemon.daemon.learning.sync_facts(daemon.daemon.memory))
     plan = run(daemon, lambda: m.plan_forget(inf.id))
-    assert set(plan.items) == {obs.id, inf.id} and set(plan.trail) == set(rows) and plan.journal == [chat_src]
-    assert plan.rebuild_days == [day]
-    run(daemon, lambda: m.forget(inf.id))
+    assert set(plan.items) >= {inf.id} and tea.id not in plan.items and set(plan.trail) == set(rows)
+    assert plan.rebuild_days == [day] and plan.kept == 1
+    lines = run(daemon, lambda: plan.describe(daemon.daemon.db))
+    assert any(secret in line for line in lines) and not any("tea" in line for line in lines)
+    assert "messages stay" in plan.keeps()
+    run(daemon, lambda: daemon.daemon._forget_memory(inf.id))
+    daemon.run(daemon.daemon._settle_forgets())
     db = daemon.daemon.db
 
     def left() -> dict[str, Any]:
         c = db.conn                                                                     # type: ignore[union-attr]
-        return {"items": [r[0] for r in c.execute("SELECT id FROM memory_items")],
+        return {"items": {r[0] for r in c.execute("SELECT id FROM memory_items")},
                 "fts": c.execute("SELECT count(*) FROM memory_fts WHERE memory_fts MATCH 'zebrafinchclub'").fetchone()[0],
                 "trail": [r[0] for r in c.execute("SELECT id FROM trail")],
-                "journal": [r[0] for r in c.execute("SELECT data_json FROM journal")]}
+                "chat": [r[0] for r in c.execute("SELECT id FROM journal WHERE kind = 'chat.message'")],
+                "nodes": c.execute("SELECT count(*) FROM learning_nodes WHERE body_json LIKE '%zebrafinchclub%' "
+                                   "AND kind = 'fact'").fetchone()[0],
+                "summary": [r[0] for r in c.execute("SELECT data_json FROM journal WHERE kind = 'trail.day_summary'")]}
     now = run(daemon, left)
-    assert now["items"] == [other.id] and now["fts"] == 0 and now["trail"] == [keep]
-    assert not any(secret in j for j in now["journal"])                   # chat, summary and narrative purged
-    assert any('"rebuilt": true' in j for j in now["journal"])            # the day's summary, rebuilt without it
+    assert now["items"] == {tea.id} and old.id not in now["items"]          # its versions went; the other fact stays
+    assert now["fts"] == 0 and now["nodes"] == 0 and now["trail"] == [keep]
+    assert now["chat"] == [chat_src]                                         # the owner's own message stays
+    assert not any(secret in j for j in now["summary"]) and any('"rebuilt": true' in j for j in now["summary"])
     assert secret not in (home / "memory" / "owner.md").read_text()
-    for f in home.glob("ferb.db*"):                                       # database, WAL: no copy left
-        assert secret.encode() not in f.read_bytes(), f
     fresh = trail_row(daemon, "2026-09-06", data={"host": secret, "browser": "chrome", "profile": "Default",
                                                   "url": f"https://{secret}/"})
     with pytest.raises(MemoryRefused, match="forget"):                    # distillation can't bring it back
-        run(daemon, lambda: m.propose("preference", "owner", "club", f"Visits {secret}", "observed",
+        run(daemon, lambda: m.propose("fact", "owner", "club_member", f"Member of {secret}", "inferred",
                                       [("trail", fresh)]))
     x_src = journal(daemon, "memory.added", {"content": "x"})
-    again = run(daemon, lambda: m.propose("preference", "owner", "club", f"Visits {secret}", "owner_stated",
+    again = run(daemon, lambda: m.propose("fact", "owner", "club_member", f"Member of {secret}", "owner_stated",
                                           [("journal", x_src)], 1.0))
     assert again.status == "active"                                       # the owner saying it again is fine
+
+
+def test_a_trail_row_another_fact_stands_on_stays_with_that_fact(daemon: RunningDaemon) -> None:
+    """Forgetting one fact never takes another fact's evidence: a captured row both cite stays, linked to the other."""
+    m, day = mem(daemon), "2026-09-06"
+    shared = trail_row(daemon, day, data={"host": "chess.example", "browser": "chrome", "profile": "Default",
+                                          "url": "https://chess.example/"}, hour=9)
+    a = run(daemon, lambda: m.propose("fact", "owner", "plays_chess", "Plays chess", "inferred", [("trail", shared)]))
+    run(daemon, lambda: m.confirm(a.id))
+    b = run(daemon, lambda: m.propose("fact", "owner", "chess_site", "Uses chess.example", "inferred",
+                                      [("trail", shared)]))
+    run(daemon, lambda: m.confirm(b.id))
+    assert run(daemon, lambda: m.plan_forget(a.id)).trail == []
+    run(daemon, lambda: daemon.daemon._forget_memory(a.id))
+    db = daemon.daemon.db
+    assert run(daemon, lambda: db.conn.execute("SELECT 1 FROM trail WHERE id = ?", (shared,)).fetchone()) is not None
+    assert run(daemon, lambda: db.conn.execute("SELECT 1 FROM memory_sources WHERE item_id = ? AND source_id = ?",
+                                               (b.id, shared)).fetchone()) is not None
+
+
+def test_a_forget_clears_the_fact_from_a_pending_clarifying_question(daemon: RunningDaemon) -> None:
+    """A chat whose clarifying question still holds the owner's words with the fact doesn't carry it into the next
+    turn after a forget."""
+    d = daemon.daemon
+    install(daemon, [sup("clarify", "Which club do you mean?")])
+    chat(daemon, "my locker code club is quokkaburrow, sign me up for its newsletter", session="c1")
+    src = journal(daemon, "memory.added", {"content": "q"})
+    item = run(daemon, lambda: mem(daemon).propose("fact", "owner", "club", "Locker code club is quokkaburrow",
+                                                   "owner_stated", [("journal", src)], 1.0))
+    held = run(daemon, lambda: d.supervisor.continuity.pending("c1"))[0]
+    assert "quokkaburrow" in held
+    run(daemon, lambda: d._forget_memory(item.id))
+    assert run(daemon, lambda: d.supervisor.continuity.pending("c1")) == ("", "")
+    assert d.supervisor.sessions["c1"].pending == ""
 
 
 # ---------- summaries and distillation ----------
@@ -495,8 +536,6 @@ def test_no_prompt_path_shows_an_unconfirmed_inferred_item(daemon: RunningDaemon
     run(daemon, lambda: mem(daemon).propose("person", "owner", "boss", "Owner's boss is Quentarr", "inferred",
                                             [("journal", src)], 0.7))
     run(daemon, lambda: d.learning.sync_facts(d.memory))
-    run(daemon, lambda: d.consolidator.rollups(d.learning))
-    assert not [n for n in run(daemon, lambda: d.learning.items("entity")) if "Quentarr" in _json.dumps(n["body"])]
     assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
     [pending] = [n for n in run(daemon, lambda: d.learning.items("fact")) if n["state"] == "proposed"]
     read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=pending["id"]), None))
@@ -534,7 +573,6 @@ def test_a_pending_inferred_item_indexed_active_earlier_leaves_every_prompt(daem
     [node] = run(daemon, lambda: d.learning.items("fact"))          # the index found the same node, still current
     assert node["id"] == old["id"]
     assert not run(daemon, lambda: d.learning.search("who is my boss Quentarr"))
-    assert "Quentarr" not in str(run(daemon, lambda: d._learning_context("who is my boss Quentarr")))
     planner = daemon.run(d._learning_candidates("who is my boss Quentarr"))
     assert "Quentarr" not in _json.dumps(planner)
     read = daemon.run(LearningRead(lambda: d.learning).run(LearningRead.Input(item_id=old["id"]), None))

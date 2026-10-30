@@ -299,65 +299,6 @@ def test_no_owner_facing_text_mentions_slash_answer() -> None:
     assert found == []
 
 
-def test_live_chat_shows_questions_without_method_hints() -> None:
-    from ferb.cli.live_chat import LiveChat
-    said: list[str] = []
-    chat_ = LiveChat.__new__(LiveChat)
-    chat_.pending, chat_._lock = {}, threading.RLock()
-    chat_.say = said.append                                                # type: ignore[method-assign]
-    chat_.answer_approval({"approval_id": "ap-1", "kind": "owner_question", "capability": CONFIRM_ASK,
-                           "reason": "FERB: this pays $5 to x@y.com. Go ahead?", "options": ["Yes", "No"]})
-    shown = "\n".join(said)
-    assert "/answer" not in shown and "reply normally" not in shown and "Enter = No" not in shown
-    assert "FERB: this pays $5" in shown
-
-
-# ---------- (A) voice routes like typed text ----------
-
-def _voice(pending: list[Any]) -> tuple[Any, list[str], list[Any]]:
-    from ferb.voice.controller import Voice
-    turns: list[str] = []
-
-    async def run_turn(text: str) -> Any:
-        turns.append(text)
-        yield {"type": "reply", "text": "ok"}
-    v = Voice(run_turn, lambda: pending, SimpleNamespace(say=lambda *_: None, stop=lambda: None, wait=lambda: None),
-              SimpleNamespace(append=lambda *a: None), lambda: None)
-    return v, turns, pending
-
-
-def test_voice_never_auto_answers_the_single_open_question() -> None:
-    import inspect
-    from ferb.daemon.questions import Approvals
-    from ferb.voice.controller import Voice
-    approvals = Approvals()
-    action = ActionRequest("ferb.confirm", "owner_question", Identity.OWNER, frozenset(), "t", "w", "r", frozenset())
-    ap = approvals.question(action, "FERB: this pays $5 to x@y.com. Go ahead?", ["Yes", "No"])
-    assert "answer" not in inspect.signature(Voice).parameters             # nothing in Voice can resolve a question
-    v, turns, _ = _voice(approvals.pending())
-
-    async def go() -> dict[str, Any]:
-        out = await v.transcript("yes")
-        await asyncio.sleep(0.05)
-        return out
-    out = asyncio.run(go())
-    assert out == {"handled": "request"} and turns == ["yes"] and ap.state == "pending"
-
-
-def test_voice_with_several_open_questions_routes_like_typed_text() -> None:
-    pending = [SimpleNamespace(id="q1", kind="owner_question", question="Which file?"),
-               SimpleNamespace(id="q2", kind="owner_question", question="Which recipient?")]
-    v, turns, _ = _voice(pending)
-
-    async def go() -> dict[str, Any]:
-        out = await v.transcript("the second one")
-        await asyncio.sleep(0.05)
-        return out
-    assert asyncio.run(go()) == {"handled": "request"} and turns == ["the second one"]
-
-
-# ---------- (e) prompt contract ----------
-
 def test_workers_are_never_told_to_ask_for_confirmation() -> None:
     interaction = (PROMPTS / "interaction.md").read_text()
     worker = (PROMPTS / "worker.md").read_text()
@@ -438,7 +379,7 @@ def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: R
 def _decision(tree_id: str, standing: Any, supersedes: tuple[str, ...] = (), spec: dict[str, Any] | None = None) -> str:
     """The planner's steer routing: always an explicit standing-scope decision and the question ids it changes."""
     decision = json.loads(sup("task", "Updated.", spec or task("Post the update to the list", "owner")))
-    decision["control"] = {"task_id": tree_id, "action": "steer", "standing_sends": standing,
+    decision["control"] = {"task_id": tree_id, "action": "continue", "standing_sends": standing,
                            "supersedes": list(supersedes)}
     return json.dumps(decision)
 
@@ -647,18 +588,6 @@ def test_a_p19_retry_question_is_ferbs_own_check(ferb_yes: Any, daemon: RunningD
     assert other.state == "pending"
 
 
-def test_live_chat_hints_yes_or_no_for_ferbs_retry_and_conversation_checks() -> None:
-    from ferb.cli.live_chat import LiveChat
-    for capability in ("ferb.retry", "conversation.approve"):
-        said: list[str] = []
-        chat_ = LiveChat.__new__(LiveChat)
-        chat_.pending, chat_._lock = {}, threading.RLock()
-        chat_.say = said.append                                            # type: ignore[method-assign]
-        chat_.answer_approval({"approval_id": "ap-" + capability, "kind": "owner_question", "capability": capability,
-                               "reason": "Try once more?", "options": ["Yes", "No"]})
-        assert said[-1].strip() == "Reply Yes or No."
-
-
 def test_a_conversation_scope_approval_takes_only_a_plain_yes_or_no(daemon: RunningDaemon) -> None:
     from ferb.orchestrator.conversations import ConversationScope
     scope = ConversationScope(identity="owner", account="me@x.com", site="discord.com", app="Discord",
@@ -743,7 +672,6 @@ def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon:
     assert daemon.run(rows()) == []
 
 
-
 def test_a_widened_scope_covers_nothing_until_its_reply_has_been_sent(daemon: RunningDaemon) -> None:
     """Round 2: the scopes already stated stay covered throughout; a new one is granted only after the reply that
     states it has been yielded, and not at all if the task ended in between."""
@@ -783,14 +711,6 @@ def test_a_widened_scope_is_not_granted_when_the_task_ended_before_its_reply_wen
     assert daemon.run(steer()) is False
     run.proceed.set()
     run.turn.join(20)
-
-
-def test_the_cli_shows_ferbs_retry_and_conversation_checks_like_its_floor_checks() -> None:
-    from ferb.cli.chat import question
-    for capability in ("ferb.confirm", "ferb.retry", "conversation.approve"):
-        shown = question({"kind": "owner_question", "capability": capability, "reason": "Try once more?",
-                          "options": ["Yes", "No"]})
-        assert shown.endswith("number or your answer (Enter = No): "), capability
 
 
 def test_a_correction_racing_the_end_of_its_task_gets_a_plain_reply(daemon: RunningDaemon) -> None:
@@ -1410,7 +1330,6 @@ def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply
 def test_the_planner_is_told_an_answer_can_come_with_other_requests() -> None:
     text = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert "return that too: FERB records the answer first, then does the rest" in text
-
 
 
 # ========== final review M9 ==========

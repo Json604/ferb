@@ -139,7 +139,7 @@ def test_a_superseding_steer_replaces_the_chennai_preference(daemon: Any, monkey
     try:
         assert worker.started.wait(5)
         tree_id = worker.handles[0].task_id.rsplit(".", 1)[0]
-        script.sup.append(control_turn("Book the visa appointment at any center", tree_id, "steer", remember=[{
+        script.sup.append(control_turn("Book the visa appointment at any center", tree_id, "continue", remember=[{
             "kind": "fact", "subject": "owner", "key": "appointment_preferences", "content": ANYWHERE,
             "quote": "book the visa anywhere"}]))
         events = chat(daemon, ANYWHERE, session="visa", timeout=5)
@@ -359,21 +359,6 @@ def test_a_retire_question_restored_after_a_restart_is_dropped_when_its_item_is_
     run(daemon, restart_after_retire)
     assert pending(daemon, "memory.retire") == []
     assert run(daemon, lambda: d.db.conn.execute("SELECT COUNT(*) FROM memory_questions").fetchone()[0]) == 0
-
-
-def test_ferb_chat_shows_the_retire_question_as_ferbs_check() -> None:
-    """`ferb chat`: Retire or Keep is FERB's own check (answered only by an option), and skipping it keeps the item."""
-    from ferb.cli.chat import question
-    from ferb.cli.live_chat import LiveChat
-    ask = {"approval_id": "ap-retire", "kind": "owner_question", "capability": "memory.retire",
-           "reason": "Is this no longer true? “x”", "options": ["Retire", "Keep"]}
-    said: list[str] = []
-    chat_ = LiveChat.__new__(LiveChat)
-    chat_.pending, chat_._lock = {}, threading.RLock()
-    chat_.say = said.append                                            # type: ignore[method-assign]
-    chat_.answer_approval(ask)
-    assert said[-1].strip() == "Reply Retire or Keep."
-    assert question(ask).endswith("1) Retire\n     2) Keep\n   number or your answer (Enter = Keep): ")
 
 
 def test_ferb_memory_list_shows_a_dated_items_last_day() -> None:

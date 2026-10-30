@@ -839,7 +839,7 @@ def test_a_correction_sent_while_a_task_runs_adds_its_front_window_to_the_tree(d
             return daemon.daemon.spans.request_origins(tree_id)     # type: ignore[union-attr,no-any-return]
         assert not any(o.startswith("external:message") for o in daemon.run(origins()))
         update = json.loads(sup("task", "Under 300, then.", task("find lunch under 300")))
-        update["control"] = {"task_id": tree_id, "action": "steer", "standing_sends": "unchanged", "supersedes": []}
+        update["control"] = {"task_id": tree_id, "action": "continue", "standing_sends": "unchanged", "supersedes": []}
         script.sup.append(json.dumps(update))
         chat(daemon, "keep it under 300", session="steer", timeout=5)
         assert "external:message:net.whatsapp.WhatsApp" in daemon.run(origins())
@@ -997,7 +997,7 @@ async def test_codex_app_server_planner_turn_carries_the_image(tmp_path: Path, m
     async def spawn(*cmd: Any, **kw: Any) -> Process:
         return proc
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path / "work", tmp_path,
+    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path,
                          output_schema={"type": "object"}, model="test-model", timeout_s=None)
     run = await stream.start(rt, TASK, request())
     turn = next(m["params"] for m in proc.requests if m["method"] == "turn/start")
@@ -1005,68 +1005,6 @@ async def test_codex_app_server_planner_turn_carries_the_image(tmp_path: Path, m
     assert turn["input"] == [{"type": "text", "text": "stable\n\nper turn"},
                              {"type": "image", "url": "data:image/jpeg;base64," + B64}]
     await stream.cancel(run)
-
-
-@pytest.mark.anyio
-async def test_codex_exec_attaches_the_image_from_a_private_file_it_removes(tmp_path: Path,
-                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, Any] = {}
-
-    async def spawn(*cmd: Any, **kw: Any) -> None:
-        attached = next(a for a in cmd if str(a).startswith("--image="))
-        path = Path(str(attached).removeprefix("--image="))
-        seen.update(cmd=cmd, path=path, data=path.read_bytes(), mode=path.stat().st_mode & 0o777)
-        raise RuntimeError("stop before running anything")
-
-    async def no_version(binary: Any) -> None:
-        return None
-    monkeypatch.setattr(cx, "check_version", no_version)
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path / "work", tmp_path)
-    with pytest.raises(RuntimeError):
-        await CODEX_START(rt, TASK, request(), "")
-    assert seen["cmd"][1] == "exec" and seen["cmd"][2] == f"--image={seen['path']}"   # before any other option
-    assert seen["data"] == JPEG and seen["mode"] == 0o600 and not seen["path"].exists()
-
-
-@pytest.mark.anyio
-async def test_codex_exec_cancel_before_events_removes_its_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Minor 6: a run stopped before its events are read still removes its image and instructions files."""
-    class Stdin:
-        def write(self, data: bytes) -> None:
-            pass
-
-        async def drain(self) -> None:
-            pass
-
-        def close(self) -> None:
-            pass
-
-    class Proc:
-        returncode: int | None = None
-        stdin = Stdin()
-
-        def kill(self) -> None:
-            self.returncode = -9
-
-        async def wait(self) -> int | None:
-            return self.returncode
-    spawned: dict[str, Path] = {}
-
-    async def spawn(*cmd: Any, **kw: Any) -> Proc:
-        spawned["image"] = Path(str(next(a for a in cmd if str(a).startswith("--image="))).removeprefix("--image="))
-        return Proc()
-
-    async def no_version(binary: Any) -> None:
-        return None
-    monkeypatch.setattr(cx, "check_version", no_version)
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path / "work", tmp_path)
-    run = await CODEX_START(rt, TASK, request(), "")
-    files = [spawned["image"], Path(run.state["instructions"])]
-    assert all(f.exists() for f in files)
-    await rt.cancel(run)
-    assert not any(f.exists() for f in files)
 
 
 @pytest.mark.anyio
@@ -1083,7 +1021,7 @@ async def test_codex_app_server_reports_a_schema_mismatch_as_an_invalid_answer(t
     async def spawn(*cmd: Any, **kw: Any) -> Process:
         return proc
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
-    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path / "work", tmp_path,
+    rt = cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path,
                          output_schema={"type": "object", "required": ["answer_question"]}, model="test-model",
                          timeout_s=None)
     run = await stream.start(rt, TASK, request())

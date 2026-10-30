@@ -422,4 +422,3 @@ def test_the_notch_waits_longer_for_a_report_so_a_slow_one_is_no_slow_call(daemo
 def test_only_the_owners_clients_may_build_a_report() -> None:
     assert auth.allowed(auth.Role.CLI, "reports.build")
     assert not auth.allowed(auth.Role.MCP_SHIM, "reports.build")
-    assert not auth.allowed(auth.Role.VOICE, "reports.build")

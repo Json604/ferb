@@ -100,9 +100,10 @@ to commit c6621c3.
 - [ ] `memory.read` lists retracted and ended items (evidence.py:367-389): current items only, unless asked by id.
 - [ ] Dashboard `op=retire` on a fact retires only the node (main.py:2365-2367): disappears with the mirroring;
       retire the item.
-- [ ] Remove dead code: `ferb/memory/recall.py`, `Memory.recall`, `Recalled` (items.py:219-223, 315-333),
+- [x] Remove dead code: `ferb/memory/recall.py`, `Memory.recall`, `Recalled` (items.py:219-223, 315-333),
       `owner_span` (items.py:181-184), the supervisor `recall` hook path (supervisor.py:602-604, 1884-1887,
       2154-2164), the `forget(finish=True)` branch and `after_forget` hook (items.py:686-689, 272; main.py:1534).
+      (Step 3: recall.py, `Memory.recall`, `Recalled`, `owner_span`, `forget(finish=)` and `after_forget` removed; the supervisor recall hook went in step 2.)
 - [ ] Prompt: supervisor.md:68 names a "What FERB remembers" label no code emits; use the real one.
 
 ### Tiers and retrieval
@@ -120,7 +121,7 @@ to commit c6621c3.
 - [ ] Owner's pass verdict counts as verified (learning.py:906 counts only the checker; owner, 2026-10-30).
 - [ ] `memory.learned` puts `sources` before `text` (tools.py:44); a card with 58k refs fills the page. Drop
       sources from its output.
-- [ ] Remove: `consolidate.py` (keep the ~35 lines indexing day narratives only if wanted), `intents.py`,
+- [x] Remove: `consolidate.py` (keep the ~35 lines indexing day narratives only if wanted), `intents.py`,
       `strict.py` (only intents/consolidate/procedure use it), `intent.md`, `consolidate.md` (keep `embeddings.py`:
       decision 8); the
       procedure/lesson/receipt code in learning.py (~630 lines: 528-662, 1128-1406, 1701-1849, `lesson_feedback`,
@@ -130,22 +131,29 @@ to commit c6621c3.
       (`_procedure_blocks` 3531-3554, `_ignore_procedure`, `_planner_slots`, `_slot_problem`, hooks 564-585,
       2255-2265); `procedure_id`/`procedure_slots` (schemas.py:78-79, 235-236); prompt text supervisor.md:243-247,
       worker.md:263-266.
-- [ ] Hourly pass keeps only distill; no intent-label or consolidate calls.
+      (Step 3: consolidate.py, intents.py, strict.py, intent.md, consolidate.md and the procedure/lesson/receipt/outside_* code in learning.py removed, with the rollups (day/week/month/year `summary` and `entity` nodes); the day-summary indexing (`activity_summary`) kept as `learning.index_summaries`. Daemon and supervisor procedure parts, `procedure_id`/`procedure_slots` and the prompt text removed. Episode cards, card search and embeddings stay.)
+- [x] Hourly pass keeps only distill; no intent-label or consolidate calls.
+      (Step 3: the hourly pass is distill, the episode-card refresh (`_refresh_cards`: cards whose inputs changed, e.g. a verdict; then day-summary indexing and embeddings) and the embedding restore.)
 - [ ] Parked cards: find why redaction isn't idempotent for 15 cards (learning.py:146-180), fix, re-capture.
 - [ ] Card source fan-out: 1.5M `learning_sources` rows, up to 58,250 per card, from refs inside tool results
       (lineage.py:44-76). Keep only refs needed for origin labels.
 - [ ] Whole-table reads with all refs (learning.py:694-706; main.py:1720 on every verdict): read only what's needed.
 
 ### Forget
-- [ ] Replace `Memory.forget`/`plan_forget` with the simple version; remove `echoes.py`, `_Rescrub`/`_rescrubs`,
+- [x] Replace `Memory.forget`/`plan_forget` with the simple version; remove `echoes.py`, `_Rescrub`/`_rescrubs`,
       `_forget_scrub`/`_after_forgets`/`_finish_forget`/`_forget_stating_cards` (main.py ~245-255, 1939-2073), the
       `task_memory_refs` writers (supervisor `_given_memory` 3608-3613; gateway.py:1971-1989 → main.py:886).
       Keep `spans.py` rewrite helpers and `swap` only if something else still uses them (the attention purge does).
-- [ ] Stop the same-message cascade: forgetting one fact no longer deletes every fact sharing its source message.
-- [ ] Chat "Forget for good?" text states exactly what will be deleted.
-- [ ] A forget clears the fact from a pending clarifying question (`conversations.pending`).
-- [ ] Forget keeps the owner's chat message that stated the fact (owner, 2026-10-30): chat history is the owner's
+      (Step 3: echoes.py, `_Rescrub`, the rescrub/scrub queue and both `task_memory_refs` writers removed; `Memory.forget` deletes the versions, their source links and trail rows (fingerprint, summary rebuild, questions closed, export). `spans.py` keeps `rewrite_recorded`/`swap` (attention purge, `update_input`); `SpanWatch`/`rewrite_until_still` removed.)
+- [x] Stop the same-message cascade: forgetting one fact no longer deletes every fact sharing its source message.
+      (Step 3: plan_forget takes the item's versions only; test_memory forget test.)
+- [x] Chat "Forget for good?" text states exactly what will be deleted.
+      (Step 3: `ForgetPlan.describe` + `keeps()`: the items, the activity rows, the summaries rebuilt, and that the owner's messages stay.)
+- [x] A forget clears the fact from a pending clarifying question (`conversations.pending`).
+      (Step 3: `Supervisor.forget_pending`: a chat whose pending request, question or payload holds a forgotten item's words drops that pending question.)
+- [x] Forget keeps the owner's chat message that stated the fact (owner, 2026-10-30): chat history is the owner's
       own record. Watcher-captured sources (trail rows) are deleted.
+      (Step 3: journal sources are never deleted; trail sources are.)
 
 ### Perception
 - [ ] Accessibility rows: out of `today.jsonl` and the per-turn activity search; `trail` only; purge after 7 days.
@@ -162,8 +170,9 @@ to commit c6621c3.
       through `trail.query` (the planner is tool-less: decision 10).
 
 ### Jev off
-- [ ] One switch, off by default; the batcher, decider, shadow checks (main.py:3749-3760) and attention check it.
+- [x] One switch, off by default; the batcher, decider, shadow checks (main.py:3749-3760) and attention check it.
       The batcher today ignores `refused` (decider.py:62) and re-redacts up to 32k tokens per batch before checking.
+      (Step 3: `[jev] on` (default false). Off: no decider built (no Keychain read, no request), trail tagging a no-op, no batcher work, no decisions/receipts, no shadow checks; on but refused (401/402/403): the same (`_jev_active`). test_decide.)
 
 ### Data already on disk (cleanup: notes/storage.md decision 4)
 - Learning tables no longer used: `learning_jobs`, `learning_receipts`, `learning_digests`, rollup nodes (the embedding tables

@@ -769,7 +769,7 @@ def test_a_steer_reply_is_the_planners_own_sentence(daemon: RunningDaemon, monke
         tree_id = handles[0].task_id.rsplit('.', 1)[0]
         update = json.loads(sup('task', "Sure, I'll make it a web page instead.",
                                 task('Make the report a web page', conds=(cond('The report opens as a web page'),))))
-        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        update['control'] = {'task_id': tree_id, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = next(e for e in chat(daemon, 'make it a web page', session='steer', timeout=5) if e['type'] == 'reply')
         assert reply['text'] == "Sure, I'll make it a web page instead."

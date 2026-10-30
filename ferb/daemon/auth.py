@@ -9,11 +9,9 @@
 
 import hashlib
 import hmac
-import os
 import secrets
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 
 from ferb.core.errors import AuthError
 from ferb.core.interfaces import Clock
@@ -24,7 +22,6 @@ class Role(Enum):
     CLI = "cli"
     MCP_SHIM = "mcp_shim"
     NATIVE_HOST = "native_host"
-    VOICE = "voice"                        # FERB.app: push-to-talk transcripts
 
 
 # Fixed method list per role. New RPC methods declare their allowed roles here, never per-connection.
@@ -38,13 +35,12 @@ METHODS: dict[Role, frozenset[str]] = {
                          "memory.retract", "memory.forget", "timeline.get",
                          "jev.stats", "jev.enable", "jev.reload", "runtimes.check", "reminders.list", "reminders.cancel",
                          "reminders.unseen", "chat.status", "results.ack", "chat.attach", "task.stop", "schedules.list", "schedules.change",
-                         "voice.reload", "voice.switch", "verdict.set", "recovery.list", "recovery.restore",
-                         "conversations.list", "conversations.change", "notifications.rules", "notifications.label", "attention.ack",
+                         "verdict.set", "recovery.list", "recovery.restore",
+                         "conversations.list", "conversations.change", "attention.ack",
                          "reports.build", "ui.click_through", "tasks.preview",
                          "setup.browsers", "setup.browser_open", "setup.browser_pair", "setup.browsers_pair_all", "browser.show_handoff", "reports.diagnostic", "update.prepare", "tasks.list", "notices.list", "settings.get", "settings.set", "notifications.subscribe", "notifications.categories", "runtimes.sign_in", "runtimes.status", "runtimes.use", "setup.permissions", "setup.permission_request", "setup.finish",}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
-    Role.VOICE: frozenset({"ping", "voice.attach", "voice.transcript"}),
 }
 
 
@@ -115,18 +111,6 @@ class RunTokens:
         n = len(self._grants)
         self._grants.clear()
         return n
-
-
-def check_voice_peer(peer_uid: int, owner_uid: int, exe: str | None, expected_exe: str,
-                     signed: Callable[[str], bool]) -> None:
-    """Only the installed FERB.app may speak for the owner: the owner's uid, the installed executable, and a code
-    signature meeting the requirement recorded at setup. Anything else on the Mac is refused."""
-    if peer_uid != owner_uid:
-        raise AuthError("voice role requires the owner's uid")
-    if not exe or os.path.realpath(exe) != os.path.realpath(expected_exe):
-        raise AuthError("voice role is only for the installed FERB.app")
-    if not signed(expected_exe):
-        raise AuthError("FERB.app's signature doesn't match the one recorded at setup")
 
 
 def check_native_host(peer_uid: int, owner_uid: int, origin: str, extension_ids: frozenset[str]) -> None:

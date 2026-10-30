@@ -16,7 +16,7 @@ REQUEST = ModelRequest("instructions", ("context",), 0)
 
 
 def codex(tmp_path: Path, mode: str, **kw: object) -> CodexRuntime:
-    return CodexRuntime(Path("/fake/codex"), mode, tmp_path / "work", tmp_path,  # type: ignore[arg-type]
+    return CodexRuntime(Path("/fake/codex"), mode, tmp_path,  # type: ignore[arg-type]
                         shim_cmd=["ferb", "mcp"], model="test-model", timeout_s=None, **kw)  # type: ignore[arg-type]
 
 

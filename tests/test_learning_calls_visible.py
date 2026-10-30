@@ -10,7 +10,6 @@ from ferb.core.types import ModelLimits, ModelRequest, RunHandle, RuntimeEvent
 from ferb.cli.client import Client
 from ferb.runtimes.codex_stream import ProtocolError
 from tests.conftest import FakeDistillRuntime, RunningDaemon, trail_row
-from tests.support.learning_fixtures import label_card
 
 CODEX_REFUSAL = ("Codex could not complete turn/start: Input exceeds the maximum length of 1048576 characters. "
                  "(code -32602; input_too_large, 1100000 characters sent)")
@@ -31,18 +30,6 @@ class Answers(FakeDistillRuntime):
         yield RuntimeEvent("final", {"text": json.dumps(self.answer)})
 
 
-def _card(d: Any, ident: str, labelled: bool = True) -> Any:
-    """A card, labelled (L29) unless `labelled` is False: a test about consolidation sees only its calls."""
-    node = d.learning.put("episode", ident, {"task_id": ident, "verified": True, "request": REQUEST, "apps": {},
-                                             "slots": {}, "status": "done",
-                                             "actions": [{"id": ident + "-a", "tool": "browser.open",
-                                                          "args": {"n": ident}}]},
-                          [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
-    if labelled:
-        label_card(d.learning, node)
-    return node
-
-
 def _learning_spans(daemon: RunningDaemon) -> list[dict[str, Any]]:
     async def go() -> list[dict[str, Any]]:
         return [{"input": json.loads(r[0]), "output": json.loads(r[1] or "null"), "error": r[2], "task_id": r[3]}
@@ -52,68 +39,9 @@ def _learning_spans(daemon: RunningDaemon) -> list[dict[str, Any]]:
     return daemon.run(go())
 
 
-def test_a_failed_consolidation_call_is_a_span_with_codexs_error_and_size_never_its_input(daemon) -> None:
-    d = daemon.daemon
-    daemon.run(_put(d))
-    rt = RefusedAtStart({})
-    d.consolidator.make_runtime = lambda *a, **k: rt
-    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
-    spans = _learning_spans(daemon)
-    assert len(spans) == 1
-    span = spans[0]
-    assert span["input"]["role"] == "consolidate" and span["input"]["runtime"] == "fake"
-    assert span["input"]["call"].startswith("sleep-") and span["task_id"] is None
-    assert span["output"]["outcome"] == "failed" and span["output"]["input_chars"] == len(rt.contexts[0])
-    assert span["output"]["input_tokens_estimate"] > 0
-    assert "Input exceeds the maximum length of 1048576 characters." in span["error"]
-    assert REQUEST not in json.dumps(span)                              # sizes only, never the input
-    error = daemon.run(_job_error(d))
-    assert "Input exceeds the maximum length of 1048576 characters." in error
-
-
-async def _put(d: Any) -> None:
-    for n in range(3):                       # an intent is first consolidated from three verified runs (L29)
-        _card(d, f"e{n}")
-
-
-def test_a_label_call_is_a_span_of_its_own_role_named_by_its_card(daemon) -> None:
-    """L29: a card's intent label is a learning call like the others: one `model.learning` span, role "intent"."""
-    d = daemon.daemon
-
-    async def put() -> str:
-        await _put(d)                        # an intent with three runs: consolidated after the label call
-        return str(_card(d, "u1", labelled=False)["id"])
-    card_id = daemon.run(put())
-    d.consolidator.make_runtime = lambda *a, **k: RefusedAtStart({})
-    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
-    spans = _learning_spans(daemon)
-    assert [s["input"]["role"] for s in spans] == ["intent", "consolidate"]
-    assert spans[0]["input"]["call"] == "label-" + card_id and spans[0]["output"]["outcome"] == "failed"
-    assert "Input exceeds the maximum length of 1048576 characters." in spans[0]["error"]
-    assert REQUEST not in json.dumps(spans[0])
-
-
-async def _job_error(d: Any) -> str:
-    return str(d.db.conn.execute("SELECT error FROM learning_jobs").fetchone()[0])
-
-
-def test_an_answered_consolidation_call_records_its_outcome(daemon) -> None:
-    d = daemon.daemon
-    daemon.run(_put(d))
-    d.consolidator.make_runtime = lambda *a, **k: Answers({"procedures": [], "lessons": [], "identity": [],
-                                                           "episodes": []})
-    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
-    [span] = _learning_spans(daemon)
-    assert span["output"]["outcome"] == "answered" and span["error"] is None
-
-
 def test_learning_usage_spans_name_their_own_role(daemon) -> None:
-    """Consolidation usage was recorded as role "distill"."""
+    """A learner's usage span names its role (distill; consolidation's was once recorded as "distill" too)."""
     d = daemon.daemon
-    daemon.run(_put(d))
-    d.consolidator.make_runtime = lambda *a, **k: Answers({"procedures": [], "lessons": [], "identity": [],
-                                                           "episodes": []})
-    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
     trail_row(daemon, "2025-12-30")
     d.distiller.make_runtime = lambda *a, **k: Answers({"narrative": "", "items": []})
     daemon.run(d.distiller.run_day("2025-12-30"), timeout=30)
@@ -121,7 +49,7 @@ def test_learning_usage_spans_name_their_own_role(daemon) -> None:
     async def roles() -> list[str]:
         return [json.loads(r[0])["role"] for r in d.db.conn.execute(
             "SELECT input_json FROM spans WHERE kind = 'model.usage' ORDER BY rowid")]
-    assert daemon.run(roles()) == ["consolidate", "distill"]
+    assert daemon.run(roles()) == ["distill"]
 
 
 class RetriesThenAnswers(Answers):
@@ -244,26 +172,6 @@ def test_a_cancelled_learning_call_is_recorded_as_cancelled_not_failed(daemon) -
     out = io.StringIO()
     stats(d.home, out, days=36500)
     assert "Learning model calls: 1, failed: 0" in out.getvalue()
-
-
-def test_a_consolidation_calls_id_is_its_batch_id(daemon) -> None:
-    """`ferb trace <batch>` (the id on what the call proposed) finds the call's span."""
-    from ferb.memory.learning import digest
-    d = daemon.daemon
-
-    async def put() -> list[str]:
-        ids = []
-        for i in range(6):                   # recorded one after another: the group's order is not the ids' order
-            ids.append(_card(d, f"e{i}")["id"])
-            d.clock.advance(1)
-        return ids
-    ids = daemon.run(put())
-    assert ids != sorted(ids)
-    d.consolidator.make_runtime = lambda *a, **k: Answers({"procedures": [], "lessons": [], "identity": [],
-                                                           "episodes": []})
-    daemon.run(d.consolidator.catch_up(force=True), timeout=30)
-    [span] = _learning_spans(daemon)
-    assert span["input"]["call"] == "sleep-" + digest(sorted(ids))
 
 
 def test_stats_groups_learning_errors_that_differ_only_in_numbers(tmp_path) -> None:

@@ -89,13 +89,6 @@ def test_failed_status_and_verdict() -> None:
     assert lines[-1] == "Your verdict: fail (07 Oct 12:00) — wrong file"
 
 
-def test_steps_view_has_one_line_per_tool_call() -> None:
-    assert render.steps(hf_cache_retry()) == [
-        "11:04:50  shell.run  command=du -sh ~/.cache/huggingface  (why: check size first)  → exit 0 · 1 line  [0.4s]",
-        "11:04:52  shell.run  command=rm -rf ~/.cache/huggingface  (why: delete the exact path)  → exit 0 · 0 lines  [2.1s]",
-    ]
-
-
 def test_an_unfinished_story_shows_unknown_durations_and_does_not_crash() -> None:
     b = TraceBuilder()
     w = b.worker(5, "done", "deleted")

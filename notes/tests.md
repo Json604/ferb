@@ -76,6 +76,7 @@ A small suite that guards what live use can't show: the safety floor, plus a han
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.
+      (Step 3: tests of removed code deleted (see the step-3 report); prompt-text and wiring tests not yet.)
 - [ ] Delete doc-reading tests with the docs cleanup.
 - [ ] Keep `no_real_models`, `offline_trash`, network routing, `runaway.py`.
 - [ ] Each area's fix lands with its tests in the same change (CLAUDE.md development rules).

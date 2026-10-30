@@ -351,7 +351,7 @@ def test_8_owner_ask_shows_the_choice_in_chat_and_returns_the_answer(daemon: Run
     assert got["choice"]["content"] == {"answer": "b@x"} and got["free"]["content"] == {"answer": "yes, the second one"}
     out = outcome(evs)
     assert out["status"] == "done" and out["answer"] == "Using b@x; yes, the second one."
-    from ferb.cli.chat import question
+    from tests.support.chat_text import question
     assert "1) a@x" in question(shown[0]) and "Enter to skip" in question(shown[0])
 
 

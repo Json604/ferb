@@ -387,7 +387,7 @@ def test_a_card_reads_its_trace_one_span_at_a_time(store: Any, monkeypatch: pyte
     for read in (lambda: learning.prepare_episode("c0ffee01"), lambda: learning.card_source_refs("c0ffee01")):
         events.clear()
         read()
-        assert events == ["next", "used"] * 7, events                   # 7 spans, each used before the next is read
+        assert events == ["next", "used"] * 6, events                   # 6 spans, each used before the next is read
 
 
 def test_a_rebuilding_message_that_fails_never_leaves_the_store_without_the_ref_index(store: Any) -> None:

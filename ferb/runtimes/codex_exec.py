@@ -13,35 +13,29 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
 - FERB's own CODEX_HOME (`~/.ferb/codex-home`, from `ferb setup --codex-login`) so the owner's personal skills and
   settings never load; HOME is always `~/.ferb/codex-user`. There is no fallback to `~/.codex`: without that login
   the daemon refuses to build a Codex runtime and says to run `ferb setup --codex-login`;
-- supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort and replace
-  Codex's built-in instructions with FERB's own (model_instructions_file) — about half the input tokens — and drop
+- supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort and drop
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;
-- typed supervisor runs use the pinned app-server in an empty configuration home with an ephemeral thread;
-  final-answer deltas are gated by the observed tool catalog and the complete trace is checked before final output;
-- untyped supervisor exec runs end at `turn.completed`; app-server runs drain their full tool trace before final output."""
+- every run uses the pinned app-server in an empty configuration home with an ephemeral thread (codex_stream);
+  final-answer deltas are gated by the observed tool catalog and the complete trace is checked before final output."""
 
 import asyncio
 import json
 import os
 import platform
-import secrets
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import InputTooLarge, ModelLimitsUnknown, Unsupported
 from ferb.core.types import ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
-from ferb.runtimes.usage import from_codex
-from ferb.runtimes.tooltrace import tools_in
 from ferb.sanitize.redact import Redactor
 
 CODEX_VERSION = "0.157.1"
 MODEL = "gpt-5.6-sol"                 # owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
 # L28: Codex refuses a turn whose text input items together hold more characters (Unicode scalar values) than this,
 # before any model sees it ("Input exceeds the maximum length of 1048576 characters."). It counts per turn/start (and
-# per turn/steer), the instructions FERB gives thread/start apart; `codex exec` sends its prompt through the same check.
+# per turn/steer), the instructions FERB gives thread/start apart.
 MAX_INPUT_CHARS = 1 << 20
 INPUT_CHARS_SOURCE = (
     "openai/codex tag rust-v0.157.1: MAX_USER_INPUT_TEXT_CHARS = 1 << 20 (codex-rs/protocol/src/user_input.rs:10), "
@@ -246,14 +240,14 @@ class CodexRuntime:
     # image_input True: verified live 2026-10-08 — a PNG returned by an MCP tool in FERB's shim format reached the model
     capabilities = Capabilities("direct", "prefix", False, "native", True, True, True, True, "subscription")
 
-    def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
+    def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
                  output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900,
                  on_abandoned: Callable[[str, str], None] | None = None,
                  redact: Callable[[Any], Any] | None = None, cache_role: str | None = None,
                  cache_scope: str = "", cache_allowed: Callable[[Task], bool] | None = None,
                  on_cache_fallback: Callable[[str, str], None] | None = None, effort: str | None = None) -> None:
-        self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
+        self.binary, self.mode, self.ferb_home = binary, mode, ferb_home
         # L39: a worker-mode run's reasoning effort when the caller asks for one (a checker of a step that changed
         # files: "high"); None keeps the model's default. Supervisor runs stay low (SUPERVISOR_SETTINGS)
         self.effort = effort
@@ -291,200 +285,26 @@ class CodexRuntime:
                 "-c", f"mcp_servers.ferb.env={env}",
                 "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"']
 
-    def _cmd(self, schema_file: Path | None, token_file: Path | None, instructions: Path | None = None,
-             images: tuple[Path, ...] = ()) -> list[str]:
-        # an image right after `exec`, in its one-value form: `--image` takes a list, which must not swallow the prompt
-        cmd = [str(self.binary), "exec", *(f"--image={p}" for p in images), "--json", "--ephemeral",
-               "--skip-git-repo-check", "--ignore-user-config",
-               "--ignore-rules", "--strict-config", "-s", "read-only", "-C", str(self.workdir), "-m", self.model,
-               "-c", 'approval_policy="never"', "-c", 'web_search="disabled"']
-        for f in DISABLED:
-            cmd += ["--disable", f]
-        cmd += SKILLS_OFF
-        if (catalog := locked_catalog(self.ferb_home)) is not None:      # no code mode / sub-agents for any model
-            cmd += ["-c", f"model_catalog_json={json.dumps(str(catalog))}"]
-        if self.mode == "worker":
-            cmd += self._mcp_settings(token_file)
-        if self.mode == "supervisor":
-            cmd += SUPERVISOR_SETTINGS
-            if instructions is not None:                       # FERB's instructions replace Codex's built-in ones
-                cmd += ["-c", f"model_instructions_file={json.dumps(str(instructions))}"]
-        if schema_file:
-            cmd += ["--output-schema", str(schema_file)]
-        return cmd
-
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
-        system, context = request.system, request.context
-        app_server = self.mode == "worker" or self.output_schema is not None
-        # the text Codex counts: the context alone where the instructions go apart (thread/start, or a supervisor's
-        # instructions file); otherwise the prompt carries them
-        check_input(context if app_server or (self.mode == "supervisor" and system) else f"{system}\n\n{context}")
+        """Every run is an app-server run (codex_stream): the instructions go apart in thread/start, so Codex counts
+        the context alone."""
+        check_input(request.context)
         await check_version(self.binary)
-        if app_server:
-            from ferb.runtimes.codex_stream import start
-            return await start(self, task, request, run_token)
-        self.workdir.mkdir(parents=True, exist_ok=True)
-        paths: list[Path] = []
-        proc = None
-        try:
-            schema_file = None
-            if self.output_schema:
-                fd, name = tempfile.mkstemp(prefix="ferb-schema-", suffix=".json")
-                paths.append(Path(name))
-                with os.fdopen(fd, "w") as f:
-                    json.dump(self.output_schema, f)
-                schema_file = Path(name)
-            token_file = None
-            instructions = None
-            images: list[Path] = []
-            for image in request.images:                           # owner-only files, removed with the run (L12)
-                fd, iname = tempfile.mkstemp(prefix="ferb-image-", suffix=".jpg")
-                paths.append(Path(iname))
-                with os.fdopen(fd, "wb") as f:
-                    f.write(image.data)
-                images.append(Path(iname))
-            if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
-                fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
-                paths.append(Path(iname))
-                with os.fdopen(fd, "w") as f:
-                    f.write(system)
-                instructions = Path(iname)
-            env = {**os.environ, "RUST_LOG": "trace"}
-            user_home = self.ferb_home / CODEX_USER
-            user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
-            env["HOME"] = str(user_home)
-            home = codex_home(self.ferb_home)
-            if home is not None:
-                env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
-            proc = await asyncio.create_subprocess_exec(
-                *self._cmd(schema_file, token_file, instructions, tuple(images)), "-", stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024)
-            assert proc.stdin is not None
-            proc.stdin.write((context if instructions is not None else f"{system}\n\n{context}").encode())
-            await proc.stdin.drain()
-            proc.stdin.close()
-            return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
-                             {"proc": proc, "schema_file": schema_file, "instructions": instructions,
-                              "token_file": token_file, "images": images, "seen": set(), "violation": None})
-        except BaseException:
-            if proc is not None and proc.returncode is None:
-                try:
-                    proc.kill()
-                    await proc.wait()
-                except ProcessLookupError:
-                    pass
-            for path in paths:
-                path.unlink(missing_ok=True)
-            raise
+        from ferb.runtimes.codex_stream import start
+        return await start(self, task, request, run_token)
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
-        if run.state.get("app_server"):
-            from ferb.runtimes.codex_stream import events
-            async for event in events(self, run):
-                yield event
-            return
-        proc: asyncio.subprocess.Process = run.state["proc"]
-        assert proc.stdout is not None and proc.stderr is not None
-        watcher = asyncio.create_task(self._watch_trace(run, proc))
-        last_message = ""
-        completed = False
-        turn_completed = False
-        try:
-            async with asyncio.timeout(self.timeout_s):
-                async for raw in proc.stdout:
-                    if run.state["violation"]:
-                        break
-                    line = raw.decode("utf-8").strip()
-                    if not line.startswith("{"):
-                        continue
-                    ev = json.loads(line)
-                    item = ev.get("item", {})
-                    if ev.get("type") == "item.completed" and item.get("type") == "agent_message":
-                        last_message = item.get("text", "")
-                        yield RuntimeEvent("message", {"text": last_message})
-                    elif ev.get("type") == "item.completed" and item.get("type") == "mcp_tool_call":
-                        yield RuntimeEvent("tool_call", {"tool": item.get("tool"), "status": item.get("status"),
-                                                         "arguments": item.get("arguments")})
-                    elif ev.get("type") == "turn.completed":
-                        turn_completed = True
-                        yield RuntimeEvent("usage", asdict(from_codex(self.model, dict(ev.get("usage", {})))))
-                        if self.mode == "supervisor":            # no FERB tools: the answer is in, don't wait for
-                            completed = True                     # Codex to exit (workers wait, so the tool-list
-                            break                                # check sees the whole trace)
-                    elif ev.get("type") in ("error", "turn.failed"):
-                        error = ev.get("error")
-                        message = ev.get("message") or (error.get("message") if isinstance(error, dict) else error)
-                        yield RuntimeEvent("error", {"message": str(self.redact(str(message)))})
-            if completed and not run.state["violation"]:
-                asyncio.get_running_loop().create_task(self._reap(proc, watcher))
-            else:
-                await proc.wait()
-                await watcher
-        except TimeoutError:
-            await self.cancel(run)
-            yield RuntimeEvent("error", {"message": f"timed out after {self.timeout_s:.0f}s"})
-            return
-        finally:
-            _remove_files(run)
-        if run.state["violation"]:
-            yield RuntimeEvent("violation", {"unexpected_tools": sorted(run.state["violation"])})
-            return
-        if not turn_completed or (not completed and proc.returncode != 0):
-            yield RuntimeEvent("error", {"message": f"Codex exited with code {proc.returncode}; "
-                                          f"completed_turn={turn_completed}. The last message is only a partial report."})
-            return
-        yield RuntimeEvent("final", {"text": last_message, "returncode": proc.returncode,
-                                     "tools_seen": sorted(run.state["seen"])})
-
-    async def _reap(self, proc: asyncio.subprocess.Process, watcher: "asyncio.Task[None]") -> None:
-        """After the answer: let Codex exit on its own (bounded), then stop watching its trace."""
-        try:
-            await asyncio.wait_for(proc.wait(), 10)
-        except TimeoutError:
-            proc.kill()
-        watcher.cancel()
-
-    async def _watch_trace(self, run: RunHandle, proc: asyncio.subprocess.Process) -> None:
-        """Scan the request trace line by line; kill the run on any tool outside the allowlist."""
-        assert proc.stderr is not None
-        async for raw in proc.stderr:
-            if b'"tools":[' not in raw and b" output=[" not in raw:
-                continue
-            # GPT-6 groups plain tools under a "functions" namespace: functions.apply_patch is apply_patch (and
-            # functions.exec stays exec, which isn't allowed)
-            seen = {n.removeprefix("functions.") for n in tools_in(raw.decode(errors="replace"))}
-            run.state["seen"] |= seen
-            extra = seen - self.allowed
-            if extra:
-                run.state["violation"] = extra
-                await self.cancel(run)
-                return
+        from ferb.runtimes.codex_stream import events
+        async for event in events(self, run):
+            yield event
 
     async def continue_(self, run: RunHandle, message: str) -> None:
-        if self.mode == "worker" and run.state.get("app_server"):
+        if self.mode == "worker":
             from ferb.runtimes.codex_stream import steer
             await steer(run, message)
             return
         raise Unsupported("Only active Codex worker turns accept steering")
 
     async def cancel(self, run: RunHandle) -> None:
-        if run.state.get("app_server"):
-            from ferb.runtimes.codex_stream import cancel
-            await cancel(run)
-            return
-        proc: asyncio.subprocess.Process = run.state["proc"]
-        try:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
-        finally:
-            _remove_files(run)                         # also when stopped before its events were read
-
-
-def _remove_files(run: RunHandle) -> None:
-    """A plain exec run's temporary files: its schema, instructions, token and images (L12)."""
-    for key in ("schema_file", "instructions", "token_file"):
-        if run.state.get(key):
-            Path(run.state[key]).unlink(missing_ok=True)
-    for image in run.state.get("images", []):
-        image.unlink(missing_ok=True)
+        from ferb.runtimes.codex_stream import cancel
+        await cancel(run)

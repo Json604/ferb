@@ -131,13 +131,14 @@ def test_on_device_unavailable_is_a_clear_error_and_nothing_reaches_the_network(
 
 def test_ferb_app_transcribes_on_device_only_and_never_asks_for_permission_from_a_task() -> None:
     src = SWIFT.read_text()
-    body = src[src.index("func transcribe("):src.index("// ---------- the service")]
+    body = src[src.index("func transcribe("):src.index("let args = Array(CommandLine.arguments")]
     assert "requiresOnDeviceRecognition = true" in body
     assert body.index("supportsOnDeviceRecognition") < body.index("recognitionTask(")   # checked before any request
     assert "on_device_unavailable" in body and "requestAuthorization" not in body
-    # No request anywhere may fall back to the network (rule 15): push-to-talk included.
+    # No request anywhere may fall back to the network (rule 15).
     assert "requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition" not in src
-    assert src.count("requiresOnDeviceRecognition = true") >= 3          # warm-up, push-to-talk, hearing
+    # FERB Voice opens no microphone (push-to-talk is the app's own dictation, notes/voice.md decision 3)
+    assert "AVCaptureDevice" not in src and "AudioDeviceCreateIOProcID" not in src
 
 
 def test_task_stop_ends_a_listen_in_progress(daemon: RunningDaemon, tmp_path: Path) -> None:
@@ -520,22 +521,6 @@ def test_the_planner_sees_hearing_when_its_tools_are_installed() -> None:
     assert "hearing" in build({"audio"}, {"hearing": "no Screen Recording"}).unavailable_line()
 
 
-def test_push_to_talk_without_on_device_recognition_says_so_and_never_uses_the_network() -> None:
-    from ferb.daemon.main import Daemon
-    said: list[str] = []
-    journal: list[tuple[str, Any]] = []
-    host = SimpleNamespace(voice=SimpleNamespace(_say=said.append),
-                           _journal=lambda: SimpleNamespace(append=lambda kind, data: journal.append((kind, data))))
-    out = asyncio.run(Daemon._voice_transcript(host, None, {"text": "", "error": "on-device speech recognition "  # type: ignore[arg-type]
-                                                            "isn't available on this Mac", "on_device": False}))
-    assert out == {"handled": "on_device_unavailable"}
-    assert "On-device speech recognition isn't available" in said[0] and "never leaves" in said[0]
-    src = SWIFT.read_text()
-    listener = src[src.index("final class Listener"):src.index("// ---------- permissions")]
-    assert "guard rec.supportsOnDeviceRecognition else" in listener
-    assert listener.count("requiresOnDeviceRecognition = true") == 2
-
-
 def test_daemon_wires_hearing_into_task_end_and_the_registry() -> None:
     from ferb.daemon.main import Daemon
     order: list[str] = []
@@ -620,7 +605,6 @@ def test_a_capture_that_cannot_start_is_a_clear_refusal_not_an_unknown_outcome(t
     r = asyncio.run(tool.run(tool.Input(app="Music", seconds=0.01), _ctx(tmp_path)))
     assert r.is_error and "Screen Recording" in r.content["error"] and "declined" in r.content["error"]
     assert not hearing.listening and fake.argv == []
-
 
 
 # ---------- fix round 1: the owner's decision and the reviewer's gaps ----------
@@ -833,8 +817,7 @@ def test_ferb_voice_refuses_a_foreign_ferb_home_before_anything_else(tmp_path: P
     """The whole helper, built as build.sh builds it but as a bare executable (no bundle, never opened): a process
     that starts it with its own FERB_HOME gets nothing: no socket, no answer, no microphone or Speech Recognition."""
     exe = tmp_path / "FERB"
-    _swiftc("-o", str(exe), str(SWIFT), str(HOME_SWIFT), "-framework", "AppKit", "-framework", "AVFoundation",
-            "-framework", "CoreAudio", "-framework", "Speech")
+    _swiftc("-o", str(exe), str(SWIFT), str(HOME_SWIFT), "-framework", "AppKit", "-framework", "Speech")
     foreign = tmp_path / "x"
     (foreign / "workspace" / "audio").mkdir(parents=True)
     answer = foreign / "workspace" / "audio" / ".status-1.json"
@@ -847,9 +830,8 @@ def test_ferb_voice_refuses_a_foreign_ferb_home_before_anything_else(tmp_path: P
         assert answer.read_bytes() == b""
     src = SWIFT.read_text()
     assert 'environment["FERB_HOME"]' not in src                            # the rule is the only way in
-    entry = src[src.index("import Speech"):src.index("// ---------- the daemon's socket")]
+    entry = src[src.index("import Speech"):src.index("// ---------- permissions")]
     assert "_ = ferbHome" in entry                                          # checked first, for every mode
-    assert "ferbHome" in src[src.index("func socketPath()"):src.index("func connectAsVoice()")]
     assert "ferbHome" in src[src.index("func inAudioFolder("):src.index("func writeAnswer(")]
     assert "home.swift" in (ROOT / "macapp" / "FERB" / "build.sh").read_text()
 
@@ -868,7 +850,7 @@ def test_the_daemon_tells_ferb_voice_the_accounts_ferb_home(tmp_path: Path, monk
 
 def test_ferb_app_writes_only_into_the_daemons_answer_file_and_stops_when_it_goes() -> None:
     src = SWIFT.read_text()
-    body = src[src.index("// ---------- hearing (L26)"):src.index("// ---------- the service")]
+    body = src[src.index("// ---------- hearing (L26)"):src.index("let args = Array(CommandLine.arguments")]
     opened = body[body.index("func answerFile("):body.index("func recognizer(")]
     assert "O_CREAT" not in opened and "O_NOFOLLOW" in opened and "st_size" in opened   # never creates or replaces
     assert "workspace/audio" in opened and "realpath" in opened                       # only FERB's audio folder
@@ -879,7 +861,6 @@ def test_ferb_app_writes_only_into_the_daemons_answer_file_and_stops_when_it_goe
     write = write[:write.index("\n}\n")]
     assert "leaseWatch" in write and ".cancel()" in write                             # unwatched before closing
     assert "setCancelHandler" in opened                                               # the watch closes its fd
-
 
 
 def test_a_buffer_is_never_placed_after_it_arrived(tmp_path: Path, monkeypatch) -> None:
@@ -895,7 +876,6 @@ def test_a_buffer_is_never_placed_after_it_arrived(tmp_path: Path, monkeypatch) 
     clock[0] = 0.25
     seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=900000.0), 1)
     assert handle.stop()["frames"] == 4000 + 4000                     # placed at its arrival, 0.25 s in
-
 
 
 # ---------- fix round 2 ----------
@@ -1063,21 +1043,6 @@ def test_long_silence_is_written_in_pieces(tmp_path: Path, monkeypatch) -> None:
     samples = array.array("f")
     samples.frombytes((tmp_path / "s.wav").read_bytes()[44:])
     assert len(samples) == 16160 and not any(samples[160:16000]) and any(samples[16000:])
-
-
-def test_push_to_talk_checks_and_opens_ferb_app_by_absolute_path(tmp_path: Path, monkeypatch) -> None:
-    from ferb.daemon import main
-    from ferb.daemon.main import Daemon
-    ran: list[list[str]] = []
-    monkeypatch.setattr(main.subprocess, "run", lambda argv, **kw: ran.append(list(argv)) or SimpleNamespace(returncode=0))
-    monkeypatch.setattr(main.subprocess, "Popen", lambda argv, **kw: ran.append(list(argv)))
-    bundle = tmp_path / "FERB.app"
-    bundle.mkdir()
-    host = SimpleNamespace(config=SimpleNamespace(get=lambda section, key: "req"), voice_bundle=bundle)
-    assert Daemon._voice_signed(host, "/x") is True  # type: ignore[arg-type]
-    Daemon._launch_voice_app(host)  # type: ignore[arg-type]
-    assert ran == [["/usr/bin/codesign", "--verify", "--strict", "-R=req", str(bundle)],
-                   ["/usr/bin/open", "-g", str(bundle)]]
 
 
 def test_capture_reads_the_format_pyobjc_really_returns(tmp_path: Path, monkeypatch) -> None:

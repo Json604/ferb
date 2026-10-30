@@ -134,14 +134,6 @@ def test_question_projection_is_separate_from_authoritative_reason(daemon):
         client.close()
 
 
-def test_the_cli_shows_the_full_answer():
-    from ferb.cli.chat import render
-    reply = {'type': 'reply', 'text': 'The complete detailed explanation.'}
-    assert render(reply) == render(reply, verbose=True) == 'ferb> The complete detailed explanation.'
-    done = {'type': 'outcome', 'status': 'done', 'summary': 'Evidence.', 'answer': 'The full answer.'}
-    assert render(done) == 'ferb> The full answer.'
-
-
 def test_a_late_stop_shows_what_the_worker_had_found(daemon):
     from ferb.orchestrator.supervisor import STOPPED_BY_YOU
     worker = json.dumps({'status': 'blocked', 'summary': 'Source missing.', 'artifacts': [], 'evidence': []})

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from ferb.core import origin
 from ferb.core.ids import RandomIds
 from ferb.memory.learning import COPYING_CARD_MAKER, Learning
-from ferb.memory.lineage import PROCEDURE_LABEL, REQUEST_REFERENCE
+from ferb.memory.lineage import REQUEST_REFERENCE
 from ferb.orchestrator import episodes
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
@@ -74,14 +74,12 @@ def traced_task(db: Database, spans: SpanStore, learning: Learning, task_id: str
            {"text": None, "payload": "earlier messages"}, origin.OWNER)
     record("context.source", {"label": "planner-context", "source_refs": [f"trail:snap-{task_id}"]},
            {"text": "[snapshot]"}, origin.PRIVATE)
-    record("context.source", {"label": PROCEDURE_LABEL, "source_refs": [f"m-proc-{task_id}", "task:earlier"]},
-           {"text": "Procedure …"}, origin.INFERRED)
     record("tool.call", {"tool": "trail.query", "args": {"event_id": f"ev-{task_id}-a"}, "effect": "read",
                          "kind": "read", "target": {"site": None}},
            {"events": [{"id": f"ev-{task_id}-b", "what": "focus"}]}, origin.PRIVATE)
     record("tool.call", {"tool": "task.evidence", "args": {}, "effect": "read", "kind": "read", "target": {}},
            {"source_refs": ["entry:ev-entry", "task:other"], "records": []}, origin.INFERRED)
-    kept = {f"episode:{task_id}", f"journal:req-{task_id}", f"m-proc-{task_id}", "episode:earlier",
+    kept = {f"episode:{task_id}", f"journal:req-{task_id}",
             f"trail:ev-{task_id}-a", f"trail:ev-{task_id}-b", "journal:ev-entry", "episode:other"}
     # the composer before C1 resolved a handle into the entry and what it cites, and copied every block's refs
     only_shown = set(activity) | {f"journal:chat-{task_id}", "memory:m-shown", f"trail:snap-{task_id}"}

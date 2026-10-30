@@ -21,15 +21,9 @@ class MemoryPort:
     remember: Callable[..., Any]
     forget_request: Callable[[str, str], str]           # a forget asked in chat (I2): (item id, request id) -> a line
     question_answered: Callable[[Any], str]             # FERB's own follow-up once the owner answered its question
-    settle: Callable[[], Awaitable[None]]               # a forget still being finished completes first (I2)
-    procedure_context: Callable[[str], str]
-    procedure_details: Callable[[str, Any, dict[str, Any] | None], list[Any]]   # (procedure id, task, slot values)
-    procedure_problem: Callable[[str], str | None]      # why a planner's procedure_id can't be used (I5)
+    settle: Callable[[], Awaitable[None]]               # what a forget left behind completes first (I2)
     identity_context: Callable[[], str]
     on_episode: Callable[[str], Any]                    # a finished task's episode card (may return an awaitable)
-    procedure_outcome: Callable[[str, str, dict[str, Any] | None], None]   # a procedure run's receipt
-    slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None]
-    slot_problem: Callable[[str, list[dict[str, Any]]], str | None]
     typed_behind_memory: Callable[[str], list[str]]     # what the owner typed behind their remembered items (S3)
 
 
@@ -83,7 +77,6 @@ class NotifyPort:
     on_loop_notice: Callable[..., Awaitable[None]]      # (tree id, step id, text, origin): a loop's notice (L31)
     on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]]
     on_conversation_resume: Callable[[], None]
-    notification_rule: Callable[[Any, str], str]
 
 
 class QuestionRouter:

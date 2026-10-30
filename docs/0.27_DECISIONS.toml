@@ -14,7 +14,7 @@ summary = "Similarity search runs before FERB plans, giving it similar past task
 
 [D3]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py", "tests/test_live_steering.py", "tests/test_steering_races.py"]
+tests = ["tests/test_live_steering.py", "tests/test_steering_races.py"]
 note = "Native follow-up: genuine questions open once with amber attention; ordinary activity stays quiet. All roots/turns reconcile, and older snapshots cannot overwrite newer events. Native Swift regressions live in ferb-UI."
 summary = "Chat is never blocked by a loader"
 
@@ -323,7 +323,7 @@ summary = "Disk-usage tool inside FERB returning sizes only, never contents"
 
 [P25]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py", "tests/test_chat_events.py"]
+tests = ["tests/test_chat_events.py"]
 note = "Clarified 2026-10-13 (L7, TQ3): the daemon sends the acknowledgement on receipt, before routing, from the full list (29 phrases, the starred one dropped), never one of the last eight said across chats (test_ack_phrases_are_the_plans_p25_list_without_the_starred_one)."
 summary = "Neutral acknowledgment list, picked at random without repeats"
 
@@ -346,7 +346,7 @@ summary = "Setup persona from apps actually used, confirmed by the owner"
 
 [P29]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py", "tests/test_cli_reply_streaming.py", "tests/test_reply_streaming.py", "tests/test_live_steering.py"]
+tests = ["tests/test_reply_streaming.py", "tests/test_live_steering.py"]
 summary = "Always-on chat with routing, status line and keys"
 
 [P30]
@@ -404,7 +404,7 @@ summary = "Secrets and identity through a small signed helper; Developer ID late
 
 [S9]
 milestone = "F5"
-tests = ["tests/security/test_catalog_replay.py", "tests/test_regress.py"]
+tests = ["tests/security/test_catalog_replay.py"]
 summary = "Security suite: offline replay plus live top-priority subset per milestone, full suite before release"
 
 [S10]
@@ -596,7 +596,7 @@ summary = "ferb setup asks each Chromium browser to install FERB's Chrome Web St
 
 [L26]
 milestone = "L"
-tests = ["tests/test_audio_listen.py", "tests/test_browser_media.py", "tests/test_push_to_talk.py", "tests/test_setup_flow.py", "tests/test_audio_listen_real.py"]
+tests = ["tests/test_audio_listen.py", "tests/test_browser_media.py", "tests/test_setup_flow.py", "tests/test_audio_listen_real.py"]
 note = "Owner 2026-10-14: hearing during tasks, not 24/7; on-device transcription only, no cloud fallback; captured sound is deleted once transcribed and recordings keep no audio track. tests/test_audio_listen_real.py is a live test (-m real)."
 summary = "FERB hears an app's sound during tasks (audio.listen, recordings with a transcript, browser.media)"
 
@@ -614,7 +614,7 @@ summary = "The planner's prompt uses each model's real context window; situation
 
 [L29]
 milestone = "L"
-tests = ["tests/test_intent_labels.py", "tests/test_consolidation_cost.py", "tests/test_learning.py", "tests/test_learning_by_intent_e2e.py", "tests/test_planner_context.py", "tests/test_f6_context.py", "tests/test_context_budget.py"]
+tests = ["tests/test_learning.py", "tests/test_planner_context.py", "tests/test_f6_context.py", "tests/test_context_budget.py"]
 note = "Owner 2026-10-21: \"i go with your recommended run. BUT just have some connection to the tools used for the previous learned things so that model gets faster with steps\"; spec docs/superpowers/specs/2026-10-21-learning-by-intent-design.md approved (\"yes proceed\"). FIRST_LEARNING_RUNS = 3 is the owner's \"counter 3\"; no other count or size limit. Amended 2026-10-23 (plan docs/superpowers/plans/2026-10-23-perf-and-browser-holds.md Task 2; owner: \"i dont want that annoying rec again, cant we just leave browser thigns as it is … make it just bare minimum so that our loop also does not break\"): in the card reader only (`learning.outside_targets`), a step's site (unless it is where a send goes: a send-class kind or declared purpose with no recipient or contact, confirm.site_is_destination, per SQ7; fix round 1), and an action without recorded provenance whose kind the gateway records none for (a kind in policy/rules.py REVERSIBLE without a declared purpose, mirroring gateway.py's consequential rule), never make a step outside, so browser procedures need no confirm; any other action without provenance (a send, typing or click recorded before F3, or a damaged record) stays outside; a recipient, contact, account, amount or path (a file written or moved, a command's working folder) found only in outside content still quarantines (MP2), as does a send with no recipient to a site only outside content named, the owner's words and answers stay the owner's, and the I1 carry-over rule is unchanged. The earlier option of recording provenance for the reversible kinds is moot."
 summary = "Learning by intent: model-assigned intent labels per card, consolidation by intent after three verified runs, optional procedure steps, the planner picks procedures by intent and fills slots, and the worker gets the filled steps, lessons and latest runs' tool calls."
 
@@ -634,8 +634,7 @@ summary = "Loops: a loop plan step repeats an ordinary checked worker round unde
 milestone = "L"
 tests = ["tests/test_memory_capture.py", "ui/mac/FERBNotch/Tests/NotchCoreTests/QuestionsAndNoticesTests.swift",
          "tests/test_memory_search.py", "tests/test_worker_memory.py", "tests/test_owner_secrets.py",
-         "tests/test_login_names.py", "tests/test_memory_retirement.py", "tests/test_sealed_words.py",
-         "tests/test_learning_unblocked.py"]
+         "tests/test_login_names.py", "tests/test_memory_retirement.py", "tests/test_sealed_words.py"]
 note = "Owner 2026-10-24 approved the direction of \"memory and learning that work\" and answered its questions: \"BEFORE LAUNCH\"; guesses \"Ask right away\"; memory size \"Planner 60, worker 20\"; usernames \"Yes, plain\". Spec docs/superpowers/specs/2026-10-24-memory-that-works-design.md; plan docs/superpowers/plans/2026-10-24-memory-that-works.md. Section 1 (capture on every turn path) landed in 1c22dcb and f747d37."
 summary = "Memory that works: the owner's quoted words saved by distillation, every new guess asked at once (Keep / Edit / Drop) and the older ones reviewed once as one list; one ranked content search for the planner (60), workers and plan steps (20, with the parent goal), memory.read and memory.learned; one login record per site with a plain username and sealed entries, listed by secrets.list without values; dated facts retire; a sealed value that is a dictionary word redacted only as a whole word in any case, any other wherever it appears, and none strictly inside FERB's generated ids; procedures compared modulo per-run handles with app-version ranges, and their use recorded."
 

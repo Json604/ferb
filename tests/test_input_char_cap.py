@@ -12,12 +12,8 @@ import pytest
 from ferb.core.context import ContextBlock, assemble
 from ferb.core.errors import InputTooLarge
 from ferb.core.types import Identity, ModelLimits, ModelRequest, Task
-from ferb.memory.consolidate import Consolidator
-from ferb.memory.intents import intent_id
-from ferb.memory.learning import Learning
 from ferb.runtimes.codex_exec import CodexRuntime
 from tests.conftest import FakeDistillRuntime, FakeRuntime, chat, install, sup, task
-from tests.support.learning_fixtures import EMPTY, NoMemory, TickingClock, label_card, new_store
 
 WIDE = 1_000_000          # a token window that holds everything these tests send
 CODEX_START = CodexRuntime.start          # the real one: offline tests replace it with a refusal (conftest)
@@ -66,7 +62,7 @@ def test_codex_reports_its_documented_input_cap_and_other_runtimes_none(tmp_path
     (home / "codex-home" / "auth.json").write_text("{}")
     (home / "codex-home" / "models_cache.json").write_text(json.dumps(
         {"models": [{"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95}]}))
-    limits = CodexRuntime(tmp_path / "codex", "supervisor", tmp_path, home).limits
+    limits = CodexRuntime(tmp_path / "codex", "supervisor", home).limits
     assert MAX_INPUT_CHARS == limits.max_input_chars == 1_048_576
     assert "rust-v0.157.1" in limits.source and "MAX_USER_INPUT_TEXT_CHARS" in limits.source
     from ferb.runtimes.codex_exec import CODEX_VERSION, INPUT_CHARS_SOURCE
@@ -105,7 +101,7 @@ async def test_the_codex_runtime_refuses_an_input_over_its_cap_before_starting_c
     monkeypatch.setattr(codex, "check_version", version)
     (tmp_path / "codex-home").mkdir()
     (tmp_path / "codex-home" / "auth.json").write_text("{}")
-    rt = codex.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path / "work", tmp_path, output_schema=schema)
+    rt = codex.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path, output_schema=schema)
     t = Task("t", None, "reply", "d", Identity.OWNER, set(), "mixed", "r", [], None)
     with pytest.raises(InputTooLarge) as caught:
         await CODEX_START(rt, t, ModelRequest("FERB instructions", ("z" * (codex.MAX_INPUT_CHARS + 1),)), "")
@@ -180,51 +176,6 @@ def test_a_worker_context_over_the_character_cap_is_refused_by_name_never_sent(d
 
 
 # ---------- the learner and the distiller ----------
-
-@pytest.fixture
-def learning(tmp_path):
-    db, store = new_store(tmp_path / "memory.db", TickingClock())       # each card recorded after the one before
-    yield store
-    db.close()
-
-
-def _card(store: Learning, ident: str, request: str, intent: str = "a test intent") -> Any:
-    """A card already labelled (L29): these tests see consolidation calls only."""
-    node = store.put("episode", ident, {"task_id": ident, "verified": True, "request": request, "apps": {},
-                                        "slots": {}, "status": "done",
-                                        "actions": [{"id": ident + "-a", "tool": "browser.open", "args": {"n": ident}}]},
-                     [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
-    label_card(store, node, intent)
-    return node
-
-
-def test_runs_that_fit_the_window_but_not_one_input_go_newest_first_within_it(learning, monkeypatch) -> None:
-    """L29: an intent's runs go in one call, newest first, as many as fit both the window and one input."""
-    cards = [_card(learning, f"t{i}", "open the page " + "word " * 300) for i in range(8)]
-    rt = FakeDistillRuntime(EMPTY)
-    monkeypatch.setattr(FakeDistillRuntime, "limits", capped(6_000))
-    out = asyncio.run(Consolidator(learning, NoMemory(), lambda *a, **k: rt).catch_up())
-    [context] = rt.contexts
-    sent = [c["id"] in context for c in cards]
-    assert len(context) <= 6_000 and sent[-1] and not sent[0] and sent == sorted(sent)     # the newest that fit
-    assert not [r for r in out["sources"] if "error" in r]
-    assert {r[0] for r in learning.db.conn.execute("SELECT status FROM learning_jobs")} == {"done"}
-
-
-def test_a_run_longer_than_one_input_is_never_sent_and_a_job_none_of_whose_runs_fit_names_the_cap(learning,
-                                                                                                   monkeypatch) -> None:
-    small = [_card(learning, f"s{i}", "open the page") for i in range(2)]
-    big = _card(learning, "b", "open the page " + "word " * 2_000)
-    huge = [_card(learning, f"h{i}", "open the page " + "word " * 2_000, intent="huge") for i in range(3)]
-    rt = FakeDistillRuntime(EMPTY)
-    monkeypatch.setattr(FakeDistillRuntime, "limits", capped(6_000))
-    asyncio.run(Consolidator(learning, NoMemory(), lambda *a, **k: rt).catch_up())
-    assert not any(c["id"] in context for c in [big, *huge] for context in rt.contexts)
-    assert all(any(c["id"] in context for context in rt.contexts) for c in small)
-    rows = dict(learning.db.conn.execute("SELECT source_ref, error FROM learning_jobs WHERE status = 'failed'"))
-    job = "intent:" + intent_id("huge")
-    assert set(rows) == {job} and "characters" in rows[job] and "6000" in rows[job]
-
 
 def test_a_day_over_the_character_cap_is_refused_by_name_never_sent(daemon, monkeypatch) -> None:
     from tests.conftest import trail_row

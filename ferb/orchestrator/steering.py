@@ -13,7 +13,7 @@ from ferb.orchestrator.plans import SendScope
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
-from ferb.trace.lines import choices    # choices: in a module light enough for the CLI (live_chat)
+from ferb.trace.lines import choices    # noqa: F401  (re-exported: daemon/areas/chat.py reads it from here)
 
 CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
 FORGET_ASK = 'memory.forget'                 # memory review I2: the owner's Yes/No to a forget asked in chat

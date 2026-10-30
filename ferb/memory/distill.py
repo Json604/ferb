@@ -166,10 +166,13 @@ class Distiller:
         guessed: list[dict[str, str]] = []         # quoted words kept as a guess instead of a new version, with why
         items = out.get("items", [])
         drop: set[int] = set()
-        if self.jev is not None and items:
+        jev = self.jev
+        if getattr(getattr(jev, "client", None), "refused", None) is not None:
+            jev = None                                 # Jev refused the key: not asked again, no rows written
+        if jev is not None and items:
             from ferb.decide.decider import Ask
             try:
-                got = await self.jev.ask({"day": day, "items": [{"n": i, "kind": x.get("kind"), "subject": x.get("subject"),
+                got = await jev.ask({"day": day, "items": [{"n": i, "kind": x.get("kind"), "subject": x.get("subject"),
                                                                 "content": x.get("content")} for i, x in enumerate(items)]},
                                          [Ask(f"memory.worth_keeping#{i}", "yes", f"distill:{day}#{i}")
                                           for i in range(len(items))])
@@ -177,7 +180,7 @@ class Distiller:
                 got = {}
             drop = {int(k.split("#")[1]) for k, v in got.items() if v == "no"}
             for i in drop:
-                self.jev.mark_effect(f"memory.worth_keeping#{i}", f"distill:{day}#{i}", "dropped")
+                jev.mark_effect(f"memory.worth_keeping#{i}", f"distill:{day}#{i}", "dropped")
         for n, item in enumerate(items):
             if n in drop:
                 refused.append("a second check found it not worth keeping")

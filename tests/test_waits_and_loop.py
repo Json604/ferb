@@ -180,7 +180,7 @@ def _journal(daemon, kind):
 def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkeypatch, tmp_path, check):
     servers = _codex_behind_stub(monkeypatch, tmp_path, check)
     daemon.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: CodexRuntime(
-        Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path, output_schema=schema, model=MODEL,
+        Path('/fake/codex'), 'supervisor', tmp_path, output_schema=schema, model=MODEL,
         timeout_s=0.5 if check == 'silent' else None)
     client = Client(daemon.sock, timeout=30)
     try:
@@ -273,7 +273,7 @@ def test_worker_whose_app_server_never_answers_the_account_check_ends_as_stalled
 
     def runtimes(role, *, mode, tool_names, schema):
         if role.startswith('worker:'):
-            return CodexRuntime(Path('/fake/codex'), 'worker', tmp_path / 'work', tmp_path, shim_cmd=['/fake/shim'],
+            return CodexRuntime(Path('/fake/codex'), 'worker', tmp_path, shim_cmd=['/fake/shim'],
                                 tool_names=tool_names, output_schema=schema, model=MODEL, timeout_s=None)
         return scripted(role, mode=mode, tool_names=tool_names, schema=schema)
     s.make_runtime = runtimes

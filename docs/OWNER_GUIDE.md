@@ -12,7 +12,7 @@ This guide explains where to look when you want to understand or change the prod
 
 Imagine asking: “Use this local PDF in the test form, and leave my desktop alone.”
 
-1. **`ferb/cli/chat.py`** sends your complete message over local RPC. Closing chat disconnects the viewer; it does
+1. **The FERB app** (`ferb/daemon/areas/chat.py` receives it) sends your complete message over local RPC. Closing chat disconnects the viewer; it does
    not stop the work. `ferb stop` stops all work, and `ferb resume-tasks` lifts that stop. `ferb pause` instead pauses
    sensing. They are different controls.
 2. **`ferb/daemon/main.py`** connects the conversation to the supervisor and the installed tools. It also reconnects

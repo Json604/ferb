@@ -1,11 +1,10 @@
-"""Owns the text of `ferb trace` (P26): the story (default) and the steps view. Must not add anything the records
+"""Owns the text of `ferb trace` (P26): the story (default); `--full` is the span tree (cli/admin.render_trace). Must not add anything the records
 don't say. Every number is exact except the "≈ $ API-equivalent" estimate, which says it is one (RQ4)."""
 
 from datetime import datetime
 from typing import Any
 
 from ferb.trace import lines
-from ferb.trace.compose import walk
 
 # V4: "done" is recorded only when every condition was verified, "done_unverified" when the work finished but it stands
 # unconfirmed; its label is "not confirmed" (V5: "unverified" is said only beside a condition a check ran on). A "done"
@@ -76,16 +75,4 @@ def story(ep: dict[str, Any], verdict: dict[str, Any] | None = None) -> list[str
     if verdict:
         when = datetime.fromisoformat(verdict["at"]).strftime("%d %b %H:%M")
         out.append(f"Your verdict: {verdict['verdict']} ({when})" + (f" — {verdict['note']}" if verdict.get("note") else ""))
-    return out
-
-
-def steps(trace: dict[str, Any]) -> list[str]:
-    calls = sorted((n for n in walk(trace.get("spans") or []) if n["kind"] == "tool.call"), key=lambda n: n["started_at"])
-    out = []
-    for n in calls:
-        inp = n.get("input") or {}
-        secs = ((datetime.fromisoformat(n["ended_at"]) - datetime.fromisoformat(n["started_at"])).total_seconds()
-                if n.get("ended_at") else None)
-        out.append(lines.step_line(n["started_at"], str(inp.get("tool", "?")), inp.get("args") or {},
-                                   inp.get("why", ""), str(n.get("summary") or ""), secs, n.get("error")))
     return out

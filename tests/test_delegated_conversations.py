@@ -185,7 +185,7 @@ def test_notice_is_told_when_posted_deduplicated_and_shown_after_display_ack(con
 
 def test_rpc_controls_are_owner_only():
     from ferb.daemon.auth import Role, allowed
-    for method in ('conversations.change', 'notifications.rules', 'notifications.label', 'attention.ack'):
+    for method in ('conversations.change', 'attention.ack'):
         assert allowed(Role.CLI, method)
         assert not allowed(Role.MCP_SHIM, method)
         assert not allowed(Role.NATIVE_HOST, method)

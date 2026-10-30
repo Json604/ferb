@@ -56,15 +56,3 @@ def test_prices_change_on_their_date_and_long_prompts_cost_more() -> None:
     assert cost_usd("gemini-3.8-flash", 1_000_000, 0, 0, 0, day="2026-12-31") == pytest.approx(0.75)
     assert cost_usd("gemini-3.8-flash", 1_000_000, 0, 0, 0, day="2027-01-01") == pytest.approx(1.50)
     assert cost_usd("gpt-6-sol", 300_000, 0, 0, 0) == pytest.approx(300_000 * 2 * 2.0 / 1e6)   # above 272K: 2x input
-
-
-@pytest.mark.anyio
-async def test_codex_adapter_yields_normalized_usage(tmp_path: Path) -> None:
-    line = json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40,
-                                                           "output_tokens": 7, "reasoning_output_tokens": 2}})
-    proc = await asyncio.create_subprocess_exec(sys.executable, "-c", f"print({line!r}, flush=True)",
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    rt = CodexRuntime(Path("/unused"), "worker", tmp_path, tmp_path, timeout_s=None)
-    run = RunHandle("t", rt.name, "t", {"proc": proc, "violation": None, "seen": set()})
-    usage = [e.data async for e in rt.events(run) if e.kind == "usage"][0]
-    assert usage["input_tokens"] == 100 and usage["cached_input_tokens"] == 40 and usage["billing"] == "subscription"

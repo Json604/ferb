@@ -61,8 +61,7 @@ class Sensing:
         from ferb.sense.perception import Perception
         self.perception = Perception(self)
         self.perception.bind_clipboard()
-        self.trail.tag = self.perception.notify
-        self.perception.purge_text()
+        self.perception.purge_text()          # trail.tag stays a no-op unless Jev is switched on (_wire_jev)
         watchers: list[Any] = [self.perception]
         if self.run_watchers:
             watchers += [AppFocusWatcher(), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
@@ -131,31 +130,6 @@ class Sensing:
                 "failed": dict(s.failed) if s else {},
                 "owner_input": self.owner_input.running, "folder_problems": self.watch_problems,
                 "perception": self.perception.status() if self.perception is not None else {}}
-
-    def _notification_rule_from_chat(self, rule: Any, owner_words: str) -> str:
-        if self.perception is None:
-            return 'Notification perception is unavailable.'
-        try:
-            ident = self.perception.policy.add(rule.app, rule.conversation, rule.topic, rule.quote, owner_words,
-                                               rule.until_at, rule.exceptions)
-            self._journal().append('notification.owner_rule', {'id': ident, **rule.model_dump()}, origin='owner')
-            return 'Saved your notification rule for ' + (rule.conversation or rule.app) + '.'
-        except ValueError as exc:
-            return str(exc)
-
-    async def _notification_rules(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        if self.perception is None or self.db is None:
-            raise ValueError('Notification perception is unavailable')
-        if params.get('remove'):
-            self.db.conn.execute('DELETE FROM notification_rules WHERE id=?', (str(params['remove']),))
-        return {'rules': [dict(r) for r in self.db.conn.execute('SELECT * FROM notification_rules ORDER BY created_at')],
-                'measurements': self.perception.policy.measurements()}
-
-    async def _notification_label(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        if self.perception is None:
-            raise ValueError('Notification perception is unavailable')
-        self.perception.policy.label(str(params['event_id']), str(params['expected']), str(params['owner_quote']))
-        return self.perception.policy.measurements()
 
     def _attention_effect(self, decision: str, effect: str) -> None:
         """Q4/C3: what Jev's live trail.attention yes led to, on its decision row (`ferb decide stats`)."""

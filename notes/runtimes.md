@@ -82,6 +82,7 @@ cites 68dc95b for the same files).
 
 ## Fix list
 - [ ] Remove the Codex exec path, `workdir`, `model_instructions_file`, duplicate MODEL constant, duplicate `check_final`.
+      (Step 3: exec path (`_cmd`, exec branches of start/events/cancel, `_reap`, `_watch_trace`, `model_instructions_file`) and the `workdir` parameter removed; every run is an app-server run. Left: duplicate MODEL constant, duplicate `check_final`.)
 - [ ] Explicit `tool_timeout_sec` and `startup_timeout_sec` in the Codex MCP config.
 - [ ] Remove the doubled 900 s start/events timeouts: the planner call gets 90 s (notes/orchestration.md
       decision 11); other non-worker calls keep the 180 s silence guard and one overall limit; workers none.

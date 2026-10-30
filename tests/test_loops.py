@@ -1,5 +1,6 @@
 """L31: loops — a plan step that repeats a checked worker round, with a code-run probe between rounds."""
 import json
+import typing
 
 import pytest
 
@@ -191,9 +192,10 @@ def test_loop_state_is_durable(tmp_path):
     again = LoopStore(db, FakeClock()).load('tree', 'keep', steers=9, cursor=9)
     assert (again['state'], again['rounds'], again['steer_seen']) == ('watching', 3, 2)   # created once only
     assert store.digest('tree', 'keep') == {'rounds': 3, 'recent': ['a']}
-    assert [r['step_id'] for r in store.running()] == ['keep']
+    from types import SimpleNamespace
+    assert [r['step_id'] for r in _live_loops(SimpleNamespace(db=db))] == ['keep']
     store.save('tree', 'keep', state='stopped')
-    assert store.running() == []
+    assert _live_loops(SimpleNamespace(db=db)) == []
 
 
 def test_plan_events_report_their_sequence(tmp_path):
@@ -1028,7 +1030,7 @@ def test_a_loop_runs_rounds_under_one_task_and_stops_on_the_owners_stop(daemon, 
         _wait(daemon, lambda: daemon.daemon.supervisor.loops.digest(tree_id, 'keep')['rounds'] >= 2)
         assert _roles(script).count('loop.keep') == 2        # two rounds, one task id
         daemon.run(_stop(daemon, tree_id), timeout=20)
-        assert [r for r in _on_loop(daemon, daemon.daemon.supervisor.loops.running) if r['task_id'] == tree_id] == []
+        assert [r for r in _on_loop(daemon, lambda: _live_loops(daemon.daemon)) if r['task_id'] == tree_id] == []
     finally:
         c.close()
 
@@ -1275,7 +1277,7 @@ def test_a_loop_runs_on_when_a_record_a_status_line_or_a_round_fails(daemon, mon
         failed = {f['what'] for f in _journal(daemon, 'loop.failed')}
         assert {'record', 'status', 'round'} <= failed
         daemon.run(_stop(daemon, tree_id), timeout=20)
-        assert [r for r in _on_loop(daemon, sv.loops.running) if r['task_id'] == tree_id] == []
+        assert [r for r in _on_loop(daemon, lambda: _live_loops(daemon.daemon)) if r['task_id'] == tree_id] == []
     finally:
         c.close()
 
@@ -1629,7 +1631,7 @@ def test_a_steer_wakes_a_watching_loop_at_once(daemon, monkeypatch):
         monkeypatch.setattr(loops, 'PROBE_SECONDS', 600)     # from here on, only a wake ends the wait soon
         monkeypatch.setattr(loops, 'POLL_S', 600)
         update = json.loads(sup('task', 'Noted.', _loop_plan()))
-        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        update['control'] = {'task_id': tree_id, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         chat(daemon, 'also keep the volume up', timeout=10)
         _wait(daemon, lambda: _roles(script).count('loop.keep') == 2, timeout=5)
@@ -1745,7 +1747,7 @@ def test_a_correction_delivered_to_the_running_round_costs_no_extra_round(daemon
         sv = daemon.daemon.supervisor
         assert running.wait(10)
         update = json.loads(sup('task', 'Noted.', _loop_plan()))
-        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        update['control'] = {'task_id': tree_id, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = chat(daemon, 'also keep the volume up', timeout=10)
         assert received == ['loop.keep']
@@ -1794,7 +1796,7 @@ def test_a_correction_during_the_end_check_starts_the_next_round(daemon, monkeyp
         tree_id = plan['task_id']
         assert checking.wait(10)
         update = json.loads(sup('task', 'Noted.', _loop_plan('Watch PR 12 checks', 'the checks pass')))
-        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        update['control'] = {'task_id': tree_id, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         chat(daemon, 'also check the lint job', timeout=10)
         _wait(daemon, lambda: _roles(script).count('loop.keep') == 2)
@@ -1835,7 +1837,7 @@ def test_a_correction_the_running_round_could_not_receive_is_read_by_its_next_at
         tree_id = plan['task_id']
         assert running.wait(10)
         update = json.loads(sup('task', 'Noted.', _loop_plan()))
-        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+        update['control'] = {'task_id': tree_id, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = chat(daemon, 'also keep the volume up', timeout=10)
         assert 'next step' in json.dumps(reply)              # not delivered to the running worker
@@ -2428,7 +2430,7 @@ def test_closing_the_held_tab_asks_once_whether_to_stop_and_stop_ends_the_task(b
         assert len(line.split(':', 1)[1].split('.')[0].strip()) <= 60
         _on_loop(d, d.daemon._resolve_approval, question.id, True, 1)       # the notch's Stop button
         _wait(d, lambda: tree_id not in d.daemon.supervisor._tree_of)
-        assert [r for r in _on_loop(d, d.daemon.supervisor.loops.running) if r['task_id'] == tree_id] == []
+        assert [r for r in _on_loop(d, lambda: _live_loops(d.daemon)) if r['task_id'] == tree_id] == []
         assert _questions(d) == []
     finally:
         c.close()
@@ -2838,3 +2840,9 @@ def test_the_owners_file_picker_in_the_held_tab_is_theirs_between_rounds(bd, mon
         d.run(_stop(d, tree_id), timeout=20)
     finally:
         c.close()
+
+
+def _live_loops(daemon: "typing.Any") -> "list[dict[str, typing.Any]]":
+    """The loop rows that haven't ended (as `LoopStore.running` once gave them)."""
+    return [dict(r) for r in daemon.db.conn.execute(
+        "SELECT * FROM loop_state WHERE state NOT IN ('finished','stopped') ORDER BY updated_at")]

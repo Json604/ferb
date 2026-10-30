@@ -1,7 +1,8 @@
 """Register CLI commands and common connection helpers. Must not implement task orchestration.
 
-`ferb` command line: logs, trace, daemon run, stop, resume-tasks, restore, setup, doctor,
-uninstall."""
+`ferb` is plumbing and a developer toolbox, never a user interface (the FERB app is; notes/daemon.md decisions 3, 4):
+setup --service/--update/--codex-login/--codex-logout/--cli, mcp and daemon run for the app and the models; trace,
+logs, stats, doctor, memory, restore, ps, verdict, runtimes and browsers for debugging."""
 
 import argparse
 import json
@@ -12,7 +13,7 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.errors import NotRunning
 from ferb.paths import ferb_home, socket_path
 
-LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers", "voice")
+LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,21 +22,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--version", action="version", version=f"ferb {ferb.__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    from ferb.cli.conversations import register
-    register(sub)
-
     lp = sub.add_parser("logs", help="live stream from the daemon's bus")
     for flag in LOG_FLAGS:
         lp.add_argument(f"--{flag}", action="store_true")
 
-    vp = sub.add_parser("voice", help="push-to-talk: watch it live (no argument), or turn it on / off")
-    vp.add_argument("switch", nargs="?", choices=["on", "off"],
-                    help="on: start push-to-talk (after `ferb setup --voice`); off: stop it and quit FERB.app")
-
     tp = sub.add_parser("trace", help="what a task did, step by step (default: the latest task)")
     tp.add_argument("task_id", nargs="?", help="a task id or its first characters (default: the latest task)")
     trace_format = tp.add_mutually_exclusive_group()
-    trace_format.add_argument("--steps", action="store_true", help="one line per tool call")
     trace_format.add_argument("--full", action="store_true", help="show all recorded span fields")
     trace_format.add_argument("--json", action="store_true", help="export the complete recorded trace as JSON")
 
@@ -67,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     me = msub.add_parser("edit", help="correct an item (a new version; the old one stays as history)")
     me.add_argument("id")
     me.add_argument("content")
-    mf = msub.add_parser("forget", help="purge an item, its versions and its sources (asks first)")
+    mf = msub.add_parser("forget", help="delete an item, its versions and the activity rows it came from (asks first)")
     mf.add_argument("id")
     mf.add_argument("--keep-sources", action="store_true")
     mf.add_argument("--yes", action="store_true")
@@ -79,8 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     emb.add_argument("--dataset")
     emb.add_argument("--evaluation")
     msub.add_parser("digest", help="pending identity suggestions, at most once a day")
-    msub.add_parser("consolidate", help="run incremental learning while no task is running")
-    msr = msub.add_parser("search", help="find episodes, procedures, lessons and facts")
+    msr = msub.add_parser("search", help="find episodes, facts and activity summaries")
     msr.add_argument("query")
     msr.add_argument("--kind")
     msr.add_argument("--app")
@@ -90,13 +82,6 @@ def main(argv: list[str] | None = None) -> int:
     mid.add_argument("--key", default="owner")
     mrb = msub.add_parser("rollback", help="invalidate a sleep-learning batch while preserving history")
     mrb.add_argument("batch")
-    dcp = sub.add_parser("decide", help="Jev's answers next to FERB's own decisions (shadow mode)")
-    dsub = dcp.add_subparsers(dest="dcmd", required=True)
-    dsub.add_parser("stats", help="observation and memory checks: flag rate, examples and errors")
-    for name, help_ in (("enable", "let Jev's stricter answers act for one question"),
-                        ("disable", "back to shadow mode for one question")):
-        x = dsub.add_parser(name, help=help_)
-        x.add_argument("question")
     scp = sub.add_parser("schedules", help="scheduled and recurring tasks: list, cancel / pause / resume <id>")
     scp.add_argument("action", nargs="?", choices=["list", "cancel", "pause", "resume"], default="list")
     scp.add_argument("id", nargs="?")
@@ -139,12 +124,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('id')
     ap.add_argument('--take', action='store_true', help='pause worker input until you detach with Ctrl-]')
 
-    cp = sub.add_parser("chat", help="talk to FERB")
-    cp.add_argument("--verbose", action="store_true", help="also show plans, steps, tools and checks")
-    cp.add_argument("--speak", action="store_true", help="FERB also says its replies out loud (the Mac's voice)")
-    conversation = cp.add_mutually_exclusive_group()
-    conversation.add_argument("--new", action="store_true", help="start a separate conversation")
-    conversation.add_argument("--resume", metavar="ID", help="resume a conversation printed by --new")
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
@@ -163,32 +142,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="link the `ferb` command at ~/.local/bin to this FERB.app (Settings → Advanced)")
     sp.add_argument("--claude-login", action="store_true",
                     help="sign in FERB's own Claude (its own home: your personal Claude Code settings stay out)")
-    sp.add_argument("--voice", action="store_true",
-                    help="push-to-talk: build and sign FERB.app, ask for Microphone + Speech Recognition, turn it on")
     sp.add_argument("--service", action="store_true",
                     help="FERB.app's setup window: install (with --update, update) the background service with no "
                          "questions and wait until it answers")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
-    wp = sub.add_parser("watch", help="the owner-verified background test: each interaction runs in the background "
-                                      "and you say what you saw")
-    wp.add_argument("--mac", action="store_true")
-    wp.add_argument("--browser", action="store_true")
-    wp.add_argument("--only", help="comma-separated step ids, e.g. M4,M9")
-    wp.add_argument("--dry-run", action="store_true", help="list the steps and exit")
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs, and its own CPU and "
                                        "memory per day (from the database)")
     stp.add_argument("--days", type=int, default=7)
     bp = sub.add_parser("baseline", help="capture metrics or compare two saved baseline JSON files")
     bp.add_argument('--compare', nargs=2, metavar=('BEFORE', 'AFTER'), help='read-only saved-snapshot comparison')
     sub.add_parser("release-checklist", help="print owner-supervised release checks as JSON; never runs them")
-    tm = sub.add_parser("test-mode", help="inspect or set the exact send allowlist for owner-run tests")
-    tm.add_argument("action", nargs="?", default="status", choices=("status", "on", "off"))
-    tm.add_argument("--allow-send", action="append", default=[],
-                    help='exact recipient, or "SITE @ACCOUNT" (or "SITE") for a post on that page; '
-                         'repeat per destination')
-    rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
-    rg.add_argument("--allow-send", action="append", default=[], help="exact recipient allowed in test-mode send actions")
-    rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: the built-in smoke set)")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
 
@@ -216,10 +179,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ferb: cannot compare baselines: {exc}", file=sys.stderr)
                 return 1
         return admin.baseline(ferb_home(), sys.stdout)
-    if args.cmd == "watch":
-        from ferb.device.watch import main as watch_main
-        flags = [f for f, on in (("--mac", args.mac), ("--browser", args.browser), ("--dry-run", args.dry_run)) if on]
-        return watch_main(flags + (["--only", args.only] if args.only else []))
     if args.cmd == "mcp":
         from ferb.cli.mcp import main as mcp_main
         mcp_main()
@@ -229,16 +188,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.rcmd == "use":
             return runtimes_cli.use(ferb_home(), args.role, args.runtime, args.model, sys.stdout)
         return runtimes_cli.show(ferb_home(), sys.stdout)
-    if args.cmd == "chat":
-        from ferb.cli.chat import main_chat
-        try:
-            return main_chat(lambda: Client(socket_path(), timeout=1800), verbose=args.verbose,
-                             speak=args.speak, new=args.new, resume=args.resume)
-        except NotRunning as e:
-            print(f"ferb: {e}", file=sys.stderr)
-            return 2
-        except KeyboardInterrupt:
-            return 130
     if args.cmd == "browsers" and args.bcmd == "extension":
         from ferb.act.browser.profiles import SUPPORT
         from ferb.device.extensions import extension_path, extension_source, install_extension
@@ -282,8 +231,6 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.key_setup(env, args.key)
             if args.cmd == "setup" and args.jev:
                 return setup_cmd.jev_setup(env)
-            if args.cmd == "setup" and args.voice:
-                return setup_cmd.voice_setup(env)
             if args.cmd == "setup" and args.codex_logout:
                 return setup_cmd.codex_logout(env)
             if args.cmd == "setup" and args.cli:
@@ -333,46 +280,20 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "logs":
                 filters = [f for f in LOG_FLAGS if getattr(args, f)]
                 return logs.run(client, filters, sys.stdout)
-            if args.cmd == "voice" and args.switch:
-                return logs.voice_switch(client, args.switch == "on", sys.stdout)
-            if args.cmd == "voice":
-                return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
-                return admin.trace(client, args.task_id, sys.stdout, args.full, args.json, args.steps)
+                return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
             if args.cmd == "verdict":
                 return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
-            if args.cmd == "test-mode":
-                if args.allow_send and args.action != "on":
-                    raise ValueError("--allow-send requires test-mode on")
-                params = ({"status": True} if args.action == "status" else
-                          {"off": True} if args.action == "off" else {"allow_send": args.allow_send})
-                print(json.dumps(client.call("test.mode", params), indent=2))
-                return 0
-            if args.cmd == "regress":
-                from pathlib import Path
-
-                from ferb.eval.regress import DEFAULT_SET
-                set_path = Path(args.set_file) if args.set_file else DEFAULT_SET
-                if not set_path.is_file():
-                    print(f"ferb: no such regression set: {set_path}", file=sys.stderr)
-                    return 2
-                return admin.regress(client, lambda: Client(socket_path()), set_path, ferb_home(), sys.stdout,
-                                     allow_send=args.allow_send)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":
                 return admin.resume(client, sys.stdout)
-            if args.cmd in ('conversations', 'notifications'):
-                from ferb.cli.conversations import run
-                return run(client, args, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
             if args.cmd == "schedules":
                 return admin.schedules(client, args.action, args.id, sys.stdout)
             if args.cmd == "reminders":
                 return admin.reminders(client, args.action, args.id, sys.stdout)
-            if args.cmd == "decide":
-                return admin.decide(client, args, input, sys.stdout)
             if args.cmd == "timeline":
                 return admin.timeline(client, args.since, sys.stdout)
             if args.cmd == "restore":

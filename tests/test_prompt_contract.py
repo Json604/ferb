@@ -189,10 +189,6 @@ SENTENCES = [
      'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying what is stuck.'),
         ("question.md",
      "A worker asking to do work the owner handed to a named agent or person (not an app FERB uses as a tool) is the owner's decision about who does the work, not a method question: ask_owner=true, saying what is stuck and what FERB would do instead."),
-    ("worker.md",                                                     # L29: the worker starts from what was learned
-     "A selected procedure lists its steps with this run's values filled in, then lessons and verified earlier runs of "
-     "the same kind of task: start from those tools and arguments instead of searching again, and check each step's "
-     "expected result as you go."),
     # L36 §5: a resumed task re-asked for two secrets saved that morning; nothing listed them by site
     ("worker.md",
      'Before typing into a login form, call secrets_list for that site.'),
@@ -318,8 +314,8 @@ def test_a_reworded_worker_question_keeps_the_workers_reason() -> None:
 
 NARROWING_STEER = ("Use stop only when the owner's words ask only to stop. A message that tells FERB to stop changing "
                    "things but still wants an answer (\"don't worry, leave it, it works now, but if you can find the "
-                   "reason, tell me\") narrows the task: steer it to stop making changes, keep diagnosing and report "
-                   "what it finds.")
+                   "reason, tell me\") narrows the task: continue it with the instruction to stop making changes, keep "
+                   "diagnosing and report what it finds.")
 
 
 def test_a_narrowing_message_steers_instead_of_stopping() -> None:

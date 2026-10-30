@@ -22,8 +22,7 @@ from ferb.trace import compose
 
 # `ferb logs` filter flags -> bus topic patterns (policy: FERB's questions and answers, the stop, alignment advice)
 LOG_FILTERS = {"tasks": ("task.*",), "trail": ("trail.event",), "tools": ("tool.*",), "browsers": ("browser.*",),
-               "policy": ("approval.*", "stop.*", "security.*"), "actions": ("action.*",), "timers": ("timer.*",),
-               "voice": ("voice.*",)}
+               "policy": ("approval.*", "stop.*", "security.*"), "actions": ("action.*",), "timers": ("timer.*",)}
 
 
 RESTORE_LIST = 100                                # `ferb restore` lists the newest this many records
@@ -152,9 +151,7 @@ class Rpc:
             "setup.browser_pair": self._setup_browser_pair, "browser.show_handoff": self._show_handoff,
             "setup.browsers_pair_all": self._setup_browsers_pair_all, "identity.pair": self._identity_pair,
             "ps.list": self._ps_list, "ps.kill": self._ps_kill, "conversations.list": self._conversations_list,
-            "conversations.change": self._conversations_change, "notifications.rules": self._notification_rules,
-            "notifications.label": self._notification_label,
-            "notifications.categories": self._notifications_categories, "attention.ack": self._attention_ack,
+            "conversations.change": self._conversations_change, "notifications.categories": self._notifications_categories, "attention.ack": self._attention_ack,
             "reports.build": self._reports_build, "tasks.list": self._tasks_list,
             "tasks.preview": self._task_preview, "update.prepare": self._update_prepare,
             "reports.diagnostic": self._reports_diagnostic, "notices.list": self._notices_list,
@@ -281,7 +278,6 @@ class Rpc:
             except Exception as e:                    # the verdict stands; the next capture refreshes the card
                 kind = "memory.episode_deferred" if isinstance(e, Deferred) else "memory.episode_failed"
                 self._journal().append(kind, {"task_id": task_id, "error": self._redact_text(str(e))})
-            self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
 
     def _report_facts(self) -> dict[str, Any]:
@@ -386,9 +382,6 @@ class Rpc:
                               "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}
         out["hearing"] = await self._hearing_status(bool(params.get("hearing", params.get("selftest", True))))
         out["clipboard"] = await asyncio.to_thread(self._clipboard_access)     # I3: never reads the contents
-        out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
-                        "connected": self.voice is not None and self.voice.app is not None,
-                        "permissions": self.voice.permissions if self.voice is not None else {}}
         from ferb.core.context import token_method
         out["tokenizer"] = token_method()                 # FERB's pinned o200k copy, or the byte ceiling (8a)
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),

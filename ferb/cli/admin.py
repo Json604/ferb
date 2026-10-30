@@ -112,9 +112,8 @@ def verdict(client: Client, task_id: str, verdict_: str, note: str, out: TextIO)
     return 0
 
 
-def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False,
-          steps: bool = False) -> int:
-    """`ferb trace`: the story (default), --steps (one line per tool call), --full / --json (raw, for debugging)."""
+def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False) -> int:
+    """`ferb trace`: the story (default), --full / --json (raw, for debugging)."""
     result = client.call("trace.get", {"task_id": task_id or "last"})
     if raw:
         print(json.dumps(result, ensure_ascii=False, indent=2), file=out)
@@ -123,11 +122,6 @@ def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, 
         for line in render_trace(result, True):
             print(line, file=out)
         return 0
-    if steps and result.get("spans"):
-        print("\n".join(render.steps(result)) or "(no tool calls)", file=out)
-        return 0
-    if steps:
-        print("This task's steps aren't kept any more (traces age out after 30 days); its story:", file=out)
     episode = result.get("episode")
     if episode is None:                                  # nothing composed: show what the raw trace has
         for line in render_trace(result, False):
@@ -292,12 +286,11 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
         client.set_timeout(None)
         print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
         return 0
-    if c in ("digest", "consolidate", "search", "identity", "rollback"):
+    if c in ("digest", "search", "identity", "rollback"):
         import json
         params = {"op": c}
         params.update({k: getattr(args, k) for k in ("query", "kind", "app", "person", "text", "key", "batch")
                        if getattr(args, k, None) is not None})
-        client.set_timeout(None) if c == "consolidate" else None
         print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
     elif c in ("confirm", "edit", "forget") and args.id.startswith("m-"):
         import json
@@ -335,8 +328,9 @@ def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
         print(f"Retracted {args.id}: kept as history, never used.", file=out)
     elif c == "forget":
         p = {"id": args.id, "keep_sources": args.keep_sources}
-        plan = client.call("memory.forget", p)["will_delete"]
-        print("This permanently deletes:\n" + "\n".join(f"  - {x}" for x in plan), file=out)
+        planned = client.call("memory.forget", p)
+        print("This permanently deletes:\n" + "\n".join(f"  - {x}" for x in planned["will_delete"]) +
+              (f"\n{planned['keeps']}" if planned.get("keeps") else ""), file=out)
         if not args.yes and ask("Forget it? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Nothing deleted.", file=out)
             return 1
@@ -368,48 +362,6 @@ def timeline(client: Client, since: str | None, out: TextIO) -> int:
 
 
 # ---------- Jev ----------
-
-def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
-    if args.dcmd == "stats":
-        r = client.call("jev.stats")
-        if not r["configured"]:
-            print("Jev isn't set up (`ferb setup --jev`).", file=out)
-            return 0
-        for st in r["stats"]:
-            if st["answered"] == 0 and st["asked"] == 0:
-                continue
-            mode = st.get("mode") or ("enabled" if st["enabled"] else "shadow")     # live: acts by the plan (Q4)
-            head = f"{st['question']:<28} {mode if mode == 'shadow' else mode.upper():<7}  answered {st['answered']}/{st['asked']}"
-            flag = f"{st['flag_rate']:.0%}" if st["flag_rate"] is not None else "-"
-            head += f", flagged {flag}"
-            if st["acted"]:
-                head += f", acted {st['acted']}x"
-            print(head, file=out)
-            for ex in st.get("examples", []):
-                print(f"      e.g. {ex}", file=out)
-        if r.get("dropped"):
-            print(f"({r['dropped']} shadow calls dropped while Jev was behind)", file=out)
-        if r.get('retired_enabled'):
-            print('Retired configured questions (inactive): ' + ', '.join(r['retired_enabled']), file=out)
-        return 0
-    on = args.dcmd == "enable"
-    if on:
-        st = next((x for x in client.call("jev.stats")["stats"] if x["question"] == args.question), None)
-        if st is not None:
-            print(f"{args.question}: Jev flagged "
-                  f"{(st['flag_rate'] or 0):.0%} of {st['answered']} answers. Effect when enabled: {st['effect']}.",
-                  file=out)
-            for ex in st.get("examples", []):
-                print(f"  e.g. {ex}", file=out)
-            if ask("Enable it? [y/N] ").strip().lower() not in ("y", "yes"):
-                print("Left in shadow mode.", file=out)
-                return 1
-    r = client.call("jev.enable", {"question": args.question, "on": on})
-    print(f"Enabled questions: {', '.join(r['enabled']) or 'none (all in shadow mode)'}", file=out)
-    return 0
-
-
-# ---------- reminders, device ----------
 
 def reminders(client: Client, action: str, rid: str | None, out: TextIO) -> int:
     if action == "cancel":
@@ -748,32 +700,11 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                            (since,)).fetchone()
         if latest and latest[0]:
             print(f"  latest failed call: ferb trace {latest[0]}", file=out)
-        if "learning_nodes" in tables:
-            _procedures(c, out)
         _daemon_problems(c, since, out)
         _resources(c, days, "resource_samples" in tables, out)
     finally:
         c.close()
     return 0
-
-
-def _procedures(c: Any, out: TextIO) -> None:
-    """What learning produced and whether it was used (L36 §8), all time: the current procedures and how many are
-    learned; the runs that used one (a success receipt, which only a run that followed its procedure gets, of a
-    procedure version whose examples don't include that run, counted once per task; a failed run offered one gets a
-    failure receipt either way, `Learning.record_use`); and the kinds of task whose latest consolidation refused every
-    procedure it proposed."""
-    procs = c.execute("SELECT state FROM learning_nodes WHERE kind = 'procedure' AND valid_to IS NULL AND state NOT IN "
-                      "('retired', 'rolled_back')").fetchall()
-    examples = {pid: {e.get("episode") for e in json.loads(body).get("examples") or [] if isinstance(e, dict)}
-                for pid, body in c.execute("SELECT id, body_json FROM learning_nodes WHERE kind = 'procedure'")}
-    used = {task for pid, ep, task in c.execute("SELECT r.procedure_id, r.episode_id, n.key FROM learning_receipts r "
-                                                "JOIN learning_nodes n ON n.id = r.episode_id WHERE r.successful = 1")
-            if ep not in examples.get(pid, ())}
-    refused = c.execute("SELECT COUNT(*) FROM learning_jobs WHERE source_ref LIKE 'intent:%' AND error LIKE "
-                        "'every procedure proposed was refused%'").fetchone()[0]
-    print(f"Procedures: {len(procs)} stored, {sum(1 for (s,) in procs if s == 'learned')} learned; used in "
-          f"{len(used)} run(s); {refused} kind(s) of task whose every proposed procedure was refused", file=out)
 
 
 def _daemon_problems(c: Any, since: str, out: TextIO) -> None:
@@ -878,41 +809,3 @@ def _window(row: dict[str, Any]) -> str:
             f"{jev.get('not_sampled', 0)}; model runs {sum(models.values())}{parts(models)}; "
             f"tool calls {work.get('tool_calls', 0)}; tasks running {work.get('tasks_running', 0)}"
             + (f"; top processes {top}" if top else ""))
-
-
-def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: Any, out: TextIO,
-            *, allow_send: list[str] | None = None) -> int:
-    """Run a regression set; print the `ferb verdict` line per task. Never decides pass or fail."""
-    from datetime import datetime
-
-    from ferb.eval.regress import load_set, run_set
-    tasks = load_set(set_path)
-    previous = client.call("test.mode", {"status": True})
-    if not isinstance(previous.get("enabled"), bool) or not isinstance(previous.get("allow_send"), list):
-        raise ValueError("daemon did not return a valid test-mode status; update it before running regressions")
-    client.call("test.mode", {"allow_send": allow_send or []})
-    try:
-        rows = run_set(client, tasks, out, connect=connect)
-    finally:
-        cleanup = connect()
-        try:
-            cleanup.call("test.mode", {"allow_send": previous["allow_send"]} if previous["enabled"] else {"off": True})
-        finally:
-            cleanup.close()
-    expect = {t.id: t.expect for t in tasks}
-    print("\nYour verdicts (acceptance is your word):", file=out)
-    for r in rows:
-        r["verdict_possible"] = bool(r["task_id"])
-        if r["task_id"]:
-            print(f"  ferb verdict {r['task_id']} pass|fail   # {r['id']}: {expect.get(r['id'], '')}", file=out)
-        elif r["status"] in ("reply", "clarify"):
-            print(f"  {r['id']}: answered in chat — no task to give a verdict on ({r['status']}): "
-                  f"{r['outcome_summary']}   # {expect.get(r['id'], '')}", file=out)
-        else:
-            print(f"  {r['id']}: no task started ({r['status']}): {r['outcome_summary']}   # {expect.get(r['id'], '')}", file=out)
-    dest = home / "regression"
-    dest.mkdir(parents=True, exist_ok=True)
-    path = dest / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
-    path.write_text(json.dumps(rows, indent=2))
-    print(f"Results: {path}", file=out)
-    return 0

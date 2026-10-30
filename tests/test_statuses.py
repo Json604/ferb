@@ -279,15 +279,6 @@ def test_a_cleanup_review_cannot_turn_a_judged_failure_into_unverified(daemon: R
 
 # ---------- the readers tell them apart ----------
 
-def test_chat_verbose_shows_three_distinct_outcomes() -> None:
-    from ferb.cli.chat import render
-    shown = {s: render({"type": "outcome", "status": s, "summary": "S", "answer": "A", "verified": s == "done"},
-                       verbose=True) for s in ("done", "done_unverified", "failed")}
-    assert shown["done"].startswith("ferb: done ✓ — S")
-    assert shown["done_unverified"].startswith("ferb: done — not confirmed — S")   # V5: no "unverified" label
-    assert shown["failed"].startswith("ferb: failed ✗ — S")
-
-
 def _seed(tmp_path: Path, statuses: tuple[str, ...]) -> None:
     db = Database(tmp_path / "ferb.db")
     db.migrate()

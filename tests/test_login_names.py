@@ -539,7 +539,7 @@ def test_a_control_from_another_chat_names_no_site(daemon: Any, monkeypatch: pyt
     try:
         assert worker.started.wait(5)
         tree_id = worker.handles[0].task_id.rsplit(".", 1)[0]
-        out = SupervisorOutcome.model_validate(json.loads(control_turn("Log in", tree_id, "steer")))
+        out = SupervisorOutcome.model_validate(json.loads(control_turn("Log in", tree_id, "continue")))
         sites = {chat_id: run(daemon, lambda: daemon.daemon.supervisor._turn_sites(
             out, ChatSession(chat_id), "the username for usvisascheduling.com is Asha Rao"))
             for chat_id in ("visa", "other")}
@@ -579,7 +579,7 @@ def test_a_username_said_in_a_live_correction_reaches_the_next_tasks_login(daemo
         assert worker.started.wait(5)
         tree_id = worker.handles[0].task_id.rsplit(".", 1)[0]
         # the planner restates the task without its sites: the sites the task named before the steer still count
-        script.sup.append(control_turn("Log in to usvisascheduling.com as Asha Rao", tree_id, "steer", remember=[{
+        script.sup.append(control_turn("Log in to usvisascheduling.com as Asha Rao", tree_id, "continue", remember=[{
             "kind": "fact", "subject": "owner", "key": "usvisascheduling-username", "content": "Asha Rao",
             "quote": "the username is Asha Rao", "login_origin": SITE}]))
         events = chat(daemon, "the username is Asha Rao", session="visa", timeout=5)

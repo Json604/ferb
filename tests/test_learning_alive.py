@@ -1,7 +1,6 @@
 """L16: learning works again (F8, D9). Internal ids survive redaction, the consolidator's answer schema is
 strict-compatible, the daily security digest reads every recorded `network` shape, and one failing hourly memory job
 never stops the others."""
-import asyncio
 import hashlib
 import json
 import random
@@ -13,8 +12,6 @@ import pytest
 
 from ferb.core.ids import SequentialIds
 from ferb.core.types import ModelLimits, RuntimeEvent
-from ferb.memory.consolidate import PROPOSAL_SCHEMA, Consolidator
-from ferb.memory.intents import intent_id
 from ferb.memory.learning import Learning
 from ferb.orchestrator import episodes
 from ferb.policy import security_digest
@@ -22,8 +19,6 @@ from ferb.sanitize.redact import REDACTED, Redactor, payment_card
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 from ferb.trace import compose
-from tests.support.learning_fixtures import label_card
-from tests.support.strict_schema import strict_problems
 from tests.support.trace_builder import TraceBuilder
 
 DAY = '2026-10-11'
@@ -168,10 +163,6 @@ def test_episode_capture_with_refs_recorded_through_a_redacted_span_succeeds(sto
 
 # (c) ---------------------------------------------------------------------------------------------------------------
 
-def test_consolidator_schema_is_strict_compatible() -> None:
-    assert strict_problems(PROPOSAL_SCHEMA) == []
-
-
 class NoMemory:
     def items(self, **_: Any) -> list[Any]:
         return []
@@ -203,76 +194,6 @@ class ProposalRuntime:
         return None
 
 
-def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks(stores) -> None:
-    _, _, _, learning = stores
-    card = learning.put('episode', 't-1', {
-        'task_id': 't-1', 'request': 'send the weekly report', 'verified': True, 'status': 'done',
-        'apps': {'com.apple.mail': '16.0'}, 'slots': {},
-        'actions': [{'id': 't-1-action', 'tool': 'mail.send', 'args': {'to': 'a@kartikey.xyz', 'cc': []},
-                     'outside_action': False}]}, [], origin_label='ferb', made_by='code:evidence-card/1',
-        state='active')
-    label_card(learning, card, 'send the weekly report')        # labelled (L29): only the consolidation call
-    for n in (2, 3):                                            # three verified runs of the intent (L29)
-        label_card(learning, learning.put('episode', f't-{n}', {
-            'task_id': f't-{n}', 'request': 'send the weekly report', 'verified': True, 'status': 'done',
-            'apps': {'com.apple.mail': '16.0'}, 'slots': {}, 'actions': []}, [], origin_label='ferb',
-            made_by='code:evidence-card/1', state='active'), 'send the weekly report')
-    slot = [{'name': 'recipient', 'value': '"a@kartikey.xyz"'}]
-    rt = ProposalRuntime({
-        'episodes': [
-            {'episode': card['id'], 'intent_signature': 'send report', 'slots': slot,
-             'reflection': 'Sent on the first try.', 'narrative': 'Sent the weekly report.'},
-            {'episode': card['id'], 'intent_signature': 'send report', 'reflection': '', 'narrative': '',
-             'slots': [{'name': 'recipient', 'value': '"a@kartikey.xyz"'},
-                       {'name': 'recipient', 'value': '"b@kartikey.xyz"'}]}],         # a name given twice: refused
-        'procedures': [{
-            'intent': 'send the weekly report', 'slots': [{'name': 'recipient', 'value': 'string'}],
-            'steps': [{'tool': 'mail.send', 'expect': 'the report is in Sent', 'evidence': ['t-1-action'],
-                       'optional': False,
-                       'args': [{'name': 'to', 'value': '"{recipient}"'}, {'name': 'cc', 'value': '[]'}]}],
-            'ui_hints': '', 'examples': [{'episode': card['id'], 'slots': slot}]}],
-        'lessons': [],
-        'identity': [{'key': 'reports', 'text': 'Sends the weekly report by mail', 'evidence': [card['id']]}]})
-    result = asyncio.run(Consolidator(learning, NoMemory(), rt.make).catch_up())
-
-    assert rt.schemas == [PROPOSAL_SCHEMA]
-    assert result['status'] == 'done'
-    [source] = result['sources']
-    assert 'error' not in source, source
-    assert len(source['accepted']) == 3 and len(source['refused']) == 1
-    kinds = {learning.get(i)['kind']: learning.get(i)['body'] for i in source['accepted']}
-    assert kinds['episode_annotation']['slots'] == {'recipient': 'a@kartikey.xyz'}
-    procedure = kinds['procedure']
-    assert procedure['slots'] == {'recipient': 'string'}
-    assert procedure['preconditions'] == {'apps': {'com.apple.mail': ['16.0', '16.0']}}   # the observed range (L36 §8)
-    assert procedure['steps'][0]['args'] == {'to': '{recipient}', 'cc': []}
-    assert procedure['steps'][0]['optional'] is False
-    assert procedure['examples'] == [{'episode': card['id'], 'slots': {'recipient': 'a@kartikey.xyz'}}]
-    assert kinds['identity_proposal'] == {'text': 'Sends the weekly report by mail'}
-    iid = intent_id('send the weekly report')
-    assert [learning.get(i)['key'] for i in source['accepted'] if learning.get(i)['kind'] == 'procedure'] == [iid]
-    assert learning.db.conn.execute("SELECT status FROM learning_jobs WHERE source_ref=?",
-                                    ('intent:' + iid,)).fetchone()[0] == 'done'
-
-
-def test_a_value_that_is_not_json_text_is_kept_as_the_literal_string(stores) -> None:
-    """A model often writes a bare string where JSON text was asked for: it means that string, not a broken item."""
-    _, _, _, learning = stores
-    card = learning.put('episode', 't-2', {'task_id': 't-2', 'request': 'send it', 'verified': True, 'status': 'done',
-                                           'slots': {}, 'actions': []}, [], origin_label='ferb',
-                        made_by='code:evidence-card/1', state='active')
-    rt = ProposalRuntime({})
-    accepted, refused = Consolidator(learning, NoMemory(), rt.make).apply({'episodes': [
-        {'episode': card['id'], 'intent_signature': 'send', 'reflection': '', 'narrative': '',
-         'slots': [{'name': 'recipient', 'value': 'a@kartikey.xyz'}, {'name': 'count', 'value': '2'}]},
-        {'episode': card['id'], 'intent_signature': 'send', 'reflection': '', 'narrative': '',
-         'slots': [{'name': 'to', 'value': '"x"'}, {'name': 'to', 'value': '"y"'}]}]}, {card['id']}, 'b-1', 'fake')
-    assert refused == ['to is given twice']
-    assert [learning.get(i)['body']['slots'] for i in accepted] == [{'recipient': 'a@kartikey.xyz', 'count': 2}]
-
-
-# (d) ---------------------------------------------------------------------------------------------------------------
-
 def test_security_digest_reads_network_as_text_or_as_proxy_facts(stores) -> None:
     db, _, spans, _ = stores
     rules = spans.start('tool.call', task_id='t-2', input={'tool': 'shell.rules', 'args': {}})
@@ -297,37 +218,19 @@ def test_one_failing_hourly_memory_job_never_stops_the_others(daemon) -> None:
         return run
 
     d.distiller.catch_up = job('distill')
-    d.consolidator.catch_up = job('consolidate', RuntimeError('Codex runtime reported an error'))
+    d._refresh_cards = job('cards', RuntimeError('a card reader failed'))
     d._restore_memory_embedding = job('embedding')
     daemon.run(d._memory_pass())
-    assert ran == ['distill', 'consolidate', 'embedding']
+    assert ran == ['distill', 'cards', 'embedding']                      # no intent-label or consolidation call
 
     ran.clear()
     d.distiller.catch_up = job('distill', AttributeError("'str' object has no attribute 'get'"))
-    d.consolidator.catch_up = job('consolidate')
+    d._refresh_cards = job('cards')
     daemon.run(d._memory_pass())
-    assert ran == ['distill', 'consolidate', 'embedding']
+    assert ran == ['distill', 'cards', 'embedding']
 
     async def failures() -> list[tuple[str, str]]:
         return [(r[0], json.loads(r[1])['error']) for r in d.db.conn.execute(
             "SELECT kind, data_json FROM journal WHERE kind LIKE 'memory.%failed' ORDER BY seq")]
-    assert daemon.run(failures()) == [('memory.consolidate_failed', 'RuntimeError: Codex runtime reported an error'),
+    assert daemon.run(failures()) == [('memory.cards_failed', 'RuntimeError: a card reader failed'),
                         ('memory.distill_failed', "AttributeError: 'str' object has no attribute 'get'")]
-
-
-def test_the_rollup_threads_store_checks_the_owners_registered_values(tmp_path, monkeypatch):
-    """Re-review O1: the rollups' own Learning (a worker thread's connection) gets the store's registered-values
-    hook, so its puts make the same literal check."""
-    import asyncio
-    from ferb.memory.consolidate import Consolidator
-    from tests.support.learning_fixtures import NoMemory, new_store
-    db, store = new_store(tmp_path / "memory.db")
-    store.secret_values = lambda: {"zq7-house-key"}
-    seen = []
-    monkeypatch.setattr(Consolidator, "rollups", lambda self, learning=None, stop=None:
-                        seen.append(set(learning.secret_values())))
-    try:
-        asyncio.run(Consolidator(store, NoMemory(), lambda *a, **k: None)._rollups_off_loop())
-    finally:
-        db.close()
-    assert seen == [{"zq7-house-key"}]

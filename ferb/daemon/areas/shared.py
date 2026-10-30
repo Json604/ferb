@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from ferb.core.interfaces import Clock
 from ferb.sanitize.redact import REDACTED
@@ -133,18 +133,6 @@ def _code_path(filename: str) -> str:
         return "ferb/" + path.relative_to(Path(ferb.__file__).parent).as_posix()
     except ValueError:
         return path.name
-
-
-class _Rescrub:
-    """A forget's echo scrub to run again as the work running at the forget ends (fix wave 6a): what that work records
-    after the scrub (spans, answer, records, chat reply) loses the item too, and nothing else is touched. `work` runs
-    the same scrub with the same rules (the forget's Forgotten and line rules, or its NodeEcho) for `running` (the task
-    trees, requests and unfinished spans of that moment); both are kept in memory only, never written down, until the
-    last job in `waiting` ends or the daemon stops, which can be days for a task waiting on the owner. `queued`: a run
-    is waiting to start, and will see what was recorded meanwhile."""
-
-    def __init__(self, work: Callable[[], Awaitable[None]], waiting: set[asyncio.Task[Any]], running: Any) -> None:
-        self.work, self.waiting, self.running, self.queued = work, waiting, running, False
 
 
 FRESH_S = 10.0       # how long a kept permission check or browser profile discovery serves before a refresh (`_Fresh`)

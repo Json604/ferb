@@ -68,6 +68,7 @@ def test_notification_context_uses_only_earlier_same_conversation_and_told_recei
 
 def test_restart_releases_only_in_flight_receipts(tmp_path: Path) -> None:
     d, perception = fixture(tmp_path)
+    d._jev_active = lambda: object()                   # Jev switched on (the batcher does nothing while it's off)
     event = d.trail.record(Observation('window', {'bundle_id': 'com.microsoft.VSCode', 'title': 'FERB'}))
     d.db.conn.execute("INSERT INTO perception_batches VALUES('batch',?,'age','pending',?,NULL)",
                       (d.clock.now().isoformat(), json.dumps([event.id])))

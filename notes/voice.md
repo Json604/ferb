@@ -90,6 +90,7 @@ Basis: a read of every line (2026-10-30), read-only DB counts. Nothing was recor
 
 ## Fix list
 - [ ] Remove the daemon push-to-talk stack (decision 3); daemon side of "speak this reply" for the app's voice turns.
+      (Step 3, removal done: voice/controller.py, mic.py, push_to_talk.py, the voice role and `voice.*` RPCs, `owner_input.on_key`, `setup --voice`, `ferb voice`, FERB Voice's serve/Listener/request modes and its microphone (Info.plist key, AVFoundation/CoreAudio) removed; `transcribe`, `status`, `request-speech` kept. speak.py kept for step 11. The daemon side of "speak this reply" for the app's voice turns is not built.)
 - [ ] Speaker factory with the macOS provider; config keys; redaction for hosted providers.
 - [ ] Voice replies from structured events (no CLI rendering); strings point to the app.
 - [ ] Transcription timeout; alignment off the loop; `_quit_voice_app` spares transcriptions; record-with-audio

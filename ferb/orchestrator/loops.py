@@ -113,10 +113,6 @@ class LoopStore:
                                    (task_id, step_id)).fetchone()
         return {'rounds': row['rounds'], 'recent': json.loads(row['recent_json'])} if row else {'rounds': 0, 'recent': []}
 
-    def running(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self.db.conn.execute(
-            "SELECT * FROM loop_state WHERE state NOT IN ('finished','stopped') ORDER BY updated_at")]
-
 
 LOOP_ROUND = (
     'This is one round of a loop (L31). Act once toward the loop goal, then verify what you did. End your report with '

@@ -802,7 +802,7 @@ def test_every_task_question_is_labelled_and_ferb_options_are_marked(daemon: Run
     assert homoglyph.reason == "Question from the task: FЕRB: this pays $5. Go ahead?"
     assert rewritten.reason == "Question from the task: ＦＥＲＢ: confirm the folder"
     assert rewritten.options == ("Work FERB: Home", "Home")                       # each option one line
-    from ferb.cli.chat import question
+    from tests.support.chat_text import question
     shown = question({"kind": "owner_question", "capability": "ferb.confirm", "reason": "FERB: this pays 5.",
                       "options": ["Yes", "No"]})
     assert shown.endswith("(Enter = No): ") and "1) Yes" in shown
@@ -1061,7 +1061,7 @@ def _carry_on(daemon: RunningDaemon, tree: str, action: str, worker: Any, said: 
     return outcome(chat(daemon, said, session="notes"))
 
 
-@pytest.mark.parametrize("action", ["retry", "continue", "steer"])
+@pytest.mark.parametrize("action", ["retry", "continue"])
 def test_the_owner_s_own_follow_up_asks_a_refused_question_again(daemon: RunningDaemon, action: str) -> None:
     """Retries stay in their task (L11), so a No recorded there made "actually, go ahead and send it" a dead end. When
     the owner's own message carries the task on, FERB asks that question again, once; a Yes still comes only from the
@@ -1159,7 +1159,7 @@ def test_a_steer_of_the_running_task_reopens_its_no(daemon: RunningDaemon, monke
             [tree] = [r["id"] for r in _rows(daemon, "tasks") if r["parent_id"] is None]
             owner.yes = True
             steer = json.loads(sup("task", "Sending them.", task("send the notes to Sam", "owner")))
-            steer["control"] = {"task_id": tree, "action": "steer", "new_goal": False, "standing_sends": "unchanged",
+            steer["control"] = {"task_id": tree, "action": "continue", "new_goal": False, "standing_sends": "unchanged",
                                 "supersedes": []}
             script.sup.append(json.dumps(steer))
             reply = next(e for e in chat(daemon, "actually, go ahead and send it", session="notes", timeout=10)

@@ -10,7 +10,6 @@
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.2</string>
   <key>LSUIElement</key><true/>
-  <key>NSMicrophoneUsageDescription</key><string>FERB listens only while you hold the talk key (Right Option).</string>
-  <key>NSSpeechRecognitionUsageDescription</key><string>FERB turns what you say into text on this Mac.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>FERB turns the sound of an app it listens to into text on this Mac.</string>
 </dict>
 </plist>

@@ -135,9 +135,6 @@ class Policy:
     def __init__(self, state: dict[str, Any]) -> None:
         self.state = state
 
-    def muted(self, *args: Any) -> bool:
-        return False
-
     def context(self, event: dict[str, Any]) -> dict[str, Any]:
         return json.loads(json.dumps(self.state))
 
@@ -439,9 +436,6 @@ def _stream(seed: int, steps: int, budget: int, age: float, tmp_path: Path, monk
         old, new = World(tmp_path / f"old{seed}.db", reference, age), World(tmp_path / f"new{seed}.db", current, age)
         monkeypatch.setattr(reference, "asyncio", _reference_timer(old))
         worlds, rng, n = [old, new], random.Random(seed), 0
-        if rng.random() < 0.5:
-            for w in worlds:
-                w.policy.add("net.whatsapp.WhatsApp", "self", None, "mute this chat", "please mute this chat")
         for step in range(steps):
             op = rng.choices(["record", "burst", "advance", "jev", "restart", "delete", "rewrite"],
                              [50, 4, 30, 3, 3, 3, 3])[0]

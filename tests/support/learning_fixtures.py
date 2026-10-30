@@ -1,14 +1,10 @@
-"""Shared learning test fixtures (L29): a store on a fresh database, cards, intent answers, an intent's procedure."""
-import json
+"""Shared learning test fixtures: a store on a fresh database and cards."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from ferb.memory.learning import Learning
 from ferb.store.db import Database
-
-EMPTY = {"procedures": [], "lessons": [], "identity": [], "episodes": []}
-
 
 class Clock:
     def now(self) -> datetime:
@@ -49,11 +45,6 @@ def card(store: Learning, ident: str, request: str, dish: str = "egg curry") -> 
                      [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
 
 
-def new_intent(name: str, dish: str) -> dict[str, Any]:
-    return {"intent_id": "", "name": name, "description": "find the cheapest dish with breads",
-            "slots": [{"name": "dish", "value": "string"}], "values": [{"name": "dish", "value": json.dumps(dish)}]}
-
-
 def on_loop(daemon: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
     """`fn(*args, **kwargs)` on a test daemon's loop thread (its SQLite connection belongs to that thread)."""
     async def go() -> Any:
@@ -62,99 +53,3 @@ def on_loop(daemon: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
 
 
 FOOD_DISHES = ("egg curry", "paneer", "dal")
-
-
-def store_intent_run(store: Learning, *, name: str, slots: dict[str, str], task_id: str, dish: str, ended_at: str,
-                     verified: bool = True, result: Any = None) -> Any:
-    """One run of the intent `name`: its card (one browser.type of `dish`, ending at `ended_at`, which returned
-    `result`, default ok) and its label."""
-    from ferb.memory import intents
-    c = store.put("episode", task_id, {"task_id": task_id, "verified": verified, "request": f"cheapest {dish}",
-                                       "apps": {}, "slots": {}, "status": "done" if verified else "failed",
-                                       "ended_at": ended_at,
-                                       "actions": [{"id": f"{task_id}-a", "tool": "browser.type",
-                                                    "args": {"text": dish}, "outside_action": False,
-                                                    "result": {"ok": True} if result is None else result}]},
-                  [], origin_label="ferb", made_by="code:evidence-card/2", state="active")
-    store.put(intents.INTENT_KIND, c["id"], {"intent_id": intents.intent_id(name), "name": name,
-                                             "description": "the cheapest dish", "slots": slots,
-                                             "values": {"dish": dish}},
-              [c["id"]], made_by="model:test", state="active")
-    return c
-
-
-def store_intent_procedure(store: Learning, *, name: str, slots: dict[str, str]) -> str:
-    """Three verified cards of one intent (food0..food2, one dish each, food2 the latest to end), each with its label,
-    and the procedure they teach, keyed by the intent id (L29). Its id."""
-    from ferb.memory import intents
-    iid = intents.intent_id(name)
-    cards = [store_intent_run(store, name=name, slots=slots, task_id=f"food{n}", dish=dish,
-                              ended_at=f"2026-10-21T09:0{n}:00+00:00") for n, dish in enumerate(FOOD_DISHES)]
-    p = store.propose_procedure({"intent": name, "slots": slots, "preconditions": {"apps": {}},
-                                 "steps": [{"tool": "browser.type", "args": {"text": "{dish}"}, "expect": "typed",
-                                            "optional": False,
-                                            "evidence": [f"food{n}-a" for n in range(len(FOOD_DISHES))]}],
-                                 "ui_hints": "", "examples": [{"episode": c["id"], "slots": {"dish": d}}
-                                                              for c, d in zip(cards, FOOD_DISHES)]},
-                                "b", "model:test|prompt:1", intent_id=iid)
-    return str(p["id"])
-
-
-def intent_procedure(daemon: Any, *, name: str, slots: dict[str, str]) -> str:
-    """`store_intent_procedure` in a test daemon's learning store, on its loop."""
-    return str(on_loop(daemon, store_intent_procedure, daemon.daemon.learning, name=name, slots=slots))
-
-
-def typing_worker(daemon: Any, text: str) -> Any:
-    """A scripted worker that follows the fixtures' one-step procedures (`browser.type {"text": …}`): it types `text`
-    with a stand-in `browser.type` tool, then reports done. L36 §8: only a run that follows its procedure's required
-    steps gets a receipt."""
-    from tests.conftest import FakeCap, done, tool
-    daemon.daemon.registry.capabilities["browser.type"] = FakeCap("browser.type", "read", set())
-
-    def work(token: str) -> str:
-        assert not tool(daemon.sock, token, "browser.type", text=text)["is_error"]
-        return done("done")
-    return work
-
-
-def procedure_task_contexts(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
-                            worker_limits: Any = None, workers: dict[str, Any] | None = None) -> dict[str, list[str]]:
-    """Every context the runtimes were given, by role key ("worker", "worker.verify", "worker.dispatch", …, each in
-    order), for a task whose planner chose `procedure_id` with these `procedure_slots` ({name, value} pairs, each value
-    JSON text). `worker_limits`: the worker runtime's model limits (a ModelLimits; e.g. a small per-input character
-    cap), the other roles' unchanged. `workers`: the scripted worker steps (default: one done report)."""
-    from tests.conftest import chat, done, install, outcome, sup, task
-    spec = task("order the cheapest dish")
-    spec["procedure_id"], spec["procedure_slots"] = procedure_id, slots
-    script = install(daemon, [sup("task", "Ordering.", spec)], workers or {"worker": done("done")})
-    if worker_limits is not None:
-        make = daemon.daemon.supervisor.make_runtime
-
-        def limited(role: str, *, mode: str, tool_names: list[str], schema: Any) -> Any:
-            runtime = make(role, mode=mode, tool_names=tool_names, schema=schema)
-            if mode == "worker":
-                runtime.limits = worker_limits
-            return runtime
-        daemon.daemon.supervisor.make_runtime = limited
-    assert outcome(chat(daemon, "order the cheapest dish"))["status"] == "done"
-    contexts: dict[str, list[str]] = {}
-    for _, key, context, _ in script.contexts:
-        contexts.setdefault(key, []).append(context)
-    return contexts
-
-
-def worker_context_for(daemon: Any, procedure_id: str, slots: list[dict[str, str]], *,
-                       worker_limits: Any = None) -> str:
-    """The worker's assembled context for a task whose planner chose `procedure_id` with these `procedure_slots`, as
-    its runtime was given it (`procedure_task_contexts`)."""
-    return procedure_task_contexts(daemon, procedure_id, slots, worker_limits=worker_limits)["worker"][0]
-
-
-def label_card(store: Learning, node: dict[str, Any], name: str = "a test intent") -> Any:
-    """`node`'s intent label (L29) as the label pass stores it: an intent without slots. A test about consolidation
-    labels its cards first, so it sees only consolidation calls."""
-    from ferb.memory.intents import INTENT_KIND, intent_id
-    return store.put(INTENT_KIND, node["id"], {"intent_id": intent_id(name), "name": name, "description": name,
-                                               "slots": {}, "values": {}},
-                     [node["id"]], made_by="model:test", state="active")

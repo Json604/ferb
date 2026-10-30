@@ -144,9 +144,13 @@ class Chat:
         return {"ok": True, "session_id": conversation, "capabilities": ["input_paths"]}
 
     async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Ctrl-C in ferb chat: stop the request's task, recorded as stopped by the owner."""
+        """The owner's stop of exactly these tasks (the app sends their ids), recorded as stopped by the owner. Ids are
+        required: stopping everything is the global stop (`stop.engage`), never an empty list (notes/daemon.md
+        decision 1)."""
         assert self.supervisor is not None
-        ids = [str(t) for t in params.get("task_ids", [])] or [t for t, _ in self.supervisor.running_trees()]
+        ids = [str(t) for t in params.get("task_ids") or []]
+        if not ids:
+            raise FerbError("task.stop needs the ids of the tasks to stop; stopping everything is stop.engage")
         stopped = [t for t in ids if self.supervisor.stop_tree(t)]
         for t in stopped:
             self._journal().append("task.stopped", {"task_id": t, "by": "owner"})
@@ -350,8 +354,6 @@ class Chat:
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())
         self._turns.add(t1)
         t1.add_done_callback(self._turns.discard)
-        self._turn_requests[t1] = request_id                 # what a forget meanwhile finds running (fix wave 6a)
-        t1.add_done_callback(lambda done: self._turn_requests.pop(done, None))
         try:
             while (item := await queue.get()) is not None:
                 yield item

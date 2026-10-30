@@ -1,18 +1,17 @@
-"""Own the daemon's memory glue: learning stores' wiring, searches, forgets and their echo scrubs, FERB's memory
-questions, the hourly distillation, chat capture and the memory RPCs. Must not save anything the owner didn't state
-or confirm."""
+"""Own the daemon's memory glue: learning stores' wiring, searches, forgets, FERB's memory questions, the hourly
+distillation and episode cards, chat capture and the memory RPCs. Must not save anything the owner didn't state or
+confirm."""
 
 import asyncio
 import json
 import os
 from datetime import datetime, timedelta
-from functools import partial
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ferb.core import origin as origin_
 from ferb.core.errors import Deferred, FerbError, Refused
-from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden, _Rescrub
+from ferb.daemon.areas.shared import EDIT_HIDDEN, _all_hidden
 from ferb.daemon.server import Session
 from ferb.memory.learning import (PLANNER_MEMORY_ITEMS, PROMPT_LEAVES_OUT, SEARCH_TEXT_VERSION, reindex_search,
                                   search_indexed)
@@ -21,7 +20,7 @@ from ferb.store.db import Database
 
 
 def _named_node(node: dict[str, Any]) -> str:
-    """How FERB names a learned item to the owner in a "Forget for good?" question; a forget of it scrubs this too."""
+    """How FERB names a learned item to the owner in a "Forget for good?" question."""
     return f"learned item “{' '.join(str(node['key']).split())}” ({node['kind']})"
 
 
@@ -53,19 +52,11 @@ class MemoryGlue:
         from ferb.memory import summary
         from ferb.memory.distill import Distiller
         assert self.db is not None and self.journal is not None
-        from ferb.memory.consolidate import Consolidator
         from ferb.memory.tools import LearningRead
         self.learning.note = lambda kind, data: self._journal().append(kind, data)
         self.learning.secret_values = lambda: getattr(self.redact, "secret_values", set)()
-        self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
-            idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
-            usage=self._record_learning_usage("consolidate"),
-            capture=lambda task_id: self._capture_card(task_id, None),
-            cards_refreshed=self._replay_deferred_receipts, spans=self.spans,
-            forget=lambda ids: self._forget_nodes(ids, named=False))
         self.registry.add(LearningRead(lambda: self.learning, self._learned_search))
-        self.memory.on_forget = self._forget_learning_sources
-        self.memory.after_forget = self._forget_stating_cards
+        self.memory.on_forget = self._forget_item_copies
         self.memory.on_settled = lambda ids, deleted: self._close_memory_questions(ids, None if deleted else
                                                                                   ("confirm", "edit", "retire"))
         self.memory.on_ended = self._memory_ended
@@ -79,7 +70,6 @@ class MemoryGlue:
         self.distiller.ask_keep = self._ask_keep
         self.distiller.ask_retire = self._ask_retire
         self.distiller.tell = self._tell_owner
-        self._replay_deferred_receipts()
         self._restore_memory_questions()
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
@@ -98,13 +88,13 @@ class MemoryGlue:
             if self.learning is not None:
                 await self._capture_card(task_id, self._app_versions(), report=True)
         except Deferred:
-            raise                                     # the supervisor journals it with its procedure, for the replay
+            raise                                     # the supervisor journals it; the hourly pass captures it again
         except Exception as e:
             self._journal().append("memory.episode_failed", {"task_id": task_id, "error": self._redact_text(str(e))})
 
     async def _capture_card(self, task_id: str, apps: dict[str, str] | None, *, report: bool = False) -> Any:
-        """Capture (or refresh, `apps` None) a task's episode card (L28). The after-outcome capture, an owner verdict
-        and the consolidator's re-capture all come here, one at a time. The reads run in the card reader
+        """Capture (or refresh, `apps` None) a task's episode card (L28). The after-outcome capture and the hourly
+        re-capture of cards whose inputs changed (an owner verdict) both come here, one at a time. The reads run in the card reader
         (`_read_card`); only the write is on the loop. When a card input changed while the reader read (a forget, a
         verdict, a write of a card: `Learning.generation`), it reads again. `report`: journal the refs skipped as
         damaged by redaction or expired by retention, and a card skipped as built on forgotten content (C1). Raises
@@ -157,97 +147,59 @@ class MemoryGlue:
         prepared: dict[str, Any] | None = answer["prepared"]
         return prepared
 
-    def _replay_deferred_receipts(self) -> None:
-        """Procedure receipts whose capture shutdown deferred (`memory.episode_deferred` with a procedure_id, and the
-        planner's typed slot values, L29): each is recorded once its task's card exists (at start, and after the
-        consolidator captures cards), then journaled as `memory.receipt_replayed` so it is replayed once. Receipts drive
-        a procedure's state (learned, suspect)."""
-        if self.learning is None:
-            return
-        journal = self._journal()
-        done = {(e.data.get("task_id"), e.data.get("procedure_id")) for e in journal.of_kind("memory.receipt_replayed")}
-        cards: set[str] | None = None
-        for row in journal.of_kind("memory.episode_deferred"):
-            task_id, procedure_id = row.data.get("task_id"), row.data.get("procedure_id")
-            if not procedure_id or (task_id, procedure_id) in done:
-                continue
-            if cards is None:
-                cards = {str(n["key"]) for n in self.learning.items("episode")}
-            if task_id not in cards:
-                continue                              # its card comes with the consolidator's next pass
-            slots = row.data.get("slots")                # absent in an entry from before L29
-            self._procedure_outcome(str(procedure_id), str(task_id), slots if isinstance(slots, dict) else None)
-            journal.append("memory.receipt_replayed", {"task_id": task_id, "procedure_id": procedure_id})
-            done.add((task_id, procedure_id))
-
     def _stop_card_readers(self) -> None:
-        """Shutdown: kill every reader still in flight rather than wait for it; the hourly consolidator captures those
-        cards again."""
+        """Shutdown: kill every reader still in flight rather than wait for it; the hourly pass captures those cards
+        again (`_refresh_cards`)."""
         for proc in list(self._card_readers):
             if proc.returncode is None:
                 proc.kill()
 
-    def _procedure_problem(self, ident: str) -> str | None:
-        """Why the planner's procedure_id can't be used, or None (I5): it must name a current procedure the owner
-        hasn't turned down, rolled back or left quarantined."""
-        node = self.learning.get(ident) if self.learning is not None else None
-        if node is None:
-            return "no stored item has this id"
-        if node["kind"] != "procedure":
-            return f"a {node['kind']}, not a procedure"
-        if node["valid_to"] or node["state"] in ("retired", "rolled_back", "quarantined"):
-            return f"not a current procedure ({'superseded' if node['valid_to'] else node['state']})"
-        return None
+    async def _refresh_cards(self) -> dict[str, Any]:
+        """The hourly pass's episode cards (L28): each card whose inputs changed (a new verdict, a rebuilt episode) or
+        that was never captured is read again, one at a time and only while no task runs; then the day summaries are
+        indexed for search (`index_summaries`, in a worker thread) and, with an adopted embedding model, the new nodes
+        are embedded. A card that can't be built waits for its inputs to change."""
+        from ferb.memory.learning import LearningRefused, index_summaries
+        l = self.learning
 
-    def _procedure_outcome(self, procedure_id: str, task_id: str, slots: dict[str, Any] | None = None) -> None:
-        """A procedure run's receipt, with the planner's typed values for its slots (L29) when it gave them
-        (`Learning.record_use`, L36 §8): a failed run's unless the owner stopped it or said No in it (journaled as
-        `memory.receipt_skipped` with why); a success's only when it followed the procedure's required steps,
-        otherwise journaled as `memory.procedure_not_followed` (an owner's fail verdict later writes its failure
-        receipt: `_refresh_learning_verdict`)."""
-        if self.learning is None:
-            return
-        node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
-        if node:
-            from ferb.memory.learning import LearningRefused
+        def idle() -> bool:
+            return self.supervisor is None or not self.supervisor.running_trees()
+        if not idle():
+            return {"status": "busy"}
+        for task_id in l.cards_to_read():
+            if not idle():                           # a task started: the next pass reads the rest
+                return {"status": "busy"}
             try:
-                self._note_use(procedure_id, task_id, self.learning.record_use(procedure_id, node, slots))
-            except LearningRefused:
-                self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})
+                await self._capture_card(task_id, None)
+                if not l.db.conn.execute("SELECT 1 FROM learning_card_inputs WHERE task_id=?", (task_id,)).fetchone():
+                    l.card_read(task_id, l.card_inputs(task_id).get(task_id, ""))   # nothing to write: read
+            except LearningRefused as e:
+                l.card_read(task_id, l.card_inputs(task_id).get(task_id, ""), l.redact(str(e)) or "refused")
+            except Deferred:                         # FERB is stopping: the next start's pass reads the rest
+                return {"status": "stopping"}
+            await asyncio.sleep(0)
+        assert self.db is not None
+        path, events = self.db.path, list[tuple[Any, ...]]()
 
-    def _note_use(self, procedure_id: str, task_id: str, why: str | None) -> None:
-        """Journal why `Learning.record_use` wrote no receipt, when it wrote none."""
-        from ferb.memory.learning import NOT_FOLLOWED
-        if why == NOT_FOLLOWED:
-            self._journal().append("memory.procedure_not_followed", {"procedure_id": procedure_id, "task_id": task_id})
-        elif why is not None:
-            self._journal().append("memory.receipt_skipped", {"procedure_id": procedure_id, "task_id": task_id,
-                                                              "why": why})
-
-    def _refresh_learning_verdict(self, task_id: str) -> None:
-        if not self.learning:
-            return
-        for node in self.learning.items("episode", history=True):
-            if node["key"] != task_id:
-                continue
-            row = self.db.conn.execute("SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1",
-                                       (task_id,)).fetchone()
-            if row and row[0] == "fail":
-                self.db.conn.execute("UPDATE learning_receipts SET successful=0 WHERE episode_id=?", (node["id"],))
-        # L36 §8, concern ruling 2: a run offered a procedure that it didn't follow had no receipt as a success; the
-        # owner's fail verdict makes it a failed run, which gets its failure receipt
-        card = self.learning.current_card(task_id)
-        if card is not None and not self.learning.succeeded(card):
-            from ferb.memory.learning import LearningRefused
-            for procedure_id in {str(e.data.get("procedure_id")) for e in self._journal().of_kind(
-                    "memory.procedure_not_followed") if e.data.get("task_id") == task_id}:
-                try:
-                    self._note_use(procedure_id, task_id, self.learning.record_use(procedure_id, card, None))
-                except LearningRefused:
-                    self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id,
-                                                                          "task_id": task_id})
-        for procedure in self.learning.items("procedure"):
-            self.learning.procedure(procedure["id"], self._app_versions())
+        def index() -> None:
+            from ferb.memory.learning import Learning
+            db = Database(path)
+            try:
+                own = Learning(db, l.clock, lambda *event: events.append(event), l.redact, l.redact_id)
+                own.secret_values = l.secret_values
+                index_summaries(own, stop=lambda: False)
+            finally:
+                db.close()
+        await asyncio.to_thread(index)
+        for event in events:
+            l.publish(*event)
+        if l.embedder is not None:
+            from ferb.memory.embeddings import index_async
+            try:
+                await index_async(l, l.embedder)
+            except Exception as e:
+                l.publish("memory.embedding_unavailable", {"error": l.redact(str(e))})
+        return {"status": "done"}
 
     def _learning_identity(self) -> str:
         if not self.learning:
@@ -347,32 +299,17 @@ class MemoryGlue:
         """memory.read's query, ranked by the one search (L36 §3): the memory items behind the matching facts."""
         return [str(n["body"]["id"]) for n in await self._search(query, kind="fact") if n["body"].get("id")]
 
-    async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS,
-                                   procedures: bool = True, *, focus: str = '') -> list[dict[str, Any]]:
+    async def _learning_candidates(self, words: str, budget: int = PLANNER_MEMORY_ITEMS, *,
+                                   focus: str = '') -> list[dict[str, Any]]:
         """Relevant learned memory, ranked, at most `budget` items (the owner's: planner 60, worker 20; L36 §3), each
-        line saying what it is (`shown_text`); with `procedures`, every procedure the planner may choose first, outside
-        the budget (L29). `focus`: the target words of the tasks the turn or worker serves, also ranked alone (L36 §4
-        fix round). Each item cites itself: its node carries its own sources, so forgetting any of them reaches
-        what cites the node (the memory.learned tool cites items the same way)."""
+        line saying what it is (`shown_text`). `focus`: the target words of the tasks the turn or worker serves, also
+        ranked alone (L36 §4 fix round). Each item cites itself (its node carries its own sources; the memory.learned
+        tool cites items the same way)."""
         if not self.learning:
             return []
         found = await self._search(words, limit=budget, leave_out=PROMPT_LEAVES_OUT, sources=False, focus=focus)
-        from ferb.memory.learning import line_safe, shown_state, shown_text
-        from ferb.orchestrator.context_layers import PROCEDURES_ROUTE
-        # L29: every procedure the planner may choose, whatever the words, by its intent's name, description and slots
-        # (the planner matches by meaning), the most recently used intent first; its origins with those of every
-        # current label of its intent (the newest names it, its text copied from the run that wrote it), which it cites
-        # too. Their fold route makes them optional blocks fitted to the window.
-        learned = []
-        for item in self.learning.learned_procedures() if procedures else []:
-            node = item['node']
-            made = set(node['origins']) | set(item['label_origins'])
-            learned.append({'text': f"{node['id']} [procedure, {shown_state(node)}, {origin_.least_trusted(made)}; "
-                                    f"data, not authorization] {item['name']}: {item['description']} — slots: "
-                                    + line_safe(json.dumps(item['slots'], ensure_ascii=False, sort_keys=True)),
-                            'reference': 'memory.learned item_id=' + node['id'], 'origin': origin_.join(made),
-                            'source_refs': [node['id'], *item['labels']], 'fold': PROCEDURES_ROUTE})
-        return learned + [
+        from ferb.memory.learning import shown_state, shown_text
+        return [
             {'text': f"{p['id']} [{p['kind']}, {shown_state(p)}, {p['origin']}; data, not authorization] "
                      + shown_text(p),
              'reference': 'memory.learned item_id=' + p['id'],
@@ -380,25 +317,25 @@ class MemoryGlue:
              'source_refs': [p['id']]}
             for p in found]
 
-    def _learning_context(self, words: str) -> str:
-        if not self.learning:
-            return ""
-        self.learning.sync_facts(self.memory)
-        return self.learning.candidates(words)
-
-    def _forget_learning_sources(self, plan: Any) -> None:
-        self.daily_activity.forget_sources(set(plan.trail))
-        refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
-                ["trail:" + s for s in plan.trail])
-        if self.learning:
-            self._forget_nodes(refs, named=False)        # what is built on it; a node a question was about went too
+    def _forget_item_copies(self, plan: Any) -> None:
+        """A forget's work outside the memory tables (`Memory.on_forget`), before they change: the item's own search
+        index nodes (`drop_fact_index`: nothing built on them), the copies of the trail rows it came from (today's
+        activity file, delegated conversations' evidence), and a pending clarifying question holding its words. The
+        login-record usernames it gave are cleared after (L36 §5). FERB's past answers and traces are not scrubbed
+        (notes/memory.md decision 2)."""
+        texts = [str(r[0]) for r in self.db.conn.execute(
+            f"SELECT content FROM memory_items WHERE id IN ({','.join('?' * len(plan.items))})", plan.items)]
+        if self.learning is not None:
+            for item_id in plan.items:
+                self.learning.drop_fact_index("memory:" + item_id, self.memory)
+        if plan.trail:
+            self.daily_activity.forget_sources(set(plan.trail))
+            if self.supervisor:
+                self.supervisor.conversations.forget_sources({"trail:" + t for t in plan.trail})
         if self.supervisor:
-            self.supervisor.conversations.forget_sources(set(refs))
-            # a running summary that folded a forgotten entry; one that folded FERB's rows stating it goes in
-            # echoes.finish
-            self.supervisor.forget_summaries(set(plan.journal))
-        items = list(plan.items)                         # L36 §5: a username goes with the memory it came from,
-        self._after_forgets(lambda: self._clear_login_names(items))   # in a worker thread, awaited like the scrub
+            self.supervisor.forget_pending(texts)
+        items = list(plan.items)
+        self._after_forgets(lambda: self._clear_login_names(items))
 
     def _memory_ended(self, ids: list[str], new: str | None) -> None:
         """Current memory items that stopped holding now (`Memory.on_ended`, L36 §6): superseded by a newer version
@@ -440,75 +377,15 @@ class MemoryGlue:
             self._journal().append("memory.login_cleared", {"places": cleared})
 
     def _forget_memory(self, item_id: str, keep_sources: bool = False) -> Any:
-        """A forget's deletions, now, on the event loop; its echo scrub then runs in a worker thread on a connection of
-        its own (`_finish_forget`, review minor), and a chat turn waits for it first (`_settle_forgets`)."""
-        plan = self.memory.forget(item_id, keep_sources, finish=False)
-        self._forget_scrub(lambda running: self._finish_forget(plan, running))
+        """The simple forget (notes/memory.md decision 2), now, on the event loop: `Memory.forget`."""
+        plan = self.memory.forget(item_id, keep_sources)
+        self._journal().append("memory.forgot", {"items": len(plan.items), "trail": len(plan.trail)})
         return plan
 
-    def _forget_scrub(self, work: Callable[[Any], Awaitable[None]]) -> None:
-        """A forget's echo scrub, now (behind those still running), and again for the work running at the forget as it
-        ends (`_Rescrub`): a tree as it finishes (`task.finished`, before its job writes the "while you were away"
-        result, so the next chat turn already waits) and each job (chat turns, resumed plans, scheduled runs, attention
-        turns) after its last record. A run again touches only what that work wrote (`echoes.Running`), keyed by the
-        requests running now (the chat turns', the running trees' and planner turns') and the spans unfinished now:
-        never anything started after the forget, a tree resumed in place under a new request included."""
-        from ferb.memory.echoes import Running
-        self._after_forgets(lambda: work(None))
-        jobs = {job for job in self._turns | self._runs if not job.done()}
-        if not jobs:
-            return
-        assert self.db is not None
-        unfinished = self.db.conn.execute(
-            "SELECT id, kind, CASE WHEN kind = 'model.turn' THEN json_extract(input_json, '$.request_id') END "
-            "FROM spans WHERE ended_at IS NULL").fetchall()
-        trees = {key for key, _ in self.supervisor.running_trees()} if self.supervisor else set()
-        marks = ','.join('?' * len(trees))
-        runs = {str(r[0]) for r in self.db.conn.execute(f"SELECT request_id FROM tasks WHERE id IN ({marks})",
-                                                       tuple(trees))} if trees else set()
-        running = Running({self._turn_requests[job] for job in jobs if job in self._turn_requests} | runs
-                          | {str(r[2]) for r in unfinished if r[2] is not None},       # a planner turn under way
-                          trees, {str(r[0]) for r in unfinished})
-        again = _Rescrub(lambda: work(running), jobs, running)
-        self._rescrubs.add(again)
-        for job in jobs:
-            job.add_done_callback(partial(self._ran_at_a_forget, again))
-
-    def _ran_at_a_forget(self, again: _Rescrub, job: asyncio.Task[Any]) -> None:
-        """A job that was running at a forget ended: its scrub runs again; once none is left, the forget's rules are let
-        go."""
-        again.waiting.discard(job)
-        if not again.waiting:
-            self._rescrubs.discard(again)
-        self._scrub_again(again)
-
-    def _tree_finished_at_a_forget(self, tree_id: str) -> None:
-        """A tree of the work running at a forget finished (its answer and outcome are journaled): its scrub runs again
-        now, so a chat turn that starts before the tree's job ends (still writing its result) waits for it. Only a
-        tree run for a request recorded at the forget counts: not a worker's own finish, not a tree resumed in place
-        under a new request since."""
-        assert self.db is not None
-        row = self.db.conn.execute("SELECT request_id, parent_id FROM tasks WHERE id = ?", (tree_id,)).fetchone()
-        if row is None or row["parent_id"] is not None:
-            return
-        for again in list(self._rescrubs):
-            if row["request_id"] in again.running.requests:
-                self._scrub_again(again)
-
-    def _scrub_again(self, again: _Rescrub) -> None:
-        """Queue a forget's scrub again; one run waiting to start covers what is recorded before it starts."""
-        if again.queued:
-            return
-        again.queued = True
-
-        async def run() -> None:
-            again.queued = False
-            await again.work()
-        self._after_forgets(run)
-
     def _after_forgets(self, work: Callable[[], Awaitable[None]]) -> None:
-        """A forget's echo scrub, queued behind those still running: one at a time, so two never rewrite the same row
-        from the same old copy. A chat turn and the forget RPCs wait for it (`_settle_forgets`)."""
+        """Work a forget or an ended item leaves behind (clearing login-record usernames, in a worker thread), queued
+        behind what is still running: one at a time. A chat turn and the forget RPCs wait for it
+        (`_settle_forgets`)."""
         prior = list(self._forgetting)
 
         async def run() -> None:
@@ -518,99 +395,38 @@ class MemoryGlue:
         self._forgetting.add(job)
         job.add_done_callback(self._forgetting.discard)
 
-    def _forget_nodes(self, refs: list[str], named: bool = True) -> list[str]:
-        """Learned items go (`Learning.forget`: every version, what is built on them, tombstones), and FERB's questions
-        about them close. A learned item the owner named has an echo pass (re-review R3, round 5, closing round): the
-        one they asked to forget (`named`) and any a waiting "Forget for good?" names. FERB's naming of it in that
-        question (`_named_node`) goes from FERB's replies and every span; what each of its versions states (its body's
-        text, a procedure's intent, a lesson's trigger; never an episode card's goal, which other tasks share, and
-        never its key alone, which can be a label such as "owner") goes where that version was shown or cited; its
-        statement (a lesson's or identity's text, two words or more) also from FERB's chat replies and notices word for
-        word (`echoes.finish_node`, in a worker thread)."""
-        from ferb.memory import echoes
-        from ferb.memory.learning import ID_KEYED
-        asked = {target for kind, target in self._owner_followups.values() if kind == "forget:learning"}
-        # each named item: its naming; each version's texts; an identity version's time; a version's statement
-        found: dict[str, tuple[str, dict[str, list[str]], dict[str, str], dict[str, str]]] = {}
-        for ident in (set(refs) if named else set()) | asked:
-            node = self.learning.get(ident)
-            if node is None:
-                continue
-            versions: dict[str, list[str]] = {}
-            since: dict[str, str] = {}
-            statements: dict[str, str] = {}
-            for row in self.db.conn.execute("SELECT id, body_json, recorded_at FROM learning_nodes WHERE kind = ? AND "
-                                            "key = ?", (node["kind"], node["key"])).fetchall():
-                body = json.loads(row["body_json"])
-                said = [] if node["kind"] in ID_KEYED else [body.get(k) for k in ("text", "intent", "trigger")]
-                versions[row["id"]] = [t for t in said if isinstance(t, str) and t.strip()]
-                text = body.get("text")
-                if node["kind"] not in ID_KEYED and isinstance(text, str) and len(text.split()) >= 2:
-                    statements[row["id"]] = text
-                if node["kind"] == "identity":
-                    since[row["id"]] = str(row["recorded_at"])
-            found[ident] = (_named_node(node), versions, since, statements)
+    def _forget_nodes(self, refs: list[str]) -> list[str]:
+        """Learned items the owner asked to forget go (`Learning.forget`: every version, what is built on them,
+        tombstones), and FERB's questions about them close."""
         deleted = self.learning.forget(refs)
         self._close_memory_questions(deleted)
-        gone = [found[ident] for ident in deleted if ident in found]
-        echo = echoes.NodeEcho(sorted({g[0] for g in gone}),
-                               {v: said for g in gone for v, said in g[1].items() if v in deleted},
-                               {v: at for g in gone for v, at in g[2].items() if v in deleted},
-                               {v: text for g in gone for v, text in g[3].items() if v in deleted},
-                               until=self.clock.now().isoformat())           # an identity's scope ends at the forget
-        if echo.naming:
-            self._forget_scrub(lambda running: self._finish_node_forget(echo, running))
         return deleted
 
-    async def _finish_node_forget(self, echo: Any, running: Any = None) -> None:
-        from ferb.memory import echoes
-        try:
-            scrubbed = await asyncio.to_thread(echoes.finish_node_at, self.db.path, echo, running)
-            if scrubbed.cards and self.learning is not None:      # cards that state it go too (no partial card)
-                self._forget_nodes(scrubbed.cards, named=False)
-            self.db.truncate_wal("memory.forget")
-        except Exception as e:                       # the deletions stand; what's left is said, never raised
-            self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
-
-    async def _finish_forget(self, plan: Any, running: Any = None) -> None:
-        from ferb.memory import echoes
-        try:
-            if plan.echoes is not None:
-                plan.scrubbed = await asyncio.to_thread(echoes.finish_at, self.db.path, plan.echoes, running)
-            self._forget_stating_cards(plan)
-            self.db.truncate_wal("memory.forget")
-        except Exception as e:                       # the deletions stand; what's left is said, never raised
-            self._journal().append("memory.forget_unfinished", {"error": f"{type(e).__name__}: {e}"})
-
     async def _settle_forgets(self) -> None:
-        """Wait until every forget's echo scrub has finished. A finished one leaves `_forgetting` only when its done
+        """Wait until the work every forget left behind has finished. A finished one leaves `_forgetting` only when its done
         callback runs, a loop pass later; gathering finished tasks completes without yielding, so waiting on it again
         would spin the event loop and that callback would never run. Only unfinished ones are awaited."""
         while pending := [job for job in self._forgetting if not job.done()]:
             await asyncio.gather(*pending, return_exceptions=True)
 
-    def _forget_stating_cards(self, plan: Any) -> None:
-        """After a forget's echo scrub: the cards of tasks given the item whose body states it are forgotten too, with
-        their keys tombstoned so no capture rebuilds them (fix round, review Q1: no partial card)."""
-        cards = plan.scrubbed.cards if plan.scrubbed is not None else []
-        if cards and self.learning is not None:
-            self._forget_nodes(cards, named=False)
-
     def _chat_forget(self, item_id: str, request_id: str) -> str:
         """A forget the owner asked for in chat (memory review I2), by the id the planner was shown (a memory item, the
         fact node it was shown as, or another learned item). Nothing is deleted now: FERB asks a plain Yes/No question
-        naming everything that goes, as `ferb memory forget` does, and `_question_answered` forgets on the Yes."""
+        naming exactly what goes and what stays, as `ferb memory forget` does, and `_question_answered` forgets on the
+        Yes."""
         node = self.learning.get(item_id) if self.learning is not None else None
         ident = str(node["body"].get("id", "")) if node and node["kind"] == "fact" else item_id
         if self.memory is not None and self.memory.get(ident) is not None:
-            target, lines = ("memory", ident), self.memory.plan_forget(ident).describe(self.db)
+            plan = self.memory.plan_forget(ident)
+            target, lines, keeps = ("memory", ident), plan.describe(self.db), plan.keeps()
         elif node is not None and node["kind"] not in ("fact", "identity") and self.learning is not None:
             doomed = sorted(self.learning.descendants([item_id]))
             target = ("learning", item_id)
-            lines = [f"{_named_node(node)} and {len(doomed) - 1} record(s) built on it"]
+            lines, keeps = [f"{_named_node(node)} and {len(doomed) - 1} record(s) built on it"], ""
         else:
             return "I couldn't find that memory, so nothing was deleted."
-        reason = "Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines)
+        reason = ("Forget for good? This deletes:\n" + "\n".join("- " + line for line in lines) +
+                  (f"\n{keeps}" if keeps else ""))
         self._ask_owner("forget:" + target[0], target[1], reason, "memory-forget-" + request_id)
         return reason + "\nAnswer Yes or No."
 
@@ -826,7 +642,8 @@ class MemoryGlue:
         except MemoryRefused:                            # forgotten another way while the question waited
             return "It was already gone: nothing else was deleted."
         self._journal().append("memory.forgot", {"via": "chat", "items": gone})
-        return f"Forgot it: {gone} item(s) deleted, with the records built on them."
+        return f"Forgot it: {gone} item(s) deleted." if kind == "memory" else \
+            f"Forgot it: {gone} item(s) deleted, with the records built on them."
 
     async def _memory_learning(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         from ferb.memory.learning import LearningRefused
@@ -844,7 +661,7 @@ class MemoryGlue:
         if op == "inventory":
             l.sync_facts(self.memory)
             return {"items": [n | {"confirmable": not n["confirmed"] and (
-                n["kind"] in ("identity_proposal", "procedure") or (n["kind"] == "fact" and n["state"] == "proposed"))}
+                n["kind"] == "identity_proposal" or (n["kind"] == "fact" and n["state"] == "proposed"))}
                 for n in l.items(history=bool(params.get("history")))]}
         if op == "search":             # its SQLite reads and the query's embedding off the event loop
             return {"items": await self._learned_search(str(params.get("query", "")), **{
@@ -868,10 +685,6 @@ class MemoryGlue:
                 l.sync_facts(self.memory)
                 return {"items": l.search(node["key"])}
             return {"item": l.edit(ident, str(params.get("text", "")))}
-        if op == "lesson_feedback":
-            if params.get("feedback") not in ("helpful", "harmful"):
-                raise LearningRefused("feedback must be helpful or harmful")
-            return {"item": l.lesson_feedback(ident, params["feedback"] == "helpful")}
         if op == "retire":
             return {"item": l.retire(ident)}
         if op == "forget":
@@ -883,13 +696,10 @@ class MemoryGlue:
                     await self._settle_forgets()
                     return {"deleted": [ident]}
                 plan = self.memory.plan_forget(item_id)
-                return {"descendants": sorted(l.descendants(["memory:" + s for s in plan.items])),
-                        "will_delete": plan.describe(self.db)}
+                return {"descendants": [], "will_delete": plan.describe(self.db), "keeps": plan.keeps()}
             doomed = sorted(l.descendants([ident]))
             if params.get("confirm"):
-                deleted = self._forget_nodes([ident])
-                await self._settle_forgets()             # the RPC answers once its echo pass is done (R3)
-                return {"deleted": deleted}
+                return {"deleted": self._forget_nodes([ident])}
             return {"descendants": doomed}
         if op == "rollback":
             return {"invalidated": l.rollback(str(params.get("batch", "")))}
@@ -898,8 +708,6 @@ class MemoryGlue:
         if op == "identity":
             return {"item": l.put("identity", str(params.get("key", "owner")), {"text": str(params["text"])}, [],
                     origin_label="owner", made_by="owner:identity/1", owner=True, state="active")}
-        if op == "consolidate":
-            return await self.consolidator.catch_up(force=True)       # the owner asked: failed jobs too (I3)
         if op == "eval_export":
             from ferb.eval.memory import history_queries
             return history_queries(l)
@@ -934,8 +742,7 @@ class MemoryGlue:
         raise LearningRefused("unknown learning operation")
 
     def _record_learning_usage(self, role: str) -> Callable[[str, dict[str, Any]], None]:
-        """A learner's usage recorder: each usage event is a `model.usage` span naming that learner's role
-        (consolidate or distill)."""
+        """A learner's usage recorder: each usage event is a `model.usage` span naming that learner's role (distill)."""
         def record(runtime: str, data: dict[str, Any]) -> None:
             span = self.spans.start("model.usage", task_id=None, parent_id=None,
                                     input={"runtime": runtime, "role": role})
@@ -957,13 +764,13 @@ class MemoryGlue:
             await asyncio.sleep(3600)
 
     async def _memory_pass(self) -> None:
-        """One hourly pass: distill, consolidate, restore the memory embedding. Each job has its own error scope, so
-        one failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
+        """One hourly pass: distill, refresh episode cards, restore the memory embedding. No intent labels or
+        consolidation (procedure learning was removed, notes/memory.md). Each job has its own error scope, so one
+        failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
         assert self.distiller is not None
         jobs: list[tuple[str, Callable[[], Awaitable[Any]]]] = [("memory.distill_failed", self.distiller.catch_up)]
-        if self.consolidator is not None:
-            jobs.append(("memory.consolidate_failed", self.consolidator.catch_up))
         if self.learning is not None:
+            jobs.append(("memory.cards_failed", self._refresh_cards))
             jobs.append(("memory.embedding_restore_failed", self._restore_memory_embedding))
         for failed, job in jobs:
             try:
@@ -1159,11 +966,12 @@ class MemoryGlue:
         keep = bool(params.get("keep_sources"))
         if not params.get("confirm"):
             plan = self.memory.plan_forget(str(params["id"]), keep)
-            return {"confirmed": False, "will_delete": plan.describe(self.db)}
-        described = self.memory.plan_forget(str(params["id"]), keep).describe(self.db)
+            return {"confirmed": False, "will_delete": plan.describe(self.db), "keeps": plan.keeps()}
+        plan = self.memory.plan_forget(str(params["id"]), keep)
+        described = plan.describe(self.db)
         self._forget_memory(str(params["id"]), keep)
         await self._settle_forgets()                     # the RPC answers once the forget is complete
-        return {"confirmed": True, "deleted": described}
+        return {"confirmed": True, "deleted": described, "keeps": plan.keeps()}
 
     async def _timeline(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         since = datetime.fromisoformat(params["since"]).astimezone() if params.get("since") else None

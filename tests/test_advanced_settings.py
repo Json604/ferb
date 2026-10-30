@@ -101,7 +101,7 @@ def test_a_redactor_without_a_text_path_writes_no_diagnostic_file(daemon: Runnin
 
 def test_only_the_owners_connection_may_export_a_diagnostic_file() -> None:
     assert auth.allowed(auth.Role.CLI, "reports.diagnostic")
-    for role in (auth.Role.MCP_SHIM, auth.Role.VOICE, auth.Role.NATIVE_HOST):
+    for role in (auth.Role.MCP_SHIM, auth.Role.NATIVE_HOST):
         assert not auth.allowed(role, "reports.diagnostic")
 
 

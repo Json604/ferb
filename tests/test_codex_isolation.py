@@ -29,7 +29,9 @@ async def test_codex_process_gets_ferbs_own_home(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
     # Restore the real start method before fixture patches it (test's monkeypatch takes precedence)
     monkeypatch.setattr(cx.CodexRuntime, "start", _original_codex_start)
-    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path / "work", tmp_path)
+    (tmp_path / "codex-home").mkdir()
+    (tmp_path / "codex-home" / "auth.json").write_text("{}")
+    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, output_schema={"type": "object"})
     task = Task("t", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r", [], None)
     with pytest.raises(RuntimeError):
         await rt.start(task, ModelRequest("sys", ("ctx",), 0), "")

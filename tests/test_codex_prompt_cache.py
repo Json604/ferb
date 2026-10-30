@@ -22,40 +22,10 @@ def _has(cmd: list[str], flags: list[str]) -> bool:
 
 
 def test_every_app_server_role_runs_with_skills_off(tmp_path: Path) -> None:
-    planner = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
-    worker = cx.CodexRuntime(Path("/x/codex"), "worker", tmp_path, tmp_path, shim_cmd=["ferb", "mcp"])
+    planner = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path)
+    worker = cx.CodexRuntime(Path("/x/codex"), "worker", tmp_path, shim_cmd=["ferb", "mcp"])
     assert _has(stream._command(planner, None), SKILLS_OFF)
     assert _has(stream._command(worker, None, tmp_path / "token"), SKILLS_OFF)
-
-
-def test_every_exec_role_runs_with_skills_off(tmp_path: Path) -> None:
-    planner = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
-    worker = cx.CodexRuntime(Path("/x/codex"), "worker", tmp_path, tmp_path, shim_cmd=["ferb", "mcp"])
-    assert _has(planner._cmd(None, None, tmp_path / "instructions.md"), SKILLS_OFF)
-    assert _has(worker._cmd(None, tmp_path / "token"), SKILLS_OFF)
-
-
-def test_pinned_codex_exec_sends_no_skills_message() -> None:
-    binary = lb.pinned_codex()
-    loopback = ModelLoopback()
-    with tempfile.TemporaryDirectory(prefix="ferb-codex-shape-") as name:
-        root = Path(name)
-        ferb_home = lb.ferb_home_with_catalog(root)
-        codex_home, user = root / "codex", root / "user"
-        lb.api_key_login(codex_home)
-        user.mkdir()
-        instructions = root / "instructions.md"
-        instructions.write_text("FERB-SYSTEM-MARKER")
-        rt = cx.CodexRuntime(binary, "supervisor", root / "work", ferb_home)
-        (root / "work").mkdir()
-        cmd = rt._cmd(None, None, instructions) + lb.base_url_flag(loopback) + ["-"]
-        subprocess.run(cmd, input=b"FERB-TURN-MARKER", capture_output=True, env=lb.loopback_env(codex_home, user),
-                       timeout=120, check=False)          # the loopback refuses the request: Codex exits non-zero
-        body = lb.model_requests(loopback, 2)[-1]
-    loopback.close()
-    assert lb.roles(body) == ["additional_tools:developer", "message:developer", "message:user"]
-    assert lb.texts(body)[1:] == ["FERB-SYSTEM-MARKER", "FERB-TURN-MARKER"]
-    assert "skills_instructions" not in json.dumps(body) and str(root) not in json.dumps(body)
 
 
 def test_pinned_codex_app_server_sends_no_skills_message() -> None:
@@ -68,7 +38,7 @@ def test_pinned_codex_app_server_sends_no_skills_message() -> None:
         lb.api_key_login(codex_home)
         user.mkdir()
         work.mkdir()
-        rt = cx.CodexRuntime(binary, "supervisor", work, ferb_home, output_schema={"type": "object"})
+        rt = cx.CodexRuntime(binary, "supervisor", ferb_home, output_schema={"type": "object"})
         server = lb.AppServer(stream._command(rt, cx.locked_catalog(ferb_home)) + lb.base_url_flag(loopback),
                               lb.loopback_env(codex_home, user), work)
         try:
@@ -113,7 +83,7 @@ def _planner(tmp_path: Path, cache_role: str | None = "planner", **kw: Any) -> c
     home = tmp_path / "codex-home"
     home.mkdir(exist_ok=True)
     (home / "auth.json").write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
-    return cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path / "work", tmp_path,
+    return cx.CodexRuntime(Path("/fake/codex"), "supervisor", tmp_path,
                            output_schema={"type": "object", "properties": {"text": {"type": "string"}}},
                            model="test-model", timeout_s=None, cache_role=cache_role, **kw)
 
@@ -397,7 +367,7 @@ def _pinned_server(root: Path, loopback: ModelLoopback) -> tuple[cx.CodexRuntime
     lb.api_key_login(codex_home)
     user.mkdir()
     work.mkdir()
-    rt = cx.CodexRuntime(binary, "supervisor", work, ferb_home, output_schema=SUPERVISOR_SCHEMA, cache_role="planner")
+    rt = cx.CodexRuntime(binary, "supervisor", ferb_home, output_schema=SUPERVISOR_SCHEMA, cache_role="planner")
     server = lb.AppServer(stream._command(rt, cx.locked_catalog(ferb_home)) + lb.base_url_flag(loopback),
                           lb.loopback_env(codex_home, user), work)
     server.initialize()
@@ -424,11 +394,11 @@ def _pinned_turn(resume: bool) -> list[dict[str, Any]]:
         try:
             key = stream.cache_thread_id("planner", rt.model)
             if resume:
-                path = stream.write_template(codex_home, rt.workdir, key, rt.model, PLANNER_REQUEST.system)
-                thread = server.rpc("thread/resume", stream._resume_params(rt, PLANNER_REQUEST, rt.workdir, key, path))
+                path = stream.write_template(codex_home, (root / "work"), key, rt.model, PLANNER_REQUEST.system)
+                thread = server.rpc("thread/resume", stream._resume_params(rt, PLANNER_REQUEST, (root / "work"), key, path))
             else:   # today's thread, with the same developer instructions, for comparison
-                params = stream._start_params(rt, PLANNER_REQUEST, rt.workdir)
-                params["developerInstructions"] = stream._resume_params(rt, PLANNER_REQUEST, rt.workdir, key,
+                params = stream._start_params(rt, PLANNER_REQUEST, (root / "work"))
+                params["developerInstructions"] = stream._resume_params(rt, PLANNER_REQUEST, (root / "work"), key,
                                                                         root)["developerInstructions"]
                 thread = server.rpc("thread/start", params)
             assert "result" in thread, thread
@@ -466,13 +436,13 @@ def test_pinned_refused_template_leaves_todays_thread_working() -> None:
         rt, server, codex_home = _pinned_server(root, loopback)
         try:
             key = stream.cache_thread_id("planner", rt.model)
-            path = stream.write_template(codex_home, rt.workdir, key, rt.model, PLANNER_REQUEST.system)
+            path = stream.write_template(codex_home, (root / "work"), key, rt.model, PLANNER_REQUEST.system)
             meta, context = [json.loads(line) for line in path.read_text().splitlines()]
             del meta["payload"]["cli_version"]
             path.write_text(json.dumps(meta) + "\n" + json.dumps(context) + "\n")
-            refused = server.rpc("thread/resume", stream._resume_params(rt, PLANNER_REQUEST, rt.workdir, key, path))
+            refused = server.rpc("thread/resume", stream._resume_params(rt, PLANNER_REQUEST, (root / "work"), key, path))
             assert "error" in refused and isinstance(refused["error"].get("code"), int)
-            thread = server.rpc("thread/start", stream._start_params(rt, PLANNER_REQUEST, rt.workdir))["result"]
+            thread = server.rpc("thread/start", stream._start_params(rt, PLANNER_REQUEST, (root / "work")))["result"]
             assert stream._isolated(thread, rt) and thread["thread"]["ephemeral"]
             server.rpc("turn/start", stream._turn_params(rt, PLANNER_REQUEST, thread["thread"]["id"], False))
             body = lb.model_requests(loopback, 2)[-1]

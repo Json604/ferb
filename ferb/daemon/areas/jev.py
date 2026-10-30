@@ -21,12 +21,29 @@ class JevGlue:
         key = out.decode().strip() if proc.returncode == 0 else ""
         return key or None
 
+    def _jev_on(self) -> bool:
+        """The one switch (`[jev] on`, off by default; notes/memory.md decision 4). While off nothing in Jev, decide,
+        perception batches or attention runs: no batcher work, no decisions or receipts, no shadow checks, no
+        Keychain read or request to Jev at start."""
+        return self.config.get("jev", "on", False) is True
+
+    def _jev_active(self) -> Any:
+        """The decider while the switch is on and Jev hasn't refused the key (HTTP 401/402/403); else None."""
+        jev = self.jev
+        if jev is None or not self._jev_on() or (jev.client is not None and jev.client.refused is not None):
+            return None
+        return jev
+
     async def _build_jev(self) -> None:
-        """Jev joins only once its key is in the Keychain; without it every hook is skipped (no rows, no calls)."""
+        """Jev joins only with the switch on and its key in the Keychain; otherwise every hook is skipped (no rows,
+        no calls)."""
         from ferb.decide.decider import JevClient, ShadowDecider
         if self.jev is not None:
             self.jev.close()
             self.jev = None
+        if not self._jev_on():
+            self._wire_jev(None)
+            return
         key = await self._jev_key() if self.jev_post is None else "test-key"
         if key is None:
             self._wire_jev(None)
@@ -44,18 +61,19 @@ class JevGlue:
         if self.distiller is not None:
             self.distiller.jev = jev
         if self.trail is not None and self.perception is not None:
-            self.trail.tag = self.perception.notify
+            self.trail.tag = self.perception.notify if jev is not None else (lambda event: None)
             self.perception.batches.wake.set()
 
     async def _destructive_shadow(self, facts: dict[str, Any], ref: str) -> None:
         from ferb.decide.decider import Ask
-        if self.jev is None:
+        jev = self._jev_active()
+        if jev is None:
             return
         baseline = "destructive" if facts.get("kind") in {"pay", "delete_permanent", "account_security", "send", "post"} else "uncertain"
         try:
-            await self.jev.ask(self.redact(facts), [Ask("action.destructive", baseline, ref)])
+            await jev.ask(self.redact(facts), [Ask("action.destructive", baseline, ref)])
             metadata = {key: facts.get(key) for key in ('tool', 'kind', 'target', 'owner_words')}
-            got = await self.jev.advice(self.redact(metadata), [Ask('action.alignment', 'uncertain', ref)])
+            got = await jev.advice(self.redact(metadata), [Ask('action.alignment', 'uncertain', ref)])
             if got.get('action.alignment') == 'mismatch':
                 self._journal().append('security.alignment', {'task_id': facts.get('task_id'), 'ref': ref,
                                                               'metadata': metadata, 'advice': 'mismatch'})
@@ -66,7 +84,7 @@ class JevGlue:
 
     async def _jev_stats(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if self.jev is None:
-            return {"configured": False, "stats": []}
+            return {"configured": False, "on": self._jev_on(), "stats": []}
         stats = self.jev.stats()
         for st in stats:
             if st["answered"]:
@@ -77,7 +95,7 @@ class JevGlue:
         answered = sum(1 for r in recent if r["jev"] is not None)
         last_error = next((r["error"] for r in recent if r["error"]), None)
         from ferb.decide.questions import QUESTIONS
-        return {"configured": True, "dropped": self.jev.dropped, "stats": stats, "recent_answered": answered,
+        return {"configured": True, "on": True, "dropped": self.jev.dropped, "stats": stats, "recent_answered": answered,
                 "recent_total": len(recent), "last_error": last_error,
                 "retired_enabled": sorted(set(self.config.get("jev", "enabled", [])) - QUESTIONS.keys())}
 
@@ -111,6 +129,8 @@ class JevGlue:
             raise FerbError(f"{q} is measured in shadow; it cannot act before owner-reviewed measurement")
         enabled = set(self.config.get("jev", "enabled", [])) & QUESTIONS.keys()
         if params.get("on", True):
+            if not self._jev_on():
+                raise FerbError("Jev is switched off ([jev] on = false in config.toml)")
             if self.jev is None:
                 raise FerbError("Jev isn't set up: `ferb setup --jev`")
             enabled.add(q)

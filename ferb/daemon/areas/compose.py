@@ -26,7 +26,6 @@ class Compose:
         if self.protection is None:     # [protection] and the workspace, once at start: before migrations and browsers
             self.protection = protection_lists.load(self.config.get, Path.home(), self.home)
         self.device_id = str(self.config.get("device", "id", "unknown-device"))
-        self._ptt = bool(self.config.get("voice", "push_to_talk", False))
         self._apply_privacy()
 
     def _apply_privacy(self) -> None:
@@ -101,7 +100,6 @@ class Compose:
                                    destinations=self.destinations,
                                    proc_task=self.shells.live_owner,   # a running shell process's destinations
                                    app_window=self._app_window,
-                                   memory_read=self._record_memory_read,                        # re-review a3
                                    journal_problem=lambda kind, data: self._journal().append(kind, data),   # R4
                                    profile_name=self._profile_display_name,   # browser_pair's question names it
                                    disturbance=self.disturbance, username_sources=self._username_sources,
@@ -115,19 +113,12 @@ class Compose:
             questions=questions,
             memory=ports.MemoryPort(
                 # L36 §4: every worker and plan step gets the one search at the owner's worker budget, its task's
-                # targets also ranked alone (no procedures: a worker's procedure is chosen by the planner)
+                # targets also ranked alone
                 memory_candidates=lambda words, focus: self._learning_candidates(words, focus=focus),
-                memory_push=lambda words, focus: self._learning_candidates(
-                    words, WORKER_MEMORY_ITEMS, procedures=False, focus=focus),
+                memory_push=lambda words, focus: self._learning_candidates(words, WORKER_MEMORY_ITEMS, focus=focus),
                 remember=self._remember, forget_request=self._chat_forget,
                 question_answered=self._question_answered, settle=self._settle_forgets,
-                procedure_context=self._learning_context,
-                procedure_details=lambda ident, task, slots: self.learning.procedure_parts(
-                    ident, self._app_versions(), slots),
-                procedure_problem=self._procedure_problem, identity_context=self._learning_identity,
-                on_episode=self._capture_learning_episode, procedure_outcome=self._procedure_outcome,
-                slot_values=lambda ident, pairs: self.learning.slot_values(ident, pairs),
-                slot_problem=lambda ident, pairs: self.learning.slot_problem(ident, pairs),
+                identity_context=self._learning_identity, on_episode=self._capture_learning_episode,
                 typed_behind_memory=self._typed_behind_memory),            # attended scopes too (final review I1)
             schedules=ports.SchedulePort(
                 timers=self.timers, on_schedule=self._schedule_create,
@@ -149,8 +140,7 @@ class Compose:
             notify=ports.NotifyPort(
                 on_loop_notice=self._loop_notice,
                 on_resumed_outcome=lambda event: self._task_result(event, shown=False),
-                on_conversation_resume=self._resume_conversation_plans,
-                notification_rule=self._notification_rule_from_chat))
+                on_conversation_resume=self._resume_conversation_plans))
         # L39 M1: the records a stopped daemon left go now, before any task, except those of trees that will resume
         # (their checks still see the changes made before the restart)
         resuming = set(self.supervisor.plans.pending())
@@ -168,11 +158,6 @@ class Compose:
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
-
-    def _record_memory_read(self, task_id: str, refs: list[str]) -> None:
-        """The memory items a task was given (memory.read / memory.learned), so a forget finds it (re-review a3)."""
-        assert self.learning is not None
-        self.learning.record_task_refs(task_id, refs)
 
     def _gateway(self) -> Gateway:
         if self.gateway is None:
@@ -211,14 +196,10 @@ class Compose:
             if not self._shutting_down:
                 self._attention_arrived(data)
 
-        def forgets(topic: str, data: dict[str, Any]) -> None:
-            if self._rescrubs:
-                self._tree_finished_at_a_forget(str(data.get("task_id", "")))
         self.events.on(None, plans)
         self.events.on({'trail.event', 'action.observed'}, activity)
         self.events.on({'trail.event'}, conversations)
         self.events.on({'perception.attention'}, attention)
-        self.events.on({'task.finished'}, forgets)
         self.events.on(None, lambda topic, data: self.bus.publish(topic, data))   # the bus as it is then
         self.events.on({'approval.requested'}, lambda topic, data: self._approval_notice(data))
 

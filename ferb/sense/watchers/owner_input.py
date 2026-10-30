@@ -1,6 +1,6 @@
 """Observe recent owner input through a listen-only tap. Must not suppress or replay input.
 
-Marked FERB events do not count as owner activity or push-to-talk; field capture receives their FERB mark.
+Marked FERB events do not count as owner activity; field capture receives their FERB mark.
 Recent activity is a fact for yielding, never a saved focus target."""
 
 import threading
@@ -8,9 +8,6 @@ import time
 from typing import Any, Callable
 
 FERB_EVENT_MARK = 0x46455242            # "FERB"
-# Is this modifier down? Its own side's bit (NX_DEVICE*KEYMASK), so holding Left Option doesn't keep Right Option down.
-MODIFIER_FLAG = {61: 0x40, 58: 0x20, 54: 0x10, 55: 0x08, 60: 0x04, 56: 0x02, 62: 0x2000, 59: 0x01,
-                 63: 0x800000}   # right/left option, right/left command, right/left shift, right/left control, fn
 
 
 def _input_monitoring_granted() -> bool:
@@ -32,9 +29,6 @@ class OwnerInput:
         self.running = False
         self._tap: Any = None
         self._loop: Any = None
-        # Push-to-talk: the owner's key events (keycode, down) go here; called on the tap's thread, so it must
-        # only hand off (the daemon schedules onto its loop). Never sees FERB's own marked events.
-        self.on_key: Callable[[int, bool], None] | None = None
         # F7 capture owns Secure Input/field checks, aggregation and redaction before anything is emitted.
         self.on_text: Callable[[Any, bool], None] | None = None
 
@@ -75,16 +69,6 @@ class OwnerInput:
                     pass                           # capture must never disturb input delivery
             if not marked:
                 self.owner_event()
-                if self.on_key is not None and etype in (Quartz.kCGEventFlagsChanged, Quartz.kCGEventKeyDown):
-                    code = int(Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode))
-                    if etype == Quartz.kCGEventKeyDown:
-                        down = True
-                    else:                                         # a modifier: down while its flag is set
-                        down = bool(Quartz.CGEventGetFlags(event) & MODIFIER_FLAG.get(code, 0))
-                    try:
-                        self.on_key(code, down)
-                    except Exception:
-                        pass                                      # never let push-to-talk break the owner's tap
             return event
 
         def run() -> None:

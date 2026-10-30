@@ -1,4 +1,4 @@
-"""`ferb trace` shows the story by default; --steps one line per tool call; --full/--json raw (P26). The story
+"""`ferb trace` shows the story by default; --full/--json raw (P26). The story
 outlives the 30-day span purge because it comes from the permanent episode (D21)."""
 import io
 import json
@@ -11,7 +11,7 @@ from tests.conftest import RunningDaemon, chat, done, install, sup, task
 def _trace(daemon: RunningDaemon, *flags: str) -> str:
     out, c = io.StringIO(), Client(daemon.sock)
     try:
-        admin.trace(c, "last", out, full="--full" in flags, raw="--json" in flags, steps="--steps" in flags)
+        admin.trace(c, "last", out, full="--full" in flags, raw="--json" in flags)
     finally:
         c.close()
     return out.getvalue()
@@ -29,12 +29,11 @@ def test_default_is_the_story(daemon: RunningDaemon) -> None:
     assert any(ln.startswith("Tokens:") for ln in text) and any(ln.startswith("Desktop:") for ln in text)
 
 
-def test_steps_full_and_json(daemon: RunningDaemon) -> None:
+def test_full_and_json(daemon: RunningDaemon) -> None:
     _say_hi(daemon)
     raw = json.loads(_trace(daemon, "--json"))
     assert raw["episode"]["request_text"] == "say hi" and raw["spans"]
     assert _trace(daemon, "--full").strip()
-    assert _trace(daemon, "--steps").strip() == "(no tool calls)"           # the scripted worker made none
 
 
 def test_story_survives_span_purge(daemon: RunningDaemon) -> None:
@@ -48,5 +47,3 @@ def test_story_survives_span_purge(daemon: RunningDaemon) -> None:
     daemon.run(drop())
     story = _trace(daemon).splitlines()
     assert story[0].startswith("#") and '"say hi"' in story[0]
-    steps = _trace(daemon, "--steps")
-    assert "steps aren't kept" in steps and '"say hi"' in steps

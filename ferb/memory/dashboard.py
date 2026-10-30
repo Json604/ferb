@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-ALLOWED = frozenset({'inventory', 'search', 'get', 'confirm', 'edit', 'forget', 'rollback', 'digest', 'identity', 'retire', 'lesson_feedback'})
+ALLOWED = frozenset({'inventory', 'search', 'get', 'confirm', 'edit', 'forget', 'rollback', 'digest', 'identity', 'retire'})
 
 
 class Dashboard:

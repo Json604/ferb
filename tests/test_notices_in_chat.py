@@ -114,10 +114,10 @@ def test_a_notice_reaches_the_chat_journal_and_status_with_no_banner_while_a_cli
 
 
 def test_a_subscription_that_never_shows_notices_does_not_stop_banners(daemon: RunningDaemon) -> None:
-    """`ferb logs --filter timers` or `ferb voice` is connected but never shows a notice or a task result."""
+    """`ferb logs --timers` or `--browsers` is connected but never shows a notice or a task result."""
     notes = _notes(daemon)
     _tell(daemon, UPGRADE, [])
-    timers, voice = Subscriber(daemon, ["timers"]), Subscriber(daemon, ["voice"])
+    timers, voice = Subscriber(daemon, ["timers"]), Subscriber(daemon, ["browsers"])
     try:
         _consider(daemon, "b-filtered", _record(daemon, _brave("Claude - Upgrade to Max")))
         daemon.run(daemon.daemon._task_result({"task_id": "t-filtered", "status": "done", "answer": "Done."},
@@ -183,6 +183,7 @@ def test_trail_attention_decisions_are_recorded_live_with_their_effect(daemon: R
 
     async def jev(url: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> tuple[int, Any]:
         return 200, {"answers": {n: {"type": "noul", "noul": 0.9} for n in body["questions"]}}
+    d.config.set("jev", "on", True)
     d.jev_post = jev
     daemon.run(d._build_jev())
     _notes(daemon)
@@ -216,6 +217,7 @@ def test_a_consideration_that_ends_early_records_why_on_its_decision(daemon: Run
 
     async def jev(url: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> tuple[int, Any]:
         return 200, {"answers": {}}
+    d.config.set("jev", "on", True)
     d.jev_post = jev
     daemon.run(d._build_jev())
     arrival = _record(daemon, Observation("notification", {"external_id": "n-early", "bundle_id": "net.whatsapp.whatsapp",
@@ -354,19 +356,6 @@ def test_the_owners_hidden_input_wait_is_not_ferbs_only_the_fill_is(tmp_path: Pa
 
 
 # ---------- Notification Center ----------
-
-def test_a_lowercase_whatsapp_row_is_muted_by_a_rule_saved_with_capitals(tmp_path: Path) -> None:
-    db = Database(tmp_path / "ferb.db")
-    db.migrate()
-    clock, ids = FakeClock(), SequentialIds("m")
-    policy = NotificationPolicy(db, clock, ids, Redactor())
-    policy.add("net.whatsapp.WhatsApp", None, None, "mute WhatsApp", "please mute WhatsApp")
-    assert policy.muted("net.whatsapp.whatsapp", "Family")                # Notification Center stores lowercase
-    batcher = EventBatcher(db, clock, ids, lambda: None, policy, lambda *args: None)
-    row = {"id": "n1", "source": "notification", "data": {"bundle_id": "net.whatsapp.whatsapp", "conversation": "Family"}}
-    assert batcher._request([row], "b") == ({"muted": True}, [])
-    db.close()
-
 
 def _nc(path: Path, records: list[tuple[str, dict[str, Any]]]) -> None:
     """The usernoted db2 shape: `app` and `record` tables; each record's data is a binary plist whose request
@@ -509,7 +498,7 @@ def test_a_question_raises_no_banner_while_a_client_that_shows_questions_is_conn
 
 def test_a_question_banner_with_no_client_never_points_at_the_cli(daemon: RunningDaemon) -> None:
     notes = _notes(daemon)
-    voice = Subscriber(daemon, ["voice"])                                   # connected, but never shows questions
+    voice = Subscriber(daemon, ["browsers"])                                   # connected, but never shows questions
     try:
         _question(daemon)
         _until(lambda: notes, "the banner")

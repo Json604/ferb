@@ -38,7 +38,7 @@ def test_a_live_steer_saves_the_planners_memory_entry_once(daemon: Any, monkeypa
     try:
         assert worker.started.wait(5)
         tree_id = worker.handles[0].task_id.rsplit('.', 1)[0]
-        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'steer', remember=_remember()))
+        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'continue', remember=_remember()))
         events = chat(daemon, SCOPE, session='visa', timeout=5)
         assert [e['type'] for e in events].count('memory') == 1, events
         assert len(_saved(daemon)) == 1
@@ -115,7 +115,7 @@ def test_stop_and_steer_replies_reach_the_conversation_record_with_ferbs_lines(d
                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     worker, script, thread, tree_id = _live(daemon, monkeypatch)
     try:
-        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'steer', remember=_remember()))
+        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'continue', remember=_remember()))
         chat(daemon, SCOPE, session='visa', timeout=5)
         script.sup.append(control_turn('Check visa slots', tree_id, 'stop'))
         chat(daemon, 'stop it', session='visa', timeout=15)
@@ -137,7 +137,7 @@ def test_a_steer_that_finds_the_task_just_ended_applies_nothing_and_asks_for_the
     monkeypatch.setattr(supervisor, 'apply_steering', just_ended)
     worker, script, thread, tree_id = _live(daemon, monkeypatch)
     try:
-        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'steer', remember=_remember()))
+        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'continue', remember=_remember()))
         events = chat(daemon, SCOPE, session='visa', timeout=5)
     finally:
         worker.release.set()
@@ -154,7 +154,7 @@ def test_pasted_words_on_a_steer_or_a_stop_save_nothing_and_change_no_schedule(d
                           now + timedelta(hours=20))
     worker, script, thread, tree_id = _live(daemon, monkeypatch)
     try:
-        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'steer', remember=_remember()))
+        script.sup.append(control_turn('Book the earliest visa slot anywhere', tree_id, 'continue', remember=_remember()))
         steered = chat(daemon, f'keep going ```{SCOPE}```', session='visa', timeout=5)
         script.sup.append(control_turn('Check visa slots', tree_id, 'stop', schedule_changes=[
             {'id': sched.id, 'action': 'pause', 'quote': 'pause the visa task'}]))

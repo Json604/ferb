@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import parse_qs, urlsplit
 
-from ferb.cli.chat import render
+from tests.support.chat_text import render
 from ferb.cli.client import Client
 from tests.conftest import RunningDaemon
 

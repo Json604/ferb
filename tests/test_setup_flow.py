@@ -176,40 +176,21 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
     assert world["runner"].ran("uv", "python", "install") == 0
 
 
-def test_full_setup_collects_permissions_and_selected_automation_including_brave(world: dict[str, Any]) -> None:
-    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
+def test_plain_setup_asks_for_no_permission_and_records_setup_only_when_all_are_granted(world: dict[str, Any]) -> None:
+    """The CLI permission walkthrough is gone (notes/daemon.md decision 4: FERB's setup window asks); `ferb setup`
+    opens no pane, requests nothing, and records setup as done only once the daemon reports every permission."""
+    env, out = make_env(world, [], daemon_up=False)          # any request for owner input would fail this test
     assert S.setup(env) == 0, out.getvalue()
     d = world["daemon"]
-    assert world["panes"][:2] == ["accessibility", "screen_recording"]
-    assert d.perms["accessibility"] == d.perms["screen_recording"] == "granted"
-    text = out.getvalue()
-    assert set(d.automation_requests[0]) == {"com.brave.Browser", "com.google.Chrome", "com.apple.Notes"}                                    # progressive: asked on first use (8)
-    assert "Optional" not in text and "identity profile" not in text and "4/4" in text
-    assert "Setup complete." in text
-    assert (world["home"] / "device").is_dir()
-
-
-def test_skipping_a_required_permission_is_allowed_with_a_warning(world: dict[str, Any]) -> None:
-    world["daemon"].perms["screen_recording"] = "granted"
-    env, out = make_env(world, ["skip", "", ""], daemon_up=False)
-    assert S.setup(env) == 0
-    assert "Skipped Accessibility" in out.getvalue() and "cannot act on the Mac" in out.getvalue()
-
-
-def test_input_monitoring_is_collected_at_setup(world: dict[str, Any]) -> None:
-    d = world["daemon"]
-    d.perms.update(accessibility="granted", screen_recording="granted", input_monitoring="denied")
-    d.tap_ok = False
-    env, out = make_env(world, ["skip", "", ""], daemon_up=False)
-    S.setup(env)
-    assert "input_monitoring" in world["panes"]
-
-
-def test_setup_asks_macos_to_list_ferb_before_opening_a_pane(world: dict[str, Any]) -> None:
-    env, out = make_env(world, ["", "", "", ""], daemon_up=False)
+    assert world["panes"] == [] and d.requested == [] and d.automation_requests == [] and d.clipboard_requests == 0
+    assert "Not granted yet" in out.getvalue() and "accessibility=denied" in out.getvalue()
+    assert Config(world["home"]).get("setup", "permissions_version", 0) == 0
+    assert (world["home"] / "device").is_dir() and "Setup complete." in out.getvalue()
+    d.perms = {name: "granted" for name in S.SETUP_PERMISSIONS}
+    env, out = make_env(world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
-    # Full Disk Access has no request; Input Monitoring was already granted
-    assert world["daemon"].requested == ["accessibility", "screen_recording"]
+    assert Config(world["home"]).get("setup", "permissions_version") == 27
+
 
 def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str, Any]) -> None:
     world["inst"].install()
@@ -271,7 +252,7 @@ def test_update_reports_missing_permissions_without_opening_settings_or_promptin
     assert S.setup(env, update=True) == 0, out.getvalue()
     assert world['panes'] == [] and world['daemon'].automation_requests == []
     assert Config(world['home']).get('setup', 'permissions_version', 0) == 0
-    assert 'Permission setup deferred' in out.getvalue() and 'accessibility=denied' in out.getvalue()
+    assert 'Not granted yet' in out.getvalue() and 'accessibility=denied' in out.getvalue()
     assert ('doctor.check', {'selftest': False}) in world['daemon'].calls
 
 
@@ -369,24 +350,14 @@ def test_persona_only_review_does_not_install_restart_or_confirm_empty_input(wor
 
 # ---------- L26: FERB.app hears app sound during tasks (Speech Recognition only, unless --voice) ----------
 
-def test_plain_setup_builds_ferb_app_and_asks_for_speech_recognition_only(world: dict[str, Any]) -> None:
-    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
+def test_plain_setup_builds_ferb_app_for_hearing_without_a_permission_dialog(world: dict[str, Any]) -> None:
+    env, out = make_env(world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     run: FakeRun = world["run"]
     app = str(world["home"] / "FERB.app")
     assert [c[1] for c in run.calls if c[0].endswith("build.sh")] == [app]
-    assert run.ran("/usr/bin/open", "-n", "-W", app, "--args", "request-speech")
-    assert not any(c[-1] == "request" for c in run.ran("/usr/bin/open"))   # never the microphone without --voice
+    assert not run.ran("/usr/bin/open")                    # Speech Recognition is asked by FERB's setup window
     assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
-    assert ("doctor.check", {"selftest": False, "hearing": True}) in world["daemon"].calls
-    assert "Speech Recognition" in out.getvalue() and "on this Mac" in out.getvalue()
-
-
-def test_setup_says_how_to_allow_speech_recognition_and_still_finishes(world: dict[str, Any]) -> None:
-    world["daemon"].hearing.update(speech="denied")
-    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
-    assert S.setup(env) == 0, out.getvalue()
-    assert "Privacy & Security" in out.getvalue() and "Speech Recognition" in out.getvalue()
 
 
 def test_doctor_reports_ferb_apps_speech_permission(world: dict[str, Any]) -> None:
@@ -456,7 +427,7 @@ def test_setup_from_the_app_installs_from_the_bundle_and_says_where_ferb_is(app_
     assert S.setup(env) == 0, out.getvalue()
     text = out.getvalue()
     assert f"from {app_world['app']}" in text and "venv" not in text and "python3.12" not in text
-    assert f"switch on FERB ({app_world['app']}/Contents/Helpers/FERB.app)" in text   # what permissions go to
+    assert f"Permissions go to FERB ({app_world['app']}/Contents/Helpers/FERB.app)" in text   # what they go to
     assert f"`ferb` command: {app_world['inst'].cli_dir / 'ferb'}" in text
     assert "PATH" not in text                              # the app is the product; the CLI is for development
     assert app_world["runner"].ran("uv") == 0
@@ -470,30 +441,6 @@ def test_setup_from_the_app_repins_push_to_talk_to_the_bundled_voice_helper(app_
     assert S.setup(env, update=True) == 0, out.getvalue()
     assert Config(app_world["home"]).get("voice", "requirement") == PINNED   # the app's own helper, not the old build
     assert "Set Up FERB… in FERB's menu bar" in out.getvalue()               # an ad-hoc update can lose permissions
-
-
-def test_voice_setup_from_the_app_uses_its_signed_helper_without_building(app_world: dict[str, Any]) -> None:
-    import subprocess
-    ran: list[list[str]] = []
-
-    def run(cmd: list[str], **kw: Any) -> "subprocess.CompletedProcess[str]":
-        ran.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", f"# designated => {PINNED}\n" if "-r-" in cmd else "")
-
-    class VoiceClient(FakeClient):
-        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-            if method == "voice.reload":
-                return {"push_to_talk": True}
-            if method == "doctor.check":
-                return {"voice": {"connected": True, "permissions": {"microphone": "granted", "speech": "granted"}}}
-            return super().call(method, params)
-    env, out = make_env(app_world, [])
-    env.connect = lambda: VoiceClient(app_world["daemon"])
-    assert S.voice_setup(env, run=run) == 0, out.getvalue()
-    helper = str(app_world["app"] / "Contents" / "Helpers" / "FERB Voice.app")
-    assert not any(c[0] == "security" or c[0].endswith("build.sh") for c in ran)   # no local certificate, no build
-    assert ["/usr/bin/open", "-n", "-W", helper, "--args", "request"] in ran     # integrated: L26 runs /usr/bin/open
-    assert Config(app_world["home"]).get("voice", "requirement") == PINNED
 
 
 def test_closing_setup_while_it_installs_never_leaves_the_daemon_unloaded(app_world: dict[str, Any]) -> None:
@@ -541,16 +488,13 @@ def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world
 # ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
 
 def test_plain_setup_from_the_app_hears_through_its_shipped_helper_without_building(app_world: dict[str, Any]) -> None:
-    env, out = make_env(app_world, ["", "", "", ""], daemon_up=False)
+    env, out = make_env(app_world, [], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     run: FakeRun = app_world["run"]
-    helper = str(app_world["app"] / "Contents" / "Helpers" / "FERB Voice.app")
     assert not any(c[0] == "security" or c[0].endswith("build.sh") for c in run.calls)   # no certificate, no build
-    assert run.ran("/usr/bin/open", "-n", "-W", helper, "--args", "request-speech")
-    assert not any(c[-1] == "request" for c in run.ran("/usr/bin/open"))   # never the microphone without --voice
+    assert not run.ran("/usr/bin/open")                    # no permission dialog from the CLI
     assert Config(app_world["home"]).get("hearing", "requirement") == PINNED   # the shipped helper's signature
     assert not (app_world["home"] / "FERB.app").exists()
-    assert "Speech Recognition for FERB Voice" in out.getvalue()
 
 
 def test_update_from_the_app_repins_hearing_to_the_new_helper_without_asking(app_world: dict[str, Any]) -> None:
@@ -606,7 +550,7 @@ def test_setup_offers_the_codex_sign_in_when_ferbs_codex_home_has_none(world: di
 
 def test_declining_the_codex_sign_in_says_how_to_do_it_later(world: dict[str, Any]) -> None:
     auth = _signed_out(world)
-    env, out = make_env(world, ["", "", "", "1,2,3", "n"], daemon_up=False)
+    env, out = make_env(world, ["n"], daemon_up=False)
     assert S.setup(env) == 1
     text = out.getvalue()
     assert not auth.exists() and not [c for c in world["run"].calls if c[1:] == ["login"]]
@@ -643,18 +587,6 @@ def test_doctor_fails_without_ferbs_own_codex_sign_in(world: dict[str, Any]) -> 
 
 
 # ---------- I3: macOS pasteboard privacy ----------
-
-def test_setup_asks_before_letting_macos_ask_about_the_clipboard(world: dict[str, Any]) -> None:
-    world["daemon"].clipboard = "default"
-    asked: list[str] = []
-    env, out = make_env(world, ["", "", "", "1,2,3", "y"], daemon_up=False)
-    plain = env.ask
-    env.ask = lambda prompt: (asked.append(prompt), plain(prompt))[1]   # type: ignore[method-assign]
-    assert S.setup(env) == 0, out.getvalue()
-    assert any("Paste from Other Apps" in p or "clipboard" in p.lower() for p in asked)
-    assert world["daemon"].clipboard_requests == 1
-    assert "Paste from Other Apps" in out.getvalue() and "Allow" in out.getvalue()
-
 
 def test_setup_never_requests_clipboard_access_without_a_yes(world: dict[str, Any]) -> None:
     world["daemon"].clipboard = "default"

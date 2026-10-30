@@ -21,8 +21,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 from pydantic import BaseModel, ValidationError
 
 from ferb.core.errors import AlreadyRunning, AuthError, FerbError, Unsupported
-from ferb.daemon.auth import (RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host,
-                              check_voice_peer)
+from ferb.daemon.auth import RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host
 
 MAX_MESSAGE = 1024 * 1024
 
@@ -91,19 +90,6 @@ def _peer(writer: asyncio.StreamWriter) -> int | None:
         return None
 
 
-def exe_of(pid: int) -> str | None:
-    """The executable path of a process (libproc), or None."""
-    import ctypes
-    import ctypes.util
-    buf = ctypes.create_string_buffer(4096)
-    try:
-        lib = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib")
-        n = lib.proc_pidpath(pid, buf, len(buf))
-    except OSError:
-        return None
-    return buf.value.decode() if n > 0 else None
-
-
 def peer_uid(sock: socket.socket) -> int:
     raw = sock.getsockopt(SOL_LOCAL, LOCAL_PEERCRED, 76)   # struct xucred: u_int version, uid_t uid, ...
     return int(struct.unpack_from("Ii", raw)[1])
@@ -133,9 +119,6 @@ class Server:
         self.streams: dict[str, Stream] = {}
         self.native: Channel | None = None               # extension message channel
         self.extension_ids: Callable[[], frozenset[str]] = lambda: frozenset()
-        # FERB.app: where it's installed and how to check its signature; unset = voice refused
-        self.voice_app: Callable[[], str | None] = lambda: None
-        self.voice_signed: Callable[[str], bool] = lambda path: False
         self._server: asyncio.base_events.Server | None = None
         self._writers: set[asyncio.StreamWriter] = set()
         # (task id, the runtime's call id) -> each running MCP shim call so named: (caller-left flag, its connection),
@@ -239,15 +222,6 @@ class Server:
                 session = Session(Role.CLI, pid=_peer(writer))
             elif hello.role is Role.MCP_SHIM:
                 session = Session(Role.MCP_SHIM, self.tokens.validate(hello.token or ""))
-            elif hello.role is Role.VOICE:
-                expected = self.voice_app()
-                if expected is None:
-                    raise Unsupported("push-to-talk isn't set up (`ferb setup --voice`)")
-                sock = writer.get_extra_info("socket")
-                # the signature check runs codesign: in a thread, so a hello never holds up the event loop
-                await asyncio.to_thread(check_voice_peer, uid, self.owner_uid, exe_of(peer_pid(sock)), expected,
-                                        self.voice_signed)
-                session = Session(Role.VOICE)
             else:
                 if self.native is None:
                     raise Unsupported("FERB's browser bridge isn't running")

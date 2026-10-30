@@ -16,7 +16,7 @@ def runtime(tmp_path, **kw):
     home = tmp_path / 'codex-home'
     home.mkdir()
     (home / 'auth.json').write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
-    return CodexRuntime(Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path,
+    return CodexRuntime(Path('/fake/codex'), 'supervisor', tmp_path,
                         output_schema={'type': 'object', 'properties': {'text': {'type': 'string'}}},
                         model='test-model', timeout_s=None, **kw)
 
@@ -180,20 +180,6 @@ async def test_an_error_codex_retries_itself_is_reported_and_the_run_goes_on(tmp
     assert 'responseStreamDisconnected' in retrying[0].data['message']
     assert 'abcdefghijklmnop0123456789' not in retrying[0].data['message']
     assert got[-1].kind == 'final' and not any(ev.kind == 'error' for ev in got)
-
-
-@pytest.mark.anyio
-async def test_exec_error_events_pass_through_redaction(tmp_path):
-    import sys
-    from ferb.core.types import RunHandle
-    failed = json.dumps({'type': 'turn.failed', 'error': {'message': 'refused Bearer abcdefghijklmnop0123456789'}})
-    proc = await asyncio.create_subprocess_exec(sys.executable, '-c', f'import sys; print({failed!r}, flush=True); sys.exit(1)',
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    rt = CodexRuntime(Path('/unused'), 'worker', tmp_path, tmp_path, timeout_s=None)
-    handle = RunHandle('test', rt.name, 'test.worker', {'proc': proc, 'violation': None, 'seen': set()})
-    errors = [e.data['message'] for e in [e async for e in rt.events(handle)] if e.kind == 'error']
-    assert any('refused' in m for m in errors)
-    assert not any('abcdefghijklmnop0123456789' in m for m in errors)
 
 
 @pytest.mark.anyio

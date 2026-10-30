@@ -33,9 +33,20 @@ TEXTEDIT, CALC = "com.apple.TextEdit", "com.apple.calculator"
 
 def _front() -> str | None:
     """Accessibility's focused application first; NSWorkspace when that read fails (-25204 while the owner is in a
-    full-screen app, seen in every probe run) — the same reading `ferb watch` records next to the owner's verdict."""
-    from ferb.device.watch import _front as front
-    return front()
+    full-screen app, seen in every probe run)."""
+    try:
+        from ferb.sense.watchers.base import focused_app
+        f = focused_app()
+        if f is not None:
+            return f.bundle_id
+    except Exception:
+        pass
+    try:
+        from AppKit import NSWorkspace
+        a = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return str(a.bundleIdentifier()) if a else None
+    except Exception:
+        return None
 
 
 class _FrontWatch:

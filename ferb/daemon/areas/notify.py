@@ -162,7 +162,7 @@ class Notify:
     def _client_shows(self, topic: str) -> bool:
         """A connected FERB client receives this topic (L9): an authenticated `logs.subscribe` stream with no filter
         (the notch UI, `ferb chat`) or a filter that includes it. Then the client shows it and the macOS banner stays
-        off; a subscription filtered to other topics (`ferb logs --filter timers`, `ferb voice`) shows nothing."""
+        off; a subscription filtered to other topics (`ferb logs --timers`) shows nothing."""
         return any(sub.wants(topic) for sub in self._log_subscriptions)
 
     async def _loop_notice(self, tree_id: str, step_id: str, text: str, notice_origin: str = origin_.FERB) -> None:

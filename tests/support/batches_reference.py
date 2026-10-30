@@ -180,9 +180,6 @@ class EventBatcher:
         if event["source"] == "notification" and event.get("actor") == "ferb":
             return {"ferb_banner": True}, []   # FERB's own banner read back (L10): FERB's words, never an arrival
         if event["source"] == "notification":
-            data = event["data"]
-            if self.policy.muted(str(data.get("bundle_id", "")), str(data.get("conversation", ""))):
-                return {"muted": True}, []
             state = self.policy.context(event)
             omitted = []
             while state["conversation"] and count_tokens(_text(state)) > EVENT_BUDGET:

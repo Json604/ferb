@@ -26,7 +26,7 @@ class Perception:
         # Each one matches one record; they live with this process, so none is kept as another copy of FERB's words.
         self.banners: list[dict[str, str]] = []
         self.policy = NotificationPolicy(daemon.db, daemon.clock, daemon.ids, daemon.redact)
-        self.batches = EventBatcher(daemon.db, daemon.clock, daemon.ids, lambda: daemon.jev,
+        self.batches = EventBatcher(daemon.db, daemon.clock, daemon.ids, lambda: daemon._jev_active(),
                                     self.policy, daemon._publish,
                                     oldest_seconds=lambda: float(daemon.config.get("sense", "batch_age_s", 60.0)))
 

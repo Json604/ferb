@@ -15,7 +15,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from ferb.cli.chat import render
+from tests.support.chat_text import render
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
 from tests.conftest import Answers, RunningDaemon, only_tools

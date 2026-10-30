@@ -16,10 +16,6 @@ class PlanExecutor:
         self.store, self.execute, self.stopped = store, execute, stopped
         self._wake = asyncio.Event()
 
-    def notify(self, event: str, payload: dict[str, Any]) -> None:
-        self.store.event(event, payload)
-        self._wake.set()
-
     def wake(self) -> None:
         self._wake.set()
 

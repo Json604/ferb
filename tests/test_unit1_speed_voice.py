@@ -1,13 +1,11 @@
 """Owner's Unit 1 (2026-10-01): faster replies within Codex, plain reasons when the model service fails, FERB's
 accurate self-description, and FERB's voice (`ferb chat --speak`)."""
 
-import io
 import json
 from pathlib import Path
 from typing import Any
 import pytest
 
-from ferb.cli.chat import Chat
 from ferb.core.types import ModelRequest, Task
 from ferb.orchestrator.worker import service_problem
 from ferb.runtimes.codex_exec import SUPERVISOR_SETTINGS, CodexRuntime, codex_home
@@ -38,7 +36,7 @@ async def test_codex_start_failure_removes_created_files(tmp_path, monkeypatch):
     home = tmp_path / 'codex-home'
     home.mkdir()
     (home / 'auth.json').write_text('{}')
-    rt = CodexRuntime(Path('/missing'), 'worker', tmp_path, tmp_path,
+    rt = CodexRuntime(Path('/missing'), 'worker', tmp_path,
                       shim_cmd=['ferb', 'mcp'], output_schema={'type':'object'})
     t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)
     with pytest.raises(OSError, match='cannot launch'):
@@ -69,14 +67,14 @@ async def test_claude_query_failure_disconnects_client(monkeypatch):
 # ---------- Codex, faster ----------
 
 def test_the_planner_runs_lean_and_tasks_keep_their_settings(tmp_path: Path) -> None:
-    sup_rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
-    cmd = sup_rt._cmd(None, "", tmp_path / "instructions.md")
+    from ferb.runtimes.codex_stream import _command
+    sup_rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path)
+    cmd = _command(sup_rt, None)
     joined = " ".join(cmd)
     assert all(s in cmd for s in SUPERVISOR_SETTINGS) and 'model_reasoning_effort="low"' in joined
-    assert f"model_instructions_file={json.dumps(str(tmp_path / 'instructions.md'))}" in cmd   # Codex's own replaced
-    worker = CodexRuntime(Path("/x/codex"), "worker", tmp_path, tmp_path, shim_cmd=["ferb", "mcp"])
-    wcmd = " ".join(worker._cmd(None, "tok"))
-    assert "model_reasoning_effort" not in wcmd and "model_instructions_file" not in wcmd      # tasks unchanged
+    worker = CodexRuntime(Path("/x/codex"), "worker", tmp_path, shim_cmd=["ferb", "mcp"])
+    wcmd = " ".join(_command(worker, None, tmp_path / "tok"))
+    assert "model_reasoning_effort" not in wcmd                                                  # tasks unchanged
 
 
 def test_ferbs_own_codex_home_once_logged_in(tmp_path: Path) -> None:
@@ -187,17 +185,6 @@ class Stream:
         pass
 
 
-def test_speak_says_ferbs_words_not_internals() -> None:
-    voice = FakeSay()
-    events = [{"type": "plan", "text": "Looking now.", "task_id": "t1"},
-              {"type": "event", "topic": "tool.called", "data": {"tool": "fs.read"}},       # not shown, not said
-              {"type": "outcome", "status": "done", "summary": "ok", "answer": "Done: 3 files.", "verified": True}]
-    c = Chat(lambda: Stream(events), io.StringIO(), lambda q: "", verbose=False, speaker=voice)  # type: ignore[arg-type,return-value]
-    c.turn("look")
-    assert voice.said == ["ferb> Looking now.", "ferb> Done: 3 files."]
-    assert voice.stopped >= 1                                               # a new message cut off the last one
-
-
 def test_say_runs_the_macs_voice_and_can_be_cut_off() -> None:
     runs: list[list[str]] = []
 
@@ -237,8 +224,9 @@ def test_gpt6_catalog_lockdown_and_namespaced_tools(tmp_path: Path, monkeypatch:
     assert all(m["supports_search_tool"] is False for m in models)           # FERB's MCP tools stay directly visible
     assert {"apps", "plugins", "multi_agent"} <= set(cx.DISABLED)            # side effects of that stay disabled
     assert models[0]["context_window"] == 1                                   # everything else untouched
-    rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
-    cmd = rt._cmd(None, "")
+    from ferb.runtimes.codex_stream import _command
+    rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path)
+    cmd = _command(rt, cx.locked_catalog(tmp_path))
     assert f"model_catalog_json={json.dumps(str(out))}" in cmd
     seen = {n.removeprefix("functions.") for n in ("functions.apply_patch", "functions.exec", "mcp__ferb.fs_read")}
     assert "apply_patch" in seen and "exec" in seen and not ("exec" in cx.BASE_TOOLS)   # exec still a violation

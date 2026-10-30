@@ -39,7 +39,7 @@ class _Base:
         except ValueError as e:
             return _err(str(e))
         return ToolResult({"timer": tm.id, "at": tm.fire_at.astimezone().isoformat(timespec="minutes"),
-                           "note": "the owner gets it as a notification and in ferb chat"})
+                           "note": "the owner gets it as a notification and in FERB's chat"})
 
 
 class TimeRemindAt(_Base):

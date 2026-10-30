@@ -3,11 +3,6 @@ the last minutes is fetch-only (trail.query; owner, 2026-10-14)."""
 from typing import Any
 from ferb.core import origin
 
-# L29: the fold route of the planner's learned-procedure lines (an item's `fold`): what lists them all
-PROCEDURES_ROUTE = 'memory.learned kind=procedure'
-# L29: the fold route of the verified earlier runs a worker gets with its procedure (each read in full by its card's id)
-PROCEDURE_RUNS_ROUTE = "memory.learned kind=episode, the verified earlier runs of this procedure's kind of task"
-
 
 def target_words(targets: Any) -> str:
     """A task's targets as memory query words (L36 §3, §4): each site's host labels ("usvisascheduling com"), the apps

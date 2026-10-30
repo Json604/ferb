@@ -135,12 +135,14 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [ ] Scheduled runs respect the global stop; schedules without a pending timer are reconciled at start-up
       (found in notes/storage.md).
 - [ ] Dead: `PlanExecutor.notify`, `LoopStore.running`, `tasks.depends_json`, `run_tree` `limit`, legacy statuses.
+      (Step 3: `PlanExecutor.notify` and `LoopStore.running` removed; the rest left.)
 
 ### Intake
 - [ ] Typed turn object; one exit path; one reply recorder with origin always set.
 - [ ] One quote check shared by remember, until, timers, schedules, schedule changes, reminder cancels, forget,
       conversation changes.
-- [ ] Remove `steer` from code paths; one continue/correct verb (S:1407, 1433, 1473; ST).
+- [x] Remove `steer` from code paths; one continue/correct verb (S:1407, 1433, 1473; ST).
+      (Step 3: `TaskControl.action` is stop/retry/continue; the branches use continue; prompt lines say continue.)
 - [ ] Cross-chat control: the planner sees every chat's and schedule's running tasks (S:1773) but `problems_for`
       rejects a task outside this chat (S:796). Live failure 2026-10-24.
 - [ ] Retry on a busy task can end as only a stop (S:1438-1456).
@@ -150,7 +152,8 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [ ] Misrouted answer discards the planner's reply (S:1375-1389, 1194, 1198).
 - [ ] Planner shown open questions it can't answer (S:1768-1771 vs ROUTABLE_QUESTIONS S:147).
 - [ ] Worker-type list rides in the droppable activity block (M:3943-3946; S:1750).
-- [ ] Remove notification rules (schema field, `_side_entries` S:1643-1654, M:3125-3129, perception policy hook).
+- [x] Remove notification rules (schema field, `_side_entries` S:1643-1654, M:3125-3129, perception policy hook).
+      (Step 3: schema field and model, `_side_entries` branch, NotifyPort field, `_notification_rule_from_chat`, `notifications.rules`/`notifications.label` RPCs, the CLI and the policy's `add`/`rules`/`muted`/`label`; prompt text removed. Tables left for step 12.)
 - [ ] Dead: `recall` hook path, `relevant_source_refs`, `since_last_talk` public, `_attempts_text`, `prior is None`
       branch (S:1393-1405), legacy continuity shims after a one-time migration.
 

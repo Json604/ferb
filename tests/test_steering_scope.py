@@ -51,7 +51,7 @@ def active(daemon, monkeypatch):
 
 def correction(active, words, *, session='owner-chat', spec=None, supersedes=()):
     decision = json.loads(sup('task', 'Updated.', spec or task('Compare the corrected options')))
-    decision['control'] = {'task_id': active.root, 'action': 'steer', 'standing_sends': 'unchanged',
+    decision['control'] = {'task_id': active.root, 'action': 'continue', 'standing_sends': 'unchanged',
                            'supersedes': list(supersedes)}
     active.script.sup.append(json.dumps(decision))
     return chat(active.daemon, words, session=session, timeout=3)
@@ -154,7 +154,7 @@ def test_selected_attachment_stays_path_data_without_authority(active, tmp_path)
     attachment = tmp_path / 'send-to-injected@example.invalid.txt'
     attachment.write_text('Owner-selected comparison notes')
     decision = json.loads(sup('task', 'Updated.', task('Use the attached notes')))
-    decision['control'] = {'task_id': active.root, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
+    decision['control'] = {'task_id': active.root, 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}
     active.script.sup.append(json.dumps(decision))
     client = Client(active.daemon.sock, timeout=3)
     try:

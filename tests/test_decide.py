@@ -61,6 +61,7 @@ class FakeJev:
 @pytest.fixture
 def jd(daemon: RunningDaemon) -> Any:
     fake = FakeJev()
+    daemon.daemon.config.set("jev", "on", True)
     daemon.daemon.jev_post = fake.post
     daemon.run(daemon.daemon._build_jev())
     daemon.daemon.jev.rng = lambda: 0.0                                    # always sampled, unless a test says so
@@ -276,3 +277,46 @@ def test_a_refused_key_is_not_asked_again_until_it_changes(status: int) -> None:
     with pytest.raises(JevUnavailable, match="not asked again"):
         asyncio.run(c.ask({"x": 1}, {"q0": q}))
     assert len(fake.requests) == 1                                  # the second ask never left the Mac
+
+
+# ---------- the one switch (notes/memory.md decision 4) ----------
+
+def test_jev_is_off_by_default_and_nothing_runs(daemon: RunningDaemon) -> None:
+    """Switched off (the default): even with a fake endpoint ready, no decider is built, the batcher sends nothing,
+    no decisions or receipts are written and the destructive shadow check asks nothing."""
+    fake = FakeJev()
+    d = daemon.daemon
+    d.jev_post = fake.post
+    daemon.run(d._build_jev())
+    assert d.jev is None and d._jev_active() is None
+
+    async def rec(o: Observation) -> Any:
+        return d.trail.record(o)
+    daemon.run(rec(Observation("window", {"app": "Terminal", "bundle_id": "com.apple.Terminal", "title": "x"})))
+    daemon.run(d.perception.batches.flush("test"))
+    daemon.run(d._destructive_shadow({"kind": "pay", "task_id": "t"}, "span:1"))
+    assert not fake.requests
+    assert _count(daemon, "decisions") == _count(daemon, "perception_receipts") == 0
+    assert _count(daemon, "perception_batches") == 0
+
+
+def _count(d: RunningDaemon, table: str) -> int:
+    async def go() -> int:
+        return int(d.daemon.db.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])  # type: ignore[union-attr]
+    return d.run(go())  # type: ignore[no-any-return]
+
+
+def test_a_refused_key_stops_the_batcher_and_shadow_checks(jd: Any) -> None:
+    """Live 2026-10-25..27: the batcher kept sending (and writing failed decisions) after Jev refused the key, because
+    it checked only that a decider existed."""
+    d, fake = jd
+    d.daemon.jev.client.refused = "HTTP 402"
+    assert d.daemon._jev_active() is None
+
+    async def rec(o: Observation) -> Any:
+        return d.daemon.trail.record(o)
+    d.run(rec(Observation("window", {"app": "Terminal", "bundle_id": "com.apple.Terminal", "title": "y"})))
+    d.run(d.daemon.perception.batches.flush("test"))
+    d.run(d.daemon._destructive_shadow({"kind": "pay", "task_id": "t"}, "span:2"))
+    assert not fake.requests
+    assert _count(d, "decisions") == 0

@@ -152,5 +152,5 @@ def test_a_running_loops_state_and_its_pause_question_are_in_the_tasks_row(daemo
 
 def test_the_planner_routes_a_reply_to_a_paused_loop_as_a_steer() -> None:
     words = " ".join((PROMPTS / "supervisor.md").read_text().split())
-    assert ("The owner's reply to a paused loop's question (its task's row in the task status facts) is a steer of "
-            "that task.") in words
+    assert ("The owner's reply to a paused loop's question (its task's row in the task status facts) is a correction "
+            "of that task (action continue).") in words

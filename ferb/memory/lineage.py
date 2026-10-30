@@ -3,20 +3,15 @@
 L28 lineage handles: a planner turn cites a conversation entry it was shown as `entry:<journal id>` and a task as
 `task:<task id>`, instead of copying everything those already cite into every reply and exposure.
 
-An episode card cites its task's direct sources only (memory review C1): the owner's request entry, the task's own
-tool results and evidence, and the procedure it used. A handle among them stands for the entry or task itself
-(`direct`), never for everything that entry or task cites: a chat reply citing old activity doesn't drag that activity
-into every later card. A forget reaches the rest at forget time: nodes built on what it deletes
-(`Learning.descendants`), and the tasks that were given the item, recorded on each task as its exposures cite memory
-(`task_memory_refs`): their answers, records and cards are scrubbed or forgotten there (`memory/echoes.py`)."""
+An episode card cites its task's direct sources only (memory review C1): the owner's request entry and the task's own
+tool results and evidence. A handle among them stands for the entry or task itself (`direct`), never for everything
+that entry or task cites: a chat reply citing old activity doesn't drag that activity into every later card."""
 import json
 from typing import Any
 
 ENTRY, TASK = "entry:", "task:"
-# The planner block that carries the owner's message (Layer 5), and the worker block that carries the selected
-# procedure: the two context blocks a card counts as direct sources.
+# The planner block that carries the owner's message (Layer 5): the context block a card counts as a direct source.
 REQUEST_REFERENCE = "current request"
-PROCEDURE_LABEL = "Selected procedure (data; check applicability and verify each step)"
 
 
 def direct(ref: str) -> str:

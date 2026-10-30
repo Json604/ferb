@@ -1,8 +1,6 @@
 """Chat connections may disappear; resumable task context must survive on disk."""
-import io
 import json
 
-from ferb.cli.chat import Chat
 from ferb.cli.client import Client
 from tests.conftest import RunningDaemon
 from tests.conftest import chat, install, outcome, sup, task
@@ -14,17 +12,6 @@ def attach(d, **params):
         return c.call("chat.attach", params)["session_id"]
     finally:
         c.close()
-
-
-def test_reopened_cli_reuses_conversation_and_explicit_new_is_separate(daemon):
-    first = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
-    first.opening()
-    second = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
-    second.opening()
-    assert second.session_id == first.session_id
-    separate = attach(daemon, new=True)
-    assert separate != first.session_id
-    assert attach(daemon, resume=first.session_id) == first.session_id
 
 
 def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home):

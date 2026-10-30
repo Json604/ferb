@@ -2,7 +2,7 @@
 
 The Daemon is composed of one mixin per area (ferb/daemon/areas/): composition, chat, memory, schedules,
 banners and notices, browsers, the desktop, shell egress, sensing, the planner's environment, runtimes,
-retention, Jev, voice and the RPC table. This module keeps its state (`__init__`), its lifecycle (start,
+retention, Jev, hearing and the RPC table. This module keeps its state (`__init__`), its lifecycle (start,
 shutdown, run) and its error handling."""
 
 import asyncio
@@ -50,9 +50,8 @@ from ferb.daemon.areas.runtimes import Runtimes, mcp_shim_command
 from ferb.daemon.areas.schedules import Schedules
 from ferb.daemon.areas.sensing import Sensing
 from ferb.daemon.areas.shared import (FRESH_S, INTERNAL_FRAMES, INTERNAL_MESSAGE_CHARS, MACOS_TICK_S, Redact,
-                                      UNHANDLED, _code_path, _Fresh, _no_notify, _raise_file_limit, _Repeats,
-                                      _Rescrub)
-from ferb.daemon.areas.voice import VoiceGlue
+                                      UNHANDLED, _code_path, _Fresh, _no_notify, _raise_file_limit, _Repeats)
+from ferb.daemon.areas.voice import HearingGlue
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.banners import Banner
 from ferb.daemon.gateway import Gateway
@@ -86,7 +85,7 @@ LOOP_RESTART_S, LOOP_RESTART_MAX_S = 1.0, 60.0    # a background loop that raise
 
 
 class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Egress, Sensing, Environment, Runtimes,
-             Retention, JevGlue, VoiceGlue, Rpc):
+             Retention, JevGlue, HearingGlue, Rpc):
     """FERB's daemon: one process that owns the stores, the agents, the drivers and the socket."""
 
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
@@ -179,9 +178,6 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
                                  "last_event_wall": self.owner_input.last_owner_wall},
             processes=self._running_processes, now=lambda: self.clock.now(),
             paused=lambda: self.sense is not None and self.sense.paused)     # `ferb pause`: no desktop sensing
-        self.voice: Any = None                              # push-to-talk, built at start
-        self.voice_speaker: Any = None                      # tests replace FERB's voice
-        self._ptt = False
         self.gui = GuiLock()
         self.mac: MacComputerDriver | None = None
         self.changes: Changes | None = None             # L39: each step's files as they were before it
@@ -201,7 +197,6 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self.run_distill = distill
         self.memory: Any = None
         self.learning: Any = None
-        self.consolidator: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
         # L36 §3: the start's re-index of the search text, in a worker thread; asked to stop at shutdown
@@ -245,10 +240,8 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         self._owner_followups: dict[str, tuple[str, str]] = {}  # FERB's Yes/No questions -> what a Yes does (I2, I1)
         # a request that failed inside FERB, or answered late, journaled at most once per window (review Q-I2)
         self._repeats = _Repeats(lambda kind, data: self._journal().append(kind, data), self.clock)
-        self._forgetting: set[asyncio.Task[None]] = set()        # forgets whose echo scrub is still running
+        self._forgetting: set[asyncio.Task[None]] = set()        # work a forget left behind (login names), running
         self._login_names = asyncio.Lock()      # L36 §5 review m-3: one username write at a time, in request order
-        self._rescrubs: set[_Rescrub] = set()           # forgets waiting for jobs running at them to end (fix wave 6a)
-        self._turn_requests: dict[asyncio.Task[Any], str] = {}  # a running chat turn -> its request
         self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
         self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
@@ -361,7 +354,6 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
         await self._build_jev()
         self._build_timers()
         self._register_rpc()
-        self._build_voice()
         await self._dump_codex_catalog()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
@@ -389,7 +381,7 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
 
     async def shutdown(self) -> None:
         self._shutting_down = True
-        await self._settle_forgets()                         # a forget's scrub runs in a thread: it finishes first
+        await self._settle_forgets()                         # what a forget left behind finishes first
         self._reindex_stop.set()                             # the search re-index ends after its batch (next start resumes)
         if self._reindex_task is not None:
             await asyncio.wait({self._reindex_task})
@@ -418,12 +410,11 @@ class Daemon(Compose, Chat, MemoryGlue, Schedules, Notify, Browsers, Desktop, Eg
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs | {job for job in self._background if isinstance(job, asyncio.Task)},
                     "task turns")
-        await self._settle_forgets()                         # a scrub run again for a task that just stopped
         if self.supervisor:                                  # learning captures: cancelled, journaled as deferred
             await self.supervisor.stop_episodes()
         self._stop_card_readers()                            # e.g. one a verdict is waiting on
-        if self.gateway is not None:                         # first looks still being taken (D26), shadow advice
-            await drain(set(self.gateway.looks) | set(self.gateway._background), "first looks")
+        if self.gateway is not None:                         # shadow advice still running
+            await drain(set(self.gateway._background), "gateway background work")
         if self._proxy:
             self._proxy.close()
         await self.hearing.shutdown()

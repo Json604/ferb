@@ -1,6 +1,5 @@
 """L7, L19 (TQ3, P25, P29): the daemon acknowledges every message on receipt, before routing; every chat event names
 its request and when it was sent; the CLI never answers a pending question from ordinary typed text."""
-import io
 import json
 import queue
 import re
@@ -11,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from ferb.cli.client import Client
-from ferb.cli.live_chat import LiveChat
 from ferb.core.types import Identity
 from ferb.policy.rules import ActionRequest
 from tests.conftest import done, install, sup, task
@@ -186,38 +184,6 @@ def test_ack_phrases_are_the_plans_p25_list_without_the_starred_one():
     listed = [p.strip() for p in re.sub(r'\(\*[^)]*\)', '', draft.group(1)).split('·')]
     assert acks.PHRASES == tuple(p for p in listed if p and not p.endswith('*'))
     assert 'On it, one sec.' not in acks.PHRASES and len(acks.PHRASES) == 29
-
-
-def test_cli_typed_yes_with_one_pending_approval_goes_to_chat_send():
-    calls: list[tuple[str, dict[str, Any]]] = []
-    streams: list[tuple[str, dict[str, Any]]] = []
-    finished = threading.Event()
-
-    class FakeClient:
-        def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-            calls.append((method, params))
-            return {}
-
-        def stream(self, method: str, params: dict[str, Any]):
-            streams.append((method, params))
-            yield {'type': 'ack', 'request_id': 'r1', 'text': 'Noted.', 'at': '2026-10-13T09:00:00+00:00'}
-            yield {'type': 'clarify', 'request_id': 'r1', 'text': 'Yes to which one?', 'at': '2026-10-13T09:00:01+00:00'}
-            finished.set()                         # resumed only after the chat printed the clarify
-
-        def close(self) -> None:
-            pass
-    out = io.StringIO()
-    chat = LiveChat(FakeClient, out, lambda _: '')
-    chat.answer_approval({'approval_id': 'ap-pay', 'kind': 'owner_question', 'capability': 'ferb.confirm',
-                          'reason': 'Pay $20 to Acme?', 'options': ['Yes', 'No']})
-    chat.submit('Yes')
-    assert finished.wait(5)
-    assert streams == [('chat.send', {'session_id': chat.session_id, 'text': 'Yes'})]
-    assert not [m for m, _ in calls if m in ('chat.answer', 'chat.approve')]
-    assert 'ap-pay' in chat.pending                # the question stays open for the planner to route
-    lines = out.getvalue().splitlines()
-    assert lines.count('ferb> Noted.') == 1        # the daemon's ack, not a local one
-    assert lines.index('ferb> Noted.') < lines.index('ferb> Yes to which one?')
 
 
 def test_approval_requested_carries_its_request_id_only_when_it_belongs_to_a_task(daemon):
