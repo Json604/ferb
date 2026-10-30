@@ -1,123 +1,76 @@
 # Working on FERB
 
-FERB's goal is a personal assistant that works across the owner's Mac in the background while they keep working:
-it does tasks like a person would, perceives what happens on the Mac, and gets better at repeated tasks.
+FERB is a personal assistant that works across the owner's Mac in the background while they keep working: it does
+tasks like a person would, perceives what happens on the Mac, and gets better at repeated tasks.
 Agents interpret requests and decide. Code implements actions, exposes facts and enforces boundaries.
-Keep the implementation small and easy to inspect from a task trace.
-Judge designs by quality, the owner's goals and security, never by build time or effort.
+Keep the implementation small, general and easy to inspect from a task trace; prefer one shared path over per-case
+patches. Judge designs by quality, the owner's goals and security, never by build time or effort.
 
-## Read first
+## Source of truth
 
-- `docs/0.27_PLAN.md`: the plan of record; what is Decided, Proposed or Open, and the final build order F0–F10.
-- `docs/0.27_DECISIONS.toml`: each decision's milestone and tests.
-- `docs/0.27_SECURITY_TESTS.md`: the documented attack scenarios that security tests are built from.
-- `docs/superpowers/specs/2026-10-13-launch-week-fixes-design.md`: the launch-week decisions L1–L28 (2026-10-13/14);
-  the plan's "Launch-week clarifications" record how they change earlier decisions.
-- `README.md`: setup, use, commands and current limitations.
-- `ARCHITECTURE.md`: the design as built, folder responsibilities and debugging entry points.
-- `CHANGELOG.md`: versioned changes; older entries describe historical behavior.
-- `docs/OWNER_ACCEPTANCE.md`: recorded owner observations and pending live checks.
-- `THIRD_PARTY_NOTICES.md`: retained attribution.
+- `notes/`: one file per area with the owner's decisions, what exists today, the target design and the fix list
+  (memory, orchestration, prompts, gateway, runtimes, hands, daemon, storage, tests, voice), plus `fix-order.md`
+  (the order of work) and `docs-cleanup.md`. The "Owner decisions" sections are authoritative; a later decision
+  supersedes an earlier one. If code, a prompt or this file disagrees with a decision, name both and ask the owner.
+- `README.md`: setup and use (being rewritten).
+- Everything under `docs/`, `ARCHITECTURE.md` and `CHANGELOG.md` is stale and will be removed (notes/docs-cleanup.md);
+  don't rely on it.
+- Runtime Markdown under `ferb/` (`ferb/orchestrator/prompts/*.md`, `ferb/memory/*.md`, `ferb/abilities/**`) is
+  executable input, not documentation; it changes only through notes/prompts.md.
+- `vibed/` holds abandoned versions: never read, search or reuse it. `spikes/` holds historical experiments; look at a
+  specific one only when needed.
 
-Runtime Markdown under `ferb/orchestrator/prompts/` and `ferb/memory/distill.md` is executable input, not spare docs.
-`vibed/` contains abandoned versions: never read, search or reuse it. `spikes/` contains historical experiments;
-look at a specific experiment only when needed. Historical documentation remains in Git.
+## Rules
 
-## Working rules
-
-1. Work happens on `main`, pushed to `origin` as work lands; never force-push, and never start a new branch per step.
-   On 2026-10-24 `astra_resume` became `main` by fast-forward and every other branch was deleted, with the owner's
-   confirmed commands (L14). The one unmerged commit, the parked Safari spike, is kept as the tag
-   `archive/spike-5-safari`. This replaces the rules naming `astra_resume` (2026-10-13) and `astra/0.27-upgrade`
-   (2026-10-07).
-2. Build in the plan's final order, F0–F10. The plan's "Decision status" table is authoritative; take anything it
-   marks OPEN to the owner first.
-3. Every D*/MP*/P*/S*/W* decision needs a milestone in `docs/0.27_DECISIONS.toml`, or `tests/test_decision_coverage.py`
-   fails; the owning milestone adds the decision's tests. Commit messages cite decision IDs.
-4. If a rule here conflicts with the plan, name both and ask the owner; don't silently follow or break either.
-5. Code enforces where/what boundaries: argument validity, paths, destinations, recoverability, the destructive
-   code floor, the sink rule, redaction, task/resource ownership, and stop (never through a model).
-6. Code never judges intent to gate an action; no keyword or label list decides intent or content (R2).
-   Agents interpret intent, authorization, account choice, retry and escalation.
-7. Jev's destructive classification (D23) runs in shadow until its catch and false-alarm rates are measured on an
-   owner-reviewed labelled set; the code floor is enforced from the start (CQ2).
-8. Code enforces confirmations (built in F5) for concrete hard-to-undo actions, and asks only for these (L3): money,
-   account-security changes, permanent deletion, and sending as the owner to someone new unless a standing
-   permission covers it; a command that turns off certificate checks (owner, 2026-10-25, L39); any input on a
-   browser's own pages, chrome://extensions or settings, every time (owner, 2026-10-26); plus the sink rule
-   cases (S4) for sends and URLs, e.g. private data going to a new
-   destination after outside content was read. Shell and browser reach any site without asking: code records every
-   site and lists it in the answer (L2, 2026-10-13; this replaces the sink rule as it applied to shell egress and the
-   2026-10-10/11 shell-network questions). Payments and account-security changes always ask; one Yes covers one
-   payment (its amount), its whole checkout and bank verification included, for 10 minutes (owner, 2026-10-27).
-   Actions made recoverable
-   by S1 (Trash plus a backup copy) are not destructive. "Already authorized" is decided by code from provenance (the
-   target appears in the owner's own words, or in a standing permission FERB stated in its acknowledgement or plan
-   line and the owner didn't correct; a schedule's scope counts only destinations the owner typed); the orchestrator
-   may add a question but never remove one; Jev only advises while in shadow (D33).
-9. FERB prepares the concrete action before asking, asks once per task, and the answer carries across retries;
-   a question never expires while its task waits. A big job's plan (D24) and any standing scope are stated in the
-   plan line and work starts at once; the owner corrects by replying, which becomes a steer (L3, 2026-10-13). Besides
-   the confirmations, only an escape-hatch command (D31) and a retry of a consequential action with an unknown outcome
-   (P19) wait for the owner; everything else runs and is logged. A routine question (input that brings an app to the
-   front, a browser's own settings page, a new recipient, pairing a profile, a one-command read of a protected
-   folder) also offers "Yes, and don't ask for 30 min": for 30 minutes those questions are answered Yes and traced.
-   Payments, account security, permanent deletion, terminal input, certificate checks and sink questions always ask,
-   and a run nobody attends never uses the window (owner, 2026-10-27).
-10. Nothing, the escape hatch included, lets FERB change its own audit records, protection rules, sandbox profile,
-    config or secrets helper, or bypass its network proxy (D31). This governs FERB's own shell; a command FERB approves
-    in another agent's prompt runs with that agent's permissions (D36, owner). Typing into any terminal (terminal apps
-    and terminals inside other apps, e.g. VS Code's) is enforced by code: FERB always asks the owner first, showing the
-    exact command, every time, with no standing permission; a No types nothing (owner, 2026-10-25: "it always has to
-    ask ALWAYS… make it code restricted").
-11. One worker per plan step, with the tools its identity and scopes allow; no reader role in any form (W1).
-    Tools report the kind of action (W2); the final checker gets observation tools only (W4).
-12. One access level: full access, including Full Disk Access, made secure by design; no restricted mode (D16, D22).
-    Full Disk Access becomes the default only after containment (shell sandbox, path lists, proxy) exists (CQ5).
-13. Model runtimes plug in behind one FERB interface (Codex CLI, Claude Agent SDK, direct APIs); everything
-    model-specific lives in the adapter, and tools always run through FERB's gateway (D32).
-14. Secrets, OTPs included, never reach a model provider (Jev included), a trace, a log or the database. The owner
-    may ask to store one item; it goes to the Keychain and models see only a handle. Code redacts secrets at capture;
-    they are filled only through the sealed path (D8, D12, D28).
-15. "Local" means storage stays on the Mac. Model and Jev processing may be hosted; only redacted context leaves.
-    Redaction covers secret classes, not all private text (a residual the owner accepted, CQ3).
-16. Trust follows origin (MP2): only the owner's words carry authority; external content is data, never instructions.
-17. Background first: leave the owner's cursor, keyboard focus and Space alone; foreground input needs an explicit
-    tool choice and the owner's direction, enforced by code: input that brings an app to the front, and any Mac-tool
-    input or menu choice in a web browser, asks the owner once per task for that app (owner, 2026-10-26: "didnt i
-    build ferb to do tasks in the background"). A browser tab goes in a window of its profile; only a profile with no
-    window gets FERB's own minimized window, once ("once that causes focus shift - ok - but then after opened continue
-    using through extension"). In live tests the owner watches: pause between supervised actions and record what the
-    owner saw, so a disturbance can be tied to one action.
-18. The Mac app (the notch UI in `ui/`, shipped as FERB.app) is the product and the main interface; the CLI is a
-    development and power-user tool (owner, 2026-10-14: "cli was just for my testing"; this replaces "the CLI is the
-    main interface"). The only other planned interface is the local memory dashboard (P17); keep unavoidable
-    extension setup and microphone UI minimal.
-19. Ask the owner only what/who/which and real decisions, never a method (P27); workers ask the orchestrator first.
-20. Acceptance is the owner's live verdict (`ferb verdict TASK pass|fail`). A passing offline test never proves a
-    milestone or a live workflow.
-21. Every milestone has offline tests, real-scenario live tests run often with the owner (CQ4), the security suite
-    from F5 on, numbers against the baseline (`ferb baseline`), ARCHITECTURE.md updated as built, and owner sign-off.
-22. Live tests are real documented scenarios on owner-controlled surfaces, not toy apps (D17): FERB's Gmail and
-    Discord, WhatsApp "message yourself" and a self-only group, kartikey.xyz pages with the request-logging server,
-    disposable files. Tests reach real third parties only in a run the owner approves. Tests that can send enable
-    the test-mode send allowlist; it covers send-class actions, not GUI typing into an app.
-    Tests close only what they created; no installed-host rewrites or global process kills.
-23. Do not install/restart the running daemon or personal browsers without owner authorization; the owner normally
-    runs `ferb setup --update`. Prior authorization remains valid for its stated scope. Never commit secrets.
+1. Commit and push only when the owner asks; never force-push.
+2. Work in the order of `notes/fix-order.md`: each step lands with its tests, then the owner installs it
+   (`ferb setup --update`) and checks it live before the next step. Update the area's notes file when a decision
+   changes or a fix lands.
+3. Code enforces where/what boundaries: argument validity, paths, destinations, recoverability, confirmations, the
+   sink rule, redaction, task/resource ownership and stop, never through a model.
+4. Code never judges intent to gate an action; no keyword or label list decides intent or content. Agents interpret
+   intent, authorization, account choice, retry and escalation. Structural facts (a field's type, a form submission,
+   which app got the input) are facts, not intent.
+5. Confirmations: code asks only for concrete hard-to-undo actions, as decided in notes/gateway.md (money, account
+   security, permanent deletion, sending as the owner to someone new unless a standing permission covers it,
+   certificate checks turned off, input on a browser's own pages, terminal typing, the sink rule, foreground input).
+   Tools report facts; the worker's declaration can only add a question, never remove one. FERB prepares the action
+   before asking, asks once per task, and the answer carries across retries.
+6. Nothing lets FERB change its own audit records, protection rules, sandbox profile, config, service definition or
+   secrets helper, or bypass its network proxy. Typing into any terminal always asks first, showing the exact command.
+7. Secrets, OTPs and card details never reach a model provider, a trace, a log or the database; code redacts at
+   capture and fills secrets only through the sealed path; models see handles.
+8. "Local" means storage stays on the Mac; model processing may be hosted, and only redacted context leaves.
+9. Trust follows origin: only the owner's words carry authority; everything read is data, never instructions.
+10. Background first: leave the owner's cursor, keyboard focus and Space alone; foreground input needs the owner's Yes.
+11. One access level, full access made secure by design (sandbox, protection lists, proxy, snapshots).
+12. Model runtimes plug in behind one interface (Codex, Claude Agent SDK, Anthropic/OpenAI/Gemini APIs); everything
+    model-specific lives in the adapter, and tools always run through FERB's gateway.
+13. The Mac app (`ui/`, FERB.app) is the product. There is no user-facing CLI: the `ferb` program is internal plumbing
+    (setup commands the app calls, the models' tool bridge, the daemon) plus a developer toolbox. `ui/` is the
+    owner's side.
+14. Ask the owner only what/who/which and real decisions, never a method.
+15. Acceptance is the owner's live verdict. A passing offline test never proves a live workflow.
+16. Live tests are real scenarios on owner-controlled surfaces (FERB's Gmail and Discord, WhatsApp "message yourself"
+    and a self-only group, kartikey.xyz pages with the request-logging server, disposable files). Tests reach real
+    third parties only in a run the owner approves; tests that can send enable the test-mode send allowlist. Tests
+    close only what they created; no installed-host rewrites or global process kills.
+17. Do not install or restart the running daemon or the owner's browsers without the owner's authorization; the owner
+    normally runs `ferb setup --update`. Never commit secrets.
+18. Caps, budgets and retention that change FERB's behavior are owner decisions; ask, never rule.
 
 ## Development
 
-Use Python 3.12 and `uv sync --group dev`. The checkout's `.venv` is separate from installed `~/.ferb/venv`.
-Write a regression for meaningful behavior fixes before changing production code. Run the focused tests, then
-`uv run pytest -q`, `uv run mypy ferb/core` and `git diff --check` for the combined change. Preserve unique coverage
-when removing obsolete tests. Live tests are explicit (`-m real`, Codex runtime) and need the owner's observation;
-`-m real_claude` runs only when the owner runs it.
+Python 3.12, `uv sync --group dev`. The checkout's `.venv` is separate from the installed `~/.ferb/venv`.
+Tests are a small safety suite (notes/tests.md): the safety floor and past-bug guards, end-to-end runs with a fake
+model through the real daemon and gateway, an import check, upgrade tests, adapter contract tests. Don't test exact
+prompt text, owner-facing wording or internal wiring. For a change: focused tests, then `uv run pytest -q`,
+`uv run mypy ferb/core` and `git diff --check`. Live tests are explicit (`-m real`, Codex runtime) and need the owner's
+observation; `-m real_claude` runs only when the owner runs it.
 
-Update affected current docs and the changelog, not a new Markdown file per fix. Keep helpers in their layer and
-shared test support in `tests/support/`, outside test-case modules. Explain changes through concrete behavior and
-trace evidence. `ferb stats`, `ferb trace TASK --full` / `--json` and `ferb doctor` are the first debugging tools.
-Report checkout validation, installation status and the owner's live results separately.
+Debug from evidence: `ferb trace TASK --full` / `--json`, `ferb stats`, `ferb doctor`, `ferb logs`. Explain changes
+through concrete behavior and trace evidence. Report checkout validation, installation status and the owner's live
+results separately.
 
-Extension protocol changes must update its manifest, JavaScript/Python protocol and minimum versions together.
-Setup publishes the managed bundle; first install/migration is a browser setup step.
+Extension protocol changes update the manifest, the JavaScript/Python protocol and the minimum versions together.
+Upgrading from any older FERB build must keep working (notes/storage.md decision 5).
