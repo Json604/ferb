@@ -20,12 +20,17 @@ from tests.conftest import GatewayCap, RunningDaemon, gateway_request, gateway_s
 
 
 def test_tools_that_can_change_the_screen_declare_it() -> None:
-    for cap in (MacOpen, MacMenu, MacAct, MacClick, MacPointer, MacAppleScript, BrowserOpen, BrowserNavigate,
-                BrowserAct, BrowserScroll, BrowserDialog, BrowserUseTab, BrowserLoginCode, BrowserClose,
-                BrowserKeepOpen, BrowserFillSecret, BrowserFillOtp, ShellStart, ShellRun, ShellSend, ShellKill):
+    """Daemon decision 5 (coordinator ruling, step 6b): Mac input, foreground and app open count; a browser tool counts
+    only when it can open or raise a window (opening a tab can create FERB's minimized window or use the foreground,
+    a pairing page opens in its profile, a handoff's notification brings its tab forward); input in a task tab doesn't."""
+    from ferb.act.browser.tools import BrowserHandoff, BrowserPair
+    for cap in (MacOpen, MacMenu, MacAct, MacClick, MacPointer, MacAppleScript, BrowserOpen, BrowserPair,
+                BrowserHandoff, ShellStart, ShellRun, ShellSend, ShellKill):
         assert on_screen(cap), cap.__name__
     for cap in (MacSnapshot, MacScreenshot, BrowserSnapshot, BrowserWait, BrowserOtpCandidates, ShellWait, ShellRead,
-                ShellList, FsWrite, FsTrash, TaskEvidence, RecoverySnapshot):
+                ShellList, FsWrite, FsTrash, TaskEvidence, RecoverySnapshot, BrowserNavigate, BrowserAct, BrowserScroll,
+                BrowserDialog, BrowserUseTab, BrowserLoginCode, BrowserClose, BrowserKeepOpen, BrowserFillSecret,
+                BrowserFillOtp):
         assert not on_screen(cap), cap.__name__
 
 
@@ -37,11 +42,13 @@ class _Seen:
                             on_screen: bool = False) -> None:
         self.calls.append((tool, on_screen))
 
-    async def after_action(self, span_id: str) -> None:
-        return None
+    async def after_action(self, span_id: str) -> dict[str, Any]:
+        return {"frontmost_app": {"before": {"pid": 1}, "after": {"pid": 2}}}
 
 
-def test_the_gateway_records_whether_a_call_can_change_the_screen(daemon: RunningDaemon) -> None:
+def test_the_gateway_samples_only_calls_that_can_change_the_screen(daemon: RunningDaemon) -> None:
+    """Daemon decision 5: only a call that can change the screen is sampled (none around a read-only call), and what
+    changed during it is that call's recorded fact for the checker."""
     screen = GatewayCap("fake.click", "click", {"browser:act"})
     screen.on_screen = True                                       # type: ignore[attr-defined]
     quiet = GatewayCap("fake.read", "read", {"browser:act"})
@@ -51,7 +58,15 @@ def test_the_gateway_records_whether_a_call_can_change_the_screen(daemon: Runnin
     daemon.daemon.gateway.disturbance = seen
     gateway_tool_call(daemon, grant, "fake.click")
     gateway_tool_call(daemon, grant, "fake.read")
-    assert seen.calls == [("fake.click", True), ("fake.read", False)]
+    assert seen.calls == [("fake.click", True)]
+
+    async def outputs() -> list[Any]:
+        import json
+        return [json.loads(r["output_json"] or "null") for r in daemon.daemon.db.conn.execute(
+            "SELECT output_json FROM spans WHERE kind = 'tool.call' ORDER BY rowid")]
+    click, read = daemon.run(outputs())
+    assert click["screen"] == {"frontmost_app": {"before": {"pid": 1}, "after": {"pid": 2}}}
+    assert "screen" not in (read or {})
 
 
 def test_agents_are_told_what_a_change_with_no_ferb_on_screen_action_means() -> None:

@@ -107,6 +107,15 @@ class RunTokens:
             del self._grants[d]
         return len(doomed)
 
+    def revoke_tree(self, tree_id: str) -> int:
+        """A task tree ended: every token of its tasks goes, so a token never outlives its task (a task with no
+        deadline has no expiry of its own; notes/gateway.md fix list)."""
+        root = tree_id.split(".", 1)[0]
+        doomed = [d for d, g in self._grants.items() if g.task_id == root or g.task_id.startswith(root + ".")]
+        for d in doomed:
+            del self._grants[d]
+        return len(doomed)
+
     def revoke_all(self) -> int:
         n = len(self._grants)
         self._grants.clear()

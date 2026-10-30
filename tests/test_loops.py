@@ -833,7 +833,6 @@ def test_a_probe_read_refuses_what_a_call_would_refuse(daemon):
 
 def test_a_probe_read_never_attaches_an_image_and_a_tool_error_is_a_return(daemon, monkeypatch):
     from ferb.core.types import Identity
-    from ferb.daemon.gateway import Gateway
     from tests.conftest import gateway_setup
 
     called = []
@@ -841,7 +840,8 @@ def test_a_probe_read_never_attaches_an_image_and_a_tool_error_is_a_return(daemo
     async def record(*a, **k):
         called.append(1)
         raise AssertionError('a probe never takes the initial image')
-    monkeypatch.setattr(Gateway, '_initial_image', record)
+    from ferb.daemon.call_hooks import CallHooks
+    monkeypatch.setattr(CallHooks, 'initial_image', record)
     grant, _ = gateway_setup(daemon, set(), None, _probe_caps(image=b'\xff\xd8jpeg'), identity=Identity.FERB)
     got = daemon.run(daemon.daemon.gateway.probe(grant, 'test.state', {}, 's'))
     assert 'image' not in got and set(got) == {'content', 'is_error', 'origins'} and called == []

@@ -62,6 +62,7 @@ class Desktop:
         """A task tree ended: the desktop observer's summary, then its change record's copies (L39) and FERB's upload
         copies for it go (rule 17), except those a tab that outlives the tree still shows. What couldn't be removed is
         journaled; the next start-up sweeps it."""
+        self.tokens.revoke_tree(tree_id)                  # its run tokens end with it, deadline or not
         try:
             await self.disturbance.finish(tree_id)
         finally:

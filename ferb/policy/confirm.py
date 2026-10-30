@@ -6,15 +6,17 @@ authorized" (D33): the target is in the owner's own words for this request or in
 `owner_words` / `owner_answer`), or a destination FERB already knows (SQ6); payments and account-security changes ask
 anyway (SQ1).
 
-- The floor: a payment and an account-security change always ask, and their Yes covers one run; a permanent delete of
+- The floor: a payment and an account-security change always ask, and their Yes covers one run (a payment in a task's
+  browser tab is one question per payment instead: ferb/policy/payments.py, decision 4); a permanent delete of
   a path the owner didn't name, and a send to a recipient the owner didn't name, ask once per task tree. A send whose
   recipient FERB can't see (a click declared to send or call, with no contact or recipients: a post) is a send to
   someone the owner didn't name, asked once per tree for its place and the account it declared it sends as, unless
   the owner named that site (and that account, when one is declared) in this request's words or answers. An input
   declared to delete is asked about once per page (or place) and declared item.
 - The sink rule (a): a send-class call to a place with no recipient (a post, a submit, a page input declared to send)
-  asks when the tree has read the owner's own data and outside content and the owner hasn't named that place. With
-  recipients, the floor's new-recipient question already covers it.
+  asks when the tree has read the owner's own data and outside content and the owner hasn't named that place in this
+  request or approved it before (`approved`: a site only mentioned in an earlier request doesn't count, decision 5).
+  With recipients, the floor's new-recipient question already covers it.
 - The sink rule (b): a recipient or an amount that came only from outside content (never from the owner's words or
   answers) asks, unless the recipient is a destination FERB already knows.
 - The sink rule (c): irreversible bulk work (a send to two or more recipients, a permanent delete of a folder) asks
@@ -42,7 +44,7 @@ from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
 ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"}
-PAY_WINDOW_S = 600.0                      # one payment's checkout, bank verification included (owner 2026-10-27)
+UNREAD_AMOUNT = "an amount FERB couldn't read"   # a payment whose amount code couldn't read (decision 4)
 # What an account-security change is, as FERB's question names it (the worker prompt's and the effect help's words)
 ACCOUNT_SECURITY = "a password, two-factor or recovery setting, or deleting the account"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
@@ -117,7 +119,10 @@ class Need:
     values: dict[str, str] = field(default_factory=dict)          # what FERB's question names
     always: bool = False                      # SQ1: the Yes covers one run of the call, never a later one
     destinations: tuple[tuple[str, str], ...] = ()                # (kind, value) a Yes makes known (SQ6)
-    window_s: float | None = None             # a Yes covers later calls with this key for that long, then lapses
+    fresh: bool = False                       # asked every time: an earlier Yes never covers it (a No still refuses);
+                                              # what covers it is decided before (terminal input, a tab's payment)
+    spent_on_ask: bool = False                # an always-ask Yes spent when given, never released (an escape's or a
+                                              # protected folder's change, terminal input)
 
 
 def foreground_need(tool: str, args: dict[str, Any]) -> "Need | None":
@@ -432,6 +437,32 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
         return []
     dest = urls.parse(url)
     known_to_site = _same_site_only(private, dest.host) if dest is not None and dest.host else set()
+    hits = _private_hits(_url_pieces(url), private, outside, owner, known_to_site)
+    if not hits:
+        return []
+    earliest = min(order for _, order in hits)
+    seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
+    if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
+        return []                                             # a followed link, read before the private value
+    return [v for v, _ in hits]
+
+
+def text_carries_private(text: str, private: list[tuple[int, provenance.Text]],
+                         outside: list[tuple[int, provenance.Text]], owner: provenance.Text) -> list[str]:
+    """The sink rule for a form (coordinator ruling, step 6b): the values typed into it that are a token of the
+    owner's own data (a private tool result), not the owner's typed words and not already public before they were
+    read privately, by the same rules as `url_carries_private` (values only, never ordinary words, unless hidden in
+    base64/hex). Shape and provenance only, never a meaning (rule 6)."""
+    if not private or not text.strip():
+        return []
+    pieces = [text.strip()] + [t for t in _FINE.split(text) if t]
+    return [v for v, _ in _private_hits(pieces, private, outside, owner, set())]
+
+
+def _private_hits(pieces: list[str], private: list[tuple[int, provenance.Text]],
+                  outside: list[tuple[int, provenance.Text]], owner: provenance.Text,
+                  known_to_site: set[str]) -> list[tuple[str, int]]:
+    """Each piece that carries a value of the owner's own data, with the order it was first read privately."""
     first_private: dict[str, int] = {}
     for order, t in private:
         for tok in _toks(t):
@@ -445,7 +476,7 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
         return any(tok in toks for order, toks in outside_toks if order < fp)
 
     hits: list[tuple[str, int]] = []
-    for piece in _url_pieces(url):
+    for piece in pieces:
         value = piece.strip()
         # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
         shown, decoded = _variants(piece)
@@ -453,13 +484,7 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
                    if m not in owner_toks and m not in known_to_site and not laundered(m)}
         if matched and value and value not in [v for v, _ in hits]:
             hits.append((value, min(first_private[m] for m in matched)))
-    if not hits:
-        return []
-    earliest = min(order for _, order in hits)
-    seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
-    if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
-        return []                                             # a followed link, read before the private value
-    return [v for v, _ in hits]
+    return hits
 
 
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
@@ -482,15 +507,17 @@ def site_key(value: str | None) -> str:
 
 def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_sources: dict[str, list[str]], *,
            read_private: bool, read_external: bool, known: Known, outside_read: Iterable[str] = (),
-           place: str | None = None, content: str | None = None) -> list[Need]:
+           place: str | None = None, content: str | None = None, approved: Known | None = None) -> list[Need]:
     """The needs of one call, in the order the owner reads them. `kind` is the physical kind; `declared` every kind a
     declared purpose or effect adds (SEND / CALL / PAY / ACCOUNT_SECURITY / DELETE_PERMANENT; one or several), which
     only widens what is checked. `arg_sources` is provenance.arg_sources of the target; `known(kind, value)` says
-    whether a destination is known; `outside_read` is the outside content the tree read (origin labels), named in the
+    whether a destination is known for normal use, `approved(kind, value)` whether the owner approved it (the sink rule's
+    test, decision 5; `known` when not given); `outside_read` is the outside content the tree read (origin labels), named in the
     sink question; `place` is where the call happens as the owner knows it (an app's name), else the target's site;
     `content` is what a send carries, sized in the bulk question. A permanent delete of a folder (S4(c)) needs the
     folder counted: the gateway adds it (`bulk_delete`)."""
     kinds = {kind} | ({declared} if isinstance(declared, str) else set(declared or ()))
+    approved = approved or known
     who = _who(target)
     to_site = site_is_destination(kinds, (k for k, _ in who))      # inside `if sends` below: exactly `not who`
     where = place or target.site or ""
@@ -498,18 +525,14 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     for k in (Kind.PAY, Kind.ACCOUNT_SECURITY):
         if k in kinds:
             rule = ALWAYS[k]
-            values = {"amount": shown_amount(target.amount, target.currency), "site": _host(where),
-                      "account": target.account or "",
-                      "recipients": ", ".join(v for _, v in who)}
-            if k == Kind.PAY and target.amount is not None:
-                # One Yes per payment (owner 2026-10-27, after one ₹137.39 Zomato order asked five times): its amount
-                # names it, so the checkout's later clicks, a card chosen, the bank's verification page, are covered
-                # for PAY_WINDOW_S; a different amount is another payment. An unnamed amount asks every click.
-                needs.append(Need(rule, key(rule, target.amount, sorted(v for _, v in who)), values,
-                                  window_s=PAY_WINDOW_S))
-            else:
-                needs.append(Need(rule, key(rule, target.site, target.account, target.amount,
-                                            sorted(v for _, v in who)), values, always=True))
+            shown = {"amount": shown_amount(target.amount, target.currency) or
+                     (UNREAD_AMOUNT if k == Kind.PAY else ""), "site": _host(where),
+                     "account": target.account or "",
+                     "recipients": ", ".join(v for _, v in who)}
+            # one run per Yes (SQ1). A payment in a task's browser tab is asked once per payment instead, from the
+            # page's amount and merchant (ferb/policy/payments.py, decision 4): the gateway replaces this need
+            needs.append(Need(rule, key(rule, target.site, target.account, target.amount,
+                                        sorted(v for _, v in who)), shown, always=True))
     if Kind.DELETE_PERMANENT in kinds and not _owner(arg_sources.get("path", [])):
         if target.path:
             needs.append(Need("floor:delete_permanent", key("floor:delete_permanent", target.path),
@@ -544,12 +567,12 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
                                   {"recipients": "", "verb": "calls" if calls else "sends to", "place": where,
                                    "account": target.account or ""}))
             if (target.page and target.site and read_private and read_external and not site_named
-                    and not known("host", target.site)):    # S4 (a) for a post on a page, as for a send-class call
+                    and not approved("host", target.site)):    # S4 (a) for a post on a page, as for a send-class call
                 needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                                   {"destination": target.site, "read": shown_origins(outside_read)},
                                   destinations=(("host", target.site),)))
         elif (to_site and read_private and read_external
-              and not _owner(arg_sources.get("site", [])) and not known("host", target.site or "")):
+              and not _owner(arg_sources.get("site", [])) and not approved("host", target.site or "")):
             needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                               {"destination": target.site or "", "read": shown_origins(outside_read)},
                               destinations=(("host", target.site or ""),)))
@@ -565,7 +588,7 @@ def decide(kind: str, declared: str | Iterable[str] | None, target: Target, arg_
     if off is not None:
         # L39: the command's own words (an AppleScript's `do shell script` too) turn certificate checks off; one answer
         # covers this exact command or script in the tree
-        needs.append(Need(TLS_OFF, key(TLS_OFF, content), {"command": " ".join(content.split()),
+        needs.append(Need(TLS_OFF, key(TLS_OFF, content), {"command": " ".join((content or "").split()),
                                                           "hosts": " or ".join(off.hosts), "how": ", ".join(off.how)}))
     # A payment's amount is shown and asked in its own question (one Yes per payment): a merchant's price always comes
     # from its page, so a separate "came from outside content" question only repeated it (live 2026-10-27)
@@ -653,6 +676,19 @@ def _terminal(v: dict[str, str]) -> str:
     return said + (", then press Return there" if v.get("enter") else "") + " (it runs as you, outside FERB's sandbox)"
 
 
+def _pays(verb: str, v: dict[str, str]) -> str:
+    """A payment as the owner reads it (decision 4): the amount and merchant code read on the page (never the
+    worker's number; "an amount FERB couldn't read" when none), where, from which account; on a bank page that shows
+    another payment than the one approved, both."""
+    to = v.get("merchant") or v.get("recipients") or ""
+    text = (f"{verb} {v.get('amount') or UNREAD_AMOUNT}" + (f" to {to}" if to else "")
+            + (f" on {v['site']}" if v.get("site") else "") + (f" from {v['account']}" if v.get("account") else ""))
+    if v.get("approved"):
+        bank = f" on {v['bank']}" if v.get("bank") else ""
+        text += f" (the bank page{bank} shows this, but you approved {v['approved']})"
+    return text
+
+
 def _tls(v: dict[str, str]) -> str:
     """FERB's certificate question (L39, D33: code-written): the exact command and the site whose check it skips."""
     site = f"the site is really {v['hosts']}" if v.get("hosts") else "each site it reaches is really that site"
@@ -677,8 +713,7 @@ def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
         return (f"this would {_terminal(v)}; FERB counts it a terminal because it is {v['surface']}. FERB asks "
                 "before every input into a terminal, and this Yes covers this one input only")
     if n.rule == "floor:pay":
-        return (f"this pays {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
-                + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
+        return _pays("this pays", v)
     if n.rule == "floor:account_security":
         return (f"this changes account security ({ACCOUNT_SECURITY})" +
                 (f" on {v['site']}" if v["site"] else "") + (f" for {v['account']}" if v["account"] else ""))
@@ -746,8 +781,7 @@ def _short(n: Need, alongside: frozenset[str]) -> str | None:
     if n.rule == TERMINAL_INPUT:
         return _terminal(v)
     if n.rule == "floor:pay":
-        return (f"pay {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
-                + (f" on {v['site']}" if v["site"] else "") + (f" from {v['account']}" if v["account"] else ""))
+        return _pays("pay", v)
     if n.rule == "floor:account_security":
         return (f"change account security ({ACCOUNT_SECURITY})" + (f" on {v['site']}" if v["site"] else "")
                 + (f" for {v['account']}" if v["account"] else ""))

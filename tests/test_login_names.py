@@ -391,7 +391,7 @@ def test_the_first_sign_in_on_a_form_names_the_account_through_the_tasks_typed_s
                                                                  else (None, None))
     assert ("linked" in listed) == linked
     assert run(daemon, lambda: OwnerSecrets(daemon.daemon.home).records()) == {SITE: {
-        "username": "Asha Rao", "username_source": source, "sites": [], "entries": {}}}         # nothing written
+        "username": "Asha Rao", "username_source": source, "sites": [], "entries": {}, "kinds": {}}}   # nothing written
 
 
 def test_a_login_saved_in_a_task_with_two_typed_sites_links_neither(daemon: Any,

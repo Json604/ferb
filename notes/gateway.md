@@ -124,6 +124,74 @@ redact, image redaction, origins).
   login Keychain inside a short-lived test process; values stayed in that process's memory, only a count was written,
   in a temp home since deleted; fixed and guarded by a test).
 
+## Rulings (step 6b, technical)
+- **Pipeline** (`Gateway._call`): `_admit` → `_build` (validate, notes stripped, precheck, describe, declaration,
+  facts, P19 identity, locks) → `_boundaries` (conversation guard, never-lifted files, card digits typed, address with
+  no site, unliftable escape, test mode, undelivered result, P19 repeat) → `_needs` (lifts, URL sink, `decide` over the
+  kind + declaration and over each fact kind, bulk count, payment, foreground, browser page, pair, escape, terminal) →
+  `_authorize` (the one find/ask/record/claim step) → `_grants` (lifted rules, escape grant + admin password, terminal
+  grant) → `_run` (span, hooks, locks, P19 intend, S1, run, redact once). One call asks at most one question now (a
+  terminal input with foreground, or a protected file with a URL sink, used to be two or three questions).
+- **Facts → kinds** (decision 1): a submitted form with a card field (cc-number/cc-csc/cc-exp) → pay; with a
+  current-password field together with a `new_password` field → account security (coordinator ruling: a sign-up's
+  new-password field alone asks nothing; 2FA/recovery fields aren't structurally detectable yet); every submitted form →
+  the sink rule only (coordinator ruling): asked only when a value typed or chosen into that tab
+  (`SpanStore.typed_in_tab`) carries the owner's private data by provenance (`confirm.text_carries_private`, the URL
+  check's value rules), after outside content was read, to the form's action host (else the page's) when the owner
+  neither named it in this request nor approved it; a submit carrying no private value never asks, GET or POST, and
+  never the new-recipient floor; a tool's `deletes` outside
+  the Trash → permanent delete of each path (counted first if a folder). Each fact kind is decided with its own target
+  and provenance; the union with the declaration's needs is asked, so nothing removes a question. The test-mode
+  allowlist covers fact payments, not fact form submits (rule 22: sends, not every form).
+- **One payment, one question** (decision 4, `ferb/policy/payments.py`): applies to a payment in a task's browser tab
+  (`ActionFacts.tab_chain`, new: the first task tab of the chain that opened it; `_Tab.opener` for link tabs and adopted
+  popups). A Mac app's payment is scoped the same way to its app window (bundle + window id from the call's stable
+  P19 identity) for 10 minutes (coordinator ruling); a payment with neither (other tools) asks every run (SQ1),
+  showing "an amount FERB couldn't read" unless the capability itself describes the amount; the worker's declared
+  amount is never shown or keyed. Bank page =
+  the tab moved to another host, or the input is in a frame of another host (a card frame of the payment gateway also
+  counts: only a differing amount/merchant asks there). Completion, so the next payment asks: a call ran on a page of
+  another host and the chain came back to the checkout's host; a second card form is submitted on the checkout; or
+  (coordinator ruling, one-click) a paying form submit with no card form and no bank page before it ran: the Yes
+  covered exactly that submit, the next one on the checkout asks, a verification page it opens is still covered.
+  Amounts compare by currency (₹ = INR, $ = USD…; a side with no currency compares the number) and number; merchants
+  case- and space-insensitively. An amount read where the approved one was unread asks again. Approvals live in
+  memory (a restart asks again); a No is keyed by tab chain + amount + merchant and stays final. Residual: a one-click
+  "Place order" that is a script button (no form submit fact) can't be told from the same payment's later clicks, so
+  a second identical order through it in the same tab within 10 minutes is not asked again.
+- **Known destinations** (decision 5): `KnownDestinations.approved` (how answered/confirmed) is the sink rule's test
+  (`decide(..., approved=)` and the URL sink); `known` (any how) stays the new-recipient and outside-value test. A
+  named destination is upgraded when the owner later approves it (upsert), never downgraded. Stored keys and values:
+  the text when the redactor leaves it alone, `sha256:<digest>` when it would change it without a specific hit, never
+  stored or matched when `Redactor.hit` finds a saved secret or a credential format.
+- **Cards** (decision 6): `OwnerSecrets` records keep a `kinds` map for entries saved from a card field; such an entry
+  fills only a field of the same kind, and a card field takes only an entry of its kind (or a one-time hidden input);
+  `secrets.list` shows `card_details` (name → kind). The gateway refuses typed text into a card field and a Luhn-valid
+  card number typed anywhere (`Redactor.hit` == "payment card"); browser `type` into card fields was already refused in
+  the extension (5c).
+- **P19**: an exception from the tool is "failed" (not unknown, retry not blocked, the owner's Yes released) when it is
+  `Refused` (any subclass), a pydantic `ValidationError`, or carries `attempted = False`; anything else is unknown.
+  The call's span is finished in `_run`'s handler whatever escapes (ledger, hooks, a cancel).
+- **Conversation guard**: its second check (right before input) now comes before the attempt is marked started, so a
+  refusal there releases the owner's one-run Yes.
+- **Run tokens**: `RunTokens.revoke_tree` at tree end (`Desktop._tree_finished`); a task without a deadline keeps no
+  expiry of its own, but no token outlives its tree.
+- **Off the loop**: capabilities declaring `describe_in_thread` (all Mac tools) have describe, precheck, locks, P19
+  identity and the foreground test run in a worker thread.
+- **Hooks** (`ferb/daemon/call_hooks.py`): previews, FERB's cursor point, desktop samples, change record copies,
+  initial image, image sanitizing, evidence, shadow advice, live line. Hidden input (`ferb/daemon/hidden_input.py`):
+  owner secrets, login codes (an OTP question on a payment's later page repeats that page's amount and merchant, or the
+  approved payment when unread), the admin password.
+- **Disturbance** (daemon decision 5): sampled only around calls whose capability declares `on_screen`: Mac input,
+  foreground, app open, shell commands (they can open apps) and, of the browser tools, only those that can open or
+  raise a window (`browser.open`: FERB's minimized window or foreground mode; `browser.pair`; `browser.handoff`);
+  input, navigation and reads in a task tab are not sampled (coordinator ruling); compared keys: front app, focused window, fullscreen,
+  Space; per-call changes on the call's span output (`screen`) and in the task summary (`screen_changes`), and
+  `DisturbanceSentinel.facts(task)` for the merged checker (step 8). A change found when the next on-screen call starts,
+  with none in flight, is stated as before (P26).
+- Left for later: legacy confirmation rows in the DB (inert: keyed by ended trees; step 12's cleanup); the remaining
+  attributes set from outside (`standing`, `conversation_guard`, `observer`, `test_send_allowlist`).
+
 ## Target design
 1. **One pipeline, one Need loop.** Admission → validate → tool-reported facts → `needs(facts)` (protection, pay,
    account security, delete, new recipient, sink, TLS-off, foreground, browser page, terminal, escape all as Need
@@ -157,23 +225,27 @@ redact, image redaction, origins).
   (accepted residual).
 
 ## Fix list
-- [ ] Single Need pipeline; remove the four duplicated confirmation loops (G:1086-1190, 1192-1255, 1418-1440, 1448-1490).
-- [ ] Move non-authorization features out of `_call`/`_execute` into post-call hooks.
+- [x] Single Need pipeline; remove the four duplicated confirmation loops (G:1086-1190, 1192-1255, 1418-1440, 1448-1490).
+      (6b: `Gateway._needs` + `_authorize`, see Rulings (step 6b).)
+- [x] Move non-authorization features out of `_call`/`_execute` into post-call hooks. (6b: `call_hooks.py`,
+      `hidden_input.py`.)
 - [ ] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
-- [ ] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
+- [x] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
       ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6. 5b: Mac tools report theirs.
       5c: browser tools report submit + host/method, field kinds, page amount/merchant, frame_host; deciding: step 6.)
-- [ ] P19 stable identity; failed-before-acting is not unknown. (5b: Mac identity via a capability's `ledger_args`
+- [x] P19 stable identity; failed-before-acting is not unknown. (5b: Mac identity via a capability's `ledger_args`
       in `hashed_args`. 5c: browser identity done (`BrowserAct.ledger_args`), and browser reads that fail are known
       failures, never unknown; the gateway's failed-before-acting rule is step 6.)
-- [ ] One payment, one question (decision 4): page-read amount and merchant; tab-chain scope; bank-page amount check;
+- [x] One payment, one question (decision 4): page-read amount and merchant; tab-chain scope; bank-page amount check;
       final-click check where there is no bank page; remove the separate outside-value question on a page amount.
-- [ ] Known destinations (decision 5): mentioned sites known except for private-data sends after outside reads.
-- [ ] Card fields secret + sealed card fill + CVV/expiry redaction (decision 6). (5c: card fields are secret in the
+- [x] Known destinations (decision 5): mentioned sites known except for private-data sends after outside reads.
+      (6b: `approved`; stable keys.)
+- [x] Card fields secret + sealed card fill + CVV/expiry redaction (decision 6). (5c: card fields are secret in the
       extension (values never captured, boxes painted, no typing or text keys, no login code into them) and reported
       as field kinds; filling one goes through browser.secret's sealed path today. 6a: the redactor masks CVV beside
       its label, expiry beside a card or its label, the CVV after a card and expiry, cards over every window of digit
-      groups (`qty 2 4111 …` fixed), and a record's `cc-number`/`cc-csc`/`cc-exp` value. Left: a stored-card handle.)
+      groups (`qty 2 4111 …` fixed), and a record's `cc-number`/`cc-csc`/`cc-exp` value. 6b: saved card details keep
+      their field kind and fill only that kind; card digits typed in the clear are refused.)
 - [x] Redaction rebuild (target 4). (6a, `ferb/sanitize/`: `known.py` registry (preloaded at start from FERB's
       Keychain handles and owner secrets, `Daemon._preload_secrets`; escaped forms incl. URL and HTML; a value of 6
       characters or fewer never matches inside a longer number), `formats.py` one named vendor table, `labels.py` one
@@ -184,14 +256,15 @@ redact, image redaction, origins).
       `Redactor.hit` (known value or format): terminal input, chat `input_paths`, learning card storage. Process
       exception hooks write redacted tracebacks to stderr (`redacting_hooks`). Not changed: the destination and
       confirmation key checks in `policy/destinations.py`, which compare stored keys, not gate actions.)
-- [ ] Run tokens expire with the task (the Claude token file is owned by notes/runtimes.md).
-- [ ] Conversation-guard Yes release (G:1588-1594).
-- [ ] Browser app list, U+200E, extension/about pages; terminal fail-closed; TLS cases. (5b: all but the TLS cases:
+- [x] Run tokens expire with the task (the Claude token file is owned by notes/runtimes.md). (6b: revoked at tree end.)
+- [x] Conversation-guard Yes release (G:1588-1594).
+- [x] Browser app list, U+200E, extension/about pages; terminal fail-closed; TLS cases. (5b: all but the TLS cases:
       browsers.py, `confirm.browser_page` covers extension schemes and about: pages except about:blank/srcdoc,
-      `terminal.surface(unread=)`.)
-- [ ] Window Yeses record destinations like normal Yeses; the 30-minute window stays daemon-wide (owner rule 9).
-- [ ] Keep the test-mode send allowlist step (live send tests, CLAUDE.md rule 22), set through config; no CLI command.
-- [ ] Remove dead code listed above.
+      `terminal.surface(unread=)`. 6b: TLS cases, see policy/tls.py's list.)
+- [x] Window Yeses record destinations like normal Yeses; the 30-minute window stays daemon-wide (owner rule 9).
+- [x] Keep the test-mode send allowlist step (live send tests, CLAUDE.md rule 22), set through config; no CLI command.
+- [ ] Remove dead code listed above. (6b: gateway-side done (NOT_RECORDED paths, `_nothing_known`, `Claimed`, the
+      None-store branches); the DELETE_PERMANENT branches are reachable from facts now and stay. Left: legacy
+      confirmation rows in the DB, step 12.)
 - [x] File tools bound by never-read / never-write, lift: reads once per folder per task, writes per action (decision 2; hands decision 1).
-      (5a: `Gateway._file_lifts`, asked before the span; step 6 folds it into the single Need pipeline with `_confirmed`
-      and `_escape`.)
+      (5a: `Gateway._file_lifts`; 6b: folded into the single Need pipeline, `_lift_needs`.)

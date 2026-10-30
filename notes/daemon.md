@@ -157,7 +157,10 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
       pinned checkout installs (lockfiles); Codex installed only if a role uses it; doctor fixes; uninstall removes
       every FERB Keychain item; CLI errors shown plainly.
 - [x] Signal handlers before `start`; `start` failure runs `shutdown`.
-- [ ] Disturbance sampler around acting tools; owner cursor ignored; facts to the checker; race fixed (decision 5).
+- [x] Disturbance sampler around acting tools; owner cursor ignored; facts to the checker; race fixed (decision 5).
+      (6b: samples only around `on_screen` calls plus a task baseline, no timer; front app, focus, fullscreen, Space
+      only; per-call `screen` facts on the span and `screen_changes` in the summary; start/finish race closed; see
+      notes/gateway.md Rulings (step 6b).)
 - [x] Remove CLI chat; `task.stop` requires ids (decision 1).
       (Step 3: cli/chat.py, live_chat.py removed; `task.stop` without ids is refused (test_ux).)
 - [ ] SMAppService registration (decision 2); rule-10 protection of the service definition follows.

@@ -12,7 +12,7 @@ entry's name.
 
 A record serves its own place and the sites it lists (I14): the visa site's sign-in form is a single sign-on page on
 another origin (atlasauth.b2clogin.com) while the owner names usvisascheduling.com, so the form's record lists the
-task's site the owner typed, when they typed exactly one (the gateway picks it, `Gateway._question_sites`), a listing
+task's site the owner typed, when they typed exactly one (the gateway picks it, `HiddenInput._question_sites`), a listing
 for the site finds it, and a username the owner gave for the site names the form's account too. Before any entry is
 saved there, a question or a listing during a task reads the task's one owner-typed site as a link the same way,
 writing nothing. A username read through a link is shown with the place it came from (`account`). A site matches a
@@ -100,8 +100,24 @@ def typed_site(host: str, typed: Any) -> bool:
     return bool(bare) and bool({bare, 'www.' + bare} & (typed.tokens | typed.hosts))
 
 
+# Gateway decision 6: a card's details saved from a card field (autocomplete cc-number / cc-csc / cc-exp, the field
+# kinds the extension reports) keep that kind, and fill only a field of the same kind; a card field takes only a saved
+# entry of its kind (or the owner's one-time hidden input). Models see the name and the kind, never the value.
+CARD_KINDS = frozenset({'card_number', 'card_csc', 'card_expiry'})
+
+
 def _empty() -> dict[str, Any]:
-    return {'username': None, 'username_source': None, 'sites': [], 'entries': {}}
+    return {'username': None, 'username_source': None, 'sites': [], 'entries': {}, 'kinds': {}}
+
+
+def card_mismatch(saved: str | None, field: str | None) -> str | None:
+    """Why a saved entry of kind `saved` can't fill a field of kind `field` (either a card kind), else None."""
+    if (saved in CARD_KINDS or field in CARD_KINDS) and saved != field:
+        what = {'card_number': "a card number", 'card_csc': "a card's security code",
+                'card_expiry': "a card's expiry date"}
+        return (f"that saved secret is {what.get(saved or '', 'not a card detail')} and this field takes "
+                f"{what.get(field or '', 'no card detail')}; a card detail fills only its own kind of field")
+    return None
 
 
 def _migrated(old: dict[str, str]) -> dict[str, Any]:
@@ -128,7 +144,7 @@ def _version_2(data: dict[str, Any]) -> dict[str, Any] | None:
         return None
     shaped: dict[str, Any] = {}
     for place, record in records.items():
-        if not isinstance(record, dict) or not _strings(record.get('entries')):
+        if not isinstance(record, dict) or not _strings(record.get('entries')) or not _strings(record.get('kinds', {})):
             return None
         shaped[place] = _empty() | record
         sites, username, source = shaped[place]['sites'], shaped[place]['username'], shaped[place]['username_source']
@@ -144,7 +160,7 @@ def _linked(records: dict[str, Any], place: str, sites: Iterable[str] = ()) -> l
     """The other records that serve `place` (I14): one at the same site, a leading "www." aside (the planner writes a
     username's site either way, L36 §5), one listing its host's site (a sign-on form's record saved during a task on
     that site), or one at the host of a site its own record lists (the site that task named). `sites`: the current
-    task's one owner-typed site (`Gateway._question_sites`), read as if the place's record listed it, so the first
+    task's one owner-typed site (`HiddenInput._question_sites`), read as if the place's record listed it, so the first
     sign-in on a form already finds the site's record; never written (coordinator ruling on concern 1)."""
     host, own_sites = site_host(place), [*records.get(place, {}).get('sites', []), *sites]
     found = []
@@ -245,6 +261,8 @@ class OwnerSecrets:
         out: dict[str, Any] = {'place': target, 'username': username,
                                **({'username_site': site_host(source)} if source else {}),
                                'entries': sorted(records.get(target, _empty())['entries']),
+                               **({'card_details': dict(kinds)} if (kinds := records.get(target, _empty())['kinds'])
+                                  else {}),
                                'unusable': [{'name': u['name'], 'why': u['why']} for u in data['unusable']]}
         linked = [{'place': p, 'username': _held(records[p], holding), 'entries': sorted(records[p]['entries'])}
                   for p in _linked(records, target, sites)]
@@ -266,17 +284,22 @@ class OwnerSecrets:
                     unreadable += 1
         return found, unreadable
 
-    def reveal(self, handle: str, target: str) -> str:
+    def reveal(self, handle: str, target: str, kind: str | None = None) -> str:
+        """The value saved as `handle` for `target`, for a field of kind `kind` (a card detail fills only its own kind
+        of field, decision 6)."""
         refuse_whole_browser(target)                    # a handle saved that way before the rule is never filled
-        account = self._load()['records'].get(target, _empty())['entries'].get(handle)
+        record = self._load()['records'].get(target, _empty())
+        account = record['entries'].get(handle)
         if account is None:
             raise Refused('the secret handle is not bound to this exact destination')
+        if (why := card_mismatch(record['kinds'].get(handle), kind)) is not None:
+            raise Refused(why)
         value = self.keychain(account)
         if value is None:
             raise Refused('the saved secret is unavailable')
         return value
 
-    def remember(self, handle: str, target: str, value: str, sites: Iterable[str] = ()) -> None:
+    def remember(self, handle: str, target: str, value: str, sites: Iterable[str] = (), kind: str | None = None) -> None:
         """Save `value` under the name `handle` for the place `target`, replacing that name's value; `sites`: the
         sites the record lists from then on (I14; the gateway's `_question_sites`). A new entry's Keychain account is
         never one another entry already uses (a version-1 handle can be any text)."""
@@ -293,6 +316,10 @@ class OwnerSecrets:
                                   'another name')
             self.keychain(account, value)
             record['entries'][handle] = account
+            if kind in CARD_KINDS:                       # decision 6: a card detail keeps its field's kind
+                record['kinds'][handle] = kind
+            else:
+                record['kinds'].pop(handle, None)
             record['sites'] = sorted(set(record['sites']) | hosts)
 
     def set_username(self, target: str, username: str, source: str) -> None:

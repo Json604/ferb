@@ -100,6 +100,9 @@ class _Base:
     on_screen = False
     target_args: tuple[str, ...] = ("app",)          # Target.site holds the app's normalized bundle id (P19 hash)
     marks_own_input = False                          # True: _run tells the trail itself, around its input only (P4)
+    # describe / precheck / locks / P19 identity look up running apps (NSWorkspace, AX): the gateway runs them in a
+    # worker thread, never on the daemon's event loop
+    describe_in_thread = True
 
     def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None) -> None:
         self.driver, self.device_profile = driver, device_profile

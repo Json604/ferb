@@ -288,7 +288,7 @@ def test_an_old_handle_file_is_read_by_place_and_a_browser_bound_one_is_unusable
     old = {'US visa password (Chrome)': 'app:com.google.Chrome', 'US visa password': VISA,
            'notes': 'app:com.apple.Notes'}
     store.path.write_text(json.dumps(old))
-    empty = {'username': None, 'username_source': None, 'sites': []}
+    empty = {'username': None, 'username_source': None, 'sites': [], 'kinds': {}}
     assert store.records() == {VISA: empty | {'entries': {'US visa password': 'US visa password'}},
                                'app:com.apple.Notes': empty | {'entries': {'notes': 'notes'}}}
     assert store.listing(VISA)['unusable'] == [{'name': 'US visa password (Chrome)', 'why': WHOLE_BROWSER}]

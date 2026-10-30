@@ -483,7 +483,7 @@ def test_task_end_forgets_its_initial_picture_marker(daemon: RunningDaemon, monk
     g = grant_task(daemon, 'e', Identity.OWNER, {'mac:read', 'screen'}, 'look at my notes')
     assert 'image' in gateway_call(daemon, g, 'mac.menu', app='Notes')
     daemon.call_soon(gateway.forget_tasks, {'e'})
-    assert not any(k[0] == 'e' for k in gateway._looked)
+    assert not any(k[0] == 'e' for k in gateway.hooks.looked)
     assert [x['kind'] for x in daemon.run(_list(daemon.daemon.evidence, 'e'))] == ['app_window']
 
 def test_an_initial_image_store_failure_does_not_fail_the_tool(daemon: RunningDaemon,

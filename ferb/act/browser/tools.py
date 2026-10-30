@@ -232,7 +232,7 @@ class BrowserOpen(_Base):
 
 class BrowserScroll(_Base):
     verb = "scroll"
-    on_screen = True
+    moves_view = True     # it changes what the page shows or plays (a loop's look-only rule); raises no window
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     blurb = ("Scroll a page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
              "needed — or one scroll container from the latest snapshot (its `container` id, e.g. a chat list or "
@@ -361,7 +361,6 @@ class BrowserPair(_Base):
 
 class BrowserDialog(_Base):
     verb = "dialog"
-    on_screen = True
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = "Inspect a pending JavaScript dialog in this exact tab; explicitly choose accept/dismiss only after reading its message and resolving authorization. Unexpected dialogs are never answered automatically."
     class Input(_Tab):
@@ -410,7 +409,6 @@ class BrowserTabs(_Base):
 
 class BrowserUseTab(_Base):
     verb = "use_tab"
-    on_screen = True
     holds_tab = True   # only takes hold of a tab, changing nothing in it: a look-only loop round may call it (L31)
     blurb = ("Take over one of the owner's open tabs for this task (a tab_ref from {p}_tabs). Returns a tab id for "
              "{p}_snapshot / {p}_act. FERB lets go of it when the task ends and never closes it.")
@@ -431,7 +429,6 @@ class BrowserNavigate(_Base):
     verb, blurb = "navigate", ("Load a different http(s) URL in one of this task's tabs ({whose}). A URL that is a "
                                "download becomes a file in FERB's workspace (`downloads`: path, size, sha256) and the "
                                "page stays where it was; never a dialog.")
-    on_screen = True
 
     class Input(_Tab):
         url: str
@@ -567,7 +564,7 @@ class BrowserMedia(_Base):
     """L26: a page's own video/audio controls through the content script (play/pause/mute/unmute/seek), so the worker can
     make the sound FERB is asked to hear actually play. Never a click, never page script."""
     verb = "media"
-    on_screen = True                                   # the owner may hear what plays (owner accepted, L26)
+    moves_view = True     # it changes what the page shows or plays (a loop's look-only rule); raises no window
     blurb = ("Play, pause, mute, unmute or seek one video or audio element in one of this task's tabs ({whose}), by "
              "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one) "
              "or by its media_id (that entry's `id`, which stays with the element while the page is open). "
@@ -597,7 +594,7 @@ class BrowserMedia(_Base):
 
     def describe(self, args: Any) -> ActionSpec:
         # Page playback only, reversible like scroll: no ledger row, so a timed-out play stays retryable (P19 is for
-        # consequential actions); on_screen marks it in the disturbance record.
+        # consequential actions). Not on_screen: it plays in a task tab and raises no window (daemon decision 5).
         return self._spec(Kind.READ, args, content=f"media:{args.action}:{args.media_id or args.index}:{args.to}")
 
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
@@ -635,7 +632,6 @@ class BrowserPoint(_Base):
 
 class BrowserAct(_Base):
     verb = "act"
-    on_screen = True
     generic_input = True                               # W2: its declared effect says what it does (rules.declare)
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
              "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
@@ -759,7 +755,6 @@ class BrowserAct(_Base):
 
 class BrowserLoginCode(_Base):
     verb = "login_code"
-    on_screen = True
     blurb = ("Ask the owner for a login verification code using hidden CLI input and fill this exact code field. "
              "The owner sees the destination origin. The code never reaches you. Use only for the login the owner "
              "requested, after the code field is visible. For passwords or an exact text field whose code "
@@ -792,7 +787,9 @@ class BrowserSecret(BrowserLoginCode):
              "including split OTP boxes. If login_code cannot classify visible split boxes, pass their exact "
              "snapshot IDs in split_elements, in code order, with element set to the first ID. This needs no "
              "numeric or maxlength attributes. The model never receives the value. remember proposes a handle; the "
-             "hidden owner prompt explicitly asks to save it for this HTTPS origin.")
+             "hidden owner prompt explicitly asks to save it for this HTTPS origin. Card details (number, security "
+             "code, expiry) go into a page only this way, never typed; a saved card detail fills only its own kind of "
+             "card field.")
 
     class Input(_Tab):
         element: str
@@ -813,9 +810,12 @@ def _fill_facts(tool: Any, args: BaseModel) -> ActionFacts | None:
     el = tool._element(args)
     if el is None:
         return None
+    tab = str(getattr(args, "tab", ""))
+    chain = getattr(tool.driver, "tab_chain", None)
     return ActionFacts(field_kinds=(el.field_kind,) if el.field_kind else (),
                        secure_field=el.secret or None, target_role=el.role or None,
-                       page_url=tool.driver.tab_url(str(getattr(args, "tab", ""))) or None)
+                       page_url=tool.driver.tab_url(tab) or None,
+                       tab_chain=chain(tab) if callable(chain) else None)
 
 
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
@@ -883,7 +883,6 @@ class BrowserDownloads(_Base):
 class BrowserClose(_Base):
     verb, blurb = "close", ("Close a task-created tab ({whose}), or release a borrowed/kept tab without closing it. "
                            "Ordinary task-created tabs also close when the task ends; use {p}_keep_open to preserve one.")
-    on_screen = True
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -896,7 +895,6 @@ class BrowserClose(_Base):
 
 class BrowserKeepOpen(_Base):
     verb = "keep_open"
-    on_screen = True
     holds_tab = True   # only keeps hold of a tab, changing nothing in it: a look-only loop round may call it (L31)
     blurb = ("Keep this exact tab ({whose}) open after the task ends. Use when the owner wants a class, playback or "
              "other page left running after the task. A tab FERB opened is handed over at once, and the browser "
@@ -916,7 +914,6 @@ class BrowserKeepOpen(_Base):
 
 class BrowserFillSecret(_Base):
     verb = "fill_secret"
-    on_screen = True
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):
@@ -943,7 +940,6 @@ class BrowserFillSecret(_Base):
 
 class BrowserFillOtp(_Base):
     verb = "fill_otp"
-    on_screen = True
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):

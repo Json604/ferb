@@ -1,44 +1,45 @@
-"""Own tool validation, execution locks and recording. Must not infer intent, targets or authorization.
+"""Own tool validation, authorization, execution locks and recording. Must not infer intent, targets or authorization
+from words: agents decide intent; code decides from facts whether the owner must be asked (rule 5, rule 6).
 
-Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
-Optional why annotations never gate execution; an effect declared on a generic input (a click, typing, an app's
-control) is checked as its kind, with the destination declared beside it, and a declared payment or account-security
-change on any acting call asks too (W2: a declaration can only add a question). OS and transport failures remain
-factual results.
-A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
-worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29). No image is withheld
-for what it shows or where it is from (L13, D29 clarified; owner: "Yes, no exceptions"): browser windows, tab captures,
-recording frames and pages on the owner's excluded sites included (that list governs perception recording, and origin
-labels never name such a host), every image has its secret fields painted over where it is captured, then passes the
-F5 sanitizer here; only an image whose masking or sanitizing fails keeps facts only.
+One pipeline per call (notes/gateway.md target 1, step 6b): admission (FERB not stopped, the task running, the tool in
+the worker's scopes and identity, an acting tool never for the final checker) → validate (arguments, the agent's notes
+stripped: why / effect / destination) → facts (the capability's description and the structural facts its tool reads:
+`ActionSpec.facts`) → boundaries that need nobody (a delegated conversation's scope, FERB's own files, card digits typed
+in the clear, test mode, P19's unresolved repeat) → `_needs`: every reason to ask, each a `confirm.Need` produced from
+facts (the protection lists' lifts, a payment, an account-security change, a permanent delete, a new recipient, the
+sink rule and its URL form, certificate checks off, foreground input, a browser's own page, pairing a profile, the
+escape hatch, terminal input, irreversible bulk work) → `_authorize`: the one step that finds the owner's earlier
+answers, asks once for the rest, records the answer and claims a one-run Yes, under the tree's lock → P19 intend →
+the call under its resource locks with S1 → redacted once → returned. What only records or shows (previews, FERB's
+cursor, desktop samples, change record copies, the first picture, evidence, shadow advice, the live line) runs as a
+hook around the call (ferb/daemon/call_hooks.py), never deciding; hidden-input questions (secrets, login codes, the
+admin password) are ferb/daemon/hidden_input.py.
+
+Facts before declarations (gateway decision 1, W2): a form submitted with card fields is a payment, with a new-password
+field an account-security change, a tool's reported delete outside the Trash a permanent delete, any form submit a send
+to the site it posts to; the worker's `effect` (and a generic input's declared destination) can only add a question.
+One payment, one question (decision 4): a payment in a task's browser tab asks once, showing the amount and merchant
+code read on the page (ferb/policy/payments.py). Known destinations (decision 5): only a destination the owner approved
+excuses the sink rule; one only mentioned in a request is known for normal use.
+A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log (L13, D29).
 The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4).
 P19: a consequential action identical to one in the same task tree whose outcome is unknown (or that is still running)
-is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
-that exact action (owner.ask with retry_action). That answer allows one more attempt and nothing else does; the
-earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its normalized
-target (a file as the file it really writes, as the fs lock and S1 key it), content and validated arguments, without
-the agent's notes (why, effect, destination, purpose, contact) or the kind and targets derived from them
-(ferb/policy/rules.py payload_hash, hashed_args, declare).
+is refused by code, never retried on its own; the owner's Yes to FERB's retry question allows one more attempt. "The
+same action" is the same call: its normalized target, content and validated arguments, without the agent's notes
+(ferb/policy/rules.py payload_hash, hashed_args). A tool that fails before acting (a refusal, invalid arguments) is
+failed, not unknown; only an exception after the action may have started is unknown.
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
 no copy, no change. A trash keeps where the item came from and went, and a copy of a file too (L39). A local APFS
-snapshot before a permanent delete (and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a
-call.
-L39: before a call that can change files (a file tool, a shell command, an AppleScript), the change record copies the
-existing files it names and lists their folders (ferb/act/fs/changes.py), so the step's checker reads what changed.
-Rule 10: a tool that names files declares them (`file_paths(args)`: each path and whether it reads, writes or removes
-it); none of them may be FERB's own state, FERB.app or FERB's launchd definitions (refused before anything runs,
-leaving a tool.refused span). Gateway decision 2: one inside or holding a never-read store, or a never-write place it
-changes, asks the owner first (`_file_lifts`): a read once per protected folder per task tree (the same Yes covers
-the shell's read escape of that folder, hands decision 1), a change per call; the fs tools check again what they
-really opened (ToolContext.path_closed), with the rules the owner lifted for this call.
-D23 floor, D33, S4, SQ6: before a consequential call runs (or any call with a declared purpose: it can only add a
-question, W2), code decides from facts whether it needs the owner (ferb/policy/confirm.py): a payment or an
-account-security change always; a permanent delete or a send to someone the owner didn't name; private data to a new
-place after outside content was read; a recipient or amount only outside content gave. FERB asks directly in chat with
-its own labelled line and Yes/No, never through the orchestrator (`ask_confirmation`). The answer is a confirmations
-row keyed by the task tree, so it carries across retries; a No is final for the tree; a confirmed destination is known
-to later tasks. A scheduled run (nobody at chat) doesn't run such a call. A shell command gets an S1 snapshot first
-(code can't tell a shell delete from a build, rule 6); no snapshot never stops it (OPEN QUESTION 3)."""
+snapshot before a permanent delete and before each shell command, best effort.
+Rule 10: a tool that names files declares them (`file_paths(args)`); none of them may be FERB's own state, FERB.app or
+FERB's launchd definitions. Gateway decision 2: one inside or holding a never-read store, or a never-write place it
+changes, asks the owner first: a read once per protected folder per task tree (shared with the shell's read escape,
+hands decision 1), a change per call.
+FERB asks directly in chat with its own labelled line and Yes/No, never through the orchestrator (`ask_confirmation`).
+The answer is a confirmations row keyed by the task tree, so it carries across retries; a No is final for the tree
+until the owner's own follow-up reopens it; a confirmed destination is known to later tasks. A scheduled run (nobody
+at chat) doesn't run such a call. The 30-minute "don't ask" window answers routine questions only (owner rule 9)."""
+
 
 import asyncio
 import base64
@@ -46,12 +47,12 @@ import dataclasses
 import ipaddress
 from datetime import datetime, timedelta
 import json
-import logging
 import re
-import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Container, Literal
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Container
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -62,21 +63,23 @@ from ferb.act.locks import ResourceLocks
 from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.clock import context
 from ferb.core import call_facts, origin
-from ferb.core.errors import NoTarget, Refused, Withheld
+from ferb.core.errors import Refused
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext, EscapeGrant, TerminalGrant, TerminalInput
-from ferb.policy.escape import escape_key
+from ferb.core.types import ActionFacts, Target, ToolContext, EscapeGrant, TerminalGrant, TerminalInput
 from ferb.daemon.auth import RunGrant
+from ferb.daemon.call_hooks import CallHooks, error_name, on_screen  # noqa: F401 (tests import it from here)
+from ferb.daemon.hidden_input import (ADMIN_SUMMARY, HiddenInput, _account, _site, _unfilled, login_code_question,  # noqa: F401
+                                      login_code_summary, secret_place, secret_question, secret_summary, shown_name)
 from ferb.daemon.server import caller_left
+from ferb.identity.owner_secrets import CARD_KINDS
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
-from ferb.orchestrator.tree import TaskTree
-from ferb.policy import confirm, provenance, terminal as terminals, urls
+from ferb.orchestrator.tree import ExecutionState, TaskTree
+from ferb.policy import confirm, payments, provenance, terminal as terminals
 from ferb.policy.destinations import Confirmations, KnownDestinations
+from ferb.policy.escape import escape_key
 from ferb.policy.protection import FERB_APP, FERB_SERVICE, FERB_STATE, NEVER_LIFTED, READ, Protection
-from ferb.policy.rules import EFFECTS, declare, declared_kinds
-from ferb.orchestrator.tree import ExecutionState
-from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
-from ferb.sanitize.dictionary import ordinary_word
+from ferb.policy.rules import (EFFECTS, READING_KINDS, REVERSIBLE, ActionRequest, Kind, declare, declared_kinds,
+                               payload_hash)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
@@ -90,9 +93,6 @@ OWNER_ASK = "owner.ask"
 CONFIRM_ASK = "ferb.confirm"             # the approval behind FERB's own question (D33): journaled apart from a worker's
 RETRY_ASK = "ferb.retry"                 # P19: FERB's own Yes/No to one more attempt at an action with an unknown outcome
 _SEND_KINDS = confirm.SEND_CLASS | {Kind.PAY}           # what the test-mode allowlist covers (calls included)
-APP_WINDOW_TIMEOUT_S = 10.0              # a first look that takes longer is dropped (logged); the call goes on
-IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
-               "duration_s", "sample_times_s")
 CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
                      "could not confirm as unknown")
 # P19. The error is a fact the owner reads in step lines; what the agent should do is in `next`.
@@ -136,55 +136,23 @@ SUPERSEDED = ("the owner changed the task while FERB was asking, so this didn't 
 SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still needed as corrected, prepare it and call "
                    "it again; FERB asks again.")
 UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); not done."
-NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
 # D31, review round 1 finding 5: the question would show it redacted while the real value is typed
 TERMINAL_SECRET = ("{field} holds a saved secret, so FERB neither shows it in a question nor puts it into a terminal; "
                    "a saved secret goes in only through mac.secret, the owner's hidden input (D31)")
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
-# L39: the kinds of call that can change the owner's files, whose named files the change record copies first
-CHANGE_KINDS = frozenset({Kind.WRITE_FILE, Kind.TRASH, Kind.DELETE_PERMANENT, Kind.RUN_SHELL, Kind.APPLESCRIPT})
+# Decision 6: card details go in only sealed (browser.secret / mac.secret with the owner's saved card or hidden input)
+CARD_TYPED = ("card details go into a page only through FERB's sealed fill (browser.secret, with a card the owner saved "
+              "or the owner's hidden input), never typed: nothing was typed")
+NO_SITE = "this address names no site FERB can check, so it didn't run"
+STAYED_OPEN = "FERB stopped while recording this call"   # a span an unexpected failure would have left open
 
 
 def observes(cap: Any) -> bool:
     """A capability that only observes (reads, snapshots, screenshots, scrolling, opening a URL in FERB's own
     browser) declares `observation = True`; unmarked means it acts, and a checker can't use it (V3, W4)."""
     return bool(getattr(cap, "observation", False))
-
-
-def on_screen(cap: Any) -> bool:
-    """A capability that can change what is on the owner's screen (bring an app or window forward, switch the Space,
-    move the cursor, open a dialog) declares `on_screen = True`. The disturbance record keeps the flag beside each
-    call, so a desktop change with none of these in flight says so, with the facts around it (P26). A declaration,
-    like `observation`, never a name list (rule 6)."""
-    return bool(getattr(cap, "on_screen", False))
-
-
-def evidence_kind(tool: str) -> str:
-    """What a tool's image is, for the evidence store: a snapshot's image, a recording's frames, else a screenshot."""
-    if tool.endswith(".snapshot"):
-        return "snapshot"
-    return "recording" if tool.startswith("recording.") else "screenshot"
-
-
-def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
-    """The small facts kept beside a tool's image (already redacted content): where it came from, its size, and how
-    many controls the result listed."""
-    facts: dict[str, Any] = {"tool": tool} | {k: content[k] for k in IMAGE_FACTS if content.get(k) not in (None, "")}
-    if isinstance(content.get("elements"), list):
-        facts["elements"] = len(content["elements"])
-    return facts
-
-
-def error_name(e: BaseException) -> str:
-    """An error for the trace by type (and errno, or a capture error's domain and code, I7) only: its text can hold an
-    absolute path."""
-    errno = getattr(e, "errno", None) if isinstance(e, OSError) else None
-    domain, code = getattr(e, "domain", None), getattr(e, "code", None)
-    if errno is None and isinstance(domain, str) and isinstance(code, int):
-        return f"{type(e).__name__} ({domain} {code})"
-    return type(e).__name__ + (f" (errno {errno})" if errno is not None else "")
 
 
 def result_origins(read_sources: tuple[tuple[str, str], ...], declared: str | None, kind: str) -> set[str]:
@@ -218,11 +186,14 @@ class Answer:
 
 @dataclass
 class Covered:
-    """How a call stands with the owner (`Gateway._confirmed`)."""
+    """How a call stands with the owner (`Gateway._authorize`)."""
     ids: list[str] = field(default_factory=list)      # the rows that decided it: its span's `confirmations`
-    spent: list[str] = field(default_factory=list)    # Yes rows this call uses up once it has run (SQ1)
+    rows: dict[str, str] = field(default_factory=dict)   # each need's key -> the Yes that covers it
+    spent: list[str] = field(default_factory=list)    # one-run Yeses this call claimed (SQ1): released unless its
+                                                      # attempt starts (an unknown outcome included) and it didn't fail
     refused: dict[str, Any] | None = None             # the reply when it must not run
     standing: list[str] = field(default_factory=list)  # the rules a standing permission covered (D30): its `standing`
+    started: bool = False                             # the attempt started: claimed Yeses stay spent
 
 
 class Destination(BaseModel):
@@ -261,19 +232,7 @@ def lift_need(protection: Protection, rule: str, how: str, call: str) -> confirm
                              "path": shown})
     return confirm.Need("escape:" + rule, "lift:change:" + rule + ":" + escape_key(rule, call, ""),
                         {"text": f"let FERB change {shown} once (rule {rule})", "lift": "write", "path": shown},
-                        always=True)
-
-
-@dataclass
-class Claimed:
-    """The always-ask Yes rows a call claimed (SQ1). Spent once the call's attempt starts (an unknown outcome
-    included); released only when it is refused, cancelled before it runs, or the tool reports it failed."""
-    ids: list[str] = field(default_factory=list)
-    kept: bool = False
-
-
-def _nothing_known(kind: str, value: str) -> bool:
-    return False
+                        always=True, spent_on_ask=True)
 
 
 def quoted(text: str, limit: int = REASON_CHARS) -> str:
@@ -442,6 +401,84 @@ class Observer:
         pass
 
 
+
+
+def _window_of(found: Any) -> str | None:
+    """The app window a Mac call's stable P19 identity names (its window-server id), wherever it sits in it."""
+    if isinstance(found, dict):
+        if isinstance(found.get("window"), (int, str)) and str(found["window"]):
+            return str(found["window"])
+        for value in found.values():
+            if (inner := _window_of(value)) is not None:
+                return inner
+    return None
+
+
+def before_acting(e: BaseException) -> bool:
+    """Whether a tool's exception says it failed before it acted (P19: failed, not unknown): a safety check's refusal
+    (`Refused`: nothing was attempted), invalid arguments, or an error that says so (`attempted = False`). Any other
+    exception may have come after the action started: its outcome is unknown."""
+    return isinstance(e, (Refused, ValidationError)) or getattr(e, "attempted", None) is False
+
+
+def host_of(url: str | None) -> str:
+    try:
+        return (urlsplit(url or "").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+STANDING_RULES = ("floor:new_recipient", "sink:new_destination", confirm.BULK)   # what a standing scope may cover (D30)
+
+
+@dataclass
+class Call:
+    """One tool call as the pipeline sees it, built once: admission, validated arguments and the facts code read."""
+    grant: RunGrant
+    rec: Any
+    cap: Any
+    name: str
+    args: Any                                   # validated arguments
+    arguments: dict[str, Any]                   # as given, without the agent's notes
+    why: str
+    effect: str
+    spec: Any                                   # as the capability describes it (its path normalized)
+    checked: Any                                # with the worker's declaration added (W2): it only adds questions
+    action: ActionRequest
+    real: Path | None
+    ident: tuple[str, str] | Refused | None     # P19's (ledger key, payload hash); None for a reversible call
+    lock_keys: list[str]
+    armed: str | None                           # D31: the Yes an approved terminal text left for its one Return
+    fact_targets: list[tuple[str, Target]] = field(default_factory=list)   # what the tool's facts add (decision 1)
+    extra: dict[str, Any] = field(default_factory=dict)                     # what the span records beside the call
+    lifts: dict[tuple[str, str], confirm.Need] = field(default_factory=dict)   # protected folders it opens
+    found: list[tuple[Path, str, list[str]]] = field(default_factory=list)
+    escape: tuple[str, str, str, str] | None = None                 # (rule, command, cwd, kind) of an escape request
+    escape_need: confirm.Need | None = None
+    terminal: TerminalInput | None = None                           # D31: what would go into a terminal
+    terminal_need: confirm.Need | None = None
+    pay: payments.PayFacts | None = None                            # a payment in a task's tab (decision 4)
+    pay_cid: str | None = None                                      # the Yes that covers it
+    pay_key: str | None = None
+
+    @property
+    def root(self) -> str:
+        return self.rec.tree_id or self.grant.task_id
+
+    @property
+    def facts(self) -> ActionFacts | None:
+        return self.spec.facts if isinstance(self.spec.facts, ActionFacts) else None
+
+    @property
+    def kinds(self) -> set[str]:
+        """The call's kind, every kind its declaration adds and every kind its facts add."""
+        return {self.spec.kind} | set(declared_kinds(self.checked)) | {k for k, _ in self.fact_targets}
+
+    @property
+    def consequential(self) -> bool:
+        return self.spec.kind not in REVERSIBLE or bool(declared_kinds(self.checked)) or bool(self.fact_targets)
+
+
 class Gateway:
     def __init__(self, capabilities: dict[str, Capability], state: ExecutionState, ledger: Ledger, spans: SpanStore,
                  tasks: TaskTree, clock: Clock, redact: Redact, publish: Publish, roots: FsRoots,
@@ -462,8 +499,9 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
-        from ferb.daemon.task_preview import TaskPreviews
-        self.previews = TaskPreviews()
+        self.hooks = CallHooks(self)                       # what only records or shows, around a call
+        self.hidden = HiddenInput(self)                    # hidden-input questions (secrets, codes, admin password)
+        self.payments = payments.Payments(lambda: clock.now())   # decision 4: each tab's approved payment
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
         self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
         self.profile_name: Callable[[str, str], str] = deps.profile_name
@@ -490,12 +528,12 @@ class Gateway:
         self.evidence: Any = deps.evidence                 # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = deps.app_window
-        self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
-        self.recovery: recovery.Recovery | None = deps.recovery      # S1: copies before a change, the Trash record
+        self.recovery: recovery.Recovery = deps.recovery             # S1: copies before a change, the Trash record
         self.snapshots: recovery.Snapshots | None = deps.snapshots   # S1: before a permanent delete or shell work
         self.changes: file_changes.Changes | None = deps.changes     # L39: copies before a step changes files
-        self.confirmations: Confirmations | None = deps.confirmations   # D33, S4: the owner's answers to FERB
-        self.destinations: KnownDestinations | None = deps.destinations  # SQ6: the destinations FERB knows
+        self.confirmations: Confirmations = deps.confirmations       # D33, S4: the owner's answers to FERB
+        self.destinations: KnownDestinations = deps.destinations     # SQ6: the destinations FERB knows
+        self.standing: Any = None                                    # D30: the supervisor's standing permissions
         self._confirming: dict[str, asyncio.Lock] = {}      # by task tree: one FERB question at a time
         # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
         # acting call (review round 1, finding 3): any other acting call clears it
@@ -632,10 +670,9 @@ class Gateway:
         root = self.tasks.tree_of(task_id) if task_id is not None else None
         if root is None:                                 # a process FERB no longer tracks: fail closed
             return False, "FERB couldn't tell which task this command belongs to"
-        if self.confirmations is not None:               # A prior host No remains final for this task tree.
-            row = self.confirmations.find(root, confirm.destination_key(norm))
-            if row is not None and not row["granted"]:
-                return False, DEST_REFUSED_NO
+        row = self.confirmations.find(root, confirm.destination_key(norm))   # a prior host No stays final here
+        if row is not None and not row["granted"]:
+            return False, DEST_REFUSED_NO
         if local_approved:
             return True, ""
         try:
@@ -665,7 +702,7 @@ class Gateway:
                              for kind, h in KnownDestinations.from_words(text) if kind == "host"}
 
     def cancel_tasks(self, task_ids: set[str]) -> None:
-        self.previews.remove(task_ids)
+        self.hooks.previews.remove(task_ids)
         self._cancelled_tasks.update(task_ids)
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
@@ -673,7 +710,8 @@ class Gateway:
 
     def forget_tasks(self, task_ids: set[str]) -> None:
         """A task tree ended: what the gateway kept for it goes."""
-        self.previews.remove(task_ids)
+        self.hooks.forget(task_ids)
+        self.payments.forget(task_ids)
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
             self._outside.pop(task_id, None)
@@ -682,8 +720,6 @@ class Gateway:
             del self._terminal_arms[armed]
         for kept in [k for k in self._undelivered if k[0] in task_ids]:
             del self._undelivered[kept]
-        for key in [k for k in self._looked if k[0] in task_ids]:
-            del self._looked[key]
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
         """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
@@ -777,17 +813,64 @@ class Gateway:
                     lambda: {rowid: provenance.prepare(text) for rowid, text in fresh}))
             return self._sink_texts(root)
 
-    async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        rec = self.tasks.get(grant.task_id)
+    # ---------- the pipeline ----------
+
+    def _replier(self, rec: Any) -> Callable[..., dict[str, Any]]:
         started = rec.started_at if rec else None
         deadline = rec.task.deadline if rec else None
 
-        def reply(content: dict[str, Any], is_error: bool, origins: set[str] | None = None) -> dict[str, Any]:
+        def reply(content: dict[str, Any], is_error: bool, origins: set[str] | None = None, *,
+                  redacted: bool = False) -> dict[str, Any]:
             footer = context.footer(self.clock.now(), started, deadline)
             if origins:                                  # labels name hosts and senders: redacted like content
                 footer += "\n" + self.redact(origin_line(origins))
-            return {"content": self.redact(content), "is_error": is_error, "footer": footer}
+            return {"content": content if redacted else self.redact(content), "is_error": is_error, "footer": footer}
+        return reply
 
+    async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        rec = self.tasks.get(grant.task_id)
+        reply = self._replier(rec)
+        admitted = self._admit(grant, rec, name, reply)
+        if isinstance(admitted, dict):
+            return admitted
+        built = await self._build(grant, rec, admitted, name, arguments, reply)
+        if isinstance(built, dict):
+            return built
+        c = built
+        refusal = await self._boundaries(c, reply)
+        if refusal is not None:
+            return refusal
+        needs = await self._needs(c, reply)
+        if isinstance(needs, dict):
+            return needs
+        covered = await self._authorize(c, needs)
+        escape: EscapeGrant | None = None
+        try:
+            if c.consequential:
+                c.extra["confirmations"] = covered.ids
+            if covered.standing and covered.refused is None:   # D30: runs inside a standing permission, logged so
+                c.extra["standing"] = {"task": c.root, "rules": covered.standing}
+            if covered.refused is not None:              # the owner said no, or wasn't there: nothing ran
+                return self._refuse_call(c, reply, covered.refused)
+            granted = await self._grants(c, covered)
+            if isinstance(granted, dict):
+                return self._refuse_call(c, reply, granted)
+            lifted, escape, terminal = granted
+            result = await self._run(c, covered, reply, lifted, escape, terminal)
+            if terminal is not None and terminal.input.enter and not result.get("is_error"):
+                self._terminal_arms[grant.task_id] = terminal.confirmation_id   # its one Return, next action only
+            return result
+        finally:
+            if escape is not None and escape.secret and isinstance(self.redact, Redactor):
+                self.redact.release_secret(escape.secret)
+            if covered.spent and not covered.started:
+                for cid in covered.spent:               # refused, cancelled before it ran, or reported failed:
+                    self.confirmations.release(cid)      # the Yes covers its retry again
+
+    def _admit(self, grant: RunGrant, rec: Any, name: str,
+               reply: Callable[..., dict[str, Any]]) -> Any:
+        """FERB not stopped, the task running, the tool installed and in the worker's scopes and identity, an acting
+        tool never for the final checker (V3): the capability, else the reply (a small tool.refused span says why)."""
         if self.state.stopped or grant.task_id in self._cancelled_tasks:
             return reply({"error": "task stopped by the owner"}, True)
         if rec is None:
@@ -803,6 +886,20 @@ class Gateway:
         if grant.identity not in cap.identities:
             self._refused(grant, rec, name, "tool is outside this task's identity")
             return reply({"error": "this tool is not available to this task's identity"}, True, {origin.FERB})
+        return cap
+
+    @staticmethod
+    async def _off_loop(cap: Any, fn: Callable[..., Any], *args: Any) -> Any:
+        """A capability's synchronous description work (describe, precheck, locks, P19 identity): in a worker thread
+        when it says that work can block (`describe_in_thread`: Mac tools look up running apps), else here."""
+        if getattr(cap, "describe_in_thread", False):
+            return await asyncio.to_thread(fn, *args)
+        return fn(*args)
+
+    async def _build(self, grant: RunGrant, rec: Any, cap: Any, name: str, arguments: dict[str, Any],
+                     reply: Callable[..., dict[str, Any]]) -> "Call | dict[str, Any]":
+        """Validate (the agent's notes stripped), precheck, owner.ask's own path, then the capability's description,
+        the worker's declaration (W2: it only adds), the tool's facts (decision 1), P19's identity and the locks."""
         armed = None if observes(cap) else self._terminal_arms.pop(grant.task_id, None)   # D31: next action only
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
@@ -820,13 +917,13 @@ class Gateway:
         except ValidationError as e:
             details = [err | {"loc": ("destination", *err["loc"])} for err in e.errors(include_url=False)]
             return reply({"error": "invalid arguments", "details": details}, True)
-        if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
+        if hasattr(cap, "precheck") and (refusal := await self._off_loop(cap, cap.precheck, args)):
             self._refused(grant, rec, name, refusal)
             return reply({"error": refusal}, True, {origin.FERB})
         if name == OWNER_ASK:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
-        spec = cap.describe(args)
+        spec = await self._off_loop(cap, cap.describe, args)
         if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
@@ -834,232 +931,676 @@ class Gateway:
         # the call itself (P19's hash, the ledger, the run) stays as the capability described it
         checked = declare(spec, effect, tuple(reaches.recipients), reaches.account, reaches.amount, reaches.item,
                           reaches.currency)
-        declared = declared_kinds(checked)
-        # a delegated conversation is guarded by what the call itself targets (as the capability describes it), with
-        # every declared kind: the worker's declared account or recipient is its note, never compared to the scope
-        conversation_refusal = self.conversation_guard(grant, name, cap,
-                                                       dataclasses.replace(spec, effect_kind=checked.effect_kind))
-        if conversation_refusal:
-            self._refused(grant, rec, name, conversation_refusal)
-            return reply({'error': conversation_refusal}, True, {origin.FERB})
         real = self._real_path(cap, args, spec)
-        # rule 10, gateway decision 2: before the span and the ledger, nothing ran; a protected place asks the owner
-        lifted, closed = await self._file_lifts(grant, rec, cap, name, args, why)
-        if closed is not None:
-            self._refused(grant, rec, name, closed[0])
-            return reply({"error": closed[1]}, True, {origin.FERB})
-        url_sink = await self._url_sink(grant, rec, name, arguments, spec, why)   # S4: a URL carrying private data
-        if url_sink is not None:                          # the owner said no, or wasn't there: nothing ran
-            span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                   input={"tool": name, "args": arguments, "kind": spec.kind, "boundary_refused": True,
-                                          "target": _target_dict(spec.target)})
-            self._finish_call(span, name, url_sink, True, error=str(url_sink["error"]))
-            return reply(url_sink, True, {origin.FERB})
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity,
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
                                content=spec.content, effect=effect, why=why)
-        extra: dict[str, Any] = ({"declared": next(iter(declared)) if len(declared) == 1 else sorted(declared)}
-                                 if declared else {})        # one declared kind as a string, several as a list
-        if noted is not None:
-            extra["destination"] = reaches.model_dump(exclude_defaults=True)
-        consequential = spec.kind not in REVERSIBLE or bool(declared)   # a declared purpose only adds
-        takes_screen = confirm.foreground_need(name, arguments) is not None   # rule 17: asked even for a reversible click
-        # rule 5: input on a browser's own page (chrome://extensions…) asks every time, by the driver's facts now
-        page = await cap.browser_page(args) if takes_screen and hasattr(cap, "browser_page") else None
-        if consequential or takes_screen:                # where each target came from (S3), a fact
-            extra["arg_sources"] = self._arg_sources(checked, rec, grant)
-        blocked = self._send_blocked(checked)            # test mode: before FERB asks the owner anything
-        ident = self._identity(cap, name, spec, action, args, real)
-        if isinstance(ident, tuple) and (earlier := self._undelivered.pop((grant.task_id, *ident), None)):
-            return self._earlier_result(grant, rec, name, arguments, spec, *earlier)
-        repeat = None if blocked is not None else self._repeat_refusal(ident, grant)
-        covered = Covered()
-        if (consequential or takes_screen) and blocked is None and repeat is None:
-            # D23 floor, S4: asked by code, before anything is held
-            covered = await self._confirmed(grant, rec, name, arguments, checked, why, extra["arg_sources"],
-                                            ident if isinstance(ident, tuple) else None, page)
-        if consequential:
-            extra["confirmations"] = covered.ids
-        if covered.standing and covered.refused is None:  # D30: runs inside a standing permission, logged as such
-            extra["standing"] = {"task": rec.tree_id or grant.task_id, "rules": covered.standing}
-        claimed = Claimed(covered.spent)
-        if spec.facts is not None and (facts := spec.facts.recorded()):
-            extra["facts"] = facts                       # what the tool reported (ActionFacts): recorded, decides nothing
-        if lifted:
-            extra["lifted"] = sorted(f"{how}:{rule}" for rule, how in lifted)
-        span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                               input={"tool": name, "args": arguments, "effect": effect, "kind": spec.kind,
-                                      "target": _target_dict(checked.target)}
-                               | ({"why": why} if why else {}) | extra)
-        self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
-                                     "effect": effect})
-        self._started(grant, name, arguments, spec.kind, spec.target.site)
-        shadow = self.shadow_action
-        if consequential and shadow is not None:
-            # Advice only: scheduling/completion/answers cannot authorize or refuse this call.
-            self._in_background(shadow({"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
-                "content": spec.content, "code_questions": covered.ids, "task_id": grant.task_id,
-                "owner_words": (self.state.requests.get(rec.task.request_id).words if self.state.requests.get(rec.task.request_id) else "")},
-                "span:" + span.id), "shadow")
-        if blocked is not None:
-            self.spans.update_input(span.id, {"boundary_refused": True})
-            self._finish_call(span, name, {"error": blocked[0]}, True, error=blocked[0])
-            return reply({"error": blocked[0], "recipients": blocked[1]}, True)
-        if repeat is not None:                           # P19, refused as the ledger refuses it: nothing was asked
-            self.spans.update_input(span.id, {"boundary_refused": True})
-            return self._ledger_refused(span, name, reply, repeat)
-        if covered.refused is not None:                  # the owner said no, or wasn't there: nothing ran
-            self.spans.update_input(span.id, {"boundary_refused": True})
-            error = str(covered.refused["error"])
-            self._finish_call(span, name, covered.refused, True, error=error)
-            return reply(covered.refused, True, {origin.FERB})
-        escape = None
-        try:
-            if name in {"shell.run", "shell.start"} and getattr(args, "escape", None):
-                try:
-                    escape = await self._escape(grant, rec, args, why)
-                except Refused as error:
-                    self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
-                    return reply({"error": str(error)}, True, {origin.FERB})
-            terminal = None
-            if hasattr(cap, "terminal_input"):           # D31, rule 10: every input into a terminal asks first
-                terminal, refused = await self._terminal(cap, name, args, grant, rec, span, arguments, why, armed)
-                if refused is not None:                  # the owner said no, or wasn't there: nothing was typed
-                    self.spans.update_input(span.id, {"boundary_refused": True})
-                    self._finish_call(span, name, refused, True, error=str(refused["error"]))
-                    return reply(refused, True, {origin.FERB})
-            result = await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                      arguments, escape, terminal, lifted)
-            if terminal is not None and terminal.input.enter and not result.get("is_error"):
-                self._terminal_arms[grant.task_id] = terminal.confirmation_id   # its one Return, next action only
-            return result
-        finally:
-            if escape is not None and escape.secret and isinstance(self.redact, Redactor):
-                self.redact.release_secret(escape.secret)
-            if claimed.ids and not claimed.kept and self.confirmations is not None:
-                for cid in claimed.ids:                  # refused, cancelled before it ran, or reported failed:
-                    self.confirmations.release(cid)      # the Yes covers its retry again
-
-    async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
-                    span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
-                    arguments: dict[str, Any], escape: EscapeGrant | None = None,
-                    terminal: TerminalGrant | None = None,
-                    lifted: frozenset[tuple[str, str]] = frozenset()) -> dict[str, Any]:
-        """The call under its resource locks, with the disturbance record around it."""
-        lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
+        ident = None if spec.kind in REVERSIBLE else await self._off_loop(cap, self._identity, cap, name, spec, action,
+                                                                           args, real)
+        lock_keys = await self._off_loop(cap, cap.locks, args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
             # Every spelling of one file shares a lock: the file the call really acts on (symlinks, then `..`), as
             # S1 and `ferb restore` key it. This identifies the requested path; it never searches for another file.
             lock_keys = ["file:" + str(real)]
+        c = Call(grant, rec, cap, name, args, arguments, why, effect, spec, checked, action, real, ident, lock_keys,
+                 armed)
+        c.fact_targets = self._fact_targets(c)
+        declared = declared_kinds(checked)
+        if declared:                                     # one declared kind as a string, several as a list
+            c.extra["declared"] = next(iter(declared)) if len(declared) == 1 else sorted(declared)
+        if noted is not None:
+            c.extra["destination"] = reaches.model_dump(exclude_defaults=True)
+        if c.facts is not None and (facts := c.facts.recorded()):
+            c.extra["facts"] = facts                     # what the tool reported (ActionFacts), on the record
+        if c.fact_targets:
+            c.extra["fact_kinds"] = sorted({k for k, _ in c.fact_targets})
+        return c
+
+    def _fact_targets(self, c: "Call") -> list[tuple[str, Target]]:
+        """Decision 1: the kinds the tool's structural facts add, each with what it reaches: a form submitted with card
+        fields is a payment; with a current-password and a new-password field, an account-security change (a sign-up's
+        new-password field alone is not); any form submit, a send to the site it posts to, asked only when what was
+        typed into it carries the owner's private data (`_submit_sink`); a path a tool reports removing, other than to
+        the Trash (S1 makes that recoverable), a permanent delete. Never from the page's or app's words (rule 6)."""
+        f = c.facts
+        if f is None:
+            return []
+        page = host_of(f.page_url) or None
+        kinds = set(f.field_kinds)
+        out: list[tuple[str, Target]] = []
+        if f.submits_form:
+            if kinds & CARD_KINDS:
+                out.append((Kind.PAY, Target(site=page)))
+            if {"password", "new_password"} <= kinds:   # an existing account's password changed (a sign-up asks nothing)
+                out.append((Kind.ACCOUNT_SECURITY, Target(site=page)))
+            out.append((Kind.SUBMIT, Target(site=(f.form_action_host or "").lower() or page)))
+        if c.spec.kind != Kind.TRASH:
+            out += [(Kind.DELETE_PERMANENT, Target(path=normalize_path(p, self.roots.workspace))) for p in f.deletes]
+        return out
+
+    async def _boundaries(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> dict[str, Any] | None:
+        """What refuses a call without asking anyone: a delegated conversation's scope, FERB's own files (never
+        lifted), card details typed in the clear (decision 6), an address with no site, an escape the rules never
+        lift, test mode's allowlist (D17), an identical call that already ran for a caller who left, P19's unresolved
+        repeat. The reply, else None."""
+        grant, rec, cap, name = c.grant, c.rec, c.cap, c.name
+        # a delegated conversation is guarded by what the call itself targets (as the capability describes it), with
+        # every declared kind: the worker's declared account or recipient is its note, never compared to the scope
+        refusal = self.conversation_guard(grant, name, cap, dataclasses.replace(c.spec,
+                                                                                effect_kind=c.checked.effect_kind))
+        if refusal:
+            self._refused(grant, rec, name, refusal)
+            return reply({'error': refusal}, True, {origin.FERB})
+        found, never = self._file_rules(cap, name, c.args)   # rule 10: before the span and the ledger, nothing ran
+        if never is not None:
+            self._refused(grant, rec, name, never[0])
+            return reply({"error": never[1]}, True, {origin.FERB})
+        c.found = found
+        if self._card_typed(c):
+            self._refused(grant, rec, name, "card details typed in the clear")
+            return reply({"error": CARD_TYPED, "next": "Use browser.secret on the card field."}, True, {origin.FERB})
+        if c.spec.kind in (Kind.NAVIGATE, Kind.OPEN_TAB) and c.arguments.get("url") and \
+                not KnownDestinations.normalize("host", c.spec.target.site or ""):
+            # parsed as the browser will, it names no site: never opened
+            return self._refuse_call(c, reply, {"error": NO_SITE, "next": "Use a plain http(s) address with a site "
+                                                                          "name."})
+        if name in {"shell.run", "shell.start"} and getattr(c.args, "escape", None):
+            rule, command = c.args.escape, c.args.command
+            protection = self.roots.protection
+            assert protection is not None                 # the gateway refuses to start without it
+            if not protection.liftable(rule):
+                return self._refuse_call(c, reply, {"error": f"{rule} is never lifted: FERB's own files and network "
+                                                             "protections remain enforced"})
+            cwd = file_real_path(c.args.cwd or self.roots.workspace, self.roots.workspace)
+            if not cwd.is_dir():
+                return self._refuse_call(c, reply, {"error": "the escape command's working folder does not exist"})
+            kind = next(row for row in protection.rules() if row["id"] == rule)["kind"]
+            c.escape = (rule, command, str(cwd), kind)
+        if isinstance(c.ident, tuple) and (earlier := self._undelivered.pop((grant.task_id, *c.ident), None)):
+            return self._earlier_result(grant, rec, name, c.arguments, c.spec, *earlier)
+        blocked = self._send_blocked(c)                  # test mode: before FERB asks the owner anything
+        if blocked is not None:
+            return self._refuse_call(c, reply, {"error": blocked[0], "recipients": blocked[1]}, origins=set())
+        repeat = self._repeat_refusal(c.ident, grant)
+        if repeat is not None:                           # P19, refused as the ledger refuses it: nothing was asked
+            span = self._call_span(c, boundary_refused=True)
+            return self._ledger_refused(span, name, reply, repeat)
+        return None
+
+    def _card_typed(self, c: "Call") -> bool:
+        """Decision 6: text typed into a card field, or a payment card's number typed anywhere (a Luhn-valid number,
+        `Redactor.hit`), outside the sealed fill. A sealed fill carries no text (its content is None)."""
+        if c.spec.kind not in (Kind.FILL_FORM, Kind.MAC_INPUT) or not isinstance(c.spec.content, str):
+            return False
+        if c.facts is not None and set(c.facts.field_kinds) & CARD_KINDS and c.spec.content.strip():
+            return True
+        hit = getattr(self.redact, "hit", None)
+        return callable(hit) and hit(c.spec.content) == "payment card"
+
+    # ---------- needs: every reason to ask, from facts ----------
+
+    async def _needs(self, c: "Call", reply: Callable[..., dict[str, Any]]) -> list[confirm.Need] | dict[str, Any]:
+        """Every reason this call needs the owner, each a Need produced from facts; a reply when it can't run at all
+        (a folder delete FERB can't count, a saved secret bound for a terminal)."""
+        needs: list[confirm.Need] = []
+        needs += self._lift_needs(c)                     # rule 10, decision 2: protected folders
+        url = await self._url_sink_need(c)               # S4: a browser address carrying the owner's data
+        if url is not None:
+            needs.append(url)
+        # rule 17: the owner's screen, once per task per app (a pid's or a name's browser test reads running apps)
+        foreground = await self._off_loop(c.cap, confirm.foreground_need, c.name, c.arguments)
+        if c.consequential or foreground is not None:    # where each target came from (S3), a fact
+            c.extra["arg_sources"] = self._arg_sources(c.checked, c.rec, c.grant)
+        if c.consequential:
+            floor = await self._floor_needs(c)            # D23 floor, S4, SQ6, L39: kinds, declarations, facts
+            if isinstance(floor, dict):
+                return self._refuse_call(c, reply, floor)
+            needs += floor
+        if foreground is not None:
+            needs.append(foreground)
+            # rule 5: input on a browser's own page (chrome://extensions…) asks every time, by the driver's facts now
+            page = await c.cap.browser_page(c.args) if hasattr(c.cap, "browser_page") else None
+            if page is not None:
+                needs.append(confirm.browser_page_need(str(c.arguments.get("app") or "the browser"), page))
+        if c.name == "browser.pair":                     # the owner's word is what pairs a profile (2026-10-27)
+            pair = self._pair_need(c)
+            if pair is not None:
+                needs.append(pair)
+        if c.escape is not None:                         # D31: the escape hatch
+            needs.append(self._escape_need(c))
+        terminal = await self._terminal_need(c)          # D31, rule 10: every input into a terminal asks first
+        if isinstance(terminal, dict):
+            return self._refuse_call(c, reply, terminal)
+        if terminal is not None:
+            needs.append(terminal)
+        unique: dict[str, confirm.Need] = {}
+        for n in needs:
+            unique.setdefault(n.key, n)
+        return list(unique.values())
+
+    def _lift_needs(self, c: "Call") -> list[confirm.Need]:
+        """Gateway decision 2, hands decision 1: a file inside or holding a never-read store, or a never-write place
+        the call changes: a read once per protected folder per task tree (the Yes covers every later read of it in the
+        tree, the shell's read escape of that folder included), a change (write or removal) for this one call."""
+        protection = self.roots.protection
+        assert protection is not None
+        for path, access, rules in c.found:
+            for rule in rules:
+                how = lift_how(access)
+                if (rule, how) not in c.lifts:
+                    c.lifts[(rule, how)] = lift_need(protection, rule, how, f"{c.name} {path}")
+        return list(c.lifts.values())
+
+    async def _url_sink_need(self, c: "Call") -> confirm.Need | None:
+        """S4, SQ6, carried item 8, Q8: a browser open/navigate whose URL carries a value from the owner's own data to
+        a host the owner hasn't named or approved (decision 5), after the task read outside content. The tree's earlier
+        answer for that host decides (a Yes runs; a No stays final, even if this URL no longer carries private data,
+        until the owner's own follow-up reopens it); never asked for a literal loopback address, a host the owner named
+        in this request or approved, a URL the tree read (a followed link), or one carrying nothing of the owner's."""
+        url = str(c.arguments.get("url") or "")
+        if c.spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not url:
+            return None
+        host = KnownDestinations.normalize("host", c.spec.target.site or "")
+        root = c.root
+        key = confirm.destination_key(host)
+        row = self.confirmations.find(root, key, self.spans.reopened_answers(root))
+        if row is not None:                              # a No refuses in `_authorize`, whatever this URL carries
+            return None if row["granted"] else confirm.Need(confirm.SINK_DESTINATION, key,
+                                                            {"text": f"reaching {host}"})
+        try:
+            address = ipaddress.ip_address(host)
+            if address.is_loopback or (isinstance(address, ipaddress.IPv6Address) and
+                                       address.ipv4_mapped is not None and address.ipv4_mapped.is_loopback):
+                return None
+        except ValueError:
+            pass
+        outside_labels = self._outside_read(root)
+        if not outside_labels:
+            return None                                  # no outside content read: not a sink
+        if self.destinations.approved("host", host) or self._host_named(host, root):
+            return None                                  # the owner approved or named this host
+        request = self.state.requests.get(c.rec.task.request_id)
+        words = request.words if request is not None else ""
+        owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
+        private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
+        values = confirm.url_carries_private(url, private, outside_only, owner_text)
+        if not values:
+            return None
+        return confirm.Need("sink:private_url", key, {"destination": host, "value": values[0],
+                                                      "read": confirm.shown_origins(outside_labels)},
+                            destinations=(("host", host),))
+
+    async def _floor_needs(self, c: "Call") -> list[confirm.Need] | dict[str, Any]:
+        """D23 floor, D33, S4, SQ6, L39 (confirm.decide): the call's kind with every kind its declaration adds, and each
+        kind its facts add with what that reaches; the targets' provenance; what this tree has read (its own tool
+        results, the request's pasted parts and private or outside content retrieved into model context; L4: only
+        context whose stored origin is outside counts as outside); the known and approved destinations. A payment in
+        a task's browser tab is one question per payment (decision 4); a permanent delete of a folder is counted
+        first: one FERB can't fully count is refused, named or not; one the owner didn't name asks with its count,
+        size and a sample (S4(c))."""
+        root = c.root
+        read = self.spans.tool_origins(root) | self.spans.exposure_origins(root)
+        outside = self._outside_read(root)
+        common = dict(read_private=origin.PRIVATE in read, read_external=bool(outside), known=self.destinations.known,
+                      approved=self.destinations.approved, outside_read=outside)
+        # the amount is the capability's or the page's, never the worker's declared number (decision 4)
+        target = dataclasses.replace(c.checked.target, amount=c.spec.target.amount, currency=c.spec.target.currency)
+        sources = c.extra["arg_sources"]
+        needs = confirm.decide(c.spec.kind, declared_kinds(c.checked), target, sources, place=c.spec.place,
+                               content=c.spec.content, **common)    # type: ignore[arg-type]
+        deletes = [(target.path, sources)] if target.path and \
+            Kind.DELETE_PERMANENT in {c.spec.kind} | set(declared_kinds(c.checked)) else []
+        for kind, fact_target in c.fact_targets:
+            if kind == Kind.SUBMIT:                       # the sink rule, only for private values typed into it
+                sink = await self._submit_sink(c, fact_target, outside)
+                needs += [sink] if sink is not None else []
+                continue
+            fact_sources = self._arg_sources(SimpleNamespace(target=fact_target), c.rec, c.grant)
+            needs += confirm.decide(kind, (), fact_target, fact_sources, place=c.spec.place, **common)  # type: ignore[arg-type]
+            if kind == Kind.DELETE_PERMANENT and fact_target.path:
+                deletes.append((fact_target.path, fact_sources))
+        for path, path_sources in deletes:               # S4 (c): a folder is counted first
+            from ferb.act.fs.usage import usage
+            real = file_real_path(path, self.roots.workspace)
+            if real.is_dir():
+                counted = await asyncio.to_thread(usage, real, self._path_closed(c.name), True)
+                if not counted['complete']:
+                    return {"error": "bulk deletion could not be fully enumerated; inspect the exact target first"}
+                if not confirm.owner_named(path_sources.get("path", [])):
+                    needs.append(confirm.bulk_delete(path, counted))
+        if c.facts is not None and c.facts.page_amount:  # what code read on the page, never the worker's number
+            needs = [dataclasses.replace(n, values=n.values | {"amount": c.facts.page_amount,
+                                                               "merchant": c.facts.page_merchant or ""})
+                     if n.rule == confirm.ALWAYS[Kind.PAY] else n for n in needs]
+        return await self._payment(c, needs)
+
+    async def _submit_sink(self, c: "Call", target: Target, outside: list[str]) -> confirm.Need | None:
+        """S4 (a) for a submitted form (coordinator ruling, step 6b): asked only when a value typed or chosen into this
+        tab carries the owner's own data (`confirm.text_carries_private`: private by provenance, not the owner's words,
+        not public before it was read), after outside content was read, to a site the owner neither named in this
+        request nor approved. A submit carrying no private value never asks, GET or POST."""
+        host = KnownDestinations.normalize("host", target.site or "")
+        tab = getattr(c.args, "tab", None)
+        if not host or not outside or not isinstance(tab, str) or not tab:
+            return None
+        if self.destinations.approved("host", host) or self._host_named(host, c.root):
+            return None
+        typed = self.spans.typed_in_tab(c.grant.task_id, tab)
+        if isinstance(c.spec.content, str) and c.spec.kind == Kind.FILL_FORM:
+            typed.append(c.spec.content)                  # Enter in the field it types into
+        if not typed:
+            return None
+        request = self.state.requests.get(c.rec.task.request_id)
+        owner_text = provenance.prepare((request.words if request is not None else "") + "\n" +
+                                        "\n".join(self.spans.owner_answers(c.root)))
+        private, outside_only = await self._sink_texts_ready(c.root)
+        values = confirm.text_carries_private("\n".join(typed), private, outside_only, owner_text)
+        if not values:
+            return None
+        return confirm.Need("sink:new_destination", confirm.key("sink:new_destination", host),
+                            {"destination": host, "read": confirm.shown_origins(outside)},
+                            destinations=(("host", host),))
+
+    async def _payment(self, c: "Call", needs: list[confirm.Need]) -> list[confirm.Need]:
+        """Decision 4: a payment in a task's browser tab is asked once per payment: its tab chain's approval covers it
+        unless the page shows another payment (ferb/policy/payments.py); outside a tab each run asks (SQ1)."""
+        pays = [n for n in needs if n.rule == confirm.ALWAYS[Kind.PAY]]
+        f = c.facts
+        if not pays:
+            return needs
+        if f is not None and f.tab_chain:
+            kinds = set(f.field_kinds)
+            c.pay = payments.PayFacts(f.tab_chain, host_of(f.page_url), (f.frame_host or "").lower() or None,
+                                      f.page_amount, f.page_merchant, bool(f.submits_form and kinds & CARD_KINDS),
+                                      submits=bool(f.submits_form))
+        elif c.name.startswith("mac.") and c.spec.target.site and \
+                (window := _window_of(await self._off_loop(c.cap, hashed_args, c.cap, c.args))) is not None:
+            # coordinator ruling 4: a Mac app's payment is scoped like a tab, to that app window for 10 minutes
+            site = str(c.spec.target.site)
+            amount = shown if (shown := pays[0].values.get("amount")) and shown != confirm.UNREAD_AMOUNT else None
+            c.pay = payments.PayFacts(f"mac:{site}:{window}", site, amount=amount)
+        else:
+            return needs                                  # no tab and no window to scope it: each run asks (SQ1)
+        rest = [n for n in needs if n.rule != confirm.ALWAYS[Kind.PAY]]
+        check = self.payments.check(c.root, c.pay, pays[0].values)
+        if check.approval is not None:
+            c.pay_cid = check.approval.cid
+            c.extra["payment"] = {"covered_by": check.approval.cid, "scope": c.pay.chain}
+            return rest
+        assert check.need is not None
+        c.pay_key = check.need.key
+        return rest + [check.need]
+
+    def _pair_need(self, c: "Call") -> confirm.Need | None:
+        browser, _, folder = str(c.arguments.get("profile") or "").partition("/")
+        shown = self.profile_name(browser, folder)
+        # a profile the owner named in their words or answers is already authorized (rule 8 provenance; owner
+        # 2026-10-27, after "pair my online bits profile" asked anyway: "why did it ask me the question?")
+        request = self.state.requests.get(c.rec.task.request_id)
+        said = provenance.sources(shown, request.words if request is not None else "", [],
+                                  answer_text="\n".join(self.spans.owner_answers(c.root)))
+        return None if confirm.owner_named(said) else confirm.pair_need(shown, browser, folder)
+
+    def _escape_need(self, c: "Call") -> confirm.Need:
+        """D31: a read escape is one Yes per protected folder per task tree, shared with the file tools' reads of it
+        (hands decision 1); any other lift covers this exact command once, spent when given."""
+        assert c.escape is not None
+        rule, command, cwd, kind = c.escape
+        protection = self.roots.protection
+        assert protection is not None
+        if kind == "read":
+            c.escape_need = lift_need(protection, rule, "read", command)
+        else:
+            shown = next(row for row in protection.rules() if row["id"] == rule)["path"]
+            c.escape_need = confirm.Need("escape:" + rule, escape_key(rule, command, cwd),
+                                         {"text": f"this exact command needs rule {rule} lifted once: {shown}",
+                                          "lift": kind, "path": shown}, always=True, spent_on_ask=True)
+        return c.escape_need
+
+    async def _terminal_need(self, c: "Call") -> confirm.Need | dict[str, Any] | None:
+        """D31, CLAUDE.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
+        Code's) asks the owner first, showing the exact input, every time, with no standing permission; a No types
+        nothing. The capability says what would go in, from the driver's facts now (`terminal_input`). A Yes covers that
+        one input (and the one Return after its text, as the task's very next acting call: `armed`) and is spent when
+        given. A saved secret is never shown in a question nor typed into a terminal (the refusal)."""
+        if not hasattr(c.cap, "terminal_input"):
+            return None
+        inp = await c.cap.terminal_input(c.args, c.grant.task_id)
+        if inp is None:
+            return None
+        if inp.covered_by is not None and inp.covered_by != c.armed:   # another action came between: ask for it
+            inp = dataclasses.replace(inp, covered_by=None)
+        c.terminal = inp
+        if inp.covered_by is not None:                   # the Return after text the owner just said Yes to
+            c.extra["terminal"] = {"confirmation": inp.covered_by, "covers": "return"}
+            return None
+        if (secret := self._secret_field(inp)) is not None:   # round 2, N1: on the raw text, before any escaping
+            return {"error": TERMINAL_SECRET.format(field=secret)}
+        c.terminal_need = dataclasses.replace(terminals.need(inp), fresh=True, spent_on_ask=True)
+        return c.terminal_need
+
+    # ---------- the one step: find, ask, record, claim ----------
+
+    async def _authorize(self, c: "Call", needs: list[confirm.Need]) -> Covered:
+        """Whether this call may run as far as the owner is concerned. Under the tree's lock (one FERB question at a
+        time per tree, so two workers' identical calls ask once): each need's latest answer in this tree is found (a
+        No refuses, unless the owner's own follow-up reopened it); a standing scope may cover a send's (D30); an
+        earlier Yes covers it, except a `fresh` need (asked every time) and a one-run Yes another call spent (SQ1; the
+        identical retry the owner approved under P19 may use its own once more); the rest are asked at once, in one
+        question, while nothing is held. A one-run Yes is claimed by this call (released if it never runs or fails),
+        or spent when given (`spent_on_ask`)."""
+        out = Covered()
+        if c.pay_cid is not None:
+            out.ids.append(c.pay_cid)                    # decision 4: the tab's approved payment covers it
+        if not needs:
+            return out
+        confirmations, root = self.confirmations, c.root
+        call = call_excerpt({"input": {"tool": c.name, "args": self.redact(c.arguments)}})   # redacted, then clipped
+        typed = self._typed_into(c.grant, c.name, c.arguments) if c.kinds & confirm.SEND_CLASS else ""   # L3
+        async with self._confirming.setdefault(root, asyncio.Lock()):
+            ask: list[confirm.Need] = []
+            approved: list[str] | None = None
+            reopened = self.spans.reopened_answers(root)
+            try:
+                for need in needs:
+                    row = confirmations.find(root, need.key, reopened)
+                    if row is not None and not row["granted"]:
+                        out.ids.append(row["id"])
+                        out.refused = {"error": ALREADY_NO.format(line=self._ferb_line(needs, call, c.why, typed)),
+                                       "next": OWNER_DECIDED_NEXT}
+                        continue
+                    if row is None and need.rule in STANDING_RULES and self.standing is not None and \
+                            self.standing.covers(root, c.name, c.grant.identity.value, c.checked):
+                        out.standing.append(need.rule)   # D30: covered; the call's record says so (`standing`)
+                        continue
+                    if row is None or need.fresh:
+                        ask.append(need)
+                        continue
+                    if row["used"] and need.always:
+                        if approved is None:
+                            approved = self._approved_retry_rows(c.grant, c.ident if isinstance(c.ident, tuple)
+                                                                 else None)
+                        again = next((cid for cid in approved if confirmations.covers(cid, need.key)), None)
+                        if again is None:                # an always-ask Yes another call spent
+                            ask.append(need)
+                            continue
+                        out.ids.append(again)            # the identical retry the owner approved: once more
+                        out.rows[need.key] = again
+                        continue
+                    out.ids.append(row["id"])
+                    out.rows[need.key] = row["id"]
+                    if need.always:                      # SQ1: claimed now, under the lock, by this call only
+                        confirmations.use(row["id"])
+                        if not need.spent_on_ask:
+                            out.spent.append(row["id"])
+                if out.refused is None and ask:
+                    answer = await self.ask_confirmation(c.grant, c.rec, ask, None, call, c.why, typed)
+                    out.ids += answer.ids
+                    if answer:
+                        for need, cid in zip(ask, answer.ids):
+                            out.rows[need.key] = cid
+                            if need.always or need.spent_on_ask:
+                                confirmations.use(cid)
+                                if not need.spent_on_ask:
+                                    out.spent.append(cid)
+                            if c.pay is not None and need.key == c.pay_key:   # decision 4: this tab's payment
+                                self.payments.approve(root, c.pay, cid)
+                                c.pay_cid = cid
+                    else:
+                        out.refused = {"error": answer.error} | ({"next": answer.next} if answer.next else {})
+            except BaseException:                        # stopped while asking: nothing ran, nothing stays claimed
+                for cid in out.spent:
+                    confirmations.release(cid)
+                out.spent = []
+                raise
+        if out.refused is not None:
+            for cid in out.spent:
+                confirmations.release(cid)
+            out.spent = []
+        return out
+
+    async def _grants(self, c: "Call", covered: Covered) -> tuple[frozenset[tuple[str, str]], EscapeGrant | None,
+                                                                  TerminalGrant | None] | dict[str, Any]:
+        """What the owner's answers let this call do: the protection rules lifted for it, the escape hatch's grant
+        (with the Mac password for an admin command, asked only after the Yes) and the terminal input's grant."""
+        lifted = frozenset(c.lifts)
+        escape = None
+        if c.escape is not None and c.escape_need is not None:
+            rule, command, cwd, _ = c.escape
+            cid = covered.rows.get(c.escape_need.key) or self._granted_row(c, c.escape_need.key)
+            secret = await self.hidden.admin_password(c.grant, c.rec) if rule == "admin" else None
+            if rule == "admin" and not secret:
+                return {"error": "the approved admin command was cancelled without a password"}
+            escape = EscapeGrant(rule, cid or "", command, cwd, secret)
+        terminal = None
+        if c.terminal is not None:
+            if c.terminal.covered_by is not None:
+                terminal = TerminalGrant(c.terminal, c.terminal.covered_by)
+            elif c.terminal_need is not None and (cid := covered.rows.get(c.terminal_need.key)):
+                terminal = TerminalGrant(c.terminal, cid)
+                c.extra["terminal"] = {"confirmation": cid}
+        if lifted:
+            c.extra["lifted"] = sorted(f"{how}:{rule}" for rule, how in lifted)
+        return lifted, escape, terminal
+
+    def _granted_row(self, c: "Call", key: str) -> str | None:
+        row = self.confirmations.find(c.root, key, self.spans.reopened_answers(c.root))
+        return str(row["id"]) if row is not None and row["granted"] else None
+
+    # ---------- running it ----------
+
+    def _call_span(self, c: "Call", **more: Any) -> Any:
+        return self.spans.start("tool.call", task_id=c.grant.task_id, parent_id=c.rec.span_id,
+                                device_id=self.device_id,
+                                input={"tool": c.name, "args": c.arguments, "effect": c.effect, "kind": c.spec.kind,
+                                       "target": _target_dict(c.checked.target)}
+                                | ({"why": c.why} if c.why else {}) | c.extra | more)
+
+    def _refuse_call(self, c: "Call", reply: Callable[..., dict[str, Any]], refused: dict[str, Any],
+                     origins: set[str] | None = None) -> dict[str, Any]:
+        """A call that doesn't run (the owner said no or wasn't there, a boundary): its span says so, nothing ran."""
+        span = self._call_span(c, boundary_refused=True)
+        error = str(refused["error"])
+        self._finish_call(span, c.name, refused, True, error=error)
+        return reply(refused, True, {origin.FERB} if origins is None else origins)
+
+    async def _run(self, c: "Call", covered: Covered, reply: Callable[..., dict[str, Any]],
+                   lifted: frozenset[tuple[str, str]], escape: EscapeGrant | None,
+                   terminal: TerminalGrant | None) -> dict[str, Any]:
+        """The authorized call: its span, the live line and shadow advice (hooks), then the call under its locks. The
+        span is always finished, even when the ledger, a hook or the tool fails unexpectedly."""
+        grant, rec, name = c.grant, c.rec, c.name
+        span = self._call_span(c)
+        try:
+            self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
+                                         "effect": c.effect})
+            self.hooks.started(grant, name, c.arguments, c.spec.kind, c.spec.target.site)
+            if c.consequential:
+                request = self.state.requests.get(rec.task.request_id)
+                self.hooks.shadow(name, c.spec, _target_dict(c.spec.target), covered.ids, grant.task_id,
+                                  request.words if request is not None else "", span.id)
+            return await self._held(c, span, reply, covered, lifted, escape, terminal)
+        except BaseException as e:
+            if span.ended_at is None:                    # never left open (P19 correctness)
+                why = "cancelled" if isinstance(e, asyncio.CancelledError) else f"{STAYED_OPEN}: {error_name(e)}"
+                self._finish_call(span, name, {"error": why}, True, error=why)
+            raise
+
+    async def _held(self, c: "Call", span: Any, reply: Callable[..., dict[str, Any]], covered: Covered,
+                    lifted: frozenset[tuple[str, str]], escape: EscapeGrant | None,
+                    terminal: TerminalGrant | None) -> dict[str, Any]:
+        """The call under its resource locks; the hooks before it (preview, FERB's cursor, the desktop sample of a call
+        that can change the screen) only show or record."""
+        grant, cap, name = c.grant, c.cap, c.name
         self.observer.tool_call(grant, done=False)
         try:
-            async with self.locks.hold(lock_keys, grant.worker_id):
-                await self._preview_target(cap, name, args, grant, rec)
-                await self._point(cap, args, grant)
-                if self.disturbance is not None:
-                    await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
+            async with self.locks.hold(c.lock_keys, grant.worker_id):
+                await self.hooks.preview(cap, name, c.args, grant, c.rec)
+                await self.hooks.point(cap, c.args, grant)
                 try:
-                    result = await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                                 escape, terminal, lifted)
+                    await self.hooks.screen_before(grant, span.id, name, c.arguments, cap)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:                        # a failed sample never stops the call
+                    pass
+                try:
+                    result = await self._execute(c, span, reply, covered, lifted, escape, terminal)
                     if name == "mac.snapshot" and not result.get("is_error"):
-                        await self._preview_target(cap, name, args, grant, rec, result.get("content"))
+                        await self.hooks.preview(cap, name, c.args, grant, c.rec, result.get("content"))
                     return result
                 finally:
-                    if self.disturbance is not None:
-                        await self.disturbance.after_action(span.id)
+                    await self.hooks.screen_after(span.id)   # idempotent: normally taken right after the tool ran
         finally:
             self.observer.tool_call(grant, done=True)
 
-    async def _preview_target(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any,
-                              observed: dict[str, Any] | None = None) -> None:
-        """Keep the verified surface between steps; never choose the owner's front window."""
-        root = rec.tree_id or grant.task_id
-        driver = getattr(cap, "driver", None)
-        if driver is None:
-            return
-        token = self.previews.resolving(root)
-        source: Callable[[], Awaitable[Any]]
-        if name.startswith(("browser.", "ferb_browser.")) and getattr(args, "tab", None):
-            scope = "tab:" + str(args.tab)
-            self.previews.retain_scope(root, scope)
-            token = self.previews.resolving(root)
-            try:
-                tab = driver.owned_by(args.tab, grant.task_id)
-                target, source = await asyncio.to_thread(driver.recording_source, tab, grant.task_id)
-            except Exception:
-                if self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-        elif name.startswith("mac.") and getattr(args, "app", None):
-            try:
-                app = await asyncio.to_thread(driver.app, args.app) if hasattr(driver, "app") else None
-                scope = "app:" + (f"{app.bundle_id}:{app.pid}" if app is not None else args.app)
-            except Exception:
-                if self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-            if not self.previews.is_current(root, token):
-                return
-            self.previews.retain_scope(root, scope)
-            token = self.previews.resolving(root)
-            window, shot = getattr(args, "window", None), getattr(args, "shot", None)
-            element = getattr(args, "element", None)
-            if observed is not None:
-                windows = [w for w in observed.get("windows", []) if w.get("current") is True]
-                if len(windows) != 1:
-                    return
-                window = str(windows[0]["id"])
-            if name == "mac.act" and getattr(args, "action", None) == "key":
-                element = None  # keys go to app focus, not the optional element (driver.acts_on)
-            if not (window or shot or element or observed):
-                return
-            try:
-                if shot:
-                    target, source = await asyncio.to_thread(driver.recording_source, args.app, shot)
-                else:
-                    target, source = await asyncio.to_thread(driver.preview_source, args.app, window=window,
-                                                             element=element)
-            except Exception:
-                # A stale explicit window/shot cannot stand in for a different surface.
-                if (window or shot) and self.previews.is_current(root, token):
-                    self.previews.remove({root})
-                return
-        else:
-            return
-
-        async def sanitized() -> bytes:
-            from ferb.sanitize.images import ImageRedactor
-            keys = cap.locks(args) if hasattr(cap, "locks") else []
-            async with self.locks.hold(keys, "preview:" + root):
-                frame = await source()
-                image = frame[0] if isinstance(frame, tuple) else frame
-            redactor = self.redact if isinstance(self.redact, Redactor) else Redactor()
-            return await asyncio.to_thread(ImageRedactor(redactor), image)
-
-        if self.previews.is_current(root, token):
-            identity = json.dumps(target, sort_keys=True) if target else ""
-            if scope.startswith("tab:"):
-                identity += ":" + grant.task_id  # a retained source checks this tab's exact task owner
-            self.previews.bind(root, sanitized, scope, identity=identity)
-
-    async def _point(self, cap: Any, args: Any, grant: RunGrant) -> None:
-        """L33: the element this action is about to touch, for FERB's cursor (geometry only, `cursor.point`), named by
-        the step's root task, so a task keeps one pointer across its steps and the app ends it with that task's
-        `task.result`. Never delays or fails the action: skipped after POINT_TIMEOUT_S or on any error."""
-        from ferb.act.point import POINT_TIMEOUT_S, Point
-        if not hasattr(cap, "point"):
-            return
+    async def _execute(self, c: "Call", span: Any, reply: Callable[..., dict[str, Any]], covered: Covered,
+                       lifted: frozenset[tuple[str, str]], escape: EscapeGrant | None,
+                       terminal: TerminalGrant | None) -> dict[str, Any]:
+        cap, name, args, spec, action, grant, rec, real = c.cap, c.name, c.args, c.spec, c.action, c.grant, c.rec, c.real
+        intent_id = None
+        if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
+            if isinstance(c.ident, Refused) or c.ident is None:   # a path no file can have: refused, nothing ran
+                return self._ledger_refused(span, name, reply, c.ident or Refused("FERB couldn't tell what this does"))
+            key, digest = c.ident
+            try:                                         # P19: refused while the same action in the tree is unresolved
+                intent_id = self.ledger.intend(grant.task_id, key, _target_dict(spec.target), digest,
+                                               reconcile_first=True).id
+                self.ledger.mark(intent_id, "executing", [span.id])
+            except DuplicateUnresolved as e:             # never retried by code; the owner decides (owner.ask)
+                return self._ledger_refused(span, name, reply, e)
         try:
-            p = await asyncio.wait_for(cap.point(args, grant), POINT_TIMEOUT_S)
-        except asyncio.CancelledError:
+            ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
+                              identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
+                              scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
+                              workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
+                              untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name, lifted),
+                              escape=escape, terminal=terminal,
+                              folders=self.task_folders.get(c.root, ()))
+            if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
+                self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
+        except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
+            error = f"{name} could not start: {error_name(e)}"
+            if intent_id:
+                self.ledger.mark(intent_id, "failed", [error])
+            self._finish_call(span, name, {"error": error}, True, error=error)
+            return reply({"error": error}, True, {origin.FERB})
+        snap: dict[str, Any] = {}
+        try:                                             # S1: the snapshot and the file's copy come first
+            if spec.kind in (Kind.DELETE_PERMANENT, Kind.RUN_SHELL) or \
+                    any(k == Kind.DELETE_PERMANENT for k, _ in c.fact_targets):
+                snap = await self._snapshot_before(name, grant, rec, span.id)
+            kept = await self._keep_copy(cap, name, args, spec, grant, real)
+            watched = await self.hooks.watch_changes(cap, args, spec, grant, rec)   # L39: never raises but a cancel
+        except asyncio.CancelledError:                   # nothing ran yet: failed, so a retry isn't blocked
+            if intent_id:
+                self.ledger.mark(intent_id, "failed", ["cancelled before it ran"])
+            self._finish_call(span, name, {"error": "cancelled before it ran"}, True, error="cancelled before it ran")
             raise
-        except Exception:
-            return
-        if isinstance(p, Point):
-            rec = self.tasks.get(grant.task_id)
-            self.publish("cursor.point", p.payload((rec.tree_id if rec is not None else None) or grant.task_id,
-                                                   grant.worker_id))
+        except Exception as e:                           # no copy, no change: the original is never put at risk
+            error = NO_COPY.format(name=name, why=str(e) if isinstance(e, recovery.NoFileTarget) else error_name(e))
+            if intent_id:
+                self.ledger.mark(intent_id, "failed", [error])
+            self._finish_call(span, name, {"error": error}, True, error=error)
+            return reply({"error": error}, True, {origin.FERB})
+        kept_out = ({"recoverable": kept} if kept else {}) | snap or None   # an unknown outcome keeps the copy
+        # the conversation may have been paused while the owner was asked: checked again right before input, and a
+        # refusal here comes before the attempt, so the owner's Yes is released for a retry
+        conversation_refusal = self.conversation_guard(grant, name, cap, spec)
+        if conversation_refusal:
+            if intent_id:
+                self.ledger.mark(intent_id, 'failed', ['conversation paused before input'])
+            self._finish_call(span, name, {'error': conversation_refusal}, True, error=conversation_refusal)
+            return reply({'error': conversation_refusal}, True, {origin.FERB})
+        if c.facts is not None and c.facts.tab_chain:    # decision 4: a bank page this chain reached, what it shows
+            f = c.facts
+            self.payments.observe(c.root, f.tab_chain, (f.frame_host or "").lower() or host_of(f.page_url),
+                                  f.page_amount, f.page_merchant)
+        covered.started = True                           # SQ1: the attempt starts; only a known non-outcome frees it
+        try:
+            result = await self._measured(cap, args, ctx, span.id)
+        except asyncio.CancelledError:
+            if intent_id:
+                self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
+            self._observed(name, spec, action, grant, "unknown")
+            self.spans.update_input(span.id, {"outcome": "unknown"})   # the record says so, reversible calls too
+            self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True, output=kept_out,
+                              error="cancelled; outcome unknown")
+            raise
+        except Exception as e:
+            detail = self.redact({'error': f'{type(e).__name__}: {e}'})['error']
+            screen = await self.hooks.screen_after(span.id)
+            if before_acting(e):                         # it failed before acting: failed, not unknown (P19)
+                if intent_id:
+                    self.ledger.mark(intent_id, "failed", [detail])
+                covered.started = False                  # nothing happened: the Yes covers its retry
+                self._observed(name, spec, action, grant, "failed")
+                self._finish_call(span, name, {"error": detail}, True,
+                                  output=(kept_out or {}) | ({"screen": screen} if screen else {}) or None,
+                                  error=detail)
+                return reply({"error": f"{name} failed: {detail}"} | (kept_out or {}), True)
+            if intent_id:                                # outcome unknown: the ledger reconciles, never retries blindly
+                self.ledger.mark(intent_id, "unknown", [detail])
+            self._observed(name, spec, action, grant, "unknown")
+            self.spans.update_input(span.id, {"outcome": "unknown"})
+            self._finish_call(span, name, {"error": detail}, True,
+                              output=(kept_out or {}) | ({"screen": screen} if screen else {}) or None, error=detail)
+            return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)
+        screen = await self.hooks.screen_after(span.id)  # daemon decision 5: what FERB changed on the screen
+        if intent_id:                                    # the span id is already its evidence (marked executing)
+            self.ledger.mark(intent_id, "failed" if result.is_error else "done")
+        if result.is_error:
+            covered.started = False                      # the tool reported it didn't happen: its retry may use it
+        if c.pay is not None:
+            self.payments.ran(c.root, c.pay, not result.is_error)
+        raw = result.content
+        if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
+            raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
+        raw = {**raw, **snap}
+        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
+                                         self.excluded_host)
+        try:
+            raw = {**raw, **await self._after_change(spec, grant, result, kept, real)}
+            if not result.is_error and result.image is None:
+                result = await self.hooks.initial_image(name, cap, args, spec, grant, result)
+                raw = {**raw, **result.content}
+            if result.image is not None and not result.is_error:
+                self.hooks.looked.setdefault((grant.task_id, "initial"), set()).add("provided")
+                result, withheld = await self.hooks.redact_image(result)
+                raw = {**raw, **withheld}
+        except asyncio.CancelledError:                   # the call ran: its span still ends with its result
+            done = self.redact(raw)
+            self._finish_call(span, name, done, result.is_error, output=done,
+                              error=done.get("error") if result.is_error else None, origins=origins)
+            raise
+        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
+                                         self.excluded_host)
+        content = self.redact(raw)                       # redacted once; the reply and the record use this
+        output = content
+        if (result.image is not None or raw.get("image_withheld")) and not result.is_error and self.evidence is not None:
+            try:
+                output = content | await self.hooks.keep_image(name, spec, grant, span.id, content, result, origins)
+            except asyncio.CancelledError:               # stopped while the image was kept: the call ran, its span ends
+                self._finish_call(span, name, content, result.is_error, output=content | {"evidence_error": "cancelled"},
+                                  error=content.get("error") if result.is_error else None, origins=origins)
+                raise
+        if result.facts is not None and (measured := result.facts.recorded()):
+            output = output | {"facts": measured}      # what the tool measured (ActionFacts), on the record
+        self._finish_call(span, name, content, result.is_error,
+                          output=output | ({"change_record": watched} if watched else {})
+                          | ({"screen": screen} if screen else {}),
+                          error=content.get("error") if result.is_error else None, origins=origins)
+        self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
+        out = reply(content, result.is_error, origins, redacted=True)
+        if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
+            out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
+        if intent_id and not result.is_error and caller_left() and self.tasks.get(grant.task_id) is not None:
+            # It ran to completion, but its caller had gone (the runtime gave up the call): the result went nowhere, so
+            # the same task's identical retry gets it instead of doing it a second time (a send, a payment). Only while
+            # the task still runs: after it ended no retry can come, and nothing is kept for later
+            self._undelivered[(grant.task_id, key, digest)] = (intent_id, out)
+        return out
 
     @staticmethod
     def _identity(cap: Any, name: str, spec: Any, action: ActionRequest, args: Any,
@@ -1110,12 +1651,14 @@ class Gateway:
                                          {"retry_action": e.intent_id, "next": RETRY_NEXT}),
                      True, {origin.FERB})
 
-    def _send_blocked(self, spec: Any) -> tuple[str, list[str]] | None:
-        """Test mode only (D17, rule 22): a send-class call (by its kind or any declared one) may reach only the
-        allowlisted recipients; a post on a page (no recipient) only an allowlisted site and account: an entry
-        "x.com @account", or "x.com" for a post that declares no account. The site is the page's host, a fact the
-        tab shows, never the worker's word. (The error, the unlisted recipients) when it may not, else None."""
-        kinds = {spec.kind} | declared_kinds(spec)
+    def _send_blocked(self, c: "Call") -> tuple[str, list[str]] | None:
+        """Test mode only (D17, rule 22): a send-class call (by its kind, any declared one, or a payment its facts
+        show) may reach only the allowlisted recipients; a post on a page (no recipient) only an allowlisted site and
+        account: an entry "x.com @account", or "x.com" for a post that declares no account. The site is the page's
+        host, a fact the tab shows, never the worker's word. A form submit its facts show is not covered: the
+        allowlist is for sends, not every form (rule 22). (The error, the unlisted recipients) when it may not."""
+        spec = c.checked
+        kinds = {spec.kind} | declared_kinds(spec) | {k for k, _ in c.fact_targets if k == Kind.PAY}
         if self.test_send_allowlist is None or not kinds & _SEND_KINDS:
             return None
         recipients = list(spec.target.recipients) + ([spec.target.contact] if spec.target.contact else [])
@@ -1134,8 +1677,6 @@ class Gateway:
         reopened: the next call that needs it asks the owner again, once, and the new answer is final as before. Nothing
         becomes a Yes here. Recorded as a `confirmations.reopened` span in the tree, so the trace shows which answers
         the message (`source_ref`) reopened. The shell proxy, which never asks, keeps the No."""
-        if self.confirmations is None:
-            return []
         ids = self.confirmations.noes(tree_id)
         if ids:
             span = self.spans.start("confirmations.reopened", task_id=tree_id,
@@ -1152,175 +1693,6 @@ class Gateway:
             if "." in site and "@" not in site:
                 places.add((confirm.site_key(site), confirm.account_key(account)))
         return places
-
-    async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
-                         sources: dict[str, list[str]], ident: tuple[str, str] | None = None,
-                         page: str | None = None) -> Covered:
-        """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
-        (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results, the
-        request's pasted parts and private or outside content actually retrieved into model context; L4: only context
-        whose stored origin is outside counts as outside), the known destinations. A permanent delete of a folder is
-        counted first: one FERB can't fully count is refused, named or not; one the owner didn't name asks with its
-        count, size and a sample (S4(c)). An answer recorded in this tree covers its need (a No refuses, unless the
-        owner's own follow-up reopened it: then it is asked again); the rest are asked at once, in one question, while
-        nothing is held. One question at a time per tree, so two workers' identical calls ask once."""
-        root = rec.tree_id or grant.task_id
-        read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
-        outside = self._outside_read(root)
-        known = self.destinations.known if self.destinations is not None else _nothing_known
-        kinds = {spec.kind} | declared_kinds(spec)
-        needs = confirm.decide(spec.kind, declared_kinds(spec), spec.target, sources,
-                               read_private=origin.PRIVATE in read, read_external=bool(outside), known=known,
-                               outside_read=outside, place=spec.place, content=spec.content)
-        if Kind.DELETE_PERMANENT in kinds and spec.target.path:
-            from ferb.act.fs.usage import usage
-            path = file_real_path(spec.target.path, self.roots.workspace)
-            if path.is_dir():
-                facts = await asyncio.to_thread(usage, path, self._path_closed(name), True)
-                if not facts['complete']:
-                    return Covered(refused={"error": "bulk deletion could not be fully enumerated; inspect the exact target first"})
-                if not confirm.owner_named(sources.get("path", [])):
-                    needs.append(confirm.bulk_delete(spec.target.path, facts))
-        fg = confirm.foreground_need(name, arguments)      # rule 17: the owner's screen, asked once per task per app
-        if fg is not None:
-            needs.append(fg)
-        if page is not None:                             # rule 5: a browser's own page, asked every time
-            needs.append(confirm.browser_page_need(str(arguments.get("app") or "the browser"), page))
-        if name == "browser.pair":                       # the owner's word is what pairs a profile (2026-10-27)
-            browser, _, folder = str(arguments.get("profile") or "").partition("/")
-            shown = self.profile_name(browser, folder)
-            # a profile the owner named in their words or answers is already authorized (rule 8 provenance; owner
-            # 2026-10-27, after "pair my online bits profile" asked anyway: "why did it ask me the question?")
-            request = self.state.requests.get(rec.task.request_id)
-            said = provenance.sources(shown, request.words if request is not None else "", [],
-                                      answer_text="\n".join(self.spans.owner_answers(rec.tree_id or grant.task_id)))
-            if not confirm.owner_named(said):
-                needs.append(confirm.pair_need(shown, browser, folder))
-        if not needs:
-            return Covered()
-        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
-        typed = self._typed_into(grant, name, arguments) if kinds & confirm.SEND_CLASS else ""   # L3: the text sent
-        if self.confirmations is None:                   # never skipped silently: no record, no run
-            return Covered(refused={"error": NOT_RECORDED.format(line=self._ferb_line(needs, call, why, typed))})
-        confirmations = self.confirmations
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            out, ask = Covered(), []
-            approved: list[str] | None = None
-            reopened = self.spans.reopened_answers(root)    # a No the owner's own follow-up reopened is asked again
-            try:
-                for need in needs:
-                    row = confirmations.find(root, need.key, reopened)
-                    if row is not None and row["granted"] and need.window_s is not None and \
-                            confirmations.age_s(row) > need.window_s:
-                        row = None                       # that payment's Yes has lapsed: asked again
-                    standing = getattr(self, 'standing', None)
-                    if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination', confirm.BULK) and
-                        standing is not None and standing.covers(root, name, grant.identity.value, spec)):
-                        out.standing.append(need.rule)   # D30: covered; the call's record says so (`standing`)
-                        continue
-                    if row is not None and row["granted"] and row["used"] and need.always:
-                        approved = self._approved_retry_rows(grant, ident) if approved is None else approved
-                        again = next((cid for cid in approved if confirmations.covers(cid, need.key)), None)
-                        if again is not None:            # the identical retry the owner approved: once more
-                            out.ids.append(again)
-                            continue
-                    if row is None or (row["granted"] and row["used"]):   # an always-ask Yes another call spent
-                        ask.append(need)
-                        continue
-                    out.ids.append(row["id"])
-                    if not row["granted"]:
-                        out.refused = {"error": ALREADY_NO.format(line=self._ferb_line(needs, call, why, typed)),
-                                       "next": OWNER_DECIDED_NEXT}
-                    elif need.always:                    # SQ1: claimed now, under the lock, by this call only
-                        confirmations.use(row["id"])
-                        out.spent.append(row["id"])
-                if out.refused is None and ask:
-                    answer = await self.ask_confirmation(grant, rec, ask, None, call, why, typed)
-                    out.ids += answer.ids
-                    if answer:
-                        for need, cid in zip(ask, answer.ids):
-                            if need.always:
-                                confirmations.use(cid)
-                                out.spent.append(cid)
-                    else:
-                        out.refused = {"error": answer.error} | ({"next": answer.next} if answer.next else {})
-            except BaseException:                        # stopped while asking: nothing ran, nothing stays claimed
-                for cid in out.spent:
-                    confirmations.release(cid)
-                raise
-            if out.refused is not None:
-                for cid in out.spent:
-                    confirmations.release(cid)
-                out.spent = []
-            return out
-
-    async def _url_sink(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any,
-                        why: str) -> dict[str, Any] | None:
-        """S4, SQ6, carried item 8, Q8: a browser open/navigate (reversible, so it bypasses the consequential path)
-        whose URL carries a value from the owner's own data to a host the owner hasn't named, after the task read
-        outside content. FERB asks once per tree (under the tree's lock, so concurrent navigations ask once); the reply
-        when it must not run, else None. Never asks when the host is owner-named or FERB knows it, when the owner
-        already answered in this tree (a Yes runs, a No is final until the owner's own follow-up reopens it, shared
-        with shell commands), when the URL is one the
-        tree read (a followed link), or when it carries no value that is the owner's own and not also public."""
-        url = str(arguments.get("url") or "")
-        if spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not url:
-            return None
-        host = KnownDestinations.normalize("host", spec.target.site or "")
-        if not host:                                     # parsed as the browser will, it names no site: never opened
-            return {"error": "this address names no site FERB can check, so it didn't run",
-                    "next": "Use a plain http(s) address with a site name."}
-        root = rec.tree_id or grant.task_id
-        if self.confirmations is not None:
-            row = self.confirmations.find(root, confirm.destination_key(host), self.spans.reopened_answers(root))
-            if row is not None:
-                if row["granted"]:
-                    return None
-                # A tree's No applies to this host, even if another tree later makes it known or this URL no longer
-                # carries private data. A change in sink shape cannot turn a final refusal into permission. Only the
-                # owner's own follow-up reopens it (find returned None): then this host is checked as if unanswered.
-                return {"error": ALREADY_NO.format(line=self.redact(f"reaching {host}")), "next": OWNER_DECIDED_NEXT}
-        # Opening a local report is not a remote data transfer. This does not grant a shell access to local
-        # programs, nor waive an explicit No recorded above. Only literal loopback addresses qualify.
-        try:
-            address = ipaddress.ip_address(host)
-            if address.is_loopback or (isinstance(address, ipaddress.IPv6Address) and
-                                       address.ipv4_mapped is not None and address.ipv4_mapped.is_loopback):
-                return None
-        except ValueError:
-            pass
-        outside_labels = self._outside_read(root)
-        if not outside_labels:
-            return None                                  # no outside content read: not a sink
-        if self.destinations is not None and self.destinations.known("host", host):
-            return None
-        if self._host_named(host, root):
-            return None                                  # the owner named this host
-        request = self.state.requests.get(rec.task.request_id)
-        words = request.words if request is not None else ""
-        owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
-        private, outside_only = await self._sink_texts_ready(root)   # N1: span-ordered; a followed link read first
-                                                                      # asks nothing
-        values = confirm.url_carries_private(url, private, outside_only, owner_text)
-        if not values:
-            return None
-        need = confirm.Need("sink:private_url", confirm.destination_key(host),
-                            {"destination": host, "value": values[0], "read": confirm.shown_origins(outside_labels)},
-                            destinations=(("host", host),))
-        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})
-        if self.confirmations is None:                   # never run unasked
-            return {"error": NOT_RECORDED.format(line=self._ferb_line([need], call, why))}
-        async with self._confirming.setdefault(root, asyncio.Lock()):   # M2: one question per tree
-            # ask once per tree; the answer carries across retries, until the owner's own follow-up reopens a No
-            row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
-            if row is not None:
-                if row["granted"]:
-                    return None
-                return {"error": ALREADY_NO.format(line=self._ferb_line([need], call, why)), "next": OWNER_DECIDED_NEXT}
-            answer = await self.ask_confirmation(grant, rec, [need], None, call, why)
-        if answer:
-            return None
-        return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
 
     @staticmethod
     def _squash(text: str, keep_spaces: bool = False) -> str:
@@ -1361,8 +1733,6 @@ class Gateway:
         records nothing and isn't Yes."""
         root = rec.tree_id or grant.task_id
         text = self._ferb_line(needs, call, why, typed)
-        if self.confirmations is None:
-            return Answer(False, error=NOT_RECORDED.format(line=text))
         routine = all(confirm.routine(n) for n in needs)
         options = [YES, NO] + ([ALLOW_WINDOW] if routine else [])
         q_span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
@@ -1371,7 +1741,7 @@ class Gateway:
                                                                                  for n in needs]},
                                          "ferb_question": True} | ({"for_span": span.id} if span is not None else {}))
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
-        self._started(grant, OWNER_ASK, {}, "owner_question", None)
+        self.hooks.started(grant, OWNER_ASK, {}, "owner_question", None)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
@@ -1379,6 +1749,7 @@ class Gateway:
         if routine and self.allow_until is not None and self.clock.now() < self.allow_until:
             # the owner's "don't ask for 30 min" answers this routine question: their Yes, recorded and traced
             ids = [self.confirmations.record(root, n.rule, n.key, True, q_span.id) for n in needs]
+            self._known_from(needs, rec, q_span.id)      # a window's Yes makes destinations known like any Yes
             given = {"answer": YES, "confirmed": ids, "allowed_until": self.allow_until.isoformat()}
             self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
             return Answer(True, ids)
@@ -1414,14 +1785,18 @@ class Gateway:
             self._finish_call(q_span, OWNER_ASK, unclear, False, output=unclear, origins=ask_origins(unclear))
             return Answer(False, error=NO_ANSWER.format(line=text))
         ids = [self.confirmations.record(root, n.rule, n.key, yes, q_span.id) for n in needs]
-        if yes and self.destinations is not None:
-            for kind, value in {d for n in needs for d in n.destinations}:
-                self.destinations.record(kind, value, "confirmed", request_id=rec.task.request_id, span_id=q_span.id)
+        if yes:
+            self._known_from(needs, rec, q_span.id)
         given: dict[str, Any] = {"answer": YES if yes else NO, "confirmed" if yes else "refused": ids}
         if state == "denied":
             given["skipped"] = True
         self._finish_call(q_span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return Answer(yes, ids, "" if yes else SAID_NO.format(line=text), "" if yes else OWNER_DECIDED_NEXT)
+
+    def _known_from(self, needs: list[confirm.Need], rec: Any, span_id: str) -> None:
+        """SQ6, decision 5: the destinations the owner's Yes approved stay known (approved) for good."""
+        for kind, value in {d for n in needs for d in n.destinations}:
+            self.destinations.record(kind, value, "confirmed", request_id=rec.task.request_id, span_id=span_id)
 
     def _file_rules(self, cap: Any, name: str,
                     args: Any) -> tuple[list[tuple[Path, str, list[str]]], tuple[str, str] | None]:
@@ -1463,61 +1838,12 @@ class Gateway:
     def _reads_lifted(self, root: str) -> frozenset[tuple[str, str]]:
         """The protected folders the owner let this task tree read (hands decision 1): Yeses already recorded."""
         protection = self.roots.protection
-        if protection is None or self.confirmations is None:
+        if protection is None:
             return frozenset()
         reopened = self.spans.reopened_answers(root)
         return frozenset((e.id, "read") for e in protection.reads
                          if (row := self.confirmations.find(root, confirm.read_lift_key(e.id), reopened))
                          and row["granted"])
-
-    async def _file_lifts(self, grant: RunGrant, rec: Any, cap: Any, name: str, args: Any,
-                          why: str) -> tuple[frozenset[tuple[str, str]], tuple[str, str] | None]:
-        """Gateway decision 2, hands decision 1: the rules the owner lifted for this call, or the refusal. A file inside
-        or holding a never-read store, or a never-write place the call changes, needs the owner's Yes first: a read once
-        per protected folder per task tree (the Yes covers every later read of it in the tree, the shell's read escape
-        of that folder included), a change (write or removal) for this one call. All of a call's questions go in one,
-        asked while nothing is held; a No is final for the tree's reads of that folder. Never-lifted rules refuse.
-        Step 6 folds this into the single Need pipeline (`_confirmed`)."""
-        found, refused = self._file_rules(cap, name, args)
-        if refused is not None or not found:
-            return frozenset(), refused
-        protection, confirmations = self.roots.protection, self.confirmations
-        assert protection is not None
-        wanted: dict[tuple[str, str], Path] = {}
-        for path, access, rules in found:
-            for rule in rules:
-                wanted.setdefault((rule, lift_how(access)), path)
-        if confirmations is None:
-            path, access, rules = found[0]
-            return frozenset(), self._closed(protection, name, path, access, rules)
-        root = rec.tree_id or grant.task_id
-        allowed: set[tuple[str, str]] = set()
-        ask: list[tuple[tuple[str, str], confirm.Need]] = []
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            reopened = self.spans.reopened_answers(root)
-            for (rule, how), path in wanted.items():
-                need = lift_need(protection, rule, how, f"{name} {path}")
-                if how == "read":
-                    row = confirmations.find(root, need.key, reopened)
-                    if row is not None and row["granted"]:
-                        allowed.add((rule, how))
-                        continue
-                    if row is not None:
-                        return frozenset(), (f"a protected folder ({rule}): the owner said no",
-                                             f"the owner already said no to FERB reading {need.values['path']} in "
-                                             "this task; don't try another way. Report that it wasn't done.")
-                ask.append(((rule, how), need))
-            if ask:
-                shown = self.redact({"v": f"{name} " + ", ".join(sorted({str(p) for p in wanted.values()}))})["v"]
-                answer = await self.ask_confirmation(grant, rec, [n for _, n in ask], None, shown, why)
-                if not answer:
-                    return frozenset(), (f"a protected folder ({', '.join(r for (r, _), _ in ask)}): not approved",
-                                         answer.error)
-                for ((rule, how), _), cid in zip(ask, answer.ids):
-                    allowed.add((rule, how))
-                    if how == "change":
-                        confirmations.use(cid)           # one change: spent by this call
-        return frozenset(allowed), None
 
     @staticmethod
     def _closed(protection: Protection, name: str, path: Path, access: str,
@@ -1558,14 +1884,6 @@ class Gateway:
             return self._closed(protection, name, path, access, rules)[1]
         return check
 
-    def _started(self, grant: RunGrant, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
-        """Tells the observer a call starts (the task's live line, L8). The observer notes its own failures; one that
-        still escapes goes to the daemon's log, by type only, and never stops the call."""
-        try:
-            self.observer.tool_started(grant, name, args, kind, site)
-        except Exception as e:
-            logging.getLogger(__name__).warning("FERB live line failed: %s", error_name(e))
-
     def _refused(self, grant: RunGrant, rec: Any, name: str, reason: str) -> None:
         """A call refused before anything ran leaves a small span, so `ferb trace` shows it: a tool that doesn't
         exist or isn't the worker's, or an acting tool asked of the checker, is a hallucination or injection signal.
@@ -1573,98 +1891,6 @@ class Gateway:
         span = self.spans.start("tool.refused", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": lines.clip(name, 100), "worker_id": grant.worker_id})
         self.spans.finish(span, error=reason)
-
-    async def _escape(self, grant: RunGrant, rec: Any, args: Any, why: str) -> EscapeGrant:
-        rule, command = args.escape, args.command
-        protection = self.roots.protection
-        if protection is None or not protection.liftable(rule):
-            raise Refused(f"{rule} is never lifted: FERB's own files and network protections remain enforced")
-        cwd = file_real_path(args.cwd or self.roots.workspace, self.roots.workspace)
-        if not cwd.is_dir():
-            raise Refused("the escape command's working folder does not exist")
-        root = rec.tree_id or grant.task_id
-        if self.confirmations is None:
-            raise Refused("FERB cannot record the escape approval")
-        lifted = next(row for row in protection.rules() if row["id"] == rule)
-        shown = lifted["path"]
-        if lifted["kind"] == "read":
-            # Hands decision 1: one Yes per protected folder per task tree, shared with the file tools' reads of it:
-            # never spent, so later read escapes of this folder in the tree run without asking
-            need = lift_need(protection, rule, "read", command)
-            async with self._confirming.setdefault(root, asyncio.Lock()):
-                row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
-                if row is not None and not row["granted"]:
-                    raise Refused(f"you already said no to FERB reading {shown} in this task")
-                if row is None:
-                    answer = await self.ask_confirmation(grant, rec, [need], None,
-                                                          self.redact({"v": command + " (in " + str(cwd) + ")"})["v"],
-                                                          why)
-                    if not answer:
-                        raise Refused(answer.error)
-                    confirmation_id = answer.ids[0]
-                else:
-                    confirmation_id = row["id"]
-            return EscapeGrant(rule, confirmation_id, command, str(cwd))
-        key = escape_key(rule, command, str(cwd))
-        need = confirm.Need("escape:" + rule, key,
-                            {"text": f"this exact command needs rule {rule} lifted once: {shown}",
-                             "lift": lifted["kind"], "path": shown}, always=True)
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            row = self.confirmations.find(root, key, self.spans.reopened_answers(root))
-            if row is not None and not row["granted"]:
-                raise Refused("you already said no to this exact escape command in this task")
-            if row is None or row["used"]:
-                answer = await self.ask_confirmation(grant, rec, [need], None,
-                                                      self.redact({"v": command + " (in " + str(cwd) + ")"})["v"], why)
-                if not answer:
-                    raise Refused(answer.error)
-                confirmation_id = answer.ids[0]
-            else:
-                confirmation_id = row["id"]
-            self.confirmations.use(confirmation_id)  # spent once even if password cancelled or launch fails
-        secret = await self._admin_password(grant, rec) if rule == "admin" else None
-        if rule == "admin" and not secret:
-            raise Refused("the approved admin command was cancelled without a password")
-        return EscapeGrant(rule, confirmation_id, command, str(cwd), secret)
-
-    async def _terminal(self, cap: Any, name: str, args: Any, grant: RunGrant, rec: Any, span: Any,
-                        arguments: dict[str, Any], why: str,
-                        armed: str | None = None) -> tuple[TerminalGrant | None, dict[str, Any] | None]:
-        """D31, CLAUDE.md rule 10: typing into any terminal (terminal apps and terminals inside other apps, e.g. VS
-        Code's) is enforced by code: FERB always asks the owner first, showing the exact command, every time, with no
-        standing permission; a No types nothing. The capability says what would go in, from the driver's facts now
-        (`terminal_input`); FERB asks while nothing is held. A Yes covers that one input (and the one Return after its
-        text) and is spent at once, so the next input asks again, the same text and a retry included. A No is final
-        for that exact input in this task tree until the owner's own follow-up reopens it. The driver delivers only
-        the input the Yes names. A Return is covered only as the task's very next acting call (`armed`, the Yes its
-        approved text left); otherwise it is asked like any key. (the grant, None) to run; (None, the refusal) when
-        nothing may be typed."""
-        inp = await cap.terminal_input(args, grant.task_id)
-        if inp is None:
-            return None, None
-        if inp.covered_by is not None and inp.covered_by != armed:   # another action came between: ask for it
-            inp = dataclasses.replace(inp, covered_by=None)
-        if inp.covered_by is not None:                   # the Return after text the owner just said Yes to
-            self.spans.update_input(span.id, {"terminal": {"confirmation": inp.covered_by, "covers": "return"}})
-            return TerminalGrant(inp, inp.covered_by), None
-        if (field := self._secret_field(inp)) is not None:  # round 2, N1: on the raw text, before any escaping
-            return None, {"error": TERMINAL_SECRET.format(field=field)}
-        need = terminals.need(inp)
-        root = rec.tree_id or grant.task_id
-        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
-        if self.confirmations is None:                   # never skipped silently: no record, no input
-            return None, {"error": NOT_RECORDED.format(line=self._ferb_line([need], call, why))}
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            row = self.confirmations.find(root, need.key, self.spans.reopened_answers(root))
-            if row is not None and not row["granted"]:
-                return None, {"error": ALREADY_NO.format(line=self._ferb_line([need], call, why)),
-                              "next": OWNER_DECIDED_NEXT}
-            answer = await self.ask_confirmation(grant, rec, [need], span, call, why)
-            if not answer:
-                return None, {"error": answer.error} | ({"next": answer.next} if answer.next else {})
-            self.confirmations.use(answer.ids[0])        # spent now: it never covers another input
-        self.spans.update_input(span.id, {"terminal": {"confirmation": answer.ids[0]}})
-        return TerminalGrant(inp, answer.ids[0]), None
 
     def _secret_field(self, inp: TerminalInput) -> str | None:
         """The first field of a terminal input that holds a specific secret (a saved secret's value or a credential's
@@ -1689,30 +1915,6 @@ class Gateway:
         hit = getattr(self.redact, "hit", None)
         return bool(hit(text)) if hit is not None else self.redact({"v": text})["v"] != text
 
-    async def _admin_password(self, grant: RunGrant, rec: Any) -> str | None:
-        if not isinstance(self.redact, Redactor) or rec.task.request_id in self.state.approvals.unattended:
-            return None
-        ask = ActionRequest(capability="shell.admin", kind="owner_admin_password", identity=grant.identity,
-                            scopes=grant.scopes, task_id=grant.task_id, worker_id=grant.worker_id,
-                            request_id=rec.task.request_id, task_scopes=grant.scopes)
-        question = "Enter your Mac password for the approved command (hidden; Enter cancels)."
-        ap = self.state.approvals.question(ask, question, [])
-        ap.kind = "owner_admin_password"
-        ap.summary = ADMIN_SUMMARY
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability,
-                                            "kind": ap.kind, "reason": question, "task_id": grant.task_id,
-                                            "summary": ap.summary})
-        delivered = False
-        try:
-            state = await self._wait_answer(grant, ap.id)
-            delivered = state == "granted" and bool(ap.answer)
-            return ap.answer if delivered else None
-        finally:
-            if not delivered and ap.answer:
-                self.redact.release_secret(ap.answer)
-            ap.answer = None
-            ap.state = "used" if delivered else _unfilled(ap.state)
-
     async def _measured(self, cap: Capability, args: Any, ctx: ToolContext, span_id: str) -> Any:
         """The tool's run, with the facts its code measured meanwhile (`call_facts`: which check decided each click's
         point, D31 fix round 4) added to its span whatever the outcome, a refusal's or a failure's too."""
@@ -1722,151 +1924,6 @@ class Gateway:
             finally:
                 if measured:
                     self.spans.update_input(span_id, measured)
-
-    async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
-                       grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
-                       real: Path | None = None, claimed: Claimed | None = None,
-                       escape: EscapeGrant | None = None, terminal: TerminalGrant | None = None,
-                       lifted: frozenset[tuple[str, str]] = frozenset()) -> dict[str, Any]:
-        intent_id = None
-        if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
-            try:
-                key, digest = ledger_identity(cap, name, action, args, real)
-            except Refused as e:                         # a path no file can have: refused, no row, nothing ran
-                return self._ledger_refused(span, name, reply, e)
-            try:                                         # P19: refused while the same action in the tree is unresolved
-                intent_id = self.ledger.intend(grant.task_id, key, _target_dict(spec.target), digest,
-                                               reconcile_first=True).id
-                self.ledger.mark(intent_id, "executing", [span.id])
-            except DuplicateUnresolved as e:             # never retried by code; the owner decides (owner.ask)
-                return self._ledger_refused(span, name, reply, e)
-        try:
-            ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
-                              identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
-                              scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
-                              workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
-                              untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name, lifted),
-                              escape=escape, terminal=terminal,
-                              folders=self.task_folders.get(rec.tree_id or grant.task_id, ()))
-            if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
-                self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
-        except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
-            error = f"{name} could not start: {error_name(e)}"
-            if intent_id:
-                self.ledger.mark(intent_id, "failed", [error])
-            self._finish_call(span, name, {"error": error}, True, error=error)
-            return reply({"error": error}, True, {origin.FERB})
-        snap: dict[str, Any] = {}
-        try:                                             # S1: the snapshot and the file's copy come first
-            if spec.kind in (Kind.DELETE_PERMANENT, Kind.RUN_SHELL):
-                snap = await self._snapshot_before(name, grant, rec, span.id)
-            kept = await self._keep_copy(cap, name, args, spec, grant, real)
-            watched = await self._watch_changes(cap, args, spec, grant, rec)   # L39: never raises but a cancel
-        except asyncio.CancelledError:                   # nothing ran yet: failed, so a retry isn't blocked
-            if intent_id:
-                self.ledger.mark(intent_id, "failed", ["cancelled before it ran"])
-            self._finish_call(span, name, {"error": "cancelled before it ran"}, True, error="cancelled before it ran")
-            raise
-        except Exception as e:                           # no copy, no change: the original is never put at risk
-            error = NO_COPY.format(name=name, why=str(e) if isinstance(e, recovery.NoFileTarget) else error_name(e))
-            if intent_id:
-                self.ledger.mark(intent_id, "failed", [error])
-            self._finish_call(span, name, {"error": error}, True, error=error)
-            return reply({"error": error}, True, {origin.FERB})
-        kept_out = ({"recoverable": kept} if kept else {}) | snap or None   # an unknown outcome keeps the copy
-        if claimed is not None:
-            claimed.kept = True                          # SQ1: the attempt starts; only a known non-outcome frees it
-        conversation_refusal = self.conversation_guard(grant, name, cap, spec)
-        if conversation_refusal:
-            if intent_id:
-                self.ledger.mark(intent_id, 'failed', ['conversation paused before input'])
-            self._finish_call(span, name, {'error': conversation_refusal}, True, error=conversation_refusal)
-            return reply({'error': conversation_refusal}, True, {origin.FERB})
-        try:
-            result = await self._measured(cap, args, ctx, span.id)
-        except asyncio.CancelledError:
-            if intent_id:
-                self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
-            self._observed(name, spec, action, grant, "unknown")
-            self.spans.update_input(span.id, {"outcome": "unknown"})   # the record says so, reversible calls too
-            self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True, output=kept_out,
-                              error="cancelled; outcome unknown")
-            raise
-        except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
-            detail = self.redact({'error': f'{type(e).__name__}: {e}'})['error']
-            if intent_id:
-                self.ledger.mark(intent_id, "unknown", [detail])
-            self._observed(name, spec, action, grant, "unknown")
-            self.spans.update_input(span.id, {"outcome": "unknown"})
-            self._finish_call(span, name, {"error": f"{type(e).__name__}: {e}"}, True, output=kept_out,
-                              error=f"{type(e).__name__}: {e}")
-            return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)
-        if intent_id:                                    # the span id is already its evidence (marked executing)
-            self.ledger.mark(intent_id, "failed" if result.is_error else "done")
-        if claimed is not None and result.is_error:
-            claimed.kept = False                         # the tool reported it didn't happen: its retry may use it
-        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
-                                         self.excluded_host)
-        raw = result.content
-        if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
-            raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
-        raw = {**raw, **snap}
-        try:
-            raw = {**raw, **await self._after_change(spec, grant, result, kept, real)}
-        except asyncio.CancelledError:                   # the call ran: its span still ends with its result
-            done = self.redact(raw)
-            self._finish_call(span, name, done, result.is_error, output=done,
-                              error=done.get("error") if result.is_error else None, origins=origins)
-            raise
-        if not result.is_error and result.image is None:
-            try:
-                result = await self._initial_image(name, cap, args, spec, grant, result)
-            except asyncio.CancelledError:
-                done = self.redact(raw)
-                self._finish_call(span, name, done, False, output=done | {"image_withheld": "capture cancelled"}, origins=origins)
-                raise
-            raw = {**raw, **result.content}
-        if result.image is not None and not result.is_error:
-            self._looked.setdefault((grant.task_id, "initial"), set()).add("provided")
-            from ferb.sanitize.images import ImageRedactor
-            from ferb.sanitize.redact import Redactor
-            try:
-                image = await asyncio.to_thread(ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()), result.image)
-                result = dataclasses.replace(result, image=image)
-            except asyncio.CancelledError:
-                done = self.redact(raw)
-                self._finish_call(span, name, done, False, output=done | {"image_withheld": "redaction cancelled"}, origins=origins)
-                raise
-            except Exception:
-                raw = {**raw, "image_withheld": "image redaction unavailable"}
-                result = dataclasses.replace(result, image=None)
-        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
-                                         self.excluded_host)
-        content = self.redact(raw)
-        output = content
-        if (result.image is not None or raw.get("image_withheld")) and not result.is_error and self.evidence is not None:
-            try:
-                output = content | await self._keep_image(name, spec, grant, span.id, content, result, origins)
-            except asyncio.CancelledError:               # stopped while the image was kept: the call ran, its span ends
-                self._finish_call(span, name, content, result.is_error, output=content | {"evidence_error": "cancelled"},
-                                  error=content.get("error") if result.is_error else None, origins=origins)
-                raise
-        if result.facts is not None and (measured := result.facts.recorded()):
-            output = output | {"facts": measured}      # what the tool measured (ActionFacts): recorded, decides nothing
-        self._finish_call(span, name, content, result.is_error,
-                          output=output | ({"change_record": watched} if watched else {}),
-                          error=content.get("error") if result.is_error else None, origins=origins)
-        self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
-        out = reply(content, result.is_error, origins)
-        if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
-            out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
-        if intent_id and not result.is_error and caller_left() and self.tasks.get(grant.task_id) is not None:
-            # It ran to completion, but its caller had gone (the runtime gave up the call): the result went nowhere, so
-            # the same task's identical retry gets it instead of doing it a second time (a send, a payment). Only while
-            # the task still runs: after it ended no retry can come, and nothing is kept for later
-            self._undelivered[(grant.task_id, key, digest)] = (intent_id, out)
-        return out
 
     def _earlier_result(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any,
                         intent_id: str, out: dict[str, Any]) -> dict[str, Any]:
@@ -1878,48 +1935,6 @@ class Gateway:
         content = {**out["content"], "completed_in_an_earlier_attempt": True, "note": EARLIER_ATTEMPT}
         self._finish_call(span, name, content, bool(out["is_error"]), output=content)
         return {**out, "content": content}
-
-    async def _initial_image(self, name: str, cap: Any, args: Any, spec: Any, grant: RunGrant, result: Any) -> Any:
-        """D6/D26: first successful working-app observation supplies one image in this task's tool reply.
-        Selection comes from the actual app/tab reference; no desktop or unrelated browser tab substitution.
-        """
-        if grant.observe_only or not (name.startswith("mac.") or name in {"browser.snapshot", "ferb_browser.snapshot"}):
-            return result
-        looked = self._looked.setdefault((grant.task_id, "initial"), set())
-        if looked or (name.startswith("mac.") and (not spec.target.site or self.app_window is None)):
-            return result
-        looked.add("attempted")  # reserve before awaiting, so concurrent calls cannot emit two initial pictures
-        try:
-            if name.startswith("mac."):
-                shot = await self.app_window(spec.target.site, grant.scopes)
-                if shot is None:
-                    return result
-                image = shot.image
-                if image is not None and shot.rects:
-                    from ferb.act.evidence.mask import mask_secret_fields
-                    image = await asyncio.to_thread(mask_secret_fields, image, shot.rects)
-                return dataclasses.replace(result, image=image, content={**result.content, "initial_image": shot.facts},
-                                           read_sources=tuple(dict.fromkeys(result.read_sources + shot.read_sources)))
-            tab = cap.driver.owned_by(args.tab, grant.task_id)
-            # screenshot() uses the existing snapshot generation, preserving the element ids returned by this call.
-            image = await cap.driver.screenshot(tab)
-            shot, width, height = None, None, None
-            masking = getattr(cap.driver, "masking", lambda ref: "")(tab)   # a page the extension couldn't read (B6)
-            return dataclasses.replace(result, image=image, content={**result.content,
-                "initial_image": {"shot": shot, "width": width, "height": height}
-                | ({"masking": masking} if masking else {})})
-        except NoTarget:
-            looked.clear()  # no window yet; first actual working window can still supply the initial image
-            return result
-        except Withheld as e:                            # its secret fields couldn't be painted over (L13): FERB's words
-            return dataclasses.replace(result, content={**result.content, "image_withheld": str(e)})
-        except Exception:
-            return dataclasses.replace(result, content={**result.content, "image_withheld": "initial window capture unavailable"})
-
-    def initial_image_given(self, task_id: str) -> None:
-        """L12 (D26 clarified): this task's worker was handed the owner's front window at send as its start-of-task
-        screenshot, with its first model request; its first working-app observation takes no second one."""
-        self._looked.setdefault((task_id, "initial"), set()).add("front window at send")
 
     def _real_path(self, cap: Any, args: Any, spec: Any) -> Path | None:
         """The file a call really acts on (files.real_path: symlinks followed first, then `..`), for the fs lock and
@@ -2014,30 +2029,6 @@ class Gateway:
             return ({"recoverable": kept} if kept else {}) | {"recovery_error": error_name(e)}
         return {}
 
-    async def _watch_changes(self, cap: Any, args: Any, spec: Any, grant: RunGrant, rec: Any) -> dict[str, Any]:
-        """L39: before a call that can change files runs, the change record copies each existing file it names and
-        lists their folders (ferb/act/fs/changes.py): a file tool's declared files (what it writes or removes), and
-        every path a shell command or AppleScript writes out (`changes.named`, from the folder it runs in). The step's
-        checker then reads an old-vs-new diff of what changed. Facts of the call's text, never a judgment of it (rule
-        6). Best effort: a failure is recorded on the call and never stops it. Returns the counts for its record."""
-        if self.changes is None or spec.kind not in CHANGE_KINDS:
-            return {}
-        paths: list[Path] = []
-        try:
-            declared = getattr(cap, "file_paths", None)
-            if declared is not None:
-                paths += [owner_path(p, self.roots.workspace) for p, access in declared(args) if access != "read"]
-            if spec.kind in (Kind.RUN_SHELL, Kind.APPLESCRIPT) and spec.content:
-                here = spec.target.path if spec.kind == Kind.RUN_SHELL and spec.target.path else self.roots.workspace
-                paths += file_changes.named(str(spec.content), owner_path(str(here), self.roots.workspace))
-            if not paths:
-                return {}
-            return await asyncio.to_thread(self.changes.before, grant.task_id, rec.tree_id or grant.task_id, paths)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:                            # never stops the call: its check gets no diff for it
-            return {"error": error_name(e)}
-
     async def _snapshot_before(self, name: str, grant: RunGrant, rec: Any, before: str) -> dict[str, Any]:
         """S1: a local APFS snapshot before a permanent delete or a shell command (recovery.Snapshots: a fresh one,
         unless no such call ran since the last, hands decision 4), on its own span; returns what the call's result
@@ -2059,33 +2050,6 @@ class Gateway:
         self.spans.finish(span, output=None if "error" in out else out, error=out.get("error"))
         return snapshot_facts(out)
 
-    def _looked_at(self, grant: RunGrant) -> set[str]:
-        return self._looked.setdefault((grant.task_id, grant.worker_id), set())
-
-    async def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
-                          result: Any, origins: set[str]) -> dict[str, str]:
-        """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
-        retention.evidence_days, 7); the span's output names it. It is the image the model got: its secret fields
-        were painted over where it was captured and it passed the F5 sanitizer (L13), wherever it came from (its
-        origin label never names an excluded host). Facts only for an image already withheld. Never fatal: the result
-        reaches the worker anyway. The file is written in a worker thread."""
-        initial = content.get("initial_image")
-        facts = dict(initial) if isinstance(initial, dict) else image_facts(name, content)
-        if content.get("image_withheld"):
-            facts["image_withheld"] = content["image_withheld"]
-        kept: bytes | None = result.image
-        try:
-            kind = "app_window" if isinstance(initial, dict) and name.startswith("mac.") else evidence_kind(name)
-            eid = await self.evidence.put_async(grant.task_id, span_id, kind, image=kept, data=facts,
-                                                origin=origin.join(origins))
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            return {"evidence_error": error_name(e)}
-        if name.startswith("mac.") and spec.target.site:            # this image (kept or facts only) was the
-            self._looked_at(grant).add(spec.target.site.lower())    # worker's first look at that app
-        return {"evidence": eid}
-
     def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,
                      output: dict[str, Any] | None = None, error: str | None = None,
                      origins: set[str] | None = None) -> None:
@@ -2106,125 +2070,19 @@ class Gateway:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",
                                          "task_id": grant.task_id, "status": status, "why": action.why})
 
-    async def ask_secret(self, ctx: ToolContext, target: str, *, handle: str | None = None,
-                         remember: str | None = None, shown: str | None = None,
-                         field: str | None = None) -> str | None:
-        """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only. `shown`: the
-        app's name as macOS reports it, for an `app:` target's one-line question."""
-        from ferb.identity.owner_secrets import OwnerSecrets, refuse_whole_browser
-        from ferb.sanitize.redact import Redactor
-        refuse_whole_browser(target)                   # before any question, for every caller (D12)
-        if not isinstance(self.redact, Redactor):
-            raise Refused("hidden secret redaction is unavailable")
-        if self.roots.protection is None:
-            raise Refused("secret storage protection is unavailable")
-        store = OwnerSecrets(self.roots.protection.ferb_home)
-        if handle:
-            value = await asyncio.to_thread(store.reveal, handle, target)
-            self.redact.remember_hidden_secret(value)
-            self.redact.retain_secret(value)
-            return value
-        if ctx.request_id in self.state.approvals.unattended:
-            return None
-        try:                                           # L36 §5: which account, shown to the owner, never a secret;
-            # the task's one owner-typed site counts as a link before any entry is saved here (read only)
-            username, source = await asyncio.to_thread(store.account, target, self._question_sites(ctx, target),
-                                                       self.username_sources())
-        except Refused:
-            if remember:                               # the save would fail after the owner typed: say why now
-                raise
-            username = source = None                   # m17: a one-time input needs no saved names
-        question = secret_question(target, remember, username, source)
-        ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
-                            scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
-                            request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
-        ap = self.state.approvals.question(ask, question, [])
-        ap.kind = "owner_secret"
-        ap.summary = self._one_line(secret_summary(target, remember, shown, username, source, field))
-        self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
-                     "capability": ask.capability, "reason": question, "task_id": ctx.task_id,
-                     "summary": ap.summary})
-        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
-        delivered = False
-        try:
-            state = await self._wait_answer(grant, ap.id)
-            if state != "granted" or not ap.answer:
-                return None
-            if remember:                               # I14: the record serves the one site the owner named
-                await asyncio.to_thread(store.remember, remember, target, ap.answer,
-                                        self._question_sites(ctx, target))
-                await self._note_ordinary_word(ctx, target, shown, ap.answer)
-            delivered = True
-            return ap.answer
-        finally:
-            if not delivered and ap.answer:
-                self.redact.release_secret(ap.answer)
-            ap.answer = None
-            ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
+    # ---------- hidden input (ferb/daemon/hidden_input.py) ----------
 
-    async def _note_ordinary_word(self, ctx: ToolContext, target: str, shown: str | None, answer: str) -> None:
-        """L36 §7: a saved sealed answer that is an ordinary word (`ordinary_word`) is journaled, the task's tree and the
-        question's place, never the word, so the task's answer says once why FERB hides that word. The note only
-        explains: a failure to make it never costs the owner's fill (as a memory read's record, re-review R4)."""
-        try:
-            if await asyncio.to_thread(ordinary_word, answer):
-                root = (self.tasks.tree_of(ctx.task_id) or ctx.task_id).split(".", 1)[0]
-                self.journal_problem("secret.ordinary_word", {"task_id": root, "place": secret_place(target, shown)})
-        except Exception as e:
-            logging.getLogger(__name__).warning("FERB ordinary-word note not recorded: %s", error_name(e))
-
-    def _login_sites(self, ctx: ToolContext, target: str) -> list[str]:
-        """The sites a record saved at `target` lists (I14, fix round 1): the task's target sites (as a steer left
-        them) whose host the owner typed in this request's words, a leading "www." aside (`typed_site`, rule 8's
-        provenance: a site only outside content or the model named never links). None when `target` is an app or
-        itself one of those sites: only a sign-in form on another address needs a link, and a sign-in on the visa
-        site itself must not hand its username to the task's other sites. Only the owner-typed sites count for that
-        test (Task 6 re-review): the planner may add the sign-in form's host to the targets after a steer."""
-        from ferb.identity.owner_secrets import same_site, site_host, typed_site
-        request = self.state.requests.get(ctx.request_id)
-        own = site_host(target)
-        words = provenance.prepare(request.words)
-        typed = sorted({h for site in request.targets.sites if (h := site_host(site)) and typed_site(h, words)})
-        if not own or any(same_site(h, own) for h in typed):
-            return []
-        return typed
-
-    def _question_sites(self, ctx: ToolContext, target: str) -> list[str]:
-        """The task's owner-typed site a question or `secrets.list` at `target` reads as a link before any entry is
-        saved there (coordinator ruling), and the one a save there stores (re-review N-1): `_login_sites`, only when
-        they are exactly one site ("www." aside; review I-2: with several, a sign-in on any other page could be any of
-        their accounts, and a password saved at Google's form in a task naming the visa site and gmail.com would show
-        the visa username at Google in every later task)."""
-        typed = self._login_sites(ctx, target)
-        return typed if len({h.removeprefix("www.") for h in typed}) == 1 else []
-
-    def release_secret(self, value: str) -> None:
-        from ferb.sanitize.redact import Redactor
-        if isinstance(self.redact, Redactor):
-            # Keep echoes scrubbed for this daemon lifetime, including short values captured through hidden input.
-            self.redact.remember_hidden_secret(value)
-            self.redact.release_secret(value)
+    async def ask_secret(self, ctx: ToolContext, target: str, **kw: Any) -> str | None:
+        return await self.hidden.secret(ctx, target, **kw)
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
-        """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""
-        if ctx.request_id in self.state.approvals.unattended:
-            return None
-        ask = ActionRequest(capability="browser.login_code", kind="owner_login_code", identity=ctx.identity,
-                            scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
-                            request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
-        question = login_code_question(origin)
-        ap = self.state.approvals.question(ask, question, [])
-        ap.kind = "owner_login_code"
-        ap.summary = self._one_line(login_code_summary(origin))
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
-                                            "reason": question, "task_id": ctx.task_id, "summary": ap.summary})
-        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
-        try:
-            state = await self._wait_answer(grant, ap.id)
-            return ap.answer if state == "granted" else None
-        finally:
-            ap.answer = None
-            ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
+        return await self.hidden.login_code(ctx, origin)
+
+    def release_secret(self, value: str) -> None:
+        self.hidden.release(value)
+
+    def initial_image_given(self, task_id: str) -> None:
+        self.hooks.initial_image_given(task_id)
 
     async def _ask_owner(self, grant: RunGrant, rec: Any, args: Any) -> dict[str, Any]:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
@@ -2278,7 +2136,7 @@ class Gateway:
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}
                                        | ({"retry_action": retry} if retry else {})})
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
-        self._started(grant, OWNER_ASK, {}, "owner_question", None)
+        self.hooks.started(grant, OWNER_ASK, {}, "owner_question", None)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
@@ -2313,9 +2171,8 @@ class Gateway:
         text = ap.choice or ap.answer or ""
         if ap.choice is not None and ap.choice in options:   # the option as the task wrote it
             text = given_options[options.index(ap.choice)]
-        if self.destinations is not None:           # SQ6: a destination the owner chose or typed is known from now on
-            for kind, value in self.destinations.from_words(text):
-                self.destinations.record(kind, value, "answered", request_id=rec.task.request_id, span_id=span.id)
+        for kind, value in self.destinations.from_words(text):   # SQ6: one the owner chose or typed is approved
+            self.destinations.record(kind, value, "answered", request_id=rec.task.request_id, span_id=span.id)
         given: dict[str, Any] = {"answer": text}
         if retry:                                    # the owner's own pick of FERB's Yes, never the worker's word
             given |= (self._settle_retry(retry, span.id, asked_about) if ap.choice == RETRY_YES
@@ -2425,117 +2282,6 @@ class Gateway:
             self.observer.waiting(grant.worker_id, False)
 
 
-def secret_question(target: str, remember: str | None, username: str | None = None,
-                    username_place: str | None = None) -> str:
-    """The hidden-input question for an owner secret, its exact destination first: no secret word comes before it, so
-    the redactor's label rule ("the secret for <X>: …") never hides the destination the owner is asked about (live
-    2026-10-24: "Enter the secret for app:[redacted]"). Then the account, the username saved for that place from the
-    owner's own words (L36 §5), with the site it was saved for when it came through a link (`username_place`, review
-    I-2). The saved name is the worker's: only ever the saved name."""
-    account = _account(username or "")
-    saved_for = f" (saved for {_site(username_place)})" if username_place else ""
-    text = (f"Destination: {target}."
-            + (f" Account: {account}{saved_for}." if account else "")
-            + " Type the password or secret for it here (hidden; Enter cancels); FERB fills it only at this exact "
-            "destination.")
-    if remember:
-        text += f" Entering it also saves it in your Mac's Keychain as {remember!r}, usable only at this destination."
-    return text
-
-
-def _site(target: str) -> str:
-    """Where a hidden value goes, as a one-line question names it: an origin's host, with its port unless it is
-    HTTPS's own (443), else the target as given."""
-    parsed = urls.parse(target)
-    if parsed is None or not parsed.host:
-        return target
-    host = f"[{parsed.host}]" if ":" in parsed.host else parsed.host          # an IPv6 address, as a URL writes it
-    return host + (f":{parsed.port}" if parsed.port and parsed.port != "443" else "")
-
-
-# How the worker's proposed name for a saved secret is shown (review I1, re-review R1): only ASCII letters, digits,
-# spaces and : , ' ( ) -, whitespace collapsed, at most NAME_SHOWN characters. An allowlist, so no lookalike
-# punctuation, letter that looks like a dot, invisible mark or HTML entity (the notch renders Markdown) can rebuild a
-# quote, a dash or a place inside it, and no slash can make it a link (`https://3627733615/x`, re-review). Formatting, never a judgement of what the name means (R2).
-NAME_SHOWN = 40
-_NAME_DROPPED = re.compile(r"[^A-Za-z0-9 :,'()\-]")
-
-
-def shown_name(remember: str) -> str:
-    """The saved name as the one-line question shows it: any whitespace a space, every other character outside the
-    allowlist dropped, whitespace collapsed, clipped with "…" ("" when nothing plain is left)."""
-    name = " ".join(_NAME_DROPPED.sub("", " ".join(remember.split())).split())
-    return name if len(name) <= NAME_SHOWN else name[:NAME_SHOWN - 1].rstrip() + "…"
-
-
-ACCOUNT_SHOWN = 64
-_ACCOUNT_DROPPED = {"Cf", "Cs", "Zl", "Zp"}      # format (bidi overrides, zero-width), surrogates, line separators
-
-
-def _account(username: str) -> str:
-    """The owner's username as a question shows it (the owner's own words, not a worker's): printable, on one line,
-    without invisible or reordering characters, clipped to ACCOUNT_SHOWN characters with "…"."""
-    text = " ".join(printable(username).split())
-    text = " ".join("".join(c for c in text if unicodedata.category(c) not in _ACCOUNT_DROPPED).split())
-    return text if len(text) <= ACCOUNT_SHOWN else text[:ACCOUNT_SHOWN - 1].rstrip() + "…"
-
-
-def secret_place(target: str, app: str | None = None) -> str:
-    """Where a hidden value goes, in the owner's terms, from the code-derived target: an origin's host (`_site`), or
-    the app: its name as macOS reports it, else its bundle id."""
-    if target.startswith("app:"):
-        return f"the {app} app" if app else f"the app {target[4:]}"
-    site = _site(target)
-    return site[4:] if site.casefold().startswith("www.") else site
-
-
-def secret_summary(target: str, remember: str | None, app: str | None = None, username: str | None = None,
-                   username_place: str | None = None, field: str | None = None) -> str:
-    """The owner secret question in one line (P27; owner, 2026-10-24: "just state what is this for"). It always starts
-    with the place from the code-derived target (an origin's host, or the app: its name as macOS reports it, else its
-    bundle id), so no other text comes before it (re-review R1); then the account, when a username is saved for that
-    place (L36 §5, ruling C1: after the place), naming the site it was saved for when it came through a link
-    (`username_place`, review I-2: "usvisascheduling.com account: …"); then what the value is for: the worker's
-    proposed name, cleaned by `shown_name`, in quotes, only ever as the name it is saved under; and whether it is
-    kept."""
-    place = secret_place(target, app)
-    account = _account(username or "")
-    whose = f"{_site(username_place)} " if username_place else ""
-    account = f" ({whose}account: {account})" if account else ""
-    if remember:
-        name = shown_name(remember)
-        what = f"“{name}”" if name else "a saved secret"
-        return f"For {place} only{account}: {what} · saved in your Mac's Keychain"
-    # live 2026-10-27: "a password or private answer" for a card's CVV and a bank's OTP; the page's own label for the
-    # field says which (page text, quoted as the page's words; display only)
-    label = " ".join((field or "").split())
-    label = label if len(label) <= 60 else label[:59].rstrip() + "…"
-    if label:
-        return f"For {place}{account}: the page's “{label}” field — used once, not saved"
-    return f"For {place}{account}: a password or private answer — used once, not saved"
-
-
-def login_code_summary(origin: str) -> str:
-    """The login-code question in one line (P27): the origin's host first (a code word before it would read its port
-    or a number in it as a code), then what it is. A host whose own name holds a code label before a code-shaped port
-    (otp.example.com:8443) still loses that port to redaction (review M4)."""
-    return f"For {_site(origin)}: a login code — used once"
-
-
-ADMIN_SUMMARY = ("Your Mac password, for the one command you just approved. FERB passes it only to that command and "
-                 "doesn't save it.")
-
-
-def login_code_question(origin: str) -> str:
-    """The hidden-input question for a login code, its exact origin first: a code word before it would read the
-    origin's port or a number in its host as the code ("login code for https://x.test:8443")."""
-    return (f"Destination: {origin}. Type the login code for it here (hidden; Enter cancels); FERB fills it only at "
-            "this exact destination.")
-
-
-def _unfilled(state: str) -> Literal["denied", "superseded"]:
-    """A hidden input's state once its wait ends without a delivered value: superseded stays superseded (L3)."""
-    return "superseded" if state == "superseded" else "denied"
 
 
 CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)

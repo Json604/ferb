@@ -276,7 +276,8 @@ from installed apps, terminal detection fails closed)*
       ferb/core/types.py, recorded on the call's span; fs tools report writes/deletes. Browser/Mac reporting: 5b/5c.
       5b: Mac tools report target role/subrole, secure field, received_by (read after input), terminal_target and
       page URL in a browser: `ActionResult.observed` → `ToolResult.facts`; new ActionFacts fields target_role,
-      target_subrole, page_url.)
+      target_subrole, page_url. 6b: the gateway raises questions from them (notes/gateway.md Rulings (step 6b)); new
+      field `tab_chain` (the first task tab of the chain, from `_Tab.opener`), for one payment per tab chain.)
 - [x] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path. (5b: Mac
       done, capability `ledger_args` read by gateway `hashed_args`, see Rulings. 5c: `BrowserAct.ledger_args` and its
       click content use `element_identity`: page origin+path, child frame's, role, backend node id else DOM path.)
@@ -295,7 +296,8 @@ from installed apps, terminal detection fails closed)*
       unsaved work.)
 - [x] Tab groups (decision 3), replacing connection-scoped tab ownership. (5c: see Rulings (step 5c).)
 - [x] Per-task folder read lift (decision 1), shared by the escape hatch and file tools. (5a: one key per rule per
-      tree, `confirm.read_lift_key`; gateway `_file_lifts` and `_escape`.)
+      tree, `confirm.read_lift_key`; 6b: both are Need producers of the gateway's one step, `_lift_needs` and
+      `_escape_need`.)
 - [x] Shell: kill the whole process group at task end regardless of exit; prune `_procs`; `shell.send` respects
       escape grants; never-read write denies after any lift; FERB's launchd plist never liftable; correct `shell.kill`
       kind; durable host records; purge shell logs; report partial/dropped sends. (5a: after the leader exits the

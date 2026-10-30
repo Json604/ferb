@@ -88,20 +88,32 @@ def test_read_lift_does_not_reopen_immutable_ferb_directory(tmp_path):
 
 
 def test_escape_no_is_final_for_exact_command_and_cwd(daemon, tmp_path):
-    from types import SimpleNamespace
-    import pytest
-    from ferb.core.errors import Refused
-    from tests.conftest import Answers, gateway_request, gateway_setup
-    grant, _ = gateway_setup(daemon, {'shell:run'}, gateway_request('Run my command.'), [])
-    args = SimpleNamespace(escape='trustd', command='echo approved', cwd=str(tmp_path))
-    gateway = daemon.daemon.gateway
-    rec = daemon.daemon.tasks.get(grant.task_id)
+    """Through the gateway's one authorization step (step 6b): the owner's No to an exact escape command is final
+    for that command and folder in the task; asked once."""
+    from tests.conftest import Answers, gateway_request, gateway_setup, gateway_tool_call
+    grant, _ = gateway_setup(daemon, {'shell'}, gateway_request('Run my command.'), [])
     answers = Answers(daemon, choice=2)
     try:
-        with pytest.raises(Refused):
-            daemon.run(gateway._escape(grant, rec, args, 'needed for the exact command'))
-        with pytest.raises(Refused, match='already said no'):
-            daemon.run(gateway._escape(grant, rec, args, 'same command'))
+        r = gateway_tool_call(daemon, grant, 'shell.run', command='echo approved', cwd=str(tmp_path), escape='trustd',
+                              why='needed for the exact command')
+        again = gateway_tool_call(daemon, grant, 'shell.run', command='echo approved', cwd=str(tmp_path),
+                                  escape='trustd', why='same command')
     finally:
         answers.stop()
+    assert r['is_error'] and 'said no' in r['content']['error']
+    assert again['is_error'] and 'already said no' in again['content']['error']
     assert len(answers.asked) == 1
+
+
+def test_a_never_lifted_escape_is_refused_without_a_question(daemon, tmp_path):
+    from tests.conftest import Answers, gateway_request, gateway_setup, gateway_tool_call
+    grant, _ = gateway_setup(daemon, {'shell'}, gateway_request('Run my command.'), [])
+    answers = Answers(daemon, choice=1)
+    try:
+        r = gateway_tool_call(daemon, grant, 'shell.run', command='ls', cwd=str(tmp_path), escape='ferb_state')
+        missing = gateway_tool_call(daemon, grant, 'shell.run', command='ls', cwd=str(tmp_path / 'nope'),
+                                    escape='trustd')
+    finally:
+        answers.stop()
+    assert r['is_error'] and missing['is_error'] and 'does not exist' in missing['content']['error']
+    assert answers.asked == []

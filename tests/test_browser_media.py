@@ -386,7 +386,7 @@ def test_browser_media_tool_targets_the_frame_and_local_index_from_the_snapshot(
     d, bridge, ref = _driver(FRAMES)
     asyncio.run(d.snapshot(ref))
     tool = BrowserMedia(d, OWNER_BROWSER)
-    assert tool.name == "browser.media" and tool.scopes == {"browser:act"} and tool.on_screen is True
+    assert tool.name == "browser.media" and tool.scopes == {"browser:act"} and tool.moves_view is True and not tool.on_screen
     # Page playback only, reversible like scroll: no ledger row, so a timed-out play stays retryable (P19 is for
     # consequential actions); on_screen marks it in the disturbance record.
     assert tool.describe(tool.Input(tab="t1", action="play")).kind == "read"

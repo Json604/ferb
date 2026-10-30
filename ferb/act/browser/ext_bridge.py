@@ -849,6 +849,7 @@ class _Tab:
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
     # D31: the web terminal element FERB just typed approved text into, and that Yes: it covers one Return there
     armed: tuple[str, str] | None = None
+    opener: str | None = None       # the task tab that opened this one (a link's new tab, an adopted popup)
 
 
 def _read_clipboard() -> tuple[int, str | None, bool]:
@@ -1215,7 +1216,8 @@ class _TabDriver:
         try:
             check_url(url)
             await self._open_in(br, url, owner, window_id=window_id, attached=opener.attached,
-                                registered=lambda ref: entry.update(tab=ref.tab_id),
+                                registered=lambda ref: (entry.update(tab=ref.tab_id),
+                                                        self._opened_by(ref.tab_id, opener.ref.tab_id)),
                                 # let go of (release) or ended without one (its record gone): never load it as the task's
                                 abandon=lambda: owner in self._released or not self.task_running(owner))
         except (Refused, DriverError) as e:
@@ -1240,7 +1242,7 @@ class _TabDriver:
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._hold(self._tabs.setdefault(ref.tab_id, _Tab(ref, br, chrome_id, opener.owner, url,
-                                                          attached=opener.attached)))
+                                                          attached=opener.attached, opener=opener.ref.tab_id)))
         opener.opened.append({"tab": ref.tab_id, "url": url, "via": "the page opened it"})
         return record
 
@@ -1482,7 +1484,7 @@ class _TabDriver:
                            page_merchant=commerce.get("merchant") if isinstance(commerce.get("merchant"), str) else None,
                            secure_field=info.secret or None, terminal_target=info.terminal or None,
                            target_role=info.role or None, page_url=t.url or None,
-                           frame_host=here if here and here != page else None)
+                           frame_host=here if here and here != page else None, tab_chain=self.tab_chain(tab_id))
 
     def element_identity(self, tab_id: str, element_id: str) -> dict[str, Any] | None:
         """P19's identity of an element of the latest snapshot (notes/gateway.md target 3): the page (origin and path,
@@ -2047,6 +2049,20 @@ class _TabDriver:
         t = self._tabs.get(tab_id)
         return t.url if t else None
 
+    def _opened_by(self, tab_id: str, opener: str) -> None:
+        t = self._tabs.get(tab_id)
+        if t is not None:
+            t.opener = opener
+
+    def tab_chain(self, tab_id: str) -> str:
+        """The first task tab of the chain this tab was opened from (itself when it opened on its own): a payment's
+        checkout and the bank page it opens share it (gateway decision 4)."""
+        seen, at = {tab_id}, tab_id
+        while (t := self._tabs.get(at)) is not None and (opener := getattr(t, "opener", None)) and opener not in seen:
+            seen.add(opener)
+            at = opener
+        return at
+
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None:
         t = self._tabs.get(tab_id)
         hit = t.elements.get(element_id) if t else None
@@ -2377,7 +2393,8 @@ class Router(_TabDriver):
         origin = normalize_origin(str(v.get("origin") or ""))
         if not origin.startswith("https://"):
             raise Refused("secret input requires an HTTPS destination")
-        value = await ask(ctx, origin, handle=handle, remember=remember, field=getattr(info, "label", None) or None)
+        value = await ask(ctx, origin, handle=handle, remember=remember, field=getattr(info, "label", None) or None,
+                          kind=getattr(info, "field_kind", None) or None)
         if not value:
             return ActionResult(False, "secret input declined")
         try:

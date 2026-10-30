@@ -235,18 +235,18 @@ def test_a_host_whose_own_name_holds_a_code_label_keeps_its_name_but_not_its_por
 
 
 def _escape(daemon: Any, tmp_path: Any, rule: str, choice: int = 2) -> list[Any]:
-    from types import SimpleNamespace
-    from ferb.core.errors import Refused
-    from tests.conftest import Answers, gateway_request, gateway_setup
-    grant, _ = gateway_setup(daemon, {'shell:run'}, gateway_request('Check my extension.'), [])
-    rec = daemon.daemon.tasks.get(grant.task_id)
-    args = SimpleNamespace(escape=rule, command='ls "Default/Extensions"', cwd=str(tmp_path))
+    """The escape question through the gateway's one authorization step (step 6b); the call never runs."""
+    from tests.conftest import Answers, gateway_request, gateway_setup, gateway_tool_call
+    from tests.support.fake_shell import FakeShell
+    shell = FakeShell()
+    grant, _ = gateway_setup(daemon, {'shell'}, gateway_request('Check my extension.'), [shell])   # type: ignore[list-item]
     answers = Answers(daemon, choice=choice)
     try:
-        with pytest.raises(Refused):
-            daemon.run(daemon.daemon.gateway._escape(grant, rec, args, 'the worker wants to look inside'))
+        r = gateway_tool_call(daemon, grant, 'shell.run', command='ls "Default/Extensions"', cwd=str(tmp_path),
+                              escape=rule, why='the worker wants to look inside')
     finally:
         answers.stop()
+    assert r['is_error'] and shell.grants == []
     return answers.asked
 
 

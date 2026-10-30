@@ -191,22 +191,23 @@ def test_a_read_escape_yes_covers_the_task_and_the_file_tools(daemon: RunningDae
     """Hands decision 1: "Let FERB read ~/.aws for this task?" once; later shell read escapes of that folder and file
     tool reads of it in the same task run without asking. Writes still ask per command."""
     from tests.conftest import Answers, gateway_request, gateway_setup, gateway_tool_call
-    from types import SimpleNamespace
     fake = tmp_path / "fake"
     (fake / ".aws").mkdir(parents=True)
     (fake / ".aws" / "config").write_text("region = eu-west-1\n")
     daemon.daemon.gateway.roots.protection = Protection(fake, daemon.daemon.home, ["~/.aws"], [], [])
-    grant, _ = gateway_setup(daemon, {"shell", "fs:read"}, gateway_request("check my aws region"), [])
-    rec = daemon.daemon.tasks.get(grant.task_id)
+    from tests.support.fake_shell import FakeShell
+    shell = FakeShell()
+    grant, _ = gateway_setup(daemon, {"shell", "fs:read"}, gateway_request("check my aws region"), [shell])
     yes = Answers(daemon, choice=1)
     try:
-        first = daemon.run(daemon.daemon.gateway._escape(grant, rec, SimpleNamespace(
-            escape="read:~/.aws", command="cat config", cwd=str(tmp_path)), "look at the region"))
-        second = daemon.run(daemon.daemon.gateway._escape(grant, rec, SimpleNamespace(
-            escape="read:~/.aws", command="ls -la", cwd=str(tmp_path)), "list it"))
+        gateway_tool_call(daemon, grant, "shell.run", escape="read:~/.aws", command="cat config", cwd=str(tmp_path),
+                          why="look at the region")
+        gateway_tool_call(daemon, grant, "shell.run", escape="read:~/.aws", command="ls -la", cwd=str(tmp_path),
+                          why="list it")
         read = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".aws" / "config"))
     finally:
         yes.stop()
+    first, second = shell.grants
     assert len(yes.asked) == 1 and "for this task" in yes.asked[0].summary
     assert first.command == "cat config" and second.command == "ls -la"
     assert first.confirmation_id == second.confirmation_id

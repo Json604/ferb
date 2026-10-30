@@ -1,6 +1,7 @@
 import asyncio
 
 
+from ferb.daemon.call_hooks import CallHooks
 from ferb.daemon.task_preview import TaskPreviews
 
 
@@ -61,6 +62,7 @@ def test_preview_is_owner_only():
 def test_gateway_preview_uses_task_owned_tab_and_sanitizes(monkeypatch):
     from types import SimpleNamespace
     from ferb.act.locks import ResourceLocks
+    from ferb.daemon.call_hooks import CallHooks
     from ferb.daemon.gateway import Gateway
     from ferb.sanitize.redact import Redactor
     import ferb.sanitize.images
@@ -92,17 +94,17 @@ def test_gateway_preview_uses_task_owned_tab_and_sanitizes(monkeypatch):
 
     monkeypatch.setattr(ferb.sanitize.images, 'ImageRedactor', Sanitizer)
     gateway = object.__new__(Gateway)
-    gateway.previews = TaskPreviews()
+    gateway.hooks = CallHooks(gateway)
     gateway.locks = ResourceLocks()
     gateway.redact = Redactor()
-    asyncio.run(gateway._preview_target(SimpleNamespace(driver=Driver()), 'browser.click',
+    asyncio.run(gateway.hooks.preview(SimpleNamespace(driver=Driver()), 'browser.click',
                             SimpleNamespace(tab='tab-7'), SimpleNamespace(task_id='root.child'),
                             SimpleNamespace(tree_id='root')))
-    assert asyncio.run(gateway.previews.frame('root')) == b'sanitized'
+    assert asyncio.run(gateway.hooks.previews.frame('root')) == b'sanitized'
     assert calls == [('tab-7', 'root.child')]
-    asyncio.run(gateway._preview_target(SimpleNamespace(), 'fs.read', SimpleNamespace(),
+    asyncio.run(gateway.hooks.preview(SimpleNamespace(), 'fs.read', SimpleNamespace(),
                             SimpleNamespace(task_id='root.child'), SimpleNamespace(tree_id='root')))
-    assert asyncio.run(gateway.previews.frame('root')) == b'sanitized'
+    assert asyncio.run(gateway.hooks.previews.frame('root')) == b'sanitized'
 
 
 def test_mac_preview_uses_shot_window_and_never_app_front_window(monkeypatch):
@@ -124,17 +126,17 @@ def test_mac_preview_uses_shot_window_and_never_app_front_window(monkeypatch):
 
     monkeypatch.setattr(ferb.sanitize.images, 'ImageRedactor', lambda redact: lambda image: image)
     gateway = object.__new__(Gateway)
-    gateway.previews = TaskPreviews()
+    gateway.hooks = CallHooks(gateway)
     gateway.locks = ResourceLocks()
     gateway.redact = Redactor()
     cap = SimpleNamespace(driver=Driver())
     grant, record = SimpleNamespace(task_id='root.child'), SimpleNamespace(tree_id='root')
-    asyncio.run(gateway._preview_target(cap, 'mac.click', SimpleNamespace(app='Notes', shot='background-shot'), grant, record))
-    assert asyncio.run(gateway.previews.frame('root')) == b'background-window'
-    asyncio.run(gateway._preview_target(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e2'), grant, record))
-    assert asyncio.run(gateway.previews.frame('root')) == b'background-window'
-    asyncio.run(gateway._preview_target(cap, 'mac.act', SimpleNamespace(app='Mail', element='s1e2'), grant, record))
-    assert asyncio.run(gateway.previews.frame('root')) is None
+    asyncio.run(gateway.hooks.preview(cap, 'mac.click', SimpleNamespace(app='Notes', shot='background-shot'), grant, record))
+    assert asyncio.run(gateway.hooks.previews.frame('root')) == b'background-window'
+    asyncio.run(gateway.hooks.preview(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e2'), grant, record))
+    assert asyncio.run(gateway.hooks.previews.frame('root')) == b'background-window'
+    asyncio.run(gateway.hooks.preview(cap, 'mac.act', SimpleNamespace(app='Mail', element='s1e2'), grant, record))
+    assert asyncio.run(gateway.hooks.previews.frame('root')) is None
 
 
 def test_mac_exact_element_preview_preserves_worker_references(monkeypatch):
@@ -190,14 +192,14 @@ def test_task_ending_while_window_resolves_cannot_rebind_preview(monkeypatch):
             return {'window_id': 110}, capture
     async def check():
         gateway = object.__new__(Gateway)
-        gateway.previews, gateway.locks, gateway.redact = TaskPreviews(), ResourceLocks(), Redactor()
-        pending = asyncio.create_task(gateway._preview_target(SimpleNamespace(driver=Driver()), 'mac.click',
+        gateway.locks, gateway.redact = ResourceLocks(), Redactor(); gateway.hooks = CallHooks(gateway)
+        pending = asyncio.create_task(gateway.hooks.preview(SimpleNamespace(driver=Driver()), 'mac.click',
             SimpleNamespace(app='Notes', shot='s1'), SimpleNamespace(task_id='task'), SimpleNamespace(tree_id='task')))
         await asyncio.to_thread(entered.wait, 2)
-        gateway.previews.remove({'task'})
+        gateway.hooks.previews.remove({'task'})
         release.set()
         await pending
-        assert await gateway.previews.frame('task') is None
+        assert await gateway.hooks.previews.frame('task') is None
     asyncio.run(check())
 
 
@@ -215,11 +217,11 @@ def test_snapshot_preview_uses_returned_window_not_mutable_driver_tree(monkeypat
     monkeypatch.setattr(ferb.sanitize.images, 'ImageRedactor', lambda redact: lambda image: image)
     async def check():
         gateway = object.__new__(Gateway)
-        gateway.previews, gateway.locks, gateway.redact = TaskPreviews(), ResourceLocks(), Redactor()
-        await gateway._preview_target(SimpleNamespace(driver=d), 'mac.snapshot', SimpleNamespace(app='Notes'),
+        gateway.locks, gateway.redact = ResourceLocks(), Redactor(); gateway.hooks = CallHooks(gateway)
+        await gateway.hooks.preview(SimpleNamespace(driver=d), 'mac.snapshot', SimpleNamespace(app='Notes'),
             SimpleNamespace(task_id='task'), SimpleNamespace(tree_id='task'),
             {'windows': [{'id': 110, 'current': True}, {'id': 999, 'current': False}]})
-        assert await gateway.previews.frame('task') == shots.jpeg
+        assert await gateway.hooks.previews.frame('task') == shots.jpeg
         assert shots.captured == [110]
     asyncio.run(check())
 
@@ -265,17 +267,17 @@ def test_gateway_switches_exact_windows_and_drops_invalid_explicit_target(monkey
             return {'window_id': window or element}, capture
     async def check():
         gateway = object.__new__(Gateway)
-        gateway.previews, gateway.locks, gateway.redact = TaskPreviews(), ResourceLocks(), Redactor()
+        gateway.locks, gateway.redact = ResourceLocks(), Redactor(); gateway.hooks = CallHooks(gateway)
         cap, grant, rec = SimpleNamespace(driver=Driver()), SimpleNamespace(task_id='task'), SimpleNamespace(tree_id='task')
-        await gateway._preview_target(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e1'), grant, rec)
-        assert await gateway.previews.frame('task') == b's1e1'
-        await gateway._preview_target(cap, 'mac.screenshot', SimpleNamespace(app='Notes', window='72'), grant, rec)
-        assert await gateway.previews.frame('task') == b'72'
-        await gateway._preview_target(cap, 'mac.act',
+        await gateway.hooks.preview(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e1'), grant, rec)
+        assert await gateway.hooks.previews.frame('task') == b's1e1'
+        await gateway.hooks.preview(cap, 'mac.screenshot', SimpleNamespace(app='Notes', window='72'), grant, rec)
+        assert await gateway.hooks.previews.frame('task') == b'72'
+        await gateway.hooks.preview(cap, 'mac.act',
             SimpleNamespace(app='Notes', action='key', element='unrelated-element'), grant, rec)
-        assert await gateway.previews.frame('task') == b'72'
-        await gateway._preview_target(cap, 'mac.screenshot', SimpleNamespace(app='Notes', window='gone'), grant, rec)
-        assert await gateway.previews.frame('task') is None
+        assert await gateway.hooks.previews.frame('task') == b'72'
+        await gateway.hooks.preview(cap, 'mac.screenshot', SimpleNamespace(app='Notes', window='gone'), grant, rec)
+        assert await gateway.hooks.previews.frame('task') is None
     asyncio.run(check())
 
 
@@ -296,12 +298,12 @@ def test_gateway_same_window_action_keeps_frame_during_capture(monkeypatch):
                     return b'continuous'
                 return {'kind': 'window', 'app': 'Notes', 'pid': 11, 'window_id': 110}, capture
         gateway = object.__new__(Gateway)
-        gateway.previews, gateway.locks, gateway.redact = TaskPreviews(), ResourceLocks(), Redactor()
+        gateway.locks, gateway.redact = ResourceLocks(), Redactor(); gateway.hooks = CallHooks(gateway)
         cap, grant, rec = SimpleNamespace(driver=Driver()), SimpleNamespace(task_id='task'), SimpleNamespace(tree_id='task')
-        await gateway._preview_target(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e1'), grant, rec)
-        frame = asyncio.create_task(gateway.previews.frame('task'))
+        await gateway.hooks.preview(cap, 'mac.act', SimpleNamespace(app='Notes', element='s1e1'), grant, rec)
+        frame = asyncio.create_task(gateway.hooks.previews.frame('task'))
         await entered.wait()
-        await gateway._preview_target(cap, 'mac.act', SimpleNamespace(app='Notes', element='s2e2'), grant, rec)
+        await gateway.hooks.preview(cap, 'mac.act', SimpleNamespace(app='Notes', element='s2e2'), grant, rec)
         release.set()
         assert await frame == b'continuous'
     asyncio.run(check())

@@ -303,6 +303,15 @@ class SpanStore:
             (task_id, tool, tab)).fetchone()
         return str(row["text"]) if row is not None and row["text"] else ""
 
+    def typed_in_tab(self, task_id: str, tab: str) -> list[str]:
+        """Every text this task typed or chose into the page tab `tab` (a fill that didn't fail), as recorded
+        (redacted at write), oldest first: what a form submitted there can carry (the sink rule, step 6b)."""
+        rows = self._db.conn.execute(
+            "SELECT json_extract(input_json, '$.args.text') AS text FROM spans WHERE kind = 'tool.call' AND "
+            "task_id = ? AND json_extract(input_json, '$.args.tab') = ? AND json_extract(input_json, '$.kind') = "
+            "'fill_form' AND error IS NULL ORDER BY rowid", (task_id, tab)).fetchall()
+        return [str(r["text"]) for r in rows if r["text"]]
+
     def _task_rows(self, task_id: str) -> list[Any]:
         """Include the intake planner by exact request ID; it ran before the task ID existed. Then every descendant
         of a selected span (e.g. the planner's model.usage, which has no task ID), in start order. An id that is no

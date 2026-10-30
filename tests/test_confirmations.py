@@ -96,6 +96,12 @@ def _known(d: RunningDaemon, kind: str, value: str) -> bool:
     return bool(d.run(go()))
 
 
+def _approved(d: RunningDaemon, kind: str, value: str) -> bool:
+    async def go() -> bool:
+        return bool(d.daemon.gateway.destinations.approved(kind, value))
+    return bool(d.run(go()))
+
+
 def _record(d: RunningDaemon, kind: str, value: str, how: str, **k: Any) -> None:
     async def go() -> None:
         d.daemon.gateway.destinations.record(kind, value, how, **k)
@@ -138,38 +144,6 @@ def test_a_payment_that_ran_asks_again_and_one_that_failed_carries(daemon: Runni
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")   # a second payment: asked again
     owner.stop()
     assert len(_asked(daemon)) == 2 and flaky.calls == 4
-
-
-def test_one_yes_covers_one_payments_checkout_and_a_new_amount_asks(daemon: RunningDaemon) -> None:
-    """Live 2026-10-27 (task 400d67fb, a Zomato order): one ₹137.39 payment asked five times, once per click of the
-    checkout: proceed, the same button after a refresh, the card choice, Pay, the bank's verification page. Owner:
-    "I agree with the necessary questions, but the redundant was too bad". A Yes covers that payment (its amount) in
-    the task, whatever site or card the checkout moves to; a different amount is another payment and asks."""
-    pay = FakeCap("probe.pay", "pay", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food under 200 rupees"), [pay])
-    owner = Answers(daemon, granted=True, choice=1)
-    for site, account in (("www.zomato.com", "Zomato account Kartikey"),
-                          ("www.zomato.com", "Zomato account Kartikey, Kotak RuPay ending 0545"),
-                          ("rupay-fsb.enstage-sas.com", "Zomato account Kartikey, Kotak RuPay ending 0545")):
-        r = gateway_tool_call(daemon, grant, "probe.pay", site=site, amount=137.39, account=account)
-        assert not r["is_error"], r
-    assert len(_asked(daemon)) == 1
-    r = gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=250.0)
-    owner.stop()
-    assert not r["is_error"] and len(_asked(daemon)) == 2 and pay.calls == 4
-
-
-def test_a_payment_yes_lapses_after_ten_minutes(daemon: RunningDaemon) -> None:
-    pay = FakeCap("probe.pay", "pay", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("order food"), [pay])
-    owner = Answers(daemon, granted=True, choice=1)
-    gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=137.39)
-    daemon.call_soon(daemon.daemon.clock.advance, 11 * 60)
-    import time
-    time.sleep(0.05)
-    gateway_tool_call(daemon, grant, "probe.pay", site="www.zomato.com", amount=137.39)
-    owner.stop()
-    assert len(_asked(daemon)) == 2 and pay.calls == 2
 
 
 def test_a_no_refuses_and_is_not_asked_again_in_the_task(daemon: RunningDaemon) -> None:
@@ -377,7 +351,7 @@ def test_unattended_runs_decline_and_the_action_does_not_run(daemon: RunningDaem
     daemon.daemon.state.approvals.unattended.add("req-1")
     r = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     assert r["is_error"] and "needs you" in r["content"]["error"] and pay.calls == 0
-    assert r["content"]["error"].startswith("FERB: this pays an amount to x@y.com.")     # FERB's line, then the fact
+    assert r["content"]["error"].startswith("FERB: this pays an amount FERB couldn't read to x@y.com.")     # FERB's line, then the fact
     assert "nobody is at chat (a scheduled run); not done." in r["content"]["error"]
     assert "needs the owner" in r["content"]["next"]
     assert _rows(daemon, "confirmations") == []
@@ -474,10 +448,12 @@ def test_decide_the_floor() -> None:
     owner = ["owner_words"]
     pay = _decide(Kind.PAY, Target(site="shop.example", amount=5.0, recipients=("x@y.com",)),
                   {"site": owner, "amount": owner, "recipient:0": owner})
-    # a named amount: one Yes per payment, for its checkout's window (owner 2026-10-27); an unnamed one: every run
-    assert [n.rule for n in pay] == ["floor:pay"] and not pay[0].always and pay[0].window_s == 600.0
-    assert "x@y.com" in pay[0].key and "shop.example" not in pay[0].key
-    assert _decide(Kind.PAY, Target(site="shop.example"), {"site": owner})[0].always
+    # outside a browser tab every payment run asks (SQ1); a tab's payment is one question per payment instead
+    # (decision 4, ferb/policy/payments.py, tests/test_payments.py)
+    assert [n.rule for n in pay] == ["floor:pay"] and pay[0].always and "x@y.com" in pay[0].key
+    assert pay[0].values["amount"] == "5"
+    unread = _decide(Kind.PAY, Target(site="shop.example"), {"site": owner})[0]
+    assert unread.always and unread.values["amount"] == "an amount FERB couldn't read"
     assert _decide(Kind.ACCOUNT_SECURITY, Target(site="mail.example"), {"site": owner})[0].always
     assert _decide(Kind.DELETE_PERMANENT, Target(path="/tmp/a"), {"path": owner}) == []
     assert _decide(Kind.DELETE_PERMANENT, Target(path="/tmp/a"), {"path": ["owner_answer"]}) == []
@@ -584,10 +560,16 @@ def test_known_destinations_normalize_and_come_from_the_owners_words(daemon: Run
                                         "or ann@x.com; not paste.example or 12345") == [
         ("email", "ann@x.com"), ("host", "docs.example.com"), ("phone", "919876543210")]
     _record(daemon, "phone", "+91 98765-43210", "named", request_id="r")
-    _record(daemon, "phone", "919876543210", "confirmed")                  # already known: the first record stays
     assert _known(daemon, "phone", "(91) 98765 43210") and not _known(daemon, "phone", "98765")
+    assert not _approved(daemon, "phone", "919876543210")         # decision 5: only mentioned, not approved
+    _record(daemon, "phone", "919876543210", "named", request_id="r2")     # already known: the first record stays
     [row] = _rows(daemon, "known_destinations")
     assert row["how"] == "named" and row["value"] == "919876543210" and row["request_id"] == "r"
+    _record(daemon, "phone", "919876543210", "confirmed", request_id="r3")   # the owner's approval upgrades it
+    [row] = _rows(daemon, "known_destinations")
+    assert row["how"] == "confirmed" and row["request_id"] == "r3" and _approved(daemon, "phone", "919876543210")
+    _record(daemon, "phone", "919876543210", "named", request_id="r4")     # and a later mention never downgrades it
+    assert _rows(daemon, "known_destinations")[0]["how"] == "confirmed"
     _record(daemon, "host", "Paste.Example.", "confirmed")
     assert _known(daemon, "host", "paste.example") and not _known(daemon, "email", "paste.example")
     _record(daemon, "name", "  Rahul   VERMA ", "confirmed")
@@ -692,7 +674,7 @@ def test_one_yes_never_pays_twice_when_both_wait_for_the_owner(daemon: RunningDa
     _until(lambda: pay.calls == 1)
     _until(lambda: len(approvals.pending()) == 1)                          # A claimed that Yes: B asks again
     [b_question] = approvals.pending()
-    assert b_question.reason.startswith("FERB: this pays an amount to x@y.com.")
+    assert b_question.reason.startswith("FERB: this pays an amount FERB couldn't read to x@y.com.")
     daemon.call_soon(approvals.resolve, b_question.id, True, 2)          # No to the second payment
     refused = second.result(10)
     daemon.loop.call_soon_threadsafe(pay.gate.set)

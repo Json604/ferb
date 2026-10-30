@@ -2,14 +2,21 @@
 content, or decide whether a call needs the owner (ferb/policy/confirm.py decides from these facts).
 
 A known destination is one the owner named in a request (emails, URL hosts and phone numbers in their own words, by
-shape), chose in an answer, or confirmed to FERB's question; it is never "new" for the sink rule in a later task.
+shape), chose in an answer, or confirmed to FERB's question (gateway decision 5): every known one is known for normal
+use in later tasks (no new-recipient question), but only one the owner approved (chose in an answer or confirmed) is
+known for the sink rule, so sending the owner's private data to a site only mentioned in a request, after outside
+content was read, still asks once (`approved`).
 Values are normalized: an email or host lowercased, a phone number's digits, a name casefolded. Never message content.
 A confirmation is the owner's Yes or No to FERB's question in one task tree, keyed by what it covers; it carries
 across that tree's retries (rule 9), except that the owner's own later message carrying the task on reopens a No (FERB
 asks it again; L11 round 4). A used row (an escape run, a payment that ran or is running) covers nothing more.
-Rule 14: what is stored goes through the redactor first. A destination or key the redactor changes (it holds a secret)
-is never known and never covered: FERB asks again rather than let two secrets share one stored "[redacted]"."""
+Rule 14: what is stored goes through the redactor first. A destination or key holding a specific secret (a saved
+secret's value or a credential format: `Redactor.hit`) is never known and never covered: FERB asks again. Any other
+destination or key the redactor would change (a long number, a label-like word) is stored and compared by a stable
+digest of its normalized form (`stable`), never by its redacted text, so two values never share one stored
+"[redacted]" and one that merely looks secret is still remembered."""
 
+import hashlib
 from typing import TYPE_CHECKING, Any, Callable, Collection
 
 from ferb.core.interfaces import Clock, IdSource
@@ -20,11 +27,26 @@ if TYPE_CHECKING:
 
 KINDS = ("email", "phone", "host", "name")
 HOW = ("named", "answered", "confirmed")
+APPROVED = ("answered", "confirmed")      # how a destination the owner approved became known (decision 5)
 Redact = Callable[[Any], Any]
 
 
 def _redacted(redact: Redact, text: str) -> str:
     return str(redact({"value": text})["value"])
+
+
+def stable(redact: Redact, text: str) -> str | None:
+    """The form a key or destination is stored and compared in (rule 14): None when it holds a specific secret
+    (`Redactor.hit`; a redactor without `hit` counts any change it would make), the text itself when the redactor
+    leaves it alone, else "sha256:" and the digest of the text, so it is remembered without being stored."""
+    hit = getattr(redact, "hit", None)
+    if hit is not None and hit(text):
+        return None
+    if _redacted(redact, text) == text:
+        return text
+    if hit is None:
+        return None
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
 def destination_of(value: str) -> tuple[str, str]:
@@ -51,23 +73,37 @@ class KnownDestinations:
             return text.lower()
         return " ".join(text.casefold().split())
 
-    def known(self, kind: str, value: str) -> bool:
+    def _stored(self, kind: str, value: str) -> str | None:
         norm = self.normalize(kind, value)
-        if kind not in KINDS or not norm or _redacted(self.redact, norm) != norm:
-            return False
-        return self.db.conn.execute("SELECT 1 FROM known_destinations WHERE kind = ? AND value = ?",
-                                    (kind, norm)).fetchone() is not None
+        return stable(self.redact, norm) if kind in KINDS and norm else None
+
+    def known(self, kind: str, value: str) -> bool:
+        """Known for normal use: named in a request, chosen in an answer or confirmed."""
+        stored = self._stored(kind, value)
+        return stored is not None and self.db.conn.execute(
+            "SELECT 1 FROM known_destinations WHERE kind = ? AND value = ?", (kind, stored)).fetchone() is not None
+
+    def approved(self, kind: str, value: str) -> bool:
+        """Known for the sink rule (decision 5): the owner chose it in an answer or confirmed it to FERB's question;
+        a destination only named in a request is not."""
+        stored = self._stored(kind, value)
+        return stored is not None and self.db.conn.execute(
+            "SELECT 1 FROM known_destinations WHERE kind = ? AND value = ? AND how IN ('answered', 'confirmed')",
+            (kind, stored)).fetchone() is not None
 
     def record(self, kind: str, value: str, how: str, request_id: str | None = None,
                span_id: str | None = None) -> None:
-        """Keep a destination; one already known keeps how it first became known."""
-        norm = self.normalize(kind, value)
-        if kind not in KINDS or how not in HOW or not norm or _redacted(self.redact, norm) != norm:
+        """Keep a destination; one already known keeps how it first became known, except that the owner's approval
+        of one only named before upgrades it (decision 5)."""
+        stored = self._stored(kind, value)
+        if stored is None or how not in HOW:
             return
         self.db.conn.execute(
-            "INSERT OR IGNORE INTO known_destinations (id, kind, value, how, request_id, span_id, at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (self.ids.new_id(), kind, norm, how, request_id, span_id, self.clock.now().isoformat()))
+            "INSERT INTO known_destinations (id, kind, value, how, request_id, span_id, at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(kind, value) DO UPDATE SET how = excluded.how, request_id = excluded.request_id, "
+            "span_id = excluded.span_id, at = excluded.at "
+            "WHERE known_destinations.how = 'named' AND excluded.how != 'named'",
+            (self.ids.new_id(), kind, stored, how, request_id, span_id, self.clock.now().isoformat()))
 
     @staticmethod
     def from_words(words: str) -> list[tuple[str, str]]:
@@ -92,10 +128,11 @@ class Confirmations:
         holding a secret: it is stored redacted, so it could match another one). `reopened`: ids of No answers the
         owner's own later message carrying the task on reopened (Gateway.reopen_noes); such a No reads as unanswered,
         so a caller that asks asks again. A caller that never asks passes none: the No stays for it."""
-        if _redacted(self.redact, key) != key:
+        stored = stable(self.redact, key)
+        if stored is None:
             return None
         row = self.db.conn.execute("SELECT * FROM confirmations WHERE tree_id = ? AND key = ? "
-                                   "ORDER BY rowid DESC LIMIT 1", (tree_id, key)).fetchone()
+                                   "ORDER BY rowid DESC LIMIT 1", (tree_id, stored)).fetchone()
         if row is None or (not row["granted"] and row["id"] in reopened):
             return None
         return dict(row)
@@ -116,18 +153,22 @@ class Confirmations:
 
     def covers(self, cid: str, key: str) -> bool:
         """Whether row `cid` is a Yes to the question `key` names (never for a key holding a secret)."""
-        if _redacted(self.redact, key) != key:
+        stored = stable(self.redact, key)
+        if stored is None:
             return False
         row = self.db.conn.execute("SELECT 1 FROM confirmations WHERE id = ? AND key = ? AND granted = 1",
-                                   (cid, key)).fetchone()
+                                   (cid, stored)).fetchone()
         return row is not None
 
     def record(self, tree_id: str, rule: str, key: str, granted: bool, ask_span: str | None) -> str:
+        """The owner's answer, keyed by its stable form; a key holding a specific secret is stored redacted (it never
+        matches again, so FERB asks again)."""
         cid = str(self.ids.new_id())
+        stored = stable(self.redact, key)
         self.db.conn.execute("INSERT INTO confirmations (id, tree_id, rule, key, granted, ask_span, used, at) "
                              "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                             (cid, tree_id, rule, _redacted(self.redact, key), int(granted), ask_span,
-                              self.clock.now().isoformat()))
+                             (cid, tree_id, rule, stored if stored is not None else _redacted(self.redact, key),
+                              int(granted), ask_span, self.clock.now().isoformat()))
         return cid
 
     def age_s(self, row: dict[str, Any]) -> float:

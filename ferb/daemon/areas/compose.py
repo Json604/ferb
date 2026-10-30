@@ -153,7 +153,7 @@ class Compose:
                             search=self._memory_item_search)
         from ferb.identity.secret_tools import SecretsList
         self.registry.add(SecretsList(lambda: self.home,               # L36 §5: names only, never values
-                                      lambda ctx, place: self.gateway._question_sites(ctx, place) if self.gateway
+                                      lambda ctx, place: self.gateway.hidden._question_sites(ctx, place) if self.gateway
                                       else [], self._username_sources))
         from ferb.orchestrator.conversation_tools import ConversationRead
         self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))

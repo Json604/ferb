@@ -402,7 +402,7 @@ def test_the_first_look_of_an_unread_tab_says_how_it_was_masked(daemon: RunningD
                              masking=lambda ref: "the page's secret fields couldn't be located (…)")
     gateway = daemon.daemon.gateway
     grant = SimpleNamespace(observe_only=False, task_id="t-unread", scopes={"screen"})
-    out = daemon.run(gateway._initial_image("browser.snapshot", SimpleNamespace(driver=driver),
+    out = daemon.run(gateway.hooks.initial_image("browser.snapshot", SimpleNamespace(driver=driver),
                                             SimpleNamespace(tab="t1"), SimpleNamespace(target=SimpleNamespace(site=None)),
                                             grant, ToolResult({"ok": True})))
     assert out.image is not None and "couldn't be located" in out.content["initial_image"]["masking"]

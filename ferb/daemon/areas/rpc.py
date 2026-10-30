@@ -197,7 +197,7 @@ class Rpc:
             return {"state": "unavailable"}
         task_id = str(params.get("task_id") or "")
         try:
-            frame = await self.gateway.previews.frame(task_id)
+            frame = await self.gateway.hooks.previews.frame(task_id)
         except asyncio.CancelledError:
             raise
         except Exception:

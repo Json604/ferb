@@ -29,7 +29,7 @@ class SecretsList:
                  sites: Callable[[ToolContext, str], list[str]] = lambda ctx, place: [],
                  holding: Callable[[], Container[str] | None] = lambda: None) -> None:
         self.home = home
-        self.sites = sites      # the calling task's owner-typed sites for this place (`Gateway._login_sites`), as links
+        self.sites = sites      # the calling task's owner-typed sites for this place (`HiddenInput._login_sites`), as links
         self.holding = holding  # the memory a username may still come from, read on the loop (L36 §6)
 
     def describe(self, args: BaseModel) -> ActionSpec:

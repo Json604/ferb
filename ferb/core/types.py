@@ -142,8 +142,8 @@ class ReceivedBy:
 class ActionFacts:
     """Structural facts a capability reports about its call (gateway decision 1, notes/gateway.md): read by code from
     the page, the app or the file system, never the worker's words and never a judgment of intent. Every field is
-    optional; None or empty means not known. Step 6 decides from them; until then the gateway passes them through to
-    the call's record untouched."""
+    optional; None or empty means not known. The gateway raises questions from them (step 6b: pay, account security,
+    permanent delete, a form submitted to a site) and records them on the call's span."""
     submits_form: bool | None = None         # the input submits a form (a submit control, Enter in a form's field)
     form_action_host: str | None = None      # the host the submitted form posts to (its action URL's host)
     form_method: str | None = None           # the submitted form's method, upper case (GET, POST)
@@ -158,6 +158,8 @@ class ActionFacts:
     page_url: str | None = None              # the address of the page the input acts on, where the app reports one
     frame_host: str | None = None            # the host of the frame the input lands in, when it isn't the page's own (a
                                              # cross-origin frame: card fields and bank pages often sit in one)
+    tab_chain: str | None = None             # the task tab this tab descends from (itself, or the tab that opened it,
+                                             # and so on): one payment's checkout and its bank page share it
     deletes: tuple[str, ...] = ()            # paths the call takes away from where they are (Trash or deleted)
     writes: tuple[str, ...] = ()             # paths the call creates or changes
 
