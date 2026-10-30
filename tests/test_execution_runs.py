@@ -11,16 +11,17 @@ from typing import Any
 from ferb.orchestrator.attempts import CHECK_IN_AFTER
 from ferb.orchestrator.plans import Plan, Step
 from ferb.policy.targets import Targets
-from tests.conftest import (STALL, RunningDaemon, answer_question, chat, done, install, outcome, sup, task, writes)
+from tests.conftest import (STALL, RunningDaemon, answer_question, chat, done, install, outcome, report, sup, task,
+                            verdict, writes)
 from tests.support.schedules import make_schedule, own_daemon, run
 
 
 def _report(status: str, summary: str) -> str:
-    return json.dumps({"status": status, "summary": summary, "artifacts": [], "evidence": []})
+    """A report that isn't done: its reason, and as the question too when it needs the owner."""
+    return json.dumps(report("not_done", reason=summary, question=summary if status == "needs_user" else None))
 
 
-RETRY = json.dumps({"action": "retry", "instructions": "Try another way.", "worker_type": "default", "question": "",
-                    "stop_reason": "", "result": None})
+RETRY = verdict(None, next="retry", missing="The table isn't booked.", instructions="Try another way.")
 
 
 class Turn:
@@ -165,7 +166,7 @@ def test_a_plan_step_that_needs_the_owner_asks_once_and_carries_on_with_the_answ
 
 def _failing(daemon: RunningDaemon, answers: list[str | None]) -> tuple[Any, Turn]:
     script = install(daemon, [sup("task", "On it.", task("Book the table"))],
-                     {"worker": _report("failed", "The site errored."), "worker.dispatch": RETRY})
+                     {"worker": _report("failed", "The site errored."), "worker.verify": RETRY})
     turn = Turn(daemon, "book the table")
     for choice in answers:
         asked = answer_question(daemon, choice=choice)
@@ -201,7 +202,7 @@ def test_a_scheduled_run_declines_a_question_at_once(daemon: RunningDaemon) -> N
 
 
 def test_a_scheduled_run_stops_at_five_failed_attempts_and_reports(daemon: RunningDaemon) -> None:
-    final = _scheduled(daemon, {"worker": _report("failed", "The page didn't load."), "worker.dispatch": RETRY})
+    final = _scheduled(daemon, {"worker": _report("failed", "The page didn't load."), "worker.verify": RETRY})
     assert final["status"] == "failed" and "nobody was there to ask" in final["answer"]
     assert not daemon.daemon.state.approvals.pending()
 

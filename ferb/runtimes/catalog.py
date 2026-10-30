@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
 
+from ferb.core.errors import Unsupported
 from ferb.core.types import ModelLimits
 
 ROLES = ("orchestrator", "worker", "checker")
@@ -27,6 +28,25 @@ def call_limit(mode: str, planner: bool) -> float | None:
         return None
     return PLANNER_LIMIT_S if planner else CALL_LIMIT_S
 
+
+
+class SignedOut(Unsupported):
+    """A runtime that can't start because FERB's own sign-in for it is missing (step 8b, owner decision 16): an account
+    fact, which the orchestrator offers to work around with another signed-in runtime; never with a model's judgment."""
+    account = "signed_out"
+
+    def __init__(self, message: str, runtime: str) -> None:
+        super().__init__(message)
+        self.runtime = runtime
+
+
+# How the owner knows each runtime (the question offering another one names it so)
+LABELS = {"codex": "Codex", "claude": "Claude", "anthropic": "the Anthropic API", "openai": "the OpenAI API",
+          "google": "the Google API"}
+
+
+def label(name: str) -> str:
+    return LABELS.get(name, name)
 
 @dataclass
 class RuntimeDeps:
@@ -81,7 +101,6 @@ class Runtime:
         """FERB's own sign-in (Codex, Claude) or the provider's key in the Keychain, and how to fix it when missing.
         Presence only: no key or credential is read."""
         if self.sign_in == "codex":
-            from ferb.core.errors import Unsupported
             from ferb.device.install import repo_root
             from ferb.runtimes.codex_exec import codex_binary, codex_home
             try:
@@ -133,12 +152,11 @@ def api_providers() -> tuple[str, ...]:
 # ---------- factories: everything model-specific stays in the adapter ----------
 
 def _build_codex(b: Build) -> Any:
-    from ferb.core.errors import Unsupported
     from ferb.device.install import repo_root
     from ferb.runtimes.codex_exec import CodexRuntime, codex_binary, codex_home
     if codex_home(b.home) is None:
-        raise Unsupported("Codex isn't signed in for FERB: choose Sign in to Codex… in FERB's menu bar, "
-                          "or run `ferb setup --codex-login`")
+        raise SignedOut("Codex isn't signed in for FERB: choose Sign in to Codex… in FERB's menu bar, "
+                        "or run `ferb setup --codex-login`", "codex")
     # P20 (owner, 2026-10-25): the planner's chat turn holds its stable context in Codex's developer role under a fixed
     # cache key only when `[runtimes] codex_planner_cache = true`; off until the owner passes the live injection eval
     # (tests/security/test_planner_injection_real.py). Only the boolean true turns it on.
@@ -152,12 +170,11 @@ def _build_codex(b: Build) -> Any:
 
 
 def _build_claude(b: Build) -> Any:
-    from ferb.core.errors import Unsupported
     from ferb.runtimes.claude_login import claude_home
     from ferb.runtimes.claude_sdk import ClaudeRuntime
     if claude_home(b.home) is None:          # never the owner's own ~/.claude login and billing
-        raise Unsupported("Claude isn't signed in for FERB: sign in to Claude in FERB's settings, or run "
-                          "`ferb setup --claude-login`")
+        raise SignedOut("Claude isn't signed in for FERB: sign in to Claude in FERB's settings, or run "
+                        "`ferb setup --claude-login`", "claude")
     if not b.model:
         raise Unsupported("the Claude runtime has no model set: run `ferb runtimes use ROLE claude --model MODEL`")
     return ClaudeRuntime(b.mode, b.deps.proxy(), str(b.home), shim_cmd=b.deps.shim_cmd, tool_names=b.tool_names,

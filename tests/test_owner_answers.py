@@ -306,7 +306,7 @@ def test_workers_are_never_told_to_ask_for_confirmation() -> None:
         assert gone not in interaction
     assert "required final confirmation" not in worker
     assert "FERB's code asks" in interaction                               # the floor questions are code's
-    for orchestrator in ("question.md", "dispatch.md"):
+    for orchestrator in ("question.md", "verifier.md"):
         assert "final confirmation" not in (PROMPTS / orchestrator).read_text()
 
 

@@ -1,8 +1,9 @@
-"""Owns agent-directed planning, dispatch, verification and final reporting. Must not bypass the gateway or turn model uncertainty into an implicit target choice.
+"""Owns agent-directed planning, the attempt loop, verification and final reporting. Must not bypass the gateway or turn model uncertainty into an implicit target choice.
 
 Agent-directed planning and recovery. Workers share the installed registry across reading and acting.
 
-The orchestrator chooses runtimes, continuations and unresolved owner questions. Result checks feed recovery.
+The planner chooses the task and its plan; after each attempt the merged checker judges the conditions and chooses
+what's next (step 8b), and code writes the status from those verdicts.
 Durable conversation, relevant memory/activity and uncertain-action evidence inform each attempt."""
 
 import asyncio
@@ -26,7 +27,7 @@ from ferb.act.mac.launched import left_running
 from ferb.act.mac.screenshot import TIMEOUT_S as CAPTURE_TIMEOUT_S
 from ferb.clock import context, when
 from ferb.core import origin as origins_
-from ferb.core.errors import Deferred, PlanRejected
+from ferb.core.errors import Deferred, FerbError, PlanRejected
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens, overhead_chars, overhead_tokens
 from ferb.core.prompts import load_prompt
@@ -53,18 +54,19 @@ from ferb.orchestrator.ports import (BrowserPort, DesktopPort, EnvironmentPort, 
                                     QuestionRouter, SchedulePort)
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
-from ferb.orchestrator.evidence import PAGE_CHARS, memory_origin, recorded_calls
+from ferb.orchestrator.evidence import PAGE_CHARS, how_facts, memory_origin, recorded_calls
 from ferb.orchestrator.guards import STALL_S, Activity
-from ferb.orchestrator.loops import (LOOP_ROUND, PAUSED, LoopRunner, LoopStore, look_only_round, loop_line,
+from ferb.orchestrator.loops import (LOOP_ROUND, LoopRunner, LoopStore, look_only_round, loop_line,
                                      round_reason, short_label)
 from ferb.orchestrator.probes import MISSING, Probe, field_value, refusal, resolve_tool
-from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
-                                       WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
-                                       SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
+from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA,
+                                       AnswerQuestion, Check, CheckerOutcome, Condition, QuestionOutcome, SummaryOutcome,
+                                       SupervisorOutcome, TaskSpec, WorkerReport, worker_schema)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
-from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceError, WorkerRuns,
-                                      couldnt, model_limits, reason, reserve_tokens)
+from ferb.orchestrator.worker import (BUG, ConnectionNotice, InvalidAnswer, Overflowed, ServiceDown, ServiceError,
+                                      WorkerRuns, account_problem, couldnt, model_limits, reason, reserve_tokens)
+from ferb.runtimes.catalog import label
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm, provenance
 from ferb.policy.rules import ActionRequest
@@ -92,8 +94,9 @@ WORKER = SINGLE                                  # the one worker's step id (tas
 assert WORKER == "worker"
 
 # F4 live fixes (task 79bc5bfa): every check also judges the report the owner will see against the recorded evidence.
-# Code adds this condition and hands the checker the report; the checker judges it (rule 6). The owner hears of it
-# only when it isn't met, in their own terms (REPORT_FALSE / REPORT_UNKNOWN / REPORT_UNCHECKED in _report).
+# Code adds this condition and hands the checker the report; the checker judges it (rule 6). It is not an outcome
+# condition (owner decision 9): when only it isn't met, the checker fixes the answer (fix_answer), or the answer's one
+# "Couldn't confirm" line says what isn't confirmed; the work is never redone for it (`_next`).
 REPORT_CONDITION = Condition(
     text="My report to you says truthfully what was done, who did each part (FERB itself, or the agent, app or person "
          "you named) and with what, and leaves out nothing that changes the result",
@@ -363,12 +366,18 @@ class _Tree:
     intake_receipts: list[str] = field(default_factory=list)
     context_sources: dict[str, str] = field(default_factory=dict)
     owner_question: str = ""
-    stop_reason: str = ""
-    finish_chosen: bool = False          # the orchestrator ended the work (its instructions are not owner text)
+    stop_reason: str = ""                # why the work failed, in the owner's terms (the checker's reason, or code's)
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     check_problem: str = ""              # why the current attempt's check couldn't run, in the owner's words
-    checked_report: str | None = None    # the report the last attempt's check judged: a done answer is these words
-    owner_answer: str = ''
+    owner_answer: str = ''               # the worker's answer to the owner, with the checker's exact fixes applied
+    reason: str = ''                     # the worker's reason for not finishing (not_done)
+    worker_question: str = ''            # and the question it proposed for the owner, if any
+    how: str = ''                        # the worker's note on the steps that worked (memory, notes/memory.md Tier 3)
+    confirmed: dict[int, ConditionResult] = field(default_factory=dict)   # conditions confirmed by an earlier attempt
+    unconfirmed: str = ''                # code's one "Couldn't confirm" line for a done answer, '' when none
+    correction: str = ''                 # and what the records show against an unfixed detail of the answer
+    runtime: str | None = None           # the runtime the owner chose for this task's worker and checker (decision 16)
+    runtime_switch: dict[str, Any] | None = None   # the offer of another runtime when an account fact ended the work
     input_notes: list[dict[str, Any]] = field(default_factory=list)
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
@@ -379,7 +388,6 @@ class _Tree:
     hold_resources: bool = False         # a loop round: what it starts stays the loop's until the loop ends
     calls_since: int = 0                 # and its check reads only the calls recorded after this span cursor
     unchecked: str = ''                  # why this round's model check was skipped (a look-only round), else ''
-    unlooked: list[str] = field(default_factory=list)   # L39 I4: the only gap is a check that didn't read these files
     step_context: str = ''
     parent_goal: str = ''                # a plan step's: the goal of the task it belongs to, above its own (L36 §4)
     required_inputs: list[str] = field(default_factory=list)
@@ -406,6 +414,9 @@ LOOP_STOP, LOOP_KEEP = "Stop", "Keep watching"
 # A task's own question goes out as a plan question (`plan.ask`), which the planner may also answer from the owner's
 # chat words; a paused loop's keeps its own capability (LOOP_ASK) so a reply in chat stays a correction of the task.
 TASK_ASK = "plan.ask"
+# Owner decision 16: the offer of another runtime after a usage limit or sign-in failure. Only the owner answers it
+# (a tap, or `runtimes.switch_task`): it isn't routable, so the planner can't choose a runtime from chat words.
+RUNTIME_ASK = "runtime.switch"
 CONTINUE, STOP = "Continue", "Stop"
 
 
@@ -430,6 +441,7 @@ class _Wait:
     origin: str = origins_.FERB
     capability: str = TASK_ASK
     approval: Any = None
+    extra: dict[str, Any] = field(default_factory=dict)   # more for the app with the question (runtime_switch)
     opened: bool = False                 # its first waiter asked; later ones wait for its reply
     reply: OwnerReply | None = None
     done: asyncio.Event = field(default_factory=asyncio.Event)
@@ -1003,7 +1015,7 @@ class Supervisor(WorkerRuns):
                                  'options': options}, origin=wait.origin)
             self.publish('approval.requested', {'approval_id': ap.id, 'capability': wait.capability,
                                                 'kind': 'owner_question', 'reason': question, 'options': options,
-                                                'task_id': task.id, 'request_id': task.request_id})
+                                                'task_id': task.id, 'request_id': task.request_id} | wait.extra)
         reply = OwnerReply('stopped', question=question)
         try:
             while not self._stopped(tree):
@@ -1570,6 +1582,15 @@ class Supervisor(WorkerRuns):
             self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # 2026-10-24:
                                                 "detail": str(e)})          # never "something went wrong on my side")
             self._env.pop(request_id, None)
+            if (account := getattr(e, "account", "")) in ("usage_limit", "signed_out"):
+                # owner decision 16: code writes it and offers another signed-in runtime for the planner's role (the
+                # app's button calls `runtimes.use`); FERB never switches by itself
+                runtime = str(getattr(e, "runtime", ""))
+                reply = self._failure_reply(session_id, request_id, account_problem(runtime, account))
+                yield reply | {"runtime_switch": {
+                    "runtime": runtime, "problem": account, "role": "orchestrator",
+                    "choices": [n for n in self.worker_types() if n not in ("default", runtime)]}}
+                return
             yield self._failure_reply(session_id, request_id, couldnt("start that", e, self.gateway.redact))
             return
         authority_id = request_id
@@ -2563,11 +2584,10 @@ class Supervisor(WorkerRuns):
             if tree.verification and not tree.stop:
                 yield {"type": "verification", "id": WORKER, "task_id": worker.id,
                        "results": [r.as_dict() for r in tree.verification]}
-            # Also release resources on failed/blocked/stopped exits. A successful attempt already released them
-            # inside the recovery loop; an idempotent empty release does not require another model decision.
-            changed = await self._release_resources(tree, root_span.id)
-            if changed and not tree.stop:
-                await self._reconcile_resources(tree, root_span.id)
+            # Also release resources on failed/blocked/stopped exits. A successful attempt already released them in
+            # its attempt loop; code records what the release closed or left open (the checker judged what the task
+            # held before it, prompts decision 1), and a release error is said in the answer's code lines.
+            await self._release_resources(tree, root_span.id)
         except BaseException as exc:
             tree.stop = tree.stop or (SHUT_DOWN if self._suspending else interrupted(exc, self.gateway.redact))
             with suppress(Exception):          # the class name for the records; the owner reads its reason above
@@ -3063,8 +3083,13 @@ class Supervisor(WorkerRuns):
                         break
                 out = await self._worker(member, span)
                 self._finish_step(member, out)        # the turn's own row ends with its result, never `interrupted`
+                # the turn's evidence: its own recorded observations (the thread read, the worker's calls), by span id,
+                # never the worker's words (step 8b: the report has no evidence field)
+                observed = [str(r[0]) for r in self.journal.db.conn.execute(
+                    "SELECT id FROM spans WHERE task_id = ? AND kind = 'tool.call' AND error IS NULL ORDER BY rowid",
+                    (child.id,))]
                 result = {'status': out.status, 'summary': member.owner_answer or out.summary,
-                          'artifacts': out.artifacts, 'evidence': out.evidence,
+                          'artifacts': out.artifacts, 'evidence': out.evidence or observed,
                           'conversation_action': member.conversation_action}
                 self.journal.append('conversation.turn', {'id': conversation_id, 'task_id': child.id,
                     'number': number, **result}, origin=origins_.join({origins_.INFERRED, origins_.external('conversation')}))
@@ -3379,9 +3404,9 @@ class Supervisor(WorkerRuns):
         spec = member.spec.model_copy(deep=True)
         spec.success_conditions = [Condition(text=step.end_when, owner_text=step.end_when, check=Check(
             kind='none', path=None, text=None, url_contains=None, site=None, expected=None))]
-        judge = dataclasses.replace(member, spec=spec, outcome=out, verification=[])
+        judge = dataclasses.replace(member, spec=spec, outcome=out, verification=[], confirmed={})
         try:
-            results = await self.verify(judge, span)
+            results, _ = await self.verify(judge, span)       # only its verdict counts here, not a next step
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -3481,160 +3506,76 @@ class Supervisor(WorkerRuns):
         self._interrupt(tree, stop=True)
 
     async def _worker(self, tree: _Tree, span: str) -> Outcome:
-        """The attempt loop of one task or plan step (a loop's round and a conversation's turn have their own): an
-        attempt (the worker, then its check), then the next-attempt choice. Needing the owner pauses here in place and
-        asks (`asks_in_place`); a pause of the task holds here; after CHECK_IN_AFTER failed attempts FERB asks whether to
-        keep going (owner decision 7: `attempts`, counted only where a retry is chosen)."""
+        """The attempt loop of one task or plan step (a loop's round and a conversation's turn run one too): an attempt
+        is the worker, then the merged checker, which judges the conditions and chooses what's next (owner decision 3):
+        accept, fix the answer, retry, ask the owner, accept unconfirmed, or fail; code checks that choice against the
+        checker's own verdicts (`_next`). Needing the owner pauses here in place and asks (`asks_in_place`); a pause of
+        the task holds here; after CHECK_IN_AFTER retries FERB asks whether to keep going (owner decision 7: `attempts`,
+        counted only where a retry is chosen). Conditions confirmed in an earlier attempt carry over (`_carry`)."""
         task = tree.worker
         instructions = ""
-        artifacts: list[str] = []
-        evidence: list[str] = []
-        recheck: Outcome | None = None       # L39 I4: the done report whose check alone runs again ("recheck")
         attempts = Attempts()
+        tree.confirmed = {}
         while not tree.stop:
             if self._is_paused(tree):        # owner decision 8: the step waits here; resuming starts a fresh attempt
                 reply = await self._hold_pause(tree, task, tree.step_id)
                 if reply.kind == 'stopped' or tree.stop:
                     break
-                instructions, recheck = self._owner_continuation(reply), None
+                instructions = self._owner_continuation(reply)
                 continue
-            tree.unlooked = []
-            if recheck is not None:          # only the check runs again: the same work and change records, no worker
-                out, recheck = recheck, None
-                tree.verification, tree.check_problem, tree.checked_report = [], "", None
-                attempt_revision = len(tree.steering.messages)
-                again = self.spans.start("verify.recheck", task_id=task.id, parent_id=span, input={})
-                self.spans.finish(again, output={"worker": "not run: the orchestrator chose to re-run only the check"})
-            else:
-                # Prior attempts remain in report/cleanup spans. Only the current attempt determines final state.
-                tree.resources = []
-                tree.cleanup_errors = []
-                tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
-                tree.check_problem = ""
-                tree.checked_report = None
-                tree.watch_met = None            # an attempt whose report fails validation reports nothing (review M6)
-                tree.loop_action = None          # and a loop round's choice and probe likewise (L31)
-                tree.probe = None
-                tree.unchecked = ''
-                self._set_status(task.id, "running")
-                raw, _ = await self.run_worker(tree, task, "worker.md", (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation", protected=True)],
-                                               WORKER_SCHEMA, span)
-                attempt_revision = len(tree.steering.messages)
-                if self._is_paused(tree) and not tree.stop:
-                    continue                 # the pause ended this attempt: its report is dropped, and it isn't counted
+            self._new_attempt(tree)
+            self._set_status(task.id, "running")
+            ctx = (await self._context(tree, learned=True)) + [ContextBlock(instructions, "current continuation",
+                                                                            protected=True)]
+            raw, _ = await self.run_worker(tree, task, "worker.md", ctx, self._report_schema(tree), span)
+            if self._is_paused(tree) and not tree.stop:
+                continue                 # the pause ended this attempt: its report is dropped, and it isn't counted
+            choice: _Next | None = None
+            down = raw if isinstance(raw, ServiceDown) else None
+            out = self._read_report(tree, task, raw)
+            if down is None and not self._steered(tree) and not tree.stop:
                 try:
-                    w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
-                    out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
-                    tree.owner_answer = getattr(w, 'answer', '')
-                    tree.input_notes = getattr(w, 'input_notes', [])
-                    tree.conversation_action = getattr(w, 'conversation_action', None)
-                    tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
-                    tree.watch_met = getattr(w, 'watch_met', None)
-                    tree.loop_action = getattr(w, 'loop_action', None)
-                    tree.probe = getattr(w, 'probe', None)
-                    if out.status == 'done' and tree.required_inputs:
-                        covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
-                        missing = [p for p in tree.required_inputs if covered.count(p) != 1]
-                        if missing or set(covered) - set(tree.required_inputs):
-                            out = Outcome(task.id, 'blocked', out.summary + '\nThe complete evidence notes are missing or duplicated for: ' +
-                                          json.dumps(missing), out.artifacts, out.evidence)
-                except ValidationError:
-                    out = Outcome(task.id, "failed", "The report from this attempt was incomplete.", [], [])
-                artifacts = list(dict.fromkeys(artifacts + out.artifacts))
-                evidence = list(dict.fromkeys(evidence + out.evidence))
-                out = Outcome(task.id, out.status, out.summary, artifacts, evidence)
-                if tree.result_revision < len(tree.steering.messages) and not tree.stop:
-                    # Preserve completed work while a fresh turn handles the correction that raced completion.
-                    tree.reports.append({'status': out.status, 'summary': out.summary, 'artifacts': artifacts,
-                                         'evidence': evidence, 'note': 'Finished before the latest owner correction was delivered.'})
+                    choice = await self._judge(tree, out, span)
+                except _RuntimeDown as exc:              # the checker's runtime hit the same kind of account fact
+                    down = exc.down
+            if down is not None and not tree.stop:
+                switched = await self._service_down(tree, task, down)
+                if switched is None:
+                    break
+                if switched:
+                    instructions = (f"\nThe owner chose to carry on this task with {label(tree.runtime)}."
+                                    if tree.runtime else "")
                     continue
-            finished: Outcome | None = None      # this attempt's done report when its check found nothing false
-            checked_done: Outcome | None = None  # the done report this attempt's check judged (for a recheck)
-            if out.status == "done" and tree.spec.success_conditions and not tree.stop:
-                tree.outcome = out
-                checked_done = out
-                checking_revision = len(tree.steering.messages)
-                tree.unchecked = self._look_only(tree)
-                try:
-                    if tree.unchecked:       # owner 2026-10-25: the probe's first read is this round's check (L31)
-                        skipped = self.spans.start('verify.skipped', task_id=task.id, parent_id=span,
-                                                   input={'reason': tree.unchecked})
-                        self.spans.finish(skipped, output={'checker': 'not run'})
-                    else:
-                        tree.verification = await self.verify(tree, span)
-                except Exception as exc:
-                    self.journal.append("task.inspection_failed", {"task_id": task.id,
-                                         "error": f"{type(exc).__name__}: {exc}"})
-                    tree.check_problem = reason(exc, self.gateway.redact)
-                    tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
-                                                         f"The check couldn't run: {type(exc).__name__}: {exc}")
-                                         for i, c in enumerate(checked_conditions(tree.spec, tree.watch,
-                                                                                  tree.watch_met))]
-                if (checking_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
-                    tree.verification = []
-                    continue
-                unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
-                if unresolved:
-                    # Unknown coverage is also work for the planner. It decides retry/ask/finish; no retry cap
-                    # or code inference about the requested app, account or missing content belongs here.
-                    # A finished attempt whose check found nothing false may stand as done but unconfirmed (V4),
-                    # only if the orchestrator judges so when it finishes (or can't choose another attempt).
-                    if not any(r.met is False for r in tree.verification):
-                        finished = out
-                    out = Outcome(task.id, "blocked", out.summary + " Result not complete: " + "; ".join(unresolved),
-                                  artifacts, evidence + unresolved)
-            if out.status == 'done' and not tree.stop:
-                tree.outcome = out
-                # a loop round's resources stay the loop's until the loop ends (L31): released once, by _loop_step
-                changed = False if tree.hold_resources else await self._release_resources(tree, span)
-                if changed and not tree.stop:
-                    await self._reconcile_resources(tree, span)
-                    out = tree.outcome
-                    artifacts = list(dict.fromkeys(artifacts + out.artifacts))
-                    evidence = list(dict.fromkeys(evidence + out.evidence))
-            tree.reports.append({"worker_type": tree.spec.worker_type, "status": out.status,
-                                 "summary": out.summary, "artifacts": artifacts, "evidence": evidence,
-                                 "resources": tree.resources, "cleanup_errors": tree.cleanup_errors})
-            if (attempt_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
+                return Outcome(task.id, "failed", down.summary, [], [])
+            report: dict[str, Any] = {"worker_type": tree.spec.worker_type,
+                                      "status": "done" if out.status == "done" else "not_done",
+                                      "answer": tree.owner_answer, "reason": tree.reason, "artifacts": out.artifacts}
+            if choice is not None:
+                report["check"] = {"next": choice.action, "missing": choice.missing,
+                                   "instructions": choice.instructions, "reason": choice.reason}
+            tree.reports.append(report)
+            accepted = choice is not None and choice.action in ("accept", "accept_unconfirmed") and not tree.stop
+            if accepted and not tree.hold_resources:
+                # what the task holds goes now (the checker judged it with that fact); a loop round's resources stay
+                # the loop's until the loop ends (L31): released once, by _loop_step
+                await self._release_resources(tree, span)
+            # The one steering checkpoint of an attempt (fix list): a correction the worker never saw, delivered during
+            # its run, its check or its clean-up, supersedes this attempt; a done report is kept (in the reports the
+            # next attempt reads), never lost, and the next attempt starts from the correction.
+            if (self._steered(tree) or self._is_paused(tree)) and not tree.stop:
+                if out.status == "done":
+                    report["note"] = "Finished before the latest owner correction was delivered."
+                instructions = ""
                 continue
-            if tree.stop or out.status in ("done", "cancelled"):
-                return out
-            try:
-                choice = await self._dispatch(tree, out, span)
-            except Exception as exc:
-                self.journal.append("task.dispatch_failed", {"task_id": task.id,
-                                     "error": f"{type(exc).__name__}: {exc}"})
-                if attempt_revision != len(tree.steering.messages) and not tree.stop:
-                    continue
-                # The owner reads the problem in plain words; the exact failure stays in the records (P27).
-                # FERB's own sentence ends it: the reason's own end period isn't doubled
-                problem = ": " + reason(exc, self.gateway.redact).rstrip(".")
-                if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
-                    tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."
-                    tree.stands_unconfirmed = True
-                    return finished
-                return Outcome(task.id, "cancelled" if tree.stop else "failed",
-                               tree.stop or _sentence(out.summary) + f"I couldn't plan the next attempt{problem}.",
-                               artifacts, evidence)
-            if (attempt_revision != len(tree.steering.messages) or self._is_paused(tree)) and not tree.stop:
-                continue
-            if choice.action == "recheck" and checked_done is None:
-                # N5: nothing was checked (the attempt didn't finish as done): the dispatcher gets that fact and
-                # chooses again; a recheck never becomes a worker retry
-                try:
-                    choice = await self._dispatch(tree, out, span, note=NOTHING_TO_RECHECK)
-                except Exception as exc:
-                    self.journal.append("task.dispatch_failed", {"task_id": task.id,
-                                         "error": f"{type(exc).__name__}: {exc}"})
-                    return Outcome(task.id, "cancelled" if tree.stop else "failed",
-                                   tree.stop or _sentence(out.summary) + "I couldn't plan the next attempt.",
-                                   artifacts, evidence)
-                if choice.action == "recheck":
-                    return Outcome(task.id, "failed", _sentence(out.summary) + RECHECK_NOTHING_STOP, artifacts,
-                                   evidence)
-            if choice.action == "recheck" and checked_done is not None:
-                recheck = checked_done           # L39 I4: the check alone runs again on the same work
-                continue
+            if tree.stop or out.status == "cancelled" or choice is None:
+                break
+            if accepted:
+                tree.stands_unconfirmed = choice.action == "accept_unconfirmed"
+                tree.outcome = Outcome(task.id, "done", tree.owner_answer, out.artifacts, [])
+                return tree.outcome
+            if choice.action == "fail":
+                tree.stop_reason = choice.reason or tree.reason or NOT_ACCEPTED
+                return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
             if choice.action == "ask":
                 tree.owner_question = choice.question
                 if tree.asks_in_place:       # "needs the owner": the step pauses here and asks; nobody there declines
@@ -3647,32 +3588,230 @@ class Supervisor(WorkerRuns):
                         continue
                     if reply.kind == 'stopped' or tree.stop:
                         break
-                return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
-            if choice.action == "finish":
-                # The real reason is shown with the conditions (V5). Without one from the orchestrator, the attempt's
-                # own report of not finishing is the reason; never a report rebuilt from an unconfirmed success claim.
-                own, rebuilt = tree.reports[-1], any(r.met is not True for r in tree.verification)
-                tree.stop_reason = choice.stop_reason or ("" if rebuilt or own["status"] == "done"
-                                                          else str(own["summary"]))
-                tree.finish_chosen = True
-                # Rule 6: the orchestrator judges an unconfirmed finish; code maps only "unconfirmed" on finished
-                # work with nothing found false to done but unconfirmed. Anything else is a failure.
-                if finished is not None and choice.result == "unconfirmed":
-                    tree.stands_unconfirmed = True
-                    return finished
-                return Outcome(task.id, "failed", choice.instructions or out.summary, artifacts, evidence)
-            if choice.worker_type in self.worker_types():    # else `_dispatch` was already told once: same type
+                return Outcome(task.id, "needs_user", choice.question, out.artifacts, [])
+            # retry: the checker's instructions for the next attempt
+            if choice.worker_type in self.worker_types():
                 tree.spec.worker_type = choice.worker_type
-            instructions = "\nOrchestrator continuation: " + choice.instructions
+            instructions = (f"\nWhat the check found missing: {choice.missing}" if choice.missing else "") + \
+                f"\nInstructions for this attempt: {choice.instructions}"
             if attempts.failed_one():        # owner decision 7: the check-in before another attempt
                 keep = await self._check_in(tree, task, attempts)
                 if keep is None:
                     break
                 if keep is False:
-                    tree.finish_chosen = True
-                    return Outcome(task.id, "failed", out.summary, artifacts, evidence)
+                    return Outcome(task.id, "failed", tree.stop_reason, out.artifacts, [])
                 instructions += keep
-        return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, artifacts, evidence)
+        return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, [], [])
+
+    def _new_attempt(self, tree: _Tree) -> None:
+        """Everything an attempt reports starts empty, so an attempt whose report fails validation reports nothing of
+        an earlier one (fix list: stale fields); only confirmed conditions carry over (`tree.confirmed`)."""
+        tree.resources, tree.cleanup_errors, tree.verification = [], [], []
+        tree.check_problem = tree.unconfirmed = tree.correction = tree.unchecked = ''
+        tree.owner_answer = tree.reason = tree.how = tree.worker_question = tree.owner_question = ''
+        tree.input_notes, tree.conversation_proposals = [], []
+        tree.conversation_action = tree.loop_action = None
+        tree.watch_met = tree.probe = None
+
+    @staticmethod
+    def _steered(tree: _Tree) -> bool:
+        """A correction this attempt's worker never saw (delivered after its run took its last one)."""
+        return tree.result_revision < len(tree.steering.messages)
+
+    def _report_schema(self, tree: _Tree) -> dict[str, Any]:
+        """The report schema of this tree's worker (per role, step 8b): a do step with inputs gets input notes, a step a
+        converse step takes its scopes from gets conversation proposals, a conversation turn its action, a watch's run
+        watch_met, a loop round its action and probe."""
+        step: dict[str, Any] = {}
+        if tree.step_context:
+            with suppress(ValueError, TypeError):
+                loaded = json.loads(tree.step_context)
+                step = loaded if isinstance(loaded, dict) else {}
+        proposals = False
+        if step.get("step"):             # a plan step: does a converse step take its scopes from it?
+            with suppress(KeyError):
+                plan = self.plans.load(tree.id)['plan']
+                proposals = any(s.kind == 'converse' and s.conversation is None and tree.step_id in s.depends_on
+                                for s in plan.steps)
+        return worker_schema(inputs=bool(tree.required_inputs), proposals=proposals,
+                             conversation="conversation" in step, watch=tree.watch, loop="loop" in step)
+
+    def _read_report(self, tree: _Tree, task: Task, raw: dict[str, Any] | Outcome) -> Outcome:
+        """The attempt's report as an Outcome: done (summary: the owner's answer) or not done ("failed", summary: why);
+        a run that ended without a report (cancelled, a runtime failure) as it ended. The report's fields go on the
+        tree; a report that fails validation sets none of them."""
+        if isinstance(raw, Outcome):
+            tree.reason = raw.summary
+            return Outcome(task.id, raw.status, raw.summary, [], list(raw.evidence))
+        try:
+            w = WorkerReport.model_validate(raw)
+        except ValidationError:
+            tree.reason = "The report from this attempt was incomplete."
+            return Outcome(task.id, "failed", tree.reason, [], [])
+        tree.owner_answer, tree.how, tree.input_notes = w.answer, w.how, w.input_notes
+        tree.conversation_action, tree.conversation_proposals = w.conversation_action, w.conversation_proposals
+        tree.watch_met, tree.loop_action, tree.probe = w.watch_met, w.loop_action, w.probe
+        tree.reason = w.reason if w.status == "not_done" else ""
+        tree.worker_question = (w.question or "") if w.status == "not_done" else ""
+        if w.status == "done" and tree.required_inputs:
+            covered = [n.get('input') for n in tree.input_notes if n.get('note') and n.get('evidence')]
+            missing = [p for p in tree.required_inputs if covered.count(p) != 1]
+            if missing or set(covered) - set(tree.required_inputs):
+                tree.reason = "The complete evidence notes are missing or duplicated for: " + json.dumps(missing)
+                return Outcome(task.id, "failed", tree.reason, w.artifacts, [])
+        if w.status == "done":
+            return Outcome(task.id, "done", w.answer, w.artifacts, [])
+        return Outcome(task.id, "failed", tree.reason or w.answer, w.artifacts, [])
+
+    async def _judge(self, tree: _Tree, out: Outcome, span: str) -> "_Next":
+        """The attempt's check and the next step it chooses. No conditions to check: a done report stands unconfirmed
+        (`_final` says there was nothing to check it against), any other fails with its reason. A loop round that only
+        looked keeps its probe's first read as its check (L31). A check that can't run decides nothing a model
+        should: a done report stands unconfirmed with why, any other fails with its reason."""
+        task = tree.worker
+        tree.outcome = out                   # what the check judges: this attempt's report
+        if not checked_conditions(tree.spec, tree.watch, tree.watch_met):
+            return _Next("accept" if out.status == "done" else "fail", reason=tree.reason)
+        if out.status == "done" and (skip := self._look_only(tree)):
+            tree.unchecked = skip            # owner 2026-10-25: the probe's first read is this round's check (L31)
+            skipped = self.spans.start('verify.skipped', task_id=task.id, parent_id=span, input={'reason': skip})
+            self.spans.finish(skipped, output={'checker': 'not run'})
+            return _Next("accept")
+        try:
+            tree.verification, checked = await self.verify(tree, span)
+        except _RuntimeDown:
+            raise
+        except Exception as exc:
+            self.journal.append("task.inspection_failed", {"task_id": task.id, "error": f"{type(exc).__name__}: {exc}"})
+            tree.check_problem = reason(exc, self.gateway.redact)
+            tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
+                                                 f"The check couldn't run: {type(exc).__name__}: {exc}")
+                                 for i, c in enumerate(checked_conditions(tree.spec, tree.watch, tree.watch_met))]
+            checked = None
+        if checked is None:              # the check couldn't finish: nothing chose a next step
+            if out.status == "done":
+                tree.unconfirmed = "the check couldn't run" + (f": {tree.check_problem.rstrip('.')}"
+                                                               if tree.check_problem else "")
+                return _Next("accept_unconfirmed")
+            return _Next("fail", reason=tree.reason)
+        return self._next(tree, out, checked)
+
+    def _next(self, tree: _Tree, out: Outcome, checked: CheckerOutcome) -> "_Next":
+        """The checker's choice, checked against its own verdicts (owner decision 9; code never judges content):
+        - accept / fix_answer / accept_unconfirmed apply the answer edits; the task is done when every outcome
+          condition is verified; it stands unconfirmed when one is still unknown and the worker reported done; any
+          outcome condition found false, or unfinished work with outcomes unknown, fails;
+        - an unproven detail of the answer (FERB's report condition not confirmed and not fixed by edits) is marked by
+          the one "Couldn't confirm" line, never by a redo;
+        - retry needs instructions (else what's missing, else the worker's reason); ask needs a question (else the
+          worker's own); fail carries the checker's reason (else the worker's)."""
+        planned = len(tree.spec.success_conditions) + int(tree.watch)       # FERB's report condition comes after
+        outcome = [r for r in tree.verification if r.index < planned]
+        report = next((r for r in tree.verification if r.index == planned), None)
+        action = checked.next
+        if action in ("accept", "fix_answer", "accept_unconfirmed"):
+            unapplied = self._apply_edits(tree, checked)
+            refuted = [r for r in outcome if r.met is False]
+            unknown = [r for r in outcome if r.met is not True]
+            if refuted or (unknown and out.status != "done"):
+                why = checked.reason or ("" if refuted else tree.reason) or "; ".join(
+                    f"{self._owner_text(tree, r)}: {r.evidence}" for r in (refuted or unknown))
+                return _Next("fail", reason=why)
+            lines = [self._owner_text(tree, r) + (f" ({r.how.rstrip('.')})" if r.how else "") for r in unknown]
+            fixed = action == "fix_answer" and bool(checked.answer_edits) and not unapplied
+            if report is not None and report.met is None and not fixed:
+                lines.append(report.evidence)
+            tree.unconfirmed = "; ".join(line.strip().rstrip(".") for line in lines if line.strip())
+            # a detail of the answer the records contradict, left unfixed: said as a correction, never left standing
+            tree.correction = report.evidence if report is not None and report.met is False and not fixed else ""
+            return _Next("accept_unconfirmed" if unknown else "accept")
+        if action == "retry":
+            instructions = checked.instructions.strip() or checked.missing.strip() or tree.reason
+            return _Next("retry", instructions=instructions, missing=checked.missing.strip(),
+                         worker_type=checked.worker_type)
+        if action == "ask":
+            question = checked.question.strip() or tree.worker_question
+            if question:
+                return _Next("ask", question=question)
+        # without the checker's reason: the worker's own reason for not finishing, else what the check found (never a
+        # done report's claim)
+        found = "; ".join(f"{self._owner_text(tree, r)}: {r.evidence}" for r in outcome if r.met is not True) or (
+            report.evidence if report is not None and report.met is not True else "")
+        return _Next("fail", reason=checked.reason.strip() or tree.reason or found or NOT_ACCEPTED)
+
+    def _apply_edits(self, tree: _Tree, checked: CheckerOutcome) -> list[str]:
+        """The checker's exact edits to the worker's answer (fix_answer), each applied where its text appears; the ones
+        whose text isn't in the answer, returned (the answer keeps that part, and it is marked unconfirmed)."""
+        unapplied = []
+        for edit in checked.answer_edits:
+            if edit.find and edit.find in tree.owner_answer:
+                tree.owner_answer = tree.owner_answer.replace(edit.find, edit.replace)
+            elif edit.find:
+                unapplied.append(edit.find)
+        if checked.answer_edits:
+            self.journal.append("task.answer_fixed", {"task_id": tree.worker.id, "edits": len(checked.answer_edits),
+                                                      "unapplied": len(unapplied)})
+        return unapplied
+
+    @staticmethod
+    def _owner_text(tree: _Tree, result: ConditionResult) -> str:
+        conditions = tree.spec.success_conditions
+        if result.index < len(conditions):
+            return conditions[result.index].owner_text or result.text
+        return WATCH_TEXT if tree.watch and result.index == len(conditions) else result.text
+
+    async def _service_down(self, tree: _Tree, task: Task, down: ServiceDown) -> bool | None:
+        """Owner decision 16: a usage limit or a sign-in failure from the runtime is said once, by code, and FERB offers
+        each other signed-in runtime with one tap (a question in place, `RUNTIME_ASK`, which only the owner answers:
+        the planner can't route chat words to it); it never switches by itself (billing). True: carry on (on the
+        owner's choice of runtime for this task's worker and checker, or as it was when they replied in chat);
+        False: the task fails with code's own words (nobody there, no other runtime signed in, a No, or a loop round
+        or conversation turn, which has no question of its own for it); None: stopped."""
+        role = "checker" if down.task_id.endswith(".verify") else "worker"
+        choices = [name for name in self.worker_types() if name not in ("default", down.runtime)]
+        offer = {"runtime": down.runtime, "problem": down.problem, "role": role, "choices": choices}
+        self.journal.append("runtime.account_problem", {"task_id": tree.id, **offer})
+        tree.runtime_switch, tree.stop_reason = offer, down.summary
+        if not choices:
+            tree.stop_reason = down.summary + " No other AI service is signed in for FERB (Settings → AI)."
+            return False
+        if not tree.asks_in_place:
+            return False
+        options = tuple(f"Use {label(name)}" for name in choices) + (STOP,)
+        wait = _Wait(tree.id, down.summary + f" Carry on with {' or '.join(label(n) for n in choices)} instead?",
+                     options, origins_.FERB, RUNTIME_ASK, extra={"runtime_switch": offer})
+        reply = await self._wait_for_owner(tree, task, wait, step_id=tree.step_id)
+        if reply.kind == 'stopped' or tree.stop:
+            return None
+        if reply.kind == 'steer':           # the owner replied in chat instead: carry on as they said
+            tree.runtime_switch, tree.stop_reason = None, ''
+            return True
+        asked = list(wait.approval.options) if wait.approval is not None else []
+        if reply.kind == 'answer' and reply.choice in asked[:len(choices)]:
+            tree.runtime = choices[asked.index(reply.choice)]
+            tree.runtime_switch, tree.stop_reason = None, ''
+            self.journal.append("runtime.switched", {"task_id": tree.id, "runtime": tree.runtime, "role": role},
+                                origin=origins_.OWNER)
+            return True
+        return False
+
+    def runtime_offer(self, task_id: str) -> dict[str, Any] | None:
+        """The offer of another runtime this running task waits on (owner decision 16), else None."""
+        root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
+        return next((dict(t.runtime_switch) for t in list(self._tree_of.values())      # the step that asked
+                     if t.id == root and t.runtime_switch), None)
+
+    def answer_runtime_switch(self, task_id: str, runtime: str) -> dict[str, Any]:
+        """The app's one tap (owner decision 16, `runtimes.switch_task`): answer this task's waiting runtime question
+        with `runtime`; the offer it answered (its role, so the daemon can switch that role too when asked)."""
+        root = self.tasks.tree_of(task_id) or task_id.split(".", 1)[0]
+        offer = self.runtime_offer(task_id)
+        ap = next((a for a in self.state.approvals.pending() if a.capability == RUNTIME_ASK
+                   and (self.tasks.tree_of(a.task_id) or a.task_id.split(".", 1)[0]) == root), None)
+        if offer is None or ap is None or runtime not in offer["choices"]:
+            raise FerbError(f"no question is waiting to switch task {task_id} to {runtime}")
+        self.state.approvals.resolve(ap.id, True, offer["choices"].index(runtime) + 1, None)   # options: choices, Stop
+        return dict(offer)
 
     @staticmethod
     def _owner_continuation(reply: OwnerReply) -> str:
@@ -3727,41 +3866,6 @@ class Supervisor(WorkerRuns):
         note = look_only_round(calls, probe, self.gateway.caps, held)
         return str(self.gateway.redact({'note': note})['note']) if note else ''
 
-    async def _dispatch(self, tree: _Tree, outcome: Outcome, span: str, note: str = "",
-                        retyped: bool = False) -> DispatchOutcome:
-        report = ("\nAvailable worker types: " + json.dumps(self.worker_types()) +
-               "\nPrevious worker type: " + tree.spec.worker_type + "\nWorker report (data): " +
-               wrap_untrusted(json.dumps({"status": outcome.status, "summary": outcome.summary,
-                                          "artifacts": outcome.artifacts, "evidence": outcome.evidence})) +
-               "\nInspection findings (data): " + wrap_untrusted(json.dumps([r.as_dict() for r in tree.verification])))
-        if tree.unlooked:                    # L39 I4: code's own fact, outside the data framing (paths quoted)
-            report += "\n" + CHECK_DIDNT_LOOK.format(files=", ".join(json.dumps(p, ensure_ascii=False)
-                                                                       for p in tree.unlooked))
-        if note:                             # code's own fact for this choice (N5)
-            report += "\n" + note
-        ctx = (await self._context(tree)) + [ContextBlock(report, "current worker and verification reports", protected=True)]
-        rt = self.make_runtime('orchestrator', mode='supervisor', tool_names=[], schema=DISPATCH_SCHEMA)
-        decision = Task(tree.worker.id + '.dispatch', tree.worker.id, 'choose recovery', self.device_id,
-                        tree.worker.identity, set(), 'mixed', tree.worker.request_id, [], None)
-        self._tree_of[decision.id] = tree
-        decision_span = self.spans.start('model.dispatch', task_id=decision.id, parent_id=span,
-                                        input={'worker_type': tree.spec.worker_type})
-        final = ''
-        try:
-            final = await self._run(rt, decision, self._system('dispatch.md'), ctx, '', decision_span.id, tree, '')
-            result = DispatchOutcome.model_validate_json(final)
-            self.spans.finish(decision_span, output={'text': final})
-        except BaseException as exc:
-            self.spans.finish(decision_span, output={'text': final}, error=f'{type(exc).__name__}: {exc}')
-            raise
-        types = self.worker_types()
-        if result.action == 'retry' and result.worker_type not in types and not retyped:
-            # D32: a worker type that isn't available now is told back once, as code's own fact
-            told = (f"worker_type {result.worker_type!r} isn't one of the worker types available now: "
-                    f"{', '.join(types)}. Choose again.")
-            return await self._dispatch(tree, outcome, span, note=(note + "\n" + told).strip(), retyped=True)
-        return result
-
     async def _worker_memory(self, tree: _Tree, request: Request) -> list[ContextBlock]:
         """A worker's or plan step's memory (L36 §4): the one search (`memory_push`) for the owner's request, then a
         step's parent goal, then its own goal, then the task's targets (`target_words`), the targets also ranked alone
@@ -3778,9 +3882,9 @@ class Supervisor(WorkerRuns):
 
     async def _context(self, tree: _Tree, *, learned: bool = False) -> list[ContextBlock]:
         """The task's context for a role that runs or judges it. `learned`: a worker run's (a plan step's too), which
-        alone gets memory (L36 §4); every other role (the checker, the next-attempt and question choices, the resource
-        reconcile) gets no memory, so a checker judges fresh observations and never sees another task's successful calls as evidence for
-        this one (review I1). A plan step's task block opens with its parent task's goal."""
+        alone gets memory (L36 §4); every other role (the merged checker, the question router) gets no memory, so a
+        checker judges fresh observations and never sees another task's successful calls as evidence for this one
+        (review I1). A plan step's task block opens with its parent task's goal."""
         spec = tree.spec
         request = self.state.requests.get(tree.worker.request_id)
         words = request.words
@@ -3939,53 +4043,11 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={'decision': locals().get('final', '')}, error=f'{type(exc).__name__}: {exc}')
             raise
 
-    async def _reconcile_resources(self, tree: _Tree, parent_span: str) -> None:
-        """Judge the requested final state after resource release, when earlier inspections can be stale. When cleanup
-        left nothing to decide (`_left_as_intended`) no model runs (owner, 2026-10-25: "Skip when nothing changed"):
-        a `resources.skipped` span records what was released, and the outcome stands as checked."""
-        out = tree.outcome or Outcome(tree.worker.id, 'failed', 'No task report was received.', [], [])
-        observations = {'report': {'status': out.status, 'summary': out.summary, 'artifacts': out.artifacts,
-                                   'evidence': out.evidence},
-                        'inspection_before_cleanup': [r.as_dict() for r in tree.verification],
-                        'resources_after_cleanup': tree.resources, 'cleanup_errors': tree.cleanup_errors}
-        if _left_as_intended(tree.resources, tree.cleanup_errors):
-            skipped = self.spans.start('resources.skipped', task_id=tree.worker.id, parent_id=parent_span,
-                                       input={'resources_after_cleanup': tree.resources})
-            self.spans.finish(skipped, output={'review': 'not run: every tab was kept open or let go of without '
-                                                         'closing, with no cleanup error'})
-            return
-        ctx = (await self._context(tree)) + [ContextBlock('Final lifecycle observations (data): ' +
-               wrap_untrusted(json.dumps(observations)), 'current lifecycle observations', protected=True)]
-        system = self._system("resources.md")
-        rt = self.make_runtime('orchestrator', mode='supervisor', tool_names=[], schema=WORKER_SCHEMA)
-        decision = Task(tree.worker.id + '.resources', tree.worker.id, 'reconcile final resource state', self.device_id,
-                        tree.worker.identity, set(), 'mixed', tree.worker.request_id, [], None)
-        self._tree_of[decision.id] = tree
-        span = self.spans.start('model.resources', task_id=decision.id, parent_id=parent_span, input=observations)
-        final = ''
-        try:
-            final = await self._run(rt, decision, system, ctx, '', span.id, tree, '')
-            reviewed = WorkerOutcome.model_validate_json(final)
-            # A done answer is the report the check judged (P16 V4/V6, D34; F4 live fixes, task 79bc5bfa): the review
-            # may lower the status when cleanup broke something (its words say why), never write new done wording.
-            kept = tree.checked_report if tree.checked_report is not None else out.summary
-            summary = kept if reviewed.status == "done" else reviewed.summary
-            tree.outcome = Outcome(tree.worker.id, reviewed.status, summary,
-                                   sorted(set(out.artifacts + reviewed.artifacts)), out.evidence + reviewed.evidence)
-            self.spans.finish(span, output={'text': final})
-        except BaseException as exc:
-            detail = f'{type(exc).__name__}: {exc}'
-            self.spans.finish(span, output={'text': final}, error=detail)
-            tree.outcome = Outcome(tree.worker.id, 'failed',
-                                   "I couldn't confirm the final resource state after cleanup: " +
-                                   '; '.join(tree.cleanup_errors or [detail]), out.artifacts, out.evidence)
-            if isinstance(exc, asyncio.CancelledError):
-                raise
+    # ---------- the merged checker ----------
 
-
-    # ---------- verification ----------
-
-    async def verify(self, tree: _Tree, span: str) -> list[ConditionResult]:
+    async def verify(self, tree: _Tree, span: str) -> tuple[list[ConditionResult], CheckerOutcome | None]:
+        """One check of the current attempt: each condition's result (confirmed ones carried over, `_carry`) and the
+        checker's own outcome with its next step, or None when it couldn't finish (each condition unchecked, why)."""
         task = tree.worker
         ctx = ToolContext(task.id, "verifier", task.request_id, task.identity, frozenset(task.scopes),
                           self.device_id, None, self.roots.workspace, self.roots.owner_roots, self.roots.untrusted_roots)
@@ -3998,16 +4060,40 @@ class Supervisor(WorkerRuns):
         # The checker compares every condition and these observations against the complete request.
         return await self._verifier(tree, task, judged, span, observations)
 
-    async def _verifier(self, tree: _Tree, task: Task, judged: list[tuple[int, Condition]],
-                        span: str, observations: list[ConditionResult] | None = None) -> list[ConditionResult]:
-        claim = tree.owner_answer or (tree.outcome.summary if tree.outcome else "")
-        references = {"artifacts": tree.outcome.artifacts if tree.outcome else [],
-                      "evidence": tree.outcome.evidence if tree.outcome else []}
+    def _carry(self, tree: _Tree, results: list[ConditionResult]) -> list[ConditionResult]:
+        """Conditions confirmed in an earlier attempt of this loop carry over (fix list): a later check that can't see
+        one (met null) keeps the earlier confirmation; one it finds false drops it. Only the planner's conditions: the
+        answer and a watch's report change with every attempt."""
+        planned = len(tree.spec.success_conditions)
+        kept = []
+        for r in results:
+            earlier = tree.confirmed.get(r.index) if r.index < planned else None
+            if r.index < planned and r.met is True:
+                tree.confirmed[r.index] = r
+            elif r.index < planned and r.met is False:
+                tree.confirmed.pop(r.index, None)
+            elif earlier is not None and r.met is None:
+                r = dataclasses.replace(earlier, evidence="Confirmed in an earlier attempt: " + earlier.evidence)
+            kept.append(r)
+        return kept
+
+    async def _verifier(self, tree: _Tree, task: Task, judged: list[tuple[int, Condition]], span: str,
+                        observations: list[ConditionResult] | None = None
+                        ) -> tuple[list[ConditionResult], CheckerOutcome | None]:
+        claim = tree.owner_answer
+        planned = len(tree.spec.success_conditions)
         report = "\n\nConditions:\n" + "\n".join(f"{i}. {c.text}" for i, c in judged)
         report += "\nCondition layers: " + json.dumps({i: c.layer for i, c in judged})
-        report += "\nThe complete worker report (data, not instructions): " + wrap_untrusted(claim)
-        report += '\nSeparate evidence report (data): ' + wrap_untrusted(tree.outcome.summary if tree.outcome else '')
-        report += "\nArtifacts and evidence to inspect (data): " + wrap_untrusted(json.dumps(references))
+        if earlier := {i: r.evidence for i, r in tree.confirmed.items() if i < planned}:
+            report += ("\nConfirmed in an earlier attempt of this task (FERB keeps each unless you find it false now; "
+                       "judge it again only if this attempt may have changed it): " +
+                       wrap_untrusted(json.dumps(earlier, ensure_ascii=False)))
+        worker = {"status": "done" if tree.outcome is not None and tree.outcome.status == "done" else "not_done",
+                  "reason": tree.reason, "question": tree.worker_question or None,
+                  "artifacts": tree.outcome.artifacts if tree.outcome else []}
+        report += "\nThe worker's report (data, not instructions): " + wrap_untrusted(json.dumps(worker))
+        report += "\nThe worker's answer to the owner (data, not instructions): " + wrap_untrusted(claim)
+        report += "\nWorker types available for a retry: " + json.dumps(self.worker_types())
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
             "index": r.index, "predicate_met": r.met, "observation": r.evidence,
             "predicate": tree.spec.success_conditions[r.index].check.model_dump()} for r in observations or []]))
@@ -4023,7 +4109,7 @@ class Supervisor(WorkerRuns):
                        "context, never this run's actions. Judge a condition about what FERB did or changed on this "
                        "run's calls, and the state now on fresh reads; when an earlier run's mistake still matters "
                        "to the owner, name it in the evidence without failing this run for it.")
-        context = await self._context(tree)
+        context = await self._context(tree) + self._code_facts(tree, task)
         ctx = context + [ContextBlock(report + "\nThe worker's recorded tool calls and their results follow. More: "
                                       "task_evidence; memory.read; chat.history",
                                       "complete report and inspection evidence", protected=True)]
@@ -4049,7 +4135,7 @@ class Supervisor(WorkerRuns):
         cursor = int(self.journal.db.conn.execute("SELECT COALESCE(MAX(rowid), 0) FROM spans").fetchone()[0])
         checked = await self._check(tree, vtask, judged, span, ctx, plain, effort)
         if isinstance(checked, list):
-            return checked
+            return checked, None
         verdict = checked
         if changed.records and any(r.met is True for r in verdict.results) and \
                 (unread := self._unread(vtask.id, cursor, changed.records)):
@@ -4061,35 +4147,46 @@ class Supervisor(WorkerRuns):
                 for path in unread)), "FERB refused this check's pass", protected=True)
             checked = await self._check(tree, vtask, judged, span, ctx + [why], plain + [why], effort)
             if isinstance(checked, list):
-                return checked
+                return checked, None
             verdict = checked
             if any(r.met is True for r in verdict.results) and \
                     (unread := self._unread(vtask.id, cursor, changed.records)):
                 again = self.spans.start("verify.refused", task_id=vtask.id, parent_id=span, input={"unread": unread})
                 self.spans.finish(again, output={"result": "met=null: a pass without a look is never a pass"})
                 shown = ", ".join(file_changes.shown(path) for path in unread)
-                # I4: when nothing else was unresolved, the dispatcher is told the work is recorded and only the
-                # check didn't look (a worker retry can't fix that; `recheck` re-runs only the check)
-                if all(r.met is True for r in verdict.results):
-                    tree.unlooked = list(unread)
                 verdict = verdict.model_copy(update={"results": [
                     r.model_copy(update={"met": None, "evidence": NO_LOOK.format(files=shown) + " " + r.evidence,
                                          "how": NO_LOOK_HOW.format(files=shown)}) if r.met is True else r
                     for r in verdict.results]})
-        tree.checked_report = claim              # the report this check judged (FERB's report condition)
         self._set_status(vtask.id, "done", verdict.model_dump())
         got = {r.index: r for r in verdict.results}
-        return [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
-                                got[i].evidence if i in got else "The check gave no answer for this.",
-                                (got[i].how or "") if i in got and got[i].met is None else "")
-                for i, c in judged]
+        results = [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
+                                   got[i].evidence if i in got else "The check gave no answer for this.",
+                                   (got[i].how or "") if i in got and got[i].met is None else "")
+                   for i, c in judged]
+        return self._carry(tree, results), verdict
+
+    def _code_facts(self, tree: _Tree, task: Task) -> list[ContextBlock]:
+        """What FERB's code measured about how the work was done (owner decision 9; daemon decision 5), for the checker
+        to judge background use, disturbance and the profile or account from, never from the worker's words: the screen
+        changes the disturbance sampler recorded around this task's calls that can change the screen, the calls that
+        asked for the foreground, each call's structural facts (ActionFacts: where input landed, forms, deletes,
+        writes), the accounts and sites the calls targeted; and what the task holds that FERB releases when it ends
+        (prompts decision 1: the resource reviewer's facts)."""
+        facts = how_facts(self.journal.db.conn, task.id, since=tree.calls_since)
+        tabs = self.task_tabs(task.id)
+        held = {"tabs": tabs, "released_at_the_end": RELEASE_FACT} if tabs else {}
+        text = (HOW_FACTS + wrap_untrusted(json.dumps(facts | ({"held_now": held} if held else {}),
+                                                      ensure_ascii=False)))
+        return [ContextBlock(text, "task.evidence kind=tool.call", protected=True, origin=origins_.FERB)]
 
     async def _check(self, tree: _Tree, vtask: Task, judged: list[tuple[int, Condition]], span: str,
                      ctx: list[ContextBlock], plain: list[ContextBlock],
-                     effort: str | None) -> "VerifierOutcome | list[ConditionResult]":
-        """One run of the checker: its verdict, or each condition unchecked with why when it couldn't finish."""
+                     effort: str | None) -> "CheckerOutcome | list[ConditionResult]":
+        """One run of the checker: its outcome, or each condition unchecked with why when it couldn't finish. A run that
+        ended on an account fact (usage limit, sign-in) raises `_RuntimeDown` for the attempt loop's offer."""
         try:
-            raw, _ = await self.run_worker(tree, vtask, "verifier.md", ctx, VERIFIER_SCHEMA, span, effort=effort)
+            raw, _ = await self.run_worker(tree, vtask, "verifier.md", ctx, CHECKER_SCHEMA, span, effort=effort)
             if isinstance(raw, Overflowed):
                 # Ruling 7 (round 1): a runtime without compaction ends a check whose window overflowed (its documented
                 # window-exceeded error, or FERB's InputTooLarge before sending); it runs once more without the
@@ -4097,7 +4194,10 @@ class Supervisor(WorkerRuns):
                 note = self.spans.start("verify.rerun", task_id=vtask.id, parent_id=span, input={"reason": raw.summary})
                 self.spans.finish(note, output={"rerun": "once, without the recorded calls"})
                 self.journal.append("task.check_rerun", {"task_id": vtask.parent_id, "reason": raw.summary})
-                raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, VERIFIER_SCHEMA, span, effort=effort)
+                raw, _ = await self.run_worker(tree, vtask, "verifier.md", plain, CHECKER_SCHEMA, span, effort=effort)
+            if isinstance(raw, ServiceDown):
+                self._set_status(vtask.id, "failed", {"summary": raw.summary})
+                raise _RuntimeDown(raw)
             if isinstance(raw, Outcome):
                 self._set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                  {"summary": raw.summary})
@@ -4105,7 +4205,9 @@ class Supervisor(WorkerRuns):
                 tree.check_problem = raw.summary                         # and the owner's words for it
                 return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {detail}")
                         for i, c in judged]
-            return VerifierOutcome.model_validate(raw)
+            return CheckerOutcome.model_validate(raw)
+        except _RuntimeDown:
+            raise
         except BaseException as exc:
             self._set_status(vtask.id, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
                              {"summary": f"Inspection unavailable: {type(exc).__name__}"})
@@ -4214,85 +4316,87 @@ class Supervisor(WorkerRuns):
         return [ORDINARY_WORD_LINE.format(place=p) for p in places if p]
 
     def _final(self, tree: _Tree) -> dict[str, Any]:
-        """The checker's verdict decides the status and the first line (V4, R5Q2):
-        - `done` only when the work finished and every condition was verified true;
-        - `done_unverified` when the work finished, nothing was found false and it stands unconfirmed (the
-          orchestrator judged it so, or couldn't choose another attempt), or there was nothing to check;
-        - `failed` when the work didn't finish, a check found a condition false, the orchestrator judged it failed,
-          or the task was interrupted;
-        - `needs_user` and `cancelled` (your stop) as before.
-        "Unverified" is said only for a condition a check actually gave a verdict on (V5). Unresolved facts come
-        before confirmed ones, and a worker's success claim is never stated as fact without a check confirming it."""
+        """The task's status and the owner's answer (owner decision 9: "done" is about the outcome asked for):
+        - `done` when the work finished and every outcome condition was verified;
+        - `done_unverified` when the work finished and stands unconfirmed: an outcome condition the check couldn't
+          settle (nothing found false), a check that couldn't run, or nothing to check it against;
+        - `failed` when the work didn't finish, the check found an outcome false or chose to fail, or the task was
+          interrupted; `needs_user` and `cancelled` (your stop) as before.
+        The answer comes first (the worker's, with the checker's fixes), then at most one short "Couldn't confirm: …"
+        line; a failure says plainly what happened; then code's own lines in a fixed order (`_with_code_lines`). A
+        worker's success claim is never stated as fact unless a check confirmed it or it stands marked unconfirmed."""
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
-        attempted = bool(tree.verification)        # the last attempt finished and its conditions went to the check
-        # FERB's report condition is judged only by a check: work that stopped before one has no report checked.
+        attempted = bool(tree.verification)        # the last attempt went to the check
         conditions = (checked_conditions(tree.spec, tree.watch, tree.watch_met) if attempted
                       else tree.spec.success_conditions)
         by_index = {result.index: result for result in tree.verification}
         results = [by_index.get(index) or ConditionResult(index, condition.text, None, UNCHECKED, NOT_CHECKED)
                    for index, condition in enumerate(conditions)]
-        verified = not tree.stop and out.status == "done" and bool(conditions) and all(r.met is True for r in results)
-        refuted = any(r.met is False for r in results)
-        # An outcome that isn't simply done is shown as code's status line, then its report (_report): the answer is
-        # the full text the owner sees, with no separate short version (owner, 2026-10-24).
+        planned = len(tree.spec.success_conditions) + int(tree.watch)
+        outcomes = [r for r in results if r.index < planned]
+        verified = (not tree.stop and out.status == "done" and attempted and not tree.stands_unconfirmed
+                    and bool(outcomes) and all(r.met is True for r in outcomes))
+        answer_text = (tree.owner_answer or out.summary).strip()
         status: str
         if tree.stop == STOPPED_BY_YOU:
             status, summary, answer = self._stop_status(tree), STOPPED_BY_YOU, "Stopped, as you asked."
             # what the worker had found, from its latest report: unchecked, so it says so (owner live use 2026-10-15)
-            found = next((str(r.get("summary") or "").strip() for r in reversed(tree.reports)
-                          if r.get("status") != "cancelled" and str(r.get("summary") or "").strip()), "")
+            said = [str(r.get("answer") or r.get("reason") or r.get("summary") or "").strip()
+                    for r in reversed(tree.reports)]
+            found = next((text for text in said if text), "")
             if found:
                 answer += f"\n\n{FOUND_BEFORE_STOP} {found}"
         elif tree.stop:
             status, summary = self._stop_status(tree), tree.stop
             answer = f"I couldn't finish that: {tree.stop}"
-        elif verified:
-            # The report the check judged, never a later review's wording (P16 V4/V6, D34). A check that confirmed
-            # every condition always judged one; the fallback only satisfies the type. Clients show `verified` as a
-            # check mark: the answer carries no marker of it (L11).
-            report = tree.checked_report if tree.checked_report is not None else out.summary
-            status, summary, answer = "done", out.summary, report
-        elif out.status == "done" and not conditions:
-            # Nothing could be checked, so completion is honestly unconfirmed rather than failed or done.
-            status = "done_unverified"
-            summary = answer = NOTHING_TO_CHECK
-        elif tree.stands_unconfirmed and out.status == "done" and not refuted:
-            status = "done_unverified"
-            summary = answer = _report(tree, results, out, "Done, but not confirmed:", "")
-        elif attempted and any(r.met is not True for r in results):
-            # Condition facts are validated structure. Freeform worker/recovery prose may contradict them;
-            # code cannot safely repair its meaning, so do not reuse it as the owner-facing summary.
-            status = "needs_user" if out.status == "needs_user" else "failed"
-            summary = answer = _report(tree, results, out, "I couldn't confirm the task was complete:", "")
-        elif not attempted and (conditions or out.status != "done"):
-            # No check ran: the work stopped first. The reason is the orchestrator's stop reason, or a code-written
-            # or failure report; never the orchestrator's instructions or an unchecked claim of success.
-            status = "needs_user" if out.status == "needs_user" else "failed"
-            reason = "" if tree.finish_chosen or out.status in ("done", "needs_user") else out.summary
-            summary = answer = _report(tree, results, out, NEEDS_ANSWER if status == "needs_user" else NOT_FINISHED,
-                                       reason)
+        elif out.status == "done" and not any(r.met is False for r in outcomes):
+            status = "done" if verified else "done_unverified"
+            unconfirmed = tree.unconfirmed or ("" if verified else NOTHING_TO_CHECK if not conditions else
+                                               "; ".join(self._owner_text(tree, r) for r in outcomes
+                                                         if r.met is not True))
+            line = " ".join(part for part in (f"Couldn't confirm: {_clipped(unconfirmed)}." if unconfirmed else "",
+                                              f"Correction: {_clipped(tree.correction)}." if tree.correction else "")
+                            if part)
+            summary = answer = answer_text + (f"\n\n{line}" if line else "")
         elif out.status == "needs_user":
-            status, summary, answer = "needs_user", out.summary, out.summary
+            status = "needs_user"
+            question = tree.owner_question or out.summary
+            summary = answer = f"{NEEDS_ANSWER} {question}".strip()
         else:
-            status, summary = "failed", out.summary
-            answer = f"{NOT_FINISHED}\n\n{out.summary}"
-        # D33: the answer and summary carry model-written lines (reports, the orchestrator's question, evidence); one
-        # that reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
+            status = "failed"
+            why = tree.stop_reason or tree.reason or (out.summary if out.status != "done" else NOT_ACCEPTED)
+            summary = answer = f"{NOT_FINISHED} {_sentence(why)}".strip()
+            # what an unfinished attempt had found, as its own words say it, marked unchecked; never a done claim the
+            # check didn't confirm
+            if tree.owner_answer.strip() and tree.owner_answer.strip() != why.strip() and \
+                    not (tree.reports and tree.reports[-1].get("status") == "done"):
+                answer += f"\n\n{FOUND_UNCHECKED} {tree.owner_answer.strip()}"
+        # D33: the answer and summary carry model-written lines (reports, the checker's question and reason); one that
+        # reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
-        if tree.side_lines:                     # what code did with this turn's reminders and memory (L11)
-            answer += "\n\n" + "\n".join(tree.side_lines)
-        # The sites this task reached, from FERB's own records (L2), at the end of the full answer.
-        if sites := sites_contacted(self.spans, tree.id):
-            answer += "\n\nSites contacted: " + ", ".join(sites)
-        for line in self._secret_lines(tree.id):          # then any saved answer FERB hides as a word (L36 §7)
-            answer += "\n\n" + line
-        for line in self._apps_left_running(tree.id):     # and each app FERB opened and left running (L39)
-            answer += "\n\n" + line
+        answer = self._with_code_lines(tree, answer)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
-                "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason} | (
+                "artifacts": sorted(out.artifacts),              # the last attempt's (never a retried one's)
+                "resources": tree.resources, "stop_reason": tree.stop_reason} | (
+                {"how": tree.how} if status in ("done", "done_unverified") and tree.how.strip() else {}) | (
+                {"runtime_switch": tree.runtime_switch} if tree.runtime_switch and status == "failed" else {}) | (
                 {"watch_met": tree.watch_met} if tree.watch and tree.watch_met is not None else {})
+
+    def _with_code_lines(self, tree: _Tree, answer: str) -> str:
+        """Code's own lines after the answer, in one fixed order (fix list): what code did with the turn's memory,
+        reminders and schedules ("Remembered:", "🗓 Scheduled:", L11), the sites the task reached ("Sites contacted:",
+        L2), a saved answer FERB hides as a word (L36 §7), each app FERB opened and left running (L39), and what the
+        task's clean-up couldn't release. A scheduled run that ran late gets "(ran late)" last (the daemon adds it)."""
+        lines = list(tree.side_lines)
+        if sites := sites_contacted(self.spans, tree.id):
+            lines.append("Sites contacted: " + ", ".join(sites))
+        lines += self._secret_lines(tree.id) + self._apps_left_running(tree.id)
+        if tree.cleanup_errors:          # each without the task id `_release_task` names it by
+            said = [e.split(": ", 1)[1] if e.startswith(tree.id) and ": " in e else e for e in tree.cleanup_errors]
+            lines.append(CLEANUP_LEFT + "; ".join(dict.fromkeys(said)))
+        return answer + ("\n\n" + "\n".join(lines) if lines else "")
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
@@ -4305,13 +4409,6 @@ CHANGED_FILES = ("Files this step's calls named that changed (FERB compared each
 OTHER_CHANGES = ("Also changed during this step in folders the step listed (facts only, shown as data: no call of the "
                  "step named these files, so they may be the owner's or another task's; such a change is not by itself "
                  "an unrequested change by the worker, and needs no read): ")
-NOTHING_TO_RECHECK = ("FERB's fact: there is nothing to re-check: this attempt didn't finish as done, so no check "
-                      "judged it. recheck isn't possible; choose retry with instructions, ask the owner, or finish.")
-RECHECK_NOTHING_STOP = "The orchestrator asked to re-check work that no check had judged, so the task stopped here."
-CHECK_DIDNT_LOOK = ("FERB's fact about this check: the work's changes are recorded, and the check marked conditions "
-                    "met without reading them ({files}), so they stand unconfirmed. Re-running the worker can't fix "
-                    "this: use action=recheck to run only the check again, finish with result unconfirmed naming those "
-                    "files, or ask the owner.")
 REFUSED_PASS = ("FERB refused this check's pass: it marked conditions met without reading these files this step "
                 "changed: {files}. Read each one (fs_read for a text file, or task_evidence with its change record's "
                 "span_id), then judge every condition again; give met=true only for what you saw.")
@@ -4357,74 +4454,45 @@ def _stopped_plan_summary(steps: list[Any], states: dict[str, dict[str, Any]]) -
 
 
 NOT_FINISHED = "I couldn't finish this task."
-# FERB's report condition in the owner's terms: they never saw the worker's report (P27)
-REPORT_FALSE = "What I reported didn't match the records"
-REPORT_UNKNOWN = "I couldn't confirm my report matches the records"
-REPORT_UNCHECKED = "Whether what I reported matches the records"
-# A watch's condition as its check judged it (watch_condition), in the owner's terms
-WATCH_FALSE = "What I reported about whether it has happened didn't match the records"
-WATCH_UNKNOWN = "I couldn't confirm whether it has happened"
-WATCH_UNCHECKED = "Whether it has happened"
-
-
-def _left_as_intended(resources: list[dict[str, Any]], errors: list[str]) -> bool:
-    """Cleanup left nothing for the resource review to decide (owner, 2026-10-25: "Skip when nothing changed"; live
-    a1f16a32 and cc5debe4: 6-9 s of review after a step whose tab was kept and let go of as intended): there was a
-    release, no cleanup error, and every released resource is a tab still open, kept open as the worker asked or the
-    owner's borrowed tab let go of without closing. A closed tab, an ended listen or recording or process, a release
-    the browser didn't confirm, or anything unrecognised is still reviewed."""
-    return bool(resources) and not errors and all(
-        isinstance(r, dict) and r.get('released') is True and r.get('closed') is False and not r.get('error')
-        and (r.get('kept_open') is True or r.get('borrowed') is True) for r in resources)
+FOUND_UNCHECKED = "What I found (not checked):"
+CLEANUP_LEFT = "I couldn't tidy up everything after this task: "
+WATCH_TEXT = "whether it has happened"          # a watch's own condition, in the owner's terms
+NOTHING_TO_CHECK = "there was nothing to check it against"
+NOT_ACCEPTED = "the check didn't confirm the result"     # a failure no reason came with (never a done claim)
+UNCONFIRMED_CHARS = 300                          # the "Couldn't confirm" line stays one short line
+# The checker's code facts about how the work was done (owner decision 9) and what the task holds (prompts decision 1)
+HOW_FACTS = ("FERB's code facts about how this work was done, measured by FERB's code from its own records (never the "
+             "worker's words): judge background use, disturbance of the owner's screen, and the profile or account "
+             "used only from these and the recorded calls: ")
+RELEASE_FACT = ("when the task ends FERB closes the tabs it opened unless one was kept open for the result, lets go of "
+                "the owner's tabs it borrowed, and ends the task's terminal commands, recordings and listening")
 
 
 def _sentence(text: str) -> str:
     """A report as a sentence another sentence can follow: its own end punctuation, else a period, then a space."""
     text = text.strip()
     return "" if not text else text + ("" if text[-1] in ".!?" else ".") + " "
-NOTHING_TO_CHECK = "Done, but there was nothing to check it against."
 
 
-def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: str, reason: str) -> str:
-    """The owner's lines for an outcome that isn't simply done: any pending question first, then each condition a
-    check gave a verdict on and that isn't confirmed ("failed" when found false, "unverified" when it couldn't tell);
-    why work stopped; what was confirmed; the conditions no check gave a verdict on (still to check when the
-    checker failed, with why it couldn't run in plain words; still to do when the work stopped first; never
-    "unverified"); and the files."""
-    lines = [header]
-    if out.status == "needs_user" and tree.owner_question:
-        lines += ["", "Question: " + tree.owner_question, ""]
-    def owner_text(result: ConditionResult) -> str:
-        conditions = tree.spec.success_conditions
-        return (conditions[result.index].owner_text or result.text) if result.index < len(conditions) else result.text
-    # FERB's report condition, numbered last when a check ran, and a watch's condition before it. Found by index: a
-    # planner condition in the same words is its own condition. The owner never saw the worker's report, so they are
-    # said in their terms (P27): false, unknown, unchecked.
-    planned = len(tree.spec.success_conditions)
-    mine = planned + int(tree.watch) if tree.verification else -1
-    said = {mine: (REPORT_FALSE, REPORT_UNKNOWN, REPORT_UNCHECKED)}
-    if tree.verification and tree.watch:
-        said[planned] = (WATCH_FALSE, WATCH_UNKNOWN, WATCH_UNCHECKED)
-    for r in results:
-        if r.met is not True and r.path != UNCHECKED:
-            if r.index in said:
-                lines.append(f"- {said[r.index][0] if r.met is False else said[r.index][1]}: {r.evidence}")
-            else:
-                lines.append(f"- {owner_text(r)} — {'failed' if r.met is False else 'unverified'}: {r.evidence}")
-            if r.met is None and r.how:
-                lines.append(f"  To check: {r.how}")
-    why = tree.stop_reason or reason
-    if why:
-        lines += ["", "Why work stopped: " + why]
-    met = [r for r in results if r.met is True and r.index not in said]   # FERB's own checks: shown when not met
-    if met:
-        lines += ["", "Confirmed:"] + [f"- {owner_text(r)}" for r in met]
-    unchecked = [r for r in results if r.path == UNCHECKED]
-    if unchecked:
-        heading = "Still to check (the check couldn't run):" if tree.verification else "Still to do:"
-        lines += ["", heading] + [f"- {said[r.index][2] if r.index in said else owner_text(r)}" for r in unchecked]
-        if tree.verification and tree.check_problem:      # its reason, never "a problem on my side" (2026-10-24)
-            lines.append("Why the check couldn't run: " + tree.check_problem)
-    if out.artifacts:
-        lines += ["", "Artifact paths (these do not establish completeness):"] + [f"- {path}" for path in out.artifacts]
-    return "\n".join(lines)
+def _clipped(text: str) -> str:
+    """The "Couldn't confirm" line's text: one line, at most UNCONFIRMED_CHARS, without its own end period."""
+    return clip(" ".join(text.split()), UNCONFIRMED_CHARS).rstrip(".")
+
+
+@dataclass
+class _Next:
+    """What the merged checker chose for after an attempt, as code accepted it (`Supervisor._next`)."""
+    action: Literal["accept", "accept_unconfirmed", "retry", "ask", "fail"]
+    instructions: str = ""
+    missing: str = ""
+    worker_type: str | None = None
+    question: str = ""
+    reason: str = ""
+
+
+class _RuntimeDown(Exception):
+    """The checker's run ended on an account fact (usage limit, sign-in): the attempt loop offers another runtime."""
+
+    def __init__(self, down: ServiceDown) -> None:
+        super().__init__(down.summary)
+        self.down = down

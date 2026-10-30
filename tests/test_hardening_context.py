@@ -197,13 +197,6 @@ def test_file_contains_checks_beyond_old_prefix_limit(daemon):
     assert outcome(chat(daemon, "Check the complete file"))["verified"]
 
 
-def test_finish_decision_cannot_hide_answer_in_question_field():
-    from pydantic import ValidationError
-    from ferb.orchestrator.schemas import DispatchOutcome
-    with pytest.raises(ValidationError):
-        DispatchOutcome(action="finish", worker_type="default", instructions="", question="Done, all complete.")
-
-
 def test_true_file_predicate_cannot_approve_inadequate_learning_material(daemon):
     from tests.conftest import writes
     t = task('Complete study material', paths=('study.md',), conds=(
@@ -225,13 +218,11 @@ def test_cleanup_success_without_any_inspection_is_not_reported_done(daemon):
         return [{'tab': 'temporary', 'closed': True}]
     daemon.daemon.supervisor.on_task_end = cleanup
     install(daemon, [sup('task', 'Preparing', task(conds=(cond(condition),)))], {
-        'worker': json.dumps({'status': 'blocked', 'summary': 'Input route unavailable.', 'artifacts': [], 'evidence': []}),
-        'worker.resources': done('Everything is complete.')})
+        'worker': json.dumps({'status': 'blocked', 'summary': 'Input route unavailable.', 'artifacts': [], 'evidence': []})})
     result = outcome(chat(daemon, 'Upload the requested source to the intended destination.'))
+    # prompts decision 1: a clean-up never makes unfinished work done; the reason is said plainly
     assert result['status'] == 'failed' and not result['verified']
-    # V5: no check ran on the blocked work, so the condition is still to do, never "unverified".
-    assert condition in result['answer'] and 'unverified' not in result['answer']
-    assert 'Everything is complete.' not in result['answer']
+    assert result['answer'] == "I couldn't finish this task. Input route unavailable."
 
 
 def test_optional_planner_environment_is_saved_as_fetchable_task_evidence(daemon, monkeypatch):
@@ -347,10 +338,9 @@ def test_every_runtime_role_accounts_for_complete_appended_evidence_once(daemon,
         'worker': worker,
         'worker.question': json.dumps({'ask_owner': False, 'answer': 'Continue', 'question': ''}),
         'worker.verify': json.dumps({'results': [{'index': 0, 'met': None, 'evidence': report}]}),
-        'worker.dispatch': json.dumps({'action': 'finish', 'instructions': report, 'question': '', 'worker_type': 'default'}),
-        'worker.resources': done(report)})
+    })
     chat(daemon, 'Inspect the complete evidence before declaring success.')
-    for role in ('worker.question', 'worker.verify', 'worker.dispatch', 'worker.resources'):
+    for role in ('worker.question', 'worker.verify'):
         context = next(text for _, key, text, _ in script.contexts if key == role)
         assert context.count('Context budget: ') == 1
         body, header = context.rsplit('\n\nContext budget: ', 1)
@@ -373,8 +363,9 @@ def test_direct_task_without_conditions_never_reports_unchecked_success(daemon):
         # V4: the work finished but nothing could be checked: done but unverified, saying why, never done. No
         # check ran, so the owner's text doesn't say "unverified" (V5).
         assert result['status'] == 'done_unverified' and not result['verified']
-        assert 'unverified' not in result['answer'] and 'nothing to check' in result['answer']
-        assert 'Everything is complete.' not in result['answer']
+        # owner decision 9: the answer first, marked by the one line
+        assert result['answer'] == "Everything is complete.\n\nCouldn't confirm: there was nothing to check it against."
+        assert 'unverified' not in result['answer']
     daemon.run(check())
 
 
@@ -403,8 +394,7 @@ def test_stop_reason_survives_unverified_completion_without_reusing_success_pros
             {'worker':json.dumps({'status':'blocked','summary':'Connection unavailable',
                                   'artifacts':[],'evidence':[]}), 'worker.dispatch':finish})
     result = outcome(chat(daemon,'Check the current source'))
-    assert reason in result['answer']
-    assert 'Fresh source inspected' in result['answer']
+    assert result['answer'] == "I couldn't finish this task. " + reason
     assert 'Everything is complete.' not in result['answer']
     assert result['stop_reason'] == reason
     assert not result['verified']

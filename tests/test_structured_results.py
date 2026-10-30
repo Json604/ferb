@@ -37,7 +37,7 @@ def test_every_ferb_output_schema_is_strict_compatible() -> None:
 def test_a_worker_answer_that_breaks_the_schema_is_not_used(daemon) -> None:
     from tests.conftest import FakeRuntime, chat, outcome, task
     script = install(daemon, [sup("task", "Checking.", task("check something"))],
-                     {"worker": json.dumps({"status": "done"})})      # WORKER_SCHEMA also requires summary, artifacts, evidence
+                     {"worker": json.dumps({"status": "done"})})      # WORKER_SCHEMA also requires reason, answer, artifacts…
 
     def make(role, *, mode, tool_names, schema):
         rt = FakeRuntime(script, mode, tool_names)

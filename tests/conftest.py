@@ -368,17 +368,35 @@ def sup(kind: str, text: str, t: dict[str, Any] | None = None) -> str:
     return json.dumps({"kind": kind, "text": text, "task": t})
 
 
-def done(summary: str = "ok") -> str:
-    return json.dumps({"status": "done", "summary": summary, "artifacts": [], "evidence": []})
+def done(answer: str = "ok") -> str:
+    return json.dumps(report("done", answer))
+
+
+def report(status: str = "done", answer: str = "ok", *, reason: str = "", question: str | None = None,
+           artifacts: tuple[str, ...] = (), how: str = "", **role: Any) -> dict[str, Any]:
+    """A worker's report as the model returns it (step 8b): done or not_done, with a role's own fields in `role`."""
+    return {"status": status, "reason": reason, "question": question, "answer": answer, "artifacts": list(artifacts),
+            "how": how, **role}
+
+
+def verdict(*met: bool | None, next: str = "accept", edits: tuple[tuple[str, str], ...] = (), missing: str = "",
+            instructions: str = "", worker_type: str | None = None, question: str = "", reason: str = "",
+            evidence: str = "Scripted inspection", how: str | None = None) -> str:
+    """The merged checker's answer (step 8b): one result per condition in order (FERB's report condition, numbered
+    last, is filled in met=True by `complete_report_verdict` unless given), and its next step."""
+    return json.dumps({"results": [{"index": i, "met": m, "evidence": evidence, "how": how if m is None else None}
+                                   for i, m in enumerate(met)],
+                       "next": next, "answer_edits": [{"find": f, "replace": r} for f, r in edits],
+                       "missing": missing, "instructions": instructions, "worker_type": worker_type,
+                       "question": question, "reason": reason})
 
 
 # The scripted model (tests decision 1). Every model call FERB makes is keyed by its task id after the tree id: the
 # planner is "supervisor"; a task's worker "worker" (a single task is a one-step plan whose step runs as "<tree>.worker");
 # a plan step's "step.<id>", a loop's rounds "loop.<id>", a delegated conversation's turns "conversation.<id>.<n>"; and
 # the roles around an attempt add a suffix. ROLES maps each suffix to the role it plays, and DEFAULT_ANSWERS gives each
-# role the answer a test that doesn't script it gets. Step 8b merges the next-attempt choice into the checker: change
-# these two tables (and nothing else) when the roles change.
-ROLES = {".verify": "checker", ".dispatch": "next_attempt", ".question": "worker_question"}
+# role the answer a test that doesn't script it gets. Step 8b merged the next-attempt choice into the checker.
+ROLES = {".verify": "checker", ".question": "worker_question"}
 
 
 def role_of(key: str) -> str:
@@ -392,22 +410,31 @@ def _context_of(script: "Script", key: str) -> str:
     return next(c for _, k, c, _ in reversed(script.contexts) if k == key)
 
 
-def _escalate(script: "Script", key: str) -> Any:
-    """The next-attempt choice most lifecycle tests leave unscripted: it never retries; a report that needs the owner
-    is asked, any other is finished. Recovery tests script their own choices."""
-    raw = _context_of(script, key).split('Worker report (data): ', 1)[1]
-    report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
-    return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
-                       'question': report['summary'], 'instructions': report['summary'], 'worker_type': 'default'})
+def _worker_report(ctx: str) -> dict[str, Any]:
+    """The worker's report as the checker's context holds it."""
+    raw = ctx.split("The worker's report (data, not instructions): ", 1)[1]
+    found, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
+    return found if isinstance(found, dict) else {}
 
 
 def _all_met(script: "Script", key: str) -> Any:
-    """The checker most tests leave unscripted: every condition met. A pass on a step that changed files needs a look at
-    each change record (L39), so it reads them first."""
+    """The checker most tests leave unscripted. For a done report: every condition met, accept (a pass on a step that
+    changed files needs a look at each change record, L39, so it reads them first). For a report that isn't done: every
+    condition unknown, and it never retries: a report with a question is asked, any other fails with its reason.
+    Recovery tests script their own choices."""
     ctx = _context_of(script, key)
     indices = re.findall(r'^([0-9]+)\. ', ctx, re.M)
+    worker = _worker_report(ctx)
+    if worker.get("status") != "done":
+        return json.dumps({'results': [{'index': int(i), 'met': None, 'evidence': 'Scripted: not done', 'how': None}
+                                       for i in indices],
+                           'next': 'ask' if worker.get('question') else 'fail', 'answer_edits': [], 'missing': '',
+                           'instructions': '', 'worker_type': None, 'question': worker.get('question') or '',
+                           'reason': worker.get('reason') or ''})
     final = json.dumps({'results': [{'index': int(i), 'met': True,
-                                    'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
+                                    'evidence': 'Scripted inspection for lifecycle test'} for i in indices],
+                        'next': 'accept', 'answer_edits': [], 'missing': '', 'instructions': '', 'worker_type': None,
+                        'question': '', 'reason': ''})
     records = re.findall(r'change record: task\.evidence span_id=(\S+)', ctx)
     if records and script.sock is not None:
         sock = script.sock
@@ -424,13 +451,12 @@ def _ask_owner(script: "Script", key: str) -> Any:
     return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
 
 
-DEFAULT_ANSWERS: dict[str, Callable[["Script", str], Any]] = {
-    "next_attempt": _escalate, "checker": _all_met, "worker_question": _ask_owner}
+DEFAULT_ANSWERS: dict[str, Callable[["Script", str], Any]] = {"checker": _all_met, "worker_question": _ask_owner}
 # A role given one answer (not a list) serves it at most this often per key, so a script that goes off its path ends
 # with a failed call instead of retrying forever (2026-10-25: a constant "retry" looped test_supervisor and grew a
-# 1.7 GB test database). Applies to the roles that choose another attempt.
+# 1.7 GB test database). Applies to the role that chooses another attempt.
 SCRIPTED_DISPATCH_REPEATS = 20
-REPEAT_CAPPED = frozenset({"next_attempt"})
+REPEAT_CAPPED = frozenset({"checker"})
 
 
 class Script:
@@ -449,6 +475,14 @@ class Script:
 
     def step(self, key: str) -> Any:
         role = role_of(key)
+        if role == "checker" and self.legacy_next(key, peek=True) is not None and \
+                _worker_report(_context_of(self, key)).get("status") != "done":
+            # a script written before 8b: the dispatcher alone chose after an attempt that didn't finish, so its
+            # scripted verdicts belong to the finished attempts; this attempt's choice is its dispatch script's
+            indices = re.findall(r'^([0-9]+)\. ', _context_of(self, key), re.M)
+            return json.dumps({"results": [{"index": int(i), "met": None, "evidence": "Scripted: not done",
+                                            "how": None} for i in indices]} | CHECKER_DEFAULTS
+                              | self.legacy_next(key))      # type: ignore[operator]
         if key not in self.workers and role in DEFAULT_ANSWERS:
             return DEFAULT_ANSWERS[role](self, key)
         w = self.workers[key]
@@ -460,6 +494,36 @@ class Script:
                 raise AssertionError(f"the scripted answer for {key} was asked more than {SCRIPTED_DISPATCH_REPEATS} "
                                      "times: the test's script would answer forever (give a list of answers)")
         return w
+
+
+    def legacy_next(self, key: str, peek: bool = False) -> dict[str, Any] | None:
+        """The checker's next step from a `.dispatch` script written before step 8b merged the next-attempt choice into
+        the checker (retry -> retry, ask -> ask, finish with result unconfirmed -> accept_unconfirmed, any other finish
+        -> fail; recheck has no successor and fails); None when the test scripted none for this attempt loop. Tests
+        decision 1 deletes these tests with the old harness; new tests script the checker's `next` themselves."""
+        legacy = key.removesuffix(".verify") + ".dispatch"
+        scripted = self.workers.get(legacy)
+        if scripted is None or (isinstance(scripted, list) and not scripted):
+            return None
+        if peek:
+            return {}
+        raw = scripted.pop(0) if isinstance(scripted, list) else scripted
+        if not isinstance(raw, list):
+            self.served[legacy] = self.served.get(legacy, 0) + 1
+            if self.served[legacy] > SCRIPTED_DISPATCH_REPEATS:
+                raise AssertionError(f"the scripted answer for {legacy} was asked more than "
+                                     f"{SCRIPTED_DISPATCH_REPEATS} times (give a list of answers)")
+        d = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        action = d.get("action")
+        reason = str(d.get("stop_reason") or "")      # a finish's instructions never reached the owner
+        if action == "retry":
+            return {"next": "retry", "instructions": str(d.get("instructions") or ""),
+                    "worker_type": d.get("worker_type")}
+        if action == "ask":
+            return {"next": "ask", "question": str(d.get("question") or "")}
+        if action == "finish" and d.get("result") == "unconfirmed":
+            return {"next": "accept_unconfirmed", "reason": reason}
+        return {"next": "fail", "reason": reason}
 
 
 # WARNING: every scripted .verify step gets met=True for FERB's report condition unless the test sets
@@ -483,6 +547,53 @@ def complete_report_verdict(script: "Script", context: str, final: str) -> str:
         return final
     results.append({"index": index, "met": True, "evidence": "Scripted: the report matches the records.", "how": None})
     return json.dumps(verdict)
+
+
+CHECKER_DEFAULTS = {"answer_edits": [], "missing": "", "instructions": "", "worker_type": None, "question": "",
+                    "reason": ""}
+
+
+def complete_checker_next(script: "Script", key: str, final: str) -> str:
+    """Scripted checker verdicts written before step 8b give only `results`; the next step was the dispatcher's: its
+    script's choice when the test gave one (`Script.legacy_next`), else its default, which never retried: everything
+    met is accept, anything else fails. Their other fields get their empty values. Verdicts that give `next` are left
+    as they are."""
+    try:
+        verdict = json.loads(final)
+    except ValueError:
+        return final
+    if not isinstance(verdict, dict) or not isinstance(verdict.get("results"), list) or "next" in verdict:
+        return final
+    if all(isinstance(r, dict) and r.get("met") is True for r in verdict["results"]):
+        return json.dumps(CHECKER_DEFAULTS | verdict | {"next": "accept"})
+    return json.dumps(CHECKER_DEFAULTS | verdict | (script.legacy_next(key) or {"next": "fail"}))
+
+
+ROLE_FIELDS = ("input_notes", "conversation_action", "conversation_proposals", "watch_met", "loop_action", "probe")
+
+
+def complete_worker_report(final: str) -> str:
+    """Scripted worker reports written before step 8b ({status: done|failed|blocked|needs_user, summary, artifacts,
+    evidence, answer}) in the report's shape: done keeps its answer (else its summary, which was the answer then); any
+    other status is not_done with its summary as the reason, and needs_user's summary as the question too. A report
+    already in the new shape is left as it is."""
+    try:
+        old = json.loads(final)
+    except ValueError:
+        return final
+    if not isinstance(old, dict) or "status" not in old or (
+            "summary" not in old and old.get("status") in ("done", "not_done")):
+        return final                     # not a worker report (a running summary's), or already in the new shape
+    status = old.get("status")
+    summary = str(old.get("summary") or "")
+    new = {"artifacts": list(old.get("artifacts") or []), "how": str(old.get("how") or ""),
+           **{k: old[k] for k in ROLE_FIELDS if k in old}}
+    if status == "done":
+        return json.dumps(new | {"status": "done", "reason": "", "question": None,
+                                 "answer": str(old.get("answer") or summary)})
+    return json.dumps(new | {"status": "not_done", "reason": summary,
+                             "question": summary if status == "needs_user" else None,
+                             "answer": str(old.get("answer") or "")})
 
 
 class FakeRuntime:
@@ -515,7 +626,10 @@ class FakeRuntime:
         else:
             final = step
         if role_of(key) == "checker" and isinstance(final, str):
-            final = complete_report_verdict(self.script, run.state["context"], final)
+            final = complete_checker_next(self.script, key,
+                                          complete_report_verdict(self.script, run.state["context"], final))
+        elif role_of(key) == "worker" and isinstance(final, str):
+            final = complete_worker_report(final)
         yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
         self.script.times[key] = (t0, time.monotonic())
         yield RuntimeEvent("final", {"text": final})

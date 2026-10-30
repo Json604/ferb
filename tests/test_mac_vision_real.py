@@ -33,7 +33,7 @@ from ferb.act.mac.input import RealInput
 from ferb.clock.clock import SystemClock
 from ferb.core.errors import StaleRef
 from ferb.core.types import Identity, Task
-from ferb.orchestrator.schemas import WORKER_SCHEMA, WorkerOutcome
+from ferb.orchestrator.schemas import WORKER_SCHEMA, WorkerReport
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request
 from ferb.sense.watchers.owner_input import OwnerInput
@@ -185,11 +185,11 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_only_in_the_e
     token = d.run(setup())
     prompt = ("Take a screenshot of the app named 'FERB Probe' with the mac_screenshot tool. Its window shows one "
               "word in large black letters on a red background. Put exactly that word (letters and digits) in your "
-              "summary and report status done.")
+              "answer and report status done.")
     out = d.run(run_direct(d, "worker", prompt, ["mac.screenshot"], WORKER_SCHEMA, token, task), timeout=600)
     assert "violation" not in out, out.get("violation")
     assert frames, ("the worker never took a screenshot", out.get("final"), out.get("seen"))
-    summary = WorkerOutcome.model_validate_json(out["final"]).summary
+    summary = WorkerReport.model_validate_json(out["final"]).answer
     assert probe.word in summary.upper().replace(" ", ""), summary
     marker = base64.b64encode(frames[0][200:260]).decode()[4:40]           # a slice of the frame's base64
     raw = frames[0][200:260]

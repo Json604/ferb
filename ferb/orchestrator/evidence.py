@@ -198,6 +198,54 @@ def page_bounds(text: str, offset: int, size: int, secrets: Iterable[str]) -> tu
     return start, end
 
 
+
+HOW_KEPT = 30          # newest entries of each list in `how_facts`; the counts say how many there were
+CONTEXT_READS = ("task.evidence", "chat.history", "memory.read")
+
+
+def how_facts(conn: Any, task_id: str, since: int = 0) -> dict[str, Any]:
+    """Code facts about how a task's work was done, read from its own tool-call records (owner decision 9, daemon
+    decision 5): how many calls and failures per tool; the screen changes the disturbance sampler recorded around each
+    call that can change the screen (front app, focused window, fullscreen, Space: `screen` on the call's record);
+    the calls that asked for the foreground; each call's structural facts (ActionFacts: where input landed, forms,
+    deletes, writes); and the accounts and sites the calls targeted. Never the worker's words. `since`: a span cursor
+    (a loop round's own calls). FERB's own context reads are left out. Each list keeps its newest HOW_KEPT."""
+    by_tool: dict[str, dict[str, int]] = {}
+    screen: list[dict[str, Any]] = []
+    foreground: list[dict[str, Any]] = []
+    facts: list[dict[str, Any]] = []
+    targets: dict[str, set[str]] = {"accounts": set(), "sites": set()}
+    for span_id, raw_in, raw_out, error in conn.execute(
+            "SELECT id, input_json, output_json, error FROM spans WHERE task_id = ? AND kind = 'tool.call' "
+            "AND rowid > ? ORDER BY rowid", (task_id, since)):
+        call = json.loads(raw_in) if raw_in else {}
+        tool = str(call.get("tool"))
+        if tool in CONTEXT_READS:
+            continue
+        out = json.loads(raw_out) if raw_out else {}
+        out = out if isinstance(out, dict) else {}
+        counted = by_tool.setdefault(tool, {"calls": 0, "failed": 0})
+        counted["calls"] += 1
+        counted["failed"] += 1 if error or call.get("boundary_refused") else 0
+        if out.get("screen"):
+            screen.append({"span_id": span_id, "tool": tool, "changed": out["screen"]})
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        if args.get("allow_foreground"):
+            foreground.append({"span_id": span_id, "tool": tool})
+        measured = call.get("facts") or out.get("facts")
+        if measured:
+            facts.append({"span_id": span_id, "tool": tool, "facts": measured})
+        target = call.get("target") if isinstance(call.get("target"), dict) else {}
+        for key, kind in (("account", "accounts"), ("site", "sites")):
+            if target.get(key):
+                targets[kind].add(str(target[key]))
+    return {"calls_by_tool": by_tool,
+            "screen_changes_during_ferb_calls": {"count": len(screen), "newest": screen[-HOW_KEPT:]},
+            "foreground_calls": {"count": len(foreground), "newest": foreground[-HOW_KEPT:]},
+            "call_facts": {"count": len(facts), "newest": facts[-HOW_KEPT:]},
+            "targeted": {k: sorted(v) for k, v in targets.items()}}
+
+
 def recorded_calls(spans: SpanStore, task_id: str, root_id: str, observes: Callable[[str], bool],
                    redact: Callable[[Any], Any], secrets: Callable[[], Iterable[str]],
                    above: int = 0, earlier_runs: int = 0, since: int = 0) -> list[ContextBlock]:

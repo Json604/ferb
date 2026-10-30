@@ -96,6 +96,10 @@ def write_token_file(run_token: str) -> Path:
     return path
 
 
+
+# The Agent SDK's AssistantMessageError kinds that are account facts no model can change (step 8b, owner decision 16)
+ACCOUNT_ERRORS = {"authentication_failed": "signed_out", "billing_error": "usage_limit", "rate_limit": "usage_limit"}
+
 class ClaudeRuntime:
     name = "claude"
 
@@ -221,6 +225,8 @@ class ClaudeRuntime:
                 elif kind == 'content_block_stop':
                     structured_blocks.discard(event.get('index'))
             elif isinstance(m, AssistantMessage):
+                if account := ACCOUNT_ERRORS.get(str(getattr(m, "error", None) or "")):
+                    run.state["account"] = account   # the SDK's own error kind (AssistantMessageError), step 8b
                 for b in m.content:
                     if isinstance(b, ToolUseBlock):
                         if b.name == STRUCTURED_OUTPUT:
@@ -243,7 +249,8 @@ class ClaudeRuntime:
                     detail = m.result or str(getattr(m, "errors", None)) or m.subtype
                     # the model answered, but never within the schema: format repair, not a failed call
                     yield RuntimeEvent("invalid_answer" if m.subtype == STRUCTURED_RETRIES else "error",
-                                       {"message": detail})
+                                       {"message": detail} | ({"account": run.state["account"]}
+                                                              if run.state.get("account") else {}))
                     return
                 extra = self.proxy.seen(run.id) - self.allowed
                 if extra:

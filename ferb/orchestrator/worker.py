@@ -10,6 +10,7 @@ import asyncio
 import errno
 import json
 import os
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -26,6 +27,7 @@ from ferb.core.types import ModelImage, ModelLimits, ModelRequest, Outcome, RunH
 from ferb.orchestrator.tree import TaskRecord
 from ferb.orchestrator.steering import deliver as deliver_steering
 from ferb.orchestrator import progress
+from ferb.runtimes.catalog import SignedOut
 
 if TYPE_CHECKING:
     from ferb.orchestrator.supervisor import _Tree
@@ -39,15 +41,36 @@ class ServiceError(ValueError):
     """The model service (Codex / Claude) itself failed: its message is kept and told to the owner plainly. `network`:
     a failure reaching the service (its account check, a dropped stream), which this Mac being offline explains."""
 
-    def __init__(self, message: str, runtime: str = "Codex", network: bool = False) -> None:
+    def __init__(self, message: str, runtime: str = "Codex", network: bool = False, account: str = "") -> None:
         super().__init__(message)
-        self.runtime, self.network = runtime, network
+        self.runtime, self.network, self.account = runtime, network, account
 
 
 class ContextOverflow(ServiceError):
     """The run's model context overflowed: the runtime's documented window-exceeded error (Codex's
     `contextWindowExceeded`, OpenAI's `context_length_exceeded`, Anthropic's `model_context_window_exceeded` stop), as
     the adapter marked it (`overflow` on its error event). Not a network failure."""
+
+
+@dataclass
+class ServiceDown(Outcome):
+    """An attempt that ended on an account fact its runtime reported, which no model can change (step 8b, owner decision
+    16): `problem` "usage_limit" (the plan's usage limit) or "signed_out" (FERB's sign-in missing or refused), on
+    `runtime`. Code writes the failure; the orchestrator offers another signed-in runtime and never switches by
+    itself."""
+    runtime: str = ""
+    problem: str = ""
+
+
+ACCOUNT_PROBLEMS = ("usage_limit", "signed_out")
+
+
+def account_problem(runtime: str, problem: str) -> str:
+    """The owner's line for an account fact (ServiceDown), written by code."""
+    from ferb.runtimes.catalog import label
+    if problem == "usage_limit":
+        return f"{label(runtime)} has reached its usage limit, so I couldn't go on with this."
+    return f"{label(runtime)} isn't signed in for FERB (or its sign-in was refused), so I couldn't go on with this."
 
 
 class Overflowed(Outcome):
@@ -362,7 +385,9 @@ class WorkerRuns:
             if task.role == 'worker':
                 # Runtime construction can itself fail (for example missing subscription login).
                 tree.result_revision = len(tree.steering.messages)
-            role = "checker" if task.role == "verifier" else "worker:" + tree.spec.worker_type
+            # the owner's one-tap switch for this task (owner decision 16) runs its worker and its checker there
+            role = (("checker:" + tree.runtime if tree.runtime else "checker") if task.role == "verifier"
+                    else "worker:" + (tree.runtime or tree.spec.worker_type))
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema,
                                    **({"effort": effort} if effort else {}))   # D32: each adapter's own setting
             final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id,
@@ -381,8 +406,16 @@ class WorkerRuns:
                              [failure])
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
-            result = (Overflowed if isinstance(e, ContextOverflow) else Outcome)(task.id, "blocked", problem_of(e),
-                                                                                  [], [])
+            if e.account in ACCOUNT_PROBLEMS:       # step 8b: code writes it and offers another runtime
+                result = ServiceDown(task.id, "blocked", account_problem(e.runtime, e.account), [], [failure],
+                                     e.runtime, e.account)
+            else:
+                result = (Overflowed if isinstance(e, ContextOverflow) else Outcome)(task.id, "blocked",
+                                                                                      problem_of(e), [], [])
+        except SignedOut as e:                  # the runtime can't start: FERB's sign-in for it is missing
+            failure = f"{e.runtime}: {type(e).__name__}: {e}"
+            result = ServiceDown(task.id, "blocked", account_problem(e.runtime, e.account), [], [failure], e.runtime,
+                                 e.account)
         except InputTooLarge as e:              # refused before sending (L28): not the service's error
             failure = f"{type(e).__name__}: {e}"
             result = Overflowed(task.id, "blocked", too_large_problem(e), [], [])
@@ -514,7 +547,8 @@ class WorkerRuns:
             if not worker_id:
                 self._stalled.discard(watch_id)
             if isinstance(exc, RuntimeUnavailable):     # a login problem is never the network's
-                raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required") from None
+                raise ServiceError(str(exc), rt.name, getattr(exc, "reason", "") != "auth_required",
+                                   account=getattr(exc, "account", "")) from None
             current = asyncio.current_task()
             if (isinstance(exc, asyncio.CancelledError) and stalled
                     and not (current is not None and current.cancelling())):
@@ -578,7 +612,9 @@ class WorkerRuns:
                 elif ev.kind == "error" and ev.data.get("overflow"):     # the window-exceeded error, as marked
                     raise ContextOverflow(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "error":
-                    raise ServiceError(str(ev.data.get("message")), rt.name, network=True)
+                    account = str(ev.data.get("account") or "")      # the adapter's account fact (step 8b)
+                    raise ServiceError(str(ev.data.get("message")), rt.name, network=not account,
+                                       account=account if account in ACCOUNT_PROBLEMS else "")
                 elif ev.kind == "invalid_answer":      # the adapter's own schema check found the answer outside it
                     raise InvalidAnswer(str(ev.data.get("message", "")))
                 elif ev.kind == "final":

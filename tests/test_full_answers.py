@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA,
+from ferb.orchestrator.schemas import (CHECKER_SCHEMA, QUESTION_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA,
                                        SupervisorOutcome)
 from ferb.sanitize.redact import Redactor
 from tests.conftest import chat, install, outcome, sup, task
@@ -29,8 +29,7 @@ def test_each_answer_schema_has_one_owner_answer_and_questions_keep_their_displa
     assert 'display_text' not in SUPERVISOR_SCHEMA['properties']
     assert list(SUPERVISOR_SCHEMA['properties'])[-1] == 'text'          # streamed last, after every action field
     assert 'display_text' not in WORKER_SCHEMA['properties'] and 'answer' in WORKER_SCHEMA['properties']
-    assert 'summary' in WORKER_SCHEMA['properties']                     # P31: the checker's evidence report stays
-    assert 'display_text' not in DISPATCH_SCHEMA['properties']
+    assert 'display_text' not in CHECKER_SCHEMA['properties']
     assert 'display_text' in QUESTION_SCHEMA['properties']
 
 
@@ -80,8 +79,8 @@ def test_an_unfinished_answer_is_the_full_report_never_the_worker_s_claim(daemon
             {'worker': worker, 'worker.verify': check})
     final = outcome(chat(daemon, 'review coding sessions'))
     assert final['status'] == 'failed' and 'display_text' not in final
-    assert final['answer'].startswith("I couldn't confirm the task was complete:")   # code's status line leads
-    assert 'The requested report is missing.' in final['answer']                    # the findings are shown
+    assert final['answer'].startswith("I couldn't finish this task.")               # it says plainly what happened
+    assert 'The requested report is missing.' in final['answer']                    # what the check found
     assert 'Everything is ready.' not in final['answer']
 
 
@@ -95,8 +94,7 @@ def test_a_failed_task_shows_why_it_stopped_and_what_is_left(daemon):
             {'worker': worker, 'worker.dispatch': dispatch})
     final = outcome(chat(daemon, 'review coding sessions'))
     assert 'display_text' not in final
-    assert final['answer'].startswith("I couldn't finish this task.")
-    assert 'Why work stopped: ' + reason in final['answer'] and 'Still to do:' in final['answer']
+    assert final['answer'] == "I couldn't finish this task. " + reason
 
 
 def test_question_projection_is_separate_from_authoritative_reason(daemon):
@@ -170,29 +168,7 @@ def test_a_stop_reports_what_the_worker_had_found(daemon, unattended):
     assert "What I'd found before stopping (not checked): The hotspot's DHCP lease expired" in result['answer']
 
 
-def test_a_cleanup_review_that_lowers_the_status_keeps_its_own_words(daemon, monkeypatch):
-    from ferb.core.types import Identity, Outcome, Task
-    from ferb.orchestrator.schemas import TaskSpec
-    from ferb.orchestrator.supervisor import _Tree
-    supervisor = daemon.daemon.supervisor
-    worker = Task('presentation.worker', None, 'review', 'device', Identity.FERB, set(), 'test', 'request', [], None)
-    tree = _Tree('presentation', TaskSpec(goal='review', identity='ferb'), worker)
-    tree.outcome = Outcome(worker.id, 'done', 'Report ready.', [], [])
-    async def no_context(tree):
-        return []
-    monkeypatch.setattr(supervisor, '_context', no_context)
-    monkeypatch.setattr(supervisor, 'make_runtime', lambda *args, **kwargs: object())
-    async def report(*args, **kwargs):
-        return json.dumps({'status': 'failed', 'summary': 'Report was removed during cleanup.', 'artifacts': [], 'evidence': []})
-    monkeypatch.setattr(supervisor, '_run', report)
-    async def reconcile():
-        parent = supervisor.spans.start('test.cleanup', input={})
-        await supervisor._reconcile_resources(tree, parent.id)
-    daemon.run(reconcile())
-    assert tree.outcome.status == 'failed' and tree.outcome.summary == 'Report was removed during cleanup.'
-
-
-@pytest.mark.parametrize('name', ['supervisor.md', 'worker.md', 'dispatch.md', 'interaction.md', 'verifier.md'])
+@pytest.mark.parametrize('name', ['supervisor.md', 'worker.md', 'interaction.md', 'verifier.md'])
 def test_answer_prompts_ask_for_no_separate_short_version(name):
     """The prompts are executable input: none asks for a concise display of an answer, or says it hides under
     Details. question.md still asks for a question's display."""

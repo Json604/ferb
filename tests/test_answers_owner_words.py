@@ -54,10 +54,9 @@ def test_needs_user_answer_is_the_label_the_question_then_the_findings(daemon: R
         'worker.dispatch': _dispatch('ask', question=question)})
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'needs_user' and 'display_text' not in final
-    lines = final['answer'].split('\n')
-    assert lines[0] == "I couldn't confirm the task was complete:"
-    assert 'Question: ' + question in lines
-    assert FINDING in final['answer'] and HOW in final['answer'] and REPORT in final['answer']
+    # owner decision 9: the answer says plainly what's needed; the findings stay in the verification records
+    assert final['answer'] == "I need your answer to finish this task. " + question
+    assert final['verification'][0]['evidence'] == FINDING and REPORT in final['artifacts']
 
 
 def test_failed_answer_keeps_the_deliverable_the_reason_and_the_findings(daemon: RunningDaemon) -> None:
@@ -70,9 +69,8 @@ def test_failed_answer_keeps_the_deliverable_the_reason_and_the_findings(daemon:
                                      result='failed')})
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'failed' and 'display_text' not in final
-    assert final['answer'].startswith("I couldn't confirm the task was complete:")
-    assert FINDING in final['answer'] and REPORT in final['answer']
-    assert 'Why work stopped: A new tab was required.' in final['answer']
+    assert final['answer'] == "I couldn't finish this task. A new tab was required."
+    assert REPORT in final['artifacts'] and final['verification'][0]['evidence'] == FINDING
 
 
 def test_an_unfinished_answer_never_states_the_worker_s_unchecked_claim(daemon: RunningDaemon) -> None:
@@ -82,8 +80,8 @@ def test_an_unfinished_answer_never_states_the_worker_s_unchecked_claim(daemon: 
         'worker.dispatch': _dispatch('finish', instructions='Stop here.', result='failed')})
     final = outcome(chat(daemon, 'write the YouTube report'))
     assert final['status'] == 'failed'
-    assert final['answer'].startswith("I couldn't confirm the task was complete:")
-    assert 'Done!' not in final['answer'] and REPORT in final['answer']
+    assert final['answer'].startswith("I couldn't finish this task.")
+    assert 'Done!' not in final['answer'] and REPORT in final['artifacts']
 
 
 def test_an_answer_says_why_work_stopped(daemon: RunningDaemon) -> None:
@@ -94,8 +92,7 @@ def test_an_answer_says_why_work_stopped(daemon: RunningDaemon) -> None:
         'worker.dispatch': 'not a decision'})
     final = outcome(chat(daemon, 'book the table'))
     assert final['status'] == 'failed'
-    assert final['answer'].startswith("I couldn't finish this task.\n")
-    assert 'The booking page would not load.' in final['answer']
+    assert final['answer'] == "I couldn't finish this task. The booking page would not load."
 
 
 def test_a_worker_report_failure_never_shows_an_exception_name(daemon: RunningDaemon) -> None:
@@ -126,10 +123,10 @@ def test_a_failed_check_keeps_its_failure_for_the_orchestrator(daemon: RunningDa
                                                    result='failed')})
     final = outcome(chat(daemon, 'write the report'))
     assert all(v['evidence'].startswith("The check couldn't finish: ") for v in final['verification'])
-    findings = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.dispatch').split('Inspection findings')[1]
-    assert 'Expecting value' in findings                               # the exact failure, for recovery
+    assert any('Expecting value' in v['evidence'] for v in final['verification'])    # the exact failure, recorded
     # the owner reads why the check couldn't run, as a check, in plain words (owner 2026-10-24); no exception name
-    assert "Why the check couldn't run: " in final['answer']
+    assert final['status'] == 'done_unverified'
+    assert "Couldn't confirm: the check couldn't run" in final['answer']
     assert "the AI's answer didn't fit the form FERB requires" in final['answer']
     assert 'InvalidAnswer' not in final['answer'] and 'Error' not in final['answer']
 
@@ -844,14 +841,11 @@ def test_the_prompts_carry_no_copyable_example_phrasing(phrase: str) -> None:
     ('interaction.md', "It answers the owner's question as they asked it, read in the conversation's"),
     ('interaction.md', "It keeps the fact the conversation is about"),
     ('interaction.md', "Never use FERB's internal terms in anything the owner reads"),
-    ('dispatch.md', 'what was delivered, with its paths and links;'),
-    ('dispatch.md', "FERB lists the findings itself: don't paste them."),
     ('worker.md', "It answers the owner's question as they asked it, in the conversation's context"),
     ('supervisor.md', "`text` answers the owner's message as they asked it"),
     ('supervisor.md', 'FERB adds that line itself'),
     ('supervisor.md', 'an earlier one whose reminder was never set'),
     ('supervisor.md', 'new_goal'),
-    ('dispatch.md', 'FERB shows your question on its own line'),
 ])
 def test_the_answer_prompts_require_the_question_as_asked_and_no_internal_terms(name: str, words: str) -> None:
     assert words in _prompt(name)

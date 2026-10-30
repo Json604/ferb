@@ -249,12 +249,12 @@ def test_the_locked_catalog_is_written_once_and_again_only_when_codex_s_changes(
 
 
 def test_daemon_builds_codex_with_the_planners_90_s_and_others_their_limit(daemon, monkeypatch) -> None:
-    from ferb.orchestrator.schemas import DISPATCH_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA
+    from ferb.orchestrator.schemas import QUESTION_SCHEMA, SUPERVISOR_SCHEMA, WORKER_SCHEMA
     d = daemon.daemon
     codex_home(d.home)
     monkeypatch.setattr(cx, "codex_binary", lambda ferb_home, repo=None: Path("/fake/codex"))
     planner = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
-    dispatch = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=DISPATCH_SCHEMA)
+    dispatch = d._build_runtime("codex", "orchestrator", mode="supervisor", tool_names=[], schema=QUESTION_SCHEMA)
     worker = d._build_runtime("codex", "worker:default", mode="worker", tool_names=[], schema=WORKER_SCHEMA)
     assert (planner.timeout_s, dispatch.timeout_s, worker.timeout_s) == (PLANNER_LIMIT_S, CALL_LIMIT_S, None)
     assert planner.cache_role is None                     # P20 stays off until the owner's live injection eval

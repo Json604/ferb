@@ -513,7 +513,7 @@ class Learning:
                 'apps': {a: (apps or {}).get(a, 'unknown') for a in used_apps},
                 'app_versions_captured': apps is not None, 'app_version_scope': 'identified apps and browser inventory', 'surfaces': ep['tools'], 'actions': actions,
                 'status': ep['status'], 'verified': valid, 'conditions': ep['conditions'],
-                'feedback': feedback, 'narrative': ep['answer'], 'problems': ep['problems'],
+                'feedback': feedback, 'narrative': ep['answer'], 'how': ep.get('how') or '', 'problems': ep['problems'],
                 'started_at': ep['started_at'], 'ended_at': ep['ended_at'], 'usage': ep['usage']}
         old = self.current_card(task_id)
         if old and apps is None:

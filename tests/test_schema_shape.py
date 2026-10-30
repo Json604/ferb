@@ -106,10 +106,10 @@ def test_a_schema_still_over_a_limit_is_refused_before_sending() -> None:
 
 
 def test_a_missing_required_key_still_fails_ferbs_check() -> None:
-    shape = for_anthropic(core.DISPATCH_SCHEMA)
-    back = shape.answer_text(json.dumps({"action": "retry"}))
+    shape = for_anthropic(core.CHECKER_SCHEMA)
+    back = shape.answer_text(json.dumps({"next": "retry"}))
     with pytest.raises(ValueError):
-        check_final(back, core.DISPATCH_SCHEMA)
+        check_final(back, core.CHECKER_SCHEMA)
 
 
 def test_a_list_of_two_for_one_optional_object_is_left_for_ferbs_check() -> None:
@@ -211,7 +211,8 @@ def test_every_core_schema_uses_only_geminis_documented_keywords(name: str) -> N
 
 
 def test_a_nullable_enum_becomes_an_any_of_for_gemini() -> None:
-    wire = for_gemini(core.WORKER_SCHEMA).wire["properties"]["loop_action"]
+    schema = core._obj({"loop_action": {"type": ["string", "null"], "enum": ["continue", "finished", "blocked", None]}})
+    wire = for_gemini(schema).wire["properties"]["loop_action"]
     assert wire["anyOf"] == [{"type": "string", "enum": ["continue", "finished", "blocked"]}, {"type": "null"}]
 
 

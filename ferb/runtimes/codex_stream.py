@@ -73,6 +73,12 @@ def write_template(codex_home: Path, workdir: Path, thread_id: str, model: str, 
 
 class ProtocolError(ValueError):
     overflow = False       # Codex's CodexErrorInfo `contextWindowExceeded`: the model's window overflowed
+    account = ''           # "usage_limit" / "signed_out" from its CodexErrorInfo (ACCOUNT_INFO), else ''
+
+
+# Codex's CodexErrorInfo (app-server protocol v2) values that are account facts no model can change (step 8b, owner
+# decision 16): the plan's usage limit, or a sign-in the service refused
+ACCOUNT_INFO = {'usageLimitExceeded': 'usage_limit', 'unauthorized': 'signed_out'}
 
 
 def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any]) -> ProtocolError:
@@ -81,6 +87,8 @@ def _codex_failure(prefix: str, error: Any, redact: Callable[[Any], Any]) -> Pro
     optional recorded calls)."""
     failure = ProtocolError(codex_error(prefix, error, redact))
     failure.overflow = isinstance(error, dict) and error.get('codexErrorInfo') == 'contextWindowExceeded'
+    info = error.get('codexErrorInfo') if isinstance(error, dict) else None
+    failure.account = ACCOUNT_INFO.get(info, '') if isinstance(info, str) else ''
     return failure
 
 
@@ -89,6 +97,7 @@ class AccountError(ProtocolError, RuntimeUnavailable):
 
     def __init__(self, reason: str, code: int | None = None) -> None:
         self.reason = 'auth_required' if reason == 'auth_required' else 'account_unavailable'
+        self.account = 'signed_out' if self.reason == 'auth_required' else ''
         self.code = code if type(code) is int else None
         detail = self.reason + (f', code {self.code}' if self.code is not None else '')
         recovery = ('FERB needs its Codex subscription login. Run `ferb setup --codex-login`.'
@@ -651,7 +660,8 @@ async def events(runtime: CodexRuntime, run: RunHandle) -> AsyncIterator[Runtime
         elif not state['cancelled']:
             message = 'Codex runtime timed out' if isinstance(exc, TimeoutError) else str(exc)
             yield RuntimeEvent('error', {'message': message} | ({'overflow': True} if getattr(exc, 'overflow', False)
-                                                                else {}))
+                                                                else {})
+                               | ({'account': exc.account} if getattr(exc, 'account', '') else {}))
     finally:
         if reading is not None:
             reading.cancel()

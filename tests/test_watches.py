@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from ferb.cli.client import Client
-from ferb.orchestrator.schemas import SCHEDULE_SCHEMA, WORKER_SCHEMA, ScheduleRequest
+from ferb.orchestrator.schemas import SCHEDULE_SCHEMA, WORKER_WATCH_SCHEMA, ScheduleRequest
 from ferb.policy.targets import Targets
 from tests.conftest import RunningDaemon, chat, done, install, outcome, sup, task
 from tests.support.bus import Subscriber, until
@@ -69,7 +69,7 @@ def _pending_checks(d: RunningDaemon) -> list[Any]:
 def test_the_planner_marks_a_watch_and_it_is_stored_with_the_schedule(daemon: RunningDaemon) -> None:
     assert SCHEDULE_SCHEMA["properties"]["watch"] == {"type": "string", "enum": ["none", "until_met", "standing"]}
     assert "watch" in SCHEDULE_SCHEMA["required"]                       # strict structured output: always written
-    assert WORKER_SCHEMA["properties"]["watch_met"] == {"type": ["boolean", "null"]}
+    assert WORKER_WATCH_SCHEMA["properties"]["watch_met"] == {"type": ["boolean", "null"]}
     saved = json.loads(schedule_reply(daemon, FILE_WATCH, FILE_WORDS, daemon.daemon.clock.now()))["schedule"]
     del saved["watch"]
     assert ScheduleRequest.model_validate(saved).watch == "none"         # a spec written before watches
@@ -302,8 +302,7 @@ def test_the_checker_judges_the_reported_condition_and_a_contradicting_flag_neve
     assert _journal(daemon, "schedule.met", s.id) == [] and [title for title, _ in notes] == ["FERB"]
     [failed] = results(daemon)
     assert failed["status"] == "failed"
-    assert "- What I reported about whether it has happened didn't match the records: Downloads has no done.txt." \
-        in failed["answer"]
+    assert "whether it has happened: Downloads has no done.txt." in failed["answer"]
 
 
 def test_an_ordinary_task_gets_no_watch_condition(daemon: RunningDaemon) -> None:
@@ -578,8 +577,8 @@ WATCH_RUN_TELLS = (
     'say it still holds. FERB itself ends an until_met watch once a confirmed run finds the condition met, and '
     'tells the owner it stopped checking.')
 WATCH_WORKER = (
-    "- watch_met: only when your task checks a condition the owner asked to be told about (a watch): true when your "
-    "fresh observation shows it holds now, false when it doesn't; null for any other task.")
+    "- watch_met (a watch, a condition the owner asked to be told about): true when your fresh observation shows it "
+    "holds now, false when it doesn't, null when you couldn't see it.")
 NO_LOOP_WORKER = (
     "A request to be told or alerted when something outside your task's work becomes true later (a file appearing, "
     "a battery level, a price) is FERB's watch, a schedule that survives restarts and checks it once per run: check"

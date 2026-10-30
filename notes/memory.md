@@ -54,6 +54,12 @@ to commit c6621c3.
     holds up (seen again, used without correction). Memory never authorizes an action. A memory page in the app shows
     and edits everything. (Same model as ChatGPT's and Claude's memory: transparency and correction, not approval.)
 
+16. **FERB works out who the owner is from their Mac and shows it** (owner, 2026-10-31): from installed apps and their
+    usage FERB works out what the owner mostly does, which apps they use most, their main browser and the main
+    profile/account in it; it presents that once as "here's what I saw: ..." (no yes/no loop, per decision 15), stores
+    it as observed facts, and the weekly profile pass promotes what holds up into Tier 1. Refreshed as usage changes.
+    Replaces today's persona step, whose confirmed dump was stored as one 1,275-char owner_stated item.
+
 ## What exists today (verified)
 
 | Part | Live data | State |
@@ -153,6 +159,8 @@ to commit c6621c3.
 
 ### Learning → how-notes
 - [ ] Add `how` to the worker report schema, store it on the episode/card, index and show it (above).
+      (Step 8b: in the report schema, on the task's outcome, the episode (`episodes.how`, migration 0050) and the
+      card body; indexing and showing it are step 9.)
 - [ ] Owner's pass verdict counts as verified (learning.py:906 counts only the checker; owner, 2026-10-30).
 - [ ] `memory.learned` puts `sources` before `text` (tools.py:44); a card with 58k refs fills the page. Drop
       sources from its output.

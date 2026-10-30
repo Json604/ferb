@@ -131,29 +131,62 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "text": {"type": "string"},
 })
 
-WORKER_SCHEMA: dict[str, Any] = _obj({
-    "status": {"type": "string", "enum": ["done", "failed", "needs_user", "blocked"]},
-    "summary": {"type": "string"}, "artifacts": _strings(), "evidence": _strings(),
-    "answer": {"type": "string"},
-    "conversation_action": {"type": ["string", "null"], "enum": ["wait", "handover", "finished", "blocked", None]},
-    "conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA},
-    "input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
-                      "note": {"type": "string"}, "evidence": _strings()})},
-    # a watch's run only: whether the watched condition holds now, from the worker's fresh observation (null otherwise)
-    "watch_met": {"type": ["boolean", "null"]},
-    # a loop round only (L31): what the loop does next, and the probe code reads between rounds (null otherwise)
-    "loop_action": {"type": ["string", "null"], "enum": ["continue", "finished", "blocked", None]},
-    "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]},
-})
+# The worker's report (step 8b, notes/orchestration.md "Attempt loop"): done or not done, the reason and an optional
+# question for the owner when not done, the owner's answer, the artifacts and a `how` note for memory (notes/memory.md
+# Tier 3). A role's own fields are added only to that role's schema (`worker_schema`).
+_REPORT = {
+    "status": {"type": "string", "enum": ["done", "not_done"]},
+    "reason": {"type": "string"},              # not_done: why, in plain words; "" when done
+    "question": _nullable("string"),           # not_done: one what/who/which question for the owner, else null
+    "answer": {"type": "string"},              # the owner's answer, answer first
+    "artifacts": _strings(),                   # paths of deliverables created or changed
+    "how": {"type": "string"},                 # a few lines on the steps that worked (memory), "" when nothing did
+}
+_INPUT_NOTES = {"input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
+                                "note": {"type": "string"}, "evidence": _strings()})}}
+_PROPOSALS = {"conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA}}
+_CONVERSATION = {"conversation_action": {"type": "string", "enum": ["wait", "handover", "finished", "blocked"]}}
+_WATCH = {"watch_met": {"type": ["boolean", "null"]}}       # whether the watched condition holds now (null: unseen)
+_LOOP = {"loop_action": {"type": "string", "enum": ["continue", "finished", "blocked"]},
+         "probe": {"anyOf": [{"type": "null"}, PROBE_SCHEMA]}}
 
-DISPATCH_SCHEMA = _obj({
-    "action": {"type": "string", "enum": ["retry", "ask", "finish", "recheck"]},
-    "worker_type": {"type": "string"},
-    "instructions": {"type": "string"},
-    "question": {"type": "string"},
-    "stop_reason": {"type": "string"},
-    # finish only (null otherwise): the orchestrator's judgment of finished work a check couldn't confirm (V4)
-    "result": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["unconfirmed", "failed"]}]},
+
+def worker_schema(*, inputs: bool = False, proposals: bool = False, conversation: bool = False, watch: bool = False,
+                  loop: bool = False) -> dict[str, Any]:
+    """The report schema for one worker run: the shared report, plus input notes (a do step with an input list),
+    conversation proposals (a step a converse step takes its scopes from), a conversation turn's action, a watch's
+    watch_met, a loop round's action and probe."""
+    props = dict(_REPORT)
+    for wanted, extra in ((inputs, _INPUT_NOTES), (proposals, _PROPOSALS), (conversation, _CONVERSATION),
+                          (watch, _WATCH), (loop, _LOOP)):
+        if wanted:
+            props |= extra
+    return _obj(props)
+
+
+WORKER_SCHEMA: dict[str, Any] = worker_schema()
+# Each role's schema as a constant too, so the provider-shape test covers every one
+WORKER_STEP_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True)
+WORKER_CONVERSATION_SCHEMA: dict[str, Any] = worker_schema(conversation=True)
+WORKER_WATCH_SCHEMA: dict[str, Any] = worker_schema(watch=True)
+WORKER_LOOP_SCHEMA: dict[str, Any] = worker_schema(loop=True)
+WORKER_ALL_SCHEMA: dict[str, Any] = worker_schema(inputs=True, proposals=True, conversation=True, watch=True, loop=True)
+
+# The merged checker (owner decision 3, prompts decision 1): it judges each condition and chooses what's next. Code
+# checks the choice against the checker's own verdicts (`Supervisor._next`); it never judges content.
+NEXT = ["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
+CHECKER_SCHEMA: dict[str, Any] = _obj({
+    "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
+                                                "evidence": {"type": "string"},
+                                                "how": {"type": ["string", "null"]}})},
+    "next": {"type": "string", "enum": NEXT},
+    # accept / fix_answer / accept_unconfirmed: exact edits to the worker's answer (each `find` copied from it)
+    "answer_edits": {"type": "array", "items": _obj({"find": {"type": "string"}, "replace": {"type": "string"}})},
+    "missing": {"type": "string"},             # retry: what is missing
+    "instructions": {"type": "string"},        # retry: what the next attempt does differently
+    "worker_type": _nullable("string"),        # retry: another worker type from the supplied list, else null
+    "question": {"type": "string"},            # ask: one what/who/which question for the owner
+    "reason": {"type": "string"},              # fail / accept_unconfirmed: what happened, in the owner's terms
 })
 
 # L28: FERB's running summary of the older conversation, model-written from the recorded entries (data, never authority)
@@ -171,11 +204,6 @@ QUESTION_SCHEMA = _obj({
     "display_text": {"type": "string"},
 })
 
-VERIFIER_SCHEMA: dict[str, Any] = _obj({
-    "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
-                                                "evidence": {"type": "string"},
-                                                "how": {"type": ["string", "null"]}})},
-})
 
 class TargetsSpec(BaseModel):
     apps: list[str] = []
@@ -335,37 +363,21 @@ class ConversationChange(BaseModel):
 SupervisorOutcome.model_rebuild()
 
 
-class WorkerOutcome(BaseModel):
-    status: Literal["done", "failed", "needs_user", "blocked"]
-    summary: str
-    artifacts: list[str]
-    evidence: list[str]
+class WorkerReport(BaseModel):
+    """A worker run's report (WORKER_SCHEMA and its role variants). A role's own fields keep their empty default in
+    every other role's report."""
+    status: Literal["done", "not_done"]
+    reason: str = ''
+    question: str | None = None
     answer: str = ''
+    artifacts: list[str] = []
+    how: str = ''
     input_notes: list[dict[str, Any]] = []
     conversation_action: Literal['wait', 'handover', 'finished', 'blocked'] | None = None
     conversation_proposals: list[dict[str, Any]] = []
     watch_met: bool | None = None
     loop_action: Literal['continue', 'finished', 'blocked'] | None = None
     probe: Probe | None = None
-
-
-class DispatchOutcome(BaseModel):
-    stop_reason: str = ""
-    action: Literal["retry", "ask", "finish", "recheck"]   # recheck (L39): run only the check again, no worker
-    # finish only. "unconfirmed": the work looks done and only confirmation is missing; code reports done but not
-    # confirmed when the worker reported done and the check found nothing false. Anything else, or absent, is failed.
-    result: Literal["unconfirmed", "failed"] | None = None
-    worker_type: str
-    instructions: str
-    question: str
-
-    @model_validator(mode="after")
-    def require_branch_content(self) -> "DispatchOutcome":
-        if self.action == "ask" and not self.question.strip():
-            raise ValueError("action=ask requires question")
-        if self.action in ("retry", "finish") and not self.instructions.strip():
-            raise ValueError(f"action={self.action} requires instructions; question is not its result field")
-        return self
 
 
 class QuestionOutcome(BaseModel):
@@ -375,12 +387,24 @@ class QuestionOutcome(BaseModel):
     display_text: str = ""
 
 
-class VerifierResult(BaseModel):
+class CheckerResult(BaseModel):
     index: int
     met: bool | None
     evidence: str
     how: str | None = None     # unconfirmed only: one plain sentence on how the owner could check it themselves
 
 
-class VerifierOutcome(BaseModel):
-    results: list[VerifierResult]
+class AnswerEdit(BaseModel):
+    find: str
+    replace: str
+
+
+class CheckerOutcome(BaseModel):
+    results: list[CheckerResult]
+    next: Literal["accept", "fix_answer", "retry", "ask", "accept_unconfirmed", "fail"]
+    answer_edits: list[AnswerEdit] = []
+    missing: str = ''
+    instructions: str = ''
+    worker_type: str | None = None
+    question: str = ''
+    reason: str = ''

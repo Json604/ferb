@@ -999,7 +999,7 @@ The dispatch schema's `result` (`unconfirmed`, `failed` or null) is the orchestr
 check, the answer is "I couldn't finish this task." with "Still to do:", and when the checker itself failed the
 conditions are listed under "Still to check (the check couldn't run):", followed by "Why the check couldn't run: …"
 (`_Tree.check_problem`: the check attempt's own summary, or `worker.reason` of what it raised). A worker's prose is
-never stated as success. The cleanup review ([`resources.md`](ferb/orchestrator/prompts/resources.md)) can't turn an
+never stated as success. The cleanup review (resources.md, merged into the checker in step 8b) can't turn an
 unconfirmed outcome into `failed` for that alone, nor a judged failure into `done_unverified`. The readers label
 `done_unverified` "not confirmed" (the stored status and the baseline keys keep their names):
 `ferb trace` heads the story `done ✓ verified`, `done (not confirmed)` or `failed ✗`
@@ -1102,7 +1102,7 @@ confirm my report matches the records: …" (with "To check: …" when the check
 I reported matches the records" under "Still to check" when the check couldn't run (crash or no verdict); a met one is
 left out of "Confirmed:". Work that stopped before any check never lists it. A done answer is the report the check
 judged: `_verifier` keeps it as `checked_report` (reset with each attempt), the verified answer in `_final` is that
-report, and `_reconcile_resources`, the review after cleanup ([`resources.md`](ferb/orchestrator/prompts/resources.md)),
+report, and `_reconcile_resources`, the review after cleanup (resources.md, merged into the checker in step 8b),
 may still lower the status, its own words then saying why, but never writes new done wording; its summary stays in the
 `model.resources` span, which the story shows as an "after cleanup: …" Planner step. In task `79bc5bfa` the
 after-cleanup rewording became the answer and dropped that FERB, not Codex Astra, had made the submission. When cleanup

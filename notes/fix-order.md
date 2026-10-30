@@ -21,6 +21,9 @@ owner installs it (`ferb setup --update`) and checks it live before the next ste
    deleted only once the new end-to-end runs exist.
 8. **Orchestration**: one execution path, one status/finish/stop function, typed turn object, merged checker,
    5-attempt check-in, pause/resume, planner restart on a new message, 90 s planner limit, smaller ordered context.
+8d. **Answers in steps + notch UI** (orchestration decisions 19-20): parts in the planner schema and validation,
+    once-only part posting after the checker, no final summarizing worker, the `part` event and its durable record;
+    the notch turn card, row states, footer, in-row questions, typing-dots bubble.
 9. **Memory**: Tier 1-3, local embeddings, how-notes, simple forget, perception fixes.
 10. **Prompts**: rewrite to contracts; patch mapping table reviewed by the owner; owner-confirmed memory items.
 11. **Voice**: speaker factory (macOS voice first), replies from structured events.

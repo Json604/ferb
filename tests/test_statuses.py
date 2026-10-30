@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from ferb.store.db import Database
-from tests.conftest import RunningDaemon, chat, cond, done, install, outcome, sup, task
+from tests.conftest import RunningDaemon, chat, cond, done, install, outcome, sup, task, verdict
 
 
 def _run(daemon: RunningDaemon, worker_final: Any, conds: tuple[dict[str, Any], ...]) -> dict[str, Any]:
@@ -21,19 +21,6 @@ def _sql(daemon: RunningDaemon, query: str, *args: Any) -> list[Any]:
     async def go() -> list[Any]:
         return [tuple(r) for r in daemon.daemon.db.conn.execute(query, args).fetchall()]
     return daemon.run(go())
-
-
-def _unconfirmed(evidence: str) -> str:
-    return json.dumps({"results": [{"index": 0, "met": None, "evidence": evidence}]})
-
-
-def _finish(result: str | None, stop_reason: str = "", instructions: str = "Stop and report.") -> str:
-    """The orchestrator ending the work; `result` is its judgment of an unconfirmed finish (absent when None)."""
-    choice: dict[str, Any] = {"action": "finish", "worker_type": "default", "instructions": instructions,
-                              "question": "", "stop_reason": stop_reason}
-    if result is not None:
-        choice["result"] = result
-    return json.dumps(choice)
 
 
 def _failed(summary: str) -> str:
@@ -57,15 +44,13 @@ def test_all_conditions_verified_is_done(daemon: RunningDaemon) -> None:
 def test_finished_but_a_check_could_not_confirm_is_done_unverified(daemon: RunningDaemon) -> None:
     # Conditions are numbered from 0 for the checker (supervisor._verifier); its met=None is "couldn't confirm".
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("could not open the Sent folder"),
-             "worker.dispatch": _finish("unconfirmed", "The Sent folder doesn't load from the background.")})
+            {"worker": done("sent it"),
+             "worker.verify": verdict(None, next="accept_unconfirmed", evidence="could not open the Sent folder",
+                                      how="Look in your Sent folder")})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "done_unverified" and evs["verified"] is False
-    assert "unverified" in evs["summary"] and "could not open the Sent folder" in evs["summary"]
-    assert evs["answer"].startswith("Done, but not confirmed:")      # labels the claim, never states it as fact
-    assert "- the email was sent — unverified: could not open the Sent folder" in evs["answer"]
-    assert "Why work stopped: The Sent folder doesn't load from the background." in evs["answer"]
-    assert "sent it" not in evs["answer"] and "Stop and report." not in evs["answer"]
+    # owner decision 9: the answer first, then one line naming what isn't confirmed (never stated as fact)
+    assert evs["answer"] == "sent it\n\nCouldn't confirm: the email was sent (Look in your Sent folder)."
     assert _sql(daemon, "SELECT status FROM tasks WHERE id = ?", evs["task_id"]) == [("done_unverified",)]
     async def episode() -> Any:
         from ferb.orchestrator import episodes
@@ -74,47 +59,39 @@ def test_finished_but_a_check_could_not_confirm_is_done_unverified(daemon: Runni
     assert ep["status"] == "done_unverified" and ep["verified"] is False
 
 
-@pytest.mark.parametrize("result", ["failed", None])
-def test_a_finish_judged_failed_or_unjudged_after_an_unconfirmed_check_is_failed(daemon: RunningDaemon,
-                                                                                  result: str | None) -> None:
-    # Rule 6: the orchestrator judges an unconfirmed finish; code maps "unconfirmed" only, anything else is failed.
+def test_a_fail_after_an_unconfirmed_check_is_failed(daemon: RunningDaemon) -> None:
     reason = "The Sent folder shows no message to Bob."
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": _finish(result, reason)})
+            {"worker": done("sent it"), "worker.verify": verdict(None, next="fail", reason=reason)})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed" and evs["verified"] is False
-    assert "- the email was sent — unverified: the Sent folder did not load" in evs["answer"]   # a check ran
-    assert "Why work stopped: " + reason in evs["answer"] and "sent it" not in evs["answer"]
+    assert evs["answer"] == "I couldn't finish this task. " + reason and "sent it" not in evs["answer"]
 
 
 def test_unconfirmed_is_not_accepted_when_the_check_found_something_false(daemon: RunningDaemon) -> None:
-    verdict = json.dumps({"results": [{"index": 0, "met": False, "evidence": "the draft is still in Drafts"}]})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": verdict, "worker.dispatch": _finish("unconfirmed")})
+            {"worker": done("sent it"),
+             "worker.verify": verdict(False, next="accept_unconfirmed", evidence="the draft is still in Drafts")})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed"
-    assert "- the email was sent — failed: the draft is still in Drafts" in evs["answer"]
+    assert "the email was sent: the draft is still in Drafts" in evs["answer"] and "sent it" not in evs["answer"]
 
 
 def test_a_failed_worker_is_failed_not_unverified(daemon: RunningDaemon) -> None:
     evs = _run(daemon, _failed("couldn't find it"), (cond("the file exists"),))
     assert evs["status"] == "failed" and "unverified" not in evs["summary"]
-    assert evs["answer"].startswith("I couldn't finish this task.") and "- the file exists" in evs["answer"]
-    # The orchestrator gave no stop reason: the attempt's own report of not finishing is the reason (V5).
-    assert "Why work stopped: couldn't find it" in evs["answer"]
+    # The checker gave no reason: the attempt's own reason for not finishing is said (V5)
+    assert evs["answer"] == "I couldn't finish this task. couldn't find it."
     assert not any(word in evs["answer"] for word in INTERNAL)
 
 
 def test_a_failed_worker_shows_the_real_reason(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the file exists"),)))],
             {"worker": _failed("couldn't find it"),
-             "worker.dispatch": _finish(None, "There is no report.md in your Downloads folder.",
-                                        "Report the missing file.")})
+             "worker.verify": verdict(None, next="fail", reason="There is no report.md in your Downloads folder.")})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed" and "unverified" not in evs["answer"]
-    assert "Why work stopped: There is no report.md in your Downloads folder." in evs["answer"]
-    assert "Report the missing file." not in evs["answer"] and "couldn't find it" not in evs["answer"]
+    assert evs["answer"] == "I couldn't finish this task. There is no report.md in your Downloads folder."
 
 
 def test_a_crash_before_any_check_says_what_happened(daemon: RunningDaemon) -> None:
@@ -123,8 +100,8 @@ def test_a_crash_before_any_check_says_what_happened(daemon: RunningDaemon) -> N
     daemon.daemon.supervisor._worker = crash
     evs = _run(daemon, done("never runs"), (cond("the file exists"),))
     assert evs["status"] == "failed" and "unverified" not in evs["answer"]
-    assert ("Why work stopped: I couldn't continue this task: something broke inside FERB (RuntimeError: boom). "
-            + BUG) in evs["answer"]
+    assert evs["answer"] == ("I couldn't finish this task. I couldn't continue this task: something broke inside "
+                             "FERB (RuntimeError: boom). " + BUG)
     assert not any(word in evs["answer"] for word in ROLES)
 
 
@@ -139,30 +116,27 @@ def test_a_crash_after_an_earlier_unconfirmed_check_is_not_reported_as_checked(d
                 raise RuntimeError("boom")
         return await real(tree, task_, *a, **k)
     supervisor.run_worker = second_attempt_crashes
-    retry = json.dumps({"action": "retry", "worker_type": "default", "instructions": "Open Sent and check.",
-                        "question": ""})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": retry})
+            {"worker": done("sent it"),
+             "worker.verify": verdict(None, next="retry", instructions="Open Sent and check.",
+                                      evidence="the Sent folder did not load")})
     evs = outcome(chat(daemon, "do it"))
     assert len(calls) == 2 and evs["status"] == "failed"
-    assert "unverified" not in evs["answer"] and "the Sent folder did not load" not in evs["answer"]
-    assert "Still to do:\n- the email was sent" in evs["answer"]
+    assert "the Sent folder did not load" not in evs["answer"] and "sent it" not in evs["answer"]
+    assert "something broke inside FERB (RuntimeError: boom)" in evs["answer"]
 
 
-@pytest.mark.parametrize("verdict", ["not json", "{}"])
-def test_a_crashed_check_lists_conditions_still_to_check(daemon: RunningDaemon, verdict: str) -> None:
+@pytest.mark.parametrize("bad", ["not json", "{}"])
+def test_a_crashed_check_leaves_finished_work_unconfirmed_and_says_why(daemon: RunningDaemon, bad: str) -> None:
     # "not json": the checker's run produced no usable verdict; "{}": its verdict failed validation (verify raises).
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": verdict, "worker.dispatch": _finish("unconfirmed")})
+            {"worker": done("sent it"), "worker.verify": bad})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "done_unverified" and not evs["verified"]
-    assert evs["answer"].startswith("Done, but not confirmed:")
-    assert "Still to check (the check couldn't run):\n- the email was sent" in evs["answer"]
+    assert evs["answer"].startswith("sent it\n\nCouldn't confirm: the check couldn't run")
     # why, in plain words (owner 2026-10-24): the checker's answer didn't fit FERB's form
-    assert "\nWhy the check couldn't run: " in evs["answer"]
     assert "the AI's answer didn't fit the form FERB requires" in evs["answer"]
-    assert "unverified" not in evs["answer"] and not any(word in evs["answer"] for word in INTERNAL)
+    assert "unverified" not in evs["answer"] and not any(word in evs["answer"] for word in ROLES)
 
 
 def test_no_conditions_is_unverified_only_because_nothing_could_be_checked(daemon: RunningDaemon) -> None:
@@ -176,20 +150,19 @@ def test_no_conditions_is_unverified_only_because_nothing_could_be_checked(daemo
                                                        "On it.", "no-conditions", "do it")]
         return outcome(events)
     evs = daemon.run(go())
-    assert evs["status"] in ("done_unverified", "failed")    # never a bare "done ✓"
-    assert evs["status"] == "done_unverified" and evs["verified"] is False
-    assert evs["answer"] == "Done, but there was nothing to check it against."     # no check ran: no "unverified"
+    assert evs["status"] == "done_unverified" and evs["verified"] is False       # never a bare "done ✓"
+    assert evs["answer"] == "done\n\nCouldn't confirm: there was nothing to check it against."
 
 
-def test_a_condition_found_false_is_failed_and_unconfirmed_ones_say_so(daemon: RunningDaemon) -> None:
-    verdict = json.dumps({"results": [{"index": 0, "met": False, "evidence": "the draft is still in Drafts"},
-                                      {"index": 1, "met": None, "evidence": "the Sent folder did not load"}]})
+def test_a_condition_found_false_is_failed_and_says_what_the_check_found(daemon: RunningDaemon) -> None:
+    v = json.dumps({"results": [{"index": 0, "met": False, "evidence": "the draft is still in Drafts"},
+                                {"index": 1, "met": None, "evidence": "the Sent folder did not load"}]})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"), cond("Bob got it"))))],
-            {"worker": done("sent it"), "worker.verify": verdict})
+            {"worker": done("sent it"), "worker.verify": v})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed" and evs["verified"] is False
-    assert "- the email was sent — failed: the draft is still in Drafts" in evs["answer"]
-    assert "- Bob got it — unverified: the Sent folder did not load" in evs["answer"]   # a check ran for it
+    assert "the email was sent: the draft is still in Drafts" in evs["answer"]
+    assert "Bob got it: the Sent folder did not load" in evs["answer"]
 
 
 def _unattended(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,86 +177,40 @@ def test_a_question_before_any_check_never_says_unverified(daemon: RunningDaemon
                       "evidence": []})
     evs = _run(daemon, ask, (cond("signed in"),))
     assert evs["status"] == "needs_user" and "unverified" not in evs["answer"]
-    assert "Question: Which account should I use?" in evs["answer"]
+    assert evs["answer"] == "I need your answer to finish this task. Which account should I use?"
 
 
-def test_a_question_after_an_unconfirmed_check_keeps_the_check_result(daemon: RunningDaemon,
-                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_checkers_question_reaches_the_owner(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     _unattended(daemon, monkeypatch)
-    ask = json.dumps({"action": "ask", "worker_type": "default", "instructions": "",
-                      "question": "Can you open the Sent folder for me?"})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": ask})
+            {"worker": done("sent it"),
+             "worker.verify": verdict(None, next="ask", question="Which Gmail account did you mean?")})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "needs_user"
-    assert "- the email was sent — unverified: the Sent folder did not load" in evs["answer"]
-    assert "Question: Can you open the Sent folder for me?" in evs["answer"]
+    assert evs["answer"] == "I need your answer to finish this task. Which Gmail account did you mean?"
 
 
 def test_a_retry_after_an_unconfirmed_check_that_then_fails_is_failed(daemon: RunningDaemon) -> None:
-    retry = json.dumps({"action": "retry", "worker_type": "default", "instructions": "Open Sent and check.",
-                        "question": ""})
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
             {"worker": [done("sent it"), _failed("Gmail is signed out.")],
-             "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": [retry, _finish("unconfirmed", "Gmail is signed out, so nothing could be sent.")]})
+             "worker.verify": [verdict(None, next="retry", instructions="Open Sent and check."),
+                               verdict(None, next="fail", reason="Gmail is signed out, so nothing could be sent.")]})
     evs = outcome(chat(daemon, "do it"))
-    assert evs["status"] == "failed" and "unverified" not in evs["answer"]   # the last attempt was never checked
-    assert "Why work stopped: Gmail is signed out, so nothing could be sent." in evs["answer"]
+    assert evs["status"] == "failed" and "unverified" not in evs["answer"]
+    assert evs["answer"] == "I couldn't finish this task. Gmail is signed out, so nothing could be sent."
 
 
-def test_a_planning_failure_after_an_unconfirmed_finish_stays_done_unverified(daemon: RunningDaemon) -> None:
-    install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": "not json"})
-    evs = outcome(chat(daemon, "do it"))
-    assert evs["status"] == "done_unverified"
-    assert "- the email was sent — unverified: the Sent folder did not load" in evs["answer"]
-    assert ("Why work stopped: I couldn't plan another attempt to confirm it: the AI's answer didn't fit the form "
-            "FERB requires (Invalid JSON: expected ident at line 1 column 2).") in evs["answer"]
-    assert not any(word in evs["answer"] for word in INTERNAL)
-
-
-@pytest.mark.parametrize("report", ["couldn't find it", "couldn't find it."])
-def test_a_planning_failure_after_a_failed_attempt_hides_the_exception(daemon: RunningDaemon, report: str) -> None:
-    install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the file exists"),)))],
-            {"worker": _failed(report), "worker.dispatch": "not json"})
-    evs = outcome(chat(daemon, "do it"))
-    assert evs["status"] == "failed"
-    why = ("Why work stopped: couldn't find it. I couldn't plan the next attempt: the AI's answer didn't fit the "
-           "form FERB requires (Invalid JSON: expected ident at line 1 column 2).")
-    assert why in evs["answer"]
-    assert not any(word in evs["answer"] for word in INTERNAL)
-    failures = _sql(daemon, "SELECT data_json FROM journal WHERE kind = 'task.dispatch_failed'")
-    assert failures and "ValidationError" in failures[0][0]                # the details stay in the records
-
-
-@pytest.mark.parametrize("review,status", [("done", "done_unverified"), ("failed", "failed")])
-def test_cleanup_after_an_unconfirmed_finish_keeps_it_unverified_unless_cleanup_broke_it(
-        daemon: RunningDaemon, review: str, status: str) -> None:
+def test_a_cleanup_error_after_finished_work_is_said_in_a_code_line(daemon: RunningDaemon) -> None:
+    """Prompts decision 1: no model reviews the clean-up; code records it and says what it couldn't release."""
     async def cleanup(task_id: str) -> list[dict[str, Any]]:
-        return [{"tab": "temporary", "closed": True}]
+        return [{"tab": "temporary", "closed": False, "error": "the browser didn't answer"}]
     daemon.daemon.supervisor.on_task_end = cleanup
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": _finish("unconfirmed"),
-             "worker.resources": json.dumps({"status": review, "summary": "Closed the temporary tab.",
-                                             "artifacts": [], "evidence": []})})
+            {"worker": done("sent it")})
     evs = outcome(chat(daemon, "do it"))
-    assert evs["status"] == status and not evs["verified"]
-    assert "- the email was sent — unverified: the Sent folder did not load" in evs["answer"]   # a check ran
-
-
-def test_a_cleanup_review_cannot_turn_a_judged_failure_into_unverified(daemon: RunningDaemon) -> None:
-    async def cleanup(task_id: str) -> list[dict[str, Any]]:
-        return [{"tab": "temporary", "closed": True}]
-    daemon.daemon.supervisor.on_task_end = cleanup
-    install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the email was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": _finish("failed", "Bob's address bounced."), "worker.resources": done("All good.")})
-    evs = outcome(chat(daemon, "do it"))
-    assert evs["status"] == "failed" and "All good." not in evs["answer"]
+    assert evs["status"] == "done"
+    assert evs["answer"].startswith("sent it\n\nI couldn't tidy up everything after this task: ")
+    assert "the browser didn't answer" in evs["answer"]
 
 
 # ---------- the readers tell them apart ----------
@@ -381,8 +308,8 @@ def test_an_unverified_scheduled_run_neither_clears_nor_adds_a_failure(daemon: R
         return s
     s = run(daemon, make)
     install(daemon, [sup("task", "On it.", task("send the report", conds=(cond("the report was sent"),)))],
-            {"worker": done("sent it"), "worker.verify": _unconfirmed("the Sent folder did not load"),
-             "worker.dispatch": _finish("unconfirmed")})
+            {"worker": done("sent it"),
+             "worker.verify": verdict(None, next="accept_unconfirmed", evidence="the Sent folder did not load")})
     fire(daemon, 61)
     r = results(daemon)
     assert r and r[0]["status"] == "done_unverified"

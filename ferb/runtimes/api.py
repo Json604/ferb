@@ -29,9 +29,14 @@ class ProviderError(Exception):
     """A provider failure, worded without the key or the request. `overflow`: the provider's documented
     window-exceeded error (fix wave 6b round 1: a check may run once more without its optional recorded calls)."""
 
-    def __init__(self, message: str, overflow: bool = False) -> None:
+    def __init__(self, message: str, overflow: bool = False, account: str = '') -> None:
         super().__init__(message)
-        self.overflow = overflow
+        self.overflow, self.account = overflow, account
+
+
+# HTTP statuses that are account facts no model can change (step 8b, owner decision 16): a key the provider refused,
+# or a quota or rate limit still in force after the retries
+ACCOUNT_STATUS = {401: 'signed_out', 403: 'signed_out', 402: 'usage_limit', 429: 'usage_limit'}
 
 
 
@@ -226,7 +231,8 @@ class ApiRuntime:
                 except ProviderError as e:
                     r.closed = True
                     yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')} |
-                                       ({"overflow": True} if e.overflow else {}))
+                                       ({"overflow": True} if e.overflow else {}) |
+                                       ({"account": e.account} if e.account else {}))
                     return
                 yield RuntimeEvent("usage", asdict(turn.usage))
                 if not turn.calls:
@@ -311,7 +317,8 @@ class ApiRuntime:
                         await resp.aread()
                         error = _error_of(resp)
                         raise ProviderError(self._error_text(resp, r.key), overflow=self.provider.window_exceeded(
-                            resp.status_code, error if isinstance(error, dict) else {}))
+                            resp.status_code, error if isinstance(error, dict) else {}),
+                            account=ACCOUNT_STATUS.get(resp.status_code, ''))
                     if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
                         parser = getattr(self.provider, 'stream_parser')()
                         async for event in _sse_events(resp):

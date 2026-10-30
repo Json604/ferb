@@ -38,10 +38,10 @@ def test_interaction_contract_reaches_every_task_role_and_preserves_owner_direct
         'worker.question':json.dumps({'ask_owner':False, 'answer':'Inspect the available routes in the same profile.', 'question':''}),
         'worker.dispatch':json.dumps({'action':'retry', 'worker_type':'default',
                                      'instructions':'Recover the connection in the requested profile.', 'question':''}),
-        'worker.resources':done('Page read; retained tab remains open.'),
     })
     assert outcome(chat(daemon, owner_words))['status'] == 'done'
-    assert set(systems) == {'supervisor', 'worker', 'worker.question', 'worker.dispatch', 'worker.verify', 'worker.resources'}
+    # step 8b: the checker also chooses the next attempt; no resource reviewer (prompts decision 1)
+    assert set(systems) == {'supervisor', 'worker', 'worker.question', 'worker.verify'}
     contract = Path('ferb/orchestrator/prompts/interaction.md').read_text().strip()
     assert contract and 'shell' in contract and 'AppleScript' in contract
     for role, prompts in systems.items():
@@ -74,10 +74,11 @@ def test_trace_keeps_complete_planner_and_recovery_decisions(daemon):
     result = outcome(chat(daemon, 'Find source'))
     async def records():
         return [dict(r) for r in daemon.daemon.db.conn.execute(
-            "SELECT kind,input_json,output_json,error FROM spans WHERE kind IN ('model.turn','model.dispatch')")]
+            "SELECT kind,input_json,output_json,error FROM spans WHERE kind IN ('model.turn','worker')")]
     rows = daemon.run(records())
-    assert any(goal in json.loads(r['output_json']).get('text', '') for r in rows)
-    assert any(r['kind'] == 'model.dispatch' and 'unavailable' in r['output_json'] for r in rows)
+    assert any(goal in json.loads(r['output_json']).get('text', '') for r in rows if r['kind'] == 'model.turn')
+    # the checker's choice is in its run's record (step 8b: it chooses the next step)
+    assert any(r['kind'] == 'worker' and '\\"next\\": \\"fail\\"' in r['output_json'] for r in rows)
     assert result['status'] == 'failed'
 
 
@@ -89,138 +90,14 @@ def test_cleanup_failure_is_recorded_and_does_not_claim_kept_open(daemon):
             {'worker': done('Class left running.'), 'worker.verify': json.dumps({'results': [
                 {'index': 0, 'met': True, 'evidence': 'Playing before cleanup'}]})})
     result = outcome(chat(daemon, 'Keep class running'))
-    assert result['status'] == 'failed' and not result['verified']
-    assert 'retention acknowledgement lost' in result['answer']
+    # prompts decision 1: no model reviews the clean-up; the checker judged the outcome before it, and code says
+    # what the clean-up couldn't do in the answer's code lines
+    assert result['status'] == 'done' and result['verified']
+    assert result['answer'] == ("Class left running.\n\nI couldn't tidy up everything after this task: "
+                                "RuntimeError: tab retention acknowledgement lost")
     async def records():
         return [dict(r) for r in daemon.daemon.db.conn.execute("SELECT * FROM spans WHERE kind='task.cleanup'")]
     assert any('retention acknowledgement lost' in r['error'] for r in daemon.run(records()))
-
-
-@pytest.mark.parametrize('retained', [False, True])
-def test_final_answer_is_reconciled_with_actual_tab_lifecycle(daemon, retained):
-    lifecycle = {'tab': 't1', 'kept_open': retained, 'closed': not retained, 'released': True}
-    released = False
-    async def cleanup(task_id):
-        nonlocal released
-        if task_id.endswith('.worker') and not released:
-            released = True
-            return [lifecycle]
-        return []
-    daemon.daemon.supervisor.on_task_end = cleanup
-    summary = 'The class tab remains open.' if retained else 'The class tab was closed during cleanup; it is not running.'
-    script = install(daemon, [sup('task', 'Opening', task('Keep class running'))], {
-        'worker': done('Class left running.'),
-        'worker.resources': json.dumps({'status': 'done' if retained else 'failed', 'summary': summary,
-                                        'artifacts': [], 'evidence': ['Confirmed tab lifecycle']})})
-    result = outcome(chat(daemon, 'Keep class running'))
-    expected = 'Class left running.' if retained else summary       # a done review keeps the checked report
-    assert result['answer'] == expected or result['answer'].endswith(expected)
-    assert result['verified'] is retained
-    assert result['resources'] == [lifecycle]
-    reviews = [ctx for _, key, ctx, _ in script.contexts if key == 'worker.resources']
-    if retained:          # kept open as asked: nothing left to decide, no review (owner 2026-10-25, L31)
-        assert reviews == []
-    else:
-        assert 'Class left running.' in reviews[0] and json.dumps(lifecycle) in reviews[0]
-
-
-def _resource_spans(daemon, kind):
-    async def go():
-        return [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
-            'SELECT output_json FROM spans WHERE kind = ? ORDER BY rowid', (kind,))]
-    return daemon.run(go())
-
-
-def test_a_cleanup_that_left_every_tab_as_intended_skips_the_resource_review(daemon):
-    """Owner decision 2026-10-25 ("Skip when nothing changed"). Live a1f16a32 and cc5debe4: after a step that borrowed
-    the owner's tab and kept it, the review model ran 6-9 s although the tab had been kept and let go of as intended.
-    Every tab kept open or let go of without closing, with no error: no review, and the trace says why."""
-    released = False
-    tabs = [{'tab': 't1', 'tab_ref': 'brave:Default:5', 'borrowed': True, 'kept_open': True, 'closed': False,
-             'released': True},
-            {'tab': 't2', 'tab_ref': 'brave:Default:6', 'borrowed': True, 'kept_open': False, 'closed': False,
-             'released': True},
-            {'tab': 't3', 'tab_ref': 'brave:Default:7', 'borrowed': False, 'kept_open': True, 'closed': False,
-             'released': True}]
-
-    async def cleanup(task_id):
-        nonlocal released
-        if task_id.endswith('.worker') and not released:
-            released = True
-            return tabs
-        return []
-    daemon.daemon.supervisor.on_task_end = cleanup
-    script = install(daemon, [sup('task', 'Opening', task('Keep my class tab open'))],
-                     {'worker': done('Your class tab is open.')})
-    result = outcome(chat(daemon, 'Keep my class tab open'))
-    assert result['status'] == 'done' and result['answer'].endswith('Your class tab is open.')
-    assert 'worker.resources' not in [key for _, key, _, _ in script.contexts]
-    assert _resource_spans(daemon, 'model.resources') == []
-    [skipped] = _resource_spans(daemon, 'resources.skipped')
-    assert 'kept open or let go of' in skipped['review']
-
-
-@pytest.mark.parametrize('leftover', [
-    {'tab': 't1', 'borrowed': False, 'kept_open': False, 'closed': True, 'released': True},      # a tab FERB closed
-    {'tab': 't1', 'borrowed': True, 'kept_open': True, 'released': False, 'error': 'release not confirmed'},
-    {'resource': 'listen', 'app': 'Brave', 'released': True},                                    # a listen it ended
-    {'resource': 'tab', 'kept_open': True},                                                       # no release receipt
-])
-def test_a_real_leftover_after_cleanup_is_still_reviewed(daemon, leftover):
-    kept = {'tab': 't2', 'borrowed': True, 'kept_open': True, 'closed': False, 'released': True}
-    released = False
-
-    async def cleanup(task_id):
-        nonlocal released
-        if task_id.endswith('.worker') and not released:
-            released = True
-            return [kept, leftover]
-        return []
-    daemon.daemon.supervisor.on_task_end = cleanup
-    script = install(daemon, [sup('task', 'Opening', task('Keep my class tab open'))],
-                     {'worker': done('Your class tab is open.'), 'worker.resources': done('Reviewed.')})
-    outcome(chat(daemon, 'Keep my class tab open'))
-    assert [key for _, key, _, _ in script.contexts].count('worker.resources') == 1
-    assert _resource_spans(daemon, 'resources.skipped') == []
-
-
-@pytest.mark.parametrize('first_cleanup_error', [False, True])
-def test_lifecycle_failure_reaches_recovery_and_successful_retention_finishes(daemon, first_cleanup_error):
-    from tests.conftest import tool
-    released = 0
-    kept = []
-    cap = FakeCap('fake.keep_open', 'open_tab', {'identity:browse'})
-    daemon.daemon.gateway.caps[cap.name] = cap
-    async def cleanup(task_id):
-        nonlocal released
-        if not task_id.endswith('.worker') or released >= 2:
-            return []
-        released += 1
-        if released == 1 and first_cleanup_error:
-            return [{'tab': 't1', 'released': False, 'error': 'retention acknowledgement lost'}]
-        return [{'tab': f't{released}', 'kept_open': bool(kept), 'closed': not kept, 'released': True}]
-    daemon.daemon.supervisor.on_task_end = cleanup
-    def keep_open(token):
-        kept.append(tool(daemon.sock, token, cap.name))
-        return done('Class restored and retained.')
-    failed = json.dumps({'status': 'failed', 'summary': 'The class did not remain available after cleanup.',
-                         'artifacts': [], 'evidence': ['Cleanup invalidated the earlier result.']})
-    first = json.dumps({'status': 'done', 'summary': 'Class left running.', 'artifacts': ['/tmp/class-notes.md'],
-                       'evidence': ['Original notes saved.']})
-    recovery = json.dumps({'action': 'retry', 'worker_type': 'default',
-                           'instructions': 'Restore the class and use keep_open before reporting completion.', 'question': ''})
-    script = install(daemon, [sup('task', 'Opening', task('Keep class running'))], {
-        'worker': [first, keep_open], 'worker.resources': [failed],
-        'worker.dispatch': recovery})
-    result = outcome(chat(daemon, 'Keep class running'))
-    assert result['status'] == 'done' and result['verified']
-    assert result['answer'] == 'Class restored and retained.' and len(kept) == 1
-    assert '/tmp/class-notes.md' in result['artifacts']
-    assert result['resources'] == [{'tab': 't2', 'kept_open': True, 'closed': False, 'released': True}]
-    contexts = [ctx for _, key, ctx, _ in script.contexts if key == 'worker']
-    assert len(contexts) == 2 and 'Restore the class' in contexts[1] and 'class-notes.md' in contexts[1]
-    # the retry's tab was kept open as asked: nothing left to decide, so only the first cleanup was reviewed
-    assert len([key for _, key, _, _ in script.contexts if key == 'worker.resources']) == 1
 
 
 def test_disconnected_capability_context_does_not_choose_refusal():
@@ -340,7 +217,7 @@ def test_recovery_preserves_artifacts_and_reports_uncertain_actions(daemon):
     script = install(daemon, [sup('task','Sending',task('Send deck','owner'))],
                      {'worker':[first, done('Delivery confirmed by inspection.')], 'worker.dispatch':choice})
     out = outcome(chat(daemon, 'Send the prepared deck to alice@x.com'))
-    assert '/tmp/prepared-deck.pdf' in out['artifacts']
+    assert '/tmp/prepared-deck.pdf' not in out['artifacts']     # step 8b: a failed attempt's artifacts aren't listed
     retry_context = [ctx for _, key, ctx, _ in script.contexts if key == 'worker'][-1]
     assert 'fake.send' in retry_context and 'unknown' in retry_context
     assert '/tmp/prepared-deck.pdf' in retry_context
@@ -354,15 +231,15 @@ def test_invalid_recovery_output_finishes_truthfully_and_cleans_resources(daemon
         cleaned.append(task_id)
     daemon.daemon.supervisor.on_task_end = cleanup
     blocked = json.dumps({'status':'blocked','summary':'Disconnected.', 'artifacts':[], 'evidence':[]})
-    install(daemon, [sup('task','Starting',task())], {'worker':blocked, 'worker.dispatch':'{}'})
+    install(daemon, [sup('task','Starting',task())], {'worker':blocked, 'worker.verify':'{}'})
     out = outcome(chat(daemon, 'Do the task'))
-    assert out['status'] == 'failed'
+    assert out['status'] == 'failed' and out['answer'] == "I couldn't finish this task. Disconnected."
     assert cleaned and not daemon.daemon.supervisor._tree_of
     assert not daemon.daemon.supervisor._active
     async def failure():
-        return dict(daemon.daemon.db.conn.execute("SELECT * FROM spans WHERE kind='model.dispatch'").fetchone())
-    record = daemon.run(failure())
-    assert 'ValidationError' in record['error'] and '{}' in record['output_json']
+        return [r[0] for r in daemon.daemon.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind='task.inspection_failed'")]
+    assert any('ValidationError' in r for r in daemon.run(failure()))
 
 
 def test_each_turn_searches_memory_activity_and_registry(daemon):
@@ -461,7 +338,7 @@ def test_failed_result_check_returns_to_orchestrator_for_repair(daemon):
     assert len([key for _,key,_,_ in script.contexts if key == 'worker']) == 2
 
 
-@pytest.mark.parametrize('stage', ['worker.dispatch', 'worker.resources'])
+@pytest.mark.parametrize('stage', ['worker.verify'])
 def test_owner_stop_cancels_orchestrator_recovery(daemon, stage):
     import time
     from ferb.cli.client import Client
@@ -474,9 +351,6 @@ def test_owner_stop_cancels_orchestrator_recovery(daemon, stage):
             released = True
             return [{'tab': 't1', 'closed': True, 'released': True}]
         return []
-    if stage == 'worker.resources':
-        daemon.daemon.supervisor.on_task_end = cleanup
-        report = done('Class left running.')
     script = install(daemon, [sup('task','Working',task())], {'worker':report, stage:STALL})
     client = Client(daemon.sock)
     try:

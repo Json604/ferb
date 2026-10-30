@@ -251,7 +251,8 @@ def test_a_worker_that_only_retries_while_the_mac_is_offline_says_so(daemon: Run
 @pytest.mark.parametrize("offline", [False, True])
 def test_a_failed_next_attempt_choice_reads_as_one_sentence(daemon: RunningDaemon, monkeypatch, offline) -> None:
     """The dispatch failure's sentence ended in a doubled period (the service's or the offline sentence's own period
-    before FERB's)."""
+    before FERB's). Step 8b: the checker chooses next; when its run fails after a failed attempt, the attempt's own
+    reason is said, as one sentence."""
     import ferb.sense.network as network
     from ferb.orchestrator.worker import ServiceError
     from tests.conftest import chat, install, outcome, sup, task
@@ -261,8 +262,7 @@ def test_a_failed_next_attempt_choice_reads_as_one_sentence(daemon: RunningDaemo
         raise ServiceError("You've hit your usage limit.", "codex", network=True)
     install(daemon, [sup("task", "Working", task("tidy the notes"))], {"worker": json.dumps(
         {"status": "failed", "summary": "The notes app didn't open.", "artifacts": [], "evidence": []})})
-    monkeypatch.setattr(daemon.daemon.supervisor, "_dispatch", failing)
+    monkeypatch.setattr(daemon.daemon.supervisor, "verify", failing)
     out = outcome(chat(daemon, "tidy the notes"))
-    assert "I couldn't plan the next attempt" in out["summary"], out
+    assert out["summary"] == "I couldn't finish this task. The notes app didn't open.", out
     assert ".." not in out["summary"]
-    assert ("seems to be offline" if offline else "usage limit") in out["summary"]

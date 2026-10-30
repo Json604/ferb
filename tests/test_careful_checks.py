@@ -136,33 +136,19 @@ def _writes_notes(daemon: Any, notes: Any) -> Any:
     return worker
 
 
-def test_a_check_that_never_looks_is_rechecked_without_a_worker_run(daemon: Any, tmp_path: Path) -> None:
-    """I4: the dispatcher is told the only gap is a check that didn't read the recorded changes; its recheck re-runs
-    only the check (no worker run), through the same refusal path."""
+def test_a_check_that_never_looks_leaves_the_work_unconfirmed_without_a_worker_run(daemon: Any,
+                                                                                  tmp_path: Path) -> None:
+    """I4 with step 8b: a pass without a look is refused once and then counts as unknown; the checker's accept on it
+    stands only as done-unconfirmed, naming the file, and the worker isn't run again for the check's gap."""
     notes = tmp_path / "notes.txt"
     notes.write_text("Student ID: ID\n")
-
-    def dispatch(token: str) -> str:
-        ctx = next(c for _, k, c, _ in reversed(script.contexts) if k == "worker.dispatch")
-        told.append(ctx)
-        action = "recheck" if "the check marked conditions met without reading them" in ctx else "finish"
-        return json.dumps({"action": action, "worker_type": "default", "instructions": "check again",
-                           "question": "", "stop_reason": "", "result": None})
-
-    def looks(token: str) -> str:
-        [record] = RECORD.findall(checker_context(script))
-        assert not tool(daemon.sock, token, "task.evidence", span_ids=[record])["is_error"]
-        return verdict(True, "notes.txt now reads 'Student ID: 2024eb02238' (change record read).")
-    told: list[str] = []
     blind = verdict(True, "The report says so.")
-    script, _ = install(daemon, {"worker": [_writes_notes(daemon, notes)], "worker.verify": [blind, blind, looks],
-                                 "worker.dispatch": dispatch})
+    script, _ = install(daemon, {"worker": [_writes_notes(daemon, notes)], "worker.verify": [blind, blind]})
     out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
-    assert out["verified"]
+    assert out["status"] == "done_unverified" and not out["verified"]
     assert [k for _, k, _, _ in script.contexts].count("worker") == 1        # the worker ran once
-    assert len(checks(script)) == 3 and len(told) == 1                       # refused, refused, rechecked: passed
-    assert "Re-running the worker can't fix this: use action=recheck" in told[0]
-    assert json.dumps(str(notes.resolve())) in told[0]
+    assert len(checks(script)) == 2                                          # refused once, then unknown
+    assert "Couldn't confirm:" in out["answer"] and "notes.txt" in out["answer"]
 
 
 def test_a_listing_or_metadata_call_is_no_look(daemon: Any, tmp_path: Path) -> None:
@@ -313,26 +299,6 @@ def test_only_records_a_read_returned_count_as_looked_at(daemon: Any, tmp_path: 
     script, _ = install(daemon, {"worker": _writes_notes(daemon, notes), "worker.verify": sly})
     out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
     assert not out["verified"] and len(checks(script)) == 2
-
-
-def test_a_recheck_with_nothing_checked_is_answered_with_that_fact_never_a_worker_retry(daemon: Any) -> None:
-    """N5: the worker failed, so there is no checked report; the dispatcher's recheck gets that fact and chooses again;
-    the worker isn't run again."""
-    told: list[str] = []
-
-    def dispatch(token: str) -> str:
-        ctx = next(c for _, k, c, _ in reversed(script.contexts) if k == "worker.dispatch")
-        told.append(ctx)
-        action = "finish" if "nothing to re-check" in ctx else "recheck"
-        return json.dumps({"action": action, "worker_type": "default", "instructions": "" if action == "recheck"
-                           else "The work failed.", "question": "", "stop_reason": "The work failed.",
-                           "result": None})
-    failed = json.dumps({"status": "failed", "summary": "Couldn't open it.", "artifacts": [], "evidence": []})
-    script, _ = install(daemon, {"worker": [failed], "worker.dispatch": dispatch})
-    out = outcome(chat(daemon, "set my student id to 2024eb02238 in notes.txt"))
-    assert out["status"] == "failed"
-    assert [k for _, k, _, _ in script.contexts].count("worker") == 1 and len(told) == 2
-    assert "nothing to re-check" in told[1]
 
 
 def test_nothing_in_a_named_files_diff_is_unreadable(daemon: Any, tmp_path: Path) -> None:

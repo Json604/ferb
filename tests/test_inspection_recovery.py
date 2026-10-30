@@ -24,8 +24,9 @@ def test_unknown_coverage_returns_to_planner_and_can_be_completed(daemon):
                       "worker.dispatch": dispatch("retry", "Inspect the remaining groups and date boundary.")})
     result = outcome(chat(daemon, "Check official group messages for the last five days"))
     assert result["verified"] and result["answer"] == "All requested groups checked."
-    recovery = next(c for _, key, c, _ in script.contexts if key == "worker.dispatch")
-    assert missing in recovery and '"met": null' in recovery
+    # step 8b: the checker that found it unknown chose the retry; its instructions reach the next attempt
+    retry = [c for _, key, c, _ in script.contexts if key == "worker"][1]
+    assert "Instructions for this attempt: Inspect the remaining groups and date boundary." in retry
 
 
 @pytest.mark.parametrize("action,status", [("ask", "needs_user"), ("finish", "failed")])
@@ -81,8 +82,8 @@ def test_a_check_needing_a_click_is_unknown_and_a_worker_gathers_it(daemon):
                       "worker.dispatch": dispatch("retry", "Open the next group and read it.")})
     result = outcome(chat(daemon, "Read official announcements"))
     assert result["verified"] and navigate.calls == 1                 # only the worker clicked
-    recovery = next(c for _, key, c, _ in script.contexts if key == "worker.dispatch")
-    assert need in recovery and '"met": null' in recovery
+    retry = [c for _, key, c, _ in script.contexts if key == "worker"][1]
+    assert "Instructions for this attempt: Open the next group and read it." in retry
     offered = [set(t) for _, key, _, t in script.contexts if key == "worker.verify"]
     assert len(offered) == 2 and all("task.evidence" in t for t in offered)
     assert not any({"mac.act", "mac.pointer", "browser.act"} & t for t in offered)
@@ -170,5 +171,5 @@ def test_success_sounding_finish_cannot_hide_unknown_condition(daemon):
     result = outcome(chat(daemon, "Check five days"))
     # V4, rule 6: without the orchestrator judging it "unconfirmed", an unconfirmed finish is a failure, never done.
     assert result["status"] == "failed" and not result["verified"]
-    assert "All five days covered — unverified: Only one day read." in result["answer"]
+    assert "All five days covered: Only one day read." in result["answer"]
     assert "I checked your messages." not in result["answer"] and "Recent messages found." not in result["answer"]

@@ -423,8 +423,8 @@ class Schedules:
             self._record_stop_line(str(final.get("task_id")), line)
         quiet = s.watch != "none" and not ended and (
             superseded or status in FINISHED and reported is not None and not alert)
-        if overdue_s > 60:
-            answer = f"(ran late) {answer}"
+        if overdue_s > 60:              # code's last line, after the answer's other code lines (fixed order)
+            answer = f"{answer}\n(ran late)"
         await self._task_result(result | {"answer": answer}, shown=quiet, alert=alert, publish=not quiet)
 
     def _watch_ended(self, sid: str) -> bool:

@@ -41,6 +41,11 @@ def write(db: Any, ep: dict[str, Any]) -> None:
          origin.join(ep["origins"]), origin.join(ep.get("tool_origins") or ()),
          int(any(origin.is_external(o) for o in ep["origins"])),
          *(json.dumps(ep[k], ensure_ascii=False) for k in JSON_FIELDS[4:]), ep["made_by"], ep["built_at"]))
+    # the worker's note on the steps that worked (step 8b), beside the record
+    if ep.get("how"):
+        db.conn.execute("INSERT OR REPLACE INTO episode_how (task_id, how) VALUES (?, ?)", (ep["task_id"], ep["how"]))
+    else:
+        db.conn.execute("DELETE FROM episode_how WHERE task_id = ?", (ep["task_id"],))
 
 
 def get(db: Any, task_id: str) -> dict[str, Any] | None:
@@ -54,4 +59,6 @@ def get(db: Any, task_id: str) -> dict[str, Any] | None:
     ep["tool_origins"] = sorted(origin.split(ep["tool_origins"]))
     ep["external_read"] = bool(ep["external_read"])
     ep["verified"] = None if ep["verified"] is None else bool(ep["verified"])
+    how = db.conn.execute("SELECT how FROM episode_how WHERE task_id = ?", (task_id,)).fetchone()
+    ep["how"] = how[0] if how else ""
     return ep

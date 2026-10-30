@@ -73,11 +73,15 @@ A small suite that guards what live use can't show: the safety floor, plus a han
 ## Fix list
 - [x] Rewrite the conftest harness once for the new step kinds (no dispatcher) before deleting old harness tests.
       (Step 8a: `ROLES`/`DEFAULT_ANSWERS`/`role_of` in conftest; 8b changes those two tables when the checker absorbs
-      the next-attempt choice.)
+      the next-attempt choice. Step 8b: done; `report()`/`verdict()` helpers; scripts written before 8b are completed
+      by `complete_worker_report` / `complete_checker_next`.)
 - [ ] Write the 8-12 end-to-end runs; then delete the tests they replace.
       (Step 8a: tests/test_execution_runs.py: plain task, stop, pause/resume, plan step asks once, check-in Yes/No,
       scheduled declines and stops at 5, loop survives a restart, closed tab asks, taken tab, shutdown clean-up,
-      resumed scheduled run. Remaining runs (file write checked, new recipient, unknown outcome, forget, payment) later.)
+      resumed scheduled run. Remaining runs (file write checked, new recipient, unknown outcome, forget, payment) later.
+      Step 8b: tests/test_merged_checker.py: fix_answer without a redo, a side detail marked inline, done-unconfirmed
+      answer first, plain failure, carried conditions, failed attempts' artifacts, stale fields, a steer during the
+      check, code facts, the how note, usage limit offers a runtime (question, RPC, none signed in, planner).)
 - [ ] Keep/trim the safety files; move past-bug guards out of files being deleted.
 - [ ] Add: import check, upgrade-from-old-DB, redaction vendor table + fuzz, simple forget, adapter contract tests.
 - [ ] Delete tests of removed code and tests asserting prompt text, wording or wiring.

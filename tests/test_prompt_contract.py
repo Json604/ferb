@@ -64,14 +64,13 @@ SENTENCES = [
      'it is a loop that repeats a checked round until the owner says stop or end_when is verified, with code checking '
      'one exact fact between rounds;'),
     ("worker.md",
-     'In a loop round (step_context has "loop"), act once toward the goal and verify it, then report loop_action and, '
+     '(a loop round, step_context has "loop"): act once toward the goal and verify it, then report loop_action and, '
      'with continue, a probe: one probe-safe observation tool (browser_tabs, browser_snapshot or browser_find; '
      'shell_list or shell_read; fs_list or fs_read; mac_snapshot), its arguments as a JSON object '
      'string, a dot path to one field of its result, and equals, not_equals or changed. Choose the field that shows '
      'when the job needs doing again.'),
     ("worker.md",
-     'Report finished only with observed evidence that end_when holds; never when end_when is empty. Outside the '
-     'loop, loop_action and probe are null.'),
+     'Report finished only with observed evidence that end_when holds; never when end_when is empty.'),
     # live loops cc5debe4, a1f16a32 (2026-10-25): each round took a second snapshot to learn the reel played
     ("worker.md",
      "A snapshot's `playing` is true only when the media's time moved, so one snapshot shows whether it plays; take "
@@ -145,8 +144,8 @@ SENTENCES = [
         ("worker.md",
      'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",
-     "- summary: the concrete result, useful details and remaining limitations, in FERB's first-person voice. Say who "
-     "did each part (FERB itself, or the agent, app or person that did it) and what was used, as the records show."),
+     "Say who did each part (FERB itself, or the agent, app or person that did it) and what was used, as the records "
+     "show."),
         ("supervisor.md",
      'When the owner hands the work to a named agent or person that does it on its own (not an app FERB uses as a tool), the goal says that one does it and FERB starts it, helps it and checks its result without doing that work itself.'),
         ("supervisor.md",
@@ -193,8 +192,8 @@ SENTENCES = [
      'Everything the owner reads (answers, summaries, questions, success conditions, stop reasons, and a check\'s '
      'evidence and how) speaks to them as "you" and "your", never "the owner" or "the user". In a success condition, '
      '"you" means the owner.'),
-        ("dispatch.md",
-     'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying what is stuck.'),
+        ("verifier.md",
+     'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or choose next=ask to ask the owner whether FERB should take over, saying what is stuck.'),
         ("question.md",
      "A worker asking to do work the owner handed to a named agent or person (not an app FERB uses as a tool) is the owner's decision about who does the work, not a method question: ask_owner=true, saying what is stuck and what FERB would do instead."),
     # L36 §5: a resumed task re-asked for two secrets saved that morning; nothing listed them by site
@@ -236,12 +235,10 @@ SENTENCES = [
      "One task_evidence call may name several change records (span_ids). A change listed as \"changed during this "
      "step\" with no content may be the owner's or another task's: it is not by itself an unrequested change by the "
      "worker."),
-    ("dispatch.md",
-     "action=recheck: run only the check again, on the same work and its recorded file changes, with no worker run."),
-    ("dispatch.md",
-     "When FERB's fact says the check marked conditions met without reading the files the work changed, the work isn't "
-     "what failed and a worker retry can't fix it: use recheck, or finish with result unconfirmed naming the files the "
-     "check didn't read, or ask the owner."),
+    # step 8b: the merged checker reads them itself before it chooses (the dispatcher's recheck is gone)
+    ("verifier.md",
+     "When FERB's fact says the check marked conditions met without reading the files the work changed, read them now "
+     "before choosing; a worker retry can't fix a check that didn't look."),
 ]
 
 
@@ -309,7 +306,7 @@ def test_a_captcha_block_is_reported_with_the_pages_own_words(name: str) -> None
 
 def test_the_orchestrator_checks_a_reported_captcha_block_against_the_page() -> None:
     assert ("A reported CAPTCHA or anti-bot block that doesn't quote the page's challenge or error is not yet a "
-            "blocker: have the worker read the page and report what it actually says.") in _words("dispatch.md")
+            "blocker: have the worker read the page and report what it actually says.") in _words("verifier.md")
 
 
 def test_a_reworded_worker_question_keeps_the_workers_reason() -> None:

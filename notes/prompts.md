@@ -145,8 +145,9 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
 - [ ] The planner's remember rule covers durable facts said in passing (notes/memory.md decision 11).
 - [ ] Rewrite supervisor.md to the skeleton; drop steer, procedures, notification rules, map/reduce kinds; add pause/resume.
 - [ ] Rewrite worker.md to the skeleton; role blocks appended by code from step_context (supervisor.py:2606, 2785, 2937).
-- [ ] Merge verifier.md + dispatch.md into one checker prompt.
-- [ ] Remove resources.md and `_reconcile_resources` (decision 1); resource facts go to the merged checker.
+- [x] Merge verifier.md + dispatch.md into one checker prompt. (Step 8b: minimal merge so the role works: the next-step
+      contract and the dispatcher's still-valid rules appended to verifier.md; the skeleton rewrite is step 10.)
+- [x] Remove resources.md and `_reconcile_resources` (decision 1); resource facts go to the merged checker.
 - [ ] runtime_tools.md: keep the dynamic tool-name line; drop the Codex deferred-tool patch (code reruns on
       NO_TOOLS_LOADED, worker.py:33, 310-320).
 - [ ] question.md, scheduled.md: drop code-enforced and duplicate lines; watch-alert guidance to the worker.
@@ -159,6 +160,8 @@ unchanged approach; unknown-outcome actions go through the owner; code checks in
       `steer` from TaskControl (schemas.py:277); procedure/notification/map fields out of the schemas.
 - [ ] Code-written context strings (REFUSED_PASS, CHANGED_FILES, CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, REPORT_*):
       re-check against the merged checker; remove those for removed paths.
+      (Step 8b: CHECK_DIDNT_LOOK, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP and REPORT_*/WATCH_* removed; REFUSED_PASS,
+      CHANGED_FILES, NO_LOOK kept; the step-10 rewrite re-checks the rest.)
 - [ ] Patch mapping table (decision 2): trace each patch (git log -S), sort into memory / rule / tool / code; owner
       reviews; owner confirms the memory items; then remove the patches.
 - [ ] Live re-test list: the original task behind each removed patch.

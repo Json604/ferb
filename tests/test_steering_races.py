@@ -100,7 +100,7 @@ def test_correction_at_post_worker_boundary_prevents_stale_finish(daemon, monkey
     supervisor = daemon.daemon.supervisor
     entered, release = threading.Event(), threading.Event()
     tree_ids = []
-    method = '_release_resources' if boundary == 'cleanup' else '_dispatch'
+    method = '_release_resources' if boundary == 'cleanup' else '_judge'     # step 8b: the checker chooses
     original = getattr(supervisor, method)
 
     async def boundary_call(tree, *args):
@@ -271,9 +271,9 @@ def test_correction_followed_by_runtime_start_failure_uses_normal_recovery(daemo
     if failure == 'start':
         assert CORRECTION in starts[1]
     assert outcome(initial)['status'] == 'failed'
-    dispatched = [ctx for _, key, ctx, _ in script.contexts if key == 'worker.dispatch']
-    assert dispatched and 'runtime failed to start' in dispatched[-1]
-    assert CORRECTION in dispatched[-1]
+    checked = [ctx for _, key, ctx, _ in script.contexts if key == 'worker.verify']     # it chose after the failure
+    assert checked and 'runtime failed to start' in checked[-1]
+    assert CORRECTION in checked[-1]
 
 
 def test_correction_during_failed_plan_child_cleanup_reaches_root_worker(daemon, monkeypatch):

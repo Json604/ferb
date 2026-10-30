@@ -138,6 +138,13 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
+- [ ] **The live daemon must never import code from a checkout** (found 2026-10-31): the installed
+      `~/Library/LaunchAgents/com.ferb.daemon.plist` has `WorkingDirectory = /Users/kartikey/Desktop/FERB` and runs
+      `python -m ferb.daemon`, which puts the working directory first on `sys.path`, so the owner's running FERB loaded
+      the checkout's code instead of its installed copy (`~/.ferb/venv/.../site-packages/ferb`). The rebuild deleting
+      `resources.md` made the scheduled visa run fail at 00:27 on 10-31. Fix: run with `python -P` (never prepend the
+      working directory) and keep WorkingDirectory at FERB's home (install.py already writes `self.home`; the live
+      plist predates that); SMAppService (decision 2) covers it too.
 - [x] Composition function + typed ports; remove the 42 supervisor hooks and 17 gateway injections. (Step 2: stores
       first (`_build_stores`), gateway gets one `GatewayDeps`, supervisor gets `ports.py` Memory/Schedule/Environment/
       Desktop/Browser/Notify ports + a `QuestionRouter`; all fields required. Gateway refuses to start without recovery,

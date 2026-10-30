@@ -122,7 +122,7 @@ def test_worker_prompt_matches_the_gateway_on_approvals() -> None:
     assert "owner_ask goes to the orchestrator first" in md and "concrete reviewable" in md
 
 
-@pytest.mark.parametrize('role', ['supervisor.md', 'worker.md', 'dispatch.md', 'question.md', 'verifier.md', None])
+@pytest.mark.parametrize('role', ['supervisor.md', 'worker.md', 'question.md', 'verifier.md', None])
 def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     from types import SimpleNamespace
     from ferb.orchestrator.supervisor import Supervisor

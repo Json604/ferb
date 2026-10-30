@@ -3,9 +3,8 @@ import asyncio
 from types import SimpleNamespace
 
 from ferb.core.types import Identity, ToolContext
-from ferb.orchestrator.schemas import CHECK_KINDS, VERIFIER_SCHEMA, Check, Condition, VerifierOutcome
-from ferb.orchestrator.supervisor import Outcome, _report
-from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
+from ferb.orchestrator.schemas import CHECK_KINDS, CHECKER_SCHEMA, Check, CheckerOutcome, Condition
+from ferb.orchestrator.verify import Checks
 
 
 def test_ledger_done_is_not_a_check_kind() -> None:
@@ -25,23 +24,11 @@ def test_an_old_ledger_done_condition_is_treated_as_an_observation_not_proof(tmp
 
 
 def test_the_verifier_may_say_how_the_owner_can_check_a_condition() -> None:
-    assert "how" in VERIFIER_SCHEMA["properties"]["results"]["items"]["properties"]
-    out = VerifierOutcome.model_validate({"results": [
-        {"index": 0, "met": None, "evidence": "can't see Sent", "how": "Open Gmail and look in Sent for it."}]})
+    assert "how" in CHECKER_SCHEMA["properties"]["results"]["items"]["properties"]
+    out = CheckerOutcome.model_validate({"results": [
+        {"index": 0, "met": None, "evidence": "can't see Sent", "how": "Open Gmail and look in Sent for it."}],
+        "next": "accept_unconfirmed"})
     assert out.results[0].how == "Open Gmail and look in Sent for it."
-
-
-def test_an_unconfirmed_condition_shows_how_to_check_it() -> None:
-    planned = SimpleNamespace(success_conditions=[SimpleNamespace(owner_text=None) for _ in range(3)])          # results 0-2 are the planner's conditions
-    tree = SimpleNamespace(stop_reason="", verification=[1], owner_question=None, spec=planned, watch=False,
-                           check_problem="")
-    results = [ConditionResult(0, "the email was sent", None, "verifier", "Sent wasn't readable",
-                               how="Open Gmail and look in Sent."),
-               ConditionResult(1, "the file exists", False, "verifier", "missing", how="ignored when false"),
-               ConditionResult(2, "the chat has it", None, UNCHECKED, "x", how="ignored when unchecked")]
-    text = _report(tree, results, Outcome("t", "done", "s", [], []), "Done, but not confirmed:", "")  # type: ignore[arg-type]
-    assert "- the email was sent — unverified: Sent wasn't readable\n  To check: Open Gmail and look in Sent." in text
-    assert text.count("To check:") == 1
 
 
 def _old_spec_json() -> str:

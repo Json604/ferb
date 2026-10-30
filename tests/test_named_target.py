@@ -51,5 +51,5 @@ def test_an_unreachable_named_target_ends_not_confirmed_never_done(daemon):
             {"worker": done("started it"), "worker.verify": verdict, "worker.dispatch": finish})
     out = outcome(chat(daemon, "start a codex astra session"))
     assert out["status"] == "done_unverified" and not out["verified"]
-    assert out["answer"].startswith("Done, but not confirmed:")
-    assert "To check: Open Codex and look for a session using the astra model." in out["answer"]
+    assert out["answer"].startswith("started it\n\nCouldn't confirm: ")
+    assert "(Open Codex and look for a session using the astra model)" in out["answer"]

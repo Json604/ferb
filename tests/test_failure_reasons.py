@@ -203,9 +203,9 @@ def test_an_attempt_that_raises_reports_the_reason(daemon: RunningDaemon) -> Non
     daemon.daemon.supervisor.make_runtime = runtimes                     # type: ignore[union-attr]
     out = outcome(chat(daemon, "do it"))
     said = f"This attempt couldn't run: something broke inside FERB (KeyError: 'runtime table'). {BUG}"
-    assert "Why work stopped: " + said in out["answer"], out
-    dispatch = next(c for _, key, c, _ in script.contexts if key == "worker.dispatch")
-    assert "something broke inside FERB (KeyError: 'runtime table')" in dispatch   # the orchestrator reads it too
+    assert out["answer"] == "I couldn't finish this task. " + said, out
+    checked = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
+    assert "something broke inside FERB (KeyError: 'runtime table')" in checked    # the checker reads it too
     assert "a problem on my side" not in out["answer"]
 
 

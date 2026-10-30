@@ -28,8 +28,9 @@ class Runtimes:
         self._journal().append("runtime.failed", {"runtime": runtime, "detail": detail})
 
     def _runtime_for(self, role: str) -> str:
-        """The runtime a role uses: a planner-chosen worker type, else [runtimes] orchestrator / worker / checker."""
-        if role.startswith("worker:") and role != "worker:default":
+        """The runtime a role uses: a planner-chosen worker type, or the runtime the owner chose for one task's checker
+        ("checker:<runtime>", owner decision 16), else [runtimes] orchestrator / worker / checker."""
+        if role.startswith(("worker:", "checker:")) and role != "worker:default":
             return role.partition(":")[2]
         if role == "orchestrator":
             return str(self.config.get("runtimes", "orchestrator", "codex"))
@@ -189,6 +190,29 @@ class Runtimes:
                                                     **({"model": model} if model else {})})
         usable, fix = await asyncio.to_thread(CATALOG[runtime].available, self.home)
         return {"roles": assigned, "usable": usable, "fix": fix}
+
+    async def _runtimes_switch_task(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Owner decision 16, the app's one tap: a task that stopped on a usage limit or a sign-in failure waits with
+        FERB's offer of each other signed-in runtime; this answers it with `runtime` for that task (`scope` "task", the
+        default), or first points the role that failed at it from its next call ("role", as `runtimes.use` does), then
+        answers. Owner-only (auth.py); journaled. FERB never calls it itself."""
+        from ferb.cli import runtimes as runtimes_cli
+        task_id, runtime = str(params.get("task_id", "")), str(params.get("runtime", ""))
+        scope = params.get("scope", "task")
+        if scope not in ("task", "role"):
+            raise FerbError('scope must be "task" or "role"')
+        offer = self.supervisor.runtime_offer(task_id)
+        if offer is None or runtime not in offer["choices"]:
+            raise FerbError(f"task {task_id} isn't waiting to switch to {runtime}")
+        if scope == "role":
+            try:
+                await asyncio.to_thread(runtimes_cli.assign, self.home, runtime, [offer["role"]])
+            except ValueError as e:
+                raise FerbError(str(e)) from None
+            self._available_cache.pop(runtime, None)
+            self._journal().append("runtimes.changed", {"runtime": runtime, "roles": [offer["role"]]})
+        answered = self.supervisor.answer_runtime_switch(task_id, runtime)
+        return {"task_id": task_id, "runtime": runtime, "scope": scope, "role": answered["role"]}
 
     async def _runtimes_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """One tiny typed call through a runtime: proves the key, model and network work (costs a fraction of a cent)."""

@@ -67,6 +67,24 @@ to commit c6621c3. S = supervisor.py, M = main.py.
     covers the turn including its restart, so a burst of messages can't stall FERB. Messages that queued while a turn
     was running are read together in the next turn (4 quick messages → 2 turns, not 4).
 
+19. **Answers in steps** (owner approved the mock, 2026-10-30: https://claude.ai/artifact/LpxdUXbaXXTFCSRzWBknDj).
+    A part is one of the owner's asks, not a plan step. The planner declares `parts` in the owner's order (id, quote
+    checked by the shared quote check, label, and either `direct` text or one `answer_step`); code validates (each part
+    one answer source; answer steps distinct; wait/ask steps can't answer; every success condition belongs to exactly
+    one part; no summing-up step). Tool-free parts ("who are you", general knowledge) are answered in the first reply
+    with the plan line and code receipts. Each remaining part posts **once**, when its answer step's checker verdict is
+    accept or accept-unconfirmed, keyed by (task, part) and recorded durably (journal `chat.part` with the redacted
+    text), never twice, also across restarts. **No final summarizing call**: the code-added final worker goes (for
+    multi-part and one-part multi-step plans; the last step's checked answer is the answer); after the last part code
+    adds only its fixed lines and a computed "N of M done". A part that needs the owner pauses only its row; a failed
+    part shows "Couldn't do: reason"; a later change to a posted part shows "updated" in the same row with one line why.
+    Parts post immediately. (Why: the reverted dc11e6ba sent a duplicate in every one of its 5 tasks — parts were plan
+    steps, usually the last one, plus two summary layers.)
+20. **The notch gets the mock's UI** (owner, 2026-10-30): the turn card with one row per part and its states (working
+    spinner, done check, asks amber, couldn't-do red, updated tag, paused violet), the done/sites footer, questions with
+    buttons inside a row, the plan-line bubble style, and the typing-dots bubble (not in the notch today). Not the
+    mock's pink dashed explanation labels or "code" chips. Functional UI work done here; the owner polishes.
+
 ## What exists today (verified)
 
 - Core shape: planner (no tools) → worker through the gateway → observe-only checker → code writes the status from
@@ -129,10 +147,13 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 ## Fix list
 - [ ] The plan line states resolved `folders` whenever there are any ("I'll work in …"), not only for big jobs or
       standing sends (supervisor.py ~2499, 2733), so a wrong folder guess can be corrected.
-- [ ] Answer format with the lines code appends: answer first, then at most one "Couldn't confirm" line, then the
+- [x] Answer format with the lines code appends: answer first, then at most one "Couldn't confirm" line, then the
       code lines in a fixed order ("Remembered:", "🗓 Scheduled:", "Sites contacted:", "(ran late)"), kept short.
+      (Step 8b: `Supervisor._final` / `_with_code_lines`; after "Sites contacted:" come the saved-word, app-left-running
+      and clean-up lines; "(ran late)" is now the last line, schedules.py.)
 - [ ] Record the kind of each question asked and its answer, so "few questions" can be measured.
-- [ ] Clarified: a fix-only-the-answer round does not count toward the 5-attempt check-in.
+- [x] Clarified: a fix-only-the-answer round does not count toward the 5-attempt check-in.
+      (Step 8b: fix_answer applies the checker's edits and ends the attempt loop; only a retry is counted.)
 
 ### Execution
 - [x] Single task as a one-step plan; remove the separate single-worker branch (S:3165).
@@ -151,8 +172,12 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [ ] Restart the planner turn on a new message in the same chat (decision 10).
 - [ ] Planner call time limit 90 s; a timeout replies plainly instead of hanging (decision 11).
       (Step 4: the 90 s limit is enforced by every adapter, ferb/runtimes/catalog.call_limit; the plain reply is left.)
-- [ ] Outcome-based done and the answer-first format (decision 9); rewrite `_report` (S:4097-4139); disturbance and
+- [x] Outcome-based done and the answer-first format (decision 9); rewrite `_report` (S:4097-4139); disturbance and
       tool-record facts to the checker.
+      (Step 8b: `_report` removed; `_final` writes the answer first; `_next` maps the checker's choice to done when every
+      outcome condition is verified, done-unconfirmed only when an outcome is unknown; the report condition leads to
+      fix_answer or the one "Couldn't confirm" line. The checker gets `evidence.how_facts`: the screen changes recorded on
+      each call, foreground calls, ActionFacts, targeted accounts/sites, and the tabs the task holds.)
 - [x] Loops on the plan path as a repeat rule; remove LoopRunner's separate pause (loops.py:446-464).
       (Step 8a: `Step.repeat`; LoopRunner pauses through the supervisor's one wait, `wait_owner`.)
 - [x] One status/finish/stop function; remove the 17 scattered status writes (list in the execution audit: tree.py:54,
@@ -206,17 +231,31 @@ to commit c6621c3. S = supervisor.py, M = main.py.
 - [ ] Memory and activity blocks shrink per notes/memory.md (hybrid; accessibility out of the activity search).
 
 ### Attempt loop
-- [ ] Merge dispatcher into the checker; remove `_dispatch`, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP (S:3213-3218,
+- [x] Merge dispatcher into the checker; remove `_dispatch`, NOTHING_TO_RECHECK, RECHECK_NOTHING_STOP (S:3213-3218,
       3330-3346, 3391-3417).
-- [ ] "Fix only the answer" path for report-only failures.
-- [ ] Resource reviewer folds into the merged checker (notes/prompts.md decision 1): remove `_reconcile_resources`
+      (Step 8b: CHECKER_SCHEMA `next` = accept / fix_answer / retry / ask / accept_unconfirmed / fail; dispatch.md
+      merged into verifier.md minimally (step 10 rewrites); recheck and CHECK_DIDNT_LOOK gone with it.)
+- [x] "Fix only the answer" path for report-only failures. (Step 8b: `answer_edits`, applied by `_apply_edits`.)
+- [x] Resource reviewer folds into the merged checker (notes/prompts.md decision 1): remove `_reconcile_resources`
       (S:3652-3693, called S:3298-3303 and S:2326-2328).
-- [ ] Worker report: done / not done + reason + optional question; loop/probe/conversation fields only for those roles;
+      (Step 8b: the checker sees the tabs the task holds and what FERB releases at the end; a release error becomes a
+      code line in the answer.)
+- [x] Worker report: done / not done + reason + optional question; loop/probe/conversation fields only for those roles;
       a `how` note for memory (notes/memory.md); the task gains a structured `folders` field (notes/hands.md
       decision 4).
-- [ ] Done-unverified includes the worker's answer (`_report` S:4097-4139 never shows it).
-- [ ] Confirmed conditions survive retries (verification reset each attempt S:3223, `finished` S:3260).
-- [ ] Artifacts from failed attempts no longer listed (accumulate S:3252-3254).
-- [ ] One steering checkpoint per attempt (today 5: S:3255, 3282, 3307, 3316, 3328).
-- [ ] Code writes the failure only for facts no model can change (usage limit, sign-in needed); retry choices stay
+      (Step 8b: `worker_schema(...)` per role, `WorkerReport`; `how` kept on the outcome and the episode (migration
+      0050) and the card body. The planner's `folders` field is step 8c, with the planner.)
+- [x] Done-unverified includes the worker's answer (`_report` S:4097-4139 never shows it).
+- [x] Confirmed conditions survive retries (verification reset each attempt S:3223, `finished` S:3260).
+      (Step 8b: `tree.confirmed` and `_carry`: a later null keeps it, a later false drops it; planner conditions only.)
+- [x] Artifacts from failed attempts no longer listed (accumulate S:3252-3254).
+- [x] One steering checkpoint per attempt (today 5: S:3255, 3282, 3307, 3316, 3328).
+      (Step 8b: a correction the worker never saw supersedes the attempt after its check; a done report is kept in the
+      attempts the next worker reads.)
+- [x] Code writes the failure only for facts no model can change (usage limit, sign-in needed); retry choices stay
       with the checker (CLAUDE.md rule 6).
+      (Step 8b with decision 16: adapters tag `account` from structured fields (Codex CodexErrorInfo, the Agent SDK's
+      AssistantMessageError, HTTP status, FERB's missing sign-in); `ServiceDown`; the task asks in place
+      (`runtime.switch`, options "Use <runtime>" / Stop, `runtime_switch` on the event) and the app's one tap is
+      `runtimes.switch_task` (task or role). A planner turn's failure carries `runtime_switch` for `runtimes.use`.
+      The app's buttons are UI work.)

@@ -12,6 +12,8 @@ from ferb.policy.rules import Kind
 from ferb.sanitize.untrusted import WRAPPED, holds_pasted, without_ferb_question
 from ferb.trace.lines import CameForward, clip, duration, no_on_screen_action, plural
 
+# model.dispatch and model.resources: the next-attempt choice and the resource review before step 8b merged them into
+# the checker; kept so an older task's record still reads as it did
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
 PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
@@ -209,6 +211,9 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
                 retry_starts.append(n["started_at"])
         elif role == "Checker":
             mark, text = _checker(n, checked_count)
+            # the merged checker's choice (step 8b): a retry starts another attempt
+            if _json((n.get("output") or {}).get("result")).get("next") == "retry":
+                retry_starts.append(n["started_at"])
             if steps and steps[-1]["mark"] == RERUN and steps[-1]["role"] == "Checker":
                 text = "rerun of the same check: " + text
         else:
@@ -283,6 +288,7 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             "request_text": _request_text(outcome), "goal": spec.get("goal") or row.get("goal") or "",
             "status": str(result.get("status") or row.get("status") or "unknown"), "verified": result.get("verified"),
             "started_at": started, "ended_at": ended, "seconds": _secs(started, ended), "answer": answer,
+            "how": str(result.get("how") or ""),        # the worker's note on the steps that worked (step 8b)
             "conditions": conditions, "steps": steps, "problems": problems, "tools": tools_used,
             "point_checks": point_checks,
             "origins": sorted(origins), "tool_origins": sorted(tool_origins), "usage": usage,
