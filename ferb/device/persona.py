@@ -1,12 +1,63 @@
 """Local app-use evidence for a setup persona. Installed software never establishes an owner's occupation."""
 import asyncio
+import json
 import os
 import plistlib
 import subprocess
+from pathlib import Path
 from typing import Any, Callable
 
 # The memory key of the approved setup persona: FERB's own app-use summary, never words the owner typed (D30, MP2)
 PERSONA_KEY = "setup-persona"
+PERSONA_FILE = "persona.json"          # FERB's home: the scan's proposal and whether the owner reviewed it
+# Where these lived before they moved out of config.toml (a 10 KB proposal there was parsed on every config read)
+OLD_KEYS = ("persona_pending", "persona_reviewed")
+
+
+class PersonaState:
+    """The P28 proposal FERB scanned and whether the owner reviewed it, in FERB's home (`persona.json`, owner-only,
+    written atomically). The first read on a home that still has them under config.toml's [setup] moves them here
+    (written here first, then removed there in one atomic write)."""
+
+    def __init__(self, config: Any) -> None:
+        self.config = config
+        self.path = Path(config.home) / PERSONA_FILE
+
+    def _read(self) -> dict[str, Any]:
+        if self.path.exists():
+            from ferb.config import _check_owner_only
+            _check_owner_only(self.path)
+            value = json.loads(self.path.read_text())
+            return value if isinstance(value, dict) else {}
+        old = {"pending": self.config.get("setup", "persona_pending"),
+               "reviewed": self.config.get("setup", "persona_reviewed")}
+        state = {k: v for k, v in old.items() if v is not None}
+        if state:
+            self._write(state)
+            self.config.remove("setup", *OLD_KEYS)
+        return state
+
+    def _write(self, state: dict[str, Any]) -> None:
+        from ferb.config import write_private
+        write_private(Path(self.config.home), self.path, json.dumps(state, ensure_ascii=False))
+
+    def _change(self, key: str, value: Any) -> None:
+        state = self._read()
+        state[key] = value
+        self._write(state)
+
+    def pending(self) -> dict[str, Any]:
+        value = self._read().get("pending")
+        return dict(value) if isinstance(value, dict) else {}
+
+    def set_pending(self, proposal: dict[str, Any]) -> None:
+        self._change("pending", proposal)
+
+    def reviewed(self) -> bool:
+        return self._read().get("reviewed") is True
+
+    def set_reviewed(self, reviewed: bool) -> None:
+        self._change("reviewed", reviewed)
 
 
 def app_usage(apps: list[Any], run: Callable[..., Any] = subprocess.run) -> list[dict[str, Any]]:
@@ -137,7 +188,8 @@ def confirm_persona(proposal: str, answer: str) -> str | None:
 
 def setup_persona(env: Any, config: Any, profile: Any, client: Any,
                   usage: Callable[[list[Any]], list[dict[str, Any]]] = app_usage) -> None:
-    if config.get("setup", "persona_reviewed", False):
+    state = PersonaState(config)
+    if state.reviewed():
         return
     from ferb.sanitize.redact import Redactor
     redact = Redactor()
@@ -150,5 +202,4 @@ def setup_persona(env: Any, config: Any, profile: Any, client: Any,
     if confirmed is not None:
         # Stored as an explicit owner preference through the same CLI memory path, not an inferred identity edit.
         client.call("memory.add", {"content": confirmed, "kind": "preference", "key": PERSONA_KEY})
-        config.set("setup", "persona", confirmed)
-    config.set("setup", "persona_reviewed", True)
+    state.set_reviewed(True)

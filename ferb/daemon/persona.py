@@ -7,7 +7,7 @@ import inspect
 from typing import Any, Callable
 
 from ferb.core.types import Identity
-from ferb.device.persona import confirm_persona
+from ferb.device.persona import PersonaState, confirm_persona
 from ferb.policy.rules import ActionRequest
 
 
@@ -16,6 +16,7 @@ class PersonaReview:
                  *, remember: Callable[[str], None], publish: Callable[[str, dict[str, Any]], None],
                  record: Callable[[str, dict[str, Any]], None], redact: Callable[[Any], Any] = lambda x: x) -> None:
         self.config, self.approvals, self.collect = config, approvals, collect
+        self.state = PersonaState(config)          # persona.json in FERB's home, not config.toml
         self.remember, self.publish, self.record = remember, publish, record
         self.redact = redact
         self.task: asyncio.Task[None] | None = None
@@ -33,9 +34,9 @@ class PersonaReview:
         if refresh:
             self.approvals.forget_request('setup-persona')
             self.approval_id = None
-            self.config.set('setup', 'persona_reviewed', False)
-            self.config.set('setup', 'persona_pending', {})
-        if not self.config.get('setup', 'persona_reviewed', False):
+            self.state.set_reviewed(False)
+            self.state.set_pending({})
+        if not self.state.reviewed():
             if not self._proposal():
                 self.error = None
                 self.task = asyncio.create_task(self._discover())
@@ -50,7 +51,7 @@ class PersonaReview:
             # remain injectable without a thread that could outlive daemon shutdown.
             collected = self.collect()
             proposal = self.redact(await collected if inspect.isawaitable(collected) else collected)
-            self.config.set('setup', 'persona_pending', proposal)
+            self.state.set_pending(proposal)
             self.record('setup.persona_scanned', {k: proposal[k] for k in ('scanned_at', 'apps', 'used_apps')})
             self._ask()
         except Exception as exc:
@@ -58,7 +59,7 @@ class PersonaReview:
             self.record('setup.persona_failed', {'error': self.error})
 
     def _proposal(self) -> dict[str, Any]:
-        return dict(self.config.get('setup', 'persona_pending', {}))
+        return self.state.pending()
 
     def _ask(self) -> None:
         """The one question for this proposal, published once."""
@@ -79,7 +80,7 @@ class PersonaReview:
     def status(self) -> dict[str, Any]:
         if self.closed:
             return {'state': 'closed'}
-        if self.config.get('setup', 'persona_reviewed', False):
+        if self.state.reviewed():
             return {'state': 'reviewed'}
         if self._proposal():
             ap = self.approvals.get(self.approval_id) if self.approval_id else None
@@ -100,8 +101,7 @@ class PersonaReview:
         if confirmed is not None:
             confirmed = str(self.redact(confirmed))
             self.remember(confirmed)
-            self.config.set('setup', 'persona', confirmed)
-        self.config.set('setup', 'persona_reviewed', True)
+        self.state.set_reviewed(True)
         self.record('setup.persona_reviewed', {'confirmed': confirmed is not None,
                                             'scanned_at': proposal['scanned_at']})
 

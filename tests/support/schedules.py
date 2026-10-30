@@ -52,9 +52,13 @@ def make_schedule(d: RunningDaemon, request: str, own: str, targets: Targets, fi
 
 
 def results(d: RunningDaemon) -> list[dict[str, Any]]:
+    """The results waiting for a chat, then acknowledged as shown (chat.status is read-only; results.ack marks)."""
     c = Client(d.sock)
     try:
-        return c.call("chat.status")["results"]                                            # type: ignore[no-any-return]
+        found: list[dict[str, Any]] = c.call("chat.status")["results"]
+        if found:
+            c.call("results.ack", {"task_ids": [r["task_id"] for r in found]})
+        return found
     finally:
         c.close()
 

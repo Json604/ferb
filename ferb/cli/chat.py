@@ -386,16 +386,21 @@ class Chat:
             self.session_id = attached.get("session_id", self.session_id)
             if self.new or self.resume:
                 print(f"Conversation: {self.session_id}", file=self.out, flush=True)
-            st = self.call("chat.status")
+            st = self.call("chat.status", {"peek": True})
         except Exception:
             if self.new or self.resume:
                 raise
             return
         for r in st.get("results", []):
             self.say(f"ferb> (while you were away) {r['answer']}")
+        if st.get("results"):                    # chat.status only reads: say which ones this chat showed
+            self.call("results.ack", {"task_ids": [r["task_id"] for r in st["results"]]})
         for r in st.get("running", []):
             self.say(f"ferb> Still working on: {r['goal']}")
-        digest = st.get('memory_digest')
+        try:
+            digest = self.call("memory.learning", {"op": "digest"}).get("digest")
+        except Exception:
+            digest = None
         if digest:
             self.say('ferb> Here are things I learned that need your confirmation:')
             for proposal in digest.get('proposals', []):
@@ -406,9 +411,6 @@ class Chat:
             self.call('attention.ack', {'ids': [notice['id'] for notice in st['notices']]})
         for d in st.get("approvals", []):
             self.answer_approval(d)
-        for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
-            reply = self.ask(printable(f"   ? {q['question']} [y/N] "))
-            self.call("questions.answer", {"id": q["id"], "yes": reply.strip().lower() in ("y", "yes")})
         reminders(self.connect, self.out)
 
     def turn(self, msg: str) -> None:

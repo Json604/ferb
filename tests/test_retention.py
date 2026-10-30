@@ -349,8 +349,8 @@ def test_one_bad_root_does_not_stop_the_others(daemon: RunningDaemon) -> None:
 
 
 def test_a_pass_handles_at_most_200_roots_oldest_first(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    from ferb.daemon import main
-    monkeypatch.setattr(main, "ROOTS_PER_PURGE", 1)
+    from ferb.daemon.areas import retention as retention_area
+    monkeypatch.setattr(retention_area, "ROOTS_PER_PURGE", 1)
     first = _say_hi(daemon)
     second = _say_hi(daemon)
     _age(daemon, first, 40)

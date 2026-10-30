@@ -367,7 +367,9 @@ def test_invalid_recovery_output_finishes_truthfully_and_cleans_resources(daemon
 
 def test_each_turn_searches_memory_activity_and_registry(daemon):
     recalled = []
-    daemon.daemon.supervisor.recall = lambda words: recalled.append(words) or 'Remembered FMI project'
+    daemon.daemon.supervisor.memory_candidates = lambda words, focus: recalled.append(words) or [
+        {'text': 'Remembered FMI project', 'reference': 'memory.learned id=m1', 'origin': 'private',
+         'source_refs': ['m1']}]                                   # the planner's memory: the daemon's one search
     daemon.call_soon(daemon.daemon._publish, 'action.observed',
                      {'what':'browser.read', 'where':'FMI assignment in Gmail', 'actor':'ferb', 'status':'done'})
     daemon.call_soon(daemon.daemon._publish, 'action.observed',

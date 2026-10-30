@@ -234,7 +234,6 @@ def test_disconnect_mid_command_is_unknown_then_reconciled_never_replayed(bd: An
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
     g = task(d, "r", OWNER, {"fill_form"}, sites=frozenset({"shop.example"}))
-    d.daemon.config.set("policy", "trusted_accounts", ["shop.example @ chrome/Profile 1"])
     tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     ext.hold = True
@@ -265,7 +264,6 @@ def test_missing_command_in_bounded_recovery_history_stays_unknown(bd: Any) -> N
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
     g = task(d, "n", OWNER, {"fill_form"}, sites=frozenset({"shop.example"}))
-    d.daemon.config.set("policy", "trusted_accounts", ["shop.example @ chrome/Profile 1"])
     tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     ext.hold = True

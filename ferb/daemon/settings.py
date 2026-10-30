@@ -89,19 +89,15 @@ SETTINGS: dict[str, Setting] = {s.name: s for s in (
 )}
 
 
-def _plain(value: Any) -> Any:
-    """A tomlkit item as a plain value (its strings, numbers, booleans and arrays)."""
-    return value.unwrap() if hasattr(value, "unwrap") else value
+PRIVACY = frozenset({"privacy.exclude_apps", "privacy.exclude_domains"})   # the daemon applies these at once
 
 
 def read(config: Config) -> dict[str, Any]:
     """Every listed setting's value: config.toml's, else its default."""
-    doc = config.load()
     values: dict[str, Any] = {}
     for name, s in SETTINGS.items():
-        table = doc.get(s.section)
-        raw = table.get(s.key) if table is not None else None
-        values[name] = _plain(raw) if raw is not None else s.default
+        raw = config.get(s.section, s.key)
+        values[name] = raw if raw is not None else s.default
     return values
 
 

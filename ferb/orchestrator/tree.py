@@ -43,6 +43,9 @@ CONVERSATION_ROOTS = ("SELECT t.* FROM tasks t CROSS JOIN task_context c ON c.ta
                       "WHERE t.rowid > ? AND c.conversation_id = ? AND t.parent_id IS NULL ORDER BY t.created_at")
 
 
+TASK_COLUMNS = frozenset({"request_id", "created_at", "updated_at", "goal", "status", "tree_id", "outcome_json"})
+
+
 class TaskTree:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
@@ -105,6 +108,20 @@ class TaskTree:
         if self.db is None:
             return []
         return [dict(r) for r in self.db.conn.execute(CONVERSATION_ROOTS, (floor, conversation))]
+
+    def column(self, task_id: str, name: str) -> Any:
+        """One recorded column of a task (request_id, created_at, goal, ...), or None when the task isn't recorded."""
+        if self.db is None or name not in TASK_COLUMNS:
+            return None
+        row = self.db.conn.execute(f"SELECT {name} FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return row[0] if row is not None else None
+
+    def trees_of_request(self, request_id: str) -> set[str]:
+        """The task trees a request started."""
+        if self.db is None:
+            return set()
+        return {row[0] for row in self.db.conn.execute("SELECT DISTINCT tree_id FROM tasks WHERE request_id=?",
+                                                       (request_id,))}
 
     def max_rowid(self) -> int:
         """The last task row recorded so far: a chat session's floor (the rowid key's end, no scan)."""

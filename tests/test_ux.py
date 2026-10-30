@@ -92,7 +92,9 @@ def test_a_closed_chat_never_stops_a_task_and_its_answer_waits(daemon: RunningDa
     try:
         st = c2.call("chat.status")
         assert [r["answer"] for r in st["results"]] == ["I made todo.md with milk."]
-        assert c2.call("chat.status")["results"] == []                              # shown once
+        assert c2.call("chat.status")["results"] == st["results"]                   # reading marks nothing
+        c2.call("results.ack", {"task_ids": [r["task_id"] for r in st["results"]]})
+        assert c2.call("chat.status")["results"] == []                              # shown once acknowledged
     finally:
         c2.close()
     assert (daemon.daemon.home / "workspace" / "todo.md").read_text() == "milk"
@@ -163,7 +165,6 @@ def test_an_installed_but_unpaired_extension_is_reported(daemon: RunningDaemon) 
         note = daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
         assert note and "installed in Brave but not paired" in note and "browser_pair" in note
         assert "not paired" in daemon.run(_async(daemon.daemon._facts))
-        daemon.daemon.config.set("gates", "owner_profiles", True)
         assert "Settings → Browsers" in daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
     finally:
         ext.kill()

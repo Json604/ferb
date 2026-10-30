@@ -215,7 +215,17 @@ class DisturbanceSentinel:
     async def _run(self) -> None:
         while self.active:
             await asyncio.sleep(self.interval_s)
-            await self.sample()
+            try:
+                await self.sample()
+            except Exception as exc:              # one failed sample never ends the sampling: recorded, then on
+                self._sampler_failed(exc)
+
+    def _sampler_failed(self, exc: Exception) -> None:
+        for task_id in list(self.active):
+            try:
+                self.record(task_id, "disturbance.error", {"error": type(exc).__name__, "where": "sampler"})
+            except Exception:
+                pass
 
     async def sample(self) -> None:
         if not self.active:

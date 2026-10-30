@@ -42,7 +42,8 @@ def test_input_monitoring_is_asked_once_with_the_first_request(monkeypatch) -> N
     asked: list[str] = []
     rows: list[tuple[str, dict]] = []
     fake = SimpleNamespace(_input_monitoring_asked=False, permission_request=asked.append,
-                           _journal=lambda: SimpleNamespace(append=lambda kind, data: rows.append((kind, data))))
+                           _journal=lambda: SimpleNamespace(append=lambda kind, data: rows.append((kind, data))),
+                           _spawn=lambda work, what: work)       # the daemon keeps the request's future (step 2)
     monkeypatch.setattr(P, "input_monitoring", lambda: P.Status.NOT_DETERMINED)
 
     async def run() -> None:

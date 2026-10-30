@@ -50,6 +50,8 @@ from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import EARLIER, PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
+from ferb.orchestrator.ports import (BrowserPort, DesktopPort, EnvironmentPort, MemoryPort, NotifyPort,
+                                    QuestionRouter, SchedulePort)
 from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import PAGE_CHARS, memory_origin, recorded_calls
@@ -258,10 +260,6 @@ def _exposure_output(record: dict[str, Any]) -> dict[str, Any]:
     payload alone, so a task never keeps the chat twice (final review M7)."""
     payload = record.get('payload', record['text'])
     return {'payload': payload} if record['text'] is None else {'text': record['text'], 'payload': payload}
-
-
-async def _settled() -> None:
-    return None
 
 
 def _carries_more(out: SupervisorOutcome) -> bool:
@@ -508,35 +506,38 @@ class Supervisor(WorkerRuns):
     def __init__(self, *, make_runtime: MakeRuntime, gateway: Gateway, state: ExecutionState, tokens: RunTokens,
                  tasks: TaskTree, spans: SpanStore, journal: Journal, publish: Publish, clock: Clock, ids: IdSource,
                  device_id: str, workspace: str, on_violation: Callable[[str, str], None],
-                 on_task_end: Callable[[str], Awaitable[Any]] | None = None,
-                 facts: Callable[[], str] = lambda: "",
-                 checks: Checks | None = None, roots: FsRoots | None = None) -> None:
+                 on_task_end: Callable[[str], Awaitable[Any]], facts: Callable[[], str], checks: Checks,
+                 roots: FsRoots, memory: MemoryPort, schedules: SchedulePort, environment: EnvironmentPort,
+                 desktop: DesktopPort, browser: BrowserPort, notify: NotifyPort, questions: QuestionRouter) -> None:
+        """Everything the supervisor uses from the rest of FERB comes in here (ferb/orchestrator/ports.py): nothing is
+        set on it afterwards, and a missing piece fails at construction."""
         self.make_runtime, self.gateway, self.state, self.tokens = make_runtime, gateway, state, tokens
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
         self.on_violation, self.on_task_end, self.facts = on_violation, on_task_end, facts
-        self.changes: file_changes.Changes | None = None   # L39: the daemon's change record (main.py sets it)
-        self.on_task_start: Callable[[str], Awaitable[Any]] | None = None
-        self.on_task_finish: Callable[[str], Awaitable[Any]] | None = None
-        self.disturbance_context: Callable[[str], str] = lambda task_id: ""
-        self.disturbance: Any = None              # the desktop sentinel: cleanup is an on-screen FERB action (P26)
-        self.browser_context: Callable[[str], str] = lambda task_id: ""
-        # the browser tabs a task holds now, by tab id, redacted (daemon supplied; L31: a loop's, for each round)
-        self.task_tabs: Callable[[str], list[dict[str, Any]]] = lambda task_id: []
+        self.checks, self.roots = checks, roots
+        # The desktop observer and the change record (DesktopPort): cleanup is an on-screen FERB action (P26); L39
+        self.changes: file_changes.Changes | None = desktop.changes
+        self.on_task_start: Callable[[str], Awaitable[Any]] | None = desktop.on_task_start
+        self.on_task_finish: Callable[[str], Awaitable[Any]] | None = desktop.on_task_finish
+        self.disturbance_context: Callable[[str], str] = desktop.disturbance_context
+        self.disturbance: Any = desktop.disturbance
+        # The browser drivers (BrowserPort): the tabs a task holds now, by tab id, redacted (L31: a loop's, for each
+        # round); a loop's round starts (False) or ends (True): the drivers give the owner's held tab's file picker back
+        # between rounds and take it again for a round
+        self.browser_context: Callable[[str], str] = browser.browser_context
+        self.task_tabs: Callable[[str], list[dict[str, Any]]] = browser.task_tabs
+        self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = browser.on_loop_rest
         self._resting: set[str] = set()          # loop task ids between rounds (L31): `loop_resting`
         # L34 Phase G: open until an update's hold; a new tree and a loop's next round wait on it, and the shutdown
         # that follows the hold cancels them (a loop's round then runs after the restart, L31)
         self._work_open = asyncio.Event()
         self._work_open.set()
-        # daemon supplied (L31): a loop's round starts (False) or ends (True): the browser drivers give the owner's held
-        # tab's file picker back between rounds and take it again for a round
-        self.on_loop_rest: Callable[[str, bool], Awaitable[None]] | None = None
         # I4: how long the planner waits for the front window captured at send: ScreenCaptureKit's own capture timeout
         self.front_window_timeout_s: float = CAPTURE_TIMEOUT_S
-        self.relevant_source_refs: Callable[[str], list[str]] = lambda words: []
-        self.relevant_context: Callable[[str], Any] = lambda words: ""   # text, or (text, origin)
-        self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
-        self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
+        # What the Mac, FERB's tools and the owner's activity look like now (EnvironmentPort)
+        self.relevant_context: Callable[[str], Any] = environment.relevant_context   # text, or (text, origin, ...)
+        self.worker_types: Callable[[], list[str]] = environment.worker_types
         self.sessions: dict[str, ChatSession] = {}
         self.continuity = Continuity(journal.db, gateway.redact, spans.task_origins)
         self.plans = PlanStore(journal.db, gateway.redact)
@@ -544,15 +545,17 @@ class Supervisor(WorkerRuns):
         from ferb.orchestrator.conversations import ConversationStore
         self.conversations = ConversationStore(journal.db, clock, gateway.redact, publish)
         self.gateway.conversation_guard = self.conversations.guard
-        self.notification_rule: Callable[[Any, str], str] = lambda rule, words: 'Notification rules unavailable.'
-        self.on_conversation_resume: Callable[[], None] = lambda: None
+        self.notification_rule: Callable[[Any, str], str] = notify.notification_rule
+        self.on_conversation_resume: Callable[[], None] = notify.on_conversation_resume
         self.gateway.standing = self.standing
         self._plan_runs: dict[str, PlanExecutor] = {}
+        # the event topics each registered plan waits for, beside the executor they were read for (notify_plan_event)
+        self._plan_topics: dict[str, tuple[PlanExecutor, int, frozenset[str]]] = {}
         self.loops = LoopStore(self.plans.db, self.clock)                 # loop steps' durable state (L31)
         self._loops: dict[str, set[LoopRunner]] = {}                      # tree id -> its running LoopRunners
         self._loop_status: dict[tuple[str, str], dict[str, Any]] = {}     # (tree id, step id) -> its last status
-        # a loop's chat notice (a pause, a back-off): (tree id, step id, text); the daemon supplies it
-        self.on_loop_notice: Callable[[str, str, str, str], Awaitable[None]] | None = None
+        # a loop's chat notice (a pause, a back-off): (tree id, step id, text)
+        self.on_loop_notice: Callable[[str, str, str, str], Awaitable[None]] | None = notify.on_loop_notice
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
@@ -561,31 +564,21 @@ class Supervisor(WorkerRuns):
         # earlier words (a "which one is it for?") or None (a "Yes or No?"), and the questions it named.
         self._answer_focus: dict[str, _Focus] = {}
         self._suspending = False
-        self.procedure_context: Callable[[str], str] = lambda words: ''
-        # the planner's ranked items for (its query, the target words of the tasks it is shown), or an awaitable of them
-        self.memory_candidates: Callable[[str, str], Any] | None = None
-        # L36 §4: a worker's or plan step's ranked memory for (its query, its task's target words) (the daemon's one
-        # search at the worker budget; an awaitable); None: the plain `recall`, as before
-        self.memory_push: Callable[[str, str], Any] | None = None
-        # what a worker gets for its procedure, given the planner's typed slot values (L29): the procedure, then its
-        # intent's lessons and latest verified runs (`Learning.procedure_parts`)
+        # Memory and learning (MemoryPort; L28, L29, L36 §4)
+        self.procedure_context: Callable[[str], str] = memory.procedure_context
+        self.memory_candidates: Callable[[str, str], Any] | None = memory.memory_candidates
+        self.memory_push: Callable[[str, str], Any] | None = memory.memory_push
         self.procedure_details: Callable[[str, Task, dict[str, Any] | None], list[ProcedurePart]] = \
-            lambda procedure_id, task, slots: []
-        # why a planner's procedure_id can't be used (not stored, not a procedure, not current), or None (I5)
-        self.procedure_problem: Callable[[str], str | None] = lambda ident: None
-        self.identity_context: Callable[[], str] = lambda: ''
-        self.on_episode: Callable[[str], Any] = lambda task_id: None      # may return an awaitable
-        # a procedure run's receipt: the procedure, the task and the planner's typed slot values (L29) or None
-        self.procedure_outcome: Callable[[str, str, dict[str, Any] | None], None] = \
-            lambda procedure_id, task_id, slots: None
-        # the planner's {name, value} pairs for a procedure's slots, typed against it, or None (L29)
-        self.slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None] = \
-            lambda procedure_id, pairs: None
-        # why the procedure's slots refuse the planner's values, or None (L29)
-        self.slot_problem: Callable[[str, list[dict[str, Any]]], str | None] = lambda procedure_id, pairs: None
-        self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
-        self.abilities_catalog: Callable[[], list[dict[str, Any]]] = lambda: []
-        self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+            memory.procedure_details
+        self.procedure_problem: Callable[[str], str | None] = memory.procedure_problem
+        self.identity_context: Callable[[], str] = memory.identity_context
+        self.on_episode: Callable[[str], Any] = memory.on_episode
+        self.procedure_outcome: Callable[[str, str, dict[str, Any] | None], None] = memory.procedure_outcome
+        self.slot_values: Callable[[str, list[dict[str, Any]]], dict[str, Any] | None] = memory.slot_values
+        self.slot_problem: Callable[[str, list[dict[str, Any]]], str | None] = memory.slot_problem
+        self.skills_catalog: Callable[[], list[dict[str, str]]] = environment.skills_catalog
+        self.abilities_catalog: Callable[[], list[dict[str, Any]]] = environment.abilities_catalog
+        self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = notify.on_resumed_outcome
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
@@ -596,46 +589,32 @@ class Supervisor(WorkerRuns):
         self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._live: dict[str, asyncio.Queue[dict[str, Any]]] = {}      # tree id -> its run's event queue (L8)
         self.activity = Activity(clock.monotonic)
-        # (owner last active, last trail event) for the time header; the daemon supplies them
-        self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
-        # Recall for a turn without the daemon's search (synchronous: intake calls it on each chat message, and a
-        # worker's context when there is no `memory_push`). The daemon never supplies it: its planner memory comes from
-        # `memory_candidates` and a worker's from `memory_push`, so there it returns "" and adds nothing
-        self.recall: Callable[[str], Any] = lambda words: ""
-        self.timers: Any = None                  # clock.timers.Timers
-        # Durable scheduling callbacks supplied by the daemon.
-        # on_schedule(spec, owner's words, request id, what the turn saw, what the request itself carried)
-        self.on_schedule: Callable[[Any, str, str, set[str], set[str]], str] = \
-            lambda spec, own, rid, made, asked: "Scheduling isn't available."
-        self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
-        self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
-        # whether a schedule's runs may still hold its recorded scope (D30); none without the daemon's schedules
-        self.schedule_live: Callable[[str], bool] = lambda sid: False
-        # what the owner typed behind their remembered items, never an item's wording (S3, MP2); supplied by the daemon
-        self.typed_behind_memory: Callable[[str], list[str]] = lambda request_id: []
-        # What the supervisor may use right now (supplied by the daemon: connections, permissions)
-        self.availability: Callable[[], Availability] = self._default_availability
-        # Environment observations supplied by the daemon (it may return them later: an awaitable).
-        self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = lambda words: {}
+        # (owner last active, last trail event) for the time header
+        self.signals: Callable[[], tuple[datetime | None, datetime | None]] = environment.signals
+        # Durable timers and schedules (SchedulePort)
+        self.timers: Any = schedules.timers                  # clock.timers.Timers
+        self.on_schedule: Callable[[Any, str, str, set[str], set[str]], str] = schedules.on_schedule
+        self.on_schedule_change: Callable[[Any, str], str] = schedules.on_schedule_change
+        self.on_reminder_cancel: Callable[[Any, str], str] = schedules.on_reminder_cancel
+        self.schedule_live: Callable[[str], bool] = schedules.schedule_live
+        self.typed_behind_memory: Callable[[str], list[str]] = memory.typed_behind_memory
+        self.availability: Callable[[], Availability] = environment.availability
+        # may return its observations later (an awaitable)
+        self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = environment.environment
         self._env: dict[str, dict[str, Any]] = {}
-        self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
-        self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
-        self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
+        self.apps: Callable[[], list[tuple[str, str]]] = environment.apps
+        self.running_apps: Callable[[], list[tuple[str, str, int]]] = environment.running_apps
+        self.pasted_is_data: Callable[[], bool] = environment.pasted_is_data
         # chat capture (I1): per saved item, {"receipt": ..., "line": ...}, and per refused one {"refused": code's
-        # reason in plain words}; supplied by the daemon (a coroutine function: a login name is written in a worker
-        # thread). `sites`: the sites the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a
-        # task of another chat (`_sites_named_elsewhere`)
-        self.remember: Callable[..., list[dict[str, str]] | Awaitable[list[dict[str, str]]]] = \
-            lambda items, own_words, source, sites=frozenset(), elsewhere=frozenset(): [
-                {"refused": "FERB has no memory store running"} for _ in items]
-        # a forget asked in chat (I2): the daemon asks the owner's Yes/No naming what goes, and says so in a line
-        self.forget_request: Callable[[str, str], str] = lambda item_id, request_id: "I can't forget from chat here."
-        # FERB's own follow-up once the owner answered one of its questions (a forget's Yes): a line, or ''
-        self.question_answered: Callable[[Any], str] = lambda approval: ""
-        # awaited before a chat turn builds its context: a forget still being finished completes first (I2)
-        self.settle: Callable[[], Awaitable[None]] = _settled
+        # reason in plain words} (a coroutine function: a login name is written in a worker thread). `sites`: the sites
+        # the turn's task names (L36 §5); `elsewhere`: those the owner typed only for a task of another chat
+        self.remember: Callable[..., list[dict[str, str]] | Awaitable[list[dict[str, str]]]] = memory.remember
+        self.forget_request: Callable[[str, str], str] = memory.forget_request
+        self.question_answered: Callable[[Any], str] = memory.question_answered
+        self.settle: Callable[[], Awaitable[None]] = memory.settle
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
+        questions.bind(self.route_question)        # the gateway's worker questions reach this orchestrator
 
     def _approach(self) -> str:
         """Single insertion point for a future verified approach; harness mechanics never depend on it."""
@@ -1075,10 +1054,23 @@ class Supervisor(WorkerRuns):
         for tree_id in self._plan_runs:
             self.plans.set_status(tree_id, 'suspended')
 
+    def _waits_for(self, key: str, run: PlanExecutor) -> frozenset[str]:
+        """The event topics a registered plan's steps wait for, read from its saved plan once per executor and plan
+        revision (a steer that changes the plan, or a new executor for the tree, reads them again)."""
+        held = self._plan_topics.get(key)
+        revision = self.plans.revisions.get(key, 0)
+        if held is None or held[0] is not run or held[1] != revision:
+            topics = frozenset(s.event for s in self.plans.load(key)['plan'].steps if s.event)
+            self._plan_topics[key] = held = (run, revision, topics)
+        return held[2]
+
     def notify_plan_event(self, topic: str, data: dict[str, Any]) -> None:
         # Only persist events a currently registered plan actually waits for; no retention policy is invented here.
-        interested = [(key, run) for key, run in self._plan_runs.items()
-                      if any(s.event == topic for s in self.plans.load(key)['plan'].steps)]
+        # `data` comes redacted (the daemon's events redact once). Plans are not loaded per event: each one's topics
+        # are read once (`_waits_for`).
+        for key in [k for k in self._plan_topics if k not in self._plan_runs]:
+            del self._plan_topics[key]
+        interested = [(key, run) for key, run in self._plan_runs.items() if topic in self._waits_for(key, run)]
         if interested:
             self.plans.event(topic, data)
             for key, run in interested:
@@ -1324,7 +1316,7 @@ class Supervisor(WorkerRuns):
                                                      "untrusted_parts": len(m.untrusted) + bool(paths),
                                                      "input_paths": paths}
                                     | ({"pasted_as_owner_words": as_owner_words} if as_owner_words else {}))
-        recalled = self.recall(words)           # synchronous: as a worker without `memory_push` reads it (_worker_memory)
+        recalled: Any = ""                     # memory reaches the planner through `memory_candidates`
         env = await _value(self.environment(words))
         seen = await self._screen_at_send(request_id, screen) if screen is not None else {}
         self._env[request_id] = {**env, "words": words, "payload": payload,
@@ -1721,7 +1713,7 @@ class Supervisor(WorkerRuns):
         activity_payload = _context_payload(activity_source)
         activity_refs = _context_refs(activity_source)
         if activity_refs is None:
-            activity_refs = self.relevant_source_refs(message)
+            activity_refs = []
         env = self._env.get(request_id, {})
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
         # state; memory, activity and history carry their stored labels; resumable goals are planner-written.
@@ -2708,9 +2700,9 @@ class Supervisor(WorkerRuns):
         task_id = self.ids.new_id()
         task = Task(task_id, None, 'Consider observed activity', self.device_id, Identity.OWNER, set(),
                     'mixed', task_id, [], None)
-        # Memory is recalled for the words the rows hold (the existing recall: ranked candidates, or the plain one).
+        # Memory is recalled for the words the rows hold (the ranked candidates).
         words = ' '.join(str(v) for row in observations for v in (row.get('data') or {}).values() if isinstance(v, str))
-        remembered = self.recall(words) if self.memory_candidates is None else ''
+        remembered: Any = ''
         mem_text = self.recall_items(remembered)[0]
         memory = (await self._memory_blocks(words, remembered, mem_text, '', choosing=False)
                   if self.memory_candidates is not None or mem_text else [])
@@ -3421,15 +3413,10 @@ class Supervisor(WorkerRuns):
         step's parent goal, then its own goal, then the task's targets (`target_words`), the targets also ranked alone
         (the search's `focus`, fix round); each item its own block, kept whole (the owner's budget bounds them), its
         refs recorded on the task as for any shown block, so a forget reaches what it was given. A query with no words
-        gets nothing, never the newest items. Without the daemon's search: the plain recall block, as before."""
+        gets nothing, never the newest items."""
         targets = target_words(tree.spec.targets)
         query = "\n".join(part for part in (request.words, tree.parent_goal, tree.spec.goal, targets) if part.strip())
-        if self.memory_push is None:
-            recalled = self.recall(query)
-            return [dataclasses.replace(self._source_block(tree, "Layer 4 — recalled memory",
-                                                           self.recall_items(recalled)[0], self.recall_origin(recalled)),
-                                        priority=2)]
-        if not query_terms(query):
+        if self.memory_push is None or not query_terms(query):
             return []
         from ferb.orchestrator.context_layers import ranked_memory_blocks
         found = await _value(self.memory_push(query, targets))
@@ -3456,8 +3443,7 @@ class Supervisor(WorkerRuns):
                               f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification",
                               protected=True, cache=True),
                  dataclasses.replace(self._source_block(tree, "Layer 3 — relevant activity and actions", *activity,
-                                                               source_refs=tuple(activity_refs if activity_refs is not None
-                                                                                 else self.relevant_source_refs(words)) if activity[0] else (),
+                                                               source_refs=tuple(activity_refs or ()) if activity[0] else (),
                                                                payload=_context_payload(activity_source) if activity[0] else ""), priority=1),
                  *memory,
                  ContextBlock(self.disturbance_context(tree.id), "task.evidence query=disturbance", protected=True)]

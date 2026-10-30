@@ -373,6 +373,35 @@ class FsRoots:
     protection: Protection | None = None             # the daemon's lists (rule 10); None in tests that don't need them
 
 
+@dataclass(frozen=True)
+class GatewayDeps:
+    """Everything the gateway uses from the rest of FERB, handed over at construction (no attribute set from
+    outside). Every field is required: missing wiring fails where the deps are built. The stores whose absence would
+    let a call run unchecked (S1 recovery, the confirmations behind D33/S4, SQ6's known destinations) may not be None
+    either: `Gateway` refuses to start without them."""
+    evidence: Any                                       # the evidence store (ferb/act/evidence/store.py), V1
+    recovery: recovery.Recovery                         # S1: copies before a change, the Trash record
+    snapshots: recovery.Snapshots | None                # S1: a snapshot before a permanent delete or shell work
+    changes: file_changes.Changes | None                # L39: copies before a step changes files, for its check
+    confirmations: Confirmations                        # D33, S4: the owner's answers to FERB's questions
+    destinations: KnownDestinations                     # SQ6: the destinations FERB knows
+    # the task of a shell process while it runs (None once it ended), for the proxy's destinations
+    proc_task: Callable[[str], str | None]
+    # the daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None
+    app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None
+    # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds the
+    # tasks that were given an item (re-review a3)
+    memory_read: Callable[[str, list[str]], None]
+    journal_problem: Callable[[str, dict[str, Any]], None]   # where a fault the gateway survives is journaled
+    profile_name: Callable[[str, str], str]             # browser_pair's question names the profile
+    disturbance: Any                                    # the desktop sentinel (P26)
+    username_sources: Callable[[], Container[str] | None]   # L36 §6: where a login record's username may come from
+    on_path: Callable[[str, str], None]                 # trail attribution of a path FERB touched
+    route_question: Callable[[str, str, list[str]], Awaitable[dict[str, Any]]] | None   # a worker's question
+    shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None   # advice only (D23 shadow)
+    test_send_allowlist: set[str] | None                # test mode only: send-class actions may reach just these
+
+
 class Observer:
     """Tool-call diagnostics, liveness and owner waits. No-ops until the supervisor installs its observer."""
 
@@ -390,11 +419,18 @@ class Observer:
 class Gateway:
     def __init__(self, capabilities: dict[str, Capability], state: ExecutionState, ledger: Ledger, spans: SpanStore,
                  tasks: TaskTree, clock: Clock, redact: Redact, publish: Publish, roots: FsRoots,
-                 device_id: str, hold_poll_s: float = 0.2, excluded_host: Callable[[str], bool] | None = None) -> None:
+                 device_id: str, *, deps: GatewayDeps, hold_poll_s: float = 0.2,
+                 excluded_host: Callable[[str], bool] | None = None) -> None:
         if excluded_host is None:                # the owner's exclusion list never silently stops applying
             if not isinstance(redact, Redactor):
                 raise ValueError("the gateway needs the owner's exclusion check (excluded_host)")
             excluded_host = redact.excluded_host
+        # fail closed: without these a call would run without its S1 copy, its question's record or the protection lists
+        missing = [name for name, value in (("recovery", deps.recovery), ("confirmations", deps.confirmations),
+                                            ("destinations", deps.destinations), ("protection", roots.protection))
+                   if value is None]
+        if missing:
+            raise ValueError(f"the gateway can't run without {', '.join(missing)}")
         self.excluded_host = excluded_host
         self.caps, self.state, self.ledger, self.spans = capabilities, state, ledger, spans
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
@@ -404,9 +440,12 @@ class Gateway:
         self.previews = TaskPreviews()
         # told the memory a task read through memory.read / memory.learned (its root task, the refs), so a forget finds
         # the tasks that were given an item (re-review a3); the daemon records it in task_memory_refs
-        self.memory_read: Callable[[str, list[str]], None] = lambda task_id, refs: None
+        self.memory_read: Callable[[str, list[str]], None] = deps.memory_read
         # where a fault the gateway survives is journaled (the daemon's journal): kind, redacted data
-        self.journal_problem: Callable[[str, dict[str, Any]], None] = lambda kind, data: None
+        self.journal_problem: Callable[[str, dict[str, Any]], None] = deps.journal_problem
+        self.profile_name: Callable[[str, str], str] = deps.profile_name
+        self.shadow_action: Callable[[dict[str, Any], str], Awaitable[None]] | None = deps.shadow_action
+        self._background: set[asyncio.Task[Any]] = set()    # fire-and-forget work (shadow advice), kept and reported
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._waiting: dict[str, int] = {}             # owner question id -> calls waiting on it now
@@ -416,29 +455,45 @@ class Gateway:
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
-        self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
-        # The task of a shell process while it runs (None once it ended), for the proxy's destinations (the daemon sets it)
-        self.proc_task: Callable[[str], str | None] = lambda proc_id: None
-        self.route_question: Any = None
+        self.on_path: Callable[[str, str], None] = deps.on_path   # trail attribution
+        # The task of a shell process while it runs (None once it ended), for the proxy's destinations
+        self.proc_task: Callable[[str], str | None] = deps.proc_task
+        self.route_question: Any = deps.route_question
         # L36 §6: the memory sources a login record's username may still come from (the daemon's memory; None: any)
-        self.username_sources: Callable[[], Container[str] | None] = lambda: None
-        self.disturbance: Any = None
-        self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
+        self.username_sources: Callable[[], Container[str] | None] = deps.username_sources
+        self.disturbance: Any = deps.disturbance
+        self.test_send_allowlist: set[str] | None = deps.test_send_allowlist   # test mode: sends reach just these
         self.allow_until: datetime | None = None          # the owner's "don't ask for 30 min" for routine questions
-        self.evidence: Any = None                          # the evidence store (ferb/act/evidence/store.py)
+        self.evidence: Any = deps.evidence                 # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
-        self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
+        self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = deps.app_window
         self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
         self.looks: dict[asyncio.Task[None], str] = {}     # first looks still being taken, by task (D26)
-        self.recovery: recovery.Recovery | None = None      # S1: copies before a change, the Trash record
-        self.snapshots: recovery.Snapshots | None = None    # S1: a snapshot before a permanent delete or shell work
-        self.changes: file_changes.Changes | None = None   # L39: copies before a step changes files, for its check
-        self.confirmations: Confirmations | None = None     # D33, S4: the owner's answers to FERB's questions
-        self.destinations: KnownDestinations | None = None  # SQ6: the destinations FERB knows
+        self.recovery: recovery.Recovery | None = deps.recovery      # S1: copies before a change, the Trash record
+        self.snapshots: recovery.Snapshots | None = deps.snapshots   # S1: before a permanent delete or shell work
+        self.changes: file_changes.Changes | None = deps.changes     # L39: copies before a step changes files
+        self.confirmations: Confirmations | None = deps.confirmations   # D33, S4: the owner's answers to FERB
+        self.destinations: KnownDestinations | None = deps.destinations  # SQ6: the destinations FERB knows
         self._confirming: dict[str, asyncio.Lock] = {}      # by task tree: one FERB question at a time
         # D31: the Yes a task's approved terminal text left for its one Return, valid only as the task's very next
         # acting call (review round 1, finding 3): any other acting call clears it
         self._terminal_arms: dict[str, str] = {}
+
+    def _in_background(self, work: Awaitable[Any], what: str) -> None:
+        """Fire-and-forget work, kept referenced until it ends; a failure is journaled (`journal_problem`), never lost
+        to an unretrieved-exception warning."""
+        job = asyncio.ensure_future(work)
+        self._background.add(job)
+
+        def ended(done: asyncio.Task[Any]) -> None:
+            self._background.discard(done)
+            if not done.cancelled() and done.exception() is not None:
+                exc = done.exception()
+                try:
+                    self.journal_problem("gateway.background_failed", {"what": what, "error": error_name(exc)})
+                except Exception:
+                    pass
+        job.add_done_callback(ended)
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -824,13 +879,13 @@ class Gateway:
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
         self._started(grant, name, arguments, spec.kind, spec.target.site)
-        shadow = getattr(self, "shadow_action", None)
+        shadow = self.shadow_action
         if consequential and shadow is not None:
             # Advice only: scheduling/completion/answers cannot authorize or refuse this call.
-            asyncio.create_task(shadow({"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
+            self._in_background(shadow({"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
                 "content": spec.content, "code_questions": covered.ids, "task_id": grant.task_id,
                 "owner_words": (self.state.requests.get(rec.task.request_id).words if self.state.requests.get(rec.task.request_id) else "")},
-                "span:" + span.id))
+                "span:" + span.id), "shadow")
         if blocked is not None:
             self.spans.update_input(span.id, {"boundary_refused": True})
             self._finish_call(span, name, {"error": blocked[0]}, True, error=blocked[0])
@@ -1116,8 +1171,7 @@ class Gateway:
             needs.append(confirm.browser_page_need(str(arguments.get("app") or "the browser"), page))
         if name == "browser.pair":                       # the owner's word is what pairs a profile (2026-10-27)
             browser, _, folder = str(arguments.get("profile") or "").partition("/")
-            named = getattr(self, "profile_name", None)
-            shown = named(browser, folder) if callable(named) else folder
+            shown = self.profile_name(browser, folder)
             # a profile the owner named in their words or answers is already authorized (rule 8 provenance; owner
             # 2026-10-27, after "pair my online bits profile" asked anyway: "why did it ask me the question?")
             request = self.state.requests.get(rec.task.request_id)

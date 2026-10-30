@@ -1,0 +1,219 @@
+"""Own what the planner and workers are told about this Mac and FERB right now: environment, availability, facts, a
+task's tabs and relevant activity. Must not select a route: agents interpret it."""
+
+import asyncio
+import json
+from typing import Any
+
+from ferb.act.browser.autoinstall import accepted_extension_ids
+from ferb.core.types import Identity
+
+
+# A paired owner profile that isn't connected, where FERB can't start it without a window (no wake service): plain
+# words, not a fault (live 2026-10-24: "extension transport disconnected" read as broken)
+IDLE_PROFILE = "not connected now — FERB connects once that profile is open in its browser"
+
+
+class Environment:
+    """A mixin of the Daemon (ferb/daemon/main.py): its methods use the daemon's state."""
+
+    async def _environment(self, own_words: str) -> dict[str, Any]:
+        """Installed apps and browser connection facts; the model interprets the owner's requested route. The
+        database is read here, on the event loop; the Mac's and the browsers' files and the running apps are read in a
+        thread (`_environment_files`), so a slow read never holds up another message's ack or a task's live line (L8)."""
+        from ferb.policy import services as svc
+        ferb = self._identity_profile()
+        bindings = self.pairings.all() if self.pairings else []
+        alignment = self.db.conn.execute("SELECT data_json FROM journal WHERE kind='security.alignment' "
+            "AND json_extract(data_json, '$.task_id') IN (SELECT id FROM tasks WHERE status='running') ORDER BY seq"
+            ).fetchall() if self.db is not None else []
+        found, apps, running, macos, extension = await asyncio.to_thread(
+            self._environment_files, {(b.browser, b.folder) for b in bindings})
+        names = {(p.browser, p.folder): p.display_name for p in found} if self.pairings else {}
+        paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder)) for b in bindings
+                  if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
+        stable, live = svc.summary(svc.Environment(apps, paired), macos, running)
+        profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
+                     'connection': self._profile_state(p, extension.get((p.browser, p.folder))),
+                     'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in found]
+        if alignment:
+            live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in alignment])
+        stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
+        return {"stable": stable, "live": live}
+
+    def _environment_files(self, paired: set[tuple[str, str]]) -> tuple[list[Any], list[tuple[str, str]], set[str], str,
+                                                                        dict[tuple[str, str], bool]]:
+        """The environment's reads that touch no database, run in a thread: browser profiles (Local State), installed
+        apps (the device profile), running apps, the macOS version, and whether FERB's extension is in each profile not
+        yet paired (its Preferences files)."""
+        import platform
+        from ferb.act.browser.profiles import extension_state
+        from ferb.act.mac import apps as appsm
+        found = self._profiles()
+        try:
+            running = {a.bundle_id for a in appsm.running()}
+        except Exception:
+            running = set()
+        ids = frozenset(accepted_extension_ids(self.config))   # the pinned unpacked id and the store id (L25)
+        extension = {(p.browser, p.folder): extension_state(p, ids, (self.browser_data_dirs or {}).get(p.browser))
+                     for p in found if (p.browser, p.folder) not in paired}
+        return found, self._installed_apps(), running, platform.mac_ver()[0] or "unknown", extension
+
+    def _task_root(self, task_id: str) -> str:
+        """The request's root task a worker step belongs to: download budgets and the tab cap are per task tree."""
+        rec = self.tasks.get(task_id)
+        return (rec.tree_id if rec is not None and rec.tree_id else None) or task_id.split(".", 1)[0]
+
+    def _inspection_parent(self, task_id: str) -> str | None:
+        """A registered checker borrows its worker's tabs/evidence, without changing their ownership."""
+        rec = self.tasks.get(task_id)
+        if rec is None or rec.task.role != "verifier":
+            return None
+        child = rec.task
+        parent = self.tasks.get(child.parent_id) if child.parent_id else None
+        if parent is None or parent.task.role != "worker" or not child.scopes <= parent.task.scopes:
+            return None
+        if (child.request_id, child.identity, child.device_id, rec.tree_id) != (
+                parent.task.request_id, parent.task.identity, parent.task.device_id, parent.tree_id):
+            return None
+        return parent.task.id
+
+    async def _loop_rest(self, task_id: str, resting: bool) -> None:
+        """A loop's round starts or ends (L31): each browser driver gives the owner's held tab its file picker back
+        between rounds, or takes it for the round (`_TabDriver.rest`, extension 0.15.10+)."""
+        for drv in (self.router, self.ferb_identity):
+            if drv is not None:
+                await drv.rest(task_id, resting)
+
+    def _task_tabs(self, task_id: str) -> list[dict[str, Any]]:
+        """The browser tabs a task holds now, by tab id, with the page each held when the task took it over (a checker's
+        browser context; a loop round's step context, L31). A model reads them: redacted as every tool result is
+        (re-review 2, I4)."""
+        tabs = [{"tool_prefix": prefix, **tab}
+                for prefix, drv in (("browser", self.router), ("ferb_browser", self.ferb_identity))
+                if drv is not None for tab in drv.task_tabs(task_id)]
+        return list(self.redact(tabs)) if tabs else []
+
+    def _browser_context(self, task_id: str) -> str:
+        parent = self._inspection_parent(task_id)
+        if parent is None:
+            return ""
+        tabs = self._task_tabs(parent)
+        return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
+                "the page or guess tab ids). A tab is known by its id: one you navigated elsewhere is still the same "
+                "tab, and taken_over_from is the page it held when the task took it over: "
+                + json.dumps(tabs)) if tabs else ""
+
+    def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
+        """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
+        recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
+        from ferb.act.catalog import search_actions
+        from ferb.core import origin
+        from ferb.sanitize.untrusted import wrap_untrusted
+        from ferb.sense.tools import trail_sources
+        actions = search_actions(dict(self.registry.capabilities), words)   # a copy: this may run off the event loop
+        activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
+        from ferb.sense.daily import without_queries
+        activity = without_queries(activity)               # addresses without query strings (live 2026-10-28)
+        trail = {str(row['source']) for row in activity if row.get('source')}
+        labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
+        return ('\nRelevant installed actions: ' + json.dumps(actions) +
+                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
+                '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n',
+                origin.join({origin.FERB} | labels),
+                json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False),
+                ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])
+
+    def _availability(self) -> Any:
+        """What the planner may use right now, and what's missing with how to fix it (owner decision, 2026-09-30)."""
+        from ferb.orchestrator.availability import build
+        registered = set().union(*(c.scopes for c in self.registry.capabilities.values()))
+        problems: dict[str, str] = {}
+        profiles = ""
+        if "browser:act" in registered:
+            ferb = self._identity_profile()
+            owner = [b for b in (self.pairings.all() if self.pairings else [])
+                     if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
+            names = {(p.browser, p.folder): p.display_name for p in self._fresh_profiles()} if owner else {}
+            live = [b for b in owner if self.hub is not None and (br := self.hub.bridges.get((b.browser, b.folder)))
+                    is not None and br.conn is not None]
+            if not owner:
+                problems["owner_browsers"] = ("none of the owner's browser profiles is paired — browser_pair pairs "
+                                              "one (FERB asks the owner once)")
+            elif not live and not (self.router and self.router.wake):
+                shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                  for b in owner)
+                problems["owner_browsers"] = f"{shown} paired; {IDLE_PROFILE}"
+            profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                 for b in live)
+            sleeping = [b for b in owner if b not in live]
+            if sleeping and self.router and self.router.wake:
+                wakeable = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                     for b in sleeping)
+                profiles = (f"{profiles}; " if profiles else "none; ") + f"can wake paired profiles: {wakeable}"
+        prof = self._identity_profile()
+        if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
+            problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
+        # Not open right now is fine: FERB opens its own profile when a task needs it (the owner's report, 2026-09-30)
+        perms = self._fresh.get(self._permissions)      # TCC checks: kept fresh off the loop, not asked per call
+        if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):
+            problems["mac"] = "FERB doesn't have the Accessibility permission — run `ferb doctor`"
+        if "screen" in registered and not perms.get("screen", True):
+            problems["screen"] = "FERB doesn't have the Screen Recording permission — run `ferb doctor`"
+        if "audio" in registered and not perms.get("screen", True):   # app sound is captured under Screen Recording
+            problems["hearing"] = "FERB doesn't have the Screen Recording permission, which covers app sound — run " \
+                                  "`ferb doctor`"
+        return build(registered, problems, profiles)
+
+    def _urls_of(self, task_id: str) -> list[str]:
+        return [u for drv in (self.router, self.ferb_identity) if drv is not None for u in drv.urls_of(task_id)]
+
+    def _add_secret_value(self, value: str) -> None:
+        add = getattr(self.redact, "add_secret_value", None)
+        if add is not None:
+            add(value)
+
+    def _facts(self) -> str:
+        address = self.config.get("mailbox", "address", "")
+        lines = [f"- FERB's own email (its identity, never the owner's): {address}" if address else
+                 "- FERB has no email account set up."]
+        lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
+                  for s in self.secrets.specs()]
+        for sc in (self._listed_schedules() if self.schedules is not None else []):
+            state = "done; its last run is under way" if sc.state == "done" else sc.state
+            lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.describe()}")
+        for t in (self.timers.pending(("reminder",)) if self.timers is not None else []):
+            lines.append(f"- Reminder {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
+        for phrase, meaning in self._time_meanings():
+            lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")
+        if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
+            ferb = self._identity_profile()
+            names: dict[tuple[str, str], str] | None = None
+            for b in self.pairings.all():
+                if (b.browser, b.folder) == ferb or b.identity is not Identity.OWNER:
+                    continue
+                br = self.hub.bridges.get((b.browser, b.folder))
+                if names is None:            # one profile discovery per call, kept fresh off the loop (`_fresh`)
+                    names = {(p.browser, p.folder): p.display_name for p in self._fresh_profiles()}
+                name = names.get((b.browser, b.folder), b.folder)
+                lines.append(f"- The owner's {b.browser} profile “{name}”: paired{self._paired_state(b, br)}")
+            for browser in sorted(set(self.hub.unpaired.values())):
+                note = self._unpaired_note(browser)
+                if note:
+                    lines.append(f"- {note}")
+        return "\n".join(lines)
+
+    def _paired_state(self, binding: Any, bridge: Any) -> str:
+        """How the planner may use one paired owner profile now, in plain words: a profile that isn't connected is
+        usually just not running, and the browser tools start it without a window when the wake service is there
+        (`_TabDriver._connected`, spike 19), then open its tab themselves (`_TabDriver._open_in`). Live 2026-10-24:
+        "extension transport disconnected" read as broken; live 2026-10-26: "may switch Space" made a worker ask."""
+        if bridge is not None and bridge.conn:
+            return ", connected"
+        refused = self.hub.refused.get(binding.install_id) if self.hub is not None else None
+        if refused:
+            return f"; its extension was refused: {refused}"
+        if self.router is not None and self.router.wake is not None:
+            return ("; not connected now (usually the profile just isn't running) — FERB's browser tools start it in "
+                    "the background and open its tab there themselves, nothing to ask")
+        return f"; {IDLE_PROFILE}"

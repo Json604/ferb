@@ -183,3 +183,53 @@ def test_the_upgrade_is_all_or_nothing_and_journaled_only_once_it_is_saved(monke
             d.stop()
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def test_get_parses_once_and_again_only_when_the_file_changes(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Daemon step 2: `get` used to re-read and re-parse config.toml on every call (2.36 ms, 59 call sites)."""
+    import tomlkit
+    parses: list[int] = []
+    real = tomlkit.parse
+    monkeypatch.setattr(tomlkit, "parse", lambda text: (parses.append(1), real(text))[1])
+    c = Config(home)
+    assert c.get("secrets", "nope") is None and c.get("secrets", "nope", 3) == 3
+    for _ in range(5):
+        assert c.section("secrets")["ferb/email/password"]["account_hint"] == "ferb@example.com"
+    assert len(parses) == 1
+    (home / "config.toml").write_text(EXISTING + '\n[policy]\nautonomy = "careful"\n')   # the owner edits it
+    assert c.get("policy", "autonomy") == "careful" and len(parses) == 2
+    c.set("policy", "autonomy", "balanced")                       # FERB's own write updates the cache
+    parses.clear()
+    assert c.get("policy", "autonomy") == "balanced" and parses == []
+
+
+def test_cached_values_are_plain_copies(home: Path) -> None:
+    c = Config(home)
+    c.set("privacy", "exclude_domains", ["a.example"])
+    got = c.get("privacy", "exclude_domains")
+    assert type(got) is list
+    got.append("b.example")                                        # a caller changing its copy changes nothing
+    assert c.get("privacy", "exclude_domains") == ["a.example"]
+
+
+def test_a_loosened_mode_is_refused_even_with_a_cached_parse(home: Path) -> None:
+    c = Config(home)
+    assert c.get("policy", "autonomy") is None
+    (home / "config.toml").chmod(0o644)
+    with pytest.raises(InsecureConfig):
+        c.get("policy", "autonomy")
+
+
+def test_the_persona_proposal_moves_out_of_config_toml_on_first_read(home: Path) -> None:
+    from ferb.device.persona import PersonaState
+    c = Config(home)
+    c.set("setup", "persona_pending", {"summary": "Apps you use: Code", "used_apps": ["Code"]})
+    c.set("setup", "persona_reviewed", False)
+    state = PersonaState(c)
+    assert state.pending()["summary"] == "Apps you use: Code" and state.reviewed() is False
+    assert c.get("setup", "persona_pending") is None and c.get("setup", "persona_reviewed") is None
+    assert "# keep this comment" in (home / "config.toml").read_text()       # the rest of the owner's file stays
+    assert stat.S_IMODE((home / "persona.json").stat().st_mode) == 0o600
+    state.set_reviewed(True)
+    assert PersonaState(c).reviewed() and PersonaState(c).pending()["used_apps"] == ["Code"]
+    assert "persona" not in (home / "config.toml").read_text()

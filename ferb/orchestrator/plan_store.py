@@ -14,6 +14,10 @@ EARLIER = 'earlier plan: '
 class PlanStore:
     def __init__(self, db: Database, redact: Callable[[Any], Any]) -> None:
         self.db, self.redact = db, redact
+        self.revisions: dict[str, int] = {}     # task id -> how many times this store wrote its plan (since start)
+
+    def _revised(self, task_id: str) -> None:
+        self.revisions[task_id] = self.revisions.get(task_id, 0) + 1
 
     def _json(self, value: Any) -> str:
         return json.dumps(self.redact(value), ensure_ascii=False)
@@ -27,10 +31,12 @@ class PlanStore:
                 keys = [step.id] + ([f'{step.id}:{i}' for i in range(len(step.batches))] if step.kind == 'map' else [])
                 for key in keys:
                     self.db.conn.execute('INSERT OR IGNORE INTO plan_steps(task_id,step_id) VALUES(?,?)', (task_id, key))
+        self._revised(task_id)
 
     def update_plan(self, task_id: str, plan: Plan) -> None:
         """The plan as an owner correction left it (its standing scope, D30); steps and their records stay."""
         self.db.conn.execute('UPDATE task_plans SET plan=? WHERE task_id=?', (self._json(plan.model_dump()), task_id))
+        self._revised(task_id)
 
     def load(self, task_id: str) -> dict[str, Any]:
         row = self.db.conn.execute('SELECT * FROM task_plans WHERE task_id=?', (task_id,)).fetchone()
@@ -81,6 +87,7 @@ class PlanStore:
                     self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=? AND step_id=?', (task_id, key))
             self.db.conn.execute("UPDATE task_plans SET plan=?, status='running', approved=0 WHERE task_id=?",
                                  (self._json(plan.model_dump()), task_id))
+        self._revised(task_id)
 
     def earlier(self, task_id: str) -> dict[str, Any]:
         """Results of an earlier plan's finished steps that a replacing plan didn't keep, by their old step id."""

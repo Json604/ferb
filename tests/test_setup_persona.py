@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from ferb.clock.clock import FakeClock
 from ferb.config import Config
 from ferb.daemon.questions import Approvals
-from ferb.device.persona import persona_proposal
+from ferb.device.persona import PersonaState, persona_proposal
 from ferb.daemon.persona import PersonaReview
 
 
@@ -35,7 +35,7 @@ def test_pending_scan_is_reused_across_reconnect_expiry_and_restart(tmp_path):
         await review.task
         pending = review.status()
         ident = pending['approval']['approval_id']
-        assert len(calls) == 1 and not saved and not config.get('setup', 'persona_reviewed')
+        assert len(calls) == 1 and not saved and not PersonaState(config).reviewed()
         assert '3733' in pending['approval']['evidence'][1]
         assert review.start()['approval']['approval_id'] == ident
         clock.advance(601)
@@ -62,7 +62,7 @@ def test_confirm_edit_and_skip_are_exact_owner_actions(tmp_path):
             ap = approvals.resolve(review.status()['approval']['approval_id'], True, text=answer)
             review.resolve(ap)
             assert saved == ([] if expected is None else [expected])
-            assert config.get('setup', 'persona_reviewed') is True
+            assert PersonaState(config).reviewed() is True
             assert review.start()['state'] == 'reviewed'
     asyncio.run(scenario())
 
@@ -77,11 +77,11 @@ def test_decline_does_not_store_profile_and_scan_errors_are_retryable(tmp_path):
         review, config, approvals, saved, events, _ = harness(tmp_path, collect)
         review.start(); await review.task
         assert review.status()['state'] == 'failed'
-        assert not config.get('setup', 'persona_reviewed')
+        assert not PersonaState(config).reviewed()
         review.start(); await review.task
         ap = approvals.resolve(review.status()['approval']['approval_id'], False)
         review.resolve(ap)
-        assert not saved and config.get('setup', 'persona_reviewed')
+        assert not saved and PersonaState(config).reviewed()
     asyncio.run(scenario())
 
 
@@ -138,7 +138,8 @@ def test_service_redacts_scan_errors_and_owner_edits_before_persistence(tmp_path
         ap = approvals.resolve(review.status()['approval']['approval_id'], True, text='My profile ' + secret)
         review.resolve(ap)
         assert saved == ['My profile [redacted]']
-        assert secret not in config.path.read_text()
+        persisted = [p.read_text() for p in (config.path, config.home / 'persona.json') if p.exists()]
+        assert persisted and not any(secret in text for text in persisted)
     asyncio.run(scenario())
 
 
@@ -193,7 +194,7 @@ def test_shutdown_cancels_and_reaps_owned_blocked_metadata_process(tmp_path):
         assert processes[0].returncode is not None and processes[0].returncode < 0
         assert review.status() == {'state': 'closed'}
         assert review.start(refresh=True) == {'state': 'closed'}
-        assert not saved and not config.get('setup', 'persona_reviewed') and not events
+        assert not saved and not PersonaState(config).reviewed() and not events
     asyncio.run(scenario())
 
 

@@ -46,9 +46,12 @@ def _row(r: Any) -> Timer:
 
 class Timers:
     def __init__(self, db: Database, clock: Clock, ids: IdSource,
-                 consume: Callable[[Timer], Awaitable[None]] | None = None) -> None:
+                 consume: Callable[[Timer], Awaitable[None]] | None = None,
+                 on_error: Callable[[Timer | None, Exception], None] | None = None) -> None:
         self.db, self.clock, self.ids = db, clock, ids
         self.consume = consume
+        # told of a consumer that raised (the timer) or a check that failed (None); the daemon journals it
+        self.on_error = on_error
         self._wake = asyncio.Event()
 
     # ---------- writes ----------
@@ -116,13 +119,28 @@ class Timers:
                              (self.clock.now().isoformat(), tid))
 
     async def tick(self) -> int:
+        """Hand each due timer to the consumer and acknowledge it. A consumer that raises leaves that timer claimed (it
+        is handed over again at the next check) and is reported; the timers after it are still delivered."""
         n = 0
         for t in self.claim_due():
             if self.consume is not None:
-                await self.consume(t)
+                try:
+                    await self.consume(t)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self._report(t, e)
+                    continue
             self.ack(t.id)
             n += 1
         return n
+
+    def _report(self, timer: Timer | None, error: Exception) -> None:
+        if self.on_error is not None:
+            try:
+                self.on_error(timer, error)
+            except Exception:
+                pass                                              # reporting never stops delivery
 
     def next_due_in(self) -> float:
         r = self.db.conn.execute("SELECT MIN(fire_at) AS f FROM timers WHERE state = 'pending'").fetchone()
@@ -137,8 +155,8 @@ class Timers:
                 await self.tick()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                pass                                              # retried on the next check; claims stay claimed
+            except Exception as e:
+                self._report(None, e)                             # retried on the next check; claims stay claimed
             self._wake.clear()
             try:
                 await asyncio.wait_for(self._wake.wait(), self.next_due_in() + 0.05)

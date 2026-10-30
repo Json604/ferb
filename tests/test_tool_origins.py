@@ -446,16 +446,37 @@ def test_owner_ask_spans_record_who_answered(daemon: RunningDaemon) -> None:
 
 
 def test_the_gateway_never_runs_without_an_exclusion_check() -> None:
+    from tests.support.gateway_deps import stub_deps
+
     def plain(value: Any) -> Any:
         return value
-    parts = ({}, None, None, None, None, None, plain, lambda topic, data: None, FsRoots("/tmp", (), ()), "dev")
+    roots = FsRoots("/tmp", (), (), protection=SimpleNamespace())                  # type: ignore[arg-type]
+    parts = ({}, None, None, None, None, None, plain, lambda topic, data: None, roots, "dev")
     with pytest.raises(ValueError, match="exclusion"):
-        Gateway(*parts)                                                       # type: ignore[arg-type]
-    explicit = Gateway(*parts, excluded_host=lambda host: host == "bank.example")   # type: ignore[arg-type]
+        Gateway(*parts, deps=stub_deps())                                     # type: ignore[arg-type]
+    explicit = Gateway(*parts, deps=stub_deps(), excluded_host=lambda host: host == "bank.example")   # type: ignore[arg-type]
     assert explicit.excluded_host("bank.example")
     redactor = Redactor({"bank.example"})
     assert Gateway({}, None, None, None, None, None, redactor, lambda topic, data: None,   # type: ignore[arg-type]
-                   FsRoots("/tmp", (), ()), "dev").excluded_host("www.bank.example")
+                   roots, "dev", deps=stub_deps()).excluded_host("www.bank.example")
+
+
+def test_the_gateway_fails_closed_without_its_safety_stores() -> None:
+    """Daemon step 2: a gateway built without S1 recovery, the confirmations record, the known destinations or the
+    protection lists used to skip those checks (fail open); now it refuses to start."""
+    from tests.support.gateway_deps import stub_deps
+    redactor = Redactor()
+    roots = FsRoots("/tmp", (), (), protection=SimpleNamespace())                  # type: ignore[arg-type]
+    for missing in ("recovery", "confirmations", "destinations"):
+        with pytest.raises(ValueError, match=missing):
+            Gateway({}, None, None, None, None, None, redactor, lambda topic, data: None,   # type: ignore[arg-type]
+                    roots, "dev", deps=stub_deps(**{missing: None}))
+    with pytest.raises(ValueError, match="protection"):
+        Gateway({}, None, None, None, None, None, redactor, lambda topic, data: None,   # type: ignore[arg-type]
+                FsRoots("/tmp", (), ()), "dev", deps=stub_deps())
+    from ferb.daemon.gateway import GatewayDeps
+    with pytest.raises(TypeError):                         # every dependency is named where the deps are built
+        GatewayDeps()                                                         # type: ignore[call-arg]
 
 
 def test_task_origins_count_unlabeled_results_from_before_f3(daemon: RunningDaemon) -> None:

@@ -122,7 +122,8 @@ def test_status_and_trace_recover_recorded_artifacts_after_result_was_shown(daem
         assert status['results'][0]['artifacts'] == [artifact]
         assert status['results'][0]['answer'] == result['answer']
         assert client.call('chat.status', {'peek': True})['results'] == status['results']
-        client.call('chat.status')
+        assert client.call('chat.status')['results'] == status['results']      # reading marks nothing (step 2)
+        client.call('results.ack', {'task_ids': [result['task_id']]})
         assert client.call('chat.status')['results'] == []
         before = len(script.contexts)
         for _ in range(2):

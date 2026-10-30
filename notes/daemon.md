@@ -132,20 +132,31 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - The crash "interrupted + auto-resume" fix is owned by notes/orchestration.md.
 
 ## Fix list
-- [ ] Composition function + typed ports; remove the 42 supervisor hooks and 17 gateway injections.
-- [ ] Split main.py; correct sections.
-- [ ] Events object: redact once; plan events looked up by key, not every plan per event.
-- [ ] Config cache with mtime reload; persona proposal out of config.toml.
-- [ ] Exception handler; fire-and-forget tasks tracked; timers isolate a failing consumer.
-- [ ] Blocking calls to threads (codesign, sandbox check, retention, profile discovery, TCC checks).
-- [ ] `chat.status` read-only (marking shown is explicit).
-- [ ] `ps.list` redacted; `memory.learning retire` through Learning; search off the loop.
-- [ ] Privacy settings applied live to the Redactor, proxy and hearing.
-- [ ] Remove `questions.answer` code, `memory.distill`, dead hooks, unread config keys.
+- [x] Composition function + typed ports; remove the 42 supervisor hooks and 17 gateway injections. (Step 2: stores
+      first (`_build_stores`), gateway gets one `GatewayDeps`, supervisor gets `ports.py` Memory/Schedule/Environment/
+      Desktop/Browser/Notify ports + a `QuestionRouter`; all fields required. Gateway refuses to start without recovery,
+      confirmations, destinations or protection. `recall`/`relevant_source_refs` hooks removed. Left: the supervisor
+      still sets `gateway.standing/conversation_guard/observer` in its own `__init__`; `test.mode` changes the
+      allowlist at run time.)
+- [x] Split main.py; correct sections. (Step 2: 15 mixins in `ferb/daemon/areas/`; main.py keeps state, lifecycle and
+      errors; RPC table in `areas/rpc.py:_register_rpc`.)
+- [x] Events object: redact once; plan events looked up by key, not every plan per event. (Step 2: `daemon/events.py`;
+      plan topics cached per executor and plan revision. Topic filtering for the notch not done: needs the app.)
+- [x] Config cache with mtime reload; persona proposal out of config.toml. (Step 2: reparse on file/owner/mode change;
+      `persona.json`, moved from `[setup]` on first read.)
+- [x] Exception handler; fire-and-forget tasks tracked; timers isolate a failing consumer. (Step 2: `daemon.unhandled`,
+      `daemon.background_failed`, `daemon.loop_failed`, `timer.failed` journal rows.)
+- [ ] Blocking calls to threads (codesign, sandbox check, retention, profile discovery, TCC checks). (Step 2: all but
+      retention. Retention's slow part is a span scan inside its delete transaction; a worker-thread writer would make
+      the loop's writes wait on SQLite's lock. Fix with step 12: ids read off the loop, short delete batches.)
+- [x] `chat.status` read-only (marking shown is explicit).
+- [x] `ps.list` redacted; `memory.learning retire` through Learning; search off the loop.
+- [x] Privacy settings applied live to the Redactor, proxy and hearing.
+- [x] Remove `questions.answer` code, `memory.distill`, dead hooks, unread config keys.
 - [ ] Setup: `permissions_version` only when granted; install into a new venv and swap after success (no mixed code);
       pinned checkout installs (lockfiles); Codex installed only if a role uses it; doctor fixes; uninstall removes
       every FERB Keychain item; CLI errors shown plainly.
-- [ ] Signal handlers before `start`; `start` failure runs `shutdown`.
+- [x] Signal handlers before `start`; `start` failure runs `shutdown`.
 - [ ] Disturbance sampler around acting tools; owner cursor ignored; facts to the checker; race fixed (decision 5).
 - [ ] Remove CLI chat; `task.stop` requires ids (decision 1).
 - [ ] SMAppService registration (decision 2); rule-10 protection of the service definition follows.
@@ -156,3 +167,6 @@ Basis: a read of every line (2026-10-30), read-only DB counts. M = main.py.
 - [ ] "About FERB" source and worker lookup tool (decision 6).
 - [ ] FERB email setup in the app (decision 7); identity RPCs for the app.
 - [ ] `ferb logs --policy` filter fixed; main.py's raw SQL moved into the stores; investigate the 2.2-2.4 GB footprint.
+      (Step 2: `--policy` fixed and an unknown filter refused; 13 of 54 statements moved (task_results, tasks lookups,
+      task_memory_refs, learning retire, trail rows); the rest belong to areas later steps rewrite or remove. Footprint
+      not investigated.)

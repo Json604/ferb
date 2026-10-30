@@ -411,3 +411,29 @@ def test_a_joined_quote_never_reaches_outside_the_request_chain(daemon: RunningD
     evs = chat(daemon, "7pm")
     assert run(daemon, daemon.daemon.timers.pending) == []
     assert not any(e["text"].startswith("⏰ Reminder set") for e in evs if e["type"] == "timer")
+
+
+def test_a_raising_consumer_never_holds_up_the_timers_after_it(tmp_path: Path) -> None:
+    """Daemon step 2: one timer whose consumer raised stopped the whole tick, so every later timer waited behind it at
+    each check. Now it is reported and left claimed (handed over again next check); the rest are delivered."""
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    db = Database(tmp_path / "f.db")
+    db.migrate()
+    clock = FakeClock()
+    fired: list[str] = []
+    reported: list[tuple[Any, str]] = []
+
+    async def consume(t: Any) -> None:
+        if t.message == "bad":
+            raise RuntimeError("consumer broke")
+        fired.append(t.message)
+    timers = Timers(db, clock, SequentialIds(), consume,
+                    on_error=lambda t, e: reported.append((t.message if t else None, str(e))))
+    for message in ("bad", "after"):
+        timers.add("reminder", clock.now() + timedelta(seconds=1), message)
+    clock.advance(5)
+    assert asyncio.run(timers.tick()) == 1
+    assert fired == ["after"] and reported == [("bad", "consumer broke")]
+    states = {r["message"]: r["state"] for r in db.conn.execute("SELECT message, state FROM timers")}
+    assert states == {"bad": "claimed", "after": "delivered"}

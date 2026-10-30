@@ -1429,6 +1429,17 @@ class Learning:
     def identity(self) -> str:
         return '\n'.join(str(p['body'].get('text', '')) for p in self.items('identity') if p['origin'] == origin.OWNER)
 
+    def record_task_refs(self, task_id: str, refs: list[str]) -> None:
+        """The memory refs a task was given (memory.read / memory.learned): a forget finds the task by them
+        (`task_memory_refs`, memory/echoes.py; re-review a3)."""
+        self.db.conn.executemany("INSERT OR IGNORE INTO task_memory_refs VALUES (?,?)",
+                                 [(task_id, ref) for ref in refs])
+
+    def retire(self, node_id: str) -> dict[str, Any] | None:
+        """The owner's "Not right" on a learned item (the app's digest): the node is retired, kept for its history."""
+        self.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (node_id,))
+        return self.get(node_id)
+
     def digest(self) -> dict[str, Any] | None:
         pending = [p for p in self.items('identity_proposal') if not p['confirmed']]
         day = self.clock.now().astimezone().date().isoformat()

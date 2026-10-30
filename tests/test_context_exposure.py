@@ -55,8 +55,7 @@ def test_activity_and_history_the_planner_was_shown_are_not_card_sources(daemon)
     install(daemon, [sup('task', 'Inspecting.', task('Inspect session note'))], {'worker': done('Inspected session note.')})
     first = outcome(chat(daemon, 'Inspect session note'))
     daemon.run(supervisor.finish_episodes())
-    supervisor.relevant_context = lambda _: ('', 'ferb')
-    supervisor.relevant_source_refs = lambda _: []
+    supervisor.relevant_context = lambda _: ('', 'ferb', '', [])
     install(daemon, [sup('task', 'Continuing.', task('Compare recorded session result'))], {'worker': done('Compared recorded result.')})
     second = outcome(chat(daemon, 'Compare that recorded session result'))
     daemon.run(supervisor.finish_episodes())                # cards are written after the outcome (L28)
@@ -75,8 +74,8 @@ def test_todays_activity_keeps_its_labels_and_source_refs(daemon):
     """Today's matching activity is a read with its own labels and refs. The raw recent trail is fetch-only (L28)."""
     from tests.conftest import chat, done, install, sup, task
     supervisor = daemon.daemon.supervisor
-    supervisor.relevant_context = lambda _: ('Recorded matching action', 'private')
-    supervisor.relevant_source_refs = lambda _: ['trail:matching']
+    supervisor.relevant_context = lambda _: ('Recorded matching action', 'private', 'Recorded matching action',
+                                             ['trail:matching'])       # the one search's refs: its 4th element
     script = install(daemon, [sup('task', 'Read the context.', task('Compare activity'))], {'worker': done('Compared.')})
     chat(daemon, 'Compare activity')
     assert 'Recorded matching action' in script.contexts[0][2]

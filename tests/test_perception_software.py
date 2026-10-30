@@ -47,7 +47,7 @@ Parent Identifier: other
 
 def test_persona_confirmation_is_once_and_preserves_the_owners_edit(tmp_path: Path) -> None:
     from ferb.config import Config
-    from ferb.device.persona import setup_persona
+    from ferb.device.persona import PersonaState, setup_persona
     config = Config(tmp_path / 'home')
     calls, messages = [], []
     env = SimpleNamespace(say=messages.append, ask=lambda prompt: 'I code and make music')
@@ -56,7 +56,7 @@ def test_persona_confirmation_is_once_and_preserves_the_owners_edit(tmp_path: Pa
     setup_persona(env, config, profile, client, usage=lambda apps: [{'app': 'Code', 'uses': 3733}])
     setup_persona(env, config, profile, client, usage=lambda apps: [])
     assert len(calls) == 1 and calls[0][1]['content'] == 'I code and make music'
-    assert config.get('setup', 'persona_reviewed') and '3733' in messages[0]
+    assert PersonaState(config).reviewed() and '3733' in messages[0]
 
 
 def test_macos_binary_xattr_uses_argument_vector(monkeypatch, tmp_path):

@@ -11,7 +11,6 @@ from typing import Any, Callable, Iterator
 import pytest
 
 from ferb.cli.client import Client, RpcError
-from ferb.core.errors import FerbError
 from ferb.daemon import auth
 from ferb.orchestrator.plans import Plan, Step
 from tests.conftest import RunningDaemon
@@ -177,8 +176,7 @@ def test_a_timer_that_fires_during_shutdown_is_kept_for_after_the_restart(daemon
     assert d.timers is not None
     d._shutting_down = True
     timer = _on_loop(daemon, lambda: d.timers.add("reminder", d.clock.now() - timedelta(seconds=1), "Call the bank"))
-    with pytest.raises(FerbError, match="fires after the restart"):
-        daemon.run(d.timers.tick())
+    assert daemon.run(d.timers.tick()) == 0          # the consumer refused it; later timers still go (step 2)
     assert _on_loop(daemon, lambda: d.timers.get(timer.id).state) == "claimed"
     d._shutting_down = False
     daemon.run(d.timers.tick())

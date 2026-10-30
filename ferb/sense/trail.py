@@ -133,6 +133,10 @@ class Trail:
 
     # ---------- reads ----------
 
+    def row(self, ident: str) -> Any:
+        """One recorded trail row by its id (as stored: source, actor, data_json, ...), or None."""
+        return self.db.conn.execute("SELECT * FROM trail WHERE id=?", (ident,)).fetchone()
+
     def events(self, source: str | None = None, actor: str | None = None, limit: int = 1000) -> list[TrailEvent]:
         q, args = "SELECT * FROM trail WHERE 1=1", list[Any]()
         if source:

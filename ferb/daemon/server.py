@@ -187,7 +187,7 @@ class Server:
             for w in list(self._writers):
                 w.close()
             await self._server.wait_closed()
-        self.path.unlink(missing_ok=True)
+            self.path.unlink(missing_ok=True)     # only its own socket: never another daemon's (a failed start)
 
     # ---------- per connection ----------
 
@@ -244,7 +244,9 @@ class Server:
                 if expected is None:
                     raise Unsupported("push-to-talk isn't set up (`ferb setup --voice`)")
                 sock = writer.get_extra_info("socket")
-                check_voice_peer(uid, self.owner_uid, exe_of(peer_pid(sock)), expected, self.voice_signed)
+                # the signature check runs codesign: in a thread, so a hello never holds up the event loop
+                await asyncio.to_thread(check_voice_peer, uid, self.owner_uid, exe_of(peer_pid(sock)), expected,
+                                        self.voice_signed)
                 session = Session(Role.VOICE)
             else:
                 if self.native is None:

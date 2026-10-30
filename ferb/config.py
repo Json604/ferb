@@ -2,8 +2,11 @@
 
 - Refuses a config (or ~/.ferb) that others can read or write: allowed origins and policy live here.
 - Writes are atomic: temp file in the same folder (0600) -> fsync -> rename over the original.
+- Reads are cached: `get` parses config.toml once and again only when the file (or its or ~/.ferb's owner or mode)
+  changes, so an owner's edit while FERB runs still applies at the next read, and a loosened mode is still refused.
 """
 
+import copy
 import os
 import stat
 import tempfile
@@ -43,12 +46,62 @@ def _check_owner_only(path: Path) -> None:
         raise InsecureConfig(f"{path} has mode {oct(stat.S_IMODE(st.st_mode))}; others must have no access")
 
 
+def write_private(home: Path, path: Path, text: str) -> None:
+    """Write `text` to `path` (inside `home`) atomically and owner-only: a 0600 temp file in the same folder, fsync,
+    rename over the original; `home` is made 0700."""
+    home.mkdir(parents=True, exist_ok=True)
+    os.chmod(home, 0o700)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.stem}.", suffix=path.suffix, dir=home)   # created 0600
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)                  # atomic on the same filesystem
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+Stamp = tuple[int, ...]
+
+
 class Config:
     def __init__(self, home: Path) -> None:
         self.home = home
         self.path = home / "config.toml"
+        # (what the file and ~/.ferb looked like when parsed, the parsed values): `get` re-parses only on a change
+        self._cached: tuple[Stamp, dict[str, Any]] | None = None
+
+    def _stamp(self) -> Stamp | None:
+        """The file's identity, size, change time and owner/mode, and ~/.ferb's owner/mode; None: no config file."""
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            return None
+        home = self.home.stat()
+        return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_uid, st.st_mode, home.st_uid,
+                home.st_mode)
+
+    def _remember(self, doc: TOMLDocument) -> None:
+        stamp = self._stamp()
+        self._cached = None if stamp is None else (stamp, doc.unwrap())
+
+    def _values(self) -> dict[str, Any]:
+        stamp = self._stamp()
+        if stamp is None:
+            return {}
+        cached = self._cached
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        doc = self.load()                      # checks the owner and mode, then parses
+        values = doc.unwrap()
+        self._cached = (stamp, values)
+        return values
 
     def load(self) -> TOMLDocument:
+        """A freshly parsed document, for a caller that changes and saves it; reads go through `get`/`section`."""
         if not self.path.exists():
             return tomlkit.document()
         _check_owner_only(self.home)
@@ -56,30 +109,38 @@ class Config:
         return tomlkit.parse(self.path.read_text())
 
     def save(self, doc: TOMLDocument) -> None:
-        self.home.mkdir(parents=True, exist_ok=True)
-        os.chmod(self.home, 0o700)
-        fd, tmp = tempfile.mkstemp(prefix=".config.", suffix=".toml", dir=self.home)   # created 0600
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(tomlkit.dumps(doc))
-                f.flush()
-                os.fsync(f.fileno())
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, self.path)             # atomic on the same filesystem
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        write_private(self.home, self.path, tomlkit.dumps(doc))
+        self._remember(doc)
 
     def get(self, section: str, key: str, default: Any = None) -> Any:
-        doc = self.load()
-        tbl = doc.get(section)
-        return default if tbl is None else tbl.get(key, default)
+        """A plain value (never a tomlkit item), copied: changing it never changes the cache."""
+        tbl = self._values().get(section)
+        if not isinstance(tbl, dict) or key not in tbl:
+            return default
+        value = tbl[key]
+        return copy.deepcopy(value) if isinstance(value, (dict, list)) else value
+
+    def section(self, section: str) -> dict[str, Any]:
+        """One table's plain values, copied ({} when there is none)."""
+        tbl = self._values().get(section)
+        return copy.deepcopy(tbl) if isinstance(tbl, dict) else {}
 
     def set(self, section: str, key: str, value: Any) -> None:
         doc = self.load()
         if section not in doc:
             doc[section] = tomlkit.table()
         doc[section][key] = value              # type: ignore[index]
+        self.save(doc)
+
+    def remove(self, section: str, *keys: str) -> None:
+        """Delete these keys of one table in one atomic write (nothing is written when none is there)."""
+        doc = self.load()
+        tbl = doc.get(section)
+        present = [k for k in keys if tbl is not None and k in tbl]
+        if not present:
+            return
+        for key in present:
+            del tbl[key]                        # type: ignore[union-attr]
         self.save(doc)
 
     def upgrade_ferb_written(self) -> list[dict[str, Any]]:
