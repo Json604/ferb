@@ -288,6 +288,7 @@ def test_a_timed_out_command_is_reconciled_from_the_next_hello(bd: Any) -> None:
     assert iid in br.lost
     ext.seen[iid] = "done"                                                       # the worker did finish it
     ext.kill()
+    ext.hold = False                                                             # the restarted worker answers again
     ext.connect()
     ext.wait_for(lambda: ext.gen is not None and ext.gen >= 2)
     time.sleep(0.2)
@@ -357,10 +358,10 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
     assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and not version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
-    # the bundle FERB ships is never one its daemon refuses; 0.15.7 to 0.15.13 change no protocol, but the minimum is
-    # 0.15.11 (D31 review round 1): an older extension can't report a web terminal, so it is refused
+    # the bundle FERB ships is never one its daemon refuses; protocol 18 (step 5c) is one bump with its minimum
     shipped = json.loads((EXT / "manifest.json").read_text())["version"]
-    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.15.13", "0.15.11")
+    assert version_ok(shipped) and (shipped, MIN_EXTENSION_VERSION) == ("0.16.0", "0.16.0")
+    assert not version_ok("0.15.13")
 
 
 # ---------- the extension's own code, run in node ----------
@@ -383,12 +384,15 @@ const cases = [
   ["Input.dispatchMouseEvent", {{type: "mousePressed", x: 1, y: 1, button: "right", clickCount: 1}}],
   ["Input.dispatchMouseEvent", {{type: "mousePressed", x: 1, y: 1, button: "back"}}],
   ["DOM.getDocument", {{depth: 0}}], ["DOM.getDocument", {{depth: 2}}], ["DOM.getDocument", {{depth: 0, pierce: true}}],
-  ["DOM.querySelector", {{nodeId: 1, selector: '[data-ferb-node="0123456789abcdef"]'}}],
+  ["DOM.querySelector", {{nodeId: 1, selector: `[${{p.STAMP_ATTR}}="0123456789abcdef"]`}}],
   ["DOM.querySelector", {{nodeId: 1, selector: 'input[type=password]'}}],
   ["DOM.setFileInputFiles", {{nodeId: 3, files: ["/tmp/a.pdf"]}}], ["DOM.setFileInputFiles", {{nodeId: 3, files: ["a.pdf"]}}],
   ["DOM.getBoxModel", {{backendNodeId: 5}}], ["Accessibility.getFullAXTree", {{depth: 60}}],
   ["Runtime.evaluate", {{expression: "1"}}], ["Network.getAllCookies", {{}}], ["Storage.getCookies", {{}}],
   ["Page.captureScreenshot", {{format: "jpeg", quality: 70}}], ["Page.captureScreenshot", {{format: "webp"}}],
+  ["DOM.querySelector", {{nodeId: 1, selector: '[data-ferb-node="0123456789abcdef"]'}}],   // protocol 17's fixed name
+  ["DOM.setAttributeValue", {{nodeId: 1, name: p.BIND_ATTR, value: "0123456789abcdef"}}],
+  ["DOM.setAttributeValue", {{nodeId: 1, name: "data-ferb-ax", value: "0123456789abcdef"}}],
 ];
 console.log(JSON.stringify(cases.map(([m, a]) => p.cdpAllowed(m, a))));
 console.log(JSON.stringify(p.cdpFilter("DOM.getBoxModel", {{model: {{content: [1]}}, extra: 1}})));
@@ -396,7 +400,7 @@ console.log(JSON.stringify(p.cdpFilter("DOM.getBoxModel", {{model: {{content: [1
     out = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=20).stdout.splitlines()
     assert json.loads(out[0]) == [True, False, False, False, True, False, True, True, False, True, False, True, True,
                                   False, True, False, False, True, False, True, False, True, True, False, False,
-                                  False, True, False]
+                                  False, True, False, False, True, False]
     assert json.loads(out[1]) == {"model": {"content": [1]}}
 
 
@@ -447,19 +451,35 @@ vm.runInContext(fs.readFileSync(path.join(dir, "background.js"), "utf8"), ctx);
   await ctx.send("tab_event", { event: "updated", tab_id: 2 });
   await ctx.ensurePort();                                           // reconnect: hello goes out
   await new Promise((r) => setTimeout(r, 50));
-  console.log(JSON.stringify(posted.map((m) => [m.type, m.seq])));
+  const before = posted.map((m) => [m.type, m.seq]);
+  const wrong = { type: "welcome", seq: 1, body: JSON.stringify({ gen: 7, identity: "owner" }), mac: "AAAA" };
+  await ctx.onDaemon(wrong);                                        // unsigned: ignored, nothing leaves
+  await new Promise((r) => setTimeout(r, 30));
+  const unsigned = posted.length;
+  const nonce = vm.runInContext("link.nonce", ctx), body = JSON.stringify({ gen: 7, identity: "owner" });
+  const mac = require("crypto").createHmac("sha256", Buffer.from(KEY, "base64")).update(`${nonce}|1|welcome|${body}`)
+    .digest("base64");
+  await ctx.onDaemon({ type: "welcome", seq: 1, body, mac });      // the daemon's welcome: then the queue leaves
+  await new Promise((r) => setTimeout(r, 50));
+  await ctx.onDaemon({ type: "welcome", seq: 1, body, mac });      // a replay: ignored
+  console.log(JSON.stringify({ before, unsigned, after: posted.map((m) => [m.type, m.seq]),
+                               gen: vm.runInContext("gen", ctx) }));
 })();
 """
 
 
-def test_queued_messages_leave_before_the_reconnect_hello_in_seq_order() -> None:
-    """The hello on reconnect used to jump the outbox: the daemon then dropped the queued messages as replays."""
+def test_queued_messages_leave_after_the_signed_welcome_in_seq_order() -> None:
+    """Protocol 18: messages queued while disconnected were flushed before the reconnect's hello, and the daemon,
+    which attributes nothing to a profile before its hello, dropped them. Now only the hello leaves first; the queue
+    leaves after the daemon's welcome, signed then with the next seqs, and an unsigned or replayed welcome is ignored."""
     node = _node()
     import base64
     key = base64.b64encode(os.urandom(32)).decode()
     r = subprocess.run([node, "-e", OUTBOX_HARNESS, str(EXT), key], capture_output=True, text=True, timeout=20)
     out = json.loads(r.stdout or "null") or pytest.fail(r.stderr)
-    assert out == [["tab_event", 1], ["tab_event", 2], ["hello", 3]], out
+    assert out["before"] == [["hello", 1]] and out["unsigned"] == 1, out
+    assert out["after"] == [["hello", 1], ["tab_event", 2], ["tab_event", 3]], out
+    assert out["gen"] == 7
 
 
 def test_dead_ops_are_gone_and_the_op_lists_match() -> None:

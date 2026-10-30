@@ -156,6 +156,8 @@ class ActionFacts:
     target_role: str | None = None           # the target element's role (AXButton, AXTextField…), as the app states it
     target_subrole: str | None = None        # its subrole (AXSecureTextField, AXSearchField…)
     page_url: str | None = None              # the address of the page the input acts on, where the app reports one
+    frame_host: str | None = None            # the host of the frame the input lands in, when it isn't the page's own (a
+                                             # cross-origin frame: card fields and bank pages often sit in one)
     deletes: tuple[str, ...] = ()            # paths the call takes away from where they are (Trash or deleted)
     writes: tuple[str, ...] = ()             # paths the call creates or changes
 
@@ -408,6 +410,17 @@ class ActionResult:
 
 
 @dataclass(frozen=True)
+class FormSubmit:
+    """What submitting from a page control would do, from the form's own markup (the extension, protocol 18)."""
+    on_click: bool                           # the control is a submit control of its form
+    on_enter: bool                           # Enter in this field submits its form (implicit submission)
+    action_host: str | None                  # the host the form posts to (the submitter's formaction first)
+    method: str | None                       # GET / POST (formmethod first)
+    field_kinds: tuple[str, ...] = ()        # the secret field kinds the form holds (FieldKind)
+    label: str = ""                          # the submitting control's own label (a click's, or the default button's)
+
+
+@dataclass(frozen=True)
 class PageElement:
     id: str
     frame_id: str
@@ -428,6 +441,10 @@ class PageElement:
     state: tuple[str, ...] = ()              # "disabled", "expanded", "collapsed", "selected"
     level: int | None = None                 # headings
     terminal: bool = False                   # inside a terminal library's own nodes (xterm.js), D31
+    field_kind: str | None = None            # a secret field's kind (FieldKind), from its own markup (protocol 18)
+    submit: FormSubmit | None = None         # what a click on it, or Enter in it, would submit
+    path: str = ""                           # its DOM path (P19 identity when the debugger gave no node id)
+    backend_node: int | None = None          # the debugger's node id while the node lives (P19 identity)
 
 
 @dataclass(frozen=True)

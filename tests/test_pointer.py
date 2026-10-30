@@ -68,13 +68,13 @@ def test_daemon_cancellation_sends_release_request_to_extension():
         bridge = Bridge(SimpleNamespace(browser="chrome", folder="Lab"), None, lambda *_: None, "test")
         class Writer:
             def write(self, data):
-                command = json.loads(data)
+                command = json.loads(json.loads(data)["body"])     # protocol 18: a signed envelope
                 sent.append(command)
                 if command["op"] == "pointer_cancel":
                     bridge.pending[command["id"]].set_result(Result(id=command["id"], gen=0, status="ok"))
             async def drain(self):
                 pass
-        bridge.conn = _Conn(Writer())
+        bridge.conn = _Conn(Writer(), key=b"k" * 32, nonce="n")
         call = asyncio.create_task(bridge.call("pointer", {"tab_id": 7}, cid="gesture"))
         await asyncio.sleep(0)
         call.cancel()

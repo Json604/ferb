@@ -1,8 +1,11 @@
 // Owns authenticated browser transport and exact-target CDP mechanics; must not select a source/account or infer permission.
 // Commands carry a connection generation and journaled ID. Stale/duplicate commands never execute.
-// Task tabs open inactive in the FERB minimized window. CDP focus emulation targets the tab only;
-// the daemon sentinel measures OS effects rather than assuming every browser build stays background.
+// Task tabs open inactive (in the task's window, else the FERB minimized window), in one collapsed group per task
+// (owner decision 3, notes/hands.md). CDP focus emulation targets the tab only; the daemon sentinel measures OS effects
+// rather than assuming every browser build stays background.
 // A download in a tab FERB drives is held here and handed to the daemon in parts, never to the browser (D35).
+// Daemon messages that act (welcome, cmd) are verified (HMAC, this connection's nonce, a counter) before anything runs.
+importScripts("mask.js");
 importScripts("protocol.js");
 importScripts("ax.js");
 importScripts("pointer.js");
@@ -18,7 +21,14 @@ let updateCheck = null;
 let handshakeTimer = null;
 const resultTransfers = new Map();
 const commandTransfers = new Map();
-const outbox = [];                   // retain all queued results/events until reconnect; never discard evidence
+// Results/events waiting for a connection that said welcome; signed only when posted, so they leave after the hello
+// with fresh seqs (protocol 18: queued messages were flushed before the hello and dropped by the daemon). Bounded: a
+// connection refused for a long time drops the oldest.
+const outbox = [];
+const OUTBOX_MAX = 5000;
+let link = { nonce: null, seq: 0 };   // this connection's daemon-message signing state (its hello's nonce, last counter)
+let pairingPending = null;           // when this profile's pairing page handed over a token (a `paired` is taken only then)
+const PAIR_WAIT_MS = 300000;         // pairing.py TOKEN_TTL_S
 const downloads = new Map();         // transfer id -> a download held for the daemon (D35)
 let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody takes goes back to the browser (FERB's profile: failed)
 let profileIdentity = "owner";       // from the daemon's welcome: in FERB's own profile every download is FERB's
@@ -42,7 +52,7 @@ async function install() {           // install_id is generated once per profile
 
 async function session() {
   const { s } = await chrome.storage.session.get("s");
-  return s || { seen: {}, order: [], owned: [], windowId: null };
+  return s || { seen: {}, order: [], windowId: null };
 }
 async function saveSession(s) { await chrome.storage.session.set({ s }); }
 
@@ -58,6 +68,145 @@ function mutateSession(change) {
   sessionLock = next.catch(() => {});
   return next;
 }
+
+// ---------- FERB's tabs in this browser session (owner decision 3: tab groups) ----------
+// In local storage, so a worker restart or an extension reload keeps them (a new browser session clears them:
+// onStartup). tabs: tab id -> {task, root, cid (the opening command), borrowed?, group?}; groups: group id -> {root,
+// windowId, title}. A tab FERB opened is in its task's collapsed group; a borrowed owner tab is recorded only so it is
+// re-adopted after a reconnect, and is never grouped or closed.
+let recordsLock = Promise.resolve();
+async function records() {
+  const { ferbTabs, ferbGroups } = await chrome.storage.local.get(["ferbTabs", "ferbGroups"]);
+  return { tabs: ferbTabs && typeof ferbTabs === "object" ? ferbTabs : {},
+           groups: ferbGroups && typeof ferbGroups === "object" ? ferbGroups : {} };
+}
+function mutateRecords(change) {                   // one read/modify/write at a time; `change` never nests one
+  const next = recordsLock.then(async () => {
+    const r = await records();
+    const out = await change(r);
+    await chrome.storage.local.set({ ferbTabs: r.tabs, ferbGroups: r.groups });
+    return out;
+  });
+  recordsLock = next.catch(() => {});
+  return next;
+}
+
+// The records the hello reports (`tabs`): each tab still open and, when FERB opened it into a group, still in that
+// group with its title (else it is the owner's now: moved out while nobody watched, or ids of another browser session).
+async function liveRecords() {
+  const listed = [];
+  await mutateRecords(async (r) => {
+    for (const [key, rec] of Object.entries(r.tabs)) {
+      const id = Number(key);
+      let tab = null;
+      try { tab = await chrome.tabs.get(id); } catch (_) { /* closed */ }
+      let ok = !!tab && (rec.borrowed || rec.group == null);
+      if (tab && !ok && tab.groupId === rec.group && r.groups[rec.group]) {
+        try { ok = (await chrome.tabGroups.get(rec.group)).title === r.groups[rec.group].title; } catch (_) { ok = false; }
+      }
+      if (!ok) { delete r.tabs[key]; continue; }
+      listed.push({ tab_id: id, task: rec.task ?? null, root: rec.root ?? null, borrowed: !!rec.borrowed,
+                    cid: rec.cid ?? null, url: maskUrl(tab.url || tab.pendingUrl || "") });
+    }
+    for (const gid of Object.keys(r.groups))
+      if (!Object.values(r.tabs).some((t) => String(t.group) === gid)) delete r.groups[gid];
+  });
+  return listed;
+}
+
+const grouping = new Set();          // tabs FERB is putting into a group right now: their move is FERB's, not the owner's
+const groupJoins = new Map();        // task root -> the end of its chain of joins (one group per task, never two)
+function joinGroup(tabId, windowId, g) {
+  if (!g || typeof g.root !== "string" || !g.root) return Promise.resolve(null);
+  const prev = groupJoins.get(g.root) || Promise.resolve();
+  const next = prev.then(() => joinGroupNow(tabId, windowId, g));
+  const done = next.catch(() => null);
+  groupJoins.set(g.root, done);
+  done.then(() => { if (groupJoins.get(g.root) === done) groupJoins.delete(g.root); });
+  return next;
+}
+// The task's group in this window, or a new one: labelled, grey and collapsed when made; FERB never opens it, and a
+// tab added to a collapsed group keeps it collapsed. A popup window holds no groups: its tab stays ungrouped (still
+// FERB's, closed with its task).
+async function joinGroupNow(tabId, windowId, g) {
+  let w;
+  try { w = await chrome.windows.get(windowId); } catch (_) { return null; }
+  if (w.type !== "normal") return null;
+  const r = await records();
+  const known = Object.entries(r.groups).find(([, v]) => v.root === g.root && v.windowId === windowId);
+  let gid = null, collapsed = true;
+  if (known) {
+    try { const live = await chrome.tabGroups.get(Number(known[0])); gid = live.id; collapsed = live.collapsed; }
+    catch (_) { /* gone: a new one */ }
+  }
+  const title = typeof g.title === "string" && g.title.trim() ? g.title.trim().slice(0, 60) : "FERB";
+  grouping.add(tabId);
+  try {
+    if (gid !== null) {
+      await chrome.tabs.group({ groupId: gid, tabIds: [tabId] });
+      if (collapsed) await chrome.tabGroups.update(gid, { collapsed: true });
+    } else {
+      gid = await chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId } });
+      await chrome.tabGroups.update(gid, { title, color: "grey", collapsed: true });
+    }
+    await mutateRecords((rr) => {
+      if (!rr.groups[gid]) rr.groups[gid] = { root: g.root, windowId, title };
+      if (rr.tabs[tabId]) rr.tabs[tabId].group = gid;
+    });
+  } finally {
+    setTimeout(() => grouping.delete(tabId), 1000);   // its own onUpdated may come after the promise
+  }
+  return gid;
+}
+
+// No tab FERB opened is left in this group: the owner's tabs dragged into it leave it (they were never FERB's), and
+// it is forgotten.
+async function settleGroup(gid) {
+  if (gid == null) return;
+  const empty = await mutateRecords((r) => {
+    if (Object.values(r.tabs).some((t) => t.group === gid)) return false;
+    delete r.groups[gid];
+    return true;
+  });
+  if (!empty) return;
+  try {
+    const left = await chrome.tabs.query({ groupId: gid });
+    if (left.length) await chrome.tabs.ungroup(left.map((t) => t.id));
+  } catch (_) { /* the group went with its last tab */ }
+}
+
+// The window the task's group is in, so its next tab joins it there (one group per task).
+async function taskWindow(g) {
+  if (!g || typeof g.root !== "string" || !g.root) return null;
+  const r = await records();
+  for (const [gid, v] of Object.entries(r.groups)) {
+    if (v.root !== g.root) continue;
+    try { return (await chrome.tabGroups.get(Number(gid))).windowId; } catch (_) { /* gone */ }
+  }
+  return null;
+}
+
+// A tab FERB opened left its task's group (the owner dragged it out, into another group or window, or ungrouped the
+// group): it is the owner's now. FERB lets go of it as of a borrowed tab (debugger off, a held download back to the
+// browser), never closes it, and tells the daemon (`taken`), which stops using it.
+async function tabMoved(tabId, groupId) {
+  if (grouping.has(tabId)) return;
+  const gone = await mutateRecords((r) => {
+    const rec = r.tabs[tabId];
+    if (!rec || rec.borrowed || rec.group == null) return null;
+    const g = groupId >= 0 ? r.groups[groupId] : null;
+    if (g && g.root === rec.root) { rec.group = groupId; return null; }
+    delete r.tabs[tabId];
+    return rec;
+  });
+  if (!gone) return;
+  try { await dropDownloads(tabId); await detach(tabId); } catch (e) { console.warn("FERB taken tab:", String(e)); }
+  send("event", { event: "taken", tab_id: tabId, reason: groupId >= 0 ? "moved_to_another_group" : "moved_out_of_group" });
+  await settleGroup(gone.group);
+}
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if (info && Number.isInteger(info.groupId)) tabMoved(id, info.groupId).catch((e) => console.warn("FERB group:", String(e)));
+});
 
 async function keptTabs() {
   const { ferbKeptTabs } = await chrome.storage.local.get('ferbKeptTabs');
@@ -87,23 +236,60 @@ function serially(fn) {
 }
 
 // Every message: install_id + type + body_json; once paired, a strictly increasing seq and an HMAC over all of it.
-// Posted inside the lock, and always after whatever the outbox still holds, so messages leave in seq order (a
-// hello sent on reconnect never overtakes events queued while disconnected: the daemon would drop those as replays).
+// Signed and posted inside the lock, so messages leave in seq order. Until the daemon's welcome only the hello and a
+// pairing go out; everything else waits in the outbox and leaves after the welcome (flushOutbox), signed then, so the
+// daemon, which attributes a message to a profile only after its hello, never drops them as replays or strays.
 function send(type, body) {
   return serially(async () => {
-    const st = await install();
-    const msg = { install_id: st.installId, type, body_json: JSON.stringify(body) };
-    if (st.key) {
-      st.seq += 1;
-      await chrome.storage.local.set({ ferb: st });
-      msg.seq = st.seq;
-      msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
+    if (!port || (gen === null && type !== "hello" && type !== "pair")) {
+      outbox.push([type, body]);
+      if (outbox.length > OUTBOX_MAX) outbox.shift();
+      ensurePort();
+      return;
     }
-    if (port) { flushOutbox(); port.postMessage(msg); }
-    else { outbox.push(msg); ensurePort(); }
+    await post(type, body);
   });
 }
-function flushOutbox() { while (outbox.length && port) port.postMessage(outbox.shift()); }
+async function post(type, body) {                   // inside the state lock only
+  const st = await install();
+  const msg = { install_id: st.installId, type, body_json: JSON.stringify(body) };
+  if (st.key) {
+    st.seq += 1;
+    await chrome.storage.local.set({ ferb: st });
+    msg.seq = st.seq;
+    msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
+  }
+  port.postMessage(msg);
+}
+function flushOutbox() {
+  return serially(async () => {
+    while (outbox.length && port && gen !== null) { const [type, body] = outbox.shift(); await post(type, body); }
+  });
+}
+
+// A daemon message that acts (DAEMON_SIGNED), verified: its HMAC with the pairing key over this connection's hello
+// nonce, its counter and its body, the counter above every one seen on this connection (an assembled command's parts
+// were each verified so: `assembled` skips the counter). One at a time. null: not FERB's daemon, a replay, or no
+// pairing, and nothing runs.
+let verifyLock = Promise.resolve();
+function daemonBody(m, assembled = false) {
+  const p = verifyLock.then(() => verifyDaemon(m, assembled));
+  verifyLock = p.catch(() => {});
+  return p;
+}
+async function verifyDaemon(m, assembled) {
+  if (!m || !DAEMON_SIGNED.has(m.type) || typeof m.body !== "string" || typeof m.mac !== "string" ||
+      !Number.isSafeInteger(m.seq) || m.seq < 1) return null;
+  const st = await install();
+  if (!st.key || !link.nonce || (!assembled && m.seq <= link.seq)) return null;
+  const want = await hmac(st.key, daemonMacText(link.nonce, m.seq, m.type, m.body));
+  let diff = want.length ^ m.mac.length;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ (m.mac.charCodeAt(i) || 0);
+  if (diff !== 0) return null;
+  if (!assembled) link.seq = m.seq;
+  try { const body = JSON.parse(m.body); return body && typeof body === "object" ? body : null; }
+  catch (_) { return null; }
+}
 
 // ---------- connection ----------
 
@@ -134,14 +320,15 @@ async function checkExtensionUpdate() {
     const repair = requiredRelease && requiredRelease.protocol > FERB_PROTOCOL &&
       !newerVersion(requiredRelease.version, disk.version);
     if (!newerVersion(disk.version, current) && !repair) return;
-    if (activeCommands || downloads.size || [...TABS.values()].some(t => t.gesture || t.attached) || (await ownedTabs()).length) return;
+    // Task tabs survive a reload (their records are in local storage and the next hello re-adopts them), so only work
+    // in flight waits: a command, a held download, a gesture, a debugger session of a connection that can drive it.
+    if (busy()) return;
     const {ferbUpdateAttempt} = await chrome.storage.local.get('ferbUpdateAttempt');
     const attempt = `${current}/p${FERB_PROTOCOL}->${disk.version}/p${requiredRelease?.protocol ?? FERB_PROTOCOL}`;
     if (ferbUpdateAttempt === attempt) return;  // a failed reload must not loop forever
     await chrome.storage.local.set({ferbUpdateAttempt: attempt});  // never overwrite pairing state
     await connectionStatus('updating', 'Loading local extension ' + disk.version);
-    const live = await ownedTabs();
-    if (activeCommands || [...TABS.values()].some(t => t.gesture || t.attached) || live.length) {
+    if (busy()) {
       await chrome.storage.local.set({ferbUpdateAttempt: null});
       return;
     }
@@ -150,12 +337,22 @@ async function checkExtensionUpdate() {
   return updateCheck;
 }
 
+// Busy for a reload: a command running, a download held, a gesture, or (only while a connection could drive it) a
+// debugger session. Refused or disconnected, an attached tab drives nothing, and its records survive the reload.
+function busy() {
+  return !!(activeCommands || downloads.size ||
+            [...TABS.values()].some(t => t.gesture || (t.attached && gen !== null)));
+}
+
+// Each hello carries a fresh nonce: the daemon signs this connection's messages over it (a recorded message can't
+// be replayed on another connection), and the tabs FERB holds in this browser session (`tabs`, liveRecords).
 async function announceHello() {
   const st = await install(), s = await session();
+  link = { nonce: _hex(16), seq: 0 };
   await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                         browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
                         owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })),
-                        armed: armedTabs() });
+                        armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords() });
 }
 
 async function ensurePort() {
@@ -189,9 +386,13 @@ async function ensurePort() {
 
 async function onDaemon(m) {
   if (m.type === "welcome") {
-    clearTimeout(handshakeTimer); refused = null; requiredRelease = null; gen = m.gen; retryMs = 1000;
-    profileIdentity = m.identity === "ferb" ? "ferb" : "owner";
-    await connectionStatus('connected'); return;
+    const w = await daemonBody(m);
+    if (!w || !Number.isSafeInteger(w.gen)) { console.warn("FERB: an unsigned welcome was ignored"); return; }
+    clearTimeout(handshakeTimer); refused = null; requiredRelease = null; gen = w.gen; retryMs = 1000;
+    profileIdentity = w.identity === "ferb" ? "ferb" : "owner";
+    await connectionStatus('connected');
+    await flushOutbox();                                   // what waited for this connection, now in seq order
+    return;
   }
   if (m.type === "pairing_required") {
     clearTimeout(handshakeTimer); gen = null; requiredRelease = null;
@@ -199,6 +400,12 @@ async function onDaemon(m) {
     return;
   }
   if (m.type === "paired" && m.key) {
+    // Only while this profile's own pairing page is pending (it handed over a token): a `paired` nobody started could
+    // otherwise swap in a key someone else holds.
+    if (pairingPending === null || Date.now() - pairingPending > PAIR_WAIT_MS) {
+      console.warn("FERB: a pairing nobody started here was ignored"); return;
+    }
+    pairingPending = null;
     clearTimeout(handshakeTimer); refused = null; requiredRelease = null;
     await serially(async () => {
       const st = await install();
@@ -206,10 +413,10 @@ async function onDaemon(m) {
       await chrome.storage.local.set({ ferb: st });
       outbox.length = 0;                                   // signed under the old key / seq: never valid again
     });
-    gen = m.gen;
+    link = { nonce: _hex(16), seq: 0 };
     await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                           browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [],
-                          armed: armedTabs() });
+                          armed: armedTabs(), nonce: link.nonce, tabs: await liveRecords() });
     return;
   }
   if (m.type === "refused") {
@@ -220,10 +427,21 @@ async function onDaemon(m) {
     await connectionStatus('refused', refused);
     await checkExtensionUpdate(); return;
   }
-  if (m.type === "cmd") await onCommand(m);
+  if (m.type === "cmd") {
+    const c = await daemonBody(m);
+    if (!c) { console.warn("FERB: an unsigned or replayed command was dropped; nothing ran"); return; }
+    await onCommand(c);
+  }
 }
 
-chrome.runtime.onStartup.addListener(() => ensurePort());
+// A new browser session: tab and group ids from the last one mean nothing now (they are reused), so FERB's records of
+// them go; a group the browser restored is the owner's from now on (a documented residual of tab groups).
+chrome.runtime.onStartup.addListener(() => {
+  mutateRecords(r => { r.tabs = {}; r.groups = {}; })
+    .then(() => chrome.storage.local.set({ ferbKeptTabs: [] }))
+    .catch(e => console.warn("FERB records:", String(e)))
+    .finally(() => ensurePort());
+});
 chrome.runtime.onInstalled.addListener(() => ensurePort());
 chrome.alarms.create("ferb-reconnect", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(async () => {
@@ -232,8 +450,9 @@ chrome.alarms.onAlarm.addListener(async () => {
   else await ensurePort();
 });
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
-  if (m && m.pairToken) send("pair", { token: m.pairToken });
-  else if (m && m.ferbArmed && sender && sender.tab) reply(!!(TABS.get(sender.tab.id) || {}).armed);   // content.js
+  if (m && m.pairToken) { pairingPending = Date.now(); send("pair", { token: m.pairToken }); }
+  else if (m && m.ferbArmed && sender && sender.tab)                 // content.js: armed, and the hook's event names
+    reply({ armed: !!(TABS.get(sender.tab.id) || {}).armed, token: FERB_TOKEN });
   // content.js asks before it keeps what it caught; "not armed" makes it hand the click back to the browser at once.
   else if (m && m.ferbDownload && sender && sender.tab)
     reply(pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload, sender.documentId));
@@ -305,9 +524,11 @@ async function executeCommand(m) {
     nothingSent = !!(e && e.nothingSent);
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation. Only an error raised
-  // before anything reached the page (refusedCommand) is a known failure.
+  // before anything reached the page (refusedCommand) is a known failure, and so is any read's (READ_OPS: it changed
+  // nothing, so retrying it is no repeat).
+  const read = READ_OPS.has(m.op) || (m.op === "dialog" && !(m.args && m.args.decision));
   const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done")
-    : nothingSent ? "failed" : "unknown";
+    : nothingSent || read ? "failed" : "unknown";
   body.outcome = outcome;
   await mutateSession(s => {if (Object.hasOwn(s.seen, m.id)) s.seen[m.id] = outcome;});
   if (body.status === "ok" && m.op !== "result_part") {
@@ -326,22 +547,14 @@ function withTimeout(p, ms) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function maskUrl(u) {
-  try {
-    const url = new URL(u);
-    for (const k of [...url.searchParams.keys()])
-      if (/token|key|code|secret|session|auth|sig|password|pwd|otp|ticket|nonce|state/i.test(k))
-        url.searchParams.set(k, "[redacted]");
-    if (url.hash.length > 1 && /[=&]/.test(url.hash)) url.hash = "#[redacted]";
-    url.username = ""; url.password = "";
-    return url.href;
-  } catch (_) { return ""; }
-}
+const maskUrl = (u) => ferbMaskUrl(u);               // mask.js: one rule with content.js
 
+// Tabs FERB opened, by the command that opened them (the hello's `owned`: P19 reconciliation of an open).
 async function ownedTabs() {
-  const s = await session(), alive = [];
-  for (const o of s.owned) {
-    try { const t = await chrome.tabs.get(o.tabId); alive.push({ id: o.id, tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || "") }); }
+  const r = await records(), alive = [];
+  for (const [key, rec] of Object.entries(r.tabs)) {
+    if (rec.borrowed || !rec.cid) continue;
+    try { const t = await chrome.tabs.get(Number(key)); alive.push({ id: rec.cid, tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || "") }); }
     catch (_) { /* closed */ }
   }
   return alive;
@@ -400,7 +613,7 @@ async function getFerbWindow(allowForeground = false) {
 
 async function inject(tabId, frameIds) {
   const target = frameIds ? { tabId, frameIds } : { tabId, allFrames: true };
-  await chrome.scripting.executeScript({ target, files: ["content.js"] });
+  await chrome.scripting.executeScript({ target, files: ["mask.js", "content.js"] });
 }
 
 async function inFrame(tabId, frameId, func, args) {
@@ -686,7 +899,8 @@ async function armPage(tabId, on) {                          // content.js in do
   const drop = profileIdentity === "ferb";
   try {
     await Promise.resolve(chrome.scripting.executeScript({ target: { tabId, allFrames: true },
-      func: (v, d) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v, d); }, args: [on, drop] }));
+      func: (v, d, k) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v, d, k); },
+      args: [on, drop, FERB_TOKEN] }));
   } catch (_) { /* a page scripts can't reach holds no listener of ours */ }
 }
 
@@ -779,7 +993,8 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
 chrome.tabs.onRemoved.addListener(tabId => {
   forgetDownloads(tabId);
   TABS.delete(tabId);
-  mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tabId);}).catch(e => console.warn('FERB tab cleanup:', String(e)));
+  mutateRecords(r => { const rec = r.tabs[tabId]; delete r.tabs[tabId]; return rec ? rec.group : null; })
+    .then(settleGroup).catch(e => console.warn('FERB tab cleanup:', String(e)));
   serially(async () => {
     const ids = await keptTabs();
     if (ids.includes(tabId)) await chrome.storage.local.set({ferbKeptTabs: ids.filter(id => id !== tabId)});
@@ -1120,13 +1335,28 @@ async function toTopPoint(tabId, frameId, r) {
 
 const CLICKS = { click: { button: "left", count: 1 }, dblclick: { button: "left", count: 2 }, rightclick: { button: "right", count: 1 } };
 
+// Form submissions the page's own submit events showed (content.js, a capture-phase listener in every frame), taken
+// (and so cleared) from every frame: the form's action host and method. A submission a page makes with fetch() fires
+// no submit event, so only network observation could see it (not here). Best effort: a frame that went (the submit
+// navigated it) says nothing.
+const SUBMITTING = new Set(["click", "dblclick", "press"]);
+async function formSubmits(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+      func: () => (window.__ferb && window.__ferb.takeSubmits ? window.__ferb.takeSubmits() : []) });
+    return results.flatMap((r) => Array.isArray(r && r.result) ? r.result.map((s) => ({ ...s, frame_id: r.frameId })) : []).slice(0, 10);
+  } catch (_) { return []; }
+}
+
 async function trusted(tabId, a) {
   const t = await attach(tabId);
   t.expect = a.expect_dialog ? { accept: a.expect_dialog === "accept", text: a.dialog_text || "" } : null;
   try {
     const p = await topPoint(tabId, a.frame_id, a.snap, a.el);
     if (p.error) return { ok: false, detail: p.error };
-    if (p.secret && a.kind === "type") return {ok: false, detail: "secret_field"};
+    // A secret field (password, login code, card: content.js `fieldKind`) takes no typed text and no key that puts
+    // text in (entersText); Return, Tab and the like still go (notes/hands.md rulings).
+    if (p.secret && (a.kind === "type" || (a.kind === "press" && entersText(a.text)))) return {ok: false, detail: "secret_field"};
     if (p.disabled) return {ok: false, detail: "target_disabled"};
     if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
@@ -1154,6 +1384,9 @@ async function trusted(tabId, a) {
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
       if (!active) active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
       if (!active) return { ok: false, detail: "focus_failed" };
+      // focus may sit in a secret field inside the element (a widget around a password box): checked where it landed
+      if (entersText(a.text) && await inFrame(tabId, a.frame_id, () => window.__ferb.focusedSecret(), []))
+        return { ok: false, detail: "secret_field" };
       if (!(await pressKey(tabId, a.text))) return { ok: false, detail: "unsupported_key" };
       return { ok: true, detail: `pressed ${a.text} (trusted)` };
     }
@@ -1291,8 +1524,9 @@ const commands = {
     transfer.parts.push(text);transfer.length+=text.length;
     if (transfer.length===total_chars) {
       commandTransfers.delete(id);
-      const command=JSON.parse(transfer.parts.join(""));
-      if (command.id!==id || command.op==="command_part") throw Error("invalid assembled command");
+      // the assembled message is the daemon's signed envelope: verified like any other (its parts were, one by one)
+      const command = await daemonBody(JSON.parse(transfer.parts.join("")), true);
+      if (!command || command.id!==id || command.op==="command_part") throw Error("invalid assembled command");
       await onCommand(command);
     }
     return {received:offset+text.length,total_chars};
@@ -1316,9 +1550,11 @@ const commands = {
     if (end===text.length) resultTransfers.delete(id);
     return result;
   },
-  async open({ url, window_id = null, allow_foreground = false }, id) {
+  // `group` ({root, task, title}): the task this tab is for; it joins the task's collapsed group, in the window the
+  // group is in when no window is named (one group per task). No task (FERB's inbox read): no group.
+  async open({ url, window_id = null, allow_foreground = false, group = null }, id) {
     const windowId = window_id !== null ? (await chrome.windows.get(window_id)).id
-                                        : await ferbWindow(allow_foreground);
+                                        : (await taskWindow(group)) ?? await ferbWindow(allow_foreground);
     if (windowId === null) {
       const windows = await chrome.windows.getAll({populate:false});
       return {opened:false, reason:'window_selection_required', needs_foreground:false,
@@ -1328,18 +1564,24 @@ const commands = {
     }
     // Blank first, never active, never focused (E3); the URL loads once the tab can hold a download (D35).
     const tab = await chrome.tabs.create({ windowId, url: "about:blank", active: false });
-    await mutateSession(s => {s.owned.push({id, tabId:tab.id});});
+    const g = group && typeof group === "object" ? group : null;
+    await mutateRecords(r => { r.tabs[tab.id] = { task: g && typeof g.task === "string" ? g.task : null,
+                                                  root: g && typeof g.root === "string" ? g.root : null, cid: id }; });
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
     try { await arm(tab.id); }
     catch (e) {
       try { await chrome.tabs.remove(tab.id); } catch (_) { /* already gone */ }
-      await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab.id);});
+      await mutateRecords(r => { delete r.tabs[tab.id]; });
       return { opened: false, reason: "download_capture_unavailable",
                detail: `FERB couldn't prepare a new tab to hold downloads, so it opened nothing (${e.message || e})` };
     }
+    let groupId = null;
+    try { groupId = await joinGroup(tab.id, windowId, g); }
+    catch (e) { console.warn("FERB group:", String(e.message || e)); }   // ungrouped, still FERB's (closed with its task)
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
     const t = await chrome.tabs.get(tab.id);
-    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId };
+    return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId,
+             group_id: groupId };
   },
   async navigate({ tab_id, url }) {
     const st = tabState(tab_id);
@@ -1370,13 +1612,23 @@ const commands = {
       const released = await commands.release_tab({tab_id, keep_open:true});
       return {...released, closed:false};
     }
+    // FERB never closes a tab it didn't open (owner decision 3): only one its records hold as opened by FERB.
+    const rec = (await records()).tabs[tab_id];
+    if (!rec || rec.borrowed) {
+      let open = true;
+      try { await chrome.tabs.get(tab_id); } catch (_) { open = false; }
+      if (open) return { closed: false, released: false, reason: "not_ferbs",
+                         detail: "FERB closes only tabs it opened; this one isn't recorded as FERB's, so it stays open" };
+      return { closed: true, gone: true };                  // nothing left to close
+    }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
     await dropDownloads(tab_id, true);
     try { await chrome.tabs.remove(tab_id); }
     catch (e) { if (!/No tab with id/i.test(String(e && e.message))) throw e; }
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
-    await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
+    await mutateRecords(r => { delete r.tabs[tab_id]; });
+    await settleGroup(rec.group);
     return { closed: true };
   },
   // L31 (0.15.10; owner, 2026-10-25: "give them back between rounds"): a held tab resting between a loop's rounds
@@ -1398,20 +1650,42 @@ const commands = {
     await chrome.tabs.update(tab_id, {active: true});
     return {tab_id, window_id: tab.windowId, shown: true};
   },
+  // Letting go of a tab: a borrowed one is left where the work finished; one FERB opened (handed over: it holds the
+  // result, or the owner asked to keep the task's tabs) leaves FERB's group and stays open. Its record goes first, so
+  // FERB's own ungrouping isn't taken for the owner's move.
   async release_tab({tab_id, keep_open = false}) {
     let tab;
     try { tab = await chrome.tabs.get(tab_id); }  // missing tab is not a successful keep-open handoff
     catch (e) {
       if (keep_open || !/No tab with id/i.test(String(e && e.message))) throw e;
       TABS.delete(tab_id);                        // e.g. a popup that closed itself: nothing left to let go of
-      await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
+      await mutateRecords(r => { delete r.tabs[tab_id]; });
       return {tab_id, released:true, kept_open:false, gone:true, url:'', window_id:null};
     }
     if (keep_open) await rememberKeptTab(tab_id);  // persist before detach/session cleanup, safe after lost ACK
+    const rec = await mutateRecords(r => { const x = r.tabs[tab_id]; delete r.tabs[tab_id]; return x || null; });
+    if (rec && !rec.borrowed && rec.group != null) {
+      try { await chrome.tabs.ungroup(tab_id); } catch (_) { /* already out of it */ }
+      await settleGroup(rec.group);
+    }
     await detach(tab_id);
-    await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
     return {tab_id, released:true, kept_open:keep_open || (await keptTabs()).includes(tab_id),
             url:maskUrl(tab.url || tab.pendingUrl || ''), window_id:tab.windowId};
+  },
+  // A tab that became a task's without `open` (protocol 18): a popup a task tab's page opened (it joins the task's
+  // group when its window can hold one) or the owner's tab taken over (`borrowed`: recorded only, so a reconnect can
+  // re-adopt it; never grouped, never closed).
+  async adopt_tab({ tab_id, task = null, root = null, borrowed = false, title = null }) {
+    const tab = await chrome.tabs.get(tab_id);
+    await mutateRecords(r => { r.tabs[tab_id] = { task: typeof task === "string" ? task : null,
+                                                  root: typeof root === "string" ? root : null,
+                                                  ...(borrowed === true ? { borrowed: true } : {}) }; });
+    let groupId = null;
+    if (borrowed !== true && typeof root === "string" && root) {
+      try { groupId = await joinGroup(tab_id, tab.windowId, { root, task, title }); }
+      catch (e) { console.warn("FERB group:", String(e.message || e)); }
+    }
+    return { adopted: true, tab_id, group_id: groupId };
   },
   // Trusted wheel at the scroller's centre: the window, or a container from the latest snapshot.
   async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
@@ -1452,16 +1726,20 @@ const commands = {
     return {count:hits.length,lines:results.reduce((n,r)=>n+(r.result?.lines || 0),0),hits};
   },
   // L31: `audible` and `muted` are the browser's own facts about a tab's sound, for a loop's probe without a snapshot.
+  // URLs masked like every other path (protocol 18). `ferb`: a tab FERB opened (its records) or one in FERB's own
+  // window, never the owner's.
   async list_tabs() {
     const tabs = await chrome.tabs.query({}), s = await session(), kept = new Set(await keptTabs());
+    const mine = (await records()).tabs;
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),
-                                      url:t.url || "",title:t.title || "", active: t.active, window_id: t.windowId, kept_open:kept.has(t.id),
-                                      audible: !!t.audible, muted: !!(t.mutedInfo && t.mutedInfo.muted),
-                                      ferb: !kept.has(t.id) && s.windowId != null && t.windowId === s.windowId })) };
+                                      url: maskUrl(t.url || ""), title: t.title || "", active: t.active, window_id: t.windowId,
+                                      kept_open: kept.has(t.id), audible: !!t.audible, muted: !!(t.mutedInfo && t.mutedInfo.muted),
+                                      ferb: !kept.has(t.id) && ((mine[t.id] && !mine[t.id].borrowed) ||
+                                                                (s.windowId != null && t.windowId === s.windowId)) })) };
   },
   async snapshot({ tab_id, snap }) {
     tabState(tab_id).visual = null;
-    if (tabState(tab_id).pendingDialog) return {frames:[{frame_id:0,url:(await chrome.tabs.get(tab_id)).url || "",title:"",text:"[Page blocked by pending dialog; use browser.dialog]",elements:[],truncated:true}],dialogs:tabState(tab_id).dialogs.splice(0)};
+    if (tabState(tab_id).pendingDialog) return {frames:[{frame_id:0,url:maskUrl((await chrome.tabs.get(tab_id)).url || ""),title:"",text:"[Page blocked by pending dialog; use browser.dialog]",elements:[],truncated:true}],dialogs:tabState(tab_id).dialogs.splice(0)};
     await inject(tab_id);
     const st = tabState(tab_id);
     st.axErrors = [];
@@ -1469,11 +1747,16 @@ const commands = {
     try { await attach(tab_id); attached = true; }
     catch (e) { st.axErrors.push(String(e.message || e)); }
     const results = await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
-                                                           func: (g) => window.__ferb.snapshot(g), args: [snap] });
+                                                           func: (g, a) => window.__ferb.snapshot(g, a), args: [snap, BIND_ATTR] });
     const frames = results.filter((r) => r && r.result).map((r) => ({ frame_id: r.frameId, ...r.result }));
     const top = frames.find((f) => f.frame_id === 0);
     if (!top) throw new Error("snapshot failed in the page");
-    if (attached) await accessibilitySnapshot(tab_id, snap, frames);
+    try { if (attached) await accessibilitySnapshot(tab_id, snap, frames); }
+    finally {                                        // the linking attributes leave the page right after (protocol 18)
+      try { await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
+                                                   func: () => window.__ferb && window.__ferb.unbind && window.__ferb.unbind() }); }
+      catch (_) { /* a frame went meanwhile: its document took them along */ }
+    }
     st.frames = composeFrames(frames);
     st.frameRefs = new Map(frames.map(f => [f.frame_id, f]));
     if (st.axErrors.length) top.truncated = true;
@@ -1501,7 +1784,13 @@ const commands = {
     if (["type","select","press"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
     const page = page_mode === true || kind === "select" || kind === "scroll";
-    const pageAct = () => inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null]);
+    // a page-mode press uses the one key table (protocol.js keyEvent), with whether it puts text in (entersText)
+    const key = kind === "press" ? (() => { const k = keyEvent(text);
+      return k ? { key: k.key, code: k.code, keyCode: k.keyCode, modifiers: k.modifiers, enters: entersText(text) } : null; })() : null;
+    const pageAct = () => inFrame(tab_id, frame_id, (g, i, k, t, y) => window.__ferb.act(g, i, k, t, y),
+                                  [snap, el, kind, text ?? null, key]);
+    const submits = SUBMITTING.has(kind);
+    if (submits) await formSubmits(tab_id);          // what the page submitted before this act isn't this act's
     let state;
     try { state = await attach(tab_id); }
     catch (e) {
@@ -1519,19 +1808,22 @@ const commands = {
         "nothing was done. " + (await scriptable(tab_id, frame_id) ? "page_mode=true sends page events to this frame"
           : "scripting can't reach this frame either, so FERB can't act on it in this tab")};
       const result = await pageAct();
+      const submitted = submits ? await formSubmits(tab_id) : [];
       return {...result, debugger_refused: `${why}: page events only; this tab's dialogs, file choosers and downloads ` +
-        "aren't watched", ...(result.ok && DOWNLOAD_KINDS.has(kind) ? {download_note: UNMANAGED_DOWNLOADS} : {})};
+        "aren't watched", ...(result.ok && DOWNLOAD_KINDS.has(kind) ? {download_note: UNMANAGED_DOWNLOADS} : {}),
+        ...(submitted.length ? {submitted} : {})};
     }
     const before = state.fileChoosers.length;
     const result = page ? await pageAct()
       : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
     const choosers = state.fileChoosers.slice(before);
-    return choosers.length ? {...result, file_choosers:choosers} : result;
+    const submitted = submits ? await formSubmits(tab_id) : [];
+    return {...result, ...(choosers.length ? {file_choosers: choosers} : {}), ...(submitted.length ? {submitted} : {})};
   },
   // Resolve a random stamp in the explicitly selected frame; no picker or source substitution.
   async upload({ tab_id, frame_id, snap, el, paths }) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
-    const stamped = await inFrame(tab_id, frame_id, (g, i, t) => window.__ferb.stamp(g, i, t), [snap, el, token]);
+    const stamped = await inFrame(tab_id, frame_id, (g, i, t, a) => window.__ferb.stamp(g, i, t, a), [snap, el, token, STAMP_ATTR]);
     if (!stamped.ok) return {...stamped, reason:"upload_target_unavailable", frame_id, transferred:false};
     const searches = [], targets = [];
     try {
@@ -1545,7 +1837,7 @@ const commands = {
       await Promise.all(state.sessions.values());
       for (const sessionId of [undefined, ...state.sessions.keys()]) {
         await cdp(tab_id,"DOM.getDocument",{depth:0},sessionId); // enables this exact target's DOM agent
-        const result = await cdp(tab_id, "DOM.performSearch", {query:`[data-ferb-node="${token}"]`}, sessionId);
+        const result = await cdp(tab_id, "DOM.performSearch", {query:`[${STAMP_ATTR}="${token}"]`}, sessionId);
         searches.push({sessionId, searchId:result.searchId});
         if (result.resultCount > 1) return {ok:false, reason:"upload_target_ambiguous", detail:"multiple nodes have the requested binding", transferred:false};
         if (result.resultCount === 1) {
@@ -1564,7 +1856,7 @@ const commands = {
       for (const search of searches) {
         try { await cdp(tab_id,"DOM.discardSearchResults",{searchId:search.searchId},search.sessionId); } catch (_) { /* temporary query cleanup only */ }
       }
-      try { await inFrame(tab_id, frame_id, t => window.__ferb.unstamp(t), [token]); } catch (_) { /* target may navigate after upload */ }
+      try { await inFrame(tab_id, frame_id, (t, a) => window.__ferb.unstamp(t, a), [token, STAMP_ATTR]); } catch (_) { /* target may navigate after upload */ }
     }
   },
   async wait({ tab_id, until, value, _timeout_ms }) {

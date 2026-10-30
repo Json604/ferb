@@ -113,18 +113,41 @@ class Resolution:
             f"{p.browser}/{p.display_name}" for p in available) or "none")
 
 
+def _norm(text: str) -> str:
+    """A name as compared: invisible marks gone, quotes and spaces trimmed, inner whitespace one space, casefolded."""
+    from ferb.act.mac.browsers import clean
+    return " ".join(clean(text).strip("“”\"' ").split())
+
+
+def _browser_names(key: str) -> set[str]:
+    """What a browser may be called before a profile's name: its key, its label and its app's name ("chrome",
+    "google chrome", "brave", "brave browser")."""
+    b = BROWSERS.get(key)
+    return {_norm(key)} | ({_norm(b.label), _norm(b.app)} if b else set())
+
+
 def resolve(spoken: str, profiles: list[BrowserProfile], aliases: dict[str, tuple[str, str]] | None = None,
             browser: str | None = None) -> Resolution:
-    """aliases: lower-cased alias -> (browser, folder). `browser` restricts the search when the owner named one."""
+    """aliases: lower-cased alias -> (browser, folder). `browser` restricts the search when the owner named one.
+    A profile is named by its folder or display name, alone or after its browser's name with any of "/", ":", a space
+    or quotes between (live: 46 "no profile called 'chrome scaler'" / 'chrome:scaler' errors, 10-01 to 10-14), by its
+    account, or by a saved alias; a browser's name alone names its profiles (one profile: that one; several: they are
+    listed). Names compare without case, invisible marks or extra spaces; never fuzzily."""
     pool = [p for p in profiles if browser is None or p.browser == browser]
-    s = spoken.strip().lower()
+    s = _norm(spoken)
+    named: list[BrowserProfile] = []
+    for p in pool:
+        for b in _browser_names(p.browser):
+            if s.startswith(b) and len(s) > len(b) and s[len(b)] in "/: “\"":
+                rest = _norm(s[len(b) + 1:])
+                if rest in (_norm(p.folder), _norm(p.display_name)):
+                    named.append(p)
     steps = [
-        ("profile_id", [p for p in pool if s in {
-            f"{p.browser}/{p.folder}".lower(), f"{p.browser}/{p.display_name}".lower(),
-            f'{p.browser} “{p.display_name}”'.lower(), f'{p.browser} "{p.display_name}"'.lower()}]),
-        ("display_name", [p for p in pool if p.display_name.strip().lower() == s]),
+        ("profile_id", named),
+        ("display_name", [p for p in pool if _norm(p.display_name) == s]),
         ("email", [p for p in pool if p.email and (p.email == s or p.email.split("@")[0] == s)]),
         ("alias", [p for p in pool if aliases and aliases.get(s) == (p.browser, p.folder)]),
+        ("browser", [p for p in pool if s in _browser_names(p.browser)]),
     ]
     # A display name must not hide another profile's account or saved alias.
     hits = list(dict.fromkeys(p for _, candidates in steps for p in candidates))
@@ -134,7 +157,11 @@ def resolve(spoken: str, profiles: list[BrowserProfile], aliases: dict[str, tupl
 
 
 def running(browser: str) -> bool:
-    return subprocess.run(["pgrep", "-x", BROWSERS[browser].app], capture_output=True).returncode == 0
+    """Whether that browser's own binary runs (its full path: `pgrep -x` matches a 16-character process name, so a
+    browser with a longer app name, Chrome Beta or Edge Canary, never looked running and was woken as a cold one)."""
+    import re
+    pattern = "^" + re.escape(BROWSERS[browser].binary) + "( |$)"
+    return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
 
 
 Launch = Callable[[list[str]], None]

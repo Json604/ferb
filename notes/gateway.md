@@ -151,13 +151,18 @@ redact, image redaction, origins).
 - [ ] Move non-authorization features out of `_call`/`_execute` into post-call hooks.
 - [ ] Constructor-passed dependencies instead of ~20 injected attributes; protection and recovery fail closed.
 - [ ] Tool-reported facts for pay / account security / delete / send (decision 1). (5a: `ActionFacts` shape on
-      ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6. 5b: Mac tools report theirs.)
+      ActionSpec/ToolResult, recorded untouched on the span; deciding from it is step 6. 5b: Mac tools report theirs.
+      5c: browser tools report submit + host/method, field kinds, page amount/merchant, frame_host; deciding: step 6.)
 - [ ] P19 stable identity; failed-before-acting is not unknown. (5b: Mac identity via a capability's `ledger_args`
-      in `hashed_args`; browser 5c; failed-before-acting is step 6.)
+      in `hashed_args`. 5c: browser identity done (`BrowserAct.ledger_args`), and browser reads that fail are known
+      failures, never unknown; the gateway's failed-before-acting rule is step 6.)
 - [ ] One payment, one question (decision 4): page-read amount and merchant; tab-chain scope; bank-page amount check;
       final-click check where there is no bank page; remove the separate outside-value question on a page amount.
 - [ ] Known destinations (decision 5): mentioned sites known except for private-data sends after outside reads.
-- [ ] Card fields secret + sealed card fill + CVV/expiry redaction (decision 6).
+- [ ] Card fields secret + sealed card fill + CVV/expiry redaction (decision 6). (5c: card fields are secret in the
+      extension (values never captured, boxes painted, no typing or text keys, no login code into them) and reported
+      as field kinds; filling one goes through browser.secret's sealed path today. A stored-card handle and the
+      redactor's CVV/expiry rules: step 6.)
 - [ ] Redaction rebuild (target 4).
 - [ ] Run tokens expire with the task (the Claude token file is owned by notes/runtimes.md).
 - [ ] Conversation-guard Yes release (G:1588-1594).

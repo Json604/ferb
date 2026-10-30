@@ -159,6 +159,7 @@ def extension(after: str) -> Any:
     fill = source[source.index('  function fill('):source.index('\n\n  window.__ferb =')]
     script = secret_name + r'''
 class HTMLInputElement {}
+class HTMLFormElement {}                                   // content.js reads a form through its prototype's getters
 class HTMLTextAreaElement {}
 let sealedSplitDocument = false, target = null;
 const location = {origin: 'https://accounts.example'}, element = () => ({el: target}), setValue = (n, v) => n.value = v;

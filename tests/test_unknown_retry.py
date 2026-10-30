@@ -387,12 +387,13 @@ def test_another_name_for_the_app_or_another_method_is_the_same_action(daemon: R
 
 
 def test_browser_delivery_method_is_not_part_of_the_action() -> None:
-    from ferb.act.browser.tools import BrowserAct
+    from types import SimpleNamespace
+    from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct
+    act = BrowserAct(SimpleNamespace(), OWNER_BROWSER)     # type: ignore[arg-type]  (no driver identity: ids as given)
     real = BrowserAct.Input(tab="t1", element="e4", action="click")
     scripted = BrowserAct.Input(tab="t1", element="e4", action="click", page_mode=True, trusted=True)
-    assert hashed_args(BrowserAct, real) == hashed_args(BrowserAct, scripted)
-    assert hashed_args(BrowserAct, real) != hashed_args(BrowserAct, BrowserAct.Input(tab="t1", element="e5",
-                                                                                      action="click"))
+    assert hashed_args(act, real) == hashed_args(act, scripted)
+    assert hashed_args(act, real) != hashed_args(act, BrowserAct.Input(tab="t1", element="e5", action="click"))
 
 
 def _shell(d: RunningDaemon) -> tuple[Any, list[dict[str, Any]]]:

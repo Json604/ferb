@@ -6,6 +6,7 @@ A download a task tab starts is a file in FERB's workspace reported as facts (`d
 
 import asyncio
 import dataclasses
+import json
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -17,7 +18,7 @@ from ferb.act.fs.files import owner_path
 from ferb.act.point import Point, display_of
 from ferb.core.errors import DriverError, FerbError, Refused
 from ferb.core.interfaces import BrowserDriver
-from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
+from ferb.core.types import (ActionFacts, ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, TerminalInput, ToolContext, ToolResult,
                              WaitCondition)
 from ferb.policy import urls
@@ -681,13 +682,43 @@ class BrowserAct(_Base):
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
         content = text if action in ("type", "select") else None
-        if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
-            content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
+        if action in {"click", "dblclick", "rightclick", "hover", "drag"}:   # where, as P19 knows it (ledger_args)
+            content = f"{action}:{self._where(args, 'element')}:{self._where(args, 'end_element')}"
         spec = self._spec(kind, args, content=content)
         typed = typed_destination(text) if action == "type" and isinstance(text, str) else None
         if typed:
             spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(typed,)))
-        return spec
+        facts = getattr(self.driver, "act_facts", None)
+        found = facts(str(getattr(args, "tab")), str(getattr(args, "element")), action, text) if callable(facts) else None
+        return dataclasses.replace(spec, facts=found) if isinstance(found, ActionFacts) else spec
+
+    def _where(self, args: BaseModel, key: str) -> str:
+        """An element argument as its stable identity (the driver's `element_identity`), else as given."""
+        element = getattr(args, key, None)
+        if not element:
+            return ""
+        identity = getattr(self.driver, "element_identity", None)
+        found = identity(str(getattr(args, "tab")), str(element)) if callable(identity) else None
+        return json.dumps(found, sort_keys=True) if isinstance(found, dict) else str(element)
+
+    def ledger_args(self, args: BaseModel, hashed: dict[str, Any]) -> dict[str, Any]:
+        """P19 (notes/gateway.md target 3): the element as what it is (the page's origin and path, the frame's, its role
+        and the node: the debugger's node id, else its DOM path: `driver.element_identity`), never the snapshot-scoped
+        id or the tab alias, so after an unknown outcome a new snapshot doesn't make the same act look new. An id the
+        driver doesn't know stays as it is (the call fails anyway)."""
+        identity = getattr(self.driver, "element_identity", None)
+        if not callable(identity):
+            return hashed
+        tab = str(getattr(args, "tab"))
+        at = identity(tab, str(getattr(args, "element")))
+        if not isinstance(at, dict):
+            return hashed
+        out = {k: v for k, v in hashed.items() if k not in ("tab", "element", "end_element")} | {"at": at}
+        end = getattr(args, "end_element", None)
+        if end:
+            to = identity(tab, str(end))
+            out["to"] = to if isinstance(to, dict) else end
+        return out
 
     async def point(self, args: Any, grant: Any) -> Point | None:
         kind = POINT_KINDS.get(args.action)
@@ -723,7 +754,7 @@ class BrowserAct(_Base):
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}
         news, more = await _news(self.driver, ref)
-        return ToolResult(out | news, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more)
+        return ToolResult(out | news, is_error=not r.ok, read_sources=self._page(ref.tab_id) + more, facts=r.observed)
 
 
 class BrowserLoginCode(_Base):
@@ -742,7 +773,7 @@ class BrowserLoginCode(_Base):
         return {self.family.act}
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return self._spec(Kind.FILL_FORM, args)
+        return dataclasses.replace(self._spec(Kind.FILL_FORM, args), facts=_fill_facts(self, args))
 
     async def point(self, args: Any, grant: Any) -> Point | None:
         """L33: its field, as typing (a secret field's place is shown like any other; never its value)."""
@@ -775,6 +806,16 @@ class BrowserSecret(BrowserLoginCode):
         r = await self.driver.owner_secret(ref, ctx, handle=args.secret, remember=args.remember,
                                           split_elements=getattr(args, "split_elements"))
         return ToolResult({"ok": r.ok, "detail": r.detail, "handle": args.remember or args.secret}, is_error=not r.ok)
+
+
+def _fill_facts(tool: Any, args: BaseModel) -> ActionFacts | None:
+    """A sealed fill's facts (gateway decision 1): the field's secret kind, from the latest snapshot."""
+    el = tool._element(args)
+    if el is None:
+        return None
+    return ActionFacts(field_kinds=(el.field_kind,) if el.field_kind else (),
+                       secure_field=el.secret or None, target_role=el.role or None,
+                       page_url=tool.driver.tab_url(str(getattr(args, "tab", ""))) or None)
 
 
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
@@ -890,7 +931,8 @@ class BrowserFillSecret(_Base):
                 "unless the field's page is one the secret is allowed for. " + _accounts(self.driver))
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.FILL_SECRET, Target(site=self._site(args), account=_account(self.driver, args)))
+        return ActionSpec(Kind.FILL_SECRET, Target(site=self._site(args), account=_account(self.driver, args)),
+                          facts=_fill_facts(self, args))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
@@ -917,7 +959,8 @@ class BrowserFillOtp(_Base):
         return ("Fill the explicitly selected opaque inbox candidate into its origin-bound field; the code stays sealed. " + _accounts(self.driver))
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.FILL_SECRET, Target(site=self._site(args), account=_account(self.driver, args)))
+        return ActionSpec(Kind.FILL_SECRET, Target(site=self._site(args), account=_account(self.driver, args)),
+                          facts=_fill_facts(self, args))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)

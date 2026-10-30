@@ -166,6 +166,7 @@ def test_letting_go_of_a_borrowed_tab_hands_its_held_downloads_back_closing_ferb
       const pause = (tab) => onPaused({tabId: tab}, {requestId: 'r' + tab, request: {url: 'https://s.example/a', headers: {}},
         responseStatusCode: 200, responseHeaders: [{name: 'Content-Type', value: 'application/zip'}]});
       for (const id of [8, 9]) { const t = tabState(id); t.attached = true; t.armed = true; await pause(id); }
+      await mutateRecords(r => { r.tabs[9] = {task: 'x', root: 'x', cid: 'c9'}; });   // tab 9 is one FERB opened
       await commands.release_tab({tab_id: 8});
       const released = cmds.splice(0);
       await commands.close({tab_id: 9});
@@ -434,6 +435,7 @@ const blob = {size: 9, type: 'text/csv', slice: (a, b) => ({arrayBuffer: async (
 const mode = process.argv[2];                                    // armed | unarmed | stale | base | orphaned | invalidating
 const base = mode === 'base' ? new HTMLAnchorElement('', {target: '_blank'}) : null;
 const docListeners = {};
+const HOOK = 'abcdefabcdef';                                     // the service worker's FERB_TOKEN (protocol 18)
 const ctx = vm.createContext({document: {readyState: 'complete', createElement: () => new HTMLAnchorElement(''),
     querySelector: (sel) => sel === 'base[target]' ? base : null,
     addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
@@ -451,9 +453,12 @@ const ctx = vm.createContext({document: {readyState: 'complete', createElement: 
   chrome: {runtime: {id: mode === 'orphaned' ? undefined : 'ferb',
                      sendMessage: (m, cb) => { if ((mode === 'orphaned' || mode === 'invalidating') && !m.ferbArmed)
                                                  throw new Error('Extension context invalidated.');
-                                               messages.push(m); if (cb) cb(mode === 'unarmed' ? false : mode === 'stale' ? !!m.ferbArmed : true); },
+                                               messages.push(m);
+                                               const answer = mode === 'unarmed' ? false : mode === 'stale' ? !!m.ferbArmed : true;
+                                               if (cb) cb(m.ferbArmed ? {armed: answer, token: HOOK} : answer); },
                      onMessage: {addListener: (fn) => { onMessage.push(fn); }}}}});
 const onMessage = [];
+vm.runInContext(fs.readFileSync(require('path').join(require('path').dirname(process.argv[1]), 'mask.js'), 'utf8'), ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 // capture listeners, then the page's own handler (cancel / stopPropagation), then bubble listeners unless stopped
 const click = (type, a, o = {}) => { const ev = {type, prevented: false, defaultPrevented: false, isTrusted: o.trusted !== false,
@@ -480,13 +485,14 @@ const click = (type, a, o = {}) => { const ev = {type, prevented: false, default
     pageCancelled: click('click', A('https://s.example/spa', {target: '_blank'}), {pageCancels: true}),
     cmdShift: click('click', A('https://s.example/cmdshift', {}), {metaKey: true, shiftKey: true}),
   };
-  const armedAnswer = !ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-armed', {cancelable: true}));
+  const armedAnswer = !ctx.document.dispatchEvent(new ctx.CustomEvent(HOOK + ':armed', {cancelable: true}));
+  const fixedName = !ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-armed', {cancelable: true}));   // protocol 17
   const T = '00112233445566778899aabbccddeeff';
-  ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-popup', {detail: JSON.stringify({token: T, url: 'https://s.example/pop'})}));
-  ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-popup', {detail: JSON.stringify({token: 't1', url: 'https://s.example/short'})}));
-  ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-popup', {detail: JSON.stringify({token: T.toUpperCase(), url: 'https://s.example/upper'})}));
-  ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-popup', {detail: JSON.stringify({token: T, url: 'https://s.example/' + 'a'.repeat(9000)})}));
-  const readyEvents = []; ctx.document.addEventListener('ferb-popup-ready', (e) => readyEvents.push(e.detail));
+  ctx.document.dispatchEvent(new ctx.CustomEvent(HOOK + ':popup', {detail: JSON.stringify({token: T, url: 'https://s.example/pop'})}));
+  ctx.document.dispatchEvent(new ctx.CustomEvent(HOOK + ':popup', {detail: JSON.stringify({token: 't1', url: 'https://s.example/short'})}));
+  ctx.document.dispatchEvent(new ctx.CustomEvent(HOOK + ':popup', {detail: JSON.stringify({token: T.toUpperCase(), url: 'https://s.example/upper'})}));
+  ctx.document.dispatchEvent(new ctx.CustomEvent(HOOK + ':popup', {detail: JSON.stringify({token: T, url: 'https://s.example/' + 'a'.repeat(9000)})}));
+  const readyEvents = []; ctx.document.addEventListener(HOOK + ':ready', (e) => readyEvents.push(e.detail));
   const replies = []; for (const fn of onMessage) fn({ferbPopupReady: T}, {}, (v) => replies.push(v));
   if (mode === 'armed') for (let i = 0; i < 30; i++) click('click', A('blob:https://s.example/flood' + i, {download: 'f.csv'}));
   await new Promise(r => setTimeout(r, 20));
@@ -580,9 +586,9 @@ const window = {open: (u, t, f) => {
                                              set: (v) => { w.navigations.push(v); href = v; }});
   popups.push(w); log.push(['native-open', u, t === undefined ? null : t, f === undefined ? null : f]); return w; }};
 let armed = process.argv[2] === 'armed';
-document.addEventListener('ferb-armed', (e) => { if (armed) e.preventDefault(); });
+document.addEventListener(p.FERB_TOKEN + ':armed', (e) => { if (armed) e.preventDefault(); });
 const relayed = [];
-document.addEventListener('ferb-popup', (e) => relayed.push(JSON.parse(e.detail)));
+document.addEventListener(p.FERB_TOKEN + ':popup', (e) => relayed.push(JSON.parse(e.detail)));
 const ctx = vm.createContext({window, document, EventTarget, HTMLElement, HTMLAnchorElement, HTMLAreaElement, CustomEvent,
                               URL, crypto: {getRandomValues: (a) => globalThis.crypto.getRandomValues(a)}, setTimeout});
 vm.runInContext(p.PAGE_HOOK, ctx);
@@ -603,19 +609,19 @@ vm.runInContext(p.PAGE_HOOK, ctx);                               // installed tw
   const w2 = window.open('/oauth', '_blank', 'popup,width=400,height=300');   // a popup window with features
   out.openWindow = mark();
   const r2 = relayed.splice(0)[0];
-  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r2 ? r2.token : ''}));
-  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r2 ? r2.token : ''}));   // twice: still one load
+  document.dispatchEvent(new CustomEvent(p.FERB_TOKEN + ':ready', {detail: r2 ? r2.token : ''}));
+  document.dispatchEvent(new CustomEvent(p.FERB_TOKEN + ':ready', {detail: r2 ? r2.token : ''}));   // twice: still one load
   out.readyNav = w2 ? w2.navigations.slice() : null;
   // the page navigates its own popup before FERB says ready (or before the fallback): the page's URL wins
   const w3 = window.open('/placeholder'); const r3 = relayed.splice(0)[0];
   w3.location.href = 'https://elsewhere.example/the-pages-choice';
-  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r3 ? r3.token : ''}));
+  document.dispatchEvent(new CustomEvent(p.FERB_TOKEN + ':ready', {detail: r3 ? r3.token : ''}));
   out.pageWinsReady = w3.navigations.slice();
   const w4 = window.open('/placeholder2'); relayed.splice(0);
   w4.location.href = 'https://elsewhere.example/fallback-choice'; w4.foreign = true;   // committed cross-origin
   const w5 = window.open('/closed-before-ready'); const r5 = relayed.splice(0)[0];
   w5.closed = true;
-  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r5 ? r5.token : ''}));
+  document.dispatchEvent(new CustomEvent(p.FERB_TOKEN + ':ready', {detail: r5 ? r5.token : ''}));
   out.closedNav = w5.navigations.slice(); mark();
   window.open(); window.open(''); window.open('   '); out.empty = mark();
   window.open('https://s.example/named', 'results'); out.named = mark();
@@ -736,7 +742,7 @@ def test_in_ferbs_own_profile_nothing_held_is_handed_to_the_browser() -> None:
       await armPage(9, false);
       return {unarmed, scripted};
     })()''')
-    assert out["unarmed"] == "drop" and out["scripted"] == [[False, True]]          # disarm with drop=true
+    assert out["unarmed"] == "drop" and [a[:2] for a in out["scripted"]] == [[False, True]]   # disarm, drop=true
 
 
 # ---------- final wave (D35) ----------

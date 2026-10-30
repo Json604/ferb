@@ -35,7 +35,8 @@ async function resolveVisualPoint(tabId, snap, x, y) {
 async function checkPoint(tabId, point, visual) {
   const current = await resolveVisualPoint(tabId, visual.snap, point.x, point.y);
   if (JSON.stringify(current) !== JSON.stringify(point)) throw new Error("visual_target_changed; take another screenshot");
-  if (current.element.secret || (current.element.state || []).includes("disabled")) throw new Error("pointer_target_unavailable");
+  // content.js describe() reports a disabled control as `disabled: true` (protocol 17 read a `state` list it never sent)
+  if (current.element.secret || current.element.disabled === true) throw new Error("pointer_target_unavailable");
   return current;
 }
 

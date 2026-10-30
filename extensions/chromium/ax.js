@@ -3,10 +3,10 @@
 // geometry, hit testing, forms and redacted values. All actions use that same DOM reference; never a blind AX click.
 const AX_ROLES = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab",
   "option", "switch", "slider", "treeitem", "listitem", "row", "cell", "gridcell", "heading", "menuitemcheckbox", "menuitemradio"]);
-const bindingOf = (node) => {
+const bindingOf = (node) => {                    // the snapshot's binding attribute (protocol.js BIND_ATTR)
   const attrs = node && node.attributes || [];
-  const i = attrs.indexOf("data-ferb-ax");
-  return i >= 0 ? attrs[i + 1] : null;
+  for (let i = 0; i + 1 < attrs.length; i += 2) if (attrs[i] === BIND_ATTR) return attrs[i + 1];
+  return null;
 };
 
 async function accessibilitySnapshot(tabId, gen, frames) {
@@ -54,6 +54,9 @@ async function accessibilitySnapshot(tabId, gen, frames) {
         if (!element.capture_masked && n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ");
         // Never copy AX values: password and OTP metadata lives in the DOM, including autocomplete/name/type.
         element.ax = true;
+        // The node's own id in the renderer, stable while it lives (a fresh snapshot of the same page finds it again):
+        // P19's identity for an act on it (tools.BrowserAct.ledger_args), never a reference to act with.
+        element.backend_node = n.backendDOMNodeId;
         const list = ordered.get(frame) || [];
         if (!list.includes(element)) list.push(element);
         ordered.set(frame, list);
@@ -83,9 +86,9 @@ async function adoptAXNode(tabId, gen, backendNodeId, sessionId, frames) {
   const {nodeIds} = await cdp(tabId, "DOM.pushNodesByBackendIdsToFrontend", {backendNodeIds: [backendNodeId]}, sessionId);
   if (!nodeIds || !nodeIds[0]) return null;
   const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
-  await cdp(tabId, "DOM.setAttributeValue", {nodeId: nodeIds[0], name: "data-ferb-ax", value: token}, sessionId);
+  await cdp(tabId, "DOM.setAttributeValue", {nodeId: nodeIds[0], name: BIND_ATTR, value: token}, sessionId);
   const results = await chrome.scripting.executeScript({target: {tabId, allFrames: true},
-    func: (g, t) => window.__ferb.adopt(g, t), args: [gen, token]});
+    func: (g, t, a) => window.__ferb.adopt(g, t, a), args: [gen, token, BIND_ATTR]});
   for (const r of results) {
     if (!r.result) continue;
     const frame = frames.find(f => f.frame_id === r.frameId);

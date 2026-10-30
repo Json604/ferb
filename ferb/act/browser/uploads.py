@@ -34,7 +34,6 @@ from ferb.act.fs import recovery
 FOLDER = "uploads"          # under FERB's workspace
 OUTSIDE = "outside"         # copies of outside content: an untrusted fs root (downloads.untrusted_roots adds it)
 _OPEN_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-_OPEN_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 Leaf = tuple[str, ...]      # a copy's folder under `uploads/`: ([outside,] tree, random)
 
 
@@ -148,17 +147,6 @@ class Uploads:
             if source == ur or ur in source.parents:
                 return True
         return False
-
-    def stage(self, tree: str, source: str, sha256: str, tab: str | None = None) -> str:
-        """`stage_from`, the source (a real path) opened here, never through a link at its last step."""
-        try:
-            fd = os.open(source, _OPEN_FILE)
-        except OSError as e:
-            raise StagingFailed(f"FERB can't read {source} ({e.strerror or e})") from None
-        try:
-            return self.stage_from(tree, fd, source, sha256, tab)
-        finally:
-            os.close(fd)
 
     def stage_all(self, tree: str, sources: Sequence[tuple[int, str, str]], tab: str | None = None) -> list[str]:
         """Each (open file, its real path, its SHA-256) staged; when one fails, the copies already made go at once."""

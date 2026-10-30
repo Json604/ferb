@@ -5,9 +5,16 @@ and records disconnected actions as unknown without replay. Router binds explici
 FerbIdentity adds origin-bound sealed fills and opaque mailbox candidates. Upload receipts retain local byte identity;
 the browser is given FERB's own copy of the file (uploads.py), never the original.
 A download caught in a task tab goes to `Hub.on_download` (downloads.py takes it); the drivers say whose tab it is.
-WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL."""
+WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL.
+
+Protocol 18 (step 5c): the daemon signs what the extension acts on (`daemon_envelope`); a connection is taken only from
+a browser app FERB knows (`peer_refusal`); a task's tabs live in one collapsed tab group (owner decision 3) and are
+known by browser tab id, so a reconnect or a daemon restart re-adopts them from the extension's records or closes those
+of an ended task (`_TabDriver.readopt`); the owner closing or taking a FERB tab is published for the supervisor
+(`browser.owner_stopped`, `browser.owner_took`); a read that fails is a known failure, never "outcome unknown"."""
 
 import asyncio
+import dataclasses
 import json
 import math
 import os
@@ -19,14 +26,14 @@ from stat import S_ISREG
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
-                                           command, parse, version_ok)
+from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, READS, Event, Hello, Op, Result,
+                                           TabEvent, command, daemon_envelope, parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
-from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
+from ferb.act.browser.profiles import BROWSERS, BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import Resolver
-from ferb.act.browser.snapshot import element as page_element
+from ferb.act.browser.snapshot import FIELD_KINDS, element as page_element
 from ferb.act.browser.tools import Secrets
 from ferb.act.fs.files import opened_path
 from ferb.act.fs.recovery import sha256_fd
@@ -34,7 +41,7 @@ from ferb.identity.mailbox import FEED_URL, GmailFeedMailbox
 from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
 from ferb.core.errors import DriverError, FerbError, Refused, StaleRef, Withheld
-from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
+from ferb.core.types import (ActionFacts, ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, TerminalInput, ToolContext, WaitCondition)
 from ferb.policy import terminal as terminals
 from ferb.orchestrator.ledger import Ledger
@@ -68,7 +75,94 @@ class _Conn:
     gen: int = 0
     unpaired_install: str | None = None
     browser_pid: int | None = None          # the browser process behind this native host (L26: hear its tab's app)
+    app: str | None = None                  # that process's app bundle id (peer_refusal)
+    nonce: str = ""                         # protocol 18: the hello's signing nonce for this connection
+    key: bytes | None = field(default=None, repr=False)   # the pairing key the daemon signs with (daemon-internal)
+    dseq: int = 0                           # the last counter the daemon signed on this connection
 
+
+def _app_bundle(pid: int | None) -> str | None:
+    """The bundle id of the app whose executable this process runs (its path through libproc, then the enclosing
+    .app's Info.plist): kernel and file facts, never a window or a name the process claims. Blocking (a file read)."""
+    import ctypes
+    import plistlib
+    if not isinstance(pid, int) or pid <= 1:
+        return None
+    try:
+        buf = ctypes.create_string_buffer(4096)
+        if ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidpath(pid, buf, 4096) <= 0:
+            return None
+        path = buf.value.decode(errors="replace")
+        at = path.find(".app/Contents/")
+        if at < 0:
+            return None
+        with open(path[:at + 4] + "/Contents/Info.plist", "rb") as f:
+            bundle = plistlib.load(f).get("CFBundleIdentifier")
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return None
+    return bundle if isinstance(bundle, str) and bundle else None
+
+
+def peer_refusal(app: str | None, browser: str | None = None) -> str | None:
+    """Why a native-host connection isn't taken, None when it is (protocol 18; rule 5, a where-boundary by bundle id).
+    The extension's origin is only what the native host was told, so the daemon also checks who started that host:
+    the browser launches it, and its process's app (`app`, `_app_bundle` of the host's parent) must be a web browser FERB
+    knows; for a paired profile (`browser`, its BROWSERS key) exactly that browser (or one of its helper apps). Limit:
+    any process of the owner's own user can start that browser's binary, or read a profile's pairing key from its
+    extension storage, so same-uid processes remain trusted (as for the CLI socket)."""
+    from ferb.act.mac import browsers as mac_browsers
+    if app is None:
+        return ("FERB couldn't tell which app started this browser connection, so it didn't take it (the FERB "
+                "extension reconnects by itself)")
+    if not mac_browsers.known(app):
+        return f"this browser connection was started by {app}, not a web browser FERB knows, so FERB didn't take it"
+    if browser is not None and browser in BROWSERS:
+        want, got = BROWSERS[browser].bundle_id.casefold(), app.casefold()
+        if got != want and not got.startswith(want + ".helper"):
+            return (f"this profile was paired in {BROWSERS[browser].label}, but the connection comes from {app}, so FERB "
+                    "didn't take it")
+    return None
+
+
+_TEXT_MODS = frozenset({"cmd", "command", "meta", "ctrl", "control", "alt", "opt", "option"})
+
+
+def enters_text(spec: str | None) -> bool:
+    """Whether a key press puts text into the focused field (protocol.js `entersText`): a character or Space without
+    ⌘/⌃/⌥ (Shift is a capital), or a paste (⌘V)."""
+    if spec == " ":
+        return True
+    parts = [p.strip() for p in str(spec or "").strip().split("+")]
+    if not parts or not parts[-1]:
+        return False
+    key, mods = parts[-1], {p.casefold() for p in parts[:-1]}
+    if mods & _TEXT_MODS:
+        return key.casefold() == "v" and bool(mods & {"cmd", "command", "meta"})
+    if key.casefold() in ("space", "spacebar"):
+        return True
+    return len(key) == 1                          # a named key (Enter, Tab, an arrow, F5...) puts nothing in
+
+
+def group_title(text: str) -> str:
+    """A task's tab-group label (owner decision 3): "FERB · <short task>", the task's first words, at most about 30
+    characters; "FERB" when it has none."""
+    words = " ".join(str(text or "").split())
+    if len(words) > 30:
+        cut = words[:30].rsplit(" ", 1)[0] if " " in words[:30] else words[:30]
+        words = cut.rstrip(",.;:") + "…"
+    return f"FERB · {words}" if words else "FERB"
+
+
+# An amount as a page writes it (a fact's shape, never its meaning): a currency symbol or an ISO 4217 code of a common
+# currency before or after a number. Used only on a control's own label and the page's structured data.
+_CURRENCY = r"(?:[$€£¥₹₩₽₺₪₫฿₱₦₴]|Rs\.?|(?:USD|EUR|GBP|INR|JPY|CNY|AUD|CAD|CHF|SGD|HKD|NZD|SEK|NOK|DKK|PLN|BRL|MXN|ZAR|AED|SAR|KRW|TRY|THB|IDR|MYR|PHP|VND|ILS|RUB)\b)"
+_AMOUNT = re.compile(rf"{_CURRENCY}\s?\d[\d,]*(?:\.\d{{1,2}})?|\b\d[\d,]*(?:\.\d{{1,2}})?\s?{_CURRENCY}")
+
+
+def label_amount(label: str | None) -> str | None:
+    """The one amount a control's label shows ("Pay ₹137.39" -> "₹137.39"), None when it shows none or several."""
+    found = {m.group(0).strip() for m in _AMOUNT.finditer(str(label or "")[:300])}
+    return found.pop() if len(found) == 1 else None
 
 def _browser_pid(writer: Any) -> int | None:
     """The browser process behind a native-host connection: the native host's parent (the browser starts it, and
@@ -107,21 +201,32 @@ class Bridge:
     detached: dict[int, str] = field(default_factory=dict)  # chrome tab id -> why the debugger left (Cancel, ...)
     holds: int = 0                                           # task tabs open on this bridge (keepalive while > 0)
     hellos: int = 0                                          # hellos attached so far (pairing waits for a new one)
+    window: int | None = None                                # the window FERB chose for a tab here last (remembered)
     _keepalive: "asyncio.Task[None] | None" = None
 
     @property
     def name(self) -> str:
         return f"{self.binding.browser}/{self.binding.folder}"
 
+    def envelope(self, conn: _Conn, mtype: Any, body: dict[str, Any]) -> dict[str, Any]:
+        """A signed daemon message for this connection (protocol 18): the next counter, the hello's nonce, the key."""
+        conn.dseq += 1
+        return daemon_envelope(conn.key or b"", conn.nonce, conn.dseq, mtype, body)
+
     async def call(self, op: Op, args: dict[str, Any], timeout: float = CMD_TIMEOUT_S,
                    cid: str | None = None) -> Any:
+        """One command. A read (READS, or `dialog` without a decision) that fails, times out or loses its connection is
+        a known failure (DriverError): it changed nothing, so it is never "outcome unknown"."""
         conn = self.conn
         if conn is None:
             raise DriverError(f"{self.name} isn't connected")
+        if conn.key is None or not conn.nonce:
+            raise DriverError(f"{self.name} can't be sent commands: its connection has no signing key yet")
+        read = op in READS or (op == "dialog" and not args.get("decision"))
         cid = cid or "c-" + secrets.token_hex(8)
         fut: asyncio.Future[Result] = asyncio.get_running_loop().create_future()
         self.pending[cid] = fut
-        wire = json.dumps(command(cid, conn.gen, op, args, int(timeout * 1000)))
+        wire = json.dumps(self.envelope(conn, "cmd", command(cid, conn.gen, op, args, int(timeout * 1000))))
         try:
             if len(wire) > 500000:
                 # Native messaging has a per-message limit, not a deliverable limit. Only the fully
@@ -134,15 +239,23 @@ class Bridge:
             await conn.writer.drain()
             r = await asyncio.wait_for(fut, timeout + 5)
         except asyncio.CancelledError:
-            self.lost.add(cid)
+            if not read:
+                self.lost.add(cid)
             if op == "pointer":
                 await self._cancel_pointer(args, cid)
             raise
         except asyncio.TimeoutError:
             if op == "pointer":
                 await self._cancel_pointer(args, cid)
+            if read:
+                raise DriverError(f"{op} timed out in {self.name}") from None
             self.lost.add(cid)                            # the next hello's seen / owned ids settle it (never resent)
             raise OutcomeUnknown(f"{op} timed out in {self.name}") from None
+        except OutcomeUnknown as e:                      # the connection dropped mid-command (drop)
+            if read:
+                self.lost.discard(cid)
+                raise DriverError(f"{op}: {self.name} disconnected; nothing changed, try it again") from e
+            raise
         finally:
             self.pending.pop(cid, None)
         if r.status == "ok":
@@ -158,7 +271,7 @@ class Bridge:
             raise StaleRef("the browser reconnected; take a new snapshot")
         if r.status == "duplicate":
             raise DriverError(f"{op} was already sent once; not repeating it")
-        if r.outcome == "unknown" or r.error == "timeout" or str(r.error or "").startswith("detached:"):
+        if not read and (r.outcome == "unknown" or r.error == "timeout" or str(r.error or "").startswith("detached:")):
             self.lost.add(cid)
             raise OutcomeUnknown(f"{op}: {r.error}; outcome unknown")
         if str(r.error or "").startswith("debugger_refused:"):   # the browser refused the debugger: nothing was sent
@@ -317,8 +430,13 @@ class Hub:
         let go of it, and the hook loads the URL itself after 1.5 s."""
         for d in self.drivers:
             if ev.opener_tab_id is not None and d.task_tab(br, ev.opener_tab_id) is not None:
-                if d.adopt(br, ev.opener_tab_id, ev.tab_id, str(ev.url or "")):
-                    self._spawn(br.call("popup_ready", {"tab_id": ev.tab_id}, timeout=10))
+                if (record := d.adopt(br, ev.opener_tab_id, ev.tab_id, str(ev.url or ""))) is not None:
+                    async def ready(record: dict[str, Any] = record) -> None:
+                        try:                             # recorded (and grouped) first: a reconnect re-adopts it
+                            await br.call("adopt_tab", record, timeout=10)
+                        finally:
+                            await br.call("popup_ready", {"tab_id": ev.tab_id}, timeout=10)
+                    self._spawn(ready())
                 else:
                     self._spawn(br.call("disarm", {"tab_id": ev.tab_id}, timeout=10))
                 return
@@ -343,6 +461,15 @@ class Hub:
     async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """One native-host connection, after its auth.hello: newline-delimited extension messages both ways."""
         conn = _Conn(writer, browser_pid=_browser_pid(writer))
+        conn.app = await asyncio.to_thread(_app_bundle, conn.browser_pid)
+        if (why := peer_refusal(conn.app)) is not None:   # only a browser FERB knows starts the extension's host
+            self.publish("browser.connection_refused", {"why": why})
+            try:
+                writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
+                await writer.drain()
+            except ConnectionError:
+                pass
+            return
         try:
             while line := await reader.readline():
                 try:
@@ -410,19 +537,32 @@ class Hub:
                                               "minimum_version": MIN_EXTENSION_VERSION}).encode() + b"\n")
                 await conn.writer.drain()
                 return
+            key = self.pairings.key(m.install_id)
+            refusal = ("the FERB extension sent no signing nonce: reload the FERB extension"
+                       if not hello.nonce or key is None else peer_refusal(conn.app, v.binding.browser))
+            if refusal is not None:
+                self.refused[m.install_id] = refusal
+                conn.writer.write(json.dumps({"type": "refused", "reason": refusal}).encode() + b"\n")
+                await conn.writer.drain()
+                return
             self.refused.pop(m.install_id, None)
             br = self.bridge(v.binding.browser, v.binding.folder)
             if br is None:
                 return
+            conn.nonce, conn.key, conn.dseq = hello.nonce, key, 0     # this connection's signing state (protocol 18)
             br.attach(conn, hello)
             self.pairings.db.conn.execute("UPDATE ext_installs SET ext_version = ? WHERE install_id = ?",
                                           (hello.version, m.install_id))
             # identity: in FERB's own profile every download is FERB's, so a hold the daemon never takes is failed, not
             # handed to the browser (D35).
-            conn.writer.write(json.dumps({"type": "welcome", "gen": br.gen,
-                                          "identity": br.binding.identity.value}).encode() + b"\n")
+            conn.writer.write(json.dumps(br.envelope(conn, "welcome", {
+                "gen": br.gen, "identity": br.binding.identity.value})).encode() + b"\n")
             await conn.writer.drain()
             self.publish("browser.connected", {"profile": br.name, "version": hello.version, "gen": br.gen})
+            for d in self.drivers:                           # FERB's tabs here, by browser tab id (owner decision 3)
+                if getattr(d, "identity", None) is br.binding.identity:
+                    for settle in d.readopt(br, hello.tabs):
+                        self._spawn(settle)
             self._disarm_unheld(br, hello.armed)
             return
         br = conn.bridge
@@ -454,6 +594,9 @@ class Hub:
                 self._on_open(br, ev)
             elif ev.event == "popup":
                 self._on_popup(br, ev)
+            elif ev.event == "taken":                        # the owner moved a FERB tab out of its group: theirs now
+                for d in self.drivers:
+                    d.tab_taken(br, ev.tab_id, ev.reason or "")
             else:
                 self.publish("browser.dialog", {"profile": br.name, "tab_id": ev.tab_id, "type": ev.type,
                                                 "message": ev.message or "", "handled": ev.handled})
@@ -696,6 +839,11 @@ class _Tab:
     # the page an owner's tab held when the task took it over: the tab is known by its id, wherever it navigates
     taken_over_from: dict[str, str] = field(default_factory=dict)
     closed: bool = False            # closed in the browser (the owner): listed as closed, never driven again
+    left: str = ""                  # why FERB no longer drives it (closed, taken by the owner, lost on a reconnect)
+    closing: bool = False           # FERB itself is closing it: its removal is no owner's stop
+    held: bool = False              # it counts in its bridge's keepalive holds
+    frame_urls: dict[int, str] = field(default_factory=dict)   # the latest snapshot's frames' URLs (masked)
+    commerce: dict[str, Any] = field(default_factory=dict)     # the page's structured amount/merchant (protocol 18)
     page: _Page | None = None       # where the latest snapshot saw the tab, for FERB's cursor (L33)
     motion: dict[str, tuple[str | None, bool]] = field(default_factory=dict)   # element id -> its scroll facts (L33)
     moved: bool = False             # FERB scrolled the page since the snapshot: its rects aren't where they were (L33)
@@ -708,8 +856,6 @@ def _read_clipboard() -> tuple[int, str | None, bool]:
     return read_general()
 
 
-REST_VERSION = "0.15.10"   # the first extension with `rest` (L31): an older one is never sent it
-SHOW_VERSION = "0.15.13"   # the first extension with `show_tab`: an older one gets its browser brought forward
 SECRET_TERMINAL = ("that's a terminal in the page: FERB puts no password or code into a terminal (D31); it would run "
                    "as the owner's input there")
 
@@ -747,6 +893,12 @@ class _TabDriver:
         self.redact_text: Callable[[str], str] = Redactor().text      # daemon supplied: its redactor (rule 14)
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
+        # Owner decision 3 (tab groups), daemon supplied: a task tree's words for its group's label ("FERB · <short
+        # task>", group_title); whether the task is paused (its group stays: nothing closes at its end); and the task
+        # trees whose owner asked to keep the tabs (`keep_tabs_open`: at the end they leave the group, open).
+        self.task_title: Callable[[str], str] = lambda root: ""
+        self.task_paused: Callable[[str], bool] = lambda task: False
+        self._keep_roots: set[str] = set()
         # daemon supplied (B6): (browser pid, window bounds, tab title) -> the secret fields Accessibility finds in that
         # window's one page area, that area, and whether every field it found has a box; None: it can't tell
         self.native_secrets: Callable[[int, tuple[float, float, float, float], str],
@@ -820,6 +972,8 @@ class _TabDriver:
             args["window_id"] = window_id
         if allow_foreground:
             args["allow_foreground"] = True
+        if owner and not attached:                       # the task's collapsed group (owner decision 3)
+            args["group"] = self._group(owner)
         v = await br.call("open", args, timeout=30)
         if (v.get("opened") is False and v.get("reason") == "window_selection_required" and window_id is None
                 and not allow_foreground):
@@ -830,17 +984,19 @@ class _TabDriver:
             # through extension"; replaces the 2026-10-06 refusal, 46c0be7).
             # An open window in the profile takes a background tab first (no new window, no Space change); only a
             # profile with no window at all gets FERB's minimized window.
+            # The window chosen last time in this profile, while it is still there, else an unfocused one first.
             windows = [w for w in v.get("windows") or [] if w.get("type", "normal") == "normal" and not w.get("incognito")]
-            windows.sort(key=lambda w: bool(w.get("focused")))         # an unfocused window first
+            windows.sort(key=lambda w: (w.get("id") != br.window, bool(w.get("focused"))))
             v = await br.call("open", {**args, "window_id": windows[0]["id"]} if windows
                               else {**args, "allow_foreground": True}, timeout=30)
         if v.get("opened") is False:
             raise DriverError(str(v["detail"]), facts=v)
+        if isinstance(v.get("window_id"), int):
+            br.window = int(v["window_id"])               # remembered for this profile (protocol 18 fixes)
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         t = self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, BLANK, attached=attached)
-        if not attached:
-            br.hold()
+        self._hold(t)
         if registered is not None:
             registered(ref)
         if abandon is not None and abandon():            # the task let go of its tabs meanwhile: never load the URL
@@ -860,6 +1016,80 @@ class _TabDriver:
         t.url = str(loaded.get("url") or url)
         return ref
 
+    def _group(self, owner: str) -> dict[str, Any]:
+        """The extension's group record for a task's tab: its tree (one group per task), the task, and the label."""
+        root = self.task_root(owner)
+        return {"root": root, "task": owner, "title": self.redact_text(group_title(self.task_title(root)))}
+
+    def _hold(self, t: _Tab) -> None:
+        if not t.attached and not t.held:
+            t.held = True
+            t.bridge.hold()
+
+    def _unhold(self, t: _Tab) -> None:
+        if t.held:
+            t.held = False
+            t.bridge.unhold()
+
+    def keep_tabs_open(self, task: str) -> None:
+        """The owner asked to keep this task's tabs (owner decision 3): at its end they leave the group and stay open,
+        each handed over like a result (`keep_open`). Task-level: the whole tree."""
+        self._keep_roots.add(self.task_root(task))
+
+    def _drop(self, t: _Tab, why: str) -> None:
+        """FERB no longer drives this tab (closed, taken, lost): listed so, never driven, never closed by FERB."""
+        t.closed, t.left = True, t.left or why
+        self._unhold(t)
+
+    def readopt(self, br: Bridge, listed: list[dict[str, Any]]) -> list[Awaitable[Any]]:
+        """After a hello (an extension reconnect, a worker or extension restart, or this daemon's own restart): FERB's
+        tabs are known by browser tab id, which holds for the browser session, not by connection (owner decision 3).
+        Each tab of this profile the daemon holds is re-adopted when the extension's records still list it (its element
+        ids go: take a new snapshot) and dropped otherwise (closed or the owner's meanwhile, never closed by FERB). A
+        listed tab the daemon doesn't hold (it restarted) becomes its task's again while the task runs; any tab whose
+        task ended is closed (FERB opened it) or let go of (the owner's): the returned jobs, run after the welcome. No
+        orphan is left to block the extension's self-reload."""
+        seen = {int(r["tab_id"]): r for r in listed if isinstance(r, dict) and isinstance(r.get("tab_id"), int)}
+        jobs: list[Awaitable[Any]] = []
+        for t in [t for t in self._tabs.values() if t.bridge is br and not t.closed]:
+            r = seen.pop(t.chrome_id, None)
+            if r is None or bool(r.get("borrowed")) != t.attached:
+                self._drop(t, "it was closed or taken while FERB's connection to the browser was down")
+                continue
+            t.ref = dataclasses.replace(t.ref, generation=br.gen)
+            t.elements, t.points, t.visual, t.snapshot_json = {}, {}, None, ""
+            if not (t.owner and self.task_running(t.owner)) and not (t.owner and self.task_paused(t.owner)):
+                jobs.append(self._settle(t.ref))
+        for chrome_id, r in seen.items():
+            task, borrowed = r.get("task"), r.get("borrowed") is True
+            if isinstance(task, str) and task and (self.task_running(task) or self.task_paused(task)):
+                self._n += 1
+                ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
+                t = self._tabs[ref.tab_id] = _Tab(ref, br, chrome_id, task, str(r.get("url") or ""), attached=borrowed)
+                self._hold(t)
+            elif borrowed:
+                jobs.append(br.call("release_tab", {"tab_id": chrome_id}, timeout=10))
+            else:
+                jobs.append(br.call("close", {"tab_id": chrome_id}, timeout=10))
+        return jobs
+
+    async def _settle(self, ref: TabRef) -> None:
+        """A re-adopted tab whose task ended while the connection was down: closed or let go of, as at the task end."""
+        try:
+            await self.close(ref)
+        except DriverError:
+            pass                                         # the next hello lists it again
+
+    def tab_taken(self, br: Bridge, chrome_id: int, how: str = "") -> None:
+        """The owner moved a tab FERB opened out of its task's group (owner decision 3): it is theirs now. FERB stops
+        using it (the extension already let go of it) and never closes it; the supervisor hears of it."""
+        for alias, t in self._tabs.items():
+            if t.bridge is br and t.chrome_id == chrome_id and not t.closed:
+                self._drop(t, "the owner moved it out of FERB's tab group, so it is theirs now")
+                if t.owner and self.task_running(t.owner):
+                    self.hub.publish("browser.owner_took", {"task_id": t.owner, "tab": alias, "profile": br.name,
+                                                            "how": how})
+
     def owner_of(self, br: Bridge, chrome_id: int) -> str | None:
         """The task that opened this tab, if FERB did."""
         return next((t.owner for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id), None)
@@ -877,15 +1107,14 @@ class _TabDriver:
     async def rest(self, owner: str, resting: bool) -> None:
         """A loop's task ends a round (`resting`) or starts one: the owner's own tabs it holds give their file picker
         back between rounds, and a round takes the interception again (L31, owner 2026-10-25: "give them back between
-        rounds"; the debugger and focus emulation, which keep the page running, stay). Only an extension that reports
-        REST_VERSION or later knows the command: an older one is never sent it and keeps the picker intercepted in a
-        held tab (a documented residual). Resting is best effort: a failure leaves the picker intercepted, the safe
-        side. Taking the tab back for a round is confirmed (the reply says the picker is intercepted, or the
+        rounds"; the debugger and focus emulation, which keep the page running, stay). Every extension FERB accepts
+        knows the command (the minimum is past 0.15.10). Resting is best effort: a failure leaves the picker
+        intercepted, the safe side. Taking the tab back for a round is confirmed (the reply says the picker is intercepted, or the
         extension holds no session, so its next attach intercepts), retried once, and otherwise raised for the
         supervisor's record; the extension also takes the picker back on the round's first acting command."""
         unconfirmed = []
         for t in [t for t in self._tabs.values() if t.owner == owner and t.attached and not t.closed]:
-            if t.bridge.conn is None or not version_ok(getattr(t.bridge, "version", "") or "0", REST_VERSION):
+            if t.bridge.conn is None:
                 continue
             for attempt in (1, 2) if not resting else (1,):
                 try:
@@ -907,10 +1136,22 @@ class _TabDriver:
                    and self.task_running(t.owner) for t in self._tabs.values())
 
     def tab_closed(self, br: Bridge, chrome_id: int) -> None:
-        """The browser closed this tab (the owner did): the task's inventory says so; a reopened tab is a new one."""
-        for t in self._tabs.values():
-            if t.bridge is br and t.chrome_id == chrome_id:
-                t.closed = True
+        """The browser closed this tab: the task's inventory says so; a reopened tab is a new one. Not FERB's own close,
+        while its task runs: the owner stopped that part of the task (owner decision 3), published for the supervisor
+        (`browser.owner_stopped`; step 8 asks the owner whether to continue). `part` is "group" when no other tab FERB
+        opened for that task tree is left on this profile (the owner closed the group), else "tab"."""
+        for alias, t in self._tabs.items():
+            if t.bridge is not br or t.chrome_id != chrome_id or t.closed:
+                continue
+            self._drop(t, "the owner closed this tab")
+            if t.closing or not t.owner or not self.task_running(t.owner):
+                continue
+            root = self.task_root(t.owner)
+            left = any(o is not t and o.bridge is br and not o.closed and not o.attached and o.owner
+                       and self.task_root(o.owner) == root for o in self._tabs.values())
+            self.hub.publish("browser.owner_stopped", {"task_id": t.owner, "tab": alias, "profile": br.name,
+                                                       "borrowed": t.attached,
+                                                       "part": "tab" if left or t.attached else "group"})
 
     def task_tab(self, br: Bridge, chrome_id: int) -> TaskTab | None:
         """The live task that drives this tab now, for a download caught in it. A tab whose task ended, or whose
@@ -980,26 +1221,28 @@ class _TabDriver:
         except (Refused, DriverError) as e:
             entry.update(error=f"FERB couldn't open the link's new tab: {e}")
 
-    def adopt(self, br: Bridge, opener_id: int, chrome_id: int, url: str) -> bool:
+    def adopt(self, br: Bridge, opener_id: int, chrome_id: int, url: str) -> dict[str, Any] | None:
         """A popup the page hook of a live task tab opened (claimed by its token): that task's tab, released (never
-        closed) when the opener was the owner's borrowed tab. False: not the task's (past the tab cap, or the task let
-        go of its tabs)."""
+        closed) when the opener was the owner's borrowed tab. Returns the extension's record for it (`adopt_tab`: it
+        joins the task's group unless borrowed); None: not the task's (past the tab cap, or the task let go of its
+        tabs)."""
         opener = self._live(br, opener_id)
         if opener is None or opener.owner is None or opener.owner in self._released:
-            return False
+            return None
+        record = {"tab_id": chrome_id, "task": opener.owner, "root": self.task_root(opener.owner),
+                  "borrowed": opener.attached, "title": self._group(opener.owner)["title"]}
         if any(t.bridge is br and t.chrome_id == chrome_id for t in self._tabs.values()):
-            return True
+            return record
         if not self._count_tab(opener.owner):
             opener.opened.append({"url": url, "error": f"this task already opened {self.max_tabs()} tabs "
                                   "(browser.task_max_tabs): the page's new tab was left to the browser"})
-            return False
+            return None
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
-        self._tabs[ref.tab_id] = _Tab(ref, br, chrome_id, opener.owner, url, attached=opener.attached)
-        if not opener.attached:
-            br.hold()
+        self._hold(self._tabs.setdefault(ref.tab_id, _Tab(ref, br, chrome_id, opener.owner, url,
+                                                          attached=opener.attached)))
         opener.opened.append({"tab": ref.tab_id, "url": url, "via": "the page opened it"})
-        return True
+        return record
 
     def downloads_of(self, task: str) -> list[dict[str, Any]]:
         """Every download this task's tabs in this identity's profiles started; a registered checker sees its
@@ -1062,15 +1305,19 @@ class _TabDriver:
             if not v.get("released") or (t.keep_open and not v.get("kept_open")):
                 raise DriverError(f"browser did not confirm releasing {tab.tab_id}")
         else:
-            # An old connection's tab reference must not close a different browser session's tab.
-            if t.bridge.gen != tab.generation:
+            # A tab FERB holds by its browser id once a hello re-adopted it (readopt): until then a reconnect left it
+            # unconfirmed, and it is not closed blind.
+            if t.bridge.gen != t.ref.generation:
                 raise DriverError(f"cannot confirm cleanup of {tab.tab_id}: browser connection changed")
+            t.closing = True                             # its removal is FERB's own, no owner's stop
             v = await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
-            if not v.get("closed") and not (v.get("kept_open") and v.get("released")):
+            if v.get("reason") == "not_ferbs":           # the extension never closes a tab it has no record of opening
+                v = {**v, "released": True, "left_open": True}
+            elif not v.get("closed") and not (v.get("kept_open") and v.get("released")):
+                t.closing = False
                 raise DriverError(f"browser did not confirm closing {tab.tab_id}")
         self._tabs.pop(tab.tab_id, None)
-        if not t.attached:
-            t.bridge.unhold()
+        self._unhold(t)
         if self.uploads is not None and v.get("closed"):
             self.uploads.closed(tab_key(t.bridge.name, t.chrome_id))   # rule 17: its upload copies go with its tree
         return self._lifecycle(t, v)
@@ -1127,6 +1374,9 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
+        t.frame_urls = {int(f["frame_id"]): str(f.get("url") or "") for f in v["frames"]}
+        t.commerce = next((dict(f["commerce"]) for f in v["frames"] if int(f["frame_id"]) == 0
+                           and isinstance(f.get("commerce"), dict)), {})
         t.containers, t.media, t.media_ids = containers, media_refs, media_ids
         t.page, t.motion, t.moved = _Page.of(v.get("window"), top), motion, False
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
@@ -1159,8 +1409,9 @@ class _TabDriver:
         if el.element_id in t.points or action.kind == "drag":
             return await self._pointer(t, el, action, intent_id)
         t.visual = None
-        if action.kind == "type" and info.secret:
-            raise Refused("that's a password/code field; FERB never types into it")
+        if info.secret and (action.kind == "type" or (action.kind == "press" and enters_text(action.text))):
+            raise Refused(f"that's a secret field ({info.field_kind or 'password or code'}); FERB never types into it "
+                          "or presses a key that puts text there: fill it through browser.secret or a saved card")
         into = action.kind in ("type", "press") and info.terminal                # D31: a web terminal
         if into and (refusal := self._terminal_refusal(t, el.element_id, action)):
             raise Refused(refusal)
@@ -1188,8 +1439,71 @@ class _TabDriver:
             g = action.terminal
             t.armed = ((el.element_id, g.confirmation_id) if g is not None and action.kind == "type" and g.input.enter
                        and v.get("ok") else None)
+        facts = self.act_facts(t.ref.tab_id, el.element_id, action.kind, action.text)
+        submitted = [s for s in v.get("submitted") or [] if isinstance(s, dict)] if isinstance(v.get("submitted"), list) \
+            else []
+        if submitted:                                  # the page's own submit event, seen during this act
+            s = submitted[0]
+            kinds = tuple(dict.fromkeys(k for x in submitted for k in x.get("kinds") or () if k in FIELD_KINDS))
+            facts = dataclasses.replace(facts or ActionFacts(), submits_form=True,
+                                        form_action_host=s.get("action_host") if isinstance(s.get("action_host"), str)
+                                        else None,
+                                        form_method=s.get("method") if isinstance(s.get("method"), str) else None,
+                                        field_kinds=tuple(dict.fromkeys((*(facts.field_kinds if facts else ()),
+                                                                         *kinds))))
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")),
-                            {k:value for k,value in v.items() if k not in {"ok","detail"}})
+                            {k:value for k,value in v.items() if k not in {"ok","detail"}}, observed=facts)
+
+    def act_facts(self, tab_id: str, element_id: str, kind: str, text: str | None) -> ActionFacts | None:
+        """What code reads, from the latest snapshot, about an act on this element (gateway decision 1, protocol 18):
+        whether it submits a form (a click on a submit control, Enter in a field whose form submits) with the form's
+        action host and method; the kinds of the secret fields it fills or the submitted form holds; an amount the
+        control's own label shows, else the one the page states in structured form; the page's merchant; the target's
+        role and secrecy, the page URL, and the frame's host when it isn't the page's. None: no such element."""
+        t = self._tabs.get(tab_id)
+        hit = t.elements.get(element_id) if t else None
+        if t is None or hit is None:
+            return None
+        frame, info = hit[0], hit[3]
+        sub = info.submit
+        enter = kind == "press" and str(text or "").strip().casefold() in ("enter", "return")
+        submits = sub is not None and ((kind in ("click", "dblclick") and sub.on_click) or (enter and sub.on_enter))
+        kinds = tuple(dict.fromkeys(([info.field_kind] if info.field_kind and kind in ("type", "select") else [])
+                                    + (list(sub.field_kinds) if submits and sub else [])))
+        amount = label_amount(info.label if kind in ("click", "dblclick") else None) or             (label_amount(sub.label) if submits and sub else None)
+        page = urlsplit(t.url or "").hostname or None
+        here = urlsplit(t.frame_urls.get(frame, "")).hostname or None if frame else None
+        commerce = t.commerce or {}
+        return ActionFacts(submits_form=True if submits else None,
+                           form_action_host=sub.action_host if submits and sub else None,
+                           form_method=sub.method if submits and sub else None, field_kinds=kinds,  # type: ignore[arg-type]
+                           page_amount=amount or (commerce.get("amount") if isinstance(commerce.get("amount"), str)
+                                                  else None),
+                           page_merchant=commerce.get("merchant") if isinstance(commerce.get("merchant"), str) else None,
+                           secure_field=info.secret or None, terminal_target=info.terminal or None,
+                           target_role=info.role or None, page_url=t.url or None,
+                           frame_host=here if here and here != page else None)
+
+    def element_identity(self, tab_id: str, element_id: str) -> dict[str, Any] | None:
+        """P19's identity of an element of the latest snapshot (notes/gateway.md target 3): the page (origin and path,
+        never the query), the frame's when it is a child frame's, its role, and the node itself: the debugger's node id
+        while it lives (a fresh snapshot of the same page finds the same node), else its DOM path. Never the
+        snapshot-scoped id or the tab alias, so a new look after an unknown outcome doesn't make the same act new.
+        None: the id isn't one of the latest snapshot's."""
+        t = self._tabs.get(tab_id)
+        hit = t.elements.get(element_id) if t else None
+        if t is None or hit is None:
+            return None
+        frame, info = hit[0], hit[3]
+
+        def where(url: str) -> str:
+            u = urlsplit(url or "")
+            return f"{u.scheme}://{u.netloc}{u.path}" if u.scheme else ""
+        node = f"b:{info.backend_node}" if info.backend_node is not None else f"p:{info.path}" if info.path else None
+        if node is None:
+            return None
+        return {"page": where(t.url), **({"frame": where(t.frame_urls.get(frame, ""))} if frame else {}),
+                "role": info.role, "node": node}
 
     async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         if action.page_mode or action.kind not in POINTER_KINDS:
@@ -1401,10 +1715,10 @@ class _TabDriver:
                 | ({"id": own} if own else {}) | ({"frame": frame} if frame else {}))
 
     async def show_tab(self, tab: TabRef) -> bool:
-        """The owner clicked FERB's human-check notification: this tab comes to the front in its own window. False
-        when the profile's extension is older than SHOW_VERSION (the caller brings the browser forward instead)."""
-        t = self._tab(tab)
-        if t.bridge.conn is None or not version_ok(getattr(t.bridge, "version", "") or "0", SHOW_VERSION):
+        """The owner clicked FERB's human-check notification: this tab comes to the front in its own window. False when
+        its profile isn't connected or the tab isn't FERB's to show any more (the caller brings the browser forward)."""
+        t = self._tabs.get(tab.tab_id)
+        if t is None or t.closed or t.bridge.conn is None:
             return False
         await t.bridge.call("show_tab", {"tab_id": t.chrome_id}, timeout=10)
         return True
@@ -1616,7 +1930,7 @@ class _TabDriver:
             return bool(action.page_mode or action.kind not in POINTER_KINDS or not self._visual_fresh(t)
                         or el.element_id not in t.points
                         or (action.kind == "drag" and (action.end_element or "") not in t.points))
-        return action.kind == "type" and info.secret
+        return info.secret and (action.kind == "type" or (action.kind == "press" and enters_text(action.text)))
 
     async def screen_rect(self, el: ElementRef, action: BrowserAction | None = None,
                           visible: bool = False) -> Rect | None:
@@ -1802,8 +2116,8 @@ class _TabDriver:
         t = self._tabs.get(ref.tab_id)
         if t is None:
             raise StaleRef(f"tab {ref.tab_id} is gone")
-        if t.closed:
-            raise StaleRef(f"tab {ref.tab_id} was closed in the browser")
+        if t.closed:                                   # closed, or taken / lost (owner decision 3): never driven again
+            raise StaleRef(f"tab {ref.tab_id} is no longer FERB's: {t.left or 'it was closed in the browser'}")
         if t.bridge.gen != ref.generation or t.bridge.conn is None:
             raise StaleRef(f"tab {ref.tab_id} belongs to an older browser connection")
         return t
@@ -1826,23 +2140,26 @@ class _TabDriver:
         """The task's tabs by tab id (owner live use 2026-10-18: a navigated tab counted as missing), each with the
         page it held when the task took it over, when it was the owner's, and then its tab_ref (what browser.tabs and
         a loop's probe name it by, L31)."""
-        return [{"tab": t.ref.tab_id, **({"closed": "the owner closed this tab"} if t.closed else {}),
+        return [{"tab": t.ref.tab_id, **({"closed": t.left or "the owner closed this tab"} if t.closed else {}),
                  **({"tab_ref": f"{t.ref.browser}:{t.ref.profile}:{t.chrome_id}",
                      "taken_over_from": dict(t.taken_over_from)} if t.taken_over_from else {})}
                 for t in self._tabs.values() if t.owner == owner]
 
-    def tabs_of(self, owner: str) -> list[str]:
-        """Existing aliases for verification; ownership stays with the original worker."""
-        return [t.ref.tab_id for t in self._tabs.values() if t.owner == owner]
-
     async def release(self, owner: str) -> list[dict[str, Any]]:
-        """Task end: close or release its tabs, each retried once. A tab that still can't be let go of becomes no task's:
-        its downloads go back to the browser, and the extension's next hello lists it armed, so the daemon disarms it
-        then (the release, retried on reconnect)."""
+        """Task end (owner decision 3): a borrowed owner tab is let go of where the work finished; a tab FERB opened
+        that holds the result (`keep_open`), or every one when the owner asked to keep the task's tabs
+        (`keep_tabs_open`), leaves the group and stays open; the others close with the group. A paused task keeps its
+        group: nothing closes. Each retried once; a tab that still can't be let go of becomes no task's: its downloads
+        go back to the browser, and the extension's next hello lists it, so the daemon closes or releases it then."""
+        if self.task_paused(owner):
+            return []
+        keep_all = self.task_root(owner) in self._keep_roots
         # bounded: tasks that ended are no longer anyone's to race with; trees with no tab left start their count over
         self._released = {o for o in self._released if self.task_running(o)} | {owner}
         results, errors = [], []
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
+            if keep_all and not self._tabs[alias].attached and not self._tabs[alias].closed:
+                self._tabs[alias].keep_open = True
             for attempt in (1, 2):
                 if alias not in self._tabs:
                     break
@@ -1855,6 +2172,7 @@ class _TabDriver:
                         errors.append(f"{alias}: {e}")
         live_roots = {self.task_root(t.owner) for t in self._tabs.values() if t.owner}
         self._tabs_opened = {r: n for r, n in self._tabs_opened.items() if r in live_roots}
+        self._keep_roots = {r for r in self._keep_roots if r in live_roots or self.task_running(r)}
         if errors:
             raise DriverError("browser cleanup incomplete: " + "; ".join(errors))
         return results
@@ -1993,6 +2311,11 @@ class Router(_TabDriver):
                                       # stored redacted, so every later reader is safe (re-review 2, I4)
                                       taken_over_from={"url": self.redact_text(str(tab.get("url") or "")),
                                                        "title": self.redact_text(str(tab.get("title") or ""))})
+        try:                         # recorded (never grouped) so a reconnect re-adopts it; best effort
+            await br.call("adopt_tab", {"tab_id": cid, "task": owner, "root": self.task_root(owner), "borrowed": True},
+                          timeout=10)
+        except DriverError:
+            pass
         return ref
 
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:

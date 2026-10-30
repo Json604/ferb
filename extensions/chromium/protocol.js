@@ -1,8 +1,28 @@
 // Owns protocol versions, sealing and allowed CDP mechanics; must not interpret task or page meaning.
 // FERB extension protocol , mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 17;
+// Protocol 18 (extension 0.16.0): daemon messages signed (DAEMON_SIGNED), tab groups and connection-independent tab
+// records (adopt_tab, hello `tabs`, `taken`), card fields secret, read errors known failures (READ_OPS).
+const FERB_PROTOCOL = 18;
 const FERB_HOST = "com.ferb.native_host";
+
+// Reads: commands that never change the page. One failing (a timeout, a frame gone, a page the browser won't let FERB
+// read) is a known failure, never "outcome unknown" (P19 is for consequential actions). `dialog` without a decision
+// only reads too (background.js `outcomeOf`). Mirrored by ext_protocol.READS.
+const READ_OPS = new Set(["list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
+  "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping", "point"]);
+// Daemon messages that carry an HMAC (pairing key, this connection's hello nonce, a strictly increasing counter):
+// the extension acts on no other kind of daemon message (refused / pairing_required / paired change no page).
+const DAEMON_SIGNED = new Set(["welcome", "cmd"]);
+const daemonMacText = (nonce, seq, type, body) => `${nonce}|${seq}|${type}|${body}`;
+
+// Per service-worker start, never fixed: the page hook's event names and the attribute that links a snapshot's
+// elements to the debugger's nodes for one snapshot (removed right after), so a page can't look for a FERB marker by
+// name (ferb-armed, data-ferb-ax: protocol 17). Bounded hex only.
+const _hex = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join("");
+const FERB_TOKEN = _hex(6);
+const BIND_ATTR = `data-${FERB_TOKEN}`;            // a snapshot's element binding (content.js bind, ax.js)
+const STAMP_ATTR = `data-${FERB_TOKEN}s`;          // an upload's file-field stamp (content.js stamp)
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
 // the renderer interprets a shortcut like ⌘A only through these (measured in the browser input probes). Anything
@@ -24,22 +44,23 @@ const DOWNLOAD_PART = 72000;
 const DOWNLOAD_PATTERNS = [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }];
 const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((k) => k in p);
 
-// The page hook (D35): FERB's only main-world code, pinned here by its exact source. The tab's own debugger session
+// The page hook (D35): FERB's only main-world code, pinned here by its exact source (with this worker's FERB_TOKEN). The tab's own debugger session
 // installs it (Page.addScriptToEvaluateOnNewDocument, runImmediately) only in armed task tabs and removes it on release;
-// before acting it asks content.js through a cancelable "ferb-armed" event that content.js answers only while FERB
+// before acting it asks content.js through a cancelable "<token>:armed" event that content.js answers only while FERB
 // drives the tab, so a document still patched after a release behaves natively. It catches what no listener sees:
 // a save through a download link the page never added (FileSaver.js style), clicked while connected so content.js's
 // capture listener takes it; and window.open(url) for an http(s) URL in a new tab or window, opened as
 // about:blank#ferb-<token> (the page keeps its real window and opener) so FERB can claim exactly that tab and arm it;
 // the hook then loads the URL itself, once: when content.js says the popup is ready, or after 1.5 s, and only while the
 // popup is still exactly at that blank URL (a page that navigated or closed its popup meanwhile keeps its own choice).
-// FERB never navigates it. A page that fakes "ferb-popup-ready" only loads its own popup early. It never masks itself.
-function ferbPageHook() {
-  const MARK = Symbol.for("ferb.page-hook");
+// FERB never navigates it. A page that fakes "<token>:ready" only loads its own popup early. It never masks itself:
+// the patched functions are visible as such (toString) in a task tab while FERB drives it (a documented residual).
+function ferbPageHook(token) {
+  const MARK = Symbol.for(token);
   if (window[MARK]) return;
   Object.defineProperty(window, MARK, { value: true });
   const dispatch = EventTarget.prototype.dispatchEvent, click = HTMLElement.prototype.click, open = window.open;
-  const armed = () => !dispatch.call(document, new CustomEvent("ferb-armed", { cancelable: true }));
+  const armed = () => !dispatch.call(document, new CustomEvent(token + ":armed", { cancelable: true }));
   const unseenSave = (el) => (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && !el.isConnected &&
     el.hasAttribute("download") && /^(blob|data):/i.test(String(el.href || ""));
   // In the document for one click() (cancelable, unlike a page's `new MouseEvent("click")`, so content.js can cancel it).
@@ -67,28 +88,28 @@ function ferbPageHook() {
         !armed()) return open.apply(window, arguments);
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
-    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    const blank = "about:blank#ferb-" + token;
+    const tag = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const blank = "about:blank#ferb-" + tag;
     const popup = open.call(window, blank, "_blank", features);
     if (!popup) return popup;
     let loaded = false;
     const load = () => {
       if (loaded) return;
       loaded = true;
-      document.removeEventListener("ferb-popup-ready", onReady);
+      document.removeEventListener(token + ":ready", onReady);
       let at = "";
       try { if (popup.closed) return; at = String(popup.location.href); } catch (_) { return; }   // closed, or another origin's now
       if (at !== blank) return;                                        // the page sent it somewhere itself: its URL stands
       try { popup.location.href = href; } catch (_) { /* closed meanwhile */ }
     };
-    const onReady = (e) => { if (e.detail === token) load(); };
-    document.addEventListener("ferb-popup-ready", onReady);
-    dispatch.call(document, new CustomEvent("ferb-popup", { detail: JSON.stringify({ token, url: href }) }));
+    const onReady = (e) => { if (e.detail === tag) load(); };
+    document.addEventListener(token + ":ready", onReady);
+    dispatch.call(document, new CustomEvent(token + ":popup", { detail: JSON.stringify({ token: tag, url: href }) }));
     setTimeout(load, 1500);
     return popup;
   };
 }
-const PAGE_HOOK = `(${ferbPageHook.toString()})();`;
+const PAGE_HOOK = `(${ferbPageHook.toString()})(${JSON.stringify(FERB_TOKEN)});`;
 
 // The exact CDP allowlist, enforced here even if the daemon asks for more. Each entry checks the params
 // shape; anything not listed is refused: cookies/storage, other targets, free-form script evaluation.
@@ -132,13 +153,13 @@ const CDP_ALLOW = {
   "DOM.describeNode": (p) => Number.isInteger(p.backendNodeId) && [0, 1].includes(p.depth) && Object.keys(p).length === 2,
   "DOM.pushNodesByBackendIdsToFrontend": (p) => Array.isArray(p.backendNodeIds) && p.backendNodeIds.length === 1
     && Number.isInteger(p.backendNodeIds[0]) && Object.keys(p).length === 1,
-  "DOM.setAttributeValue": (p) => Number.isInteger(p.nodeId) && p.name === "data-ferb-ax"
+  "DOM.setAttributeValue": (p) => Number.isInteger(p.nodeId) && p.name === BIND_ATTR
     && /^[a-f0-9]{16}$/.test(p.value) && Object.keys(p).length === 3,
   "DOM.getBoxModel": (p) => Number.isInteger(p.backendNodeId) && Object.keys(p).length === 1,
   // file uploads on a FERB-stamped element. depth 0 = the document node only, never the DOM.
   "DOM.getDocument": (p) => p.depth === 0 && Object.keys(p).length === 1,
-  "DOM.querySelector": (p) => Number.isInteger(p.nodeId) && /^\[data-ferb-node="[a-f0-9]{16}"\]$/.test(p.selector),
-  "DOM.performSearch": p => Object.keys(p).length === 1 && /^\[data-ferb-node="[a-f0-9]{16}"\]$/.test(p.query),
+  "DOM.querySelector": (p) => Number.isInteger(p.nodeId) && _stampQuery(p.selector),
+  "DOM.performSearch": p => Object.keys(p).length === 1 && _stampQuery(p.query),
   "DOM.getSearchResults": p => typeof p.searchId === "string" && p.fromIndex === 0 && p.toIndex === 1 && Object.keys(p).length === 3,
   "DOM.discardSearchResults": p => typeof p.searchId === "string" && Object.keys(p).length === 1,
   "DOM.setFileInputFiles": (p) => Number.isInteger(p.nodeId) && Array.isArray(p.files)
@@ -156,6 +177,10 @@ const CDP_ALLOW = {
     _only(p, ["source", "runImmediately"]),
   "Page.removeScriptToEvaluateOnNewDocument": (p) => typeof p.identifier === "string" && _only(p, ["identifier"]),
 };
+function _stampQuery(q) {                    // exactly one upload stamp: [<STAMP_ATTR>="<16 hex>"]
+  const m = /^\[([a-z0-9-]+)="([a-f0-9]{16})"\]$/.exec(String(q));
+  return !!m && m[1] === STAMP_ATTR;
+}
 const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys leave the sendCommand wrapper)
   "Page.captureScreenshot": ["data"],
   "Accessibility.getFullAXTree": ["nodes"],
@@ -301,8 +326,19 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab"];
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
+             "adopt_tab"];
+
+// Whether a key press puts text into the focused field (a character without ⌘/⌃/⌥, Space, or a paste): such a press
+// into a secret field is refused, as typing is; Return, Tab, Escape, arrows and other shortcuts still go (notes/hands.md
+// rulings, step 5b). Mirrored by ext_bridge.enters_text.
+function entersText(spec) {
+  const k = keyEvent(spec);
+  if (!k) return false;
+  return (k.text !== undefined && k.key !== "Enter") || !!(k.commands && k.commands.includes("paste"));
+}
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,
-                                                      PAGE_HOOK, ferbPageHook };
+                                                      PAGE_HOOK, ferbPageHook, READ_OPS, DAEMON_SIGNED, daemonMacText,
+                                                      FERB_TOKEN, BIND_ATTR, STAMP_ATTR, entersText };

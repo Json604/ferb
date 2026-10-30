@@ -36,7 +36,7 @@ class FakeBridge:
 
 def router() -> tuple[Router, FakeBridge]:
     br = FakeBridge()
-    hub = SimpleNamespace(bridges={("brave", "Default"): br}, bridge=lambda b, f: br)
+    hub = SimpleNamespace(bridges={("brave", "Default"): br}, bridge=lambda b, f: br, publish=lambda *a: None)
     r = Router(hub, resolver=SimpleNamespace(), profiles=lambda: [SimpleNamespace(browser="brave", folder="Default",
                                                                                   display_name="Work")])  # type: ignore
     return r, br
@@ -351,6 +351,8 @@ def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
     r, br = router()
     hub = SimpleNamespace(drivers=[r])
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    published: list[tuple[str, Any]] = []
+    r.hub.publish = lambda topic, data: published.append((topic, data))           # type: ignore[attr-defined]
     Hub.tab_removed(hub, br, 11)                                                    # type: ignore[arg-type]
     assert r.task_tabs("task-1") == [{"tab": ref.tab_id, "closed": "the owner closed this tab",
                                       "tab_ref": "brave:Default:11",
@@ -358,6 +360,7 @@ def test_a_held_tab_the_owner_closes_is_marked_closed() -> None:
                                                           "title": "Lesson"}}]
     with pytest.raises(StaleRef):
         r._tab(ref)
+    assert published and published[0][0] == "browser.owner_stopped"              # owner decision 3: for step 8
     assert r.task_tab(br, 11) is None                                       # no downloads are held for it
     br.calls.clear()
     assert asyncio.run(r.release("task-1"))[0]["closed"] is True
@@ -383,12 +386,11 @@ def test_keep_open_on_the_owners_tab_confirms_it_is_still_open() -> None:
         asyncio.run(r.keep_open(gone))
 
 
-@pytest.mark.parametrize("version, sent", [("0.15.10", True), ("0.15.12", True), ("0.15.9", False), ("0.15.6", False)])
+@pytest.mark.parametrize("version, sent", [("0.16.0", True)])
 def test_a_resting_owner_tab_gives_its_file_picker_back_only_on_an_extension_that_knows_how(version: str,
                                                                                            sent: bool) -> None:
-    """Re-review N2: `rest` is new in extension 0.15.10. The daemon sends it only to an extension that reports 0.15.10
-    or later (no protocol or minimum change): an older one keeps the held tab's file picker intercepted between rounds
-    (a documented residual) and is never sent a command it doesn't know. Only the owner's borrowed tabs rest."""
+    """Re-review N2: `rest` is new in extension 0.15.10; protocol 18's minimum (0.16.0) is past it, so every
+    extension FERB accepts is sent it (the version gate went with the bump). Only the owner's borrowed tabs rest."""
     r, br = router()
     br.version = version                                                             # type: ignore[attr-defined]
     owned = asyncio.run(r.attach("brave:Default:11", "task-1"))

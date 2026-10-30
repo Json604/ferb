@@ -292,12 +292,10 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    # 0.15.7 (another extension's frame no longer blocks act), 0.15.8 (media ids, tab sound), 0.15.9 (the cursor's
-    # snapshot facts, instant centring scrolls), 0.15.10 (a first snapshot waits for new media to move), 0.15.11 (an
-    # element's `terminal` fact, D31), 0.15.12 (closed shadow roots, a press that never started is a known failure)
-    # and 0.15.13 (show_tab, sent only to 0.15.13 or later) change no protocol: optional reply fields an older side ignores or misses. The minimum is 0.15.11 (D31 review
-    # round 1): an extension that can't report a web terminal is refused
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (17, 17, "0.15.11", "0.15.13")
+    # Protocol 18 (step 5c) is one bump for all of its changes (signing, tab groups, card fields, read failures, the
+    # outbox), with the minimum and the shipped bundle at 0.16.0 and the tabGroups permission
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (18, 18, "0.16.0", "0.16.0")
+    assert "tabGroups" in manifest["permissions"]
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 
@@ -465,7 +463,7 @@ def test_a_navigation_the_tab_cant_be_prepared_for_is_a_fact_and_a_failed_open_l
     opened = call(d, g, "browser.open", url=refused)
     assert opened["is_error"] and opened["content"]["reason"] == "download_capture_unavailable"
     assert set(ext.tabs) == before                                     # the blank tab was closed
-    assert d.daemon.router.tabs_of(g.task_id) == [tab]                 # and is no task's tab
+    assert [t["tab"] for t in d.daemon.router.task_tabs(g.task_id)] == [tab]                 # and is no task's tab
 
 
 def test_a_link_to_a_new_tab_is_opened_by_ferb_as_the_same_tasks_tab(bd: Any) -> None:
@@ -476,7 +474,7 @@ def test_a_link_to_a_new_tab_is_opened_by_ferb_as_the_same_tasks_tab(bd: Any) ->
     snap = call(d, g, "browser.snapshot", tab=tab)
     [new] = snap["content"]["opened_tabs"]
     assert new["via"] == "link" and new["url"] == f"{SITE}/next"
-    assert new["tab"] in d.daemon.router.tabs_of(g.task_id)
+    assert new["tab"] in [t["tab"] for t in d.daemon.router.task_tabs(g.task_id)]
     assert ext.tab_active[max(t for t, u in ext.tabs.items() if u == f"{SITE}/next")] is False   # in the background
 
 
@@ -484,7 +482,7 @@ def test_a_tab_the_page_opens_becomes_the_same_tasks_tab_and_one_from_elsewhere_
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
     pop = ext.popup(chrome_id, f"{SITE}/popup")
-    ext.wait_for(lambda: len(d.daemon.router.tabs_of(g.task_id)) == 2)
+    ext.wait_for(lambda: len([t["tab"] for t in d.daemon.router.task_tabs(g.task_id)]) == 2)
     rec = _deliver(d, ext, pop, name="in-popup.csv", data=b"a,b", source_url=f"{SITE}/x.csv")
     assert rec["state"] == "taken"
     assert call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"][0]["via"] == "the page opened it"
@@ -611,7 +609,7 @@ def test_a_new_tab_from_the_owners_borrowed_tab_is_released_never_closed(bd: Any
     ext.link_to_new_tab(200, f"{SITE}/from-owner")
     ext.wait_for(lambda: f"{SITE}/from-owner" in ext.tabs.values())
     new_id = max(t for t, u in ext.tabs.items() if u == f"{SITE}/from-owner")
-    ext.wait_for(lambda: len(d.daemon.router.tabs_of(g.task_id)) == 3)
+    ext.wait_for(lambda: len([t["tab"] for t in d.daemon.router.task_tabs(g.task_id)]) == 3)
     d.run(d.daemon.router.release(g.task_id))
     assert new_id in ext.tabs and 200 in ext.tabs                      # the owner's: released, still open
     assert chrome_id not in ext.tabs                                   # FERB's own task tab: closed
@@ -632,7 +630,7 @@ def test_a_transient_release_failure_is_retried_before_the_tab_stops_being_the_t
     _borrowed(d, ext, g)
     ext.fail_release_times = 1
     d.run(d.daemon.router.release(g.task_id))                         # no error: the second attempt released it
-    assert d.daemon.router.tabs_of(g.task_id) == []
+    assert [t["tab"] for t in d.daemon.router.task_tabs(g.task_id)] == []
 
 
 def test_a_tab_opened_while_its_task_let_go_of_its_tabs_is_let_go_of_too(bd: Any) -> None:
@@ -661,7 +659,7 @@ def test_a_claimed_popup_becomes_the_tasks_tab_and_its_page_loads_it_ferb_never_
     assert ext.tabs[pop] == f"{SITE}/oauth"
     assert not [m for m in ext.wire if '"op": "navigate"' in m and f'"tab_id": {pop}' in m]   # no FERB navigation
     [new] = call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"]
-    assert new["url"] == f"{SITE}/oauth" and new["tab"] in d.daemon.router.tabs_of(g.task_id)
+    assert new["url"] == f"{SITE}/oauth" and new["tab"] in [t["tab"] for t in d.daemon.router.task_tabs(g.task_id)]
 
 
 def test_running_rows_a_restart_cut_off_are_finalized_as_failed(bd: Any) -> None:

@@ -56,14 +56,32 @@ daemon asks the owner before typing or pressing a key into it (a web terminal). 
 until it updates, a web terminal reached through browser tools isn't recognized (one reached through mac.act still is,
 by the DOM classes Accessibility exposes). Review round 1 (D31): the minimum is therefore 0.15.11 (the owner published
 it), with the protocol unchanged at 17: an older extension meets the "reload the FERB extension" refusal at hello, so no
-web terminal goes unrecognized; every extension FERB talks to also knows `rest` (REST_VERSION's gate stays as a
-guard). Extension 0.15.12 changes no protocol and no minimum: snapshots, screenshot points and element adoption reach
-closed shadow roots (live 2026-10-26: Cloudflare's checkbox frame sits in one), and a pointer press that never started
-(its move never reached the target's frame) is a known failure with `reason: pointer_did_not_reach_target_frame`.
-Extension 0.15.13 adds one command without a protocol change: `show_tab {tab_id}` brings that tab forward in its own
-window (restored if minimized, focused), sent only when the owner clicks FERB's human-check notification, and only to
-an extension reporting 0.15.13 or later (`ext_bridge.SHOW_VERSION`); for an older one the click brings that profile's
-browser forward instead. The protocol number and the minimum stay."""
+web terminal goes unrecognized. Extension 0.15.12 changes no protocol and no minimum: snapshots, screenshot points and
+element adoption reach closed shadow roots (live 2026-10-26: Cloudflare's checkbox frame sits in one), and a pointer
+press that never started (its move never reached the target's frame) is a known failure with `reason:
+pointer_did_not_reach_target_frame`. Extension 0.15.13 adds one command without a protocol change: `show_tab {tab_id}`
+brings that tab forward in its own window (restored if minimized, focused), sent only when the owner clicks FERB's
+human-check notification.
+
+Protocol 18 (step 5c, extension 0.16.0, the minimum; one bump for all of it, so the version gates for `rest` and
+`show_tab` are gone):
+- Daemon messages that act are signed: `welcome` and `cmd` travel as {type, seq, body (the JSON text), mac}, the mac an
+  HMAC-SHA256 with the pairing key over "<nonce>|<seq>|<type>|<body>", the nonce fresh in each hello and seq strictly
+  increasing per connection (`daemon_envelope`), so a message can't be forged without the key nor replayed on another
+  connection; the extension acts on nothing else. It takes a `paired` only while its own pairing page is pending.
+- Tab groups (owner decision 3): `open` takes `group` {root, task, title}: the tab joins its task's collapsed group;
+  `adopt_tab` records a popup (grouped) or the owner's borrowed tab (never grouped). The hello's `tabs` lists the
+  records still valid in this browser session ({tab_id, task, root, borrowed, cid, url}), so a reconnect or a daemon
+  restart re-adopts them or closes those of an ended task; `close` closes only a tab FERB opened; a `taken` event says
+  the owner moved a FERB tab out of its group (theirs now); `release_tab` with keep_open hands a tab over out of the
+  group.
+- Card fields (autocomplete cc-number / cc-csc / cc-exp*) are secret like password and code fields; elements carry
+  `field_kind`, `submit` (what a click or Enter would submit: action host, method, the form's secret kinds), `path`
+  (DOM path) and `backend_node` (the debugger's node id, when the accessibility pass mapped it); a frame may carry
+  `commerce` {amount, merchant} from structured data; an act that can submit reports the page's own `submitted` events.
+- A read's error (READS) is a known failure, never "outcome unknown". Queued messages leave after the welcome, signed
+  then. `list_tabs` URLs are masked. The page hook's events and the linking attributes have random names per
+  service-worker start (no fixed `ferb-armed` / `data-ferb-*` marker)."""
 
 import base64
 import hashlib
@@ -73,8 +91,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 17
-MIN_EXTENSION_VERSION = "0.15.11"
+PROTOCOL_VERSION = 18
+MIN_EXTENSION_VERSION = "0.16.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
@@ -82,7 +100,12 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab"]
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media", "rest", "show_tab",
+             "adopt_tab"]
+# Commands that never change the page (protocol.js READ_OPS): one that fails or times out is a known failure.
+READS: frozenset[str] = frozenset({"list_tabs", "snapshot", "wait", "screenshot", "screenshot_part", "record_frame",
+                                   "frame_origin", "read_source", "window_secrets", "find", "result_part", "ping",
+                                   "point"})
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -119,6 +142,8 @@ class Hello(BaseModel):
     owned: list[dict[str, Any]] = []           # resources it created, each tagged with its command id
     seen: list[dict[str, Any]] = []            # recent command ids with started / done / failed / unknown (reconciliation)
     armed: list[int] = []                      # tabs holding downloads for FERB (D35): the daemon disarms any it doesn't hold
+    nonce: str = Field(default="", max_length=64)   # protocol 18: this connection's signing nonce (daemon_envelope)
+    tabs: list[dict[str, Any]] = []            # protocol 18: the tabs FERB holds in this browser session (its records)
 
 
 class Result(BaseModel):
@@ -142,12 +167,12 @@ class TabEvent(BaseModel):
 class Event(BaseModel):
     """Observed tab dialog, intercepted file chooser, debugger detachment, or a download caught in a tab FERB drives
     (held by the extension until `download_part` takes or cancels it); no implied user decision."""
-    event: Literal["dialog", "detached", "file_chooser", "download", "open", "popup"]
+    event: Literal["dialog", "detached", "file_chooser", "download", "open", "popup", "taken"]
     tab_id: int
     type: str | None = None                    # dialog: alert | confirm | prompt | beforeunload
     message: str | None = None
     handled: str | None = None                 # dialog: accepted | dismissed
-    reason: str | None = None                  # detached: canceled_by_user | target_closed | ...
+    reason: str | None = None                  # detached: canceled_by_user | target_closed | ...; taken: how it left
     frame_id: str | None = None
     session_id: str | None = None
     backend_node_id: int | None = None
@@ -193,4 +218,17 @@ def parse(raw: dict[str, Any]) -> ExtMessage | None:
 
 
 def command(cid: str, gen: int, op: Op, args: dict[str, Any], timeout_ms: int) -> dict[str, Any]:
-    return {"type": "cmd", "id": cid, "gen": gen, "op": op, "args": args, "timeout_ms": timeout_ms}
+    return {"id": cid, "gen": gen, "op": op, "args": args, "timeout_ms": timeout_ms}
+
+
+def daemon_mac(key: bytes, nonce: str, seq: int, mtype: str, body: str) -> str:
+    return base64.b64encode(hmac.new(key, f"{nonce}|{seq}|{mtype}|{body}".encode(), hashlib.sha256).digest()).decode()
+
+
+def daemon_envelope(key: bytes, nonce: str, seq: int, mtype: Literal["welcome", "cmd"],
+                    body: dict[str, Any]) -> dict[str, Any]:
+    """A daemon message the extension acts on (protocol 18): its body as JSON text (relayed unchanged as a string), a
+    counter strictly increasing on this connection and an HMAC with the pairing key over this connection's hello nonce,
+    the counter, the type and the body."""
+    text = json.dumps(body)
+    return {"type": mtype, "seq": seq, "body": text, "mac": daemon_mac(key, nonce, seq, mtype, text)}

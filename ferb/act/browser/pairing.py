@@ -64,9 +64,8 @@ class Pairings:
         return bytes(r["key"]) if r else None
 
     def unpair(self, browser: str, folder: str) -> bool:
-        """The owner unpaired the profile (recorded in ext_autopair_off, left from the removed automatic pairing)."""
-        self.db.conn.execute("INSERT OR REPLACE INTO ext_autopair_off VALUES (?, ?, ?)",
-                             (browser, folder, self.clock.now().isoformat()))
+        """The owner unpaired the profile. (Automatic pairing is gone, so nothing records the unpairing any more; its
+        old ext_autopair_off table is left for the storage step's cleanup.)"""
         return self.db.conn.execute("DELETE FROM ext_installs WHERE browser = ? AND folder = ?",
                                     (browser, folder)).rowcount > 0
 
@@ -110,13 +109,16 @@ class Pairings:
         key = secrets.token_bytes(32)
         c = self.db.conn
         c.execute("BEGIN")
-        c.execute("DELETE FROM ext_installs WHERE (browser = ? AND folder = ?) OR install_id = ?",
-                  (browser, folder, m.install_id))
-        c.execute("INSERT INTO ext_installs (install_id, browser, folder, identity, key, last_seq, paired_at) "
-                  "VALUES (?, ?, ?, ?, ?, 0, ?)",
-                  (m.install_id, browser, folder, identity.value, key, self.clock.now().isoformat()))
-        c.execute("DELETE FROM ext_autopair_off WHERE browser = ? AND folder = ?", (browser, folder))
-        c.execute("COMMIT")
+        try:                                               # all or nothing: an error leaves the old binding as it was
+            c.execute("DELETE FROM ext_installs WHERE (browser = ? AND folder = ?) OR install_id = ?",
+                      (browser, folder, m.install_id))
+            c.execute("INSERT INTO ext_installs (install_id, browser, folder, identity, key, last_seq, paired_at) "
+                      "VALUES (?, ?, ?, ?, ?, 0, ?)",
+                      (m.install_id, browser, folder, identity.value, key, self.clock.now().isoformat()))
+            c.execute("COMMIT")
+        except BaseException:
+            c.execute("ROLLBACK")
+            raise
         self.paired.add(str(token))
         return Verdict(True, "paired", reply={"type": "paired", "key": base64.b64encode(key).decode()},
                        binding=Binding(m.install_id, browser, folder, identity))

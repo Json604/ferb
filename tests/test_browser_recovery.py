@@ -163,6 +163,7 @@ def test_confirmed_tab_close_does_not_detach_an_already_destroyed_target() -> No
     result = worker('''(async () => {
       let alive = true;
       const t = tabState(1); t.attached = true;
+      await mutateRecords(r => { r.tabs[1] = {task: "x", root: "x", cid: "c1"}; });   // a tab FERB opened
       chrome.tabs.remove = async () => {alive = false;};
       chrome.debugger = {sendCommand: async () => {if (!alive) throw Error('No tab with id: 1');}};
       try {return await commands.close({tab_id:1});}
@@ -244,7 +245,7 @@ def test_ax_is_primary_on_a_busy_page_and_preserves_dom_secret_metadata() -> Non
         if (method === "Page.getFrameTree") return {frameTree: {frame: {id: "root"}}};
         if (method === "Accessibility.getFullAXTree") return {nodes: [{role: {value: "textbox"}, name: {value: "Verification code"},
           value: {value: "123456"}, backendDOMNodeId: 7}]};
-        if (method === "DOM.describeNode") return {node: {attributes: ["data-ferb-ax", elements[0].binding]}};
+        if (method === "DOM.describeNode") return {node: {attributes: [BIND_ATTR, elements[0].binding]}};
         return {};
       };
       const r = await commands.snapshot({tab_id: 1, snap: 1});
@@ -360,6 +361,9 @@ def test_protocol_refusal_reloads_eligible_same_version_bundle_once(required, mi
 
 @pytest.mark.parametrize('busy', ['command', 'owned_tab', 'attached_tab', 'gesture', 'storage_race'])
 def test_protocol_repair_waits_for_resources_then_retries_when_idle(busy):
+    """A refused extension reloads once nothing is in flight. Protocol 18: FERB's tabs survive a reload (their records
+    are in local storage and the next hello re-adopts them), and a refused connection drives no debugger session, so
+    neither an owned tab nor an attached one holds the repair back any more (they were how orphans blocked it)."""
     result = worker('''(async () => {
       const local = {}; let busy = true;
       chrome.storage.local = {get: async () => structuredClone(local), set: async x => {
@@ -380,14 +384,23 @@ def test_protocol_repair_waits_for_resources_then_retries_when_idle(busy):
       await checkExtensionUpdate();
       return {during, after:reloads};
     })()'''.replace('BUSY', json.dumps(busy)))
-    assert result == {'during': 0, 'after': 1}
+    assert result == ({'during': 1, 'after': 1} if busy in ('owned_tab', 'attached_tab') else {'during': 0, 'after': 1})
+
+
+SIGNED_WELCOME = '''
+      const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+      await chrome.storage.local.set({ferb: {installId: "inst-test", key: KEY, seq: 0}});
+      link = {nonce: "n0", seq: 0};
+      const signed = async (type, seq, payload) => { const body = JSON.stringify(payload);
+        return {type, seq, body, mac: await hmac(KEY, daemonMacText("n0", seq, type, body))}; };
+'''
 
 
 def test_successful_handshake_clears_protocol_repair_request():
-    result = worker('''(async () => {
+    result = worker('''(async () => {''' + SIGNED_WELCOME + '''
       activeCommands = 1;
       await onDaemon({type:'refused', reason:'protocol mismatch', required_protocol:FERB_PROTOCOL + 1, minimum_version:'0.11.1'});
-      await onDaemon({type:'welcome', gen:2});
+      await onDaemon(await signed('welcome', 1, {gen: 2}));
       chrome.runtime.getManifest = () => ({version:'0.11.1'});
       chrome.runtime.getURL = p => 'chrome-extension://test/' + p;
       let reloads = 0; chrome.runtime.reload = () => {reloads++;};
@@ -399,13 +412,15 @@ def test_successful_handshake_clears_protocol_repair_request():
     assert result == {'reloads': 0}
 
 
-def test_update_waits_between_commands_while_task_tab_is_still_owned() -> None:
+def test_update_waits_while_a_connected_task_tab_holds_its_debugger() -> None:
+    """Protocol 18: an open task tab alone no longer holds a newer bundle back (its record survives the reload); one
+    whose debugger session a live connection can drive does."""
     result = worker('''(async () => {
       chrome.runtime.getManifest = () => ({version: "0.10.0"});
       chrome.runtime.getURL = p => "chrome-extension://test/" + p;
       let reloads = 0; chrome.runtime.reload = () => {reloads++;};
       globalThis.fetch = async () => ({ok: true, json: async () => ({version: "0.10.1"})});
-      ownedTabs = async () => [{id: 'task', tab_id: 7}];
+      gen = 3; tabState(7).attached = true;
       await checkExtensionUpdate();
       return {reloads};
     })()''')
@@ -449,12 +464,12 @@ def test_concurrent_opens_share_one_window_without_losing_owned_tabs() -> None:
       chrome.tabs.create = async () => ({id: ++nextTab, windowId: 9});
       chrome.tabs.get = async id => ({id, windowId: 9, url: 'https://example.test/'});
       chrome.tabs.update = async () => {};
-      ferbGroup = async () => {}; waitComplete = async () => {};
+      waitComplete = async () => {};
       await Promise.all([commands.open({url:'https://example.test/',allow_foreground:true}, 'a'), commands.open({url:'https://example.test/',allow_foreground:true}, 'b')]);
-      return {windows, state: await session()};
+      return {windows, owned: Object.values((await records()).tabs).map(r => r.cid)};
     })()''')
     assert result['windows'] == 1
-    assert {x['id'] for x in result['state']['owned']} == {'a', 'b'}
+    assert set(result['owned']) == {'a', 'b'}
 
 
 def test_container_scroll_failure_never_scrolls_a_different_surface() -> None:
@@ -491,7 +506,7 @@ def test_release_keeps_tab_open_detaches_and_survives_extension_session_reset() 
     result = worker('''(async () => {
       const local = {};
       chrome.storage.local = {get: async () => structuredClone(local), set: async x => Object.assign(local,x)};
-      await saveSession({seen:{}, order:[], owned:[{id:'opened',tabId:22}], windowId:9});
+      await mutateRecords(r => { r.tabs[22] = {task: 'x', root: 'x', cid: 'opened'}; });   // a tab FERB opened
       const calls = []; chrome.debugger = {
         sendCommand: async (target, method) => {calls.push(method);},
         detach: async target => {calls.push('detach');}
@@ -501,8 +516,8 @@ def test_release_keeps_tab_open_detaches_and_survives_extension_session_reset() 
       chrome.tabs.remove = async () => {throw Error('must never close kept tab');};
       tabState(22).attached = true;
       const released = await commands.release_tab({tab_id:22, keep_open:true});
-      const owned = (await session()).owned;
-      await saveSession({seen:{}, order:[], owned:[], windowId:null});
+      const owned = Object.keys((await records()).tabs);
+      await saveSession({seen:{}, order:[], windowId:null});
       TABS.clear();
       const listed = await commands.list_tabs();
       const closed = await commands.close({tab_id:22});

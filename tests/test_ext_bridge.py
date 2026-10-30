@@ -256,7 +256,10 @@ def test_disconnect_mid_command_is_unknown_then_reconciled_never_replayed(bd: An
     assert len(ext.acts) == 0                                                   # never resent
     r2 = call(d, g, "browser.act", tab=tab, element=snap["elements"][1]["id"], action="click", effect="send",
               why="submitting the form")
-    assert r2["is_error"] and "older browser connection" in r2["content"]["error"]   # 21.13 after reconnect
+    # protocol 18: the tab is re-adopted by its browser id (the hello listed it); its element ids from before the
+    # reconnect are stale, so nothing is replayed from them
+    assert r2["is_error"] and "older snapshot" in r2["content"]["error"]
+    assert not call(d, g, "browser.snapshot", tab=tab)["is_error"]
 
 
 def test_missing_command_in_bounded_recovery_history_stays_unknown(bd: Any) -> None:
@@ -540,9 +543,15 @@ const mac = (key, m) => crypto.createHmac("sha256", Buffer.from(key, "base64"))
   .update(`${m.install_id}|${m.seq}|${m.type}|${m.body_json}`).digest("base64");
 (async () => {
   await ctx.ensurePort();
+  vm.runInContext("pairingPending = Date.now()", ctx);            // this profile's pairing page handed over a token
   const paired = ctx.onDaemon({ type: "paired", key: NEW });
   const events = [1, 2, 3].map((i) => ctx.send("tab_event", { event: "updated", tab_id: i }));   // racing the reply
   await Promise.all([paired, ...events]);
+  await new Promise((r) => setTimeout(r, 50));
+  // the daemon's welcome, signed for this connection (protocol 18): the queued events leave after it
+  const nonce = vm.runInContext("link.nonce", ctx), body = JSON.stringify({ gen: 1, identity: "owner" });
+  const wmac = crypto.createHmac("sha256", Buffer.from(NEW, "base64")).update(`${nonce}|1|welcome|${body}`).digest("base64");
+  await ctx.onDaemon({ type: "welcome", seq: 1, body, mac: wmac });
   await new Promise((r) => setTimeout(r, 100));
   const signed = posted.filter((m) => m.mac), i = signed.findIndex((m) => mac(NEW, m) === m.mac);
   console.log(JSON.stringify({ stored_key_new: store.ferb.key === NEW,
@@ -721,8 +730,8 @@ def test_an_extension_older_than_the_terminal_fact_is_refused_at_hello() -> None
         {"version": "0.15.10", "protocol": PROTOCOL_VERSION}))))
     reply = json.loads(writes[0])
     assert reply["type"] == "refused" and "reload the FERB extension" in reply["reason"]
-    assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.15.11"
-    assert version_ok("0.15.11") and version_ok("0.15.12") and not version_ok("0.15.10")
+    assert reply["minimum_version"] == MIN_EXTENSION_VERSION == "0.16.0"     # protocol 18 raised it past 0.15.11
+    assert version_ok("0.16.0") and not version_ok("0.15.13") and not version_ok("0.15.10")
 
 
 def test_a_reinstalled_unpaired_extension_says_pair_it_with_browser_pair(

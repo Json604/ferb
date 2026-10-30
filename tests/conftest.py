@@ -143,6 +143,16 @@ def network_route(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.fixture(autouse=True)
+def fake_browser_peer(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline, the fake extension's native host is started by the test process, not a browser: the daemon's check of
+    who started a native-host connection (ext_bridge.peer_refusal, protocol 18) takes it. test_browser_groups tests the
+    check itself (imported before this patch); real tests run the lab Chrome and keep it."""
+    if not request.node.get_closest_marker("real"):
+        import ferb.act.browser.ext_bridge as ext_bridge
+        monkeypatch.setattr(ext_bridge, "peer_refusal", lambda app, browser=None: None)
+
+
+@pytest.fixture(autouse=True)
 def offline_tokenizer(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline tests never download the tokenizer: `ferb setup` copies a verified one already on this Mac, or says it
     isn't available."""

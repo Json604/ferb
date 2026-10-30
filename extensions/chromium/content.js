@@ -2,7 +2,10 @@
 // All source labels/values and visible text are retained; the daemon pages model previews. Secret values remain masked.
 // Hidden file inputs remain addressable for direct upload; no native file picker is required. Shadow roots (closed
 // ones too: content scripts may open them, and Cloudflare's checkbox frame sits in one) and child frame geometry are
-// inventoried. UI visibility, covering elements and scroll containers are observed facts.
+// inventoried. UI visibility, covering elements and scroll containers are observed facts. Secret fields (password,
+// login code, card: `fieldKind`) never give their value. Structural facts for the gateway (protocol 18): a control's
+// form submission (action host, method, the form's secret field kinds), each element's DOM path, the page's
+// structured amount and merchant, and the submissions the page's own submit events showed.
 (() => {
   if (window.__ferb) return;
   const SEL = 'a[href],button,input,select,textarea,summary,[role],[contenteditable],h1,h2,h3,h4,h5,h6,[tabindex]';
@@ -13,7 +16,6 @@
   const HEADING = new Set(["H1", "H2", "H3", "H4", "H5", "H6"]);
   const SKIP_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "HEAD", "TITLE"]);
   const SECRET_NAME = /otp|one.?time|2fa|totp|mfa|passcode|verification.?code|security.?code|\bpin\b/i;
-  const SECRET_PARAM = /token|key|code|secret|session|auth|sig|password|pwd|otp|ticket|nonce|state/i;
   const sealedFields = new WeakSet(); // Exact caller-selected fields remain masked after a sealed fill.
   // Unclassified split widgets may replace every node while retaining individual secret characters.
   // Without stable bindings, mask captured editable values for this document until navigation.
@@ -24,6 +26,9 @@
   let mediaEls = new Map();            // media index -> WeakRef(video/audio element), for the latest snapshot only
   let snapGen = 0;
   let bindings = new Map();
+  // The attribute that links elements to the debugger's nodes for one snapshot (protocol.js BIND_ATTR, random per
+  // service-worker start), removed right after it (`unbind`); the upload stamp's is STAMP_ATTR.
+  let ATTR = null, STAMP = null;
   const randomId = () => {                         // getRandomValues: also on plain-http pages (randomUUID isn't)
     const b = new Uint8Array(16);
     crypto.getRandomValues(b);
@@ -37,7 +42,7 @@
   }, true);
   const visualChanged = () => { visualEpoch++; };
   new MutationObserver(records => {
-    if (records.some(r => r.type !== "attributes" || !["data-ferb-ax", "data-ferb-node"].includes(r.attributeName))) visualChanged();
+    if (records.some(r => r.type !== "attributes" || (r.attributeName !== ATTR && r.attributeName !== STAMP))) visualChanged();
   }).observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
   addEventListener("scroll", visualChanged, true);
   addEventListener("resize", visualChanged);
@@ -47,11 +52,25 @@
   }
   function bind(el) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
-    el.setAttribute("data-ferb-ax", token); bindings.set(token, new WeakRef(el));
+    if (ATTR) el.setAttribute(ATTR, token);
+    bindings.set(token, new WeakRef(el));
     return token;
   }
-  function adopt(gen, token) {
+  function tokenOf(el) {                           // an element's binding in the latest snapshot (the map, not the DOM)
+    for (const [token, ref] of bindings) if (ref.deref() === el) return token;
+    return null;
+  }
+  function unbind() {                              // the linking attributes leave the page; the bindings stay
+    if (!ATTR) return true;
+    for (const [token, ref] of bindings) {
+      const el = ref.deref();
+      if (el && el.getAttribute(ATTR) === token) el.removeAttribute(ATTR);
+    }
+    return true;
+  }
+  function adopt(gen, token, attr) {
     if (gen !== snapGen) return null;
+    if (attr) ATTR = attr;
     const el = findBound(document, token);
     if (!el || !visible(el)) return null;
     const id = els.size;
@@ -59,7 +78,8 @@
     return {...describe(el, id), binding: token};
   }
   function findBound(root, token) {                 // the element CDP stamped, inside closed shadow roots too
-    const hit = root.querySelector(`[data-ferb-ax="${token}"]`);
+    if (!ATTR) return null;
+    const hit = root.querySelector(`[${ATTR}="${token}"]`);
     if (hit) return hit;
     for (const host of root.querySelectorAll("*")) {
       const sr = shadowOf(host);
@@ -78,7 +98,7 @@
       el = hit;
     }
     if (!el || !visible(el)) return {error: "no_target"};
-    if (["IFRAME", "FRAME"].includes(el.tagName)) return {frame: el.getAttribute("data-ferb-ax")};
+    if (["IFRAME", "FRAME"].includes(el.tagName)) return {frame: tokenOf(el)};
     const control = el.closest(SEL);
     if (control && admits(control)) el = control;
     for (const [id, ref] of els) if (ref.deref() === el) return {element: describe(el, id)};
@@ -99,15 +119,8 @@
   const labelText = s => (s || "").replace(/\s+/g, " ").trim();
   const round = (v) => Math.round(v * 10) / 10;
 
-  function maskUrl(u) {
-    try {
-      const url = new URL(u, location.href);
-      for (const k of [...url.searchParams.keys()]) if (SECRET_PARAM.test(k)) url.searchParams.set(k, "[redacted]");
-      if (url.hash.length > 1 && /[=&]/.test(url.hash)) url.hash = "#[redacted]";
-      if (url.username || url.password) { url.username = ""; url.password = ""; }
-      return url.href;
-    } catch (_) { return ""; }
-  }
+  // mask.js, injected right before this file: one rule with background.js; without it, no URL at all (fails closed)
+  const maskUrl = (u) => (typeof globalThis.ferbMaskUrl === "function" ? globalThis.ferbMaskUrl(u, location.href) : "");
 
   function implicitRole(el) {
     const t = el.tagName;
@@ -186,12 +199,80 @@
   // A field that names itself a code field ("One-time password" holds "passw" too) stays one for a login code.
   const codeField = (el) => /one-time-code/.test(el.autocomplete || "") ||
     SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el)) || codeGroup(el).length > 1;
-  const isSecret = (el) => sealedFields.has(el) || el.tagName === "INPUT" && (passwordField(el) || codeField(el));
+  // A card field, by the page's own autocomplete token (cc-number, cc-csc, cc-exp, cc-exp-month, cc-exp-year, with
+  // any section-/billing/shipping prefix): an input, or a select for the expiry (gateway decision 6).
+  const CARD = /(?:^|\s)cc-(number|csc|exp|exp-month|exp-year)(?:\s|$)/;
+  const cardKind = (el) => {
+    if (el.tagName !== "INPUT" && el.tagName !== "SELECT") return null;
+    const m = CARD.exec(String((el.getAttribute && el.getAttribute("autocomplete")) || el.autocomplete || "").toLowerCase());
+    return m ? (m[1] === "number" ? "card_number" : m[1] === "csc" ? "card_csc" : "card_expiry") : null;
+  };
+  // The one secret-field rule (protocol 18): a password (type=password, current/new-password, a shown-password text
+  // field), a login code (one-time-code, a code name, a split-code box) or a card field. Its kind is reported
+  // (ActionFacts.field_kinds); its value never is; its box is painted in captures; typing and text-entering keys into it
+  // are refused; it is filled only through the sealed path.
+  function fieldKind(el) {
+    const card = cardKind(el);
+    if (card) return card;
+    if (el.tagName !== "INPUT") return null;
+    if ((el.type || "").toLowerCase() === "password" || /\bcurrent-password\b/.test(el.autocomplete || "")) return "password";
+    if (codeField(el)) return "one_time_code";     // a code marker wins over new-password (codeFill's own rule)
+    if (passwordField(el)) return /\bnew-password\b/.test(el.autocomplete || "") ? "new_password" : "password";
+    return null;
+  }
+  const isSecret = (el) => sealedFields.has(el) || fieldKind(el) !== null;
   // Whether a login code may be sealed into this field; describe() reports it so the daemon refuses before asking the
   // owner, by this same rule. type=password and autocomplete current-password always refuse. A code marker overrides
   // autocomplete new-password, which pages set on OTP boxes to stop autofill (controller ruling).
-  const codeFill = (el, secret = isSecret(el)) => secret && (el.type || "").toLowerCase() !== "password" &&
+  const codeFill = (el, secret = isSecret(el)) => secret && el.tagName === "INPUT" && !cardKind(el) &&
+    (el.type || "").toLowerCase() !== "password" &&
     !/\bcurrent-password\b/.test(el.autocomplete || "") && (codeField(el) || !passwordField(el));
+
+  // What submitting from this control would do (protocol 18, gateway decision 1), from the form's own markup: a click
+  // on a submit control (`click`), or Enter in a field whose form submits implicitly (`enter`), with the action's host
+  // (formaction first), the method (formmethod first) and the secret field kinds the form holds. Read through the
+  // prototypes' getters, so a field named "action" or "method" can't stand in. null: no form, or neither.
+  const FORM = typeof HTMLFormElement !== "undefined" ? HTMLFormElement.prototype : null;
+  const formGet = (f, name) => { try { return Object.getOwnPropertyDescriptor(FORM, name).get.call(f); } catch (_) { return null; } };
+  const TEXTLIKE = new Set(["text", "search", "email", "url", "tel", "password", "number", "date", "datetime-local",
+                            "month", "week", "time", ""]);
+  function submitInfo(el) {
+    const f = el.form;
+    if (!f || !FORM) return null;
+    const type = String(el.type || "").toLowerCase();
+    const click = (el.tagName === "BUTTON" && (el.getAttribute("type") || "submit").toLowerCase() === "submit") ||
+      (el.tagName === "INPUT" && (type === "submit" || type === "image"));
+    const fields = Array.from(formGet(f, "elements") || []);
+    const defaultButton = fields.find((n) => (n.tagName === "BUTTON" && (n.getAttribute("type") || "submit").toLowerCase() === "submit") ||
+      (n.tagName === "INPUT" && ["submit", "image"].includes(String(n.type).toLowerCase())));
+    const single = fields.filter((n) => n.tagName === "INPUT" && TEXTLIKE.has(String(n.type || "").toLowerCase()));
+    const enter = el.tagName === "INPUT" && TEXTLIKE.has(type) && (!!defaultButton || single.length === 1);
+    if (!click && !enter) return null;
+    const via = click ? el : defaultButton || null;
+    let action = "";
+    try { action = (via && via.hasAttribute("formaction") ? via.formAction : formGet(f, "action")) || ""; } catch (_) { action = ""; }
+    let host = null;
+    try { host = new URL(action, location.href).hostname || null; } catch (_) { host = null; }
+    const method = String((via && via.getAttribute("formmethod")) || formGet(f, "method") || "get").toUpperCase();
+    const kinds = [...new Set(fields.map((n) => fieldKind(n)).filter(Boolean))];
+    return { click, enter, action_host: host, method, kinds, ...(via ? { label: label(via).slice(0, 200) } : {}) };
+  }
+
+  // Where the element is in the document, as a path of tags and same-tag positions from the root, through shadow roots
+  // ("#shadow" marks a host's root): P19's identity for an act on it when the debugger gave no node id.
+  function domPath(el) {
+    const parts = [];
+    for (let n = el; n && n.nodeType === 1 && parts.length < 64;) {
+      const p = n.parentElement;
+      let i = 1;
+      for (let s = n.previousElementSibling; s; s = s.previousElementSibling) if (s.tagName === n.tagName) i++;
+      parts.push(`${n.tagName.toLowerCase()}:${i}`);
+      if (p) { n = p; continue; }
+      const root = n.getRootNode ? n.getRootNode() : null;
+      if (root && root.host) { parts.push("#shadow"); n = root.host; } else break;
+    }
+    return parts.reverse().join(">");
+  }
 
 
   function formKind(el) {
@@ -331,7 +412,7 @@
     const r = el.getBoundingClientRect(), secret = isSecret(el);
     const role = el.getAttribute("role") || implicitRole(el);
     let value = null;
-    if (el.tagName === "SELECT") value = Array.from(el.selectedOptions).map(o=>o.text).join("\n");
+    if (el.tagName === "SELECT") value = secret ? (el.value ? "filled" : "") : Array.from(el.selectedOptions).map(o=>o.text).join("\n");
     else if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")) value = el.checked ? "checked" : "";
     else if (el.tagName === "INPUT" && el.type === "file") value = el.files && el.files.length ? `${el.files.length} file(s)` : "";
     else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA")
@@ -358,6 +439,11 @@
     if (occluded) e.occluded = true;
     if (container) e.container = container;
     if (terminalOf(el)) e.terminal = true;
+    const kind = fieldKind(el);
+    if (kind) e.field_kind = kind;
+    const submit = submitInfo(el);
+    if (submit) e.submit = submit;
+    e.path = domPath(el);
     const pinned = pinnedOf(el);                     // L33: what a scroll into view moves besides the page
     if (pinned) e.pinned = pinned;
     if (boxedBy(drawnParent(el))) e.scroll_box = true;
@@ -526,11 +612,9 @@
             viewport: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight]};
   }
 
-  async function snapshot(gen) {
-    for (const [token, ref] of bindings) {
-      const el = ref.deref();
-      if (el && el.getAttribute("data-ferb-ax") === token) el.removeAttribute("data-ferb-ax");
-    }
+  async function snapshot(gen, attr) {
+    unbind();
+    if (typeof attr === "string" && /^data-[0-9a-f]{12}$/.test(attr)) ATTR = attr;
     bindings = new Map();
     snapGen = gen;
     els = new Map(); containers = new Map(); scrollerCache.clear(); pinCache.clear(); boxCache.clear(); frameCache.clear();
@@ -566,11 +650,50 @@
     // L33, for the cursor: what the screen shows of the page (its pinch zoom `scale`), its scroll sideways, and
     // whether the body scrolls by itself
     const vv = window.visualViewport, d = document.scrollingElement || document.documentElement;
+    let commerce = null;
+    try { commerce = pageCommerce(); } catch (_) { commerce = null; }   // best effort: never fails a snapshot
     return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
+             ...(commerce ? { commerce } : {}),
              viewport: [innerWidth, innerHeight], scroll: {...scrollState(null), x: Math.round(d.scrollLeft), width: d.scrollWidth},
              scrollers, iframes, elements: out, text,
              visual: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height, vv.scale] : [0, 0, innerWidth, innerHeight, 1],
              ...(bodyScrolls() ? {body_scrolls: true} : {}), media, truncated: false };
+  }
+
+  // An amount and a merchant the page states in structured form (protocol 18, best effort, the owner accepted it): its
+  // price metadata (product:/og:price:amount with its currency), schema.org JSON-LD totalPaymentDue / price with
+  // priceCurrency, and who sells (JSON-LD seller / merchant / provider name, else og:site_name). Amounts only when the
+  // page states exactly one; numbers as written. No text is read for meaning. null: nothing structured.
+  function pageCommerce() {
+    const amounts = new Set();
+    let merchant = null;
+    const meta = (p) => {
+      const m = document.querySelector(`meta[property="${p}"],meta[name="${p}"]`);
+      return m ? String(m.getAttribute("content") || "").trim() : "";
+    };
+    const add = (value, currency) => {
+      const v = String(value ?? "").trim(), c = String(currency ?? "").trim();
+      if (/^\d[\d,]*(?:\.\d+)?$/.test(v) && c.length <= 8) amounts.add(c ? `${c} ${v}` : v);
+    };
+    add(meta("product:price:amount") || meta("og:price:amount"), meta("product:price:currency") || meta("og:price:currency"));
+    const named = (v) => (v && typeof v === "object" && typeof v.name === "string" ? v.name.trim() : null);
+    let seen = 0;
+    const walk = (node, depth) => {
+      if (!node || typeof node !== "object" || depth > 6 || ++seen > 500) return;
+      if (Array.isArray(node)) { node.forEach((n) => walk(n, depth + 1)); return; }
+      const due = node.totalPaymentDue;
+      if (due && typeof due === "object") add(due.price ?? due.value, due.priceCurrency ?? due.currency);
+      if (node.price !== undefined && (typeof node.price === "string" || typeof node.price === "number")) add(node.price, node.priceCurrency);
+      merchant = merchant || named(node.seller) || named(node.merchant) || named(node.provider);
+      for (const k of Object.keys(node)) if (node[k] && typeof node[k] === "object") walk(node[k], depth + 1);
+    };
+    for (const s of Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0, 20)) {
+      try { walk(JSON.parse(s.textContent || ""), 0); } catch (_) { /* not JSON */ }
+    }
+    merchant = merchant || meta("og:site_name") || null;
+    const amount = amounts.size === 1 ? [...amounts][0] : null;
+    if (!amount && !merchant) return null;
+    return { amount, merchant: merchant ? merchant.slice(0, 200) : null };
   }
 
   // Video and audio elements (L26), in document order with open shadow roots, visible or not (an <audio> never is).
@@ -676,22 +799,10 @@
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function keyInit(spec) {         // page-mode key events: key / code / keyCode / which like a real press
-    const K = { Enter: [13, "Enter"], Tab: [9, "Tab"], Escape: [27, "Escape"], Backspace: [8, "Backspace"],
-                Delete: [46, "Delete"], Space: [32, "Space"], ArrowDown: [40, "ArrowDown"], ArrowUp: [38, "ArrowUp"],
-                ArrowLeft: [37, "ArrowLeft"], ArrowRight: [39, "ArrowRight"], Home: [36, "Home"], End: [35, "End"],
-                PageUp: [33, "PageUp"], PageDown: [34, "PageDown"] };
-    const parts = String(spec || "").split("+"), key = parts[parts.length - 1];
-    const mods = new Set(parts.slice(0, -1).map((m) => m.toLowerCase()));
-    const [keyCode, code] = K[key] || (key.length === 1 ? [key.toUpperCase().charCodeAt(0),
-      /[a-z]/i.test(key) ? "Key" + key.toUpperCase() : /[0-9]/.test(key) ? "Digit" + key : ""] : [0, ""]);
-    return { key: key === "Space" ? " " : key, code, keyCode, which: keyCode, bubbles: true, cancelable: true,
-             composed: true, shiftKey: mods.has("shift"), ctrlKey: mods.has("ctrl") || mods.has("control"),
-             altKey: mods.has("alt") || mods.has("option"), metaKey: mods.has("cmd") || mods.has("meta") };
-  }
-
-  // Page-mode actions (untrusted events). Trusted input goes through the debugger (background.js).
-  function act(gen, id, kind, text) {
+  // Page-mode actions (untrusted events). Trusted input goes through the debugger (background.js). A press comes with
+  // its key from the one key table (protocol.js keyEvent, via background.js): key, code, keyCode, modifier bits
+  // (Alt 1, Ctrl 2, Meta 4, Shift 8) and whether it puts text in (`enters`).
+  function act(gen, id, kind, text, key = null) {
     if (["type","select","press"].includes(kind) && typeof text !== "string")
       return {ok:false,reason:"explicit_input_required"};
     const { el, error } = element(gen, id);
@@ -732,8 +843,14 @@
       return { ok: true, detail: `${kind === "dblclick" ? "double-clicked" : "clicked"} (page events)` };
     }
     if (kind === "press") {
+      if (!key || typeof key.key !== "string") return { ok: false, detail: "unsupported_key" };
+      if (key.enters && isSecret(el)) return { ok: false, detail: "secret_field" };
       el.focus();
-      const init = keyInit(text);
+      if (key.enters && focusedSecret()) return { ok: false, detail: "secret_field" };
+      const m = Number(key.modifiers) || 0;
+      const init = { key: key.key, code: key.code || "", keyCode: key.keyCode || 0, which: key.keyCode || 0, bubbles: true,
+                     cancelable: true, composed: true, altKey: !!(m & 1), ctrlKey: !!(m & 2), metaKey: !!(m & 4),
+                     shiftKey: !!(m & 8) };
       for (const type of ["keydown", "keypress", "keyup"]) el.dispatchEvent(new KeyboardEvent(type, init));
       return { ok: true, detail: `pressed ${init.key} (page events)` };
     }
@@ -761,10 +878,14 @@
              file: el.tagName === "INPUT" && el.type === "file" };
   }
 
-  function deepActive() {
+  function deepActive() {                          // into shadow roots, closed ones too (shadowOf)
     let a = document.activeElement;
-    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    for (let sr = a && shadowOf(a); sr && sr.activeElement && sr.activeElement !== a; sr = shadowOf(a)) a = sr.activeElement;
     return a;
+  }
+  function focusedSecret() {                       // where keys go now is a secret field
+    const a = deepActive();
+    return !!a && a !== document.body && isSecret(a);
   }
   function isActive(gen, id) {       // the element (or something inside it) has focus: typing goes there
     const { el, error } = element(gen, id);
@@ -789,17 +910,41 @@
     }
     return out;
   }
-  function stamp(gen, id, token) {   // mark the element for a DOM.querySelector follow-up (uploads)
+  function stamp(gen, id, token, attr) {   // mark the element for a DOM.performSearch follow-up (uploads)
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) || el.type !== "file") return { ok: false, detail: "not_a_file_input" };
-    el.setAttribute("data-ferb-node", token);
+    if (typeof attr !== "string" || !/^data-[0-9a-f]{12}s$/.test(attr)) return { ok: false, detail: "bad_stamp" };
+    STAMP = attr;
+    el.setAttribute(attr, token);
     return { ok: true };
   }
-  function unstamp(token) {
-    for (const el of document.querySelectorAll(`[data-ferb-node="${token}"]`)) el.removeAttribute("data-ferb-node");
+  function unstamp(token, attr) {
+    if (typeof attr !== "string" || !/^data-[0-9a-f]{12}s$/.test(attr)) return true;
+    for (const el of document.querySelectorAll(`[${attr}="${token}"]`)) el.removeAttribute(attr);
     return true;
   }
+
+  // Form submissions this document's submit events showed (protocol 18), in the capture phase so a page's
+  // stopPropagation can't hide one: the form's action host and method (the submitter's formaction/formmethod first),
+  // whether the page went on with it, and the form's secret field kinds. A fetch() submission fires no submit event.
+  // Kept until taken (background.js formSubmits), at most 10.
+  const submits = [];
+  addEventListener("submit", (e) => {
+    const f = e.target;
+    if (!FORM || !(f instanceof HTMLFormElement)) return;
+    const via = e.submitter || null;
+    let action = "", host = null;
+    try { action = (via && via.hasAttribute("formaction") ? via.formAction : formGet(f, "action")) || ""; } catch (_) { action = ""; }
+    try { host = new URL(action, location.href).hostname || null; } catch (_) { host = null; }
+    const method = String((via && via.getAttribute("formmethod")) || formGet(f, "method") || "get").toUpperCase();
+    const kinds = [...new Set(Array.from(formGet(f, "elements") || []).map((n) => fieldKind(n)).filter(Boolean))];
+    if (submits.length >= 10) return;
+    const entry = { action_host: host, method, kinds, trusted: e.isTrusted === true };
+    submits.push(entry);
+    setTimeout(() => { if (e.defaultPrevented) entry.prevented = true; }, 0);   // the page's own handlers have run
+  }, true);
+  function takeSubmits() { return submits.splice(0); }
   function scroller(cid) {           // where a trusted wheel event must land (px, py) to scroll that container (or the window)
     const ref = cid && containers.get(cid), sc = ref ? ref.deref() : null;
     if (cid && (!sc || !sc.isConnected)) return {error:"stale"};
@@ -851,7 +996,6 @@
   const HELD_MAX = 20;                             // caught links held or being read; a flood past it is dropped
   let saving = 0;                                  // caught links whose bytes are still being read
   let droppedAt = -Infinity;                       // when this document last told the worker it dropped a save
-  try { chrome.runtime.sendMessage({ ferbArmed: true }, (on) => { downloadsArmed = on === true; }); } catch (_) { /* no worker */ }
   const linkOf = (e) => (e.composedPath ? e.composedPath() : [])
     .find((n) => n instanceof HTMLAnchorElement || (typeof HTMLAreaElement !== "undefined" && n instanceof HTMLAreaElement));
   function opensNewTab(a, e) {
@@ -927,26 +1071,44 @@
   addEventListener("click", onSave, true);
   addEventListener("click", onNewTab, false);
   addEventListener("auxclick", onNewTab, false);
-  // The page hook asks whether FERB drives this tab (a cancelable event: the answer is preventDefault), and relays a
-  // window.open it opened blank for a URL.
-  if (typeof document.addEventListener === "function") {
-    document.addEventListener("ferb-armed", (e) => { if (downloadsArmed && live()) e.preventDefault(); });
-    document.addEventListener("ferb-popup", (e) => {     // page content: cut to shape before it leaves the page
-      if (!downloadsArmed || typeof e.detail !== "string" || e.detail.length > 16384) return;
-      let p = null;
-      try { p = JSON.parse(e.detail); } catch (_) { return; }
-      if (p && typeof p.token === "string" && /^[0-9a-f]{32}$/.test(p.token) && typeof p.url === "string") {
-        try { chrome.runtime.sendMessage({ ferbPopup: { token: p.token, url: p.url.slice(0, 8192) } }); }
-        catch (_) { downloadsArmed = false; }       // orphaned: the hook loads its popup itself after 1.5 s
-      }
-    });
+  // The page hook asks whether FERB drives this tab (a cancelable "<token>:armed" event: the answer is
+  // preventDefault), and relays a window.open it opened blank for a URL ("<token>:popup"). The token is the service
+  // worker's (protocol.js FERB_TOKEN), so the event names are no fixed marker a page could listen for.
+  let hookToken = null;
+  const onArmed = (e) => { if (downloadsArmed && live()) e.preventDefault(); };
+  const onPopup = (e) => {                         // page content: cut to shape before it leaves the page
+    if (!downloadsArmed || typeof e.detail !== "string" || e.detail.length > 16384) return;
+    let p = null;
+    try { p = JSON.parse(e.detail); } catch (_) { return; }
+    if (p && typeof p.token === "string" && /^[0-9a-f]{32}$/.test(p.token) && typeof p.url === "string") {
+      try { chrome.runtime.sendMessage({ ferbPopup: { token: p.token, url: p.url.slice(0, 8192) } }); }
+      catch (_) { downloadsArmed = false; }       // orphaned: the hook loads its popup itself after 1.5 s
+    }
+  };
+  function listenHook(token) {
+    if (typeof token !== "string" || !/^[0-9a-f]{12}$/.test(token) || token === hookToken ||
+        typeof document.addEventListener !== "function") return;
+    if (hookToken) {
+      document.removeEventListener(hookToken + ":armed", onArmed);
+      document.removeEventListener(hookToken + ":popup", onPopup);
+    }
+    hookToken = token;
+    document.addEventListener(token + ":armed", onArmed);
+    document.addEventListener(token + ":popup", onPopup);
   }
+  // whether FERB drives this tab now, and the hook's event names (asked once the listeners above exist)
+  try {
+    chrome.runtime.sendMessage({ ferbArmed: true }, (r) => {
+      downloadsArmed = !!(r && r.armed === true);
+      if (r && typeof r.token === "string") listenHook(r.token);
+    });
+  } catch (_) { /* no worker */ }
   // The service worker claimed the hook's popup and the daemon made it the task's: the hook loads its URL now. The
   // answer tells the worker the page was reached (the lab checks the ready path was taken, not the 1.5 s fallback).
   try {
     chrome.runtime.onMessage.addListener((m, sender, reply) => {
-      if (m && typeof m.ferbPopupReady === "string") {
-        document.dispatchEvent(new CustomEvent("ferb-popup-ready", { detail: m.ferbPopupReady }));
+      if (m && typeof m.ferbPopupReady === "string" && hookToken) {
+        document.dispatchEvent(new CustomEvent(hookToken + ":ready", { detail: m.ferbPopupReady }));
         if (typeof reply === "function") reply(true);
       }
     });
@@ -970,7 +1132,8 @@
     if (url !== held.href) setTimeout(() => URL.revokeObjectURL(url), 60000);
     return true;
   }
-  function armDownloads(on, drop = false) {
+  function armDownloads(on, drop = false, token = null) {
+    listenHook(token);
     downloadsArmed = on === true;
     if (!downloadsArmed) for (const id of [...heldDownloads.keys()]) { if (drop) heldDownloads.delete(id); else releaseDownload(id); }
   }
@@ -1012,13 +1175,11 @@
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
-  window.__ferb = { snapshot, media, uploadFiles, adopt, point, frameRect, visualState, captureState, listenForFrames,
+  window.__ferb = { snapshot, unbind, media, uploadFiles, adopt, point, frameRect, visualState, captureState, listenForFrames,
     announceFrame,
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
-    viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
-                    scrolled, probeArm, probeSeen: () => probeSeen,
-                    text: () => captureText(document.body), url: () => location.href,
-                    ready: () => document.readyState, downloadPart, armDownloads, releaseDownload,
-                    dropDownload: (id) => { heldDownloads.delete(id); } };
+    viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive,
+    focusedSecret, takeSubmits, stamp, unstamp, scroller, scrolled, probeArm, probeSeen: () => probeSeen,
+    downloadPart, armDownloads, releaseDownload, dropDownload: (id) => { heldDownloads.delete(id); } };
 })();

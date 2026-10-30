@@ -185,12 +185,20 @@ class Browsers:
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
             drv.redact_text = lambda text: str(self.redact({"u": text})["u"])
+            # owner decision 3: the task's tab group is labelled with its request's first words (group_title). Pause
+            # (task_paused) and "keep the tabs open" (keep_tabs_open) are wired by step 8's orchestration.
+            drv.task_title = self._task_title
         self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve
         # the pinned unpacked id and, once configured, the Chrome Web Store id (L25)
         self.server.extension_ids = lambda: frozenset(accepted_extension_ids(self.config))
+
+    def _task_title(self, root: str) -> str:
+        """A task tree's goal, for its tab group's label (the driver shortens and redacts it)."""
+        rec = self.tasks.get(root)
+        return rec.task.goal if rec is not None else ""
 
     def _attach_identity_if_paired(self) -> bool:
         """FERB's tools exist only once its identity profile is paired as FERB."""
@@ -404,7 +412,7 @@ class Browsers:
             self._handoffs.pop(hid, None)
 
     async def _show_handoff(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """The owner clicked a human check's notification: its tab comes forward (extension 0.15.13 or later), else
+        """The owner clicked a human check's notification: its tab comes forward (when its profile is connected), else
         that profile's browser does, with a window of the profile."""
         ref = self._handoffs.get(str(params.get("handoff_id") or ""))
         if ref is None or self.router is None:

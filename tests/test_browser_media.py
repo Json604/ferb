@@ -448,6 +448,6 @@ def test_protocol_14_adds_the_media_op_in_python_and_javascript_together() -> No
     js = subprocess.run([_node(), "-e", f"const p=require({json.dumps(str(EXT / 'protocol.js'))});"
                          "console.log(JSON.stringify({v:p.FERB_PROTOCOL, media:p.OPS.includes('media')}))"],
                         capture_output=True, text=True, timeout=10)
-    assert json.loads(js.stdout) == {"v": 17, "media": True}
-    assert ext_protocol.PROTOCOL_VERSION == 17 and "media" in ext_protocol.Op.__args__
-    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.11"           # protocol 17; 0.15.11 reports web terminals (D31)
+    assert json.loads(js.stdout) == {"v": 18, "media": True}
+    assert ext_protocol.PROTOCOL_VERSION == 18 and "media" in ext_protocol.Op.__args__
+    assert ext_protocol.MIN_EXTENSION_VERSION == "0.16.0"            # protocol 18 (step 5c)

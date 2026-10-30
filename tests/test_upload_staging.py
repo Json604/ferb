@@ -24,6 +24,7 @@ from ferb.act.fs.files import _source
 from ferb.core import origin
 from ferb.core.errors import Refused
 from tests.conftest import RunningDaemon
+from tests.support.uploads import stage
 
 
 def _sha(p: Path) -> str:
@@ -82,8 +83,8 @@ def test_a_staged_copy_keeps_the_originals_origin_label(tmp_path: Path) -> None:
     roots = untrusted_roots([], ws)
     ups = Uploads(ws / "uploads", lambda: roots)
     ctx = SimpleNamespace(untrusted_roots=roots)
-    a = Path(ups.stage("tree1", str(outside), _sha(outside))).resolve()
-    b = Path(ups.stage("tree1", str(mine.resolve()), _sha(mine))).resolve()
+    a = Path(stage(ups, "tree1", str(outside), _sha(outside))).resolve()
+    b = Path(stage(ups, "tree1", str(mine.resolve()), _sha(mine))).resolve()
     assert origin.from_read_source(*_source(a, ctx)) == "external:download"     # outside content stays outside
     assert origin.from_read_source(*_source(b, ctx)) == "private"               # the owner's file stays the owner's
     assert a.parent.parent == ws / "uploads" / "outside" / "tree1" and b.parent.parent == ws / "uploads" / "tree1"
@@ -110,7 +111,7 @@ def test_a_copy_that_doesnt_match_the_identity_is_removed_and_refused(tmp_path: 
     original.write_bytes(b"now")
     ups = Uploads(tmp_path / "uploads", lambda: ())
     with pytest.raises(StagingFailed, match="changed while FERB copied it"):
-        ups.stage("tree1", str(original), hashlib.sha256(b"before").hexdigest())
+        stage(ups, "tree1", str(original), hashlib.sha256(b"before").hexdigest())
     assert not any((tmp_path / "uploads" / "tree1").iterdir())
 
 
@@ -118,8 +119,8 @@ def test_copies_go_when_their_tree_ends_and_at_start_up(tmp_path: Path) -> None:
     src = tmp_path / "a.txt"
     src.write_bytes(b"x")
     ups = Uploads(tmp_path / "uploads", lambda: ())
-    mine = Path(ups.stage("tree1", str(src), _sha(src)))
-    other = Path(ups.stage("tree2", str(src), _sha(src)))
+    mine = Path(stage(ups, "tree1", str(src), _sha(src)))
+    other = Path(stage(ups, "tree2", str(src), _sha(src)))
     assert ups.forget_tree("tree1") == 1 and not mine.exists() and other.exists() and src.read_bytes() == b"x"
     assert ups.sweep() == 1 and not other.exists() and src.exists()
     assert shutil.rmtree.avoids_symlink_attacks                 # forget_tree / sweep never follow a planted link
@@ -131,9 +132,9 @@ def test_the_daemon_wires_the_copies_and_clears_them_when_a_tree_ends(daemon: Ru
     src = d.home / "notes.txt"
     src.write_text("mine")
 
-    async def stage() -> str:
-        return d.uploads.stage("tree9", str(src.resolve()), _sha(src))
-    staged = Path(daemon.run(stage()))
+    async def staged_copy() -> str:
+        return stage(d.uploads, "tree9", str(src.resolve()), _sha(src))
+    staged = Path(daemon.run(staged_copy()))
     assert staged.exists() and staged.is_relative_to(d.home / "workspace" / "uploads" / "tree9")
     daemon.run(d.supervisor.on_task_finish("tree9"))
     assert not staged.exists() and src.read_text() == "mine"
@@ -227,7 +228,7 @@ def test_staging_never_writes_through_a_planted_link(tmp_path: Path, planted: st
     link.symlink_to(elsewhere)
     ups = Uploads(root, lambda: (str(downloads),))
     with pytest.raises(StagingFailed, match="not FERB's folder"):
-        ups.stage("tree1", str(src), _sha(src))
+        stage(ups, "tree1", str(src), _sha(src))
     assert list(elsewhere.iterdir()) == [] and src.read_bytes() == b"%PDF"
 
 
@@ -261,7 +262,7 @@ def test_a_tab_no_task_owns_gets_no_copy(tmp_path: Path) -> None:
     ups = Uploads(tmp_path / "uploads", lambda: ())
     for tree in ("", ".", "..", "a/b", ".hidden", "outside"):
         with pytest.raises(StagingFailed, match="no task owns this tab"):
-            ups.stage(tree, str(src), _sha(src))
+            stage(ups, tree, str(src), _sha(src))
         assert ups.forget_tree(tree) == 0
     assert not (tmp_path / "uploads").exists()
 
@@ -305,7 +306,7 @@ def test_a_folder_swapped_for_a_link_mid_copy_writes_deletes_and_restamps_nothin
             raise OSError(errno.ENOTSUP, "this volume can't clone")
     monkeypatch.setattr(recovery, "_fclone", racing)
     with pytest.raises(StagingFailed, match="no longer names FERB's copy"):
-        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+        stage(Uploads(root, lambda: ()), "tree1", str(original), _sha(original))
     leaf = seen[0]
     if way == "clone":
         assert os.listdir(victim / leaf) == []                  # nothing written outside
@@ -320,8 +321,8 @@ def test_a_copy_shown_in_a_tab_that_outlives_its_tree_stays_until_that_tab_close
     src.write_bytes(b"%PDF")
     root = tmp_path / "uploads"
     ups = Uploads(root, lambda: ())
-    kept = Path(ups.stage("tree1", str(src), _sha(src), tab="chrome/Profile 1#200"))     # the owner's borrowed tab
-    gone = Path(ups.stage("tree1", str(src), _sha(src), tab="chrome/Profile 1#7"))       # a tab FERB opened
+    kept = Path(stage(ups, "tree1", str(src), _sha(src), tab="chrome/Profile 1#200"))     # the owner's borrowed tab
+    gone = Path(stage(ups, "tree1", str(src), _sha(src), tab="chrome/Profile 1#7"))       # a tab FERB opened
     assert ups.closed("chrome/Profile 1#7") is False            # FERB closed it during the tree: nothing waits yet
     assert ups.forget_tree("tree1") == 1 and not gone.exists() and kept.read_bytes() == b"%PDF"
     assert ups.collect() == 0 and kept.exists()                 # Chromium reads it again when the owner submits
@@ -371,14 +372,14 @@ def test_a_cleanup_removes_what_it_can_and_names_what_it_couldnt(tmp_path: Path)
     src = tmp_path / "a.txt"
     src.write_bytes(b"x")
     ups = Uploads(tmp_path / "uploads", lambda: ())
-    stuck = Path(ups.stage("tree1", str(src), _sha(src)))
-    loose = Path(ups.stage("tree1", str(src), _sha(src)))
+    stuck = Path(stage(ups, "tree1", str(src), _sha(src)))
+    loose = Path(stage(ups, "tree1", str(src), _sha(src)))
     os.chflags(stuck, stat.UF_IMMUTABLE)                        # a lock a shell command set on FERB's copy
     try:
         with pytest.raises(CleanupLeft) as left:
             ups.forget_tree("tree1")
         assert not loose.exists() and stuck.exists() and any(str(stuck) in x for x in left.value.left)
-        other = Path(ups.stage("tree2", str(src), _sha(src)))
+        other = Path(stage(ups, "tree2", str(src), _sha(src)))
         with pytest.raises(CleanupLeft) as left:
             ups.sweep()
         assert not other.exists() and stuck.exists() and any(str(stuck) in x for x in left.value.left)
@@ -404,7 +405,7 @@ def test_a_link_planted_at_the_copys_name_before_the_clone_creates_nothing_outsi
         real(src_fd, dir_fd, name)
     monkeypatch.setattr(recovery, "_fclone", planting)
     with pytest.raises(StagingFailed, match="already taken"):
-        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+        stage(Uploads(root, lambda: ()), "tree1", str(original), _sha(original))
     assert os.listdir(victim) == [] and os.listdir(root / "tree1") == []
     assert original.read_bytes() == b"%PDF the owner's cv"
 
@@ -425,7 +426,7 @@ def test_a_link_swapped_in_for_the_copy_after_it_was_made_is_not_given_to_the_br
         return digest
     monkeypatch.setattr(recovery, "copy_into", swapping)
     with pytest.raises(StagingFailed, match="no longer names FERB's copy"):
-        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+        stage(Uploads(root, lambda: ()), "tree1", str(original), _sha(original))
     assert os.listdir(root / "tree1") == [] and elsewhere.read_bytes() == b"%PDF the owner's cv"
 
 
@@ -433,8 +434,8 @@ def test_closing_a_tab_asks_for_a_collect_only_when_it_showed_a_copy_of_an_ended
     src = tmp_path / "a.txt"
     src.write_bytes(b"x")
     ups = Uploads(tmp_path / "uploads", lambda: ())
-    ups.stage("tree1", str(src), _sha(src), tab="p#1")
-    ups.stage("tree2", str(src), _sha(src), tab="p#2")
+    stage(ups, "tree1", str(src), _sha(src), tab="p#1")
+    stage(ups, "tree2", str(src), _sha(src), tab="p#2")
     ups.forget_tree("tree1")                                    # tab 1 still shows a copy of an ended tree
     assert ups.closed("p#9") is False                           # a tab that showed nothing
     assert ups.closed("p#2") is False                           # its tree is still running: its end removes the copy
@@ -452,7 +453,7 @@ def test_concurrent_cleanups_report_no_failure_that_didnt_happen(tmp_path: Path)
         tabs = [f"p#{i}" for i in range(6)]
         for tab in tabs:
             for _ in range(4):
-                ups.stage("tree1", str(src), _sha(src), tab=tab)
+                stage(ups, "tree1", str(src), _sha(src), tab=tab)
         ups.forget_tree("tree1")
         for tab in tabs:
             ups.closed(tab)
@@ -480,7 +481,7 @@ def test_a_missing_staging_function_only_disables_its_own_path(tmp_path: Path, m
     monkeypatch.setattr(recovery, "_fclonefileat", None)        # no fclonefileat: a byte copy, never a failure
     src = tmp_path / "cv.pdf"
     src.write_bytes(b"%PDF")
-    copy = Path(Uploads(tmp_path / "uploads", lambda: ()).stage("tree1", str(src), _sha(src)))
+    copy = Path(stage(Uploads(tmp_path / "uploads", lambda: ()), "tree1", str(src), _sha(src)))
     assert copy.read_bytes() == b"%PDF" and copy.stat().st_mtime_ns == src.stat().st_mtime_ns
 
 
@@ -496,7 +497,7 @@ def test_a_lock_flag_the_clone_inherited_that_cant_be_cleared_refuses_the_copy(
     monkeypatch.setattr(recovery, "_fchflags", failing)
     try:
         with pytest.raises(OSError, match="lock flag can't be cleared"):
-            Uploads(root, lambda: ()).stage("tree1", str(src), _sha(src))
+            stage(Uploads(root, lambda: ()), "tree1", str(src), _sha(src))
     finally:
         os.chflags(src, 0)
         for dirpath, _, names in os.walk(root):

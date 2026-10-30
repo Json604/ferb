@@ -53,7 +53,8 @@ def test_a_screenshot_point_over_a_closed_shadow_root_reaches_the_frame_inside()
 let snapGen = 1; const pinCache = new Map(), boxCache = new Map(), frameCache = new Map();
 const innerWidth = 1000, innerHeight = 800, visible = () => true, els = new Map(), SEL = "*", admits = () => false;
 const describe = (el, id) => ({id, tag: el.tagName});
-""" + _content("point") + r"""
+const bindings = new Map([["cf-frame", new WeakRef(frame)]]);   // the snapshot's binding of the frame element
+""" + _content("point", "tokenOf") + r"""
 console.log(JSON.stringify(point(1, 300, 300)));
 """
     assert _run(script) == {"frame": "cf-frame"}         # before: {"element": {"tag": "DIV"}}, the wrapper
@@ -72,6 +73,7 @@ def test_an_accessibility_target_inside_a_closed_shadow_root_is_adopted() -> Non
     script = FAKE_DOM + r"""
 const box = mk("INPUT", [], {"data-ferb-ax": "cf-box"});
 frame.kids.push(mk("DIV")); const inner = mk("DIV"); inner.closedRoot = rootOf([box]); wrapper.closedRoot.kids.push(inner);
+let ATTR = "data-ferb-ax";                        // the snapshot's linking attribute (random per worker start)
 """ + _content("findBound") + r"""
 console.log(JSON.stringify([findBound(document, "cf-box") === box, findBound(document, "missing")]));
 """

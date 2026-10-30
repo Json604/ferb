@@ -61,10 +61,15 @@ def test_one_notification_opens_the_tab_and_ferb_carries_on_once_the_check_passe
         ext.kill()
 
 
-def test_an_older_extension_brings_the_profiles_browser_forward_instead(bd: Any) -> None:  # noqa: F811
+def test_a_tab_that_cant_be_shown_brings_the_profiles_browser_forward_instead(bd: Any) -> None:  # noqa: F811
+    """Every extension FERB accepts knows show_tab (protocol 18's minimum); when the tab can't be shown (its profile
+    disconnected), the click brings that profile's browser forward instead."""
     d, launched = bd
     ext, g, tab, chrome_id, banners = _start(d, launched)
-    d.daemon.hub.bridges[("chrome", "Profile 1")].version = "0.15.12"
+
+    async def unshown(ref: Any) -> bool:
+        return False
+    d.daemon.router.show_tab = unshown                                   # type: ignore[union-attr,method-assign]
     out: dict[str, Any] = {}
     try:
         run = _handoff(d, g, tab, out)

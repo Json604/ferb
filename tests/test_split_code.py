@@ -165,7 +165,7 @@ def test_accessibility_names_cannot_replace_capture_masked_dom_labels():
         if(method==='Accessibility.getFullAXTree') return {nodes:[
           {role:{value:'RootWebArea'},backendDOMNodeId:1},
           {role:{value:'textbox'},name:{value:'secret-character'},backendDOMNodeId:2}]};
-        if(method==='DOM.describeNode') return {node:{attributes:['data-ferb-ax',args.backendNodeId===1?'doc':'field']}};
+        if(method==='DOM.describeNode') return {node:{attributes:[BIND_ATTR,args.backendNodeId===1?'doc':'field']}};
         throw Error(method);
       };
       await accessibilitySnapshot(19,1,frames);

@@ -6,6 +6,10 @@ It models the background-by-construction extension (ARCHITECTURE.md §6): one mi
 profile with a blank placeholder tab, task tabs created inactive in it, a debugger attached on a tab's first
 action and kept until the tab closes (`cancel_debugger` is the owner pressing Cancel on the infobar), dialogs
 answered by the extension, keepalive pings, chunked screenshots, uploads.
+
+Protocol 18: it acts only on daemon messages signed for this connection (welcome, cmd: HMAC over the hello's nonce, a
+strictly increasing counter, the type and the body), keeps tab records like the extension's (task, root, borrowed,
+group) and lists them in each hello's `tabs`; `rejected` counts what it refused.
 """
 
 import base64
@@ -144,6 +148,13 @@ class FakeExtension:
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
         self.audible: set[int] = set()                     # tabs making sound (list_tabs `audible`)
         self.rests: list[tuple[int, bool]] = []            # rest commands (tab, resting) for held tabs (0.15.10)
+        # protocol 18: this connection's signing state and the extension's tab records / groups
+        self.nonce = ""
+        self.dseq = 0
+        self.rejected: list[dict[str, Any]] = []           # daemon messages that failed verification (never acted on)
+        self.records: dict[int, dict[str, Any]] = {}       # tab -> {task, root, borrowed?, group?, cid?}
+        self.groups: dict[int, dict[str, Any]] = {}        # group id -> {root, window, title, collapsed}
+        self.adopted: list[dict[str, Any]] = []            # adopt_tab commands received
         self._window()  # Pre-provisioned fixture window; cold creation is tested explicitly.
 
     # ----- transport (the real native host) -----
@@ -201,9 +212,58 @@ class FakeExtension:
         self.post(msg)
 
     def hello(self) -> None:
+        self.nonce, self.dseq = uuid.uuid4().hex, 0
         self.send("hello", {"version": self.version, "protocol": self.protocol, "browser": self.browser,
                             "paired": bool(self.key), "owned": self.owned,
-                            "seen": [{"id": k, "status": v} for k, v in self.seen.items()], "armed": sorted(self.armed)})
+                            "seen": [{"id": k, "status": v} for k, v in self.seen.items()], "armed": sorted(self.armed),
+                            "nonce": self.nonce, "tabs": self.live_records()})
+
+    def live_records(self) -> list[dict[str, Any]]:
+        """The records still valid (the tab open, still in its group), as the hello lists them."""
+        out = []
+        for tab, r in list(self.records.items()):
+            if tab not in self.tabs or (r.get("group") is not None and r["group"] not in self.groups):
+                self.records.pop(tab)
+                continue
+            out.append({"tab_id": tab, "task": r.get("task"), "root": r.get("root"), "borrowed": bool(r.get("borrowed")),
+                        "cid": r.get("cid"), "url": self.tabs[tab]})
+        return out
+
+    def verified(self, m: dict[str, Any]) -> dict[str, Any] | None:
+        """A signed daemon message's body, or None (recorded in `rejected`): the extension's daemonBody."""
+        body, seq, mac = m.get("body"), m.get("seq"), m.get("mac")
+        ok = (self.key is not None and self.nonce and isinstance(body, str) and isinstance(seq, int) and seq > self.dseq
+              and isinstance(mac, str))
+        if ok:
+            text = f"{self.nonce}|{seq}|{m['type']}|{body}".encode()
+            ok = hmac.compare_digest(base64.b64encode(hmac.new(self.key or b"", text, hashlib.sha256).digest()).decode(),
+                                     mac)
+        if not ok:
+            self.rejected.append(m)
+            return None
+        self.dseq = int(seq)
+        return dict(json.loads(body))
+
+    def take_out_of_group(self, tab_id: int) -> None:
+        """The owner drags a FERB tab out of its group: theirs now (the extension lets go and says `taken`)."""
+        self.records.pop(tab_id, None)
+        self.attached.discard(tab_id)
+        self.send("event", {"event": "taken", "tab_id": tab_id, "reason": "moved_out_of_group"})
+
+    def _group(self, tab: int, window: int, g: dict[str, Any] | None) -> int | None:
+        if not g or not g.get("root"):
+            return None
+        gid = next((i for i, v in self.groups.items() if v["root"] == g["root"] and v["window"] == window), None)
+        if gid is None:
+            self._n += 1
+            gid = self._n
+            self.groups[gid] = {"root": g["root"], "window": window, "title": g.get("title") or "FERB", "collapsed": True}
+        self.records[tab]["group"] = gid
+        return gid
+
+    def _settle(self, gid: int | None) -> None:
+        if gid is not None and not any(r.get("group") == gid for r in self.records.values()):
+            self.groups.pop(gid, None)
 
     def pair(self, token: str) -> None:
         self.send("pair", {"token": token})
@@ -219,14 +279,18 @@ class FakeExtension:
 
     def _on(self, m: dict[str, Any]) -> None:
         if m.get("type") == "welcome":
-            self.gen = m["gen"]
+            w = self.verified(m)
+            if w is not None:
+                self.gen = w["gen"]
         elif m.get("type") == "paired":
             self.key, self.seq = base64.b64decode(m["key"]), 0
             self.hello()
         elif m.get("type") == "refused":
             self.refused = m.get("reason")
         elif m.get("type") == "cmd":
-            threading.Thread(target=self._cmd, args=(m,), daemon=True).start()
+            c = self.verified(m)
+            if c is not None:
+                threading.Thread(target=self._cmd, args=(c,), daemon=True).start()
 
     def _cmd(self, m: dict[str, Any]) -> None:
         if m["gen"] != self.gen:
@@ -319,12 +383,25 @@ class FakeExtension:
                                 for w in sorted(set(self.tab_windows.values()))]}
         self.opens += 1
         self._n += 1
-        self.tabs[self._n] = a["url"]
-        self.tab_windows[self._n] = w
-        self.tab_active[self._n] = False
-        self.owned.append({"id": cid, "tab_id": self._n, "url": a["url"]})
-        self.tab_event("created", self._n, a["url"])
-        return {"tab_id": self._n, "url": a["url"], "title": page(a["url"])["title"], "window_id": w}
+        tab = self._n
+        self.tabs[tab] = a["url"]
+        self.tab_windows[tab] = w
+        self.tab_active[tab] = False
+        self.owned.append({"id": cid, "tab_id": tab, "url": a["url"]})
+        g = a.get("group")
+        self.records[tab] = {"task": (g or {}).get("task"), "root": (g or {}).get("root"), "cid": cid}
+        gid = self._group(tab, w, g)
+        self.tab_event("created", tab, a["url"])
+        return {"tab_id": tab, "url": a["url"], "title": page(a["url"])["title"], "window_id": w, "group_id": gid}
+
+    def op_adopt_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        self.adopted.append(dict(a))
+        tab = a["tab_id"]
+        if tab not in self.tabs:
+            raise RuntimeError(f"No tab with id: {tab}.")
+        self.records[tab] = {"task": a.get("task"), "root": a.get("root"), **({"borrowed": True} if a.get("borrowed") else {})}
+        gid = None if a.get("borrowed") else self._group(tab, self.tab_windows.get(tab) or 0, a)
+        return {"adopted": True, "tab_id": tab, "group_id": gid}
 
     def op_navigate(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         if a["url"] in self.nav_refuse:
@@ -420,6 +497,11 @@ class FakeExtension:
     def op_close(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         if a['tab_id'] in self.kept:
             return self.op_release_tab(dict(a, keep_open=True), cid) | {'closed': False}
+        rec = self.records.get(a["tab_id"])
+        if a["tab_id"] in self.tabs and (rec is None or rec.get("borrowed")):     # never a tab FERB didn't open
+            return {"closed": False, "released": False, "reason": "not_ferbs", "detail": "FERB closes only tabs it opened"}
+        self.records.pop(a["tab_id"], None)
+        self._settle((rec or {}).get("group"))
         self.tabs.pop(a["tab_id"], None)
         self.attached.discard(a["tab_id"])
         self.owned = [o for o in self.owned if o['tab_id'] != a['tab_id']]
@@ -436,6 +518,8 @@ class FakeExtension:
             return {'tab_id': tab, 'released': True, 'kept_open': False, 'gone': True, 'url': ''}   # e.g. a popup that closed
         if a.get('keep_open'):
             self.kept.add(tab)
+        rec = self.records.pop(tab, None)                  # handed over: out of the group, left open
+        self._settle((rec or {}).get("group"))
         self.attached.discard(tab)
         self.owned = [o for o in self.owned if o['tab_id'] != tab]
         return {'tab_id': tab, 'released': True, 'kept_open': tab in self.kept, 'url': self.tabs[tab]}
@@ -454,7 +538,8 @@ class FakeExtension:
                           "active": self.tab_active.get(t, False),
                           "audible": t in self.audible, "muted": False,
                           "window_id": self.tab_windows.get(t), "kept_open": t in self.kept,
-                          "ferb": t not in self.kept and self.tab_windows.get(t) == self.ferb_window}
+                          "ferb": t not in self.kept and (self.tab_windows.get(t) == self.ferb_window or
+                                                          (t in self.records and not self.records[t].get("borrowed")))}
                          for t, u in self.tabs.items()]}
 
     def op_snapshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
@@ -474,6 +559,9 @@ class FakeExtension:
                 el["offscreen"] = e["offscreen"]
             if e.get("terminal"):
                 el["terminal"] = True
+            for k in ("field_kind", "submit", "path", "backend_node"):    # protocol 18's element facts, when a page has them
+                if e.get(k) is not None:
+                    el[k] = e[k]
             if e.get("container"):
                 el["container"] = e["container"]
                 containers.add(e["container"])
@@ -562,7 +650,10 @@ class FakeExtension:
             self.send("event", {"event": "dialog", "tab_id": a["tab_id"], **d})
         if a["kind"] == "click" and el.get("href"):
             self.op_navigate({"tab_id": a["tab_id"], "url": el["href"]}, cid)
-        return {"ok": True, "detail": a["kind"] + (" (trusted)" if trusted else " (page events)")}
+        out = {"ok": True, "detail": a["kind"] + (" (trusted)" if trusted else " (page events)")}
+        if el.get("submitted") and a["kind"] in ("click", "dblclick", "press"):   # the page's own submit event
+            out["submitted"] = el["submitted"]
+        return out
 
     def op_dialog(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         pending = [d for d in self.dialogs if d["tab_id"] == a["tab_id"] and d["handled"] == "pending"]

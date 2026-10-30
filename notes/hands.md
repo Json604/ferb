@@ -175,6 +175,46 @@ from installed apps, terminal detection fails closed)*
   is tried once more after 0.3 s (a read). Live data: the 38 failures came singly, between successes on the same
   window seconds apart, with no other FERB capture span overlapping; the cause isn't visible from code.
 
+## Rulings (step 5c, technical)
+- Tab groups: one group per task tree per window (the task's next tab opens in the window its group is in, so normally
+  one); grey, labelled "FERB · <first words of the request>" (about 30 characters, redacted), collapsed when made and
+  never expanded by FERB (a tab added to a collapsed group keeps it collapsed). A popup in a popup-type window can't
+  be grouped and stays ungrouped (still FERB's). A tab opened from a borrowed owner tab is released like its opener,
+  so it isn't grouped either. When the last tab FERB opened leaves a group, the owner's tabs dragged into it are
+  ungrouped (left open) and the group is forgotten. An owner who renames the group makes its tabs theirs at the next
+  hello (the title check that guards against reused ids).
+- Result tab: `browser.keep_open` (existing) is how a worker marks the result: the tab leaves the group, open. "Keep
+  the tabs open": `_TabDriver.keep_tabs_open(task)` (step 8 wires the owner's words); pause: the daemon-supplied
+  `task_paused` (default False; step 8) makes `release` close nothing.
+- Owner's stop: `browser.owner_stopped` {task_id, tab, profile, borrowed, part: "tab" | "group"} when a tab FERB holds is
+  removed without FERB closing it (part "group" when no other FERB-opened tab of that tree is left in the profile);
+  `browser.owner_took` when the owner moved a FERB tab out of its group (the extension lets go of it and sends
+  `taken`). Both critical bus topics; step 8 turns them into "ask whether to continue".
+- Tab identity: the extension keeps its records in chrome.storage.local (survive worker restarts and extension reloads;
+  cleared on `runtime.onStartup`, a new browser session, whose reused ids mean nothing). Each hello lists the records
+  still valid (tab open, still in its titled group); the daemon re-adopts its tabs (new generation, element ids stale),
+  drops ones not listed, adopts listed tabs of a running task it doesn't know (after its own restart), and closes
+  (FERB-opened) or releases (borrowed) tabs of ended tasks. The extension's `close` closes only a tab its records hold
+  as FERB-opened. A self-reload waits only for work in flight (a command, a held download, a gesture, an attached
+  debugger while a connection could drive it), not for open task tabs.
+- Signing: welcome and cmd are {type, seq, body, mac}, HMAC-SHA256(pairing key, "<nonce>|<seq>|<type>|<body>") with the
+  hello's fresh nonce and a per-connection counter; an assembled command's parts are each verified and the envelope's
+  MAC again. Unsigned replies (refused, pairing_required) change no page. A command that fails verification is dropped
+  without a reply (echoing its unverified id could fail a real command early), so the daemon times out: unknown, the
+  safe side.
+- Native host: the daemon takes a connection only when the native host's parent process runs a browser app FERB knows
+  (`peer_refusal`, the .app's CFBundleIdentifier through libproc), and a paired profile's hello only from that
+  browser's own app. Same-uid limit: any process of the owner's user can start the browser binary with its own
+  profile, or read a profile's pairing key from its extension storage; same-uid processes stay trusted.
+- Reads: list_tabs, snapshot, wait, screenshot(_part), record_frame, frame_origin, read_source, window_secrets, find,
+  result_part, ping, point, and dialog without a decision: an error, a timeout or a dropped connection is a known
+  failure (DriverError), never OutcomeUnknown.
+- Outbox: messages wait unsigned until the welcome and are signed when posted (at most 5000 kept while refused; the
+  oldest go).
+- P19 identity: backend node id first (stable while the node lives, so a re-snapshot of the same page matches), DOM path
+  when the accessibility pass gave none (screenshot points, a tab without the debugger). A re-render that replaces the
+  node escapes the identity; a shifted DOM path can collide (only asks the owner).
+
 ## Measurements (step 0, 2026-10-30)
 - **Sandbox semantics, measured with `sandbox-exec` on scratch folders:**
   - `deny file-write-unlink` blocks unlink, rmdir, renaming a file out of or within the folder, and renaming onto an
@@ -192,8 +232,9 @@ from installed apps, terminal detection fails closed)*
   owner's own run of the probe was in Terminal, so it showed Terminal's grants, not FERB's.)
 
 ## Fix list
-- [ ] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
-      (manifest, JS/Python protocol and minimum versions together).
+- [x] One extension protocol bump covering tab groups, card fields secret, and daemon→extension signing/pairing
+      (manifest, JS/Python protocol and minimum versions together). (5c: protocol 18, extension and minimum 0.16.0,
+      `tabGroups` permission; the `rest`/`show_tab` version gates removed. The owner reloads the extension once.)
 - [x] Shell: localhost ports opened after a command starts must not bypass the proxy; deny signals to processes
       outside the task's group (a command can't kill the daemon or proxy). (5a: direct only to ports whose listeners
       were all contained at command start, plus pinned ports; anything later only through the proxy, which now
@@ -201,28 +242,48 @@ from installed apps, terminal detection fails closed)*
       measured: own children/setsid descendants yes, other programs and other FERB commands no.)
 - [x] Mac: PID typing releases the GUI lock between chunks. (5b: `RealInput.to_process(release_every=8)`; every
       post runs off the event loop.)
-- [ ] Browser: remove page-detectable markers (`ferb-armed` event, `data-ferb-*` attributes) where possible.
-- [ ] Investigate the top failure causes: profile not matched/connected (110), ScreenCaptureKit "Failed to start
+- [x] Browser: remove page-detectable markers (`ferb-armed` event, `data-ferb-*` attributes) where possible.
+      (5c: hook event names and the linking/stamp attributes are random per service-worker start (protocol.js
+      FERB_TOKEN); the linking attribute leaves the page right after each snapshot. Remains: the page hook's patched
+      `window.open`/`click`/`dispatchEvent` are visible as non-native (toString) in a task tab while FERB drives it, the
+      popup's blank `about:blank#ferb-…` URL, attributes visible to a MutationObserver during a snapshot, the 1280×900
+      viewport and focus emulation in FERB's own window.)
+- [x] Investigate the top failure causes: profile not matched/connected (110), ScreenCaptureKit "Failed to start
       stream" (38). (5b: ScreenCaptureKit part done, see Rulings; live check in step 13 whether -3811 survives the
-      retry. Profile matching is the browser's, 5c.)
+      retry. 5c: read-only span counts: 46 "no profile called 'chrome scaler' / 'chrome:scaler'" (only "chrome/x" and
+      quoted forms resolved), 2 'Brave Browser' (a browser's name), 15 "select a profile" (no profile given: the
+      worker's choice, left), 23+16 "paired but not connected"/old-protocol refusals (before the 10-26 wake fix and
+      old extensions). Fixed: `profiles.resolve` takes "<browser>[ :/“]<name>", the browser's label/app name, and
+      compares without invisible marks; `profiles.running` used `pgrep -x` (16-char process names: Chrome Beta/Canary,
+      Edge channels never looked running). Drops: daemon restarts and MV3 worker deaths; tabs no longer go stale on
+      them (readoption).)
 - [x] One browser list from installed apps (bundle ids) used by Mac sources, policy, profiles and AX re-read.
       (5b: `ferb/act/mac/browsers.py`: known bundle ids/vendors/names + Launch Services http/https handlers, cached
       60 s; replaces ax_browser, confirm.BROWSER_APPS, profiles' list and scan.py's table; names compared without
       invisible marks. sense/batches.py's name→bundle map is not a browser test and stays.)
-- [ ] Secret-field rule (password, one-time-code, cc-number/cc-csc/cc-exp) applied to type, press and fill, in the
+- [x] Secret-field rule (password, one-time-code, cc-number/cc-csc/cc-exp) applied to type, press and fill, in the
       browser and Mac; secret values never captured; boxes masked. (5b: Mac done: key presses that enter text and
-      the Paste item refuse into a secure field, `accessibility.secure_element`; browser part is 5c.)
-- [ ] Structural facts reported: form submit + action host/method, field types, focused element/app that received
-      input, secure field, page URL; best-effort page amounts. (5a: the shared shape `ActionFacts` in
+      the Paste item refuse into a secure field, `accessibility.secure_element`. 5c: content.js `fieldKind` is the
+      one rule (cards by autocomplete, inputs and expiry selects); a text-entering press is refused in content.js,
+      background.js (`entersText`, also where focus lands) and ext_bridge (`enters_text`); a login code is never
+      sealed into a card field; `field_kind` reported.)
+- [x] Structural facts reported: form submit + action host/method, field types, focused element/app that received
+      input, secure field, page URL; best-effort page amounts. (5c browser: `_TabDriver.act_facts` before the act
+      (ActionSpec.facts) and the page's own submit events after it (ToolResult.facts); new field `frame_host` for an
+      input in a cross-origin frame (what "bank page" can mean structurally); amount = the clicked control's label
+      amount, else exactly one structured page amount (price metadata, JSON-LD); merchant = JSON-LD seller or
+      og:site_name. JS fetch() submissions fire no submit event: only network observation could see them, later.) (5a: the shared shape `ActionFacts` in
       ferb/core/types.py, recorded on the call's span; fs tools report writes/deletes. Browser/Mac reporting: 5b/5c.
       5b: Mac tools report target role/subrole, secure field, received_by (read after input), terminal_target and
       page URL in a browser: `ActionResult.observed` → `ToolResult.facts`; new ActionFacts fields target_role,
       target_subrole, page_url.)
-- [ ] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path. (5b: Mac
-      done, capability `ledger_args` read by gateway `hashed_args`, see Rulings; browser is 5c.)
-- [ ] Browser: connection-independent tab identity (no orphans); outbox flushed after welcome; read errors = failed;
+- [x] Stable P19 identity: browser page URL + backendDOMNodeId/path; Mac bundle + window + element path. (5b: Mac
+      done, capability `ledger_args` read by gateway `hashed_args`, see Rulings. 5c: `BrowserAct.ledger_args` and its
+      click content use `element_identity`: page origin+path, child frame's, role, backend node id else DOM path.)
+- [x] Browser: connection-independent tab identity (no orphans); outbox flushed after welcome; read errors = failed;
       mask `list_tabs`/dialog URLs; remember the chosen window; closed-shadow `deepActive`; sign daemon→extension and
-      accept `paired` only during pairing.
+      accept `paired` only during pairing. (5c: see Rulings (step 5c); plus the native host's starter checked by app
+      bundle, `_pair` rolled back on error, pointer.js reads `disabled`, one `maskUrl` (mask.js), one key table.)
 - [x] Mac: staleness check by window id + bounds + hit element (fixes multi-window); AX messaging timeout and time
       budget; AX calls off the event loop; terminal detection fails closed; key presses check secure fields; one
       foreground path that raises the window and checks the hit target; remove the ax_keyboard route or fix it;
@@ -232,7 +293,7 @@ from installed apps, terminal detection fails closed)*
 - [x] Key-combo guard (decision 2). (5b: `input.screen_wide`/`quit_or_hide` in `driver._guarded_combo` for every
       route; ⌘Q/⌘H through `LaunchedApps.quit_now/hide_now`, only the task tree's own launched app, quit only with no
       unsaved work.)
-- [ ] Tab groups (decision 3), replacing connection-scoped tab ownership.
+- [x] Tab groups (decision 3), replacing connection-scoped tab ownership. (5c: see Rulings (step 5c).)
 - [x] Per-task folder read lift (decision 1), shared by the escape hatch and file tools. (5a: one key per rule per
       tree, `confirm.read_lift_key`; gateway `_file_lifts` and `_escape`.)
 - [x] Shell: kill the whole process group at task end regardless of exit; prune `_procs`; `shell.send` respects

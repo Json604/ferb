@@ -4,14 +4,29 @@ Secret values expose only filled/empty state. in_view, offscreen, occluded and c
 
 from typing import Any
 
-from ferb.core.types import PageElement, PageSnapshot
+from ferb.core.types import FormSubmit, PageElement, PageSnapshot
+
+FIELD_KINDS = frozenset({"password", "new_password", "one_time_code", "card_number", "card_csc", "card_expiry"})
 
 MAX_TEXT = 8000  # initial tool preview only; browser.read retrieves the complete saved snapshot
 
 
+def _submit(raw: Any) -> FormSubmit | None:
+    """The extension's `submit` fact (protocol 18), kept only in its exact shape."""
+    if not isinstance(raw, dict) or not (raw.get("click") is True or raw.get("enter") is True):
+        return None
+    host, method = raw.get("action_host"), raw.get("method")
+    kinds = tuple(k for k in raw.get("kinds") or () if k in FIELD_KINDS) if isinstance(raw.get("kinds"), list) else ()
+    return FormSubmit(raw.get("click") is True, raw.get("enter") is True,
+                      host[:253] if isinstance(host, str) and host else None,
+                      method.upper()[:10] if isinstance(method, str) and method else None, kinds,
+                      raw["label"][:200] if isinstance(raw.get("label"), str) else "")
+
+
 def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
     x, y, w, h = (float(v) for v in raw.get("rect", [0, 0, 0, 0]))
-    secret = bool(raw.get("secret"))
+    kind = raw.get("field_kind") if raw.get("field_kind") in FIELD_KINDS else None
+    secret = bool(raw.get("secret")) or kind is not None   # a card / password / code field is secret whatever else
     value = raw.get("value")
     if secret:
         value = "filled" if value else ""          # belt and braces: the walker already reports only this
@@ -33,7 +48,10 @@ def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
                        in_view=in_view, offscreen=raw.get("offscreen") if not in_view else None,
                        occluded=bool(raw.get("occluded")), container=raw.get("container") or None,
                        state=tuple(state), level=int(level) if isinstance(level, (int, float)) else None,
-                       terminal=raw.get("terminal") is True)
+                       terminal=raw.get("terminal") is True, field_kind=kind, submit=_submit(raw.get("submit")),
+                       path=raw["path"][:2000] if isinstance(raw.get("path"), str) else "",
+                       backend_node=raw["backend_node"] if isinstance(raw.get("backend_node"), int)
+                       and not isinstance(raw.get("backend_node"), bool) else None)
 
 
 def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) -> dict[str, Any]:
@@ -42,8 +60,10 @@ def for_model(snap: PageSnapshot, *, full: bool = False, probe: bool = False) ->
     els = []
     for e in snap.elements:
         d: dict[str, Any] = {"id": e.id, "role": e.role, "label": e.label}
-        if e.secret:                               # password / code field: whether it's filled, never a value
+        if e.secret:                               # password / code / card field: whether it's filled, never a value
             d["sensitive"], d["filled"] = True, bool(e.value)
+            if e.field_kind:
+                d["field"] = e.field_kind
         elif e.value not in (None, ""):
             d["value"] = e.value
         if e.input_type and e.input_type not in ("text", "submit", "button"):

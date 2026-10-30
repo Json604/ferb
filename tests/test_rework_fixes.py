@@ -106,7 +106,10 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
     from tests.chromelab import worker
     result = worker('''(async () => {
       retryMs = 60000; refused = 'old version';
-      await onDaemon({type: 'welcome', gen: 4});
+      const KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(5)));
+      await chrome.storage.local.set({ferb: {installId: 'i', key: KEY, seq: 0}}); link = {nonce: 'n2', seq: 0};
+      const body = JSON.stringify({gen: 4});                     // protocol 18: the welcome is signed
+      await onDaemon({type: 'welcome', seq: 1, body, mac: await hmac(KEY, daemonMacText('n2', 1, 'welcome', body))});
       return {retryMs, refused, gen};
     })()''')
     assert result == {'retryMs': 1000, 'refused': None, 'gen': 4}

@@ -184,12 +184,22 @@ def test_large_action_input_is_reassembled_before_exactly_one_delivery() -> None
       gen=1; const sent=[],received=[];send=async(type,body)=>sent.push(body);
       commands.act=async args=>{received.push(args.text);return {ok:true};};
       const original="syllabus 🌱 ".repeat(150000);
-      const message=JSON.stringify({id:"write",gen:1,op:"act",args:{text:original}});
+      // protocol 18: the assembled message is the daemon's signed envelope for this connection
+      const KEY=btoa(String.fromCharCode(...new Uint8Array(32).fill(3)));
+      await chrome.storage.local.set({ferb:{installId:"i",key:KEY,seq:0}}); link={nonce:"n1",seq:0};
+      const body=JSON.stringify({id:"write",gen:1,op:"act",args:{text:original}});
+      const message=JSON.stringify({type:"cmd",seq:9,body,mac:await hmac(KEY,daemonMacText("n1",9,"cmd",body))});
       for(let offset=0;offset<message.length;offset+=100000) await commands.command_part({
         id:"write",offset,text:message.slice(offset,offset+100000),total_chars:message.length});
-      return {deliveries:received.length,exact:received[0]===original,id:sent[0].id};
+      // the same parts with a wrong signature: refused, nothing delivered again
+      const forged=JSON.stringify({type:"cmd",seq:10,body,mac:"AAAA"});
+      let refused=false;
+      try { for(let offset=0;offset<forged.length;offset+=100000) await commands.command_part({
+        id:"write",offset,text:forged.slice(offset,offset+100000),total_chars:forged.length}); }
+      catch (e) { refused=/invalid assembled command/.test(e.message); }
+      return {deliveries:received.length,exact:received[0]===original,id:sent[0].id,refused};
     })()''')
-    assert result == {'deliveries':1,'exact':True,'id':'write'}
+    assert result == {'deliveries':1,'exact':True,'id':'write','refused':True}
 
 
 def test_cold_open_returns_window_choices_without_creating_or_focusing():

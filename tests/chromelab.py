@@ -319,13 +319,15 @@ def worker(script: str) -> dict:
     harness = r'''
 const vm = require("vm"), fs = require("fs"), path = require("path");
 const noop = new Proxy(function(){}, {get: () => noop});
-const state = {s: {seen: {}, order: [], owned: [], windowId: 9}};
+const state = {s: {seen: {}, order: [], windowId: 9}};
+const local = {ferb: {key: null}};
 const chrome = new Proxy({
   debugger: new Proxy({onEvent: {listeners: [], addListener(fn) {this.listeners.push(fn);},
     fire(...args) {for (const fn of this.listeners) fn(...args);}},
     onDetach: {listeners: [], addListener(fn) {this.listeners.push(fn);},
     fire(...args) {for (const fn of this.listeners) fn(...args);}}}, {get: (o,k) => o[k] || noop}),
-  storage: {local: {get: async () => ({ferb: {key: null}}), set: async () => {}},
+  // local storage keeps what is set (protocol 18: FERB's tab records live there), starting unpaired
+  storage: {local: {get: async () => structuredClone(local), set: async x => { Object.assign(local, structuredClone(x)); }},
             session: {get: async () => structuredClone(state), set: async x => Object.assign(state, x)}},
   runtime: new Proxy({getManifest: () => ({version: "test"}), connectNative: () => ({
     postMessage() {}, disconnect() {}, onMessage: noop, onDisconnect: noop})}, {get: (o,k) => o[k] || noop}),
